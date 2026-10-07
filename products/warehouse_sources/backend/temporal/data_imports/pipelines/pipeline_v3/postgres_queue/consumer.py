@@ -7,6 +7,7 @@ polling, retry, and recovery mechanics to the v3 batch consumer engine.
 
 from __future__ import annotations
 
+import math
 import time
 import asyncio
 from collections.abc import Callable, Coroutine
@@ -21,14 +22,38 @@ import structlog
 from asgiref.sync import sync_to_async
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.db_errors import is_transient_db_error
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
+from products.warehouse_sources.backend.models.external_data_schema import (
+    SCHEMA_DELETED_JOB_ERROR,
+    SYNC_DISABLED_JOB_ERROR,
+    ExternalDataSchema,
+    update_should_sync,
+)
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.auto_widen_resync import (
+    COLUMN_TYPE_WIDENED_KEY,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.coalescing import (
+    CoalesceCaps,
+    CoalesceMember,
+    extends_set,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DESTINATION_CONFIGURATION_ERROR_MARKER,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
+    release_group_table_handle,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
+    release_v3_pipeline_lock,
+)
+from products.warehouse_sources.backend.temporal.data_imports.util import is_transient_internal_db_error
+from products.warehouse_sources.backend.types import ExternalDataJobStatus
+from products.warehouse_sources_queue.backend.core.batch_consumer import (
     MAX_ATTEMPTS,
     POLL_INTERVAL_SECONDS,
     RECONCILE_GRACE_SECONDS,
@@ -41,26 +66,38 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     OwnershipLostError,
     ProcessBatchFn,
     _group_by_key,
+    _is_transient_queue_db_error,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+from products.warehouse_sources_queue.backend.core.jobs_db import (
     _UNSET,
     FRESHNESS_WINDOW_SECONDS,
+    GAUGE_STATEMENT_TIMEOUT_MS,
     TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
+    ClaimCursor,
     FailedRunRef,
     PendingBatch,
+    QueueDepth,
     _Unset,
+    queue_gauges_slot_key,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+from products.warehouse_sources_queue.backend.core.metrics import (
+    BACKLOGGED_GROUPS,
+    BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
+    CLAIMABLE_GROUPS,
+    DEPTH_PROBE_TIMEOUTS_TOTAL,
+    DEPTH_SAMPLE_AGE_SECONDS,
+    DRAINED_AFTER_FAILURE_TOTAL,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
+    ORPHANED_BATCHES_DRAINED_TOTAL,
     RUNS_RECONCILED_TOTAL,
     RUNS_TERMINALIZED_STALE_TOTAL,
+    SERIALIZED_BATCHES,
+    SLOT_WAITING_BATCHES,
+    TOP_GROUPS_CLAIMABLE_SHARE,
+    clear_queue_sample_gauges,
     observe_queue_query,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
-    release_v3_pipeline_lock,
 )
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
@@ -72,10 +109,18 @@ ConsumerConfig = BatchConsumerConfig
 VerifyOwnership = Callable[[], None]
 # Unlike the engine's ProcessBatchFn, the Delta sink also receives the per-batch ownership check.
 DeltaProcessBatchFn = Callable[[PendingBatch, VerifyOwnership | None], Coroutine[Any, Any, None]]
+DeltaProcessBatchesFn = Callable[[list[PendingBatch], VerifyOwnership | None], Coroutine[Any, Any, None]]
 
 # Ceiling for the queue-freshness probe, deliberately far below the sweep
 # timeout so a degraded probe can't starve the reconcile sweep it rides on.
 FRESHNESS_PROBE_TIMEOUT_SECONDS = 30.0
+
+# A group whose oldest claimable batch is older than this counts as backlogged.
+# Set above the reconcile cadence that samples it (300s) so a group cannot be
+# counted purely because it was enqueued between two probes, and well below the
+# lease TTL, so a group that is merely waiting its turn behind a sibling run
+# does not register while the loader is still working the group normally.
+BACKLOG_THRESHOLD_SECONDS = 900
 
 # Stamped on a run the loader abandoned: its extraction ended without a final batch, so nothing
 # finalized it and there is no failed queue batch for the failed-run reconcile to key on.
@@ -84,6 +129,20 @@ FRESHNESS_PROBE_TIMEOUT_SECONDS = 30.0
 STRANDED_RUN_ERROR = (
     "This sync run stopped before it finished, so it did not complete. "
     "The next scheduled sync retries automatically. No action is needed."
+)
+
+# Stamped on batches retired by the orphan drain. Their run already failed and the customer has
+# already seen that failure on the job, so this text only has to explain the batch rows themselves.
+ORPHANED_BATCH_ERROR = "left over from a run that had already failed (orphan drain)"
+
+# Failures that represent a decision to stop this run rather than something going wrong.
+# Their queued batches are discarded even where the sync type would otherwise drain:
+# finishing the load would override the person or the cleanup that asked it to stop.
+DELIBERATE_STOP_ERRORS: frozenset[str] = frozenset(
+    {
+        SYNC_DISABLED_JOB_ERROR,
+        SCHEMA_DELETED_JOB_ERROR,
+    }
 )
 
 
@@ -100,18 +159,29 @@ DISABLE_SCHEMA_ERROR_PATTERNS: tuple[str, ...] = (
     "Source column type changed",
 )
 
+# The schema or job row was deleted mid-sync — no retry can bring it back, and no more of that
+# run's queued batches should load into a destination whose schema record is gone.
+DELETION_ERROR_PATTERNS: tuple[str, ...] = (
+    "ExternalDataSchema matching query does not exist",
+    "ExternalDataJob matching query does not exist",
+)
+
 # Errors that fail identically on every attempt. Substring-matched because they
 # surface as generic exceptions; keep entries specific so transients can't match.
 # The disable set above, plus the permanent failures that must not stop the schedule: a deleted row
 # has nothing left to disable, and a full object store is an infrastructure fix, not a sync setting.
 NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     *DISABLE_SCHEMA_ERROR_PATTERNS,
-    # the schema or job row was deleted mid-sync — no retry can bring it back
-    "ExternalDataSchema matching query does not exist",
-    "ExternalDataJob matching query does not exist",
+    *DELETION_ERROR_PATTERNS,
     # self-hosted object storage (MinIO) has hit its minimum free drive threshold and is
     # refusing writes — every retry hits the same full disk until an operator frees space
     "XMinioStorageFull",
+    # a role-based AWS destination has no external role configured in this environment — every
+    # retry fails identically until that's fixed, independent of the customer's own role ARN
+    "BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN is not set",
+    # a destination's own settings refuse the connection (bad credentials, unknown database,
+    # unroutable host); the next scheduled run tries again after the customer fixes them
+    DESTINATION_CONFIGURATION_ERROR_MARKER,
 )
 
 # Subset of the non-retryable errors that are expected upstream/customer conditions rather than
@@ -124,8 +194,9 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
     "Source column type changed",
     # the schema or job was deleted (e.g. the user removed the source) while a batch for it
     # was still in flight — an upstream/customer action, not a pipeline bug
-    "ExternalDataSchema matching query does not exist",
-    "ExternalDataJob matching query does not exist",
+    *DELETION_ERROR_PATTERNS,
+    # a destination the customer configured refuses the connection, which only they can fix
+    DESTINATION_CONFIGURATION_ERROR_MARKER,
 )
 
 # How long an "alive" job-status lookup stays cached before re-checking the app DB.
@@ -136,14 +207,24 @@ JOB_STATUS_CACHE_TTL_SECONDS = 30
 JOB_STATUS_CACHE_MAX_ENTRIES = 1000
 
 
+def _first_delivery(batch: PendingBatch) -> bool:
+    # A redelivery may sit on a half-finished write; its idempotency check runs per batch.
+    return batch.latest_attempt == 0
+
+
 def _is_transient_queue_connection_drop(err: Exception, conn: psycopg.AsyncConnection[Any]) -> bool:
     """Whether `err` is a queue-db connection dying mid-query rather than a real bug.
 
     A network blip, server-side cull, or pgbouncer bounce leaves `conn` closed; the next
-    reconcile cycle reconnects and retries, so it isn't worth paging on (mirrors the
-    conn.closed check already applied to the stranded-run sweep's own OperationalError).
+    reconcile cycle reconnects and retries, so it isn't worth paging on.
+
+    The engine's classifier reads the error itself, so it also catches the shapes that
+    leave the connection usable, such as pgbouncer cutting the query loose before it
+    reached Postgres. The `conn.closed` arm stays for a drop worded in a way no marker
+    matches, because a closed connection under a psycopg error is a drop however it is
+    phrased.
     """
-    return isinstance(err, psycopg.OperationalError) and conn.closed
+    return _is_transient_queue_db_error(err) or (isinstance(err, psycopg.OperationalError) and conn.closed)
 
 
 class DeltaBatchConsumerAdapter:
@@ -166,8 +247,21 @@ class DeltaBatchConsumerAdapter:
         # None/None (the default) means the whole queue — a single-fleet deployment.
         self._claim_sync_types = claim_sync_types
         self._claim_exclude_sync_types = claim_exclude_sync_types
+        # Stable for the life of the consumer, so the gauge-slot holder can renew its own slot.
+        self._gauge_owner_token = str(uuid4())
+        self._gauge_slot_key = queue_gauges_slot_key(
+            sync_types=claim_sync_types, exclude_sync_types=claim_exclude_sync_types
+        )
+        # Last full depth sample and when it was taken (time.monotonic()). Only the gauge
+        # slot holder keeps one; it is re-exported while the depth probe times out.
+        self._depth_sample: QueueDepth | None = None
+        self._depth_sampled_at = 0.0
+        self._claim_cursor = ClaimCursor()
         # job_id -> (is_dead, checked_at via time.monotonic())
         self._job_dead_cache: dict[str, tuple[bool, float]] = {}
+        # job_id -> (status, latest_error) for dead jobs only, so the drain decision in
+        # _drainable_after_failure reads the row _is_job_dead already fetched.
+        self._job_dead_cache_status: dict[str, tuple[str, str | None]] = {}
 
     async def fetch_and_lock(
         self,
@@ -186,6 +280,7 @@ class DeltaBatchConsumerAdapter:
             lease_ttl_seconds=lease_ttl_seconds,
             sync_types=self._claim_sync_types,
             exclude_sync_types=self._claim_exclude_sync_types,
+            cursor=self._claim_cursor,
         )
 
     async def unlock(
@@ -267,7 +362,9 @@ class DeltaBatchConsumerAdapter:
             try:
                 # `to_export_signal()` hands back a dict, so it needs parsing the same way the
                 # delivery path does before anything reads a field off it.
-                await sync_to_async(abort_destinations)(ExportSignalMessage.from_dict(batch.to_export_signal()))
+                await sync_to_async(abort_destinations)(
+                    ExportSignalMessage.from_dict(batch.to_export_signal()), failure_reason=reason
+                )
             except Exception as e:
                 # Best effort by design: a leftover table costs the customer storage, not
                 # correctness, and is not worth failing the fail path over.
@@ -287,7 +384,7 @@ class DeltaBatchConsumerAdapter:
             )
         except Exception as e:
             # Leave the job for the reconcile sweep rather than crashing the consumer.
-            if is_transient_db_error(e):
+            if is_transient_internal_db_error(e):
                 logger.warning(
                     "fail_run_job_status_update_app_db_not_ready",
                     job_id=batch.job_id,
@@ -300,11 +397,14 @@ class DeltaBatchConsumerAdapter:
 
         if any(pattern in reason for pattern in DISABLE_SCHEMA_ERROR_PATTERNS):
             try:
-                await sync_to_async(_disable_schema_after_permanent_failure)(
-                    schema_id=batch.schema_id,
-                    team_id=batch.team_id,
-                    reason=reason,
-                )
+                if not await sync_to_async(_auto_widen_reset_is_pending)(
+                    schema_id=batch.schema_id, team_id=batch.team_id
+                ):
+                    await sync_to_async(_disable_schema_after_permanent_failure)(
+                        schema_id=batch.schema_id,
+                        team_id=batch.team_id,
+                        reason=reason,
+                    )
             except Exception as e:
                 # The run is already failed and the message recorded; a failed disable only means
                 # the next run retries, so log it rather than crashing the consumer.
@@ -402,9 +502,8 @@ class DeltaBatchConsumerAdapter:
         # which is exactly when concurrent copies on every pod can saturate the
         # queue DB and starve the claim path (the 2026-08-09 loader stall: 36
         # concurrent sweep queries, claim polls timing out fleet-wide). The
-        # freshness probe above deliberately stays outside the slot: every pod
-        # must keep its own gauge current, or max() across the fleet pins stale
-        # values. The token is throwaway — the slot is never verified or
+        # freshness probe above has its own slot, so a long sweep cannot delay
+        # the gauges. The token is throwaway — the slot is never verified or
         # released, it just expires into the next pod's hands.
         if not await BatchQueue.try_acquire_reconcile_sweep_slot(conn, owner_token=str(uuid4())):
             logger.debug("reconcile_sweep_slot_held_elsewhere")
@@ -430,14 +529,29 @@ class DeltaBatchConsumerAdapter:
                 )
             await self._release_run_lock(ref)
 
+        # The pass above is newest-first inside a lookback, so a run whose failure ages out of the
+        # window keeps its leftover batches forever. Drain those oldest-first here, on the same
+        # cadence and connection. Isolated so its failure can't take the sweep down.
+        try:
+            await self._drain_orphaned_batches(conn, limit=limit)
+        except psycopg.OperationalError as e:
+            if _is_transient_queue_connection_drop(e, conn):
+                logger.warning("orphaned_batch_drain_closed_connection", error=str(e))
+            else:
+                logger.exception("orphaned_batch_drain_failed")
+                capture_exception(e)
+        except Exception as e:
+            logger.exception("orphaned_batch_drain_failed")
+            capture_exception(e)
+
         # Runs the loader abandoned leave no 'failed' batch for get_failed_runs to key on, so sweep
         # them on the same cadence and connection. Isolated so its failure can't take the sweep down.
         try:
             await self._reconcile_stale_stranded_runs(conn, stale_seconds=TAKEOVER_STALE_THRESHOLD_SECONDS, limit=limit)
         except psycopg.OperationalError as e:
-            if conn.closed:
-                # A transient connection drop (network blip, server-side cull, pgbouncer bounce)
-                # leaves the connection closed. The engine reconnects on the next cycle.
+            if _is_transient_queue_connection_drop(e, conn):
+                # A transient connection drop (network blip, server-side cull, pgbouncer bounce).
+                # The engine reconnects on the next cycle.
                 logger.warning("stranded_run_reconcile_sweep_closed_connection", error=str(e))
             else:
                 logger.exception("stranded_run_reconcile_sweep_failed")
@@ -445,6 +559,39 @@ class DeltaBatchConsumerAdapter:
         except Exception as e:
             logger.exception("stranded_run_reconcile_sweep_failed")
             capture_exception(e)
+
+    async def _drain_orphaned_batches(self, conn: psycopg.AsyncConnection[Any], *, limit: int) -> None:
+        """Terminalize the leftovers of runs the newest-first reconcile pass never reached.
+
+        Their job is already terminal, so there is nothing to reconcile in the
+        app DB and no lock left to release — only queue rows to retire. Returns
+        nothing to sweep in a healthy fleet.
+        """
+        orphaned = await BatchQueue.get_runs_with_orphaned_batches(conn, limit=limit)
+        for ref in orphaned:
+            try:
+                drained = await BatchQueue.fail_run(
+                    conn,
+                    run_uuid=ref.run_uuid,
+                    team_id=ref.team_id,
+                    schema_id=ref.schema_id,
+                    reason=ORPHANED_BATCH_ERROR,
+                )
+            except Exception as e:
+                if _is_transient_queue_connection_drop(e, conn):
+                    raise
+                logger.exception("orphaned_batch_drain_run_failed", run_uuid=ref.run_uuid)
+                capture_exception(e)
+                continue
+            if drained:
+                ORPHANED_BATCHES_DRAINED_TOTAL.inc(drained)
+                logger.warning(
+                    "drained_orphaned_batches",
+                    run_uuid=ref.run_uuid,
+                    team_id=ref.team_id,
+                    external_data_schema_id=ref.schema_id,
+                    batch_count=drained,
+                )
 
     async def _sweep_straggler_batches(self, conn: psycopg.AsyncConnection[Any], ref: FailedRunRef) -> None:
         """Terminalize batches enqueued into a run that ``fail_run`` had already swept.
@@ -489,7 +636,7 @@ class DeltaBatchConsumerAdapter:
                 error=ref.reason or "run failed (reconciled from queue)",
             )
         except Exception as e:
-            if is_transient_db_error(e):
+            if is_transient_internal_db_error(e):
                 logger.warning(
                     "reconcile_job_status_update_app_db_not_ready",
                     job_id=ref.job_id,
@@ -579,7 +726,7 @@ class DeltaBatchConsumerAdapter:
                     error=STRANDED_RUN_ERROR,
                 )
             except Exception as e:
-                if is_transient_db_error(e):
+                if is_transient_internal_db_error(e):
                     logger.warning(
                         "stranded_run_job_status_update_app_db_not_ready",
                         job_id=ref.job_id,
@@ -625,40 +772,118 @@ class DeltaBatchConsumerAdapter:
                     capture_exception(e)
 
     async def _observe_queue_freshness(self, conn: psycopg.AsyncConnection[Any]) -> None:
-        """Report the age of the oldest batch no consumer has picked up yet.
+        """Report the age of the oldest batch no consumer has picked up yet, and the queue depth.
 
         This is the loader's data-freshness signal: it rises whenever loading
         stalls, no matter why — the alert on it fires even when every other
-        health signal looks green. The probe has its own timeout so it cannot
-        eat the reconcile sweep's budget; on timeout the gauge saturates, since
-        a queue DB too degraded to measure freshness must read as stale. Other
-        failures are swallowed-with-capture so a broken probe can't take the
-        sweep down.
+        health signal looks green.
+
+        The gauges are queue-wide, so only the pod that holds this fleet's gauge
+        slot samples them. Every other pod exports NaN ("no sample"), which max()
+        across the fleet skips. Each pod blanks its gauges before it asks for the
+        slot, so a pod that sampled in an earlier round can never keep exporting
+        that value as if it were fresh.
+
+        Each probe statement has a server-side timeout. Past it, the freshness
+        probe skips its sample and its gauges stay NaN, except that the age gauge
+        saturates on any timeout, because a queue DB too degraded to measure
+        freshness must read as stale. The depth gauges behave differently: the
+        queue is deepest exactly when the depth probe is slowest, so NaN would
+        read as an empty queue on a panel. The slot holder repeats its last good
+        depth sample instead, and ``warehouse_pg_queue_depth_sample_age_seconds``
+        says how old it is. A pod that does not hold the slot drops its sample
+        and exports NaN. The whole probe also has a client timeout,
+        so it cannot eat the reconcile sweep's budget. Other failures are
+        swallowed-with-capture so a broken probe can't take the sweep down.
         """
+        clear_queue_sample_gauges()
+        holds_slot = False
         try:
             async with asyncio.timeout(FRESHNESS_PROBE_TIMEOUT_SECONDS):
-                with observe_queue_query("oldest_unclaimed_probe"):
-                    age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn)
-                # Set immediately, so a failure in the depth probe below can never
-                # blind the age gauge this alert hangs off.
-                OLDEST_UNCLAIMED_BATCH_SECONDS.set(age or 0.0)
-                # Depth rides the same probe and timeout: age says how stale the head
-                # of the queue is, depth says how much sits behind it — a stall and a
-                # burst are indistinguishable on age alone.
-                with observe_queue_query("claimable_depth_probe"):
-                    depth = await BatchQueue.get_claimable_batch_count(conn)
-                CLAIMABLE_BATCHES.set(depth)
+                holds_slot = await BatchQueue.try_acquire_queue_gauges_slot(
+                    conn, owner_token=self._gauge_owner_token, slot_key=self._gauge_slot_key
+                )
+                if not holds_slot:
+                    self._depth_sample = None
+                    logger.debug("queue_gauges_slot_held_elsewhere")
+                    return
+                await self._sample_queue_gauges(conn)
         except TimeoutError:
             logger.error(  # noqa: TRY400 — designed degraded path, traceback is noise
                 "queue_freshness_probe_timed_out",
                 timeout_seconds=FRESHNESS_PROBE_TIMEOUT_SECONDS,
             )
             OLDEST_UNCLAIMED_BATCH_SECONDS.set(FRESHNESS_WINDOW_SECONDS)
+            if holds_slot:
+                self._export_last_depth_sample()
             return
         except Exception as e:
             logger.exception("queue_freshness_probe_failed")
             capture_exception(e)
             return
+
+    async def _sample_queue_gauges(self, conn: psycopg.AsyncConnection[Any]) -> None:
+        try:
+            with observe_queue_query("oldest_unclaimed_probe"):
+                freshness = await BatchQueue.get_queue_freshness(
+                    conn, backlog_threshold_seconds=BACKLOG_THRESHOLD_SECONDS
+                )
+        except psycopg.errors.QueryCanceled:
+            logger.info("queue_freshness_probe_statement_timed_out", timeout_ms=GAUGE_STATEMENT_TIMEOUT_MS)
+            OLDEST_UNCLAIMED_BATCH_SECONDS.set(FRESHNESS_WINDOW_SECONDS)
+            # The depth probe reads a larger set than this one, so it would time out too.
+            self._export_last_depth_sample()
+            return
+        # Set immediately, so a failure in the depth probe below can never
+        # blind the age gauge this alert hangs off.
+        OLDEST_UNCLAIMED_BATCH_SECONDS.set(freshness.oldest_age_seconds or 0.0)
+        BLOCKED_BATCHES.set(freshness.blocked_batches)
+        BACKLOGGED_GROUPS.set(freshness.backlogged_groups)
+        # Depth rides the same slot and timeout: age says how stale the head of
+        # the queue is, depth says how much sits behind it — a stall and a burst
+        # are indistinguishable on age alone.
+        try:
+            with observe_queue_query("claimable_depth_probe"):
+                depth = await BatchQueue.get_queue_depth(conn)
+        except psycopg.errors.QueryCanceled:
+            DEPTH_PROBE_TIMEOUTS_TOTAL.labels(stage="count").inc()
+            logger.info("queue_depth_probe_statement_timed_out", timeout_ms=GAUGE_STATEMENT_TIMEOUT_MS)
+            self._export_last_depth_sample()
+            return
+        now = time.monotonic()
+        previous = self._depth_sample
+        if depth.claimable_groups is None:
+            DEPTH_PROBE_TIMEOUTS_TOTAL.labels(stage="breakdown").inc()
+            logger.info("queue_depth_breakdown_statement_timed_out", timeout_ms=GAUGE_STATEMENT_TIMEOUT_MS)
+            # The fresh count still lands. The split keeps its last good value and its age.
+            self._depth_sample = QueueDepth(
+                claimable_batches=depth.claimable_batches,
+                claimable_groups=previous.claimable_groups if previous else None,
+                top_groups_claimable_share=previous.top_groups_claimable_share if previous else None,
+                slot_waiting_batches=previous.slot_waiting_batches if previous else None,
+                serialized_batches=previous.serialized_batches if previous else None,
+            )
+        else:
+            self._depth_sample = depth
+            self._depth_sampled_at = now
+        self._export_last_depth_sample()
+
+    def _export_last_depth_sample(self) -> None:
+        """Set the depth gauges from the last sample; leave NaN for any field never sampled."""
+        sample = self._depth_sample
+        if sample is None:
+            return
+        CLAIMABLE_BATCHES.set(sample.claimable_batches)
+        for gauge, value in (
+            (CLAIMABLE_GROUPS, sample.claimable_groups),
+            (TOP_GROUPS_CLAIMABLE_SHARE, sample.top_groups_claimable_share),
+            (SLOT_WAITING_BATCHES, sample.slot_waiting_batches),
+            (SERIALIZED_BATCHES, sample.serialized_batches),
+        ):
+            if value is not None:
+                gauge.set(value)
+        has_breakdown = sample.claimable_groups is not None
+        DEPTH_SAMPLE_AGE_SECONDS.set(time.monotonic() - self._depth_sampled_at if has_breakdown else math.nan)
 
     async def should_process_batch(
         self,
@@ -670,7 +895,7 @@ class DeltaBatchConsumerAdapter:
             job_dead = await self._is_job_dead(batch)
         except Exception as e:
             # Fail open: an app-DB hiccup must never wedge the loader.
-            if is_transient_db_error(e):
+            if is_transient_internal_db_error(e):
                 logger.warning(
                     "job_status_check_app_db_not_ready", batch_id=batch.id, job_id=batch.job_id, error=str(e)
                 )
@@ -682,6 +907,17 @@ class DeltaBatchConsumerAdapter:
         if not job_dead:
             return True
 
+        if self._drainable_after_failure(batch):
+            DRAINED_AFTER_FAILURE_TOTAL.inc()
+            logger.info(
+                "loading_batch_of_failed_run",
+                batch_id=batch.id,
+                job_id=batch.job_id,
+                run_uuid=batch.run_uuid,
+                sync_type=batch.sync_type,
+            )
+            return True
+
         logger.warning(
             "skipping_batch_for_dead_job",
             batch_id=batch.id,
@@ -690,6 +926,53 @@ class DeltaBatchConsumerAdapter:
         )
         await self.fail_run(conn, batch=batch, reason="sync cancelled or job failed")
         return False
+
+    def _drainable_after_failure(self, batch: PendingBatch) -> bool:
+        """Whether a dead job's queued batches should still be loaded rather than thrown away.
+
+        An extraction that dies mid-run leaves batches already read from the source, already
+        written to S3, and already billed. Wiping them throws that away and makes the next
+        attempt redo it, which is how one thrashing schema turned into six figures of failed
+        batches with ``latest_attempt = 0`` — rows no consumer ever tried.
+
+        Draining is only safe where a half-loaded run is a smaller run rather than a wrong
+        one, so each exclusion below is its own reason:
+
+        - ``full_refresh`` replaces the table, so a partial snapshot is a torn table.
+        - ``append`` has no primary key, so a re-extracted window duplicates rows.
+        - ``cdc`` resolves its position from consumed buffer files; that machinery decides
+          what a partial run means, not this check.
+        - A billing-limit status is exactly the case where loading more is the thing the
+          limit exists to prevent.
+        - A deliberate stop (syncing turned off, the table deleted) is a decision to make
+          this run stop, so finishing the load would override it.
+        - A permanent failure (``DISABLE_SCHEMA_ERROR_PATTERNS``) means the data itself cannot
+          land, and a deletion failure (``DELETION_ERROR_PATTERNS``) means the schema or job row
+          is gone; loading more in either case writes into a destination the run has already
+          given up on. A widening whose schedule stayed on is no exception: its next run resets
+          the table, so draining into the one this run gave up on is wasted either way.
+
+        ``incremental`` is left because its next run continues from a staged cursor that
+        only promotes on a Completed job (``load/processor.py``). The job stays Failed here,
+        so the cursor does not advance, the next run re-extracts the same window, and its
+        primary key makes that merge idempotent. Loading is therefore strictly progress.
+        """
+        if batch.sync_type != "incremental":
+            return False
+
+        status_and_error = self._job_dead_cache_status.get(batch.job_id)
+        if status_and_error is None:
+            return False
+
+        status, error = status_and_error
+        error = error or ""
+        if error in DELIBERATE_STOP_ERRORS:
+            return False
+        if any(pattern in error for pattern in DISABLE_SCHEMA_ERROR_PATTERNS):
+            return False
+        if any(pattern in error for pattern in DELETION_ERROR_PATTERNS):
+            return False
+        return status == ExternalDataJobStatus.FAILED
 
     async def _is_job_dead(self, batch: PendingBatch) -> bool:
         """Whether the batch's ExternalDataJob is in a terminal non-Completed state (e.g. cancelled)."""
@@ -712,14 +995,23 @@ class DeltaBatchConsumerAdapter:
             # its batches here would close that deliberate recovery window.
             and row[1] != LOCK_TAKEOVER_LATEST_ERROR
         )
-
         if len(self._job_dead_cache) >= JOB_STATUS_CACHE_MAX_ENTRIES:
             # Evict alive entries first: dead verdicts are final, and re-deriving one
             # costs an app-DB read per queued batch of that job.
             self._job_dead_cache = {k: v for k, v in self._job_dead_cache.items() if v[0]}
             if len(self._job_dead_cache) >= JOB_STATUS_CACHE_MAX_ENTRIES:
                 self._job_dead_cache.clear()
+            self._job_dead_cache_status = {
+                k: v for k, v in self._job_dead_cache_status.items() if k in self._job_dead_cache
+            }
+
         self._job_dead_cache[batch.job_id] = (is_dead, now)
+        # Written after eviction, not before: an eviction on this very call prunes the status
+        # map against the dead-verdict map, and this job is not in that one until the line
+        # above. Writing first would drop the row the drain decision is about to read, and the
+        # batch would be discarded rather than loaded.
+        if is_dead and row is not None:
+            self._job_dead_cache_status[batch.job_id] = (row[0], row[1])
         return is_dead
 
     def is_retryable_error(self, err: Exception) -> bool:
@@ -738,6 +1030,35 @@ class DeltaBatchConsumerAdapter:
     ) -> None:
         return None
 
+    def coalesce_group(self, batches: list[PendingBatch]) -> list[list[PendingBatch]]:
+        """Cut the claimed batches of one group into the sets the sink loads as one write.
+
+        Only adjacent batches join, so every set keeps the claim order: the order the loader would
+        have taken the batches in one at a time.
+        """
+        caps = CoalesceCaps.from_settings()
+        sets: list[list[PendingBatch]] = []
+        current: list[PendingBatch] = []
+        current_members: list[CoalesceMember] = []
+        for batch in batches:
+            member = CoalesceMember.from_batch(batch)
+            if (
+                current
+                and _first_delivery(current[-1])
+                and _first_delivery(batch)
+                and extends_set(current_members, member, caps)
+            ):
+                current.append(batch)
+                current_members.append(member)
+                continue
+            if current:
+                sets.append(current)
+            current = [batch]
+            current_members = [member]
+        if current:
+            sets.append(current)
+        return sets
+
 
 class BatchConsumer(SharedBatchConsumer):
     def __init__(
@@ -747,9 +1068,15 @@ class BatchConsumer(SharedBatchConsumer):
         health_reporter: Callable[[], None] | None = None,
         claim_sync_types: list[str] | None = None,
         claim_exclude_sync_types: list[str] | None = None,
+        process_batches: DeltaProcessBatchesFn | None = None,
     ) -> None:
         async def process_with_ownership_check(batch: PendingBatch) -> None:
             await process_batch(batch, self._make_verify_ownership(batch))
+
+        async def process_set_with_ownership_check(batches: list[PendingBatch]) -> None:
+            assert process_batches is not None
+            # One lease covers the whole set: every constituent shares the group.
+            await process_batches(batches, self._make_verify_ownership(batches[0]))
 
         super().__init__(
             config=config,
@@ -759,7 +1086,16 @@ class BatchConsumer(SharedBatchConsumer):
                 claim_exclude_sync_types=claim_exclude_sync_types,
             ),
             health_reporter=health_reporter,
+            process_batches=process_set_with_ownership_check if process_batches is not None else None,
         )
+
+    async def _process_group(self, key: tuple[int, str], batches: list[PendingBatch]) -> None:
+        try:
+            await super()._process_group(key, batches)
+        finally:
+            # The loader keeps the table handle of the last batch for the next batch of this group
+            # run. No batch follows now, so the handle must not hold its file list in memory.
+            release_group_table_handle(*key)
 
     def _make_verify_ownership(self, batch: PendingBatch) -> Callable[[], None]:
         """Sync ownership check for the worker thread: the engine's lease checks bracket
@@ -816,6 +1152,27 @@ def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str, run_u
         # The job row itself was deleted between the check above and this write (e.g. its
         # source/schema was removed mid-sync) — nothing left to mark failed.
         pass
+
+
+def _auto_widen_reset_is_pending(*, schema_id: str, team_id: int) -> bool:
+    """Whether an automatic reset-and-resync is already stamped on this schema and not yet consumed.
+
+    ``maybe_schedule_auto_widen_resync`` stamps the reset for the *next* scheduled sync, so pausing
+    the schedule strands it. The stamp is the only reliable signal: only the first failure to
+    schedule one carries the reworded message, and the cooldown hands every later batch of the same
+    widening the manual-reset wording instead. The reset pops the marker when it runs, so a failure
+    after that disables as usual.
+    """
+    close_old_connections()
+
+    config = (
+        ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id)
+        .values_list("sync_type_config", flat=True)
+        .first()
+    )
+    if not isinstance(config, dict):
+        return False
+    return bool(config.get("reset_pipeline")) and COLUMN_TYPE_WIDENED_KEY in config
 
 
 def _disable_schema_after_permanent_failure(*, schema_id: str, team_id: int, reason: str) -> bool:

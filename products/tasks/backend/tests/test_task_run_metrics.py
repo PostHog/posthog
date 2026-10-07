@@ -7,7 +7,7 @@ from prometheus_client import REGISTRY
 
 from posthog.models import Organization, Team, User
 
-from products.tasks.backend.metrics import CustomImageBuildOutcome, observe_custom_image_build
+from products.tasks.backend.metrics import CustomImageBuildOutcome, observe_custom_image_build, observe_sandbox_deadline
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 from products.tasks.backend.temporal.process_task.activities.track_workflow_event import (
@@ -33,6 +33,16 @@ class TestCustomImageBuildMetrics:
     @patch("products.tasks.backend.metrics.CUSTOM_IMAGE_BUILD_TOTAL.labels", side_effect=RuntimeError("boom"))
     def test_counter_failure_does_not_escape(self, _mock_labels: MagicMock) -> None:
         observe_custom_image_build("succeeded")
+
+
+class TestSandboxDeadlineMetrics:
+    def test_turn_open_reason_is_preserved(self) -> None:
+        labels = {"outcome": "snapshot_only", "reason": "turn_open", "origin_product": "workflow"}
+        before = _sample_value("posthog_tasks_sandbox_deadline_total", labels)
+
+        observe_sandbox_deadline(dict[str, object](labels))
+
+        assert _sample_value("posthog_tasks_sandbox_deadline_total", labels) == before + 1
 
 
 class TestTaskRunMetrics(TestCase):
@@ -343,10 +353,21 @@ class TestTaskRunMetrics(TestCase):
         assert _sample_value("posthog_tasks_task_run_failed_total", labels) == before + 1
         assert mock_capture.called is capture_analytics
 
-    def test_patch_terminal_failure_captures_single_typed_task_run_failed(self) -> None:
+    @parameterized.expand(
+        [
+            ("modal", {}),
+            ("hogland", {"sandbox_backend": "hogland"}),
+        ]
+    )
+    def test_patch_terminal_failure_captures_single_typed_task_run_failed(
+        self, sandbox_backend: str, sandbox_state: dict[str, str]
+    ) -> None:
         from products.tasks.backend.facade import api as facade
 
-        run = self.task.create_run(environment=TaskRun.Environment.CLOUD)
+        run = self.task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            extra_state={"sandbox_id": "sandbox-example", **sandbox_state},
+        )
         long_error = "w" * 1400 + "Error: wizard exited with code 7"
 
         with (
@@ -365,6 +386,7 @@ class TestTaskRunMetrics(TestCase):
         assert len(captured) == 1
         props = captured[0].kwargs["properties"]
         assert props["error_type"] == "agent_reported"
+        assert props["sandbox_backend"] == sandbox_backend
         assert len(props["error_message"]) == 500
         assert props["error_message"].endswith("Error: wizard exited with code 7")
 

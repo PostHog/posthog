@@ -119,6 +119,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiObservabilityOfflineScorerHistory": {
+        "template": "/ai-evals/evaluations/scorers/{scorerId}/offline",
+        "params": ["scorerId"],
+        "scope": "project"
+    },
     "aiObservabilityPlayground": {
         "template": "/ai-observability/playground",
         "params": [],
@@ -136,6 +141,16 @@
     },
     "aiObservabilityReviews": {
         "template": "/ai-observability/reviews",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityScorer": {
+        "template": "/ai-evals/evaluations/scorers/{scorerId}",
+        "params": ["scorerId"],
+        "scope": "project"
+    },
+    "aiObservabilityScorers": {
+        "template": "/ai-evals/evaluations/scorers",
         "params": [],
         "scope": "project"
     },
@@ -239,6 +254,21 @@
         "params": [],
         "scope": "global"
     },
+    "autoresearch": {
+        "template": "/autoresearch",
+        "params": [],
+        "scope": "project"
+    },
+    "autoresearchNew": {
+        "template": "/autoresearch/new",
+        "params": [],
+        "scope": "project"
+    },
+    "autoresearchPipeline": {
+        "template": "/autoresearch/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "batchExport": {
         "template": "/pipeline/batch-exports/{id}",
         "params": ["id"],
@@ -254,8 +284,43 @@
         "params": [],
         "scope": "project"
     },
+    "broadcast": {
+        "template": "/broadcasts/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "broadcastNew": {
+        "template": "/broadcasts/new",
+        "params": [],
+        "scope": "project"
+    },
+    "broadcasts": {
+        "template": "/broadcasts",
+        "params": [],
+        "scope": "project"
+    },
+    "businessIntelligence": {
+        "template": "/bi",
+        "params": [],
+        "scope": "project"
+    },
+    "businessIntelligenceNew": {
+        "template": "/bi/new",
+        "params": [],
+        "scope": "project"
+    },
+    "businessIntelligenceWorksheet": {
+        "template": "/bi/{insightShortId}",
+        "params": ["insightShortId"],
+        "scope": "project"
+    },
     "businessKnowledge": {
         "template": "/business-knowledge",
+        "params": [],
+        "scope": "project"
+    },
+    "businessKnowledgePlayground": {
+        "template": "/business-knowledge/playground",
         "params": [],
         "scope": "project"
     },
@@ -264,8 +329,28 @@
         "params": [],
         "scope": "project"
     },
+    "businessKnowledgeSource": {
+        "template": "/business-knowledge/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "canvas": {
         "template": "/canvas",
+        "params": [],
+        "scope": "project"
+    },
+    "canvasDetail": {
+        "template": "/canvases/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "canvasNew": {
+        "template": "/canvases/new",
+        "params": [],
+        "scope": "project"
+    },
+    "canvases": {
+        "template": "/canvases",
         "params": [],
         "scope": "project"
     },
@@ -349,6 +434,16 @@
         "params": [],
         "scope": "global"
     },
+    "crossProjectDashboard": {
+        "template": "/cross-project-dashboards/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "crossProjectDashboards": {
+        "template": "/cross-project-dashboards",
+        "params": [],
+        "scope": "project"
+    },
     "customCss": {
         "template": "/themes/custom-css",
         "params": [],
@@ -362,6 +457,11 @@
     "customerAnalyticsAccount": {
         "template": "/customer_analytics/accounts/{accountId}",
         "params": ["accountId"],
+        "scope": "project"
+    },
+    "customerAnalyticsAccountByExternalId": {
+        "template": "/customer_analytics/accounts/by-external-id/{externalId}",
+        "params": ["externalId"],
         "scope": "project"
     },
     "customerAnalyticsAccounts": {
@@ -579,8 +679,13 @@
         "params": ["handle"],
         "scope": "project"
     },
-    "engineeringAnalyticsHealth": {
-        "template": "/engineering-analytics/health",
+    "engineeringAnalyticsAuthors": {
+        "template": "/engineering-analytics/authors",
+        "params": [],
+        "scope": "project"
+    },
+    "engineeringAnalyticsDeploys": {
+        "template": "/engineering-analytics/deploys",
         "params": [],
         "scope": "project"
     },
@@ -604,8 +709,8 @@
         "params": [],
         "scope": "project"
     },
-    "engineeringAnalyticsTestHealth": {
-        "template": "/engineering-analytics/test-health",
+    "engineeringAnalyticsTests": {
+        "template": "/engineering-analytics/tests",
         "params": [],
         "scope": "project"
     },
@@ -654,9 +759,9 @@
         "params": ["id"],
         "scope": "project"
     },
-    "errorTrackingIssueFingerprints": {
-        "template": "/error_tracking/{id}/fingerprints",
-        "params": ["id"],
+    "etlOverview": {
+        "template": "/etl",
+        "params": [],
         "scope": "project"
     },
     "event": {
@@ -849,6 +954,11 @@
         "params": ["skillName"],
         "scope": "project"
     },
+    "inboxScoutTrials": {
+        "template": "/inbox/scout-trials",
+        "params": [],
+        "scope": "project"
+    },
     "inboxScratchpad": {
         "template": "/inbox/scouts/scratchpad",
         "params": [],
@@ -976,21 +1086,6 @@
     },
     "legalDocuments": {
         "template": "/legal",
-        "params": [],
-        "scope": "project"
-    },
-    "link": {
-        "template": "/link/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "links": {
-        "template": "/links",
-        "params": [],
-        "scope": "project"
-    },
-    "liveDebugger": {
-        "template": "/live-debugger",
         "params": [],
         "scope": "project"
     },
@@ -1249,6 +1344,11 @@
         "params": [],
         "scope": "project"
     },
+    "precomputeDebug": {
+        "template": "/debug/precompute",
+        "params": [],
+        "scope": "project"
+    },
     "preflight": {
         "template": "/preflight",
         "params": [],
@@ -1268,6 +1368,11 @@
         "template": "/organization/create-project",
         "params": [],
         "scope": "global"
+    },
+    "projectFiles": {
+        "template": "/files",
+        "params": [],
+        "scope": "project"
     },
     "projectHomepage": {
         "template": "/home",
@@ -1599,8 +1704,43 @@
         "params": [],
         "scope": "project"
     },
+    "taskNewSession": {
+        "template": "/spaces/new",
+        "params": [],
+        "scope": "project"
+    },
+    "taskSpace": {
+        "template": "/spaces/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaceCanvases": {
+        "template": "/spaces/{id}/canvases",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaceNewSession": {
+        "template": "/spaces/{id}/new",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaceSettings": {
+        "template": "/spaces/{id}/settings",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaces": {
+        "template": "/spaces",
+        "params": [],
+        "scope": "project"
+    },
     "taskTracker": {
         "template": "/tasks",
+        "params": [],
+        "scope": "project"
+    },
+    "terminal": {
+        "template": "/terminal",
         "params": [],
         "scope": "project"
     },
@@ -1609,8 +1749,23 @@
         "params": [],
         "scope": "project"
     },
+    "tools": {
+        "template": "/tools",
+        "params": [],
+        "scope": "project"
+    },
     "tracing": {
         "template": "/tracing",
+        "params": [],
+        "scope": "project"
+    },
+    "tracingRetentionDetail": {
+        "template": "/tracing/retention-rules/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "tracingRetentionNew": {
+        "template": "/tracing/retention-rules/new",
         "params": [],
         "scope": "project"
     },
@@ -1626,21 +1781,6 @@
     },
     "unsubscribe": {
         "template": "/unsubscribe",
-        "params": [],
-        "scope": "project"
-    },
-    "userInterview": {
-        "template": "/user_research/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "userInterviewResponse": {
-        "template": "/user_research/{topicId}/response/{responseId}",
-        "params": ["topicId", "responseId"],
-        "scope": "project"
-    },
-    "userInterviews": {
-        "template": "/user_research",
         "params": [],
         "scope": "project"
     },
@@ -1671,6 +1811,16 @@
     },
     "verifyEmail": {
         "template": "/verify_email",
+        "params": [],
+        "scope": "project"
+    },
+    "views": {
+        "template": "/views",
+        "params": [],
+        "scope": "project"
+    },
+    "viewsNew": {
+        "template": "/views/new",
         "params": [],
         "scope": "project"
     },
@@ -1707,6 +1857,11 @@
     "visualReviewSnapshotOverview": {
         "template": "/visual_review/repos/{repoId}/snapshots",
         "params": ["repoId"],
+        "scope": "project"
+    },
+    "warehouseDestinations": {
+        "template": "/data-management/warehouse-destinations",
+        "params": [],
         "scope": "project"
     },
     "warehouseProperties": {

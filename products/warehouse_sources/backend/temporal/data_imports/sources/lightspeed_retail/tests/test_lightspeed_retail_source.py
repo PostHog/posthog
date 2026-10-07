@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 from unittest import mock
 
@@ -42,6 +44,20 @@ class TestLightspeedRetailSource:
             key in "500 Server Error for url: https://mystore.retail.lightspeed.app/api/2.0/sales"
             for key in non_retryable_errors
         )
+
+    @pytest.mark.parametrize(
+        "version, expected_sunset",
+        [
+            (LIGHTSPEED_RETAIL_API_VERSION_2_0, None),
+            (LIGHTSPEED_RETAIL_API_VERSION_2026_01, datetime.date(2027, 1, 1)),
+        ],
+    )
+    def test_deprecated_api_version_metadata(self, version, expected_sunset):
+        # Drives the in-product warning and the source-level repin migration.
+        deprecation = self.source.get_version_deprecation(version)
+        assert deprecation is not None
+        assert deprecation.sunset_at == expected_sunset
+        assert self.source.get_version_deprecation(LIGHTSPEED_RETAIL_API_VERSION_2026_07) is None
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

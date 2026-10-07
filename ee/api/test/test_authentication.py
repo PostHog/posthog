@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core import mail
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.shortcuts import redirect
@@ -19,6 +20,7 @@ from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
 import jwt
+import responses
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 from requests import Response
@@ -30,11 +32,13 @@ from social_django.utils import load_strategy
 from posthog.api.authentication import social_identity_matches_session
 from posthog.api.oidc import MultitenantOIDCAuth
 from posthog.constants import AvailableFeature
+from posthog.helpers.sso import GITHUB_EMAIL_LOOKUP_ERROR, UNVERIFIED_SOCIAL_EMAIL_ERROR
 from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.session.activity import session_public_id
 
 from ee.api.authentication import CustomGoogleOAuth2, MultitenantSAMLAuth
 from ee.api.test.base import APILicensedTest
@@ -689,6 +693,19 @@ class TestEEAuthenticationAPI(APILicensedTest):
             second_key = self.client.session.session_key
             self.assertNotEqual(first_key, second_key)
 
+    def test_sso_login_is_throttled_per_ip(self):
+        cache.delete("throttle_sso_login_192.0.2.1")
+        self.addCleanup(cache.delete, "throttle_sso_login_192.0.2.1")
+
+        for _ in range(10):
+            response = self.client.get("/login/unknown-provider/", HTTP_X_FORWARDED_FOR="192.0.2.1")
+            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        response = self.client.get("/login/unknown-provider/", HTTP_X_FORWARDED_FOR="192.0.2.1")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response["Retry-After"], "60")
+
     @patch("social_core.backends.base.BaseAuth.request")
     def test_google_login_returns_to_saved_insight(self, mock_request):
         UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-sub-123")
@@ -814,10 +831,48 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertRedirects(response, expected_location, fetch_redirect_response=False)
         self.assertTrue(self.client.session.get("_auth_user_id"))
 
-    def _begin_google_reauth(self) -> str:
-        response = self.client.get(f"/login/google-oauth2/?reauth=true&next=/settings/user&email={self.user.email}")
+    def _begin_google_reauth(self, next_url: str = "/settings/user") -> str:
+        query = urlencode({"reauth": "true", "next": next_url, "email": self.user.email})
+        response = self.client.get(f"/login/google-oauth2/?{query}")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         return self.client.session["google-oauth2_state"]
+
+    @parameterized.expand(
+        [
+            ("same_identity", "google-sub-123", None),
+            ("different_identity", "unassociated-sub", "reauth_user_mismatch"),
+        ]
+    )
+    @patch("social_core.backends.base.BaseAuth.request")
+    def test_popup_sso_reauth_reports_the_outcome_to_the_opener(self, _name, sub, expected_error_code, mock_request):
+        UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-sub-123")
+
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            state = self._begin_google_reauth(next_url="/reauth/complete?attempt=a1")
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": self.user.email if expected_error_code is None else "someone-else@posthog.com",
+                "sub": sub,
+            }
+            response = self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
+
+        expected_location = "/reauth/complete?attempt=a1" + (
+            f"&error_code={expected_error_code}" if expected_error_code else ""
+        )
+        self.assertRedirects(response, expected_location, fetch_redirect_response=False)
+
+        page = self.client.get(expected_location)
+        self.assertEqual(page.status_code, status.HTTP_200_OK)
+        self.assertContains(page, "posthog-sso-reauth")
+        result = {"channel": "posthog-sso-reauth", "attempt": "a1", "error_code": expected_error_code}
+        self.assertContains(
+            page, f'<script id="sso-reauth-result" type="application/json">{json.dumps(result)}</script>'
+        )
+
+    def test_popup_completion_page_does_not_run_an_injected_error_code(self):
+        response = self.client.get("/reauth/complete", {"error_code": "</script><script>alert(1)</script>"})
+
+        self.assertNotContains(response, "<script>alert(1)</script>")
 
     @patch("social_core.backends.base.BaseAuth.request")
     def test_sso_reauth_refreshes_the_sensitive_action_window(self, mock_request):
@@ -846,6 +901,11 @@ class TestEEAuthenticationAPI(APILicensedTest):
         login_context = cast(dict, login_activity.detail)["context"]
         self.assertEqual(login_context["reauth"], True)
         self.assertEqual(login_context["login_method"], "Google OAuth")
+        # The row has to name the session the rotation created, not the one it retired.
+        self.assertEqual(login_activity.credential_type, "session")
+        self.assertEqual(
+            login_activity.credential_id, str(session_public_id(cast(str, self.client.session.session_key)))
+        )
 
         # Opening the sensitive-action window has to retire the session id that existed before it,
         # so a cookie copied earlier can't ride the window the victim just opened.
@@ -905,6 +965,164 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertEqual(self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY], last_reauth_at_before)
         # The stranger's identity must not have been linked to the signed-in account
         self.assertFalse(UserSocialAuth.objects.filter(user=self.user).exists())
+
+    def _complete_github_login(
+        self,
+        github_id: int,
+        emails: list[dict[str, Any]],
+        emails_status: int = 200,
+        profile_email: str | None = None,
+        login_query: str = "",
+    ) -> HttpResponse:
+        with (
+            self.settings(**GITHUB_MOCK_SETTINGS),
+            responses.RequestsMock(assert_all_requests_are_fired=False) as mock_github,
+        ):
+            mock_github.add(responses.POST, "https://github.com/login/oauth/access_token", json={"access_token": "gh"})
+            mock_github.add(
+                responses.GET,
+                "https://api.github.com/user",
+                json={"id": github_id, "login": "octo", "name": "Octo Cat", "email": profile_email},
+            )
+            mock_github.add(responses.GET, "https://api.github.com/user/emails", json=emails, status=emails_status)
+            self.client.get(f"/login/github/?{login_query}")
+            state = self.client.session["github_state"]
+            response = self.client.get(f"/complete/github/?code=2&state={state}")
+        return response
+
+    def _complete_google_login(self, email: str, email_verified: bool | None, login_query: str = "") -> HttpResponse:
+        with (
+            self.settings(**GOOGLE_MOCK_SETTINGS),
+            patch("social_core.backends.base.BaseAuth.request") as mock_request,
+        ):
+            self.client.get(f"/login/google-oauth2/?{login_query}")
+            state = self.client.session["google-oauth2_state"]
+            userinfo: dict[str, Any] = {"access_token": "123", "email": email, "sub": "google-sub-new"}
+            if email_verified is not None:
+                userinfo["email_verified"] = email_verified
+            mock_request.return_value.json.return_value = userinfo
+            return self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
+
+    @parameterized.expand(
+        [
+            ("github_unverified_primary", "github", False),
+            ("google_unverified", "google-oauth2", False),
+            ("github_verified_primary", "github", True),
+            ("google_verified", "google-oauth2", True),
+        ]
+    )
+    def test_social_login_links_an_existing_account_only_by_a_provider_verified_email(
+        self, _name: str, provider: str, provider_verified: bool
+    ) -> None:
+        self.client.logout()
+        self.user.is_email_verified = False
+        self.user.save(update_fields=["is_email_verified"])
+
+        if provider == "github":
+            response = self._complete_github_login(
+                github_id=4242,
+                emails=[{"email": self.user.email, "primary": True, "verified": provider_verified}],
+            )
+        else:
+            response = self._complete_google_login(email=self.user.email, email_verified=provider_verified)
+
+        self.user.refresh_from_db()
+        is_linked = UserSocialAuth.objects.filter(user=self.user, provider=provider).exists()
+        if provider_verified:
+            self.assertEqual(self.client.session.get("_auth_user_id"), str(self.user.pk))
+            self.assertTrue(is_linked)
+        else:
+            self.assertTrue(response["Location"].startswith("/login?error_code=social_login_failure"))
+            self.assertNotIn("_auth_user_id", self.client.session)
+            self.assertFalse(is_linked)
+            self.assertTrue(self.user.check_password(cast(str, self.CONFIG_PASSWORD)))
+            self.assertFalse(self.user.is_email_verified)
+
+    @parameterized.expand(
+        [
+            ("github_unverified", "github", False, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
+            ("github_public_email_lookup_fails", "github", False, True, 502, GITHUB_EMAIL_LOOKUP_ERROR),
+            ("google_unverified", "google-oauth2", False, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
+            ("google_claim_missing", "google-oauth2", None, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
+        ]
+    )
+    def test_social_signup_refuses_an_email_the_provider_has_not_verified(
+        self,
+        _name: str,
+        provider: str,
+        email_verified: bool | None,
+        has_public_email: bool,
+        emails_status: int,
+        expected_error: str,
+    ) -> None:
+        self.client.logout()
+        email = "new-person@example.com"
+
+        if provider == "github":
+            response = self._complete_github_login(
+                github_id=5151,
+                emails=[{"email": email, "primary": True, "verified": email_verified}],
+                emails_status=emails_status,
+                profile_email=email if has_public_email else None,
+            )
+        else:
+            response = self._complete_google_login(email=email, email_verified=email_verified)
+
+        location = urlparse(response["Location"])
+        self.assertEqual(location.path, "/login")
+        self.assertEqual(parse_qs(location.query)["error_detail"], [expected_error])
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(User.objects.filter(email=email).exists())
+        self.assertFalse(UserSocialAuth.objects.filter(provider=provider).exists())
+
+    @parameterized.expand(
+        [
+            ("github", "github", "/settings/user"),
+            ("github_account_connect_next", "github", "/account-connected/github-login?provider=github"),
+            ("google", "google-oauth2", "/settings/user"),
+        ]
+    )
+    def test_sso_reauth_with_an_unlinked_unverified_identity_grants_nothing(
+        self, _name: str, provider: str, next_url: str
+    ) -> None:
+        last_reauth_at_before = self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY]
+        login_query = urlencode({"reauth": "true", "next": next_url, "email": self.user.email})
+
+        if provider == "github":
+            response = self._complete_github_login(
+                github_id=6161,
+                emails=[{"email": self.user.email, "primary": True, "verified": False}],
+                login_query=login_query,
+            )
+        else:
+            response = self._complete_google_login(email=self.user.email, email_verified=False, login_query=login_query)
+
+        self.assertIn("error_code=social_login_failure", response["Location"])
+        self.assertEqual(self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY], last_reauth_at_before)
+        self.assertFalse(UserSocialAuth.objects.filter(user=self.user, provider=provider).exists())
+
+    def test_account_connect_path_does_not_skip_verification_when_signed_out(self) -> None:
+        self.client.logout()
+        session = self.client.session
+        session["next"] = "/account-connected/github-login?provider=github"
+        session.save()
+
+        self._complete_github_login(
+            github_id=7171, emails=[{"email": self.user.email, "primary": True, "verified": False}]
+        )
+
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(UserSocialAuth.objects.filter(user=self.user, provider="github").exists())
+
+    def test_already_linked_github_identity_logs_in_without_a_verified_email(self) -> None:
+        self.client.logout()
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="4242")
+
+        self._complete_github_login(
+            github_id=4242, emails=[{"email": "unverified@example.com", "primary": True, "verified": False}]
+        )
+
+        self.assertEqual(self.client.session.get("_auth_user_id"), str(self.user.pk))
 
     def test_existing_session_remains_valid_when_sso_enforced(self):
         """Test that existing password-authenticated sessions remain valid after SSO is enforced"""
@@ -1824,7 +2042,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         # Create user with email as uid (legacy format)
         social_auth = UserSocialAuth.objects.create(provider="google-oauth2", uid="test@posthog.com", user=self.user)
 
-        response = {"email": "test@posthog.com", "sub": self.sub}
+        response = {"email": "test@posthog.com", "email_verified": True, "sub": self.sub}
 
         uid = self.google_oauth.get_user_id(self.details, response)
 
@@ -1832,6 +2050,21 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         # Verify the uid was updated
         social_auth.refresh_from_db()
         self.assertEqual(social_auth.uid, self.sub)
+
+    @parameterized.expand([("unverified", False), ("claim_missing", None)])
+    def test_get_user_id_does_not_migrate_legacy_uid_for_an_unverified_email(
+        self, _name: str, email_verified: bool | None
+    ) -> None:
+        social_auth = UserSocialAuth.objects.create(provider="google-oauth2", uid="test@posthog.com", user=self.user)
+        response: dict[str, Any] = {"email": "test@posthog.com", "sub": self.sub}
+        if email_verified is not None:
+            response["email_verified"] = email_verified
+
+        with self.assertRaises(AuthFailed):
+            self.google_oauth.get_user_id(self.details, response)
+
+        social_auth.refresh_from_db()
+        self.assertEqual(social_auth.uid, "test@posthog.com")
 
     def test_get_user_id_new_user_uses_sub(self):
         """Test that a new user gets sub as uid."""

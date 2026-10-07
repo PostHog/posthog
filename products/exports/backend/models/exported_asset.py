@@ -143,13 +143,12 @@ class ExportedAsset(models.Model):
     class Meta:
         db_table = "posthog_exportedasset"
         indexes = [
-            # The replay session-export get-or-create probes by (team, session recording id) at
-            # high volume; without this expression index it walks the team's whole asset history.
+            # The replay session-export get-or-create and the recording-delete cleanup both probe by
+            # (team, session recording id); without this expression index they walk the team's whole asset history.
             models.Index(
                 models.F("team_id"),
                 KeyTransform("session_recording_id", "export_context"),
-                name="exportedasset_system_session",
-                condition=Q(is_system=True),
+                name="exportedasset_session",
             ),
         ]
 

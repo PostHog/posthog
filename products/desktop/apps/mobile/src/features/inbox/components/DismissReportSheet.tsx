@@ -2,6 +2,7 @@ import { Text } from "@components/text";
 import {
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
+  isDismissalReasonSnooze,
 } from "@posthog/shared";
 import * as Haptics from "expo-haptics";
 import { Check } from "phosphor-react-native";
@@ -27,10 +28,18 @@ export interface DismissReportResult {
   note: string | null;
 }
 
+const PAUSE_OPTIONS = DISMISSAL_REASON_OPTIONS.filter((option) =>
+  isDismissalReasonSnooze(option.value),
+);
+const HIDE_OPTIONS = DISMISSAL_REASON_OPTIONS.filter(
+  (option) => !isDismissalReasonSnooze(option.value),
+);
+
 interface DismissReportSheetProps {
   visible: boolean;
   reportId: string;
   reportTitle: string;
+  hasOpenPr?: boolean;
   onClose: () => void;
   /** Fires the moment the user confirms, before the API write settles. */
   onDismissed: (result: DismissReportResult) => void;
@@ -40,6 +49,7 @@ export function DismissReportSheet({
   visible,
   reportId,
   reportTitle,
+  hasOpenPr = false,
   onClose,
   onDismissed,
 }: DismissReportSheetProps) {
@@ -71,6 +81,13 @@ export function DismissReportSheet({
   }, [sheetVisible, draft]);
 
   const displayedError = draft?.reopen ? draft.errorMessage : undefined;
+
+  const outcome =
+    reason == null
+      ? null
+      : isDismissalReasonSnooze(reason)
+        ? "The report comes back if another matching signal arrives."
+        : `Matching signals won't surface the report again.${hasOpenPr ? " The open pull request will be closed." : ""}`;
 
   const handleClose = () => {
     setDraft(reportId, undefined);
@@ -150,42 +167,34 @@ export function DismissReportSheet({
               {`This will remove "${reportTitle}" from your inbox. Your feedback is saved on the report and helps the agent.`}
             </Text>
 
-            <Text className="mt-5 mb-2 font-semibold text-[12px] text-gray-10 uppercase tracking-wide">
-              Reason
-            </Text>
-            <View className="overflow-hidden rounded-xl bg-gray-2">
-              {DISMISSAL_REASON_OPTIONS.map((option, idx) => {
-                const selected = reason === option.value;
-                return (
-                  <Pressable
-                    key={option.value}
-                    onPress={() => setReason(option.value)}
-                    accessibilityLabel={`Dismissal reason: ${option.label}`}
-                    accessibilityRole="radio"
-                    accessibilityState={{ checked: selected }}
-                    hitSlop={4}
-                    className={`flex-row items-center justify-between px-3 py-3.5 active:bg-gray-3 ${
-                      idx > 0 ? "border-gray-5 border-t" : ""
-                    }`}
-                  >
-                    <Text className="flex-1 pr-3 text-[14px] text-gray-12">
-                      {option.label}
-                    </Text>
-                    {selected && (
-                      <Check size={16} color={themeColors.accent[9]} />
-                    )}
-                  </Pressable>
-                );
-              })}
-            </View>
+            <ReasonGroup
+              heading="Pause until a new matching signal"
+              options={PAUSE_OPTIONS}
+              selected={reason}
+              onSelect={setReason}
+              accentColor={themeColors.accent[9]}
+            />
+
+            <ReasonGroup
+              heading="Don't surface again"
+              options={HIDE_OPTIONS}
+              selected={reason}
+              onSelect={setReason}
+              accentColor={themeColors.accent[9]}
+            />
 
             <Text className="mt-5 mb-2 font-semibold text-[12px] text-gray-10 uppercase tracking-wide">
-              Note (optional)
+              Details (optional)
             </Text>
             <TextInput
               value={note}
-              onChangeText={setNote}
-              placeholder="Add detail so the agent can learn"
+              onChangeText={(value) => {
+                setNote(value);
+                if (reason === null && value.trim()) {
+                  setReason("other");
+                }
+              }}
+              placeholder="What should the agent know?"
               placeholderTextColor={themeColors.gray[9]}
               multiline
               numberOfLines={3}
@@ -193,6 +202,15 @@ export function DismissReportSheet({
               className="min-h-[88px] rounded-xl bg-gray-2 px-3 py-3 text-[14px] text-gray-12"
               style={{ textAlignVertical: "top" }}
             />
+
+            {outcome && (
+              <Text
+                accessibilityLiveRegion="polite"
+                className="mt-3 text-[13px] text-gray-11"
+              >
+                {outcome}
+              </Text>
+            )}
 
             {displayedError && (
               <Text className="mt-3 text-[13px] text-status-error">
@@ -225,5 +243,50 @@ export function DismissReportSheet({
         </View>
       </KeyboardAvoidingView>
     </Modal>
+  );
+}
+
+function ReasonGroup({
+  heading,
+  options,
+  selected,
+  onSelect,
+  accentColor,
+}: {
+  heading: string;
+  options: readonly (typeof DISMISSAL_REASON_OPTIONS)[number][];
+  selected: DismissalReasonOptionValue | null;
+  onSelect: (value: DismissalReasonOptionValue) => void;
+  accentColor: string;
+}) {
+  return (
+    <View accessibilityRole="radiogroup" accessibilityLabel={heading}>
+      <Text className="mt-5 mb-2 font-semibold text-[12px] text-gray-10 uppercase tracking-wide">
+        {heading}
+      </Text>
+      <View className="overflow-hidden rounded-xl bg-gray-2">
+        {options.map((option, idx) => {
+          const isSelected = selected === option.value;
+          return (
+            <Pressable
+              key={option.value}
+              onPress={() => onSelect(option.value)}
+              accessibilityLabel={`Dismissal reason: ${option.label}`}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: isSelected }}
+              hitSlop={4}
+              className={`flex-row items-center justify-between px-3 py-3.5 active:bg-gray-3 ${
+                idx > 0 ? "border-gray-5 border-t" : ""
+              }`}
+            >
+              <Text className="flex-1 pr-3 text-[14px] text-gray-12">
+                {option.label}
+              </Text>
+              {isSelected && <Check size={16} color={accentColor} />}
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
   );
 }

@@ -5,6 +5,8 @@ import { GENERATED_TOOLS } from '@/tools/generated/notebooks'
 import { addCellHandler } from '@/tools/notebooks/addCell'
 import { createMarkdownHandler } from '@/tools/notebooks/createMarkdown'
 import { deleteCellHandler } from '@/tools/notebooks/deleteCell'
+import { runNotebookHandler } from '@/tools/notebooks/runNotebook'
+import { runNotebookStatusHandler } from '@/tools/notebooks/runNotebookStatus'
 import { setVariablesHandler } from '@/tools/notebooks/setVariables'
 import { updateCellHandler } from '@/tools/notebooks/updateCell'
 import { formatNotebookWidgetCatalogForAgents } from '@/tools/notebooks/widgetCatalog'
@@ -24,6 +26,8 @@ interface MockState {
     saveBodies: any[]
     runBodies: any[]
     runStatusResponses: any[]
+    notebookRunStatuses: any[]
+    notebookRunStartBodies: any[]
     createBodies: any[]
     patchBodies: any[]
     // Cells the sql_v2 state endpoint reports. Supplied per test: the spans are the backend's
@@ -59,6 +63,13 @@ function createMockContext(state: MockState): Context {
                 cells: state.stateCells ?? [],
             }
         }
+        if (opts.method === 'GET' && /\/runs\//.test(path)) {
+            const next = state.notebookRunStatuses.shift()
+            if (!next) {
+                throw new Error('No queued notebook run status')
+            }
+            return next
+        }
         if (opts.method === 'GET') {
             return {
                 short_id: 'aBcD1234',
@@ -76,6 +87,10 @@ function createMockContext(state: MockState): Context {
                 version: state.version,
                 variables: state.variables,
             }
+        }
+        if (opts.method === 'POST' && path.endsWith('/runs/')) {
+            state.notebookRunStartBodies.push(opts.body)
+            return { run_id: 'nbrun-1', cell_count: 2, starts_sandbox: false, sandbox_hourly_price: null }
         }
         if (opts.method === 'POST' && path.endsWith('/sql_v2/run/')) {
             state.runBodies.push(opts.body)
@@ -125,6 +140,8 @@ function makeState(markdown: string, variables: any[] = []): MockState {
         saveBodies: [],
         runBodies: [],
         runStatusResponses: [],
+        notebookRunStatuses: [],
+        notebookRunStartBodies: [],
         createBodies: [],
         patchBodies: [],
     }
@@ -313,18 +330,18 @@ describe('notebook cell tools', () => {
             cell_type: 'markdown',
             markdown: 'Some **notes**.',
         })
-        await addCellHandler(context, {
+        const second = await addCellHandler(context, {
             notebook_id: 'aBcD1234',
             cell_type: 'markdown',
             markdown: 'More notes.',
         })
 
-        expect(result).toEqual({})
         expect(state.runBodies).toHaveLength(0)
         // Each cell is a node of its own: one blank line would fold consecutive prose cells
-        // into a single card in the editor, two keeps them separate.
+        // into a single card in the editor, two keeps them separate. The anchor above each one
+        // gives the block an id that survives a later edit to its text.
         expect(state.saveBodies[1].content.content[0].attrs.markdown).toBe(
-            '# Doc\n\n\nSome **notes**.\n\n\nMore notes.\n'
+            `# Doc\n\n\n<!--ph:${result.node_id}-->\nSome **notes**.\n\n\n<!--ph:${second.node_id}-->\nMore notes.\n`
         )
     })
 
@@ -665,6 +682,177 @@ describe('notebook cell tools', () => {
             ],
         })
     })
+    describe('markdown block anchors', () => {
+        const DOC = '# Doc\n\n\nFirst paragraph.\n\n\nSecond paragraph.\n'
+        // Span of "First paragraph." in DOC, as the backend's block walk reports it.
+        const FIRST = { node_id: 'mdp-abc-0', cell_type: 'markdown', code: 'First paragraph.', start: 8, end: 24 }
+
+        it('places a cell directly after the addressed paragraph', async () => {
+            const state = makeState(DOC)
+            state.stateCells = [FIRST]
+            state.runStatusResponses.push(DONE_STATUS)
+            const context = createMockContext(state)
+
+            const result = await addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'sql',
+                code: 'select 1',
+                after_node_id: FIRST.node_id,
+            })
+
+            const inserted = state.saveBodies[0].content.content[0].attrs.markdown
+            expect(inserted.indexOf('<SQLV2 ')).toBeGreaterThan(inserted.indexOf('First paragraph.'))
+            expect(inserted.indexOf('<SQLV2 ')).toBeLessThan(inserted.indexOf('Second paragraph.'))
+            expect(inserted).toContain(`nodeId="${result.node_id}"`)
+        })
+
+        it.each([
+            { label: 'LF', doc: DOC },
+            { label: 'CRLF', doc: DOC.replaceAll('\n', '\r\n') },
+        ])('re-locates the paragraph by its text in a $label document', async ({ doc }) => {
+            const state = makeState(doc)
+            // An edit above the anchor shifts every later span, so the offsets the caller read
+            // point into the wrong place while the block itself is untouched.
+            state.stateCells = [{ ...FIRST, start: FIRST.start + 12, end: FIRST.end + 12 }]
+            const context = createMockContext(state)
+
+            const result = await addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'markdown',
+                markdown: 'Inserted note.',
+                after_node_id: FIRST.node_id,
+            })
+
+            const inserted = state.saveBodies[0].content.content[0].attrs.markdown
+            const [before, after] = doc.split(/(?<=First paragraph\.)[\r\n]+/)
+            expect(inserted).toBe(`${before}\n\n\n<!--ph:${result.node_id}-->\nInserted note.\n\n\n${after}`)
+        })
+
+        it.each([
+            {
+                label: 'an id that names no block',
+                cells: [],
+                params: { after_node_id: 'mdp-missing-0' },
+                expected: /No block with node_id mdp-missing-0/,
+            },
+            {
+                label: 'an id that names two blocks that read the same',
+                cells: [FIRST, { ...FIRST, start: 27, end: 43 }],
+                params: { after_node_id: FIRST.node_id },
+                expected: /names 2 blocks/,
+            },
+        ])('refuses $label and writes nothing', async ({ cells, params, expected }) => {
+            const state = makeState(DOC)
+            state.stateCells = cells
+            const context = createMockContext(state)
+
+            await expect(
+                addCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    cell_type: 'markdown',
+                    markdown: 'Inserted note.',
+                    ...params,
+                })
+            ).rejects.toThrow(expected)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
+        const FENCE = '```python\nx = 1\n\ny = 2\n```'
+
+        // Every row carries offsets from before an edit above the block, so the lookup cannot take
+        // them and must find the block by its stored id.
+        it.each([
+            {
+                label: 'identical prose sits nearby',
+                doc: '<!--ph:phb-one-->\nShared text.\n\n\nShared text.\n',
+                cell: { node_id: 'phb-one', cell_type: 'markdown', code: 'Shared text.', start: 32, end: 44 },
+                expected: (id: string) =>
+                    `<!--ph:phb-one-->\nShared text.\n\n\n<!--ph:${id}-->\nInserted note.\n\n\nShared text.\n`,
+            },
+            {
+                label: 'the document uses CRLF',
+                doc: '<!--ph:phb-one-->\r\nShared text.\r\n\r\n\r\nTail.\r\n',
+                cell: { node_id: 'phb-one', cell_type: 'markdown', code: 'Shared text.', start: 2, end: 14 },
+                expected: (id: string) =>
+                    `<!--ph:phb-one-->\r\nShared text.\n\n\n<!--ph:${id}-->\nInserted note.\n\n\nTail.\r\n`,
+            },
+            {
+                label: 'the block is a fence that holds a blank line',
+                doc: `<!--ph:phb-one-->\n${FENCE}\n\n\nTail.\n`,
+                cell: { node_id: 'phb-one', cell_type: 'markdown', code: FENCE, start: 2, end: 2 + FENCE.length },
+                expected: (id: string) =>
+                    `<!--ph:phb-one-->\n${FENCE}\n\n\n<!--ph:${id}-->\nInserted note.\n\n\nTail.\n`,
+            },
+        ])('places a cell after a stored id when $label', async ({ doc, cell, expected }) => {
+            const state = makeState(doc)
+            state.stateCells = [cell]
+            const context = createMockContext(state)
+
+            const result = await addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'markdown',
+                markdown: 'Inserted note.',
+                after_node_id: 'phb-one',
+            })
+
+            expect(state.saveBodies[0].content.content[0].attrs.markdown).toBe(expected(result.node_id!))
+        })
+
+        it.each([
+            {
+                label: 'a derived id',
+                doc: '# Doc\n\n\nUpdated First paragraph. Now longer.\n',
+                cell: FIRST,
+                expected: /no longer a block of its own/,
+            },
+            {
+                // The text grew on the same line after the state read, so the old span still
+                // slices back to the source. Only the notebook version shows that it is stale.
+                label: 'a derived id at the same offsets',
+                doc: '# Doc\n\n\nFirst paragraph. Now longer.\n',
+                cell: FIRST,
+                expected: /no longer a block of its own/,
+            },
+            {
+                label: 'a stored id',
+                doc: '# Doc\n\n\n<!--ph:phb-one-->\nFirst paragraph. Now longer.\n',
+                cell: { ...FIRST, node_id: 'phb-one' },
+                expected: /changed since it was read/,
+            },
+        ])('refuses $label whose block outgrew the text that was read', async ({ doc, cell, expected }) => {
+            const state = makeState(doc)
+            state.stateCells = [cell]
+            state.stateVersion = state.version - 1
+            const context = createMockContext(state)
+
+            await expect(
+                addCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    cell_type: 'markdown',
+                    markdown: 'Inserted note.',
+                    after_node_id: cell.node_id,
+                })
+            ).rejects.toThrow(expected)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
+        it('refuses a paragraph that vanished between the read and the write', async () => {
+            const state = makeState('# Doc\n\n\nSecond paragraph.\n')
+            state.stateCells = [FIRST]
+            const context = createMockContext(state)
+
+            await expect(
+                addCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    cell_type: 'markdown',
+                    markdown: 'Inserted note.',
+                    after_node_id: FIRST.node_id,
+                })
+            ).rejects.toThrow(/no longer a block of its own/)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+    })
+
     describe('markdown cells', () => {
         const DOC = ['# Title', '', 'First paragraph.', '', 'Second paragraph.'].join('\n')
         // Spans of "First paragraph." in DOC, as the backend reports them.
@@ -761,6 +949,22 @@ describe('notebook cell tools', () => {
             expect(state.saveBodies).toHaveLength(0)
         })
 
+        // The prefix only hints at the cell type. A tag holding an id that reads like a markdown
+        // block id still owns that id, so a code update must reach the tag.
+        it('updates a cell tag whose own nodeId reads like a markdown block id', async () => {
+            const state = makeState('<SQLV2 nodeId="phb-tagged" code="select 1" returnVariable="df" />')
+            state.runStatusResponses.push(DONE_STATUS)
+            const context = createMockContext(state)
+
+            await updateCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                node_id: 'phb-tagged',
+                code: 'select 2',
+            })
+
+            expect(state.saveBodies[0].content.content[0].attrs.markdown).toContain('code="select 2"')
+        })
+
         it('refuses a node_id that names more than one block', async () => {
             const state = makeState(DOC)
             state.stateCells = [FIRST, { ...FIRST, code: 'A different block that hashed the same.' }]
@@ -826,5 +1030,241 @@ describe('notebook cell tools', () => {
             )
             expect(state.saveBodies).toHaveLength(0)
         })
+    })
+    const RUN_MARKDOWN = [
+        '# Doc',
+        '',
+        '<SQLV2 nodeId="first" code="select 1" returnVariable="df" />',
+        '',
+        '<PythonV2 nodeId="second" code="df.head()" returnVariable="out" />',
+        '',
+    ].join('\n')
+
+    const runCell = (
+        node_id: string,
+        dataframe_name: string,
+        status: string | null,
+        run_id: string | null
+    ): Record<string, unknown> => ({
+        node_id,
+        cell_type: node_id === 'second' ? 'python' : 'sql',
+        dataframe_name,
+        run_id,
+        status,
+        error: null,
+    })
+
+    const notebookRunStatus = (
+        status: string,
+        cells: any[],
+        failed_node_id: string | null = null
+    ): Record<string, unknown> => ({
+        run_id: 'nbrun-1',
+        status,
+        trigger: 'mcp',
+        variables: [],
+        cell_count: 2,
+        current_index: 0,
+        current_node_id: null,
+        failed_node_id,
+        error: null,
+        cells,
+        created_at: '2026-01-01T00:00:00Z',
+        finished_at: null,
+    })
+
+    it('run notebook writes each landed result back and batches one save per poll', async () => {
+        vi.useFakeTimers()
+        const state = makeState(RUN_MARKDOWN)
+        state.notebookRunStatuses.push(
+            notebookRunStatus('running', [
+                runCell('first', 'df', 'done', 'cell-1'),
+                runCell('second', 'out', null, null),
+            ]),
+            notebookRunStatus('done', [
+                runCell('first', 'df', 'done', 'cell-1'),
+                runCell('second', 'out', 'done', 'cell-2'),
+            ])
+        )
+        state.runStatusResponses.push(DONE_STATUS, DONE_STATUS)
+        const context = createMockContext(state)
+
+        const pending = runNotebookHandler(context, { notebook_id: 'aBcD1234', wait: true })
+        await vi.advanceTimersByTimeAsync(10_000)
+        const result: any = await pending
+
+        expect(result).toMatchObject({ run_id: 'nbrun-1', status: 'done', cell_count: 2, completed_count: 2 })
+        // One save per poll, not one per cell: two cells landed across two polls.
+        expect(state.saveBodies).toHaveLength(2)
+        const markdown = state.saveBodies[1].content.content[0].attrs.markdown
+        expect(markdown).toContain('runId="cell-1"')
+        expect(markdown).toContain('runId="cell-2"')
+        expect(result.cells[0].run).toMatchObject({ run_id: 'cell-1', status: 'done', row_count: 1 })
+    })
+
+    it('run status writes a large catch-up in bounded batches', async () => {
+        // An agent that starts a run and comes back later finds every cell landed at once.
+        // One save per cell-batch keeps the raw envelopes it holds bounded.
+        const cells = Array.from({ length: 12 }, (_, i) => `c${i}`)
+        const state = makeState(
+            [
+                '# Doc',
+                '',
+                ...cells.map((id) => `<SQLV2 nodeId="${id}" code="select 1" returnVariable="${id}" />\n`),
+            ].join('\n')
+        )
+        state.notebookRunStatuses.push({
+            ...notebookRunStatus('done', []),
+            cell_count: cells.length,
+            cells: cells.map((id, i) => runCell(id, id, 'done', `cell-${i}`)),
+        })
+        cells.forEach(() => state.runStatusResponses.push(DONE_STATUS))
+        const context = createMockContext(state)
+
+        const result: any = await runNotebookStatusHandler(context, {
+            notebook_id: 'aBcD1234',
+            run_id: 'nbrun-1',
+        })
+
+        expect(result.completed_count).toBe(12)
+        // 12 cells at a cap of 10 is two saves, not one unbounded save and not twelve.
+        expect(state.saveBodies).toHaveLength(2)
+        const markdown = state.saveBodies[1].content.content[0].attrs.markdown
+        expect(markdown).toContain('runId="cell-0"')
+        expect(markdown).toContain('runId="cell-11"')
+    })
+
+    it('run notebook sets the variables in the same call', async () => {
+        const state = makeState(RUN_MARKDOWN)
+        state.notebookRunStatuses.push(notebookRunStatus('done', []))
+        const context = createMockContext(state)
+
+        await runNotebookHandler(context, {
+            notebook_id: 'aBcD1234',
+            wait: true,
+            variables: [{ name: 'week_start', type: 'date', value: '2026-01-05' }],
+        })
+
+        expect(state.notebookRunStartBodies[0]).toEqual({
+            variables: [{ name: 'week_start', type: 'date', value: '2026-01-05' }],
+        })
+    })
+
+    it('run notebook reports the cell that stopped the run', async () => {
+        const state = makeState(RUN_MARKDOWN)
+        state.notebookRunStatuses.push(
+            notebookRunStatus(
+                'failed',
+                [runCell('first', 'df', 'failed', 'cell-1'), runCell('second', 'out', null, null)],
+                'first'
+            )
+        )
+        state.runStatusResponses.push({ status: 'failed', result: null, error: 'Unknown table' })
+        const context = createMockContext(state)
+
+        const result: any = await runNotebookHandler(context, { notebook_id: 'aBcD1234', wait: true })
+
+        expect(result).toMatchObject({ status: 'failed', failed_cell: 'first', completed_count: 0 })
+        expect(result.cells[1].status).toBeNull()
+    })
+
+    it('run notebook hands the agent the status tool when the budget ends', async () => {
+        vi.useFakeTimers()
+        const state = makeState(RUN_MARKDOWN)
+        for (let i = 0; i < 60; i++) {
+            state.notebookRunStatuses.push(
+                notebookRunStatus('running', [
+                    runCell('first', 'df', 'running', 'cell-1'),
+                    runCell('second', 'out', null, null),
+                ])
+            )
+        }
+        const context = createMockContext(state)
+
+        const pending = runNotebookHandler(context, { notebook_id: 'aBcD1234', wait: true })
+        await vi.advanceTimersByTimeAsync(60_000)
+        const result: any = await pending
+
+        expect(result.status).toBe('running')
+        expect(result.hint).toContain('notebooks-run-status')
+    })
+
+    it('run status does not roll a cell back to an older run', async () => {
+        // Finish run A, finish run B, then read A's status. The cell carries B's result, and
+        // A's rows must not replace them: run ids are uuid7, so the one already there sorting
+        // above this one means a later execution produced it.
+        const state = makeState(
+            ['# Doc', '', '<SQLV2 nodeId="first" code="select 1" returnVariable="df" runId="cell-b" />', ''].join('\n')
+        )
+        state.notebookRunStatuses.push(notebookRunStatus('done', [runCell('first', 'df', 'done', 'cell-a')]))
+        state.runStatusResponses.push(DONE_STATUS)
+        const context = createMockContext(state)
+
+        await runNotebookStatusHandler(context, { notebook_id: 'aBcD1234', run_id: 'nbrun-a' })
+
+        expect(state.saveBodies).toHaveLength(0)
+        expect(state.markdown).toContain('runId="cell-b"')
+    })
+
+    it('a run that produced nothing clears the rows the previous one left', async () => {
+        // Rerunning a cell that already has rows, and failing, used to update runId and leave
+        // the old result attached. Reopening then shows those rows as this run's output, and
+        // the editor skips recovery for a cell that already carries one.
+        const state = makeState(
+            [
+                '# Doc',
+                '',
+                '<SQLV2 nodeId="first" code="select 1" returnVariable="df" runId="cell-1" result={{"columns":["x"],"first_page":[[1]]}} />',
+                '',
+            ].join('\n')
+        )
+        state.notebookRunStatuses.push(notebookRunStatus('done', [runCell('first', 'df', 'failed', 'cell-2')]))
+        state.runStatusResponses.push({ status: 'failed', result: null, error: 'boom' })
+        const context = createMockContext(state)
+
+        await runNotebookStatusHandler(context, { notebook_id: 'aBcD1234', run_id: 'nbrun-1' })
+
+        const markdown = state.saveBodies[0].content.content[0].attrs.markdown
+        expect(markdown).toContain('runId="cell-2"')
+        expect(markdown).not.toContain('result=')
+    })
+
+    it('a failed write-back still hands back the run id', async () => {
+        // The run started and its cells may be executing. Raising bare would take the id with
+        // it, and the status tool needs that id — starting over either collides with this run
+        // or repeats it once it finishes.
+        const state = makeState(RUN_MARKDOWN)
+        state.notebookRunStatuses.push(notebookRunStatus('done', [runCell('first', 'df', 'done', 'cell-1')]))
+        state.runStatusResponses.push(DONE_STATUS)
+        const context = createMockContext(state)
+        const passThrough = context.api.request as any
+        ;(context.api as any).request = vi.fn(async (opts: any) => {
+            if (opts.method === 'POST' && (opts.path ?? '').endsWith('/collab/markdown_save/')) {
+                throw new Error('an editor holds the document')
+            }
+            return passThrough(opts)
+        })
+
+        const result: any = await runNotebookHandler(context, { notebook_id: 'aBcD1234', wait: true })
+
+        expect(result.run_id).toBe('nbrun-1')
+        expect(result.hint).toContain('notebooks-run-status')
+    })
+
+    it('run status leaves a result the document already carries alone', async () => {
+        const state = makeState(
+            ['# Doc', '', '<SQLV2 nodeId="first" code="select 1" returnVariable="df" runId="cell-1" />', ''].join('\n')
+        )
+        state.notebookRunStatuses.push(notebookRunStatus('done', [runCell('first', 'df', 'done', 'cell-1')]))
+        state.runStatusResponses.push(DONE_STATUS)
+        const context = createMockContext(state)
+
+        const result: any = await runNotebookStatusHandler(context, {
+            notebook_id: 'aBcD1234',
+            run_id: 'nbrun-1',
+        })
+
+        expect(result.status).toBe('done')
+        expect(state.saveBodies).toHaveLength(0)
     })
 })

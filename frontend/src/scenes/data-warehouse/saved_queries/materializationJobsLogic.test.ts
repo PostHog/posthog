@@ -16,6 +16,7 @@ import { MaterializationRunActions } from 'products/data_warehouse/frontend/shar
 
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
+import { MaterializationStatusPanel } from './MaterializationStatusPanel'
 
 const ELIGIBLE_CHECK = {
     eligible: true,
@@ -93,6 +94,61 @@ describe('materializationJobsLogic', () => {
         logic?.unmount()
         featureFlagLogic.unmount()
         jest.useRealTimers()
+    })
+
+    it.each([
+        ['shows a first run with incremental settings', 'full_refresh', 'first run', true],
+        ['shows a completed incremental run', 'incremental', null, true],
+        ['hides full-refresh-only history', 'full_refresh', 'not configured for incremental materialization', false],
+    ])('%s', async (_name, runMode, fullRefreshReason, showsRefreshMode) => {
+        const mocks = apiMocks({
+            isMaterialized: true,
+            incremental: {
+                enabled: false,
+                unique_key: ['day'],
+                incremental_key: 'day',
+            },
+            savedQueryExtras: { has_incremental_history: showsRefreshMode },
+        })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = [
+            200,
+            {
+                count: 1,
+                results: [
+                    {
+                        id: 'run-1',
+                        status: 'Completed',
+                        run_mode: runMode,
+                        full_refresh_reason: fullRefreshReason,
+                        rows_materialized: 20,
+                    },
+                ],
+            },
+        ]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess', 'loadDataModelingJobsSuccess'])
+
+        render(
+            createElement(MaterializationStatusPanel, {
+                viewId: 'view-1',
+                showRunActions: false,
+                showStatusSummary: false,
+            })
+        )
+
+        // The settings section carries the same heading text, so match the table header cell itself.
+        const showsRefreshModeColumn = Array.from(document.querySelectorAll('th')).some(
+            (header) => header.textContent?.trim() === 'Refresh mode'
+        )
+        expect(showsRefreshModeColumn).toBe(showsRefreshMode)
+        if (fullRefreshReason === 'first run') {
+            expect(screen.getByLabelText('Full refresh. Reason: first run.')).toBeTruthy()
+        }
+        if (runMode === 'incremental') {
+            expect(screen.getByText('Incremental')).toBeTruthy()
+        }
     })
 
     it('pages through older runs without changing the latest run or growing polling requests', async () => {
@@ -192,6 +248,43 @@ describe('materializationJobsLogic', () => {
         ])
         expect(logic.values.deletingView).toBe(false)
         expect(router.values.location.pathname).toBe(path)
+    })
+
+    it('reloads the view list after a resume so the sidebar clears its paused icon', async () => {
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.post!['/api/projects/:team_id/warehouse_saved_queries/:id/resume/'] = [200, { resumed: true }]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess'])
+        await expectLogic(logic, () => logic.actions.resumeMaterialization()).toDispatchActions([
+            'loadDataWarehouseSavedQueries',
+        ])
+    })
+
+    it.each([
+        ['the observed run ends', { id: 'run-1', status: 'Running' }, { id: 'run-1', status: 'Failed' }],
+        ['a run fails between polls', { id: 'run-1', status: 'Completed' }, { id: 'run-2', status: 'Failed' }],
+        ['a run succeeds between polls', { id: 'run-1', status: 'Failed' }, { id: 'run-2', status: 'Completed' }],
+    ])('reloads the view list once when %s, not on every poll', async (_name, before, after) => {
+        let newestJob = before
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = () => [200, { count: 1, results: [newestJob] }]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataModelingJobsSuccess'])
+        await expectLogic(logic, () => logic.actions.loadDataModelingJobs())
+            .toDispatchActions(['loadDataModelingJobsSuccess'])
+            .toNotHaveDispatchedActions(['loadDataWarehouseSavedQueries'])
+        newestJob = after
+        await expectLogic(logic, () => logic.actions.loadDataModelingJobs()).toDispatchActions([
+            'loadDataModelingJobsSuccess',
+            'loadDataWarehouseSavedQueries',
+        ])
+        await expectLogic(logic, () => logic.actions.loadDataModelingJobs())
+            .toDispatchActions(['loadDataModelingJobsSuccess'])
+            .toNotHaveDispatchedActions(['loadDataWarehouseSavedQueries'])
     })
 
     // Another product owns these views: a managed viewset refuses the delete outright, and deleting

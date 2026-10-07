@@ -12,7 +12,12 @@ import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
-import { EntityFilterInfo, getSeriesRename } from 'lib/components/EntityFilterInfo'
+import {
+    DisplayableEntity,
+    EntityFilterInfo,
+    getSeriesRename,
+    toDisplayEntityFilter,
+} from 'lib/components/EntityFilterInfo'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { AUTOCAPTURE_INTERACTIONS } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
@@ -43,9 +48,10 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { EntityFilter, EventDefinition, PropertyDefinition } from '~/types'
+import { EventDefinition, PropertyDefinition } from '~/types'
 
 import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
+import { TaxonomicEventMatchSuggestions } from './TaxonomicEventMatchSuggestions'
 
 export interface InfiniteListProps {
     popupAnchorElement: HTMLDivElement | null
@@ -105,7 +111,7 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
                 </>
             }
         >
-            <LemonTag>Stale</LemonTag>
+            <LemonTag className="ml-auto shrink-0">Stale</LemonTag>
         </Tooltip>
     )
 }
@@ -155,7 +161,7 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
                 </>
             }
         >
-            <LemonTag>Not seen</LemonTag>
+            <LemonTag className="ml-auto shrink-0">Not seen</LemonTag>
         </Tooltip>
     )
 }
@@ -167,15 +173,14 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
  * the user clicked.
  */
 const getSelectedItemRenameMeta = (
-    selectedItemMeta: EntityFilter | null | undefined,
+    selectedItemMeta: DisplayableEntity | null | undefined,
     itemValue: string | number | null | undefined
-): EntityFilter | null => {
-    if (
-        !selectedItemMeta ||
-        selectedItemMeta.id == null ||
-        itemValue == null ||
-        String(selectedItemMeta.id) !== String(itemValue)
-    ) {
+): DisplayableEntity | null => {
+    if (!selectedItemMeta || itemValue == null) {
+        return null
+    }
+    const { id } = toDisplayEntityFilter(selectedItemMeta)
+    if (id == null || String(id) !== String(itemValue)) {
         return null
     }
     return getSeriesRename(selectedItemMeta) ? selectedItemMeta : null
@@ -207,7 +212,7 @@ const renderItemContents = ({
     itemGroup: TaxonomicFilterGroup
     eventNames: string[]
     isActive: boolean
-    selectedRenameMeta?: EntityFilter | null
+    selectedRenameMeta?: DisplayableEntity | null
 }): JSX.Element | string => {
     if (isQuickFilterItem(item)) {
         const icon = itemGroup.getIcon ? (
@@ -267,8 +272,10 @@ const renderItemContents = ({
         (listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
             listGroupType === TaxonomicFilterGroupType.EventProperties ||
             listGroupType === TaxonomicFilterGroupType.EventFeatureFlags) &&
-        (item as PropertyDefinition).is_seen_on_filtered_events !== null &&
-        !(item as PropertyDefinition).is_seen_on_filtered_events
+        // Only an explicit false means "not seen on these events". The flag is undefined
+        // for items the backend never scored (virtual properties, suggested-filter rows
+        // synthesized from primary properties), and those must not be tagged.
+        (item as PropertyDefinition).is_seen_on_filtered_events === false
 
     const icon = rowContentsIcon(item, itemGroup, isActive)
 
@@ -371,7 +378,7 @@ interface InfiniteListRowProps {
     groupType: TaxonomicFilterGroupType | undefined
     value: string | number | null | undefined
     selectedProperties: TaxonomicFilterGroupValueMap
-    selectedItemMeta: EntityFilter | null | undefined
+    selectedItemMeta: DisplayableEntity | null | undefined
     eventNames: string[]
     highlightedIndex: number
     isActiveTab: boolean
@@ -470,8 +477,7 @@ export const InfiniteListRow = ({
         return (
             <div style={style} className="flex flex-col items-center justify-center gap-1 pt-2">
                 <IconSearch className="text-3xl text-tertiary" />
-                <span className="text-secondary text-center text-xs">Start searching and we'll suggest filters...</span>
-                <SuggestedFiltersSearchHint taxonomicGroupTypes={taxonomicGroupTypes} />
+                <SuggestedFiltersMessage taxonomicGroupTypes={taxonomicGroupTypes} className="text-xs" />
             </div>
         )
     }
@@ -543,11 +549,8 @@ export const InfiniteListRow = ({
                 data-attr="prop-filter-event-option-custom"
             >
                 <div className="flex items-center gap-2">
-                    <span className="text-muted">Select event:</span>
+                    <span className="text-muted">Use event name:</span>
                     <span className="font-medium">{trimmedSearchQuery}</span>
-                    <LemonTag type="caution" size="small">
-                        Not seen yet
-                    </LemonTag>
                 </div>
             </LemonRow>
         )
@@ -607,6 +610,7 @@ export const InfiniteListRow = ({
             localListGroup,
             fallbackGroup: group ?? itemGroup,
         })
+        const itemTag = resolvedItemGroup.getTag?.(item)
 
         return (
             <div
@@ -638,6 +642,9 @@ export const InfiniteListRow = ({
                     isActive,
                     selectedRenameMeta: isSelected ? getSelectedItemRenameMeta(selectedItemMeta, itemValue) : null,
                 })}
+                {/* `empty:hidden` because a group's `getTag` returns an element whether or not it renders
+                    anything, and an empty `ml-auto` span would shift every row's pin icon. */}
+                {itemTag ? <span className="flex shrink-0 ml-auto pl-2 empty:hidden">{itemTag}</span> : null}
                 {isCrossGroupItem && (
                     <LemonTag size="small" type="highlight">
                         {localListLabel ? `${itemGroup.name} - ${localListLabel}` : itemGroup.name}
@@ -701,6 +708,7 @@ const MAX_OTHER_GROUP_SWITCHES = 3
 function InfiniteListEmptyState(): JSX.Element {
     const {
         searchQuery,
+        activeTab,
         taxonomicGroups,
         taxonomicGroupTypes,
         metaGroupTypes,
@@ -721,6 +729,11 @@ function InfiniteListEmptyState(): JSX.Element {
         !emptySearchQuery &&
         !includeStaleEvents &&
         (listGroupType === TaxonomicFilterGroupType.Events || listGroupType === TaxonomicFilterGroupType.CustomEvents)
+    // Inactive tabs stay mounted but hidden, so only the open tab's empty state may ask for suggestions.
+    const canOfferEventMatch =
+        !emptySearchQuery &&
+        listGroupType === activeTab &&
+        (listGroupType === TaxonomicFilterGroupType.Events || isSuggestedFilters)
 
     // When this tab has no results but the aggregated "all" (suggested filters) section does, offer a
     // jump there so the user doesn't have to guess which tab their match lives in.
@@ -759,8 +772,7 @@ function InfiniteListEmptyState(): JSX.Element {
             {suggestedFiltersBeforeSearching ? (
                 <>
                     <IconSearch className="text-5xl text-tertiary" />
-                    <span className="text-secondary text-center">Start searching and we'll suggest filters...</span>
-                    <SuggestedFiltersSearchHint taxonomicGroupTypes={taxonomicGroupTypes} />
+                    <SuggestedFiltersMessage taxonomicGroupTypes={taxonomicGroupTypes} />
                 </>
             ) : needsMoreSearchCharacters ? (
                 <>
@@ -800,6 +812,7 @@ function InfiniteListEmptyState(): JSX.Element {
                             </>
                         )}
                     </span>
+                    {canOfferEventMatch && <TaxonomicEventMatchSuggestions />}
                     {canOfferStaleToggle && (
                         <LemonButton
                             type="secondary"
@@ -1057,11 +1070,24 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
     )
 }
 
-function SuggestedFiltersSearchHint({
+function SuggestedFiltersMessage({
     taxonomicGroupTypes,
+    className,
 }: {
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
-}): JSX.Element | null {
+    className?: string
+}): JSX.Element {
+    const examples = suggestedFiltersSearchExamples(taxonomicGroupTypes)
+    return (
+        <span className={clsx('text-secondary text-center', className)}>
+            {examples
+                ? `Type a value like ${examples} and we'll suggest a filter for it`
+                : "Start typing and we'll suggest filters"}
+        </span>
+    )
+}
+
+function suggestedFiltersSearchExamples(taxonomicGroupTypes: TaxonomicFilterGroupType[]): string | null {
     const groupSet = new Set(taxonomicGroupTypes)
     const hints: string[] = []
     if (groupSet.has(TaxonomicFilterGroupType.EmailAddresses)) {
@@ -1076,13 +1102,11 @@ function SuggestedFiltersSearchHint({
     if (hints.length === 0) {
         return null
     }
-    const joined =
-        hints.length === 1
-            ? hints[0]
-            : hints.length === 2
-              ? `${hints[0]} or ${hints[1]}`
-              : `${hints.slice(0, -1).join(', ')}, or ${hints[hints.length - 1]}`
-    return <span className="text-center text-secondary italic">Try searching for {joined}</span>
+    return hints.length === 1
+        ? hints[0]
+        : hints.length === 2
+          ? `${hints[0]} or ${hints[1]}`
+          : `${hints.slice(0, -1).join(', ')}, or ${hints[hints.length - 1]}`
 }
 
 function resolveItemRendering({

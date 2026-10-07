@@ -4,9 +4,16 @@ Each batch is written to a key derived from the run and the batch index, so re-a
 overwrites its own object rather than appending a second copy. Nothing here needs a staging
 area or a swap.
 
+That is also why this writer carries no publish stamp, unlike the SQL destinations. Publishing
+is one more object under the same run prefix, the manifest, and re-writing it says the same
+thing it said the first time. A redelivered final batch therefore rewrites its own object and
+its own manifest, and no object any earlier batch wrote is touched. A destination that
+publishes by swapping a staging table over the live one has no such property, which is what
+the stamp exists to cover there.
+
 Credentials, the client and its config come from batch exports' S3 destination:
 
-- `_get_s3_integration` resolves all three shapes an S3-family integration can take. A
+- `get_s3_integration` resolves all three shapes an S3-family integration can take. A
   role-based AWS integration keeps `aws_role_arn` in `config` with an empty `sensitive_config`,
   so reading key credentials off it raises. The AssumeRole flow behind it
   (`get_credentials_using_user_aws_role`) also refuses a role whose policy has no external-id
@@ -45,21 +52,25 @@ import botocore.exceptions
 from posthog.models.integration import AWSS3RoleBasedIntegration, S3CompatibleIntegration
 from posthog.models.team import Team
 
-from products.batch_exports.backend.service import AWSCredentials
-from products.batch_exports.backend.temporal.destinations.constants import S3_SUPPORTED_COMPRESSIONS
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+from products.batch_exports.backend.facade.contracts import AWSCredentials
+from products.batch_exports.backend.facade.destinations.s3 import (
+    S3_SUPPORTED_COMPRESSIONS,
     ConcurrentS3Consumer,
     IntermittentUploadPartTimeoutError,
     PolicyStatement,
-    _get_s3_integration,
     get_credentials_using_user_aws_role,
+    get_s3_integration,
     s3_client,
 )
-from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer
+from products.batch_exports.backend.facade.pipeline import ParquetStreamTransformer
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,
     DestinationRunContext,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    MISSING_INTEGRATION_DETAIL,
+    DestinationConfigurationError,
 )
 
 if TYPE_CHECKING:
@@ -87,10 +98,6 @@ MAX_RETRY_DELAY = ConcurrentS3Consumer.MAX_RETRY_DELAY
 EXPONENTIAL_BACKOFF_COEFFICIENT = ConcurrentS3Consumer.EXPONENTIAL_BACKOFF_COEFFICIENT
 
 RefreshCredentials = Callable[[], Awaitable[AWSCredentials]]
-
-
-class S3DestinationConfigurationError(ValueError):
-    """The destination's config cannot produce a valid S3 write."""
 
 
 @dataclass(frozen=False, kw_only=True)
@@ -263,19 +270,21 @@ class S3DestinationWriter:
         name = self._ctx.destination_name
 
         if not self._bucket:
-            raise S3DestinationConfigurationError(
-                f"Destination {name} has no bucket. Add a bucket to the destination, then run the sync again."
+            raise DestinationConfigurationError(
+                name, "The destination has no bucket. Add a bucket to the destination, then run the sync again."
             )
         if not self._region:
-            raise S3DestinationConfigurationError(
-                f"Destination {name} has no region. Set the region the bucket is in, for example 'us-east-1', "
-                "then run the sync again."
+            raise DestinationConfigurationError(
+                name,
+                "The destination has no region. Set the region the bucket is in, for example 'us-east-1', "
+                "then run the sync again.",
             )
         if self._compression not in SUPPORTED_COMPRESSIONS:
             supported = ", ".join(sorted(SUPPORTED_COMPRESSIONS))
-            raise S3DestinationConfigurationError(
-                f"Destination {name} uses the compression '{self._compression}', which parquet files cannot use. "
-                f"Pick one of: {supported}."
+            raise DestinationConfigurationError(
+                name,
+                f"The destination uses the compression '{self._compression}', which parquet files cannot use. "
+                f"Pick one of: {supported}.",
             )
 
     # --- keys -------------------------------------------------------------------------
@@ -299,9 +308,9 @@ class S3DestinationWriter:
         A writer is built per batch, so a client left open here leaks a session per batch.
         """
         if self._ctx.integration_id is None:
-            raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL)
 
-        integration = await _get_s3_integration(self._ctx.integration_id, self._ctx.team_id)
+        integration = await get_s3_integration(self._ctx.integration_id, self._ctx.team_id)
 
         endpoint_url: str | None = None
         refresh_credentials: RefreshCredentials | None = None

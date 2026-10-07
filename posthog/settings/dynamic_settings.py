@@ -197,6 +197,16 @@ CONSTANCE_CONFIG = {
         "Used to validate Slack events for example when unfurling links",
         str,
     ),
+    "SLACK_DEV_APP_CLIENT_ID": (
+        get_from_env("SLACK_DEV_APP_CLIENT_ID", default=""),
+        "OAuth client ID for the project-restricted Slack MCP connection",
+        str,
+    ),
+    "SLACK_DEV_APP_CLIENT_SECRET": (
+        get_from_env("SLACK_DEV_APP_CLIENT_SECRET", default=""),
+        "OAuth client secret for the project-restricted Slack MCP connection",
+        str,
+    ),
     "SUPPORT_SLACK_APP_CLIENT_ID": (
         get_from_env("SUPPORT_SLACK_APP_CLIENT_ID", default=""),
         "Used to enable the 'Add to Slack' button for the SupportHog Slack app.",
@@ -327,6 +337,18 @@ CONSTANCE_CONFIG = {
         'Per-team /flags request and response body logging. JSON object mapping team_id (string) to a non-empty list of flag-key wildcard patterns; the response is filtered to flags matching any pattern. "{}" disables logging entirely. Examples: \'{"123": ["my-feature", "checkout-*"]}\' logs only matching flag keys for team 123. To capture every flag (rare, noisy), use [\\"*\\"] explicitly. The Rust feature-flags service polls this every ~60s. Limits: at most 100 teams, 50 patterns per team, 256 bytes per pattern.',
         str,
     ),
+    "FLAG_EVALUATIONS_READS_FORCE_EVENTS": (
+        get_from_env("FLAG_EVALUATIONS_READS_FORCE_EVENTS", False, type_cast=str_to_bool),
+        "When on, every organization on flag_evaluations mode 1 reads its flag calls from the events table: the "
+        "feature flag Usage tab, the per-project counts on a flag's Projects tab, and event lists filtered to only "
+        "$feature_flag_called. Use it when the flag_evaluations table stops receiving rows. Organizations on mode 2 "
+        "keep reading flag_evaluations, because ingestion writes no flag calls to events for their teams in the "
+        "ingestion allowlist. "
+        "Stored modes and the flag_evaluations SQL table stay as they are, so turning it off restores every "
+        "organization. Takes up to a minute to apply. Pages that are already open need a reload to update the Usage "
+        "tab charts and the 90-day notes.",
+        bool,
+    ),
     "REDIRECT_APP_TO_US": (
         get_from_env("REDIRECT_APP_TO_US", False, type_cast=str_to_bool),
         "Temporary option to redirect all app traffic from app.posthog.com to us.posthog.com.",
@@ -384,6 +406,14 @@ CONSTANCE_CONFIG = {
         "CPU to match (dagster-k8s/config on the job). Clamped to 1-16; applies at the next run.",
         int,
     ),
+    "WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED": (
+        get_from_env("WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED", default=False, type_cast=str_to_bool),
+        "Whether web analytics warming also selects the query shapes teams ran under a saved filter "
+        "preset, below the usual demand floor. Bounded per team by the preset lane's own caps. The "
+        "flag is part of the selection cache key, so turning it off drops preset shapes on the next "
+        "run rather than at the end of the cache TTL.",
+        bool,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -421,6 +451,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_CLIENT_ID",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
+    "SLACK_DEV_APP_CLIENT_ID",
+    "SLACK_DEV_APP_CLIENT_SECRET",
     "SUPPORT_SLACK_APP_CLIENT_ID",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
@@ -438,6 +470,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "FLAGS_LOG_BODIES_TEAMS",
+    "FLAG_EVALUATIONS_READS_FORCE_EVENTS",
     "CLICKHOUSE_KILL_SWITCH",
     "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
     "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",
@@ -449,6 +482,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WEB_ANALYTICS_WARMING_MAX_SHAPES",
     "WEB_ANALYTICS_WARMING_SHARD_THREADS",
     "WEB_ANALYTICS_WARMING_SHARDS",
+    "WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
@@ -456,6 +490,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
 SECRET_SETTINGS = [
     "EMAIL_HOST_PASSWORD",
     "SLACK_APP_CLIENT_SECRET",
+    "SLACK_DEV_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",

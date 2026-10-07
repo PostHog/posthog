@@ -18,8 +18,16 @@ from pydantic.dataclasses import dataclass
 
 ERROR_TRACKING_ISSUE_SEVERITIES = ("low", "medium", "high", "critical")
 
-# Keep in sync with SOURCE_MAPS_DOCS_URL in sourceMapsFixWizardLogic.ts
+# Keep in sync with products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/sourceMapsFixWizardLogic.ts.
 SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
+
+
+@dataclass(frozen=True)
+class DocumentEmbeddingTable:
+    """One per-model embeddings table: the sharded storage table and the Distributed table that reads it."""
+
+    sharded_table: str
+    distributed_table: str
 
 
 @dataclass(frozen=True)
@@ -61,6 +69,25 @@ class ErrorTrackingExternalReference:
     id: UUID
     integration: ErrorTrackingExternalReferenceIntegration
     external_url: str
+    external_id: str
+    title: str
+
+
+@dataclass(frozen=True)
+class GitHubExternalReferenceJob:
+    team_id: int
+    installation_id: str
+    repository_full_name: str
+    number: int
+    title: str
+    resource_type: Literal["issue", "pull_request"]
+    actor_login: str
+    issue_id: UUID | None = None
+    fingerprint: str | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if (self.issue_id is None) == (self.fingerprint is None):
+            raise ValueError("Provide exactly one PostHog issue identifier.")
 
 
 @dataclass(frozen=True)
@@ -93,6 +120,20 @@ class ErrorTrackingIssue:
     assignee: ErrorTrackingIssueAssignee | None
     external_issues: list[ErrorTrackingExternalReference] = field(default_factory=list)
     cohort: ErrorTrackingIssueCohort | None = None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueUpdate:
+    issue: ErrorTrackingIssue
+    # Only the fields whose value differs from the stored one, so a no-op update lists nothing.
+    changed_fields: list[str]
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueMerge:
+    result: Literal["merged", "no_source_issues", "stale_issues", "stale_fingerprints"]
+    # Source issues that disappeared before the merge locked its rows are not counted.
+    merged_issue_count: int
 
 
 @dataclass(frozen=True)
@@ -282,6 +323,10 @@ class ErrorTrackingAlertDestination:
     channel_type: str
     integration_id: int | None
     config: dict
+    last_delivered_at: datetime | None
+    last_failure_at: datetime | None
+    last_error: str
+    consecutive_failures: int
     created_at: datetime
     updated_at: datetime
 

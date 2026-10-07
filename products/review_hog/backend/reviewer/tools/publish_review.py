@@ -1,16 +1,27 @@
+import re
 import logging
 from dataclasses import dataclass
 from typing import Any, Required, TypedDict
+
+from django.db import transaction
 
 from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
-from products.review_hog.backend.reviewer.constants import effective_priority, published_priorities_for
+from products.review_hog.backend.reviewer.constants import (
+    LEGACY_FLASH_MODE_MESSAGE_PREFIX,
+    PRIORITY_LABELS,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
+    effective_priority,
+    published_priorities_for,
+)
 from products.review_hog.backend.reviewer.diff_position import build_diff_line_map, find_diff_position
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_valid_findings
+from products.review_hog.backend.reviewer.review_state import published_heads_by_mode, review_already_published
 from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
     github_api_get_paginated,
@@ -21,6 +32,9 @@ from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG
 from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
+
+# GitHub rejects a review body over 65,536 characters; the margin covers the closing line.
+FALLBACK_BODY_MAX_CHARS = 60_000
 
 
 class ReviewComment(TypedDict, total=False):
@@ -67,6 +81,7 @@ def publish_persisted_review(
     token: str,
     urgency_threshold: IssuePriority,
     installation_id: str | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
 ) -> PublishOutcome:
     """Publish an already-computed review for `report_id` at `head_sha`, idempotently.
 
@@ -82,7 +97,7 @@ def publish_persisted_review(
     event loop.
     """
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
-    if report.published_head_sha == head_sha:
+    if review_already_published(report, head_sha, review_mode):
         logger.info(f"Review for {owner}/{repo}#{pr_number} already published at {head_sha}; skipping")
         _mark_report_idle(team_id, report_id)
         return PublishOutcome(posted=False)
@@ -102,6 +117,7 @@ def publish_persisted_review(
         post_promo=report.published_head_sha is None,
         published_priorities=published_priorities_for(urgency_threshold),
         installation_id=installation_id,
+        review_mode=review_mode,
     )
     if outcome.posted:
         if report.outcomes_emitted_at is not None:
@@ -116,40 +132,50 @@ def publish_persisted_review(
                 report_id,
                 head_sha,
             )
-        report.published_head_sha = head_sha
-        # Recorded per turn, never overwritten: this turn posted only its own findings, so an
-        # earlier turn's threshold stays the truth about what that turn put on the PR.
-        report.published_urgency_thresholds = {
-            **(report.published_urgency_thresholds or {}),
-            str(run_index): urgency_threshold.value,
-        }
-        # The base a later sweep compares this turn's findings against. Without it every finding is
-        # compared from the newest publish, so a fix landing between two turns falls outside the diff.
-        report.published_head_shas = {**(report.published_head_shas or {}), str(run_index): head_sha}
-        # Idle lands in the same save as the watermark, so no reader can see the published head
-        # with the report still counting as in-progress.
-        report.status = ReviewReport.Status.IDLE
-        report.save(
-            update_fields=[
-                "published_head_sha",
-                "published_urgency_thresholds",
-                "published_head_shas",
-                "status",
-                "updated_at",
-            ]
-        )
+        # Every map below merges into the row's CURRENT value, so it has to be re-read under a row
+        # lock: the snapshot above predates the GitHub post, and a publish that finished during it
+        # would be overwritten. The standalone publish command runs outside the per-PR queue, so a
+        # Flash and a Full publication really can land in this block at once, each dropping the
+        # other's mode watermark. Nothing slow runs inside the lock — the posting is already done.
+        with transaction.atomic():
+            locked = ReviewReport.objects.for_team(team_id).select_for_update().get(id=report_id)
+            locked.published_heads_by_mode = {**published_heads_by_mode(locked), review_mode: head_sha}
+            locked.published_head_sha = head_sha
+            # Recorded per turn, never overwritten: this turn posted only its own findings, so an
+            # earlier turn's threshold stays the truth about what that turn put on the PR.
+            locked.published_urgency_thresholds = {
+                **(locked.published_urgency_thresholds or {}),
+                str(run_index): urgency_threshold.value,
+            }
+            # The base a later sweep compares this turn's findings against. Without it every finding is
+            # compared from the newest publish, so a fix landing between two turns falls outside the diff.
+            locked.published_head_shas = {**(locked.published_head_shas or {}), str(run_index): head_sha}
+            # Idle lands in the same save as the watermark, so no reader can see the published head
+            # with the report still counting as in-progress.
+            locked.status = ReviewReport.Status.IDLE
+            locked.save(
+                update_fields=[
+                    "published_head_sha",
+                    "published_heads_by_mode",
+                    "published_urgency_thresholds",
+                    "published_head_shas",
+                    "status",
+                    "updated_at",
+                ]
+            )
     else:
         _mark_report_idle(team_id, report_id)
     return outcome
 
 
-def _review_marker(report_id: str, head_sha: str) -> str:
+def _review_marker(report_id: str, head_sha: str, review_mode: str | None = None) -> str:
     """A hidden marker (HTML comment) embedded in the review body for publish idempotency.
 
     Posting isn't atomic with saving the `published_head_sha` watermark; if we crash between them, the
     marker lets the retry spot its own already-posted review and skip.
     """
-    return f"<!-- reviewhog:published:{report_id}:{head_sha} -->"
+    suffix = f":{review_mode}" if review_mode is not None else ""
+    return f"<!-- reviewhog:published:{report_id}:{head_sha}{suffix} -->"
 
 
 def _promo_marker(report_id: str) -> str:
@@ -171,6 +197,7 @@ def publish_review(
     post_promo: bool,
     published_priorities: set[IssuePriority],
     installation_id: str | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
 ) -> PublishOutcome:
     """Publish the review to GitHub: the stored body plus inline comments from the durable rows.
 
@@ -189,7 +216,7 @@ def publish_review(
     logger.info(f"Publishing review for {owner}/{repo}#{pr_number}")
 
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
-    marker = _review_marker(report_id, head_sha)
+    marker = _review_marker(report_id, head_sha, review_mode)
     body = f"{report.report_markdown}\n\n{marker}"
     valid_findings = load_valid_findings(team_id=team_id, report_id=report_id, run_index=run_index)
 
@@ -209,6 +236,10 @@ def publish_review(
         logger.info("No publishable issues found, skipping review")
         return PublishOutcome(posted=False)
 
+    # When every publishable finding has its own inline comment, the body's tally repeats what the
+    # comments already show, so the review posts only the hidden marker with them.
+    inline_body = marker if len(comments) == len(publishable) else None
+
     logger.info(f"Review: {len(body)} chars body, {len(comments)} inline comments")
     review_url = _post_github_review(
         owner,
@@ -222,120 +253,46 @@ def publish_review(
         marker=marker,
         promo_marker=_promo_marker(report_id),
         installation_id=installation_id,
+        inline_body=inline_body,
+        legacy_marker=_review_marker(report_id, head_sha),
+        review_mode=review_mode,
     )
     return PublishOutcome(posted=True, review_url=review_url)
 
 
-# Severity badge (label, shields.io hex color) per priority. The badge is a shields.io image, so its
-# alt text is the raw enum value: the priority still reads in email digests and when images are
-# blocked, and screen readers announce it. Colors track a red → orange → blue calm-down scale.
-_PRIORITY_BADGE: dict[IssuePriority, tuple[str, str]] = {
-    IssuePriority.MUST_FIX: ("must fix", "D1242F"),
-    IssuePriority.SHOULD_FIX: ("should fix", "E36209"),
-    IssuePriority.CONSIDER: ("consider", "0969DA"),
-}
-# Neutral grey for the category chip — it's context, not severity, so it shouldn't compete for color.
-_CATEGORY_BADGE_COLOR = "656D76"
-
-
-def _shields_badge(label: str, color: str, *, alt: str) -> str:
-    """One shields.io badge as a markdown image. A literal space in `label` is encoded as `_` (shields
-    renders `_` back as a space); `alt` is what shows when the image can't load (email, blocked, a11y).
-    """
-    return f"![{alt}](https://img.shields.io/badge/{label.replace(' ', '_')}-{color})"
-
-
-def _finding_badge_line(priority: IssuePriority, category: str | None) -> str:
-    """The colored severity (+ optional category) badge line leading an inline finding comment."""
-    label, color = _PRIORITY_BADGE[priority]
-    badges = [_shields_badge(label, color, alt=priority.value)]
+def _finding_meta_line(priority: IssuePriority, category: str | None) -> str:
+    """The severity (+ optional category) line under the title, in plain text so it reads the same
+    in the PR, in email notifications, and with images blocked."""
+    meta = f"**{PRIORITY_LABELS[priority].capitalize()}**"
     if category:
-        # `code_quality` renders as "code quality" — shields already turns a single `_` into a space.
-        badges.append(_shields_badge(category, _CATEGORY_BADGE_COLOR, alt=category))
-    return " ".join(badges)
+        meta += f" · {category.replace('_', ' ')}"
+    return meta
 
 
 def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> str:
-    """Format a finding + its verdict as an inline comment body.
+    """Format a finding + its verdict as an inline comment body: title, severity, issue, fix.
 
-    Leads with the title, then a line of colored severity/category badges (replacing the old
-    `Priority | Category | Lines` text meta); four collapsed sections follow, the issue description
-    first — the reading order is claim (title) → what the issue is (description) → why it's real
-    (validation) → fix / AI prompt for whoever wants more. Line refs are omitted from
-    the top — the comment is anchored inline and the lines live in the AI prompt.
+    The validator's argumentation stays out of the comment. It is stored on the verdict and the
+    reviews API returns it as `validator_note`. The title must stay the first line, because the
+    outcome sweep (`find_finding_comment`) matches a finding to its comment by that line.
     """
     priority = effective_priority(finding.priority, verdict.adjusted_priority)
-
-    lines = [
-        f"### {finding.title}",
-        "",
-        _finding_badge_line(priority, verdict.category),
-        "",
-        "<details>",
-        "<summary><strong>Issue description</strong></summary>",
-        "<br>",
-        "",
-        finding.body,
-        "",
-        "</details>",
-        "",
-        "<details>",
-        "<summary><strong>Why we think it's a valid issue</strong></summary>",
-        "<br>",
-        "",
-        verdict.argumentation,
-        "",
-        "</details>",
-        "",
-        "<details>",
-        "<summary><strong>Suggested fix</strong></summary>",
-        "<br>",
-        "",
-        finding.suggestion,
-        "",
-        "</details>",
-        "",
-        "<details>",
-        "<summary><strong>Prompt to fix with AI (copy-paste)</strong></summary>",
-        "<br>",
-        "",
-        "```",
-        "## Context",
-    ]
-
-    for lr in finding.lines:
-        if lr.end is None or lr.end == lr.start:
-            lines.append(f"@{finding.file}#L{lr.start}")
-        else:
-            lines.append(f"@{finding.file}#L{lr.start}-{lr.end}")
-
-    lines.extend(
+    return "\n".join(
         [
+            f"### {finding.title}",
             "",
-            "<issue_description>",
+            _finding_meta_line(priority, verdict.category),
+            "",
             finding.body,
-            "</issue_description>",
             "",
-            "<issue_validation>",
-            verdict.argumentation,
-            "</issue_validation>",
+            "**Suggested fix**",
             "",
-            "## Task",
-            "Investigate the issue and solve it",
-            "",
-            "<potential_solution>",
             finding.suggestion,
-            "</potential_solution>",
-            "```",
-            "",
-            "</details>",
             "",
             # Hidden marker so the resolution stage recognizes this as one of ReviewHog's own threads.
             REVIEW_HOG_FINDING_MARKER,
         ]
     )
-
-    return "\n".join(lines)
 
 
 def _build_inline_comments(
@@ -376,7 +333,15 @@ def _build_inline_comments(
 
 
 def _review_already_posted(
-    owner: str, repo: str, pr_number: int, marker: str, *, token: str, installation_id: str | None
+    owner: str,
+    repo: str,
+    pr_number: int,
+    marker: str,
+    *,
+    token: str,
+    installation_id: str | None,
+    legacy_marker: str | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
 ) -> bool:
     """True if a review carrying this run's `marker` is already on the PR (we posted, then crashed).
 
@@ -388,7 +353,16 @@ def _review_already_posted(
     """
     try:
         return any(
-            is_app_bot_author(review.get("user")) and marker in (review.get("body") or "")
+            is_app_bot_author(review.get("user"))
+            and (
+                marker in (review.get("body") or "")
+                or (
+                    legacy_marker is not None
+                    and legacy_marker in (review.get("body") or "")
+                    and (review.get("body") or "").startswith(("FLASH MODE\n", LEGACY_FLASH_MODE_MESSAGE_PREFIX))
+                    == (review_mode == REVIEW_MODE_FLASH)
+                )
+            )
             for review in github_api_get_paginated(
                 f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews",
                 token=token,
@@ -426,6 +400,40 @@ def _promo_already_posted(
         return True
 
 
+def _code_span(text: str) -> str:
+    """`text` as a Markdown code span whose fence is longer than any backtick run inside it."""
+    longest_run = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    fence = "`" * (longest_run + 1)
+    # CommonMark strips one space on each side, so padding keeps an edge backtick from merging with the fence.
+    padding = " " if text.startswith("`") or text.endswith("`") else ""
+    return f"{fence}{padding}{text}{padding}{fence}"
+
+
+def _with_inline_findings(body: str, comments: list[ReviewComment]) -> str:
+    """`body` plus the inline comments written out, for the body-only fallback.
+
+    The stored body lists only the off-diff findings, so without this section a fallback post would
+    drop every finding that was meant to go inline. GitHub rejects a review body over 65,536
+    characters, so the section stops at `FALLBACK_BODY_MAX_CHARS` and says how many findings it left out.
+    """
+    if not comments:
+        return body
+    lines = [body, "", "## Findings on the changed lines", ""]
+    size = sum(len(line) + 1 for line in lines)
+    for index, comment in enumerate(comments):
+        # The thread marker belongs only on a real review thread, so the fallback leaves it out.
+        comment_body = comment["body"].replace(REVIEW_HOG_FINDING_MARKER, "").rstrip()
+        entry = [f"{_code_span(f'{comment["path"]}:{comment.get("line", "")}')}", "", comment_body, ""]
+        entry_size = sum(len(line) + 1 for line in entry)
+        if size + entry_size > FALLBACK_BODY_MAX_CHARS:
+            omitted = len(comments) - index
+            lines.append(f"{omitted} more finding(s) left out because the review body is too long.")
+            break
+        lines.extend(entry)
+        size += entry_size
+    return "\n".join(lines)
+
+
 def _post_github_review(
     owner: str,
     repo: str,
@@ -439,14 +447,30 @@ def _post_github_review(
     marker: str,
     promo_marker: str,
     installation_id: str | None = None,
+    inline_body: str | None = None,
+    legacy_marker: str | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
 ) -> str | None:
     """Post the review to GitHub as a PR review, pinned to the reviewed `head_sha`.
 
+    `inline_body` replaces `body` when the review posts together with its inline comments. The
+    body-only fallback posts the full `body` plus the text of every inline comment, because without
+    the comments the body is the only place the review shows anything. Both bodies must carry
+    `marker` for the idempotency check.
     Returns the posted review's permalink, or None on the marker-found idempotency skip.
     """
     # Idempotency: if our own review for this (report, head) is already on the PR — we posted it but
     # crashed before saving the watermark — don't double-post (the body carries the same marker).
-    if _review_already_posted(owner, repo, pr_number, marker, token=token, installation_id=installation_id):
+    if _review_already_posted(
+        owner,
+        repo,
+        pr_number,
+        marker,
+        token=token,
+        installation_id=installation_id,
+        legacy_marker=legacy_marker,
+        review_mode=review_mode,
+    ):
         logger.info(f"Review for {owner}/{repo}#{pr_number} at {head_sha[:12]} already on PR (marker found); skipping")
         return None
 
@@ -473,6 +497,8 @@ def _post_github_review(
     # failure, so we post unpinned rather than failing (or dropping the inline comments).
     # The review and validation sandboxes hold live tokens, and the model text arrives here unfiltered.
     body, redacted = redact_secrets(body)
+    inline_body, count = redact_secrets(inline_body if inline_body is not None else body)
+    redacted += count
     scrubbed: list[ReviewComment] = []
     for comment in comments:
         comment_body, count = redact_secrets(comment["body"])
@@ -509,7 +535,7 @@ def _post_github_review(
 
     if comments:
         try:
-            review_url = _create_review({**review_payload, "comments": comments})
+            review_url = _create_review({**review_payload, "body": inline_body, "comments": comments})
             logger.info(f"Review posted with {len(comments)} inline comments")
             return review_url
         except GitHubAPIError as e:
@@ -518,6 +544,7 @@ def _post_github_review(
             if e.status != 422:
                 raise
             logger.warning(f"Failed to post review with inline comments: {e}. Posting review body only.")
+            review_payload["body"] = _with_inline_findings(body, comments)
 
     review_url = _create_review(review_payload)
     logger.info("Review posted (body only)")

@@ -184,6 +184,14 @@ export const PropertyMatchingVersionEnumApi = {
     Number2: 2,
 } as const
 
+export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
+
+export const FlagEvaluationsModeEnumApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+} as const
+
 export interface StaffTeamConfigApi {
     /** Team id. */
     team_id: number
@@ -201,6 +209,12 @@ export interface StaffTeamConfigApi {
     max_feature_flags_override: number | null
     /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
     effective_max_feature_flags: number
+    /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
+     *
+     * * `0` - Events
+     * * `1` - Read flag evaluations
+     * * `2` - Flag evaluations only */
+    flag_evaluations_mode: FlagEvaluationsModeEnumApi
     /** Number of feature flags the team has today, excluding soft-deleted ones, counted the same way the limit is enforced. */
     feature_flag_count: number
 }
@@ -227,6 +241,65 @@ export interface StaffTeamConfigMutationApi {
      * @nullable
      */
     max_feature_flags_override?: number | null
+}
+
+export interface StaffFlagEvaluationsModeMutationApi {
+    /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist.
+     *
+     * * `0` - Events
+     * * `1` - Read flag evaluations
+     * * `2` - Flag evaluations only */
+    flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    /**
+     * Teams whose organizations to move (max 50). The mode belongs to the organization, so the write moves every team of each organization that owns one of these teams.
+     * @minItems 1
+     * @maxItems 50
+     */
+    team_ids: number[]
+    /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams in the ingestion allowlist. The events table keeps a gap for those teams for the time the organization spent on 2. */
+    allow_downgrade?: boolean
+    /** Report what the write would change, and write nothing. */
+    dry_run?: boolean
+}
+
+export interface StaffOrganizationModeChangeApi {
+    /** The organization's mode before the write.
+     *
+     * * `0` - Events
+     * * `1` - Read flag evaluations
+     * * `2` - Flag evaluations only */
+    current_mode: FlagEvaluationsModeEnumApi
+    /** The target mode.
+     *
+     * * `0` - Events
+     * * `1` - Read flag evaluations
+     * * `2` - Flag evaluations only */
+    target_mode: FlagEvaluationsModeEnumApi
+    /** Organization id. */
+    organization_id: string
+    /** Organization name. */
+    organization_name: string
+    /** Teams of the organization. They all read the organization's mode. */
+    team_count: number
+    /** Running experiments of the organization that count exposures on $feature_flag_called. On teams in the ingestion allowlist, mode 2 stops those exposures. */
+    running_experiments_on_feature_flag_called: number
+    /** True when the write moved the organization to the target mode, or would on a dry run. */
+    changed: boolean
+    /** True when the organization is above the target mode and stays there, because allow_downgrade is not set. */
+    left_above_mode: boolean
+}
+
+export interface StaffFlagEvaluationsModeResponseApi {
+    /** The target mode of the request.
+     *
+     * * `0` - Events
+     * * `1` - Read flag evaluations
+     * * `2` - Flag evaluations only */
+    flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    /** True when the request wrote nothing. */
+    dry_run: boolean
+    /** One entry per organization the request covers, oldest organization first. */
+    organizations: StaffOrganizationModeChangeApi[]
 }
 
 export interface StaffTeamResultApi {
@@ -560,7 +633,7 @@ export interface FeatureFlagApi {
     /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
     archived?: boolean
     readonly created_by: UserBasicApi
-    created_at?: string
+    readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
     version?: number
@@ -600,6 +673,7 @@ export interface FeatureFlagApi {
     is_remote_configuration?: boolean | null
     /** @nullable */
     has_encrypted_payloads?: boolean | null
+    /** Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state. Read the `active` field for that. A disabled flag that is not archived or deleted reports ACTIVE, because disabled flags are not evaluated for staleness. */
     readonly status: string
     /** Specifies where this feature flag should be evaluated
      *
@@ -616,9 +690,9 @@ export interface FeatureFlagApi {
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
      */
-    last_called_at?: string | null
+    readonly last_called_at: string | null
     _create_in_folder?: string
-    /** Check if this feature flag is used in any team's session recording linked flag setting. */
+    /** Check if any team gates session recording on this flag, by linked flag or trigger group. */
     readonly is_used_in_replay_settings: boolean
     /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */
     readonly is_eligible_for_experiment: boolean
@@ -1188,7 +1262,7 @@ export interface ActivityLogEntryApi {
     /** Whether the acting user was being impersonated by PostHog staff. */
     readonly was_impersonated: boolean
     /**
-     * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.
+     * API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.
      * @nullable
      */
     readonly client: string | null
@@ -1206,6 +1280,87 @@ export interface ActivityLogPaginatedResponseApi {
     total_count: number
 }
 
+/**
+ * The body every DRF exception on these actions renders as.
+ *
+ * `ErrorResponseSerializer` declares a single `error` key, which no response on this viewset
+ * produces: the project exception handler renders this envelope instead. Declaring the wrong
+ * shape reaches the generated clients and the MCP tools, where an agent reads a key that is
+ * never there.
+ */
+export interface FlagActionErrorApi {
+    /** Error class, for example `validation_error`. */
+    type: string
+    /** Machine-readable reason, for example `invalid_input`. */
+    code: string
+    /** Human-readable description of what was refused. */
+    detail: string
+    /**
+     * Request field the error belongs to, or null when it belongs to no single field.
+     * @nullable
+     */
+    attr: string | null
+}
+
+/**
+ * The 400 body a soft-deleted flag produces, which differs from every other error here.
+ *
+ * Built as a plain response rather than raised, so it carries neither the `type` nor the
+ * `attr` the exception handler's envelope has.
+ */
+export interface FlagDeletedRejectionApi {
+    /** Always `false`. */
+    success: boolean
+    /** Human-readable reason, naming the restore the caller has to do before retrying. */
+    error: string
+}
+
+/**
+ * The 400 body a change matching several approval policies produces.
+ *
+ * Raised through the approvals mixin rather than the exception handler, so it carries the
+ * policies that matched instead of the `type`/`attr` envelope.
+ */
+export interface FlagPolicyConflictApi {
+    /** Always `policy_conflict`. */
+    code: string
+    /** Human-readable reason the change could not be gated. */
+    error: string
+    /** The approval policies that matched this change. */
+    conflicting_policies: unknown
+    /** How to split the change so each policy applies on its own. */
+    guidance: string
+}
+
+export type FeatureFlagActionBadRequestApi = FlagActionErrorApi | FlagDeletedRejectionApi | FlagPolicyConflictApi
+
+/**
+ * The 409 body an approval policy produces, which differs from every other error here.
+ *
+ * Raised through the approvals mixin rather than the exception handler, so it carries the
+ * change request it opened instead of the `type`/`attr` envelope.
+ */
+export interface FlagApprovalConflictApi {
+    /** `approval_required` when this call opened the change request, `change_request_pending` when one was already open for the same action. */
+    code: string
+    /** Always `approval_required`. */
+    status: string
+    /** Human-readable description of the policy that gated the change. */
+    detail: string
+    /** Same text as `detail`. */
+    message: string
+    /** Resource the change request targets, `feature_flag` here. */
+    resource_type: string
+    /** Id of the flag the change request targets. */
+    resource_id: string
+    /** Id of the change request that was opened. */
+    change_request_id: string
+    /** The change request that was opened, serialized in full. */
+    change_request: unknown
+    /** Who can approve the change request. */
+    required_approvers: unknown
+}
+
 export interface DependentFlagApi {
     /** Feature flag ID */
     id: number
@@ -1213,6 +1368,42 @@ export interface DependentFlagApi {
     key: string
     /** Feature flag name */
     name: string
+}
+
+export interface FeatureFlagRollOutToEveryoneRequestApi {
+    /**
+     * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.
+     * @minimum 0
+     * @nullable
+     */
+    version: number | null
+    /**
+     * The variant every user gets. Required for a multivariate flag and rejected for any other flag, because a release condition decides who the flag serves and not which variant they get.
+     * @nullable
+     */
+    variant_key?: string | null
+}
+
+export type FeatureFlagActionConflictApi = FlagActionErrorApi | FlagApprovalConflictApi
+
+export interface FeatureFlagSetReleaseConditionRolloutRequestApi {
+    /**
+     * Zero-based position of the release condition in `filters.groups`, counted from the read that produced `version`.
+     * @minimum 0
+     */
+    condition_index: number
+    /**
+     * Percentage of the users matching that condition who are served the flag, 0 through 100. On a multivariate flag this is how many matching users get a variant at all, not how the variants are split between them. Fractional percentages such as 0.5 are accepted, the same as a write that sends `filters`.
+     * @minimum 0
+     * @maximum 100
+     */
+    rollout_percentage: number
+    /**
+     * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.
+     * @minimum 0
+     * @nullable
+     */
+    version: number | null
 }
 
 export interface FeatureFlagRolloutSummaryApi {
@@ -1230,7 +1421,7 @@ export interface FeatureFlagRolloutSummaryApi {
 }
 
 export interface FeatureFlagStatusResponseApi {
-    /** Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
+    /** Staleness classification: active, stale, archived, deleted, or unknown. This is not the serving state, and this response carries no serving-state field: read the `active` field of the flag itself from the list or retrieve endpoint. A disabled flag that is not archived or deleted reports 'active', because disabled flags are not evaluated for staleness. 'active' also does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
     status: string
     /** Human-readable explanation of the status */
     reason: string
@@ -1290,7 +1481,7 @@ export interface FeatureFlagConditionAnalysisApi {
     /** Whether this condition matched properties but was excluded due to rollout */
     rollout_excluded: boolean
     /**
-     * Variant associated with this condition
+     * Variant associated with this condition. Empty or null when the condition has no variant override.
      * @nullable
      */
     variant: string | null
@@ -1418,7 +1609,7 @@ export const BulkDeleteFiltersTypeEnumApi = {
  * Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.
  */
 export interface BulkDeleteFiltersApi {
-    /** Filter by active state.
+    /** 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
      *
      * * `true` - true
      * * `false` - false
@@ -1878,7 +2069,7 @@ export type FeatureFlagsStaffTeamsListParams = {
      */
     limit?: number
     /**
-     * Search string matched against team id (exact), api_token (exact), team name (partial), or organization name (partial). Non-numeric queries must be at least 2 characters so an empty or single-letter query never returns half the table; a numeric team-id lookup is allowed at a single digit.
+     * Search string matched against team id (exact), api_token (exact), team name (partial), organization name (partial), or organization id (exact). Non-numeric queries must be at least 2 characters so an empty or single-letter query never returns half the table; a numeric team-id lookup is allowed at a single digit.
      * @minLength 1
      */
     search: string
@@ -1938,6 +2129,9 @@ export const FeatureFlagRequestUsageListTimeInterval = {
 } as const
 
 export type FeatureFlagsListParams = {
+    /**
+     * 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
+     */
     active?: FeatureFlagsListActive
     /**
      * Filter by archived state. When omitted, archived flags are excluded.

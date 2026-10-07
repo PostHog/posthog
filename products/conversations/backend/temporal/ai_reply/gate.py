@@ -6,6 +6,7 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     AUTO_SEND_MIN_COVERAGE,
     AUTO_SEND_THRESHOLD,
     DRAFT_SELF_CONFIDENCE_FLOOR,
+    MAX_CLARIFYING_QUESTION_CHARS,
     MAX_CLARIFYING_QUESTIONS,
     SUGGEST_THRESHOLD,
 )
@@ -28,6 +29,7 @@ def decide_reply_action(
     verdict: str,
     attempt: int,
     max_attempts: int,
+    allow_clarify: bool = True,
 ) -> ReplyAction:
     # Either judge alone can be overconfident, so a public reply needs both plus coverage.
     if (
@@ -40,7 +42,7 @@ def decide_reply_action(
     ):
         return "auto_send"
     if blocker == "customer_info" or verdict == "blocked_on_customer":
-        return "clarify"
+        return "clarify" if allow_clarify else "findings"
     if blocker == "contradiction" or verdict == "out_of_scope":
         return "findings"
     # Retry only on a validator knowledge gap. The draft verdict is not a retry signal.
@@ -115,3 +117,43 @@ def format_findings_comment(
         parts.extend(["", "Sources:"])
         parts.extend(f"- {ref}" for ref in refs)
     return "\n".join(parts)
+
+
+def format_suggested_question_comment(
+    *,
+    questions: list[str],
+    investigation_summary: str,
+    unknowns: list[str],
+    citations: list[str] | None = None,
+) -> str:
+    parts: list[str] = []
+    cleaned = [item.strip() for item in questions if item and item.strip()][:MAX_CLARIFYING_QUESTIONS]
+    if cleaned:
+        heading = (
+            "Suggested questions for the customer:" if len(cleaned) > 1 else "Suggested question for the customer:"
+        )
+        parts.append(heading)
+        parts.extend(f"- {item}" for item in cleaned)
+    if investigation_summary.strip():
+        if parts:
+            parts.append("")
+        parts.append(investigation_summary.strip())
+    if unknowns:
+        parts.extend(["", "Still unknown:"])
+        parts.extend(f"- {item}" for item in unknowns)
+    refs = [ref for ref in (citations or []) if ref]
+    if refs:
+        parts.extend(["", "Sources:"])
+        parts.extend(f"- {ref}" for ref in refs)
+    return "\n".join(parts)
+
+
+def format_clarifying_question(*, questions: list[str]) -> str:
+    # Public text. Do not append investigation_summary: that field is for humans.
+    raw = next((item.strip() for item in questions if item and item.strip()), "")
+    if not raw:
+        return ""
+    question = raw if raw.endswith("?") else raw.rstrip(".!") + "?"
+    if len(question) <= MAX_CLARIFYING_QUESTION_CHARS:
+        return question
+    return question[: MAX_CLARIFYING_QUESTION_CHARS - 1].rstrip() + "?"

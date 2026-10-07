@@ -10,6 +10,7 @@ day.
 import uuid
 import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import dagster
 
@@ -17,11 +18,19 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
+from posthog import settings
 from posthog.clickhouse.client.connection import Workload
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
 
-from products.signals.dags.inbox_ranking.common import LABELS_EPOCH, WRONG_DISMISSAL_REASONS, ensure_utc
+from products.signals.dags.inbox_ranking.common import (
+    FIXED_DISMISSAL_REASONS,
+    LABELS_EPOCH,
+    LOW_VALUE_DISMISSAL_REASONS,
+    NOT_FIXED_RESOLUTION_REASONS,
+    WRONG_DISMISSAL_REASONS,
+    ensure_utc,
+)
 
 # All regions' label telemetry lands in the US dogfood project (PostHog internal, team 2).
 LABELS_TEAM_ID = 2
@@ -39,6 +48,26 @@ def labels_team() -> Team:
             f"Labels team {LABELS_TEAM_ID} does not exist in this environment; the inbox ranking "
             "dataset can only be built where the dogfood project is present"
         )
+
+
+REGION_APP_HOSTS = {"US": "us.posthog.com", "EU": "eu.posthog.com"}
+
+
+def region_app_host() -> str:
+    """The app host this deployment serves the inbox on.
+
+    Team 2 collects the inbox telemetry of every region, and the label streams keep the other
+    regions' rows on purpose (label-only rows, README.md). A read that needs report state cannot:
+    the scoring pool (`training/unseen.py`) builds it from this region's Postgres, so a report
+    another region served can never hold a score. `$host` is the only property on those events
+    that says which app rendered the page.
+
+    The region is the source, not `SITE_URL`: a Dagster deployment sets `CLOUD_DEPLOYMENT` and
+    leaves `SITE_URL` at its localhost default, which no impression event carries. Off cloud
+    there is no region, so `SITE_URL` is the host, for local and self-hosted runs.
+    """
+    region = (settings.CLOUD_DEPLOYMENT or "").upper()
+    return REGION_APP_HOSTS.get(region) or urlparse(settings.SITE_URL).netloc
 
 
 def etl_workload() -> Workload:
@@ -155,8 +184,8 @@ WHERE report_id IS NOT NULL AND report_id != ''
 # lineage records which version each row actually carries.
 #
 # Index reality: the sharded table orders by (team_id, toDate(timestamp), product, document_type,
-# rendering, ...) and this cross-team query has no team_id prefix, so it scans the whole table.
-# That is acceptable because the 3-month TTL bounds the table and PREWHERE filters the small
+# rendering, ...) and this cross-team query has only the consenting teams' IN list on that prefix,
+# which covers most inbox teams, so it still scans nearly the whole table. That is acceptable because the 3-month TTL bounds the table and PREWHERE filters the small
 # string columns before the wide embedding column is read; the settings below cap the blast
 # radius and keep the distributed GROUP BY (1536-float argMax states) memory-efficient.
 REPORT_EMBEDDINGS_QUERY_SETTINGS: dict[str, int] = {
@@ -177,6 +206,7 @@ FROM {EMBEDDINGS_TABLE}
 WHERE product = %(product)s
   AND document_type = %(document_type)s
   AND rendering = %(rendering)s
+  AND team_id IN %(team_ids)s
   AND inserted_at < %(snapshot_end)s
 GROUP BY team_id, document_id
 """
@@ -237,6 +267,7 @@ FROM {EMBEDDINGS_TABLE}
 WHERE product = %(product)s
   AND document_type = %(document_type)s
   AND rendering = %(rendering)s
+  AND team_id IN %(team_ids)s
   AND inserted_at >= %(window_start)s
   AND inserted_at < %(window_end)s
 """
@@ -254,7 +285,7 @@ IMPRESSIONS_COLUMNS = (
 # is 1-based, so anything below 1 is malformed; anything above int32 would raise on the Parquet
 # conversion and fail the whole fleet-wide labels asset. Both are nulled out, and the impression
 # still counts toward the impression/user counts.
-_IMPRESSION_RANK = (
+IMPRESSION_RANK_SQL = (
     "if(JSONExtractInt(imp, 'rank') >= 1 AND JSONExtractInt(imp, 'rank') <= 2147483647, "
     "JSONExtractInt(imp, 'rank'), NULL)"
 )
@@ -264,8 +295,8 @@ SELECT
     min(timestamp) AS first_impressed_at,
     count() AS impression_unit_count,
     uniq(distinct_id) AS impressed_user_count,
-    argMinIf({_IMPRESSION_RANK}, timestamp, {_IMPRESSION_RANK} IS NOT NULL) AS first_impression_rank,
-    min({_IMPRESSION_RANK}) AS best_impression_rank,
+    argMinIf({IMPRESSION_RANK_SQL}, timestamp, {IMPRESSION_RANK_SQL} IS NOT NULL) AS first_impression_rank,
+    min({IMPRESSION_RANK_SQL}) AS best_impression_rank,
     argMax(JSONExtract(imp, 'source_products', 'Array(String)'), timestamp) AS source_products
 FROM events
 ARRAY JOIN JSONExtractArrayRaw(properties, 'impressions') AS imp
@@ -304,6 +335,16 @@ ACTIONS_COLUMNS = (
     "first_reviewer_removed_at",
     "resolve_click_count",
     "first_resolve_clicked_at",
+    "copy_prompt_count",
+    "first_prompt_copied_at",
+    "implement_click_count",
+    "first_implement_clicked_at",
+    "open_pr_click_count",
+    "first_open_pr_clicked_at",
+    "view_diff_count",
+    "first_diff_viewed_at",
+    "restore_count",
+    "first_restored_at",
 )
 # Bulk action rows carry no report_id and are excluded; bulk dismissals are recovered from the
 # server-side status stream instead. minIf misses fill non-nullable datetimes with epoch 0, hence
@@ -316,8 +357,10 @@ ACTIONS_COLUMNS = (
 #
 # `resolve` marks a report done without an inbox PR, so it is a distinct positive outcome the
 # `create_pr` click does not cover. The `*_click*` names keep it apart from the status stream's
-# `first_resolved_at`, which conflates every path a report reaches `resolved`. `restore`
-# (un-dismissing a report) shares this aggregation shape and is a follow-up.
+# `first_resolved_at`, which conflates every path a report reaches `resolved`.
+#
+# `copy_implementation_prompt`, `implement`, `open_pr`, `view_diff` and `restore` (un-dismissing a
+# report) are the other intent actions the `action` head counts.
 #
 # Blind spot: a bulk-bar resolve fires one report_id-less event and drops here like every bulk
 # action. Bulk dismissals are recovered from the status stream; bulk resolves are not, because the
@@ -339,7 +382,17 @@ SELECT
     countIf(toString(properties.action_type) = 'remove_suggested_reviewer') AS reviewer_remove_count,
     nullIf(minIf(timestamp, toString(properties.action_type) = 'remove_suggested_reviewer'), fromUnixTimestamp(0)) AS first_reviewer_removed_at,
     countIf(toString(properties.action_type) = 'resolve') AS resolve_click_count,
-    nullIf(minIf(timestamp, toString(properties.action_type) = 'resolve'), fromUnixTimestamp(0)) AS first_resolve_clicked_at
+    nullIf(minIf(timestamp, toString(properties.action_type) = 'resolve'), fromUnixTimestamp(0)) AS first_resolve_clicked_at,
+    countIf(toString(properties.action_type) = 'copy_implementation_prompt') AS copy_prompt_count,
+    nullIf(minIf(timestamp, toString(properties.action_type) = 'copy_implementation_prompt'), fromUnixTimestamp(0)) AS first_prompt_copied_at,
+    countIf(toString(properties.action_type) = 'implement') AS implement_click_count,
+    nullIf(minIf(timestamp, toString(properties.action_type) = 'implement'), fromUnixTimestamp(0)) AS first_implement_clicked_at,
+    countIf(toString(properties.action_type) = 'open_pr') AS open_pr_click_count,
+    nullIf(minIf(timestamp, toString(properties.action_type) = 'open_pr'), fromUnixTimestamp(0)) AS first_open_pr_clicked_at,
+    countIf(toString(properties.action_type) = 'view_diff') AS view_diff_count,
+    nullIf(minIf(timestamp, toString(properties.action_type) = 'view_diff'), fromUnixTimestamp(0)) AS first_diff_viewed_at,
+    countIf(toString(properties.action_type) = 'restore') AS restore_count,
+    nullIf(minIf(timestamp, toString(properties.action_type) = 'restore'), fromUnixTimestamp(0)) AS first_restored_at
 FROM events
 WHERE event = 'Inbox report action'
   AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
@@ -348,6 +401,18 @@ GROUP BY report_id
 """
 
 _WRONG_DISMISSAL_REASONS_SQL = ", ".join(f"'{reason}'" for reason in WRONG_DISMISSAL_REASONS)
+_NOT_FIXED_RESOLUTION_REASONS_SQL = ", ".join(f"'{reason}'" for reason in NOT_FIXED_RESOLUTION_REASONS)
+_FIXED_DISMISSAL_REASONS_SQL = ", ".join(f"'{reason}'" for reason in FIXED_DISMISSAL_REASONS)
+# A transition that says the problem was real and is fixed, by anyone: a resolve without a not-fixed
+# reason (a reason-less resolve is the PR-merge webhook), or a dismissal with a fixed reason.
+_FIXED_TRANSITION_SQL = (
+    "(toString(properties.status) = 'resolved' AND coalesce(toString(properties.dismissal_reason), '') NOT IN ("
+    + _NOT_FIXED_RESOLUTION_REASONS_SQL
+    + ")) OR (toString(properties.status) = 'suppressed' AND toString(properties.dismissal_reason) IN ("
+    + _FIXED_DISMISSAL_REASONS_SQL
+    + "))"
+)
+_LOW_VALUE_DISMISSAL_REASONS_SQL = ", ".join(f"'{reason}'" for reason in LOW_VALUE_DISMISSAL_REASONS)
 
 STATUS_COLUMNS = (
     "first_resolved_at",
@@ -360,6 +425,12 @@ STATUS_COLUMNS = (
     "first_dismissal_reason",
     "wrong_dismissal_count",
     "first_wrong_dismissed_at",
+    "reasoned_resolution_count",
+    "first_reasoned_resolved_at",
+    "fixed_count",
+    "first_fixed_at",
+    "lowvalue_dismissal_count",
+    "first_lowvalue_dismissed_at",
     "status_event_priority",
     "status_event_actionability",
     "status_event_team_id",
@@ -380,10 +451,14 @@ STATUS_SQL = (
     """
 SELECT
     report_id,
-    nullIf(minIf(first_timestamp, outcome = 'resolved'), fromUnixTimestamp(0)) AS first_resolved_at,
-    nullIf(minIf(first_timestamp, outcome = 'dismissed'), fromUnixTimestamp(0)) AS first_dismissed_server_at,
-    nullIf(minIf(first_timestamp, outcome = 'failed'), fromUnixTimestamp(0)) AS first_failed_at,
-    nullIf(minIf(first_timestamp, outcome = 'snoozed'), fromUnixTimestamp(0)) AS first_snoozed_at,
+    -- Each restricted to the latest transition's tenant, like the reason and the count below: team_id
+    -- rides on event properties, so an event naming another team would otherwise win these min()
+    -- calls and date an outcome this tenant never had, while still passing the provenance check.
+    -- Claimed is not proven — an event naming the report's real team passes.
+    nullIf(minIf(first_timestamp, outcome = 'resolved' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_resolved_at,
+    nullIf(minIf(first_timestamp, outcome = 'dismissed' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_dismissed_server_at,
+    nullIf(minIf(first_timestamp, outcome = 'failed' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_failed_at,
+    nullIf(minIf(first_timestamp, outcome = 'snoozed' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_snoozed_at,
     argMax(status, last_timestamp) AS latest_status_event,
     max(last_timestamp) AS latest_status_event_at,
     -- argMax skips NULL values, so this is the reason from the latest *reasoned* transition (the
@@ -399,11 +474,6 @@ SELECT
     -- NULL rather than handing over the next dismissal's reason: a dismissal carries no reason
     -- whenever no artefact accompanies the transition, and this column has to describe the earliest
     -- dismissal itself.
-    --
-    -- Caveat until posthog#101565 lands: this reason is restricted to the latest transition's
-    -- tenant while first_dismissed_server_at above is not, so an earlier dismissal naming another
-    -- team can date that column while this one reads a later genuine dismissal. Treat the two as
-    -- separate reads, not as one event.
     nullIf(
         argMinIf(
             bucket_first_dismissal_reason,
@@ -432,6 +502,30 @@ SELECT
         bucket_first_wrong_dismissed_at,
         outcome = 'dismissed' AND event_team_id = latest_event_team_id
     ) AS first_wrong_dismissed_at,
+    -- A resolve that carries a reason is a person or an agent marking the report done, from any
+    -- surface. A reason-less resolve is the automatic resolve after a tracked PR merges, so it is
+    -- not counted. Counted per bucket and dated by the bucket's first reasoned event, under the
+    -- same tenant restriction as the wrong-dismissal pair above. The action head reads this pair.
+    countIf(
+        outcome = 'resolved' AND bucket_reasoned = 1 AND event_team_id = latest_event_team_id
+    ) AS reasoned_resolution_count,
+    minIf(
+        bucket_first_reasoned_at,
+        outcome = 'resolved' AND event_team_id = latest_event_team_id
+    ) AS first_reasoned_resolved_at,
+    -- Cumulative and tenant-scoped like wrong_dismissal_count, so a reopen or a later re-dismissal
+    -- with another reason cannot take the label back. The fixed head reads this column.
+    countIf(bucket_fixed = 1 AND event_team_id = latest_event_team_id) AS fixed_count,
+    minIf(bucket_first_fixed_at, event_team_id = latest_event_team_id) AS first_fixed_at,
+    -- The same cumulative count, timestamp and tenant restriction for the low-value reasons. The
+    -- dismiss_lowvalue head reads this column.
+    countIf(
+        outcome = 'dismissed' AND bucket_lowvalue_dismissal = 1 AND event_team_id = latest_event_team_id
+    ) AS lowvalue_dismissal_count,
+    minIf(
+        bucket_first_lowvalue_dismissed_at,
+        outcome = 'dismissed' AND event_team_id = latest_event_team_id
+    ) AS first_lowvalue_dismissed_at,
     -- These two must stay paired with latest_status_event, so coalesce/nullIf keeps argMax from
     -- skipping a null: a judgment artefact can be deleted, and then the latest transition
     -- genuinely carries none. Plain argMax would reach back to an older transition and present
@@ -488,6 +582,24 @@ FROM (
         nullIf(minIf(events.timestamp, toString(properties.dismissal_reason) IN ("""
     + _WRONG_DISMISSAL_REASONS_SQL
     + """)), fromUnixTimestamp(0)) AS bucket_first_wrong_dismissed_at,
+        -- coalesce is load-bearing: HogQL evaluates NULL != '' to true, so a reason-less event
+        -- would otherwise count as reasoned.
+        max(coalesce(toString(properties.dismissal_reason), '') != '') AS bucket_reasoned,
+        nullIf(
+            minIf(events.timestamp, coalesce(toString(properties.dismissal_reason), '') != ''), fromUnixTimestamp(0)
+        ) AS bucket_first_reasoned_at,
+        max("""
+    + _FIXED_TRANSITION_SQL
+    + """) AS bucket_fixed,
+        nullIf(minIf(events.timestamp, """
+    + _FIXED_TRANSITION_SQL
+    + """), fromUnixTimestamp(0)) AS bucket_first_fixed_at,
+        max(toString(properties.dismissal_reason) IN ("""
+    + _LOW_VALUE_DISMISSAL_REASONS_SQL
+    + """)) AS bucket_lowvalue_dismissal,
+        nullIf(minIf(events.timestamp, toString(properties.dismissal_reason) IN ("""
+    + _LOW_VALUE_DISMISSAL_REASONS_SQL
+    + """)), fromUnixTimestamp(0)) AS bucket_first_lowvalue_dismissed_at,
         nullIf(argMax(toString(properties.priority), events.timestamp), '') AS event_priority,
         nullIf(argMax(toString(properties.actionability), events.timestamp), '') AS event_actionability,
         nullIf(toString(properties.team_id), '') AS event_team_id
@@ -591,6 +703,24 @@ WHERE event = 'signals_pr_refund_created'
 GROUP BY report_id
 """
 
+# Server-side actions, read from Postgres rather than from analytics events: the claims, linked
+# PRs and notes a person or an external agent wrote (`HUMAN_ACTOR_KINDS`), and Slack discussions.
+# These reach a report from surfaces that emit no `Inbox report action` event (coding agents over
+# MCP, the CLI, Slack, the desktop app). Each row is counted by its creation time only: artefact
+# content can be edited in place, but these labels only need the row to exist before the cutoff.
+# Postgres holds this region's reports only, so another region's report gets no server action.
+SERVER_ACTIONS_STREAM = "server_actions"
+SERVER_ACTIONS_COLUMNS = (
+    "claim_count",
+    "first_claimed_at",
+    "linked_pr_count",
+    "first_pr_linked_at",
+    "note_count",
+    "first_noted_at",
+    "slack_discussion_count",
+    "first_slack_discussed_at",
+)
+
 LABEL_STREAMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("impressions", IMPRESSIONS_SQL, IMPRESSIONS_COLUMNS),
     ("opens", OPENS_SQL, OPENS_COLUMNS),
@@ -600,6 +730,12 @@ LABEL_STREAMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("pr_events", PR_EVENTS_SQL, PR_COLUMNS),
     ("refunds", REFUNDS_SQL, REFUNDS_COLUMNS),
 )
+
+# The label columns each stream fills, the SQL streams and the Postgres one alike.
+LABEL_STREAM_COLUMNS: dict[str, tuple[str, ...]] = {
+    **{name: columns for name, _, columns in LABEL_STREAMS},
+    SERVER_ACTIONS_STREAM: SERVER_ACTIONS_COLUMNS,
+}
 
 # Every label column a report can have, with its no-events default. Streams overwrite their own
 # columns; the merge keeps counts at 0 (not null) so head derivations need no null handling.
@@ -637,6 +773,10 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "first_dismissal_reason": None,
     "wrong_dismissal_count": 0,
     "first_wrong_dismissed_at": None,
+    "fixed_count": 0,
+    "first_fixed_at": None,
+    "lowvalue_dismissal_count": 0,
+    "first_lowvalue_dismissed_at": None,
     "status_event_priority": None,
     "status_event_actionability": None,
     "status_event_team_id": None,
@@ -657,6 +797,26 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "first_reviewer_removed_at": None,
     "resolve_click_count": 0,
     "first_resolve_clicked_at": None,
+    "copy_prompt_count": 0,
+    "first_prompt_copied_at": None,
+    "implement_click_count": 0,
+    "first_implement_clicked_at": None,
+    "open_pr_click_count": 0,
+    "first_open_pr_clicked_at": None,
+    "view_diff_count": 0,
+    "first_diff_viewed_at": None,
+    "restore_count": 0,
+    "first_restored_at": None,
+    "reasoned_resolution_count": 0,
+    "first_reasoned_resolved_at": None,
+    "claim_count": 0,
+    "first_claimed_at": None,
+    "linked_pr_count": 0,
+    "first_pr_linked_at": None,
+    "note_count": 0,
+    "first_noted_at": None,
+    "slack_discussion_count": 0,
+    "first_slack_discussed_at": None,
 }
 
 _TIMESTAMP_LABEL_COLUMNS = frozenset(name for name in LABEL_DEFAULTS if name.endswith("_at"))
@@ -676,9 +836,21 @@ OUTCOME_FIRST_EVENT_COLUMNS: dict[str, str] = {
     "reviewer_add_count": "first_reviewer_added_at",
     "reviewer_remove_count": "first_reviewer_removed_at",
     "resolve_click_count": "first_resolve_clicked_at",
+    "copy_prompt_count": "first_prompt_copied_at",
+    "implement_click_count": "first_implement_clicked_at",
+    "open_pr_click_count": "first_open_pr_clicked_at",
+    "view_diff_count": "first_diff_viewed_at",
+    "restore_count": "first_restored_at",
+    "reasoned_resolution_count": "first_reasoned_resolved_at",
+    "claim_count": "first_claimed_at",
+    "linked_pr_count": "first_pr_linked_at",
+    "note_count": "first_noted_at",
+    "slack_discussion_count": "first_slack_discussed_at",
     "feedback_positive_count": "first_positive_feedback_at",
     "feedback_negative_count": "first_negative_feedback_at",
     "wrong_dismissal_count": "first_wrong_dismissed_at",
+    "fixed_count": "first_fixed_at",
+    "lowvalue_dismissal_count": "first_lowvalue_dismissed_at",
     "pr_created_count": "first_pr_created_at",
     "pr_merged_count": "first_pr_merged_at",
     "pr_closed_count": "first_pr_closed_at",
@@ -714,9 +886,8 @@ def merge_label_streams(
     rows with impossible ids dropped, so forged or malformed client events cannot mint label-only
     training rows."""
     merged: dict[str, dict[str, Any]] = {}
-    columns_by_stream = {name: columns for name, _, columns in LABEL_STREAMS}
     for stream_name, rows in stream_rows.items():
-        columns = columns_by_stream[stream_name]
+        columns = LABEL_STREAM_COLUMNS[stream_name]
         for report_id, row in canonical_stream_rows(rows).items():
             entry = merged.setdefault(
                 report_id,

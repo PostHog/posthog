@@ -9,6 +9,7 @@ import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/
 import { createDeletionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 
+import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingApiMetrics } from './metrics'
 import { KeyStore, RecordingBlock, RecordingDecryptor, SessionKeyDeletedError } from './types'
 
@@ -48,7 +49,7 @@ export class RecordingService {
         private metadataStore?: SessionMetadataStore,
         private featureStore?: SessionFeatureStore,
         private postgres?: PostgresRouter,
-        private clickhouse?: ClickHouseClient
+        private clickhouse?: { client: ClickHouseClient; credential: ClickHouseCredential }
     ) {}
 
     validateS3Key(key: string): boolean {
@@ -167,13 +168,14 @@ export class RecordingService {
         if (!this.clickhouse) {
             throw new Error('ClickHouse client not initialized')
         }
+        const { client, credential } = this.clickhouse
 
         const startTime = performance.now()
 
         logger.debug('[RecordingService] listBlocks request', { teamId, sessionId })
 
         try {
-            const result = await this.clickhouse.query({
+            const result = await client.query({
                 query: `/* team_id:${teamId} query_type:recording_api_list_blocks */ SELECT
                         min(min_first_timestamp) as start_time,
                         groupArrayArray(block_first_timestamps) as block_first_timestamps,
@@ -196,6 +198,7 @@ export class RecordingService {
                     session_id: sessionId,
                 },
                 format: 'JSONEachRow',
+                auth: await credential.auth(),
                 clickhouse_settings: {
                     date_time_output_format: 'iso',
                     log_comment: JSON.stringify({
@@ -454,6 +457,9 @@ export class RecordingService {
                  ), deleted_matches AS (
                      DELETE FROM replay_vision_visionalertmatch
                      WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_media AS (
+                     DELETE FROM replay_vision_replayobservationmedia
+                     WHERE observation_id IN (SELECT id FROM observations)
                  )
                  DELETE FROM replay_vision_replayobservation
                  WHERE id IN (SELECT id FROM observations)`,
@@ -463,16 +469,14 @@ export class RecordingService {
             // Expired, not deleted: the row is the only pointer to the stored object, which the expiry sweep needs.
             this.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                // `= ANY` over jsonb so the planner can use exportedasset_system_session; a subquery cannot.
+                // `= ANY` over jsonb so the planner can use exportedasset_session; a subquery cannot.
                 `UPDATE posthog_exportedasset
                  SET expires_after = now()
                  WHERE team_id = $1
-                   AND is_system
-                   AND export_format = 'video/mp4'
                    AND expires_after > now()
                    AND export_context -> 'session_recording_id' = ANY($2::jsonb[])`,
                 [teamId, sessionIds.map((sessionId) => JSON.stringify(sessionId))],
-                'expireRenderedRecordingVideos'
+                'expireRecordingExports'
             ),
         ])
 

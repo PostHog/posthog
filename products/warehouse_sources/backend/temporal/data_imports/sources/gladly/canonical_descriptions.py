@@ -173,4 +173,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "times_reopened": "Number of times the conversation was reopened.",
         },
     },
+    # One row per contact and agent from the WorkSessionEventsReportV4 metric set;
+    # column names are the report's CSV headers, snake_cased.
+    "work_session_events": {
+        "description": "A work session: the time one agent spent on one ended contact (a call, chat, or email session). Ended contacts no agent handled appear with a blank agent, and open contacts appear once they end. From Gladly's work session report.",
+        "docs_url": "https://help.gladly.com/docs/work-sessions",
+        "columns": {
+            "timezone_filter": "Timezone the report was generated in (always UTC).",
+            "id": "Work session identifier. Blank until the contact ends, and not unique for sessions before October 2022.",
+            "contact_session_id": "Identifier of the contact the agent worked on.",
+            "contact_session_created_at": "Time at which the contact started (incremental cursor).",
+            "customer_id": "Identifier of the customer the contact is with.",
+            "conversation_id": "Identifier of the conversation the contact belongs to.",
+            "inbox_id": "Identifier of the inbox the contact was routed to.",
+            "channel": "Channel of the contact, e.g. CHAT, EMAIL, PHONE_CALL, SMS.",
+            "company_address": "Company address the customer contacted, such as a phone number or email address.",
+            "direction": "Whether the contact was inbound or outbound.",
+            "agent_accepted_at": "Time at which the agent accepted the contact.",
+            "contact_session_routed_at": "Time at which the contact was routed to the agent.",
+            "agent_id": "Identifier of the agent who worked the contact. Blank if no agent handled it.",
+            "sla_fulfilled_at": "Time at which the contact's service level was fulfilled.",
+            "contact_session_ended_at": "Time at which the contact ended.",
+            "status": "Outcome status of the contact.",
+            "within_sla": "Whether the contact was fulfilled within its service level.",
+            "work_session_handle_time_sec": "Seconds the agent spent handling the contact. Available after the contact ends.",
+            "work_session_after_contact_time_sec": "Seconds the agent spent on the customer after the contact ended.",
+            "work_session_unknown_time_sec": "Seconds of agent time on the customer that could not be attributed to a contact state.",
+            "accepted_inbox_id": "Identifier of the inbox the contact was in when the agent accepted it.",
+            "_row_id": "Hash of contact_session_id and agent_id, injected as the primary key.",
+        },
+    },
+    "teams": {
+        "description": "A team of agents in Gladly.",
+        "docs_url": "https://developer.gladly.com/rest/#tag/Teams",
+        "columns": {
+            "id": "Unique identifier for the team.",
+            "name": "Name of the team.",
+            "description": "Description of the team.",
+            "agentIds": "Identifiers of the agents in the team.",
+        },
+    },
+    "inboxes": {
+        "description": "An inbox in Gladly, which conversations and contacts are routed to.",
+        "docs_url": "https://developer.gladly.com/rest/#tag/Inboxes",
+        "columns": {
+            "id": "Unique identifier for the inbox.",
+            "name": "Name of the inbox.",
+            "disabled": "Whether the inbox is disabled.",
+        },
+    },
 }

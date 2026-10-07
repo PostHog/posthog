@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product business_knowledge
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product business_knowledge
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Business knowledge
 feature: business_knowledge
 url_prefix: /business-knowledge
@@ -39,30 +37,36 @@ tools:
             for any question about the team's own product, policies, domain knowledge, or internal docs. Set rerank=true
             for a listwise LLM rerank pass when top-result precision matters.
         feature_flag: product-business-knowledge
-    business-knowledge-gap-suggestions-accept-create:
-        operation: business_knowledge_gap_suggestions_accept_create
-        enabled: false
-    business-knowledge-gap-suggestions-accept-topic-create:
-        operation: business_knowledge_gap_suggestions_accept_topic_create
-        enabled: false
-    business-knowledge-gap-suggestions-dismiss-create:
-        operation: business_knowledge_gap_suggestions_dismiss_create
-        enabled: false
-    business-knowledge-gap-suggestions-dismiss-topic-create:
-        operation: business_knowledge_gap_suggestions_dismiss_topic_create
-        enabled: false
-    business-knowledge-gap-suggestions-list:
-        operation: business_knowledge_gap_suggestions_list
-        enabled: false
-    business-knowledge-settings-partial-update:
-        operation: business_knowledge_settings_partial_update
-        enabled: false
-    business-knowledge-settings-retrieve:
-        operation: business_knowledge_settings_retrieve
-        enabled: false
-    business-knowledge-sources-destroy:
-        operation: business_knowledge_sources_destroy
-        enabled: false
+    business-knowledge-repositories-file-retrieve:
+        operation: business_knowledge_repositories_file_retrieve
+        enabled: true
+        scopes:
+            - business_knowledge:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read a file from a selected repository
+        description: >
+            Read one file from a GitHub repository selected for business knowledge. The path must come from
+            business-knowledge-repositories-search. Returns the file text and a permalink. Does not search file
+            contents.
+        feature_flag: business-knowledge-github-repos
+    business-knowledge-repositories-search:
+        operation: business_knowledge_repositories_search
+        enabled: true
+        scopes:
+            - business_knowledge:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Search selected repositories
+        description: >
+            Search file paths and README text in the GitHub repositories selected for business knowledge. Pass file
+            names, path fragments, or identifiers, not a full sentence. Then read a matching file. Does not search
+            inside file contents and does not call GitHub code search.
+        feature_flag: business-knowledge-github-repos
     business-knowledge-sources-list:
         operation: business_knowledge_sources_list
         enabled: true
@@ -72,6 +76,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         list: true
         title: List business knowledge sources
         description: >
@@ -110,9 +115,6 @@ tools:
             content into every support reply as general guidance (tone, policies, company direction); set false to make
             it retrieval-only again. Only the fields you pass are changed.
         feature_flag: product-business-knowledge
-    business-knowledge-sources-refresh-create:
-        operation: business_knowledge_sources_refresh_create
-        enabled: false
     business-knowledge-sources-retrieve:
         operation: business_knowledge_sources_retrieve
         enabled: true
@@ -122,6 +124,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         title: Get business knowledge source
         description: >
             Get a single business knowledge source by ID, including processing status, document/chunk counts, and
@@ -147,9 +150,6 @@ tools:
             at 1 MB); it is chunked, embedded, and made searchable. Returns the created source with its processing
             status.
         feature_flag: product-business-knowledge
-    business-knowledge-sources-text-retrieve:
-        operation: business_knowledge_sources_text_retrieve
-        enabled: false
     business-knowledge-sources-url-create:
         operation: business_knowledge_sources_create
         enabled: true

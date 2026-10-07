@@ -5,12 +5,37 @@ use std::borrow::Cow;
 
 const FUTURE_EVENT_HOURS_CUTOFF_MILLIS: i64 = 23 * 3600 * 1000; // 23 hours
 
+/// Which input set the returned timestamp. A caller cannot infer this from the
+/// arguments, because a `timestamp` that fails to parse falls through to `Now`
+/// while still looking like a supplied timestamp.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TimestampSource {
+    Offset,
+    SentAtSkew,
+    ClientTimestamp,
+    Now,
+}
+
+impl TimestampSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Offset => "offset",
+            Self::SentAtSkew => "sent_at_skew",
+            Self::ClientTimestamp => "timestamp_raw",
+            Self::Now => "now_fallback",
+        }
+    }
+}
+
 /// Result of parsing an event timestamp.
 pub struct ParsedTimestamp {
     /// The parsed and validated event timestamp.
     pub timestamp: DateTime<Utc>,
     /// Clock skew (sent_at - now) when correction was applied, None otherwise.
     pub clock_skew: Option<Duration>,
+    /// Which input produced `timestamp`, before the future clamp and the
+    /// out-of-bounds fallback can overwrite the value.
+    pub source: TimestampSource,
 }
 
 /// Parse event timestamp with clock skew adjustment and validation
@@ -59,6 +84,7 @@ fn handle_timestamp(
 ) -> ParsedTimestamp {
     let mut parsed_ts = now;
     let mut clock_skew = None;
+    let mut source = TimestampSource::Now;
 
     if let Some(timestamp_str) = timestamp {
         let timestamp_parsed = parse_date(timestamp_str);
@@ -70,19 +96,23 @@ fn handle_timestamp(
             let skew = sent_at - now;
             parsed_ts = timestamp_parsed - skew;
             clock_skew = Some(skew);
+            source = TimestampSource::SentAtSkew;
         } else if let Some(timestamp_parsed) = timestamp_parsed {
             parsed_ts = timestamp_parsed;
+            source = TimestampSource::ClientTimestamp;
         }
     }
 
     // Handle offset if present
     if let Some(offset_ms) = offset {
         parsed_ts = now - Duration::milliseconds(offset_ms);
+        source = TimestampSource::Offset;
     }
 
     ParsedTimestamp {
         timestamp: parsed_ts,
         clock_skew,
+        source,
     }
 }
 
@@ -134,7 +164,11 @@ fn normalize_timezone_format(input: &str) -> Cow<'_, str> {
         return Cow::Borrowed(input);
     }
 
-    let last_3_chars = &input[input.len() - 3..];
+    // `input` is client-supplied, so its last three bytes can fall inside a multi-byte
+    // character. Slicing at a index that is not a character boundary panics.
+    let Some(last_3_chars) = input.get(input.len() - 3..) else {
+        return Cow::Borrowed(input);
+    };
     if !(last_3_chars.starts_with('+') || last_3_chars.starts_with('-'))
         || !last_3_chars[1..].chars().all(|c| c.is_ascii_digit())
     {
@@ -169,8 +203,67 @@ fn convert_jiff_to_chrono(jiff_timestamp: jiff::Zoned) -> Option<DateTime<Utc>> 
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_timestamp_ending_mid_character_is_rejected_rather_than_fatal() {
+        // The timestamp string comes straight from the client. Reading its last three
+        // bytes panicked when they fell inside a multi-byte character, and a panic here
+        // aborts the request, so the caller loses the whole batch and retries it forever.
+        for input in [
+            "2023-01-01T00:00:00+0\u{1F980}",
+            "\u{1F980}",
+            "ab\u{1F980}",
+            "\u{65E5}\u{672C}\u{8A9E}",
+        ] {
+            assert_eq!(parse_date(input), None, "{input}");
+        }
+
+        // The format the slice exists to catch still normalizes.
+        assert_eq!(
+            parse_date("2025-09-17T14:05:04.805+03"),
+            parse_date("2025-09-17T14:05:04.805+03:00"),
+        );
+    }
+
     fn dt(s: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    }
+
+    #[test]
+    fn unparseable_timestamp_reports_the_now_fallback() {
+        // A caller inferring the source from argument presence reads this as a
+        // stored client timestamp.
+        let now = dt("2023-01-01T12:00:00Z");
+        let result = parse_event_timestamp(Some("not a date"), None, None, false, now);
+        assert_eq!(result.timestamp, now);
+        assert_eq!(result.source, TimestampSource::Now);
+    }
+
+    #[test]
+    fn source_names_the_branch_that_computed_the_value() {
+        let now = dt("2023-01-01T12:00:00Z");
+        let sent_at = Some(dt("2023-01-01T12:00:10Z"));
+        let ts = Some("2023-01-01T11:00:00Z");
+
+        assert_eq!(
+            parse_event_timestamp(ts, None, sent_at, false, now).source,
+            TimestampSource::SentAtSkew
+        );
+        assert_eq!(
+            parse_event_timestamp(ts, None, None, false, now).source,
+            TimestampSource::ClientTimestamp
+        );
+        assert_eq!(
+            parse_event_timestamp(ts, None, sent_at, true, now).source,
+            TimestampSource::ClientTimestamp
+        );
+        assert_eq!(
+            parse_event_timestamp(None, None, sent_at, false, now).source,
+            TimestampSource::Now
+        );
+        assert_eq!(
+            parse_event_timestamp(ts, Some(5_000), sent_at, false, now).source,
+            TimestampSource::Offset
+        );
     }
 
     #[test]

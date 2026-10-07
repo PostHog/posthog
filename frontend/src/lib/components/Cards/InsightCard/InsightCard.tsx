@@ -41,7 +41,7 @@ import {
     InsightColor,
     InsightLogicProps,
     InsightShortId,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import type { AlertType } from 'products/alerts/frontend/types'
@@ -50,6 +50,7 @@ import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { INSIGHT_CARD_KEY_ATTR, insightCardKey } from './insightCardImageCapture'
 import { InsightMeta } from './InsightMeta'
+import { InsightVisualizationSkeleton } from './InsightVisualizationSkeleton'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
 
@@ -64,7 +65,7 @@ export function shouldRenderInsightCardViz({
     placement: DashboardPlacement | 'SavedInsightGrid'
     inView: boolean
     isPageVisible: boolean
-    query: QueryBasedInsightModel['query']
+    query: InsightModel['query']
 }): boolean {
     if (isStorybook || placement === DashboardPlacement.Export) {
         return true
@@ -155,9 +156,10 @@ type AlertModalState = {
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
-    insight: QueryBasedInsightModel
+    insight: InsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
+    canEditDashboard?: boolean
     /** Whether the insight has been called to load. */
     loadingQueued?: boolean
     /** Whether the insight is loading. */
@@ -174,7 +176,7 @@ export interface InsightCardProps extends Resizeable {
     timedOut?: boolean
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
-    refreshAfterDisplayOptionsChange?: (insight: QueryBasedInsightModel) => void
+    refreshAfterDisplayOptionsChange?: (insight: InsightModel) => void
     /** While this tile is being resized: throttle canvas chart redraws instead of repainting on every frame. */
     isResizing?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
@@ -210,7 +212,7 @@ export interface InsightCardProps extends Resizeable {
     className?: string
     style?: React.CSSProperties
     children?: React.ReactNode
-    tile?: DashboardTile<QueryBasedInsightModel>
+    tile?: DashboardTile
     /** survey opportunity for this insight */
     surveyOpportunity?: boolean
     /** Show a direct action for creating an anomaly detection alert for this saved insight. */
@@ -221,6 +223,12 @@ export interface InsightCardProps extends Resizeable {
     onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     /** Called when the user mousedowns on the card (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
+    /** Project the insight belongs to, when that is not the current project. The card's links then open it there. */
+    projectId?: number
+    /** Time zone of `projectId`, so the chart places that project's annotations on the right day. */
+    projectTimezone?: string
+    /** Shown above the title, for a card that has to name where its insight comes from. */
+    contextHeading?: JSX.Element | null
 }
 
 function InsightCardInternal(
@@ -228,6 +236,7 @@ function InsightCardInternal(
         tile,
         insight,
         dashboardId,
+        canEditDashboard,
         ribbonColor,
         loadingQueued,
         loading,
@@ -259,6 +268,9 @@ function InsightCardInternal(
         filtersOverride,
         variablesOverride,
         children,
+        projectId,
+        projectTimezone,
+        contextHeading,
         breakdownColorOverride: _breakdownColorOverride,
         dataColorThemeId: _dataColorThemeId,
         surveyOpportunity,
@@ -298,7 +310,7 @@ function InsightCardInternal(
     const canPersistDisplayOptions = !!dashboardId && canEditInsight
     const refreshAfterDisplayOptionsChangeRef = useRef(refreshAfterDisplayOptionsChange)
     refreshAfterDisplayOptionsChangeRef.current = refreshAfterDisplayOptionsChange
-    const handleRefreshAfterDisplayOptionsChange = useCallback((updatedInsight: QueryBasedInsightModel): void => {
+    const handleRefreshAfterDisplayOptionsChange = useCallback((updatedInsight: InsightModel): void => {
         refreshAfterDisplayOptionsChangeRef.current?.(updatedInsight)
     }, [])
 
@@ -312,8 +324,17 @@ function InsightCardInternal(
             loadPriority,
             doNotLoad,
             refreshAfterDisplayOptionsChange: handleRefreshAfterDisplayOptionsChange,
+            sourceProject: projectId !== undefined ? { id: projectId, timezone: projectTimezone } : undefined,
         }),
-        [insight, dashboardId, loadPriority, doNotLoad, handleRefreshAfterDisplayOptionsChange]
+        [
+            insight,
+            dashboardId,
+            loadPriority,
+            doNotLoad,
+            handleRefreshAfterDisplayOptionsChange,
+            projectId,
+            projectTimezone,
+        ]
     )
 
     const { persistDisplayOptions } = useActions(insightDataLogic(insightLogicPropsBase))
@@ -438,7 +459,9 @@ function InsightCardInternal(
     // Only canvas viz (charts) redraw per resize frame; tables/numbers/maps are cheap DOM/SVG and stay fully live.
     const vizContent = shouldRenderViz ? (
         <ResizeThrottledViz throttled={!!isResizing && rendersToCanvas}>{vizInner}</ResizeThrottledViz>
-    ) : null
+    ) : (
+        <InsightVisualizationSkeleton query={insight.query} />
+    )
 
     return (
         <div
@@ -460,8 +483,11 @@ function InsightCardInternal(
                     <InsightMeta
                         tile={tile}
                         insight={insight}
+                        projectId={projectId}
+                        contextHeading={contextHeading}
                         ribbonColor={ribbonColor}
                         dashboardId={dashboardId}
+                        canEditDashboard={canEditDashboard}
                         persistDisplayOptions={canPersistDisplayOptions ? persistDisplayOptions : undefined}
                         refreshAfterDisplayOptionsChange={handleRefreshAfterDisplayOptionsChange}
                         updateColor={updateColor}

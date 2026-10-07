@@ -47,7 +47,8 @@ def external_issue_url(integration: model.Integration, external_context: dict[st
             if "/" in str(repository)
             else f"{GitHubIntegration(integration).organization()}/{repository}"
         )
-        return f"https://github.com/{repository_path}/issues/{number}"
+        resource_path = "pull" if context.get("resource_type") == "pull_request" else "issues"
+        return f"https://github.com/{repository_path}/{resource_path}/{number}"
 
     if integration.kind == model.Integration.IntegrationKind.GITLAB:
         issue_id = context.get("issue_id")

@@ -4,6 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
+import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import {
     AccountsQuery,
     AccountsTableQuery,
@@ -15,6 +16,7 @@ import {
     CompareFilter,
     DataTableNode,
     DataVisualizationNode,
+    VisualizationNode,
     DataWarehouseNode,
     DataWarehouseSourceUsage,
     DatabaseSchemaQuery,
@@ -47,6 +49,7 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MathType,
+    MetricsHistogramQuery,
     MetricsQuery,
     Node,
     NodeKind,
@@ -91,7 +94,9 @@ export function isDataNode(node?: Record<string, any> | null): node is EventsQue
     )
 }
 
-export function isNodeWithSource(node?: Record<string, any> | null): node is DataTableNode | InsightVizNode {
+export function isNodeWithSource(
+    node?: Record<string, any> | null
+): node is DataTableNode | VisualizationNode | InsightVizNode {
     if (!node) {
         return false
     }
@@ -159,13 +164,17 @@ export function isDataTableNodeWithHogQLQuery(node?: Record<string, any> | null)
     return isDataTableNode(node) && isHogQLQuery(node.source)
 }
 
-export function isDataVisualizationNode(node?: Record<string, any> | null): node is DataVisualizationNode {
-    return node?.kind === NodeKind.DataVisualizationNode
+export function isBIVisualizationNode(node?: Record<string, any> | null): node is BIVisualizationNode {
+    return node?.kind === NodeKind.BIVisualizationNode
+}
+
+export function isDataVisualizationNode(node?: Record<string, any> | null): node is VisualizationNode {
+    return node?.kind === NodeKind.DataVisualizationNode || isBIVisualizationNode(node)
 }
 
 export function isDataVisualizationNodeWithHogQLQuery(
     node?: Record<string, any> | null
-): node is DataVisualizationNode & { source: HogQLQuery } {
+): node is VisualizationNode & { source: HogQLQuery } {
     return isDataVisualizationNode(node) && isHogQLQuery(node.source)
 }
 
@@ -229,6 +238,10 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
 
 export function isMetricsQuery(node?: Record<string, any> | null): node is MetricsQuery {
     return node?.kind === NodeKind.MetricsQuery
+}
+
+export function isMetricsHistogramQuery(node?: Record<string, any> | null): node is MetricsHistogramQuery {
+    return node?.kind === NodeKind.MetricsHistogramQuery
 }
 
 export function isEndpointsUsageOverviewQuery(node?: Record<string, any> | null): node is EndpointsUsageOverviewQuery {

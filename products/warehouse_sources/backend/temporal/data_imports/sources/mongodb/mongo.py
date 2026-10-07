@@ -3,25 +3,31 @@ from __future__ import annotations
 import math
 import uuid
 import base64
+import datetime
 import contextlib
 import collections
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 from urllib.parse import urlparse
 
 import certifi
 import structlog
-from bson import Binary, DatetimeMS, ObjectId
+from bson import Binary, DatetimeMS, Decimal128, ObjectId, Timestamp, json_util
+from bson.binary import UuidRepresentation
+from bson.code import Code
 from bson.codec_options import DatetimeConversion
+from bson.dbref import DBRef
+from bson.json_util import JSONMode, JSONOptions
 from pymongo import ASCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 from pymongo.database import Database
-from pymongo.errors import CursorNotFound, OperationFailure, PyMongoError
+from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, PyMongoError, ServerSelectionTimeoutError
 from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -31,9 +37,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    TEMPORARY_HOST_RESOLUTION_PREFIX,
+    HostNotAllowedError,
     _is_host_safe,
     log_connection_open,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
     MongoDBSourceConfig,
@@ -43,6 +54,12 @@ from products.warehouse_sources.backend.types import IncrementalFieldType, Parti
 # Schema inference settings
 SCHEMA_INFERENCE_LIMIT = 10_000  # First 10k documents
 SCHEMA_INFERENCE_TIMEOUT_MS = 45_000  # 45 seconds
+
+# Server-side limits (`maxTimeMS`) on the metadata commands that run before the first document is
+# read. The count runs the whole pipeline of a view, or scans a collection that has no index for
+# the filter, and each attempt of the import runs it again. Its result is only a progress estimate.
+ROW_COUNT_TIMEOUT_MS = 60_000
+COLLECTION_STATS_TIMEOUT_MS = 30_000
 
 # Mongo yields whole documents (the full doc rides along under `data`), so a collection of large
 # documents can OOM the worker when a chunk is materialised into a PyArrow table — before any Delta
@@ -154,44 +171,60 @@ def _process_nested_value(value: Any) -> Any:
         return value
 
 
-def get_indexes(collection: Collection) -> list[str]:
-    """Get all indexes for a MongoDB collection."""
-    try:
-        index_cursor = collection.list_indexes()
-        return [field for index in index_cursor for field in index["key"].keys()]
-    except Exception:
-        return []
+@frozen
+class CollectionIndexKeys:
+    """A collection's index keys, split by whether the key leads its index.
+
+    `WHERE field >= last_max` queries are only accelerated by an index whose leading key is
+    `field`; a non-leading position in a compound index doesn't support that access pattern.
+    """
+
+    covered: frozenset[str]
+    leading: frozenset[str]
 
 
-def get_leading_index_keys(collection: Collection) -> set[str] | None:
-    """Return the set of fields that are the first key of any index.
+def get_index_keys(collection: Collection) -> CollectionIndexKeys | None:
+    """Read a collection's index keys in one round trip.
 
-    `WHERE field >= last_max` queries are only accelerated by indexes whose
-    leading key is `field`; non-leading positions in compound indexes don't
-    support this access pattern. Returns None when index discovery fails so
-    the caller can default to no warning.
+    Returns None when index discovery fails, so the caller can tell "this collection has no
+    matching index" apart from "we don't know what this collection is indexed on".
     """
     try:
-        index_cursor = collection.list_indexes()
-        result: set[str] = set()
-        for index in index_cursor:
+        covered: set[str] = set()
+        leading: set[str] = set()
+        for index in collection.list_indexes():
             keys = index.get("key")
             if not keys:
                 continue
-            leading = next(iter(keys.keys()), None)
-            if leading is not None:
-                result.add(leading)
-        return result
+            covered.update(keys.keys())
+            first_key = next(iter(keys.keys()), None)
+            if first_key is not None:
+                leading.add(first_key)
+        return CollectionIndexKeys(covered=frozenset(covered), leading=frozenset(leading))
     except Exception as e:
-        structlog.get_logger().warning("Failed to detect leading index keys for MongoDB collection", exc_info=e)
+        structlog.get_logger().warning("Failed to read index keys for MongoDB collection", exc_info=e)
         return None
 
 
+def get_index_keys_by_collection(db: Database, collection_names: list[str]) -> dict[str, CollectionIndexKeys | None]:
+    """Read index keys for several collections at once.
+
+    Schema discovery answers a blocking HTTP request, so one round trip per collection in series
+    runs a database with many collections past that request's gateway deadline. Bounded the same
+    way as the schema-inference pool above.
+    """
+    if not collection_names:
+        return {}
+
+    with ThreadPoolExecutor(max_workers=min(len(collection_names), 4)) as executor:
+        results = executor.map(get_index_keys, [db[name] for name in collection_names])
+        return dict(zip(collection_names, results))
+
+
 def filter_mongo_incremental_fields(
-    columns: list[tuple[str, str]], collection: Collection
+    columns: list[tuple[str, str]], indexed_fields: frozenset[str]
 ) -> list[tuple[str, IncrementalFieldType]]:
     results: list[tuple[str, IncrementalFieldType]] = []
-    indexed_fields = get_indexes(collection)
 
     for column_name, type in columns:
         # Only include fields that have indexes
@@ -246,6 +279,12 @@ def _coerce_object_id_cursor(last_value: Any) -> Any:
     return ObjectId(value) if ObjectId.is_valid(value) else value
 
 
+# No node was selectable, or the outbound host policy refused every one. The extraction read
+# that follows cannot succeed either, so a best-effort probe that swallows one of these spends a
+# whole server-selection window of worker time before the attempt fails anyway. Re-raise instead.
+_UNREACHABLE_CLUSTER_ERRORS = (ServerSelectionTimeoutError, HostNotAllowedError)
+
+
 def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription]], list[ServerDescription]]:
     """Create a PyMongo server_selector that rejects servers resolving to internal IPs.
 
@@ -255,11 +294,23 @@ def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription
 
     def selector(server_descriptions: list[ServerDescription]) -> list[ServerDescription]:
         safe = []
+        rejection: str | None = None
         for server in server_descriptions:
             host = server.address[0]
-            is_safe, _ = _is_host_safe(host, team_id)
+            is_safe, error = _is_host_safe(host, team_id)
             if is_safe:
                 safe.append(server)
+            elif rejection is None and not (error or "").startswith(TEMPORARY_HOST_RESOLUTION_PREFIX):
+                rejection = error or DATABASE_HOST_NOT_ALLOWED_GUIDANCE
+        # pymongo only calls a custom selector with at least one candidate, so an empty result
+        # after a policy rejection means every member was refused. Returning [] instead would let
+        # server selection time out as an ordinary unreachable-cluster error, which retries on
+        # every schedule and keeps the monitors handshaking with a host the policy already refused.
+        # Raising the shared host error stops the schedule and gives the user the fix. A resolver
+        # that never answered is not a policy decision, so it leaves `rejection` unset and the
+        # empty selection retries as before.
+        if not safe and rejection is not None:
+            raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {rejection}")
         return safe
 
     return selector
@@ -336,7 +387,7 @@ def _get_partition_settings(
     """Get partition settings for given MongoDB collection."""
     try:
         # Get collection stats
-        stats = collection.database.command("collStats", collection_name)
+        stats = collection.database.command("collStats", collection_name, maxTimeMS=COLLECTION_STATS_TIMEOUT_MS)
 
         collection_size = stats.get("size", 0)  # size in bytes
         row_count = stats.get("count", 0)
@@ -356,6 +407,8 @@ def _get_partition_settings(
             partition_count=partition_count,
             partition_size=partition_size,
         )
+    except _UNREACHABLE_CLUSTER_ERRORS:
+        raise
     except Exception:
         return None
 
@@ -571,19 +624,45 @@ def _get_avg_document_size(collection: Collection, logger: FilteringBoundLogger)
     default chunk size. Never raises: chunk sizing is best-effort tuning, not correctness.
     """
     try:
-        stats = collection.database.command("collStats", collection.name)
+        stats = collection.database.command("collStats", collection.name, maxTimeMS=COLLECTION_STATS_TIMEOUT_MS)
         avg_obj_size = stats.get("avgObjSize")
         return int(avg_obj_size) if avg_obj_size else None
+    except _UNREACHABLE_CLUSTER_ERRORS:
+        raise
     except Exception as e:
         logger.debug(f"MongoDB: could not read collStats avgObjSize ({e}); using default chunk size")
         return None
 
 
+def _estimate_rows_to_sync(collection: Collection, query: dict[str, Any], logger: FilteringBoundLogger) -> int:
+    """Row estimate for a collection whose exact count ran past `ROW_COUNT_TIMEOUT_MS`.
+
+    The collection metadata holds a document count that costs no scan, but it counts the whole
+    collection, so it stands in only for an unfiltered read. A filtered read, and a view, which has
+    no such metadata, report 0. That is what a failed count reports too.
+    """
+    if not query:
+        try:
+            estimate = collection.estimated_document_count(maxTimeMS=COLLECTION_STATS_TIMEOUT_MS)
+            logger.debug(f"_get_rows_to_sync: count timed out, using estimate rows_to_sync={estimate}")
+            return estimate
+        except _UNREACHABLE_CLUSTER_ERRORS:
+            raise
+        except PyMongoError as e:
+            logger.debug(f"_get_rows_to_sync: count timed out and no estimate is available ({e})")
+    logger.warning(f"_get_rows_to_sync: the count did not finish in {ROW_COUNT_TIMEOUT_MS} ms. Using 0 as rows to sync")
+    return 0
+
+
 def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: FilteringBoundLogger) -> int:
     try:
-        rows_to_sync = collection.count_documents(query)
+        rows_to_sync = collection.count_documents(query, maxTimeMS=ROW_COUNT_TIMEOUT_MS)
         logger.debug(f"_get_rows_to_sync: rows_to_sync={rows_to_sync}")
         return rows_to_sync
+    except _UNREACHABLE_CLUSTER_ERRORS:
+        raise
+    except ExecutionTimeout:
+        return _estimate_rows_to_sync(collection, query, logger)
     except PyMongoError as e:
         # rows_to_sync is only a progress estimate, so a failed count degrades to 0
         # rather than failing the sync. Connectivity/auth failures here are expected
@@ -649,6 +728,113 @@ MONGO_KEYS_UNAVAILABLE_ERROR = (
 _EXECUTION_TIMEOUT_ERROR_CODE = 50
 
 
+@frozen
+class MongoResumeConfig:
+    """Checkpoint of a full-refresh read: the `_id` of the last document handed to the pipeline.
+
+    The value is canonical MongoDB Extended JSON. Plain JSON has no ObjectId, UUID, date or
+    Decimal128, and the resume manager writes `str()` of a value it cannot encode, which no later
+    attempt can parse. Extended JSON gives back the same BSON type and value, so `$gt` compares it
+    the way the server compared the original.
+    """
+
+    last_id: str
+
+
+# UNSPECIFIED keeps every binary `_id` a `Binary` of its own subtype on decode. A representation
+# that turns subtype 3 into `uuid.UUID` would re-encode it as subtype 4, and MongoDB orders binary
+# values by subtype, so the seek would skip every remaining subtype 3 `_id`.
+_RESUME_ID_JSON_OPTIONS = JSONOptions(
+    json_mode=JSONMode.CANONICAL,
+    uuid_representation=UuidRepresentation.UNSPECIFIED,
+    datetime_conversion=DatetimeConversion.DATETIME_AUTO,
+    tz_aware=False,
+)
+
+# MongoDB orders values of different BSON types by type bracket first, in this order, and a `$gt`
+# only matches values in the bracket of its operand. A seek past a checkpoint therefore also matches
+# every bracket that sorts after it, or a collection with mixed `_id` types loses those documents.
+_ID_TYPE_BRACKETS: tuple[tuple[str, ...], ...] = (
+    ("int", "long", "double", "decimal"),
+    ("string", "symbol"),
+    ("object",),
+    ("binData",),
+    ("objectId",),
+    ("bool",),
+    ("date",),
+    ("timestamp",),
+    ("regex", "dbPointer", "javascript", "javascriptWithScope", "maxKey"),
+)
+
+
+def _id_type_bracket(value: Any) -> int | None:
+    """Index into `_ID_TYPE_BRACKETS` for a decoded `_id`, or None when no seek can start from it."""
+    # bool subclasses int, so it must be checked before the numbers.
+    if isinstance(value, bool):
+        return 5
+    if isinstance(value, float):
+        # NaN sorts below every number, but `$gt: NaN` matches none of them.
+        return None if math.isnan(value) else 0
+    if isinstance(value, Decimal128):
+        return None if value.to_decimal().is_nan() else 0
+    if isinstance(value, int):
+        return 0
+    # Code subclasses str, but JavaScript values do not have a safe same-bracket seek.
+    if isinstance(value, Code):
+        return None
+    if isinstance(value, str):
+        return 1
+    if isinstance(value, Mapping | DBRef):
+        return 2
+    # Binary subclasses bytes. The client decodes subtype 4 to uuid.UUID.
+    if isinstance(value, bytes | uuid.UUID):
+        return 3
+    if isinstance(value, ObjectId):
+        return 4
+    if isinstance(value, datetime.datetime | DatetimeMS):
+        return 6
+    if isinstance(value, Timestamp):
+        return 7
+    # null, MinKey, MaxKey and the code types. The first three hold at most one document each
+    # because `_id` is unique, and nothing is lost when a run cannot resume from them.
+    return None
+
+
+def _to_exact_bson(value: Any) -> Any:
+    # The read client decodes subtype 4 to uuid.UUID. Turn it back into the stored bytes so the
+    # checkpoint does not depend on a UUID representation.
+    if isinstance(value, uuid.UUID):
+        return Binary.from_uuid(value)
+    if isinstance(value, Mapping):
+        return {key: _to_exact_bson(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_to_exact_bson(item) for item in value]
+    return value
+
+
+def encode_resume_id(value: Any) -> str | None:
+    """Extended JSON for a document `_id`, or None when a resumed read cannot seek past it."""
+    if _id_type_bracket(value) is None:
+        return None
+    try:
+        return json_util.dumps(_to_exact_bson(value), json_options=_RESUME_ID_JSON_OPTIONS)
+    except (TypeError, ValueError):
+        return None
+
+
+def decode_resume_id(encoded: str) -> Any:
+    return json_util.loads(encoded, json_options=_RESUME_ID_JSON_OPTIONS)
+
+
+def _id_seek_filter(last_id: Any) -> dict[str, Any]:
+    """Match every document whose `_id` sorts after `last_id` in MongoDB's cross-type order."""
+    bracket = _id_type_bracket(last_id)
+    if bracket is None:
+        raise ValueError(f"Cannot seek past an _id of type {type(last_id).__name__}")
+    later_types = [alias for aliases in _ID_TYPE_BRACKETS[bracket + 1 :] for alias in aliases]
+    return {"$or": [{"_id": {"$gt": last_id}}, {"_id": {"$type": later_types}}]}
+
+
 def mongo_source(
     connection_string: str,
     collection_name: str,
@@ -659,8 +845,15 @@ def mongo_source(
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
     database_name: Optional[str] = None,
+    resumable_source_manager: ResumableSourceManager[MongoResumeConfig] | None = None,
 ) -> SourceResponse:
     connection_params = _parse_connection_string(connection_string, database_name)
+
+    # Only a full refresh resumes. Its read is `find({}).sort(_id)` with no filter, so every document
+    # that sorts before the checkpoint was already handed on. An incremental or append read restarts
+    # from its incremental watermark instead, and an `_id` seek would have to agree with a filter on
+    # another field.
+    resume_manager = None if should_use_incremental_field else resumable_source_manager
 
     if not connection_params["database"]:
         raise ValueError(DATABASE_NAME_REQUIRED_ERROR)
@@ -703,6 +896,24 @@ def mongo_source(
                 db_incremental_field_last_value,
             )
 
+            if resume_manager is not None and resume_manager.can_resume():
+                state = resume_manager.load_state()
+                if state is not None:
+                    try:
+                        resume_after = decode_resume_id(state.last_id)
+                        query = _id_seek_filter(resume_after)
+                    except Exception:
+                        # This attempt already counts as a resume, so it cannot fall back to a
+                        # fresh read. Clearing the state lets the next attempt start one.
+                        resume_manager.clear_state()
+                        raise
+                    logger.debug(
+                        f"MongoDB: resuming collection={collection_name} after _id type={type(resume_after).__name__}"
+                    )
+
+            # Set when the resume state was cleared for an `_id` that cannot be a checkpoint, so a
+            # run of such documents costs one Redis delete and not one per document.
+            resume_state_cleared = False
             last_id: Any = None
 
             def open_resumable_cursor() -> Cursor[Any]:
@@ -758,6 +969,19 @@ def mongo_source(
 
                             result["data"] = processed_doc
 
+                            if resume_manager is not None:
+                                # Staged before the yield, so the pipeline commits this `_id` only
+                                # after it writes the batch that holds this document.
+                                encoded_id = encode_resume_id(last_id)
+                                if encoded_id is not None:
+                                    resume_manager.save_state(MongoResumeConfig(last_id=encoded_id))
+                                    resume_state_cleared = False
+                                elif not resume_state_cleared:
+                                    # An older checkpoint would re-read the rows written since it,
+                                    # so a retry restarts from the first document instead.
+                                    resume_manager.clear_state()
+                                    resume_state_cleared = True
+
                             yield result
                         return
                     except CursorNotFound:
@@ -767,7 +991,8 @@ def mongo_source(
                         if rows_since_cursor_opened == 0:
                             raise
                         logger.debug(
-                            f"MongoDB: cursor killed for collection={collection_name}; resuming after _id={last_id}"
+                            f"MongoDB: cursor killed for collection={collection_name}; "
+                            f"resuming after _id type={type(last_id).__name__}"
                         )
                         cursor.close()
                         cursor = open_resumable_cursor()
@@ -780,7 +1005,7 @@ def mongo_source(
                                 raise
                             logger.debug(
                                 f"MongoDB: operation exceeded time limit for collection={collection_name}; "
-                                f"resuming after _id={last_id}"
+                                f"resuming after _id type={type(last_id).__name__}"
                             )
                             cursor.close()
                             cursor = open_resumable_cursor()
@@ -813,4 +1038,6 @@ def mongo_source(
         rows_to_sync=rows_to_sync,
         chunk_size=chunk_size,
         chunk_size_bytes=MONGO_CHUNK_SIZE_BYTES,
+        supports_resume=resume_manager is not None,
+        on_complete=resume_manager.clear_state if resume_manager is not None else None,
     )

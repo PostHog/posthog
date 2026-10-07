@@ -13,6 +13,7 @@ import posthoganalytics
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -34,6 +35,7 @@ logger = structlog.get_logger(__name__)
 # TODO: Check if the size of the buffer doesn't overload memory for the Temporal workflow handling the batch
 BUFFER_MAX_SIZE = 20
 BUFFER_FLUSH_TIMEOUT_SECONDS = 5
+SAFETY_FILTER_RETRY_DELAY_SECONDS = 5
 
 # Guards the ingestion quota gate so runs that recorded history before it was added replay
 # deterministically. Switch to workflow.deprecate_patch() once those have drained, then remove.
@@ -257,25 +259,35 @@ class BufferSignalsWorkflow:
                     continue
 
             # Filter out malicious signals
-            safety_results = await asyncio.gather(
-                *[
-                    workflow.execute_activity(
-                        safety_filter_activity,
-                        SafetyFilterInput(
-                            team_id=s.team_id,
-                            description=s.description,
-                            source_product=s.source_product,
-                            source_type=s.source_type,
-                            source_id=s.source_id,
-                            weight=s.weight,
-                            extra=s.extra,
-                        ),
-                        start_to_close_timeout=timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
-                    )
-                    for s in batch
-                ]
-            )
+            try:
+                safety_results = await asyncio.gather(
+                    *[
+                        workflow.execute_activity(
+                            safety_filter_activity,
+                            SafetyFilterInput(
+                                team_id=s.team_id,
+                                description=s.description,
+                                source_product=s.source_product,
+                                source_type=s.source_type,
+                                source_id=s.source_id,
+                                weight=s.weight,
+                                extra=s.extra,
+                            ),
+                            start_to_close_timeout=timedelta(minutes=5),
+                            retry_policy=RetryPolicy(maximum_attempts=3),
+                        )
+                        for s in batch
+                    ]
+                )
+            except ActivityError:
+                self._signal_buffer[:0] = batch
+                logger.warning(
+                    "signals_buffer.safety_filter_failed_requeued",
+                    team_id=input.team_id,
+                    signal_count=len(batch),
+                )
+                await workflow.sleep(timedelta(seconds=SAFETY_FILTER_RETRY_DELAY_SECONDS))
+                continue
             safe_signals: list[EmitSignalInputs] = []
             for signal, result in zip(batch, safety_results):
                 if result.safe:

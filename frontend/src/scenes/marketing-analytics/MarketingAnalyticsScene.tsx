@@ -15,10 +15,13 @@ import { urls } from 'scenes/urls'
 import { QueryTile } from 'scenes/web-analytics/common'
 import { PagePerformance } from 'scenes/web-analytics/PagePerformance'
 import { PagePerformanceFilters } from 'scenes/web-analytics/PagePerformanceFilters'
+import { pagePerformanceLogic } from 'scenes/web-analytics/pagePerformanceLogic'
 import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
 import { RetentionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab'
 import { UtmAuditTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/UtmAuditTab/UtmAuditTab'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
+import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -28,6 +31,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
+import { SearchPerformanceTab } from 'products/marketing_analytics/frontend/search/SearchPerformanceTab'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { LegacyOAuthReconnectBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/LegacyOAuthReconnectBanner'
@@ -279,7 +283,8 @@ const MarketingAnalyticsContent = (): JSX.Element => {
 
     const tabs = [
         { key: MarketingAnalyticsTab.DASHBOARD, label: 'Dashboard', content: dashboard },
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
+        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] ||
+        featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
             ? [
                   {
                       key: MarketingAnalyticsTab.AD_PERFORMANCE,
@@ -288,6 +293,11 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                           <>
                               <MarketingAnalyticsFilters tabs={<></>} />
                               <MarketingAnalyticsDashboard />
+                              {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] && (
+                                  <div className="mt-8">
+                                      <SearchPerformanceTab />
+                                  </div>
+                              )}
                               {integrationSettingsModal.integration && (
                                   <IntegrationSettingsModal
                                       integrationName={integrationSettingsModal.integration}
@@ -300,14 +310,22 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                           </>
                       ),
                   },
+              ]
+            : []),
+        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
+            ? [
                   {
                       key: MarketingAnalyticsTab.PAGE_VISIBILITY,
                       label: 'Page visibility',
                       content: (
-                          <>
-                              <PagePerformanceFilters tabs={<></>} />
-                              <PagePerformance />
-                          </>
+                          <BindLogic logic={webAnalyticsLogic} props={{ context: 'page-visibility' }}>
+                              <BindLogic logic={webAnalyticsFilterLogic} props={{ context: 'page-visibility' }}>
+                                  <BindLogic logic={pagePerformanceLogic} props={{ context: 'page-visibility' }}>
+                                      <PagePerformanceFilters tabs={<></>} />
+                                      <PagePerformance />
+                                  </BindLogic>
+                              </BindLogic>
+                          </BindLogic>
                       ),
                   },
               ]
@@ -353,9 +371,14 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     const tabIsRendered = tabs.some((tab) => tab.key === activeTab)
     useEffect(() => {
         if (!tabIsRendered && !absorbed) {
-            setActiveTab(MarketingAnalyticsTab.DASHBOARD)
+            setActiveTab(
+                activeTab === MarketingAnalyticsTab.SEARCH_PERFORMANCE &&
+                    featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
+                    ? MarketingAnalyticsTab.AD_PERFORMANCE
+                    : MarketingAnalyticsTab.DASHBOARD
+            )
         }
-    }, [tabIsRendered, absorbed, setActiveTab])
+    }, [tabIsRendered, absorbed, setActiveTab, activeTab, featureFlags])
     const selectedTab = tabIsRendered ? activeTab : MarketingAnalyticsTab.DASHBOARD
 
     // Only surface the tab bar once a secondary tab is enabled; otherwise show the dashboard directly.
@@ -369,6 +392,8 @@ const MarketingAnalyticsContent = (): JSX.Element => {
 }
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
+    [MarketingAnalyticsTab.SEARCH_PERFORMANCE]:
+        'Explore paid and organic search performance across keywords, queries and landing pages.',
     [MarketingAnalyticsTab.PAGE_VISIBILITY]:
         'Explore page traffic, Google search visibility, AI referrals, crawler activity, and conversions.',
     [MarketingAnalyticsTab.AD_PERFORMANCE]: 'Compare ad spend, clicks and impressions across your connected platforms.',

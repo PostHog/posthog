@@ -42,8 +42,13 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
+import { SettingSectionUnavailable } from './components/SettingSectionUnavailable'
 import { SearchResult, settingsLogic } from './settingsLogic'
-import { SettingLevelId, SettingsLogicProps } from './types'
+import { SettingLevelId, SettingSection, SettingsLogicProps } from './types'
+
+function sectionSortKey(section: SettingSection): string {
+    return typeof section.title === 'string' ? section.title : section.id
+}
 
 export interface SettingOption {
     key: string
@@ -167,13 +172,11 @@ export function Settings({
         return () => clearTimeout(timer)
     }, [selectedSectionId, isSearching])
 
-    // Environment and project settings don't require periodic re-authentication by default,
-    // so we avoid a needless re-authentication modal (see https://github.com/posthog/posthog/pull/22421).
-    // The exception is sections that opt in via `requiresReauthentication` — e.g. credential
-    // management — which prompt on navigation like user- and organization-level settings do.
-    const requiresReauthentication =
-        (selectedLevel !== 'environment' && selectedLevel !== 'project') || !!selectedSection?.requiresReauthentication
-    const AuthenticationAreaComponent = requiresReauthentication ? TimeSensitiveAuthenticationArea : React.Fragment
+    // Only organization settings prompt for re-authentication on navigation. Everywhere else the backend gates
+    // sensitive writes, and a write that fails for a stale session opens the re-auth modal and retries.
+    // See the `gating-sensitive-actions` skill.
+    const AuthenticationAreaComponent =
+        selectedLevel === 'organization' ? TimeSensitiveAuthenticationArea : React.Fragment
 
     const options: SettingOption[] = settingsInSidebar
         ? settings.map((s) => ({
@@ -251,6 +254,10 @@ export function Settings({
                       const groupKey = `${level}-${section.group}`
                       const isGroupCollapsed = collapsedGroups[groupKey]
                       const sectionsInGroup = nonDangerSections.filter((s) => s.group === section.group)
+                      // Only the Products group sorts by title, because the AI group lists PostHog AI first on purpose
+                      if (section.group === 'Products') {
+                          sectionsInGroup.sort((a, b) => sectionSortKey(a).localeCompare(sectionSortKey(b)))
+                      }
 
                       return [
                           {
@@ -422,6 +429,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
         selectedSection,
         selectedSectionId,
         selectedSetting,
+        unavailableSection,
     } = useValues(settingsLogic(props))
     const { selectSetting } = useActions(settingsLogic(props))
     const { user } = useValues(userLogic)
@@ -469,6 +477,8 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                         <ErrorBoundary>{x.component}</ErrorBoundary>
                     </div>
                 ))
+            ) : unavailableSection ? (
+                <SettingSectionUnavailable section={unavailableSection} />
             ) : (
                 <NotFound object="setting" />
             )}

@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 /**
  * Input casts for permissive zod schemas at the MCP tool boundary.
  *
@@ -66,9 +68,8 @@ export const castBooleanToString = (v: unknown): unknown => (typeof v === 'boole
  * Wired up declaratively via `param_overrides: { id: { aliases: [...] } }` in
  * product `tools.yaml` files — see services/mcp/scripts/generate-tools.ts.
  */
-export const normalizeParamAliases =
-    (aliasMap: Record<string, readonly string[]>) =>
-    (input: unknown): unknown => {
+export const normalizeParamAliases = (aliasMap: Record<string, readonly string[]>): ((input: unknown) => unknown) => {
+    const normalize = (input: unknown): unknown => {
         if (input === null || typeof input !== 'object' || Array.isArray(input)) {
             return input
         }
@@ -90,3 +91,62 @@ export const normalizeParamAliases =
         }
         return result
     }
+    ALIAS_MAPS.set(normalize, aliasMap)
+    return normalize
+}
+
+/**
+ * Alias maps keyed by the preprocess function that applies them. Telemetry reads the
+ * map back off a tool's schema to record which alias a call carried, so the map has
+ * one source of truth: the same `normalizeParamAliases(...)` call the schema uses.
+ */
+const ALIAS_MAPS = new WeakMap<(input: unknown) => unknown, Record<string, readonly string[]>>()
+
+/** Deeper than any tool stacks `z.preprocess` today; bounds the walk over a malformed pipe chain. */
+const MAX_PREPROCESS_DEPTH = 8
+
+/**
+ * The alias maps a schema applies, merged across nested `z.preprocess(normalizeParamAliases(...), ...)`
+ * layers, or undefined when it applies none. Walks the pipe chain that `z.preprocess` builds
+ * (`ZodPipe` with the transform on `.in`), the same way `schemaHasOutputFormat` walks `.out`.
+ * Only a `normalizeParamAliases(...)` closure passed straight to `z.preprocess` is found; a tool
+ * that calls it from inside its own preprocess function (`read-data-schema`) reads as alias-free.
+ */
+export function readParamAliases(schema: z.ZodType): Record<string, readonly string[]> | undefined {
+    let merged: Record<string, readonly string[]> | undefined
+    let current: unknown = schema
+    for (let depth = 0; depth < MAX_PREPROCESS_DEPTH && current instanceof z.ZodPipe; depth++) {
+        const transform = (current.in as { def?: { transform?: unknown } }).def?.transform
+        const aliasMap =
+            typeof transform === 'function' ? ALIAS_MAPS.get(transform as (input: unknown) => unknown) : undefined
+        if (aliasMap) {
+            // Outer layers normalise first, so their aliases come first for a shared canonical.
+            merged ??= {}
+            for (const [canonical, aliases] of Object.entries(aliasMap)) {
+                merged[canonical] = [...new Set([...(merged[canonical] ?? []), ...aliases])]
+            }
+        }
+        current = current.out
+    }
+    return merged
+}
+
+// A schema that transforms its input (other than alias folding) consumes keys on purpose,
+// so comparing sent keys to the parsed result would report them as ignored.
+export function reshapesInputBeyondAliases(schema: z.ZodType): boolean {
+    let current: unknown = schema
+    for (let depth = 0; depth < MAX_PREPROCESS_DEPTH && current instanceof z.ZodPipe; depth++) {
+        const input = current.in as { def?: { transform?: unknown } }
+        if (current.in instanceof z.ZodTransform) {
+            const transform = input.def?.transform
+            if (typeof transform !== 'function' || !ALIAS_MAPS.has(transform as (input: unknown) => unknown)) {
+                return true
+            }
+        }
+        if (current.out instanceof z.ZodTransform) {
+            return true
+        }
+        current = current.out
+    }
+    return current instanceof z.ZodUnion
+}

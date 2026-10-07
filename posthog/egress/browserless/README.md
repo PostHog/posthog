@@ -22,6 +22,7 @@ So the budget counts browser loads asked of one fleet, and the ceilings are smal
 The default reserve ladder applies, because callers differ sharply in urgency.
 Heatmap screenshots (`products/web_analytics/backend/tasks/heatmap_screenshot.py`) run `NORMAL`, because somebody is watching a spinner.
 A background consumer should run `BATCH`, so that it is shed first and leaves headroom for the render a person is waiting on.
+Signals Lighthouse audits (`products/signals/backend/scout_harness/tools/lighthouse.py`) run `BATCH` for that reason: an audit holds a session for tens of seconds where a screenshot holds one for a few.
 A denied call raises `BrowserlessEgressBudgetExhausted`; the heatmap caller maps it to its existing retryable error, under its own failure cause, so a busy fleet is not read as a broken one.
 
 ## Rate-limit headers

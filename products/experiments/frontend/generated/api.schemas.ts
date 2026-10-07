@@ -933,21 +933,82 @@ export interface ExperimentFeatureFlagInputApi {
     ensure_experience_continuity?: boolean | null
 }
 
-export interface ExperimentToSavedMetricApi {
-    readonly id: number
-    experiment: number
-    saved_metric: number
-    metadata?: unknown
-    readonly created_at: string
-    readonly query: unknown
-    readonly name: string
+export type BreakdownTypeApi = (typeof BreakdownTypeApi)[keyof typeof BreakdownTypeApi]
+
+export const BreakdownTypeApi = {
+    Cohort: 'cohort',
+    Person: 'person',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Element: 'element',
+    Group: 'group',
+    Session: 'session',
+    Hogql: 'hogql',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    RevenueAnalytics: 'revenue_analytics',
+} as const
+
+export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
+
+export const MultipleBreakdownTypeApi = {
+    Person: 'person',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Element: 'element',
+    Group: 'group',
+    Session: 'session',
+    Hogql: 'hogql',
+    Cohort: 'cohort',
+    RevenueAnalytics: 'revenue_analytics',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+} as const
+
+export interface BreakdownApi {
+    group_type_index?: number | null
+    histogram_bin_count?: number | null
+    normalize_url?: boolean | null
+    property: string | number
+    type?: MultipleBreakdownTypeApi | null
 }
 
-export type Kind1Api = (typeof Kind1Api)[keyof typeof Kind1Api]
+export interface BreakdownFilterApi {
+    breakdown?: string | (string | number)[] | number | null
+    breakdown_group_type_index?: number | null
+    breakdown_hide_other_aggregation?: boolean | null
+    breakdown_histogram_bin_count?: number | null
+    breakdown_limit?: number | null
+    breakdown_normalize_url?: boolean | null
+    breakdown_path_cleaning?: boolean | null
+    breakdown_type?: BreakdownTypeApi | null
+    breakdowns?: BreakdownApi[] | null
+}
 
-export const Kind1Api = {
-    ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
-    ActionsNode: 'ActionsNode',
+export type FunnelConversionWindowTimeUnitApi =
+    (typeof FunnelConversionWindowTimeUnitApi)[keyof typeof FunnelConversionWindowTimeUnitApi]
+
+export const FunnelConversionWindowTimeUnitApi = {
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+} as const
+
+export type ExperimentMetricGoalApi = (typeof ExperimentMetricGoalApi)[keyof typeof ExperimentMetricGoalApi]
+
+export const ExperimentMetricGoalApi = {
+    Increase: 'increase',
+    Decrease: 'decrease',
+} as const
+
+export type ExperimentMeanMetricApiMetricType =
+    (typeof ExperimentMeanMetricApiMetricType)[keyof typeof ExperimentMeanMetricApiMetricType]
+
+export const ExperimentMeanMetricApiMetricType = {
+    Mean: 'mean',
 } as const
 
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
@@ -1275,13 +1336,719 @@ export interface BehavioralPropertyFilterApi {
     value: InlineBehavioralTypeApi
 }
 
+export type BaseMathTypeApi = (typeof BaseMathTypeApi)[keyof typeof BaseMathTypeApi]
+
+export const BaseMathTypeApi = {
+    Total: 'total',
+    Dau: 'dau',
+    WeeklyActive: 'weekly_active',
+    MonthlyActive: 'monthly_active',
+    UniqueSession: 'unique_session',
+    FirstTimeForUser: 'first_time_for_user',
+    FirstMatchingEventForUser: 'first_matching_event_for_user',
+} as const
+
+export type FunnelMathTypeApi = (typeof FunnelMathTypeApi)[keyof typeof FunnelMathTypeApi]
+
+export const FunnelMathTypeApi = {
+    Total: 'total',
+    FirstTimeForUser: 'first_time_for_user',
+    FirstTimeForUserWithFilters: 'first_time_for_user_with_filters',
+} as const
+
+export type PropertyMathTypeApi = (typeof PropertyMathTypeApi)[keyof typeof PropertyMathTypeApi]
+
+export const PropertyMathTypeApi = {
+    Avg: 'avg',
+    Sum: 'sum',
+    Min: 'min',
+    Max: 'max',
+    Median: 'median',
+    P75: 'p75',
+    P90: 'p90',
+    P95: 'p95',
+    P99: 'p99',
+} as const
+
+export type CountPerActorMathTypeApi = (typeof CountPerActorMathTypeApi)[keyof typeof CountPerActorMathTypeApi]
+
+export const CountPerActorMathTypeApi = {
+    AvgCountPerActor: 'avg_count_per_actor',
+    MinCountPerActor: 'min_count_per_actor',
+    MaxCountPerActor: 'max_count_per_actor',
+    MedianCountPerActor: 'median_count_per_actor',
+    P75CountPerActor: 'p75_count_per_actor',
+    P90CountPerActor: 'p90_count_per_actor',
+    P95CountPerActor: 'p95_count_per_actor',
+    P99CountPerActor: 'p99_count_per_actor',
+} as const
+
+export type GroupMathTypeApi = (typeof GroupMathTypeApi)[keyof typeof GroupMathTypeApi]
+
+export const GroupMathTypeApi = {
+    UniqueGroup: 'unique_group',
+    FirstTimeForGroup: 'first_time_for_group',
+    FirstMatchingEventForGroup: 'first_matching_event_for_group',
+} as const
+
+export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
+
+export const ExperimentMetricMathTypeApi = {
+    Total: 'total',
+    Sum: 'sum',
+    UniqueSession: 'unique_session',
+    Min: 'min',
+    Max: 'max',
+    Avg: 'avg',
+    Dau: 'dau',
+    UniqueGroup: 'unique_group',
+    Hogql: 'hogql',
+} as const
+
+export type CalendarHeatmapMathTypeApi = (typeof CalendarHeatmapMathTypeApi)[keyof typeof CalendarHeatmapMathTypeApi]
+
+export const CalendarHeatmapMathTypeApi = {
+    Total: 'total',
+    Dau: 'dau',
+} as const
+
+export type MathGroupTypeIndexApi = (typeof MathGroupTypeIndexApi)[keyof typeof MathGroupTypeIndexApi]
+
+export const MathGroupTypeIndexApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
+} as const
+
+export type CurrencyCodeApi = (typeof CurrencyCodeApi)[keyof typeof CurrencyCodeApi]
+
+export const CurrencyCodeApi = {
+    Aed: 'AED',
+    Afn: 'AFN',
+    All: 'ALL',
+    Amd: 'AMD',
+    Ang: 'ANG',
+    Aoa: 'AOA',
+    Ars: 'ARS',
+    Aud: 'AUD',
+    Awg: 'AWG',
+    Azn: 'AZN',
+    Bam: 'BAM',
+    Bbd: 'BBD',
+    Bdt: 'BDT',
+    Bgn: 'BGN',
+    Bhd: 'BHD',
+    Bif: 'BIF',
+    Bmd: 'BMD',
+    Bnd: 'BND',
+    Bob: 'BOB',
+    Brl: 'BRL',
+    Bsd: 'BSD',
+    Btc: 'BTC',
+    Btn: 'BTN',
+    Bwp: 'BWP',
+    Byn: 'BYN',
+    Bzd: 'BZD',
+    Cad: 'CAD',
+    Cdf: 'CDF',
+    Chf: 'CHF',
+    Clp: 'CLP',
+    Cny: 'CNY',
+    Cop: 'COP',
+    Crc: 'CRC',
+    Cve: 'CVE',
+    Czk: 'CZK',
+    Djf: 'DJF',
+    Dkk: 'DKK',
+    Dop: 'DOP',
+    Dzd: 'DZD',
+    Egp: 'EGP',
+    Ern: 'ERN',
+    Etb: 'ETB',
+    Eur: 'EUR',
+    Fjd: 'FJD',
+    Gbp: 'GBP',
+    Gel: 'GEL',
+    Ghs: 'GHS',
+    Gip: 'GIP',
+    Gmd: 'GMD',
+    Gnf: 'GNF',
+    Gtq: 'GTQ',
+    Gyd: 'GYD',
+    Hkd: 'HKD',
+    Hnl: 'HNL',
+    Hrk: 'HRK',
+    Htg: 'HTG',
+    Huf: 'HUF',
+    Idr: 'IDR',
+    Ils: 'ILS',
+    Inr: 'INR',
+    Iqd: 'IQD',
+    Irr: 'IRR',
+    Isk: 'ISK',
+    Jmd: 'JMD',
+    Jod: 'JOD',
+    Jpy: 'JPY',
+    Kes: 'KES',
+    Kgs: 'KGS',
+    Khr: 'KHR',
+    Kmf: 'KMF',
+    Krw: 'KRW',
+    Kwd: 'KWD',
+    Kyd: 'KYD',
+    Kzt: 'KZT',
+    Lak: 'LAK',
+    Lbp: 'LBP',
+    Lkr: 'LKR',
+    Lrd: 'LRD',
+    Ltl: 'LTL',
+    Lvl: 'LVL',
+    Lsl: 'LSL',
+    Lyd: 'LYD',
+    Mad: 'MAD',
+    Mdl: 'MDL',
+    Mga: 'MGA',
+    Mkd: 'MKD',
+    Mmk: 'MMK',
+    Mnt: 'MNT',
+    Mop: 'MOP',
+    Mru: 'MRU',
+    Mtl: 'MTL',
+    Mur: 'MUR',
+    Mvr: 'MVR',
+    Mwk: 'MWK',
+    Mxn: 'MXN',
+    Myr: 'MYR',
+    Mzn: 'MZN',
+    Nad: 'NAD',
+    Ngn: 'NGN',
+    Nio: 'NIO',
+    Nok: 'NOK',
+    Npr: 'NPR',
+    Nzd: 'NZD',
+    Omr: 'OMR',
+    Pab: 'PAB',
+    Pen: 'PEN',
+    Pgk: 'PGK',
+    Php: 'PHP',
+    Pkr: 'PKR',
+    Pln: 'PLN',
+    Pyg: 'PYG',
+    Qar: 'QAR',
+    Ron: 'RON',
+    Rsd: 'RSD',
+    Rub: 'RUB',
+    Rwf: 'RWF',
+    Sar: 'SAR',
+    Sbd: 'SBD',
+    Scr: 'SCR',
+    Sdg: 'SDG',
+    Sek: 'SEK',
+    Sgd: 'SGD',
+    Srd: 'SRD',
+    Ssp: 'SSP',
+    Stn: 'STN',
+    Syp: 'SYP',
+    Szl: 'SZL',
+    Thb: 'THB',
+    Tjs: 'TJS',
+    Tmt: 'TMT',
+    Tnd: 'TND',
+    Top: 'TOP',
+    Try: 'TRY',
+    Ttd: 'TTD',
+    Twd: 'TWD',
+    Tzs: 'TZS',
+    Uah: 'UAH',
+    Ugx: 'UGX',
+    Usd: 'USD',
+    Uyu: 'UYU',
+    Uzs: 'UZS',
+    Ves: 'VES',
+    Vnd: 'VND',
+    Vuv: 'VUV',
+    Wst: 'WST',
+    Xaf: 'XAF',
+    Xcd: 'XCD',
+    Xof: 'XOF',
+    Xpf: 'XPF',
+    Yer: 'YER',
+    Zar: 'ZAR',
+    Zmw: 'ZMW',
+} as const
+
+export interface RevenueCurrencyPropertyConfigApi {
+    property?: string | null
+    static?: CurrencyCodeApi | null
+}
+
+export type EventsNodeApiResponse = { [key: string]: unknown } | null
+
+export interface EventsNodeApi {
+    custom_name?: string | null
+    /** The event or `null` for all events. */
+    event?: string | null
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
+          )[]
+        | null
+    kind?: 'EventsNode'
+    limit?: number | null
+    math?:
+        | BaseMathTypeApi
+        | FunnelMathTypeApi
+        | PropertyMathTypeApi
+        | CountPerActorMathTypeApi
+        | GroupMathTypeApi
+        | ExperimentMetricMathTypeApi
+        | CalendarHeatmapMathTypeApi
+        | 'hogql'
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    math_hogql?: string | null
+    math_multiplier?: number | null
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    math_property_type?: string | null
+    name?: string | null
+    optionalInFunnel?: boolean | null
+    /** Columns to order by */
+    orderBy?: string[] | null
+    /** Properties configurable in the interface */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
+          )[]
+        | null
+    response?: EventsNodeApiResponse
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type ActionsNodeApiResponse = { [key: string]: unknown } | null
+
+export interface ActionsNodeApi {
+    custom_name?: string | null
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
+          )[]
+        | null
+    id: number
+    kind?: 'ActionsNode'
+    math?:
+        | BaseMathTypeApi
+        | FunnelMathTypeApi
+        | PropertyMathTypeApi
+        | CountPerActorMathTypeApi
+        | GroupMathTypeApi
+        | ExperimentMetricMathTypeApi
+        | CalendarHeatmapMathTypeApi
+        | 'hogql'
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    math_hogql?: string | null
+    math_multiplier?: number | null
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    math_property_type?: string | null
+    name?: string | null
+    optionalInFunnel?: boolean | null
+    /** Properties configurable in the interface */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
+          )[]
+        | null
+    response?: ActionsNodeApiResponse
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type ExperimentDataWarehouseNodeApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentDataWarehouseNodeApi {
+    custom_name?: string | null
+    data_warehouse_join_key: string
+    events_join_key: string
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
+          )[]
+        | null
+    kind?: 'ExperimentDataWarehouseNode'
+    math?:
+        | BaseMathTypeApi
+        | FunnelMathTypeApi
+        | PropertyMathTypeApi
+        | CountPerActorMathTypeApi
+        | GroupMathTypeApi
+        | ExperimentMetricMathTypeApi
+        | CalendarHeatmapMathTypeApi
+        | 'hogql'
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    math_hogql?: string | null
+    math_multiplier?: number | null
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    math_property_type?: string | null
+    name?: string | null
+    optionalInFunnel?: boolean | null
+    /** Properties configurable in the interface */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
+          )[]
+        | null
+    response?: ExperimentDataWarehouseNodeApiResponse
+    table_name: string
+    timestamp_field: string
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type ExperimentMeanMetricApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentMeanMetricApi {
+    breakdownFilter?: BreakdownFilterApi | null
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
+    fingerprint?: string | null
+    goal?: ExperimentMetricGoalApi | null
+    ignore_zeros?: boolean | null
+    isSharedMetric?: boolean | null
+    kind?: 'ExperimentMetric'
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
+    lower_bound_percentile?: number | null
+    metric_type: ExperimentMeanMetricApiMetricType
+    name?: string | null
+    response?: ExperimentMeanMetricApiResponse
+    sharedMetricId?: number | null
+    source: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    /** When set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+    threshold?: number | null
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
+    upper_bound_percentile?: number | null
+    uuid?: string | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type BreakdownAttributionTypeApi = (typeof BreakdownAttributionTypeApi)[keyof typeof BreakdownAttributionTypeApi]
+
+export const BreakdownAttributionTypeApi = {
+    FirstTouch: 'first_touch',
+    LastTouch: 'last_touch',
+    AllEvents: 'all_events',
+    Step: 'step',
+} as const
+
+export type StepOrderValueApi = (typeof StepOrderValueApi)[keyof typeof StepOrderValueApi]
+
+export const StepOrderValueApi = {
+    Strict: 'strict',
+    Unordered: 'unordered',
+    Ordered: 'ordered',
+} as const
+
+export type ExperimentFunnelMetricApiMetricType =
+    (typeof ExperimentFunnelMetricApiMetricType)[keyof typeof ExperimentFunnelMetricApiMetricType]
+
+export const ExperimentFunnelMetricApiMetricType = {
+    Funnel: 'funnel',
+} as const
+
+export type ExperimentFunnelMetricApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentFunnelMetricApi {
+    /** How to attribute the breakdown value across funnel steps. */
+    breakdownAttributionType?: BreakdownAttributionTypeApi | null
+    /** When breakdownAttributionType is `step`, the 0-indexed step to attribute from. */
+    breakdownAttributionValue?: number | null
+    breakdownFilter?: BreakdownFilterApi | null
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
+    fingerprint?: string | null
+    funnel_order_type?: StepOrderValueApi | null
+    goal?: ExperimentMetricGoalApi | null
+    isSharedMetric?: boolean | null
+    kind?: 'ExperimentMetric'
+    metric_type: ExperimentFunnelMetricApiMetricType
+    name?: string | null
+    response?: ExperimentFunnelMetricApiResponse
+    series: (EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi)[]
+    sharedMetricId?: number | null
+    uuid?: string | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export interface ExperimentMetricOutlierHandlingApi {
+    ignore_zeros?: boolean | null
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
+    lower_bound_percentile?: number | null
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
+    upper_bound_percentile?: number | null
+}
+
+export type ExperimentRatioMetricApiMetricType =
+    (typeof ExperimentRatioMetricApiMetricType)[keyof typeof ExperimentRatioMetricApiMetricType]
+
+export const ExperimentRatioMetricApiMetricType = {
+    Ratio: 'ratio',
+} as const
+
+export type ExperimentRatioMetricApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentRatioMetricApi {
+    breakdownFilter?: BreakdownFilterApi | null
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
+    denominator: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    denominator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
+    fingerprint?: string | null
+    goal?: ExperimentMetricGoalApi | null
+    isSharedMetric?: boolean | null
+    kind?: 'ExperimentMetric'
+    metric_type: ExperimentRatioMetricApiMetricType
+    name?: string | null
+    numerator: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    numerator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
+    response?: ExperimentRatioMetricApiResponse
+    sharedMetricId?: number | null
+    uuid?: string | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type ExperimentRetentionMetricApiMetricType =
+    (typeof ExperimentRetentionMetricApiMetricType)[keyof typeof ExperimentRetentionMetricApiMetricType]
+
+export const ExperimentRetentionMetricApiMetricType = {
+    Retention: 'retention',
+} as const
+
+export type ExperimentExposureNodeApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentExposureNodeApi {
+    kind?: 'ExperimentExposureNode'
+    response?: ExperimentExposureNodeApiResponse
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type StartHandlingApi = (typeof StartHandlingApi)[keyof typeof StartHandlingApi]
+
+export const StartHandlingApi = {
+    FirstSeen: 'first_seen',
+    LastSeen: 'last_seen',
+} as const
+
+export type ExperimentRetentionMetricApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentRetentionMetricApi {
+    breakdownFilter?: BreakdownFilterApi | null
+    completion_event: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
+    fingerprint?: string | null
+    goal?: ExperimentMetricGoalApi | null
+    isSharedMetric?: boolean | null
+    kind?: 'ExperimentMetric'
+    metric_type: ExperimentRetentionMetricApiMetricType
+    name?: string | null
+    response?: ExperimentRetentionMetricApiResponse
+    retention_window_end: number
+    retention_window_start: number
+    retention_window_unit: FunnelConversionWindowTimeUnitApi
+    sharedMetricId?: number | null
+    start_event: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi | ExperimentExposureNodeApi
+    start_handling: StartHandlingApi
+    uuid?: string | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type ExperimentMetricApi =
+    | ExperimentMeanMetricApi
+    | ExperimentFunnelMetricApi
+    | ExperimentRatioMetricApi
+    | ExperimentRetentionMetricApi
+
+/**
+ * A shared metric's link to one experiment, as the experiment API returns it.
+ */
+export interface ExperimentToSavedMetricApi {
+    readonly id: number
+    experiment: number
+    saved_metric: number
+    metadata?: unknown
+    readonly created_at: string
+    readonly query: unknown
+    readonly name: string
+    /** The metric this experiment calculates for this shared metric: `query` with the per-experiment overrides from `metadata` applied (breakdowns, breakdown_limit, and funnel breakdown attribution). Results, fingerprints and queries for this metric use this definition, not `query`. Null when `query` is not an ExperimentMetric, such as a legacy shared metric (kind ExperimentTrendsQuery or ExperimentFunnelsQuery), which takes no overrides. */
+    readonly effective_query: ExperimentMetricApi | null
+}
+
+export type Kind2Api = (typeof Kind2Api)[keyof typeof Kind2Api]
+
+export const Kind2Api = {
+    ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
+    ActionsNode: 'ActionsNode',
+} as const
+
 export interface ExperimentApiExposureConfigApi {
     /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
     event?: string | null
     /** Action ID. Required when kind is 'ActionsNode'. */
     id?: number | null
     /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
-    kind?: Kind1Api | null
+    kind?: Kind2Api | null
     /** Property filters (event, person, and other supported types). Pass an empty array if no filters needed. */
     properties: (
         | EventPropertyFilterApi
@@ -1327,35 +2094,11 @@ export interface ExperimentApiExposureCriteriaApi {
     multiple_variant_handling?: MultipleVariantHandlingApi | null
 }
 
-export type KindApi = (typeof KindApi)[keyof typeof KindApi]
+export type Kind1Api = (typeof Kind1Api)[keyof typeof Kind1Api]
 
-export const KindApi = {
+export const Kind1Api = {
     EventsNode: 'EventsNode',
     ActionsNode: 'ActionsNode',
-} as const
-
-export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
-
-export const ExperimentMetricMathTypeApi = {
-    Total: 'total',
-    Sum: 'sum',
-    UniqueSession: 'unique_session',
-    Min: 'min',
-    Max: 'max',
-    Avg: 'avg',
-    Dau: 'dau',
-    UniqueGroup: 'unique_group',
-    Hogql: 'hogql',
-} as const
-
-export type MathGroupTypeIndexApi = (typeof MathGroupTypeIndexApi)[keyof typeof MathGroupTypeIndexApi]
-
-export const MathGroupTypeIndexApi = {
-    Number0: 0,
-    Number1: 1,
-    Number2: 2,
-    Number3: 3,
-    Number4: 4,
 } as const
 
 export interface ExperimentApiEventSourceApi {
@@ -1363,7 +2106,7 @@ export interface ExperimentApiEventSourceApi {
     event?: string | null
     /** Action ID. Required for ActionsNode. */
     id?: number | null
-    kind: KindApi
+    kind: Kind1Api
     /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
     math?: ExperimentMetricMathTypeApi | null
     /** Group type index to aggregate over. Required when math is 'unique_group'. */
@@ -1376,21 +2119,6 @@ export interface ExperimentApiEventSourceApi {
     properties?: EventPropertyFilterApi[] | null
 }
 
-export interface ExperimentMetricOutlierHandlingApi {
-    ignore_zeros?: boolean | null
-    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
-    lower_bound_percentile?: number | null
-    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
-    upper_bound_percentile?: number | null
-}
-
-export type ExperimentMetricGoalApi = (typeof ExperimentMetricGoalApi)[keyof typeof ExperimentMetricGoalApi]
-
-export const ExperimentMetricGoalApi = {
-    Increase: 'increase',
-    Decrease: 'decrease',
-} as const
-
 export type ExperimentMetricTypeApi = (typeof ExperimentMetricTypeApi)[keyof typeof ExperimentMetricTypeApi]
 
 export const ExperimentMetricTypeApi = {
@@ -1400,34 +2128,46 @@ export const ExperimentMetricTypeApi = {
     Retention: 'retention',
 } as const
 
-export type FunnelConversionWindowTimeUnitApi =
-    (typeof FunnelConversionWindowTimeUnitApi)[keyof typeof FunnelConversionWindowTimeUnitApi]
+export type Kind3Api = (typeof Kind3Api)[keyof typeof Kind3Api]
 
-export const FunnelConversionWindowTimeUnitApi = {
-    Second: 'second',
-    Minute: 'minute',
-    Hour: 'hour',
-    Day: 'day',
-    Week: 'week',
-    Month: 'month',
+export const Kind3Api = {
+    EventsNode: 'EventsNode',
+    ActionsNode: 'ActionsNode',
+    ExperimentExposureNode: 'ExperimentExposureNode',
 } as const
 
-export type StartHandlingApi = (typeof StartHandlingApi)[keyof typeof StartHandlingApi]
-
-export const StartHandlingApi = {
-    FirstSeen: 'first_seen',
-    LastSeen: 'last_seen',
-} as const
+export interface ExperimentApiRetentionStartApi {
+    /** Event name, e.g. '$pageview'. Required for EventsNode. */
+    event?: string | null
+    /** Action ID. Required for ActionsNode. */
+    id?: number | null
+    /** Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset. */
+    kind: Kind3Api
+    /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
+    math?: ExperimentMetricMathTypeApi | null
+    /** Group type index to aggregate over. Required when math is 'unique_group'. */
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum. */
+    math_hogql?: string | null
+    /** Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue'). */
+    math_property?: string | null
+    /** Event property filters to narrow which events are counted. */
+    properties?: EventPropertyFilterApi[] | null
+}
 
 export interface ExperimentApiMetricApi {
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSourceApi | null
-    /** Conversion window duration. */
+    /** Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends. */
     conversion_window?: number | null
+    /** Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set. */
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
     /** For ratio metrics: denominator source. */
     denominator?: ExperimentApiEventSourceApi | null
     /** For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped. */
     denominator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
+    /** For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it. */
+    funnel_order_type?: StepOrderValueApi | null
     /** Whether higher or lower values indicate success. */
     goal?: ExperimentMetricGoalApi | null
     /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */
@@ -1449,8 +2189,8 @@ export interface ExperimentApiMetricApi {
     series?: ExperimentApiEventSourceApi[] | null
     /** For mean metrics: event source. */
     source?: ExperimentApiEventSourceApi | null
-    /** For retention metrics: start event. */
-    start_event?: ExperimentApiEventSourceApi | null
+    /** For retention metrics: start event. Pass {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure. */
+    start_event?: ExperimentApiRetentionStartApi | null
     start_handling?: StartHandlingApi | null
     /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
     threshold?: number | null
@@ -1528,7 +2268,7 @@ export interface ExperimentWriteApi {
     type?: ExperimentTypeEnumApi | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
-    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
     metrics?: _ExperimentApiMetricsListApi | null
     /** Secondary metrics for additional measurements. Same format as primary metrics. */
     metrics_secondary?: _ExperimentApiMetricsListApi | null
@@ -1562,8 +2302,16 @@ export interface ExperimentWriteApi {
      * @nullable
      */
     repository?: string | null
-    primary_metrics_ordered_uuids?: unknown
-    secondary_metrics_ordered_uuids?: unknown
+    /**
+     * Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+     * @nullable
+     */
+    primary_metrics_ordered_uuids?: string[] | null
+    /**
+     * Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+     * @nullable
+     */
+    secondary_metrics_ordered_uuids?: string[] | null
     only_count_matured_users?: boolean
     /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
@@ -1671,7 +2419,7 @@ export interface ExperimentApi {
     type?: ExperimentTypeEnumApi | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
-    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
     metrics?: _ExperimentApiMetricsListApi | null
     /** Secondary metrics for additional measurements. Same format as primary metrics. */
     metrics_secondary?: _ExperimentApiMetricsListApi | null
@@ -1705,8 +2453,16 @@ export interface ExperimentApi {
      * @nullable
      */
     repository?: string | null
-    primary_metrics_ordered_uuids?: unknown
-    secondary_metrics_ordered_uuids?: unknown
+    /**
+     * Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+     * @nullable
+     */
+    primary_metrics_ordered_uuids?: string[] | null
+    /**
+     * Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+     * @nullable
+     */
+    secondary_metrics_ordered_uuids?: string[] | null
     only_count_matured_users?: boolean
     /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
@@ -1810,7 +2566,7 @@ export interface PatchedExperimentWriteApi {
     type?: ExperimentTypeEnumApi | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
-    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
     metrics?: _ExperimentApiMetricsListApi | null
     /** Secondary metrics for additional measurements. Same format as primary metrics. */
     metrics_secondary?: _ExperimentApiMetricsListApi | null
@@ -1844,8 +2600,16 @@ export interface PatchedExperimentWriteApi {
      * @nullable
      */
     repository?: string | null
-    primary_metrics_ordered_uuids?: unknown
-    secondary_metrics_ordered_uuids?: unknown
+    /**
+     * Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+     * @nullable
+     */
+    primary_metrics_ordered_uuids?: string[] | null
+    /**
+     * Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+     * @nullable
+     */
+    secondary_metrics_ordered_uuids?: string[] | null
     only_count_matured_users?: boolean
     /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
@@ -1929,7 +2693,7 @@ export interface ActivityLogEntryApi {
     /** Whether the acting user was being impersonated by PostHog staff. */
     readonly was_impersonated: boolean
     /**
-     * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.
+     * API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.
      * @nullable
      */
     readonly client: string | null
@@ -1976,7 +2740,7 @@ export interface EndExperimentApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. A personal API key needs the task:write scope (403 otherwise). Skipped when the conclusion is empty, or when no connected repository can be resolved. */
     open_cleanup_pr?: boolean
     /**
      * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used.
@@ -2083,52 +2847,37 @@ export interface ExperimentInSessionExposureApi {
 
 /**
  * * `manual` - Manual
- * * `agent_mcp` - Agent (MCP)
+ * * `manual_retry` - Manual Retry
  * * `cold_run` - Cold Run
- * * `stale_refresh` - Stale Refresh
- * * `auto_refresh` - Auto Refresh
+ * * `heal_latest_run` - Heal Latest Run
  * * `experiment_config_change` - Experiment Config Change
  * * `metric_config_change` - Metric Config Change
- * * `config_change` - Config Change
- * * `experiment_launch` - Experiment Launch
- * * `experiment_stop` - Experiment Stop
- * * `experiment_update` - Experiment Update
  */
-export type ExperimentMetricsRecalculationTriggerEnumApi =
-    (typeof ExperimentMetricsRecalculationTriggerEnumApi)[keyof typeof ExperimentMetricsRecalculationTriggerEnumApi]
+export type ExperimentMetricsRecalculationRequestTriggerEnumApi =
+    (typeof ExperimentMetricsRecalculationRequestTriggerEnumApi)[keyof typeof ExperimentMetricsRecalculationRequestTriggerEnumApi]
 
-export const ExperimentMetricsRecalculationTriggerEnumApi = {
+export const ExperimentMetricsRecalculationRequestTriggerEnumApi = {
     Manual: 'manual',
-    AgentMcp: 'agent_mcp',
+    ManualRetry: 'manual_retry',
     ColdRun: 'cold_run',
-    StaleRefresh: 'stale_refresh',
-    AutoRefresh: 'auto_refresh',
+    HealLatestRun: 'heal_latest_run',
     ExperimentConfigChange: 'experiment_config_change',
     MetricConfigChange: 'metric_config_change',
-    ConfigChange: 'config_change',
-    ExperimentLaunch: 'experiment_launch',
-    ExperimentStop: 'experiment_stop',
-    ExperimentUpdate: 'experiment_update',
 } as const
 
 /**
  * Request body for triggering a metrics recalculation.
  */
 export interface RecalculateMetricsRequestApi {
-    /** What triggered this recalculation (manual is the default for user-initiated runs)
+    /** What triggered this recalculation (manual is the default for user-initiated runs). Only client triggers are accepted; agent_mcp, timeseries_sync and scheduled are set by the server.
      *
      * * `manual` - Manual
-     * * `agent_mcp` - Agent (MCP)
+     * * `manual_retry` - Manual Retry
      * * `cold_run` - Cold Run
-     * * `stale_refresh` - Stale Refresh
-     * * `auto_refresh` - Auto Refresh
+     * * `heal_latest_run` - Heal Latest Run
      * * `experiment_config_change` - Experiment Config Change
-     * * `metric_config_change` - Metric Config Change
-     * * `config_change` - Config Change
-     * * `experiment_launch` - Experiment Launch
-     * * `experiment_stop` - Experiment Stop
-     * * `experiment_update` - Experiment Update */
-    trigger?: ExperimentMetricsRecalculationTriggerEnumApi
+     * * `metric_config_change` - Metric Config Change */
+    trigger?: ExperimentMetricsRecalculationRequestTriggerEnumApi
 }
 
 /**
@@ -2148,30 +2897,48 @@ export const MetricsRecalculationStatusEnumApi = {
 } as const
 
 /**
- * Pointer to a recalculation run that is still executing, surfaced alongside the latest terminal results.
+ * POST response: the job just queued, or the one already active. It carries no results or live progress yet.
  */
-export interface ActiveRecalculationRunApi {
-    /** Identifier of the run that is still executing */
+export interface ExperimentMetricsRecalculationJobApi {
+    /** Unique identifier for this recalculation job */
     readonly id: string
-    /** Status of the executing run (pending or in_progress)
+    /** ID of the experiment being recalculated */
+    readonly experiment_id: number
+    /** Current status of the recalculation job
      *
      * * `pending` - Pending
      * * `in_progress` - In Progress
      * * `completed` - Completed
      * * `failed` - Failed */
     readonly status: MetricsRecalculationStatusEnumApi
+    /** Total number of metrics to recalculate */
+    readonly total_metrics: number
+    /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+    readonly completed_metrics: number
+    /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+    readonly failed_metrics: number
+    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+    readonly metric_errors: unknown
+    /** When the job was created */
+    readonly created_at: string
+    /**
+     * When processing started
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When processing completed
+     * @nullable
+     */
+    readonly completed_at: string | null
+    /**
+     * Upper time bound the metrics in this run were calculated against (the data freshness cutoff). Shared by every metric in the run; null until processing starts
+     * @nullable
+     */
+    readonly query_to: string | null
+    /** True if returning an existing job rather than a newly created one */
+    readonly is_existing: boolean
 }
-
-/**
- * * `recalculation` - recalculation
- * * `timeseries_fallback` - timeseries_fallback
- */
-export type ResultSourceEnumApi = (typeof ResultSourceEnumApi)[keyof typeof ResultSourceEnumApi]
-
-export const ResultSourceEnumApi = {
-    Recalculation: 'recalculation',
-    TimeseriesFallback: 'timeseries_fallback',
-} as const
 
 /**
  * * `pending` - pending
@@ -2209,9 +2976,9 @@ export interface MetricRecalculationResultApi {
 }
 
 /**
- * Serializer for metrics recalculation status responses.
+ * GET by id: one run with its per-metric results, retry state and live query progress.
  */
-export interface ExperimentMetricsRecalculationApi {
+export interface ExperimentMetricsRecalculationRunApi {
     /** Unique identifier for this recalculation job */
     readonly id: string
     /** ID of the experiment being recalculated */
@@ -2229,24 +2996,8 @@ export interface ExperimentMetricsRecalculationApi {
     readonly completed_metrics: number
     /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
     readonly failed_metrics: number
-    /** Map of metric_uuid to error details */
+    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
     readonly metric_errors: unknown
-    /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
-    readonly metric_retries: unknown
-    /** What triggered this recalculation
-     *
-     * * `manual` - Manual
-     * * `agent_mcp` - Agent (MCP)
-     * * `cold_run` - Cold Run
-     * * `stale_refresh` - Stale Refresh
-     * * `auto_refresh` - Auto Refresh
-     * * `experiment_config_change` - Experiment Config Change
-     * * `metric_config_change` - Metric Config Change
-     * * `config_change` - Config Change
-     * * `experiment_launch` - Experiment Launch
-     * * `experiment_stop` - Experiment Stop
-     * * `experiment_update` - Experiment Update */
-    readonly trigger: ExperimentMetricsRecalculationTriggerEnumApi
     /** When the job was created */
     readonly created_at: string
     /**
@@ -2264,15 +3015,8 @@ export interface ExperimentMetricsRecalculationApi {
      * @nullable
      */
     readonly query_to: string | null
-    /** True if returning an existing job rather than a newly created one */
-    readonly is_existing: boolean
-    /** Run currently executing for this experiment, if any; poll it by id for live progress */
-    readonly active_run: ActiveRecalculationRunApi | null
-    /** Where these results came from: 'recalculation' for a real metrics-recalculation run, 'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data.
-     *
-     * * `recalculation` - recalculation
-     * * `timeseries_fallback` - timeseries_fallback */
-    readonly result_source: ResultSourceEnumApi
+    /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
+    readonly metric_retries: unknown
     /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
     readonly results: readonly MetricRecalculationResultApi[]
     /**
@@ -2285,6 +3029,95 @@ export interface ExperimentMetricsRecalculationApi {
      * @nullable
      */
     estimated_rows_total?: number | null
+}
+
+/**
+ * Pointer to a recalculation run that is still executing, surfaced alongside the latest terminal results.
+ */
+export interface ActiveRecalculationRunApi {
+    /** Identifier of the run that is still executing */
+    readonly id: string
+    /** Status of the executing run (pending or in_progress)
+     *
+     * * `pending` - Pending
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: MetricsRecalculationStatusEnumApi
+}
+
+/**
+ * * `recalculation` - recalculation
+ * * `timeseries_fallback` - timeseries_fallback
+ */
+export type ResultSourceEnumApi = (typeof ResultSourceEnumApi)[keyof typeof ResultSourceEnumApi]
+
+export const ResultSourceEnumApi = {
+    Recalculation: 'recalculation',
+    TimeseriesFallback: 'timeseries_fallback',
+} as const
+
+/**
+ * GET latest: the newest terminal run, or the timeseries fallback, plus a pointer to any active run.
+ */
+export interface ExperimentMetricsRecalculationLatestApi {
+    /** Unique identifier for this recalculation job */
+    readonly id: string
+    /** ID of the experiment being recalculated */
+    readonly experiment_id: number
+    /** Current status of the recalculation job
+     *
+     * * `pending` - Pending
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: MetricsRecalculationStatusEnumApi
+    /** Total number of metrics to recalculate */
+    readonly total_metrics: number
+    /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+    readonly completed_metrics: number
+    /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+    readonly failed_metrics: number
+    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+    readonly metric_errors: unknown
+    /** When the job was created */
+    readonly created_at: string
+    /**
+     * When processing started
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When processing completed
+     * @nullable
+     */
+    readonly completed_at: string | null
+    /**
+     * Upper time bound the metrics in this run were calculated against (the data freshness cutoff). Shared by every metric in the run; null until processing starts
+     * @nullable
+     */
+    readonly query_to: string | null
+    /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
+    readonly metric_retries: unknown
+    /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+    readonly results: readonly MetricRecalculationResultApi[]
+    /**
+     * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
+     * @nullable
+     */
+    rows_read?: number | null
+    /**
+     * ClickHouse's total_rows_approx across running queries plus the final read_rows of finished ones. A soft ceiling revised mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal
+     * @nullable
+     */
+    estimated_rows_total?: number | null
+    /** Run currently executing for this experiment, if any; poll it by id for live progress */
+    readonly active_run: ActiveRecalculationRunApi | null
+    /** Where these results came from: 'recalculation' for a real metrics-recalculation run, 'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data.
+     *
+     * * `recalculation` - recalculation
+     * * `timeseries_fallback` - timeseries_fallback */
+    readonly result_source: ResultSourceEnumApi
 }
 
 /**
@@ -2557,7 +3390,7 @@ export interface ShipVariantApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. A personal API key needs the task:write scope (403 otherwise). Skipped when the conclusion is empty, or when no connected repository can be resolved. */
     open_cleanup_pr?: boolean
     /**
      * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used.
@@ -2774,7 +3607,10 @@ export interface CreateFromPromptInputApi {
     name?: string
     /** Optional feature flag key. If omitted, a slug is derived from the experiment name. */
     feature_flag_key?: string
-    /** Optional experiment description. */
+    /**
+     * Optional experiment description.
+     * @maxLength 3000
+     */
     description?: string
 }
 
@@ -2912,6 +3748,695 @@ export interface ExperimentSessionContextsRequestApi {
 export interface ExperimentSessionContextsResponseApi {
     /** Per-session experiment context, in the order the session IDs were requested. Sessions whose recording metadata doesn't exist yet (still ingesting, or unknown to this project) are omitted, as are recordings you don't have access to and sessions beyond the batch's recording-day budget (only the most recent days are computed). Fetch omitted sessions individually via the single-session endpoint. */
     results: ExperimentSessionContextResponseApi[]
+}
+
+/**
+ * Event or person property filters that narrow which events are counted.
+ * @maxItems 10
+ */
+export type _ExperimentSetupPropertyFilterListApi = (EventPropertyFilterApi | PersonPropertyFilterApi)[]
+
+/**
+ * What the caller plans to test. Every field is optional; a section that needs a missing input
+ * comes back with status 'skipped'.
+ */
+export interface ExperimentSetupContextInputApi {
+    /**
+     * Event that marks a visit to the surface under test, for example '$pageview' or '$screen'. Needed for target_surface and for the baseline in candidate_metric.
+     * @maxLength 400
+     * @nullable
+     */
+    target_event?: string | null
+    /**
+     * Only counts target events whose $current_url contains this text, ignoring case. Needs target_event to be '$pageview'.
+     * @maxLength 1000
+     * @nullable
+     */
+    target_url_contains?: string | null
+    /** Event or person property filters that narrow the target event, for example an exact $host and $pathname for one page. At most 10 filters, and each needs type 'event' or 'person'. Needs target_event. Combines with target_url_contains. */
+    target_properties?: _ExperimentSetupPropertyFilterListApi | null
+    /**
+     * Event of the candidate primary metric. With target_event, candidate_metric returns a baseline. Without it, candidate_metric returns only the event's volume. Also marks the shared metrics that count this event.
+     * @maxLength 400
+     * @nullable
+     */
+    metric_event?: string | null
+    /** Event or person property filters that narrow the metric event, for the metric that counts only some of its occurrences. At most 10 filters, and each needs type 'event' or 'person'. Needs metric_event. */
+    metric_properties?: _ExperimentSetupPropertyFilterListApi | null
+    /**
+     * How many experiments to return, most recently launched first, then drafts, 1 to 25.
+     * @minimum 1
+     * @maximum 25
+     */
+    previous_experiments_limit?: number
+    /**
+     * How many shared metrics to return, most reused first, 1 to 25.
+     * @minimum 1
+     * @maximum 25
+     */
+    shared_metrics_limit?: number
+}
+
+/**
+ * * `ok` - Ok
+ * * `skipped` - Skipped
+ * * `timed_out` - Timed Out
+ * * `error` - Error
+ */
+export type SetupContextSectionStatusEnumApi =
+    (typeof SetupContextSectionStatusEnumApi)[keyof typeof SetupContextSectionStatusEnumApi]
+
+export const SetupContextSectionStatusEnumApi = {
+    Ok: 'ok',
+    Skipped: 'skipped',
+    TimedOut: 'timed_out',
+    Error: 'error',
+} as const
+
+export interface ExperimentSetupTeamDefaultsApi {
+    /**
+     * Default statistical method for new experiments: 'bayesian' or 'frequentist'.
+     * @nullable
+     */
+    stats_method: string | null
+    /**
+     * Default confidence level for new experiments, for example 0.95. Null when unset.
+     * @nullable
+     */
+    confidence_level: number | null
+    /**
+     * The team's default minimum detectable effect, as a percentage. Null when the team has not set one; product_default_minimum_detectable_effect applies then.
+     * @nullable
+     */
+    minimum_detectable_effect: number | null
+    /** The minimum detectable effect, as a percentage, that applies when the team has no default. */
+    product_default_minimum_detectable_effect: number
+    /** The statistical method that applies when the team has no default. */
+    product_default_stats_method: string
+    /** The confidence level that applies when the team has no default. Both methods use the same one. */
+    product_default_confidence_level: number
+    /** Default for counting only users whose metric window has fully passed. */
+    only_count_matured_users: boolean
+    /** Default for CUPED variance reduction on new experiments. */
+    cuped_enabled: boolean
+    /** Default for sequential testing. Applies only to the frequentist method. */
+    sequential_testing_enabled: boolean
+    /** Default for persisting flag values across authentication steps on new flags. It becomes the flag's ensure_experience_continuity. */
+    flags_persistence_default: boolean
+    /** How many filters the team uses to identify internal and test users. */
+    test_account_filter_count: number
+    /** A new experiment filters test accounts this way unless its own exposure criteria say otherwise. It does not follow the project's insight default. */
+    new_experiments_filter_test_accounts: boolean
+    /** The exposure event a new experiment launched now counts by default: '$experiment_exposure' or '$feature_flag_called'. */
+    default_exposure_event: string
+}
+
+export interface ExperimentSetupTeamDefaultsSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** The team's experiment defaults. */
+    data: ExperimentSetupTeamDefaultsApi | null
+}
+
+/**
+ * * `web` - Web
+ * * `mobile` - Mobile
+ * * `server` - Server
+ * * `other` - Other
+ */
+export type SdkLibCategoryEnumApi = (typeof SdkLibCategoryEnumApi)[keyof typeof SdkLibCategoryEnumApi]
+
+export const SdkLibCategoryEnumApi = {
+    Web: 'web',
+    Mobile: 'mobile',
+    Server: 'server',
+    Other: 'other',
+} as const
+
+export interface ExperimentSetupSdkLibApi {
+    /**
+     * The $lib value of the SDK, for example 'web'.
+     * @nullable
+     */
+    lib: string | null
+    /** 'web' for the JavaScript web SDK, 'mobile', 'server', or 'other' for libraries not classified.
+     *
+     * * `web` - Web
+     * * `mobile` - Mobile
+     * * `server` - Server
+     * * `other` - Other */
+    category: SdkLibCategoryEnumApi
+    /** Multivariate flag calls this SDK sent in the window. */
+    calls: number
+    /** Distinct ids that sent those calls. */
+    distinct_ids: number
+    /** Share of calls that carry a $device_id. 0 when this SDK never sends one, as server SDKs don't. */
+    device_id_share: number
+    /**
+     * Share of calls evaluated locally in the SDK instead of by the flags service. Null when no call from this SDK reported it, as the web SDK doesn't.
+     * @nullable
+     */
+    locally_evaluated_share: number | null
+    /**
+     * Share of distinct ids that were anonymous, among those that report whether they are identified. Null when no call from this SDK reported it.
+     * @nullable
+     */
+    anonymous_share: number | null
+}
+
+export interface ExperimentSetupLibActivityApi {
+    /**
+     * The $lib value of the SDK, for example 'web'.
+     * @nullable
+     */
+    lib: string | null
+    /** 'web', 'mobile', 'server', or 'other'.
+     *
+     * * `web` - Web
+     * * `mobile` - Mobile
+     * * `server` - Server
+     * * `other` - Other */
+    category: SdkLibCategoryEnumApi
+    /** Events this SDK sent in the window, of any kind. */
+    events: number
+    /** Distinct ids that sent those events. */
+    distinct_ids: number
+}
+
+export interface ExperimentSetupSdkProfileApi {
+    /** Days of flag calls read, ending now. */
+    window_days: number
+    /** The event read: '$experiment_exposure' when the project receives it, otherwise '$feature_flag_called'. Only one is read, because one copies the other, and only multivariate responses count either way. This says what the project's events carry today, so it can differ from team_defaults.default_exposure_event, which says what a new experiment would count. */
+    source_event: string
+    /** When the numbers were computed. They are cached for hours. */
+    computed_at: string
+    /** One row per SDK, most calls first. */
+    libs: ExperimentSetupSdkLibApi[]
+    /** True when more SDKs sent flag calls than libs lists. */
+    libs_truncated: boolean
+    /** Distinct multivariate flag keys called in the window. */
+    flags_seen: number
+    /** How many of those flag keys were called by both a server SDK and the web SDK. */
+    flags_evaluated_on_server_and_web: number
+    /** True when at least one flag key was called by both a server SDK and the web SDK. The same flag decided on the server and read in the browser can bucket one user into two variants. */
+    evaluated_on_server_and_web: boolean
+    /**
+     * Up to 10 SDKs seen on any event over the last day, most events first. Set only when libs is empty, so a project creating its first experiment still says which platforms it sends from. Null when flag calls exist, and null when this extra read timed out.
+     * @nullable
+     */
+    libs_on_any_event: ExperimentSetupLibActivityApi[] | null
+    /** True when more SDKs sent events than libs_on_any_event lists. False when it is null. */
+    libs_on_any_event_truncated: boolean
+}
+
+export interface ExperimentSetupSdkProfileSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** Which SDKs send multivariate flag calls, across the whole project. */
+    data: ExperimentSetupSdkProfileApi | null
+}
+
+export interface ExperimentSetupLibReachApi {
+    /**
+     * The $lib value that sent the target events.
+     * @nullable
+     */
+    lib: string | null
+    /** 'web', 'mobile', 'server', or 'other'.
+     *
+     * * `web` - Web
+     * * `mobile` - Mobile
+     * * `server` - Server
+     * * `other` - Other */
+    category: SdkLibCategoryEnumApi
+    /** Persons who sent the target event from this SDK. */
+    unique_persons: number
+    /**
+     * Among this SDK's distinct ids that report whether they are identified, the share that was anonymous. Null when no target event from this SDK reported it.
+     * @nullable
+     */
+    anonymous_share: number | null
+    /** Share of this SDK's target events that carry a $device_id. 0 when it never sends one. */
+    device_id_share: number
+}
+
+export interface ExperimentSetupTargetSurfaceApi {
+    /** Days of target events read, ending now. */
+    window_days: number
+    /** The target event that was counted. */
+    source_event: string
+    /**
+     * The URL filter that was applied, or null.
+     * @nullable
+     */
+    target_url_contains: string | null
+    /** The property filters that were applied to the target event. Empty when none were passed. */
+    target_properties: _ExperimentSetupPropertyFilterListApi
+    /** When the numbers were computed. They are cached for an hour. */
+    computed_at: string
+    /** Whether test accounts were left out. It follows the default a new experiment gets, so the counts match the population that experiment analyzes. False when the project defines no test-account filters. */
+    test_accounts_filtered: boolean
+    /** Persons who sent the target event in the window. */
+    unique_persons: number
+    /** unique_persons divided by window_days. Pass it as exposure_rate_per_day to experiment-calculate-running-time, scaled by the share of traffic the experiment will include. */
+    exposures_per_day_estimate: number
+    /** Up to 5 SDKs, most persons reached first. */
+    libs: ExperimentSetupLibReachApi[]
+    /** True when more SDKs sent target events than libs lists. */
+    libs_truncated: boolean
+    /**
+     * Among all distinct ids that report whether they are identified, whichever SDK they came from, the share that was anonymous. Null when no target event reported it.
+     * @nullable
+     */
+    anonymous_share: number | null
+    /**
+     * Share of all target events that carry a $device_id. Null when there were no target events.
+     * @nullable
+     */
+    device_id_share: number | null
+}
+
+export interface ExperimentSetupTargetSurfaceSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** Traffic on the target surface. Skipped without target_event. */
+    data: ExperimentSetupTargetSurfaceApi | null
+}
+
+export interface ExperimentSetupFunnelBaselineApi {
+    /** Persons who reached the target. */
+    number_of_samples: number
+    /** Persons who converted. */
+    sum: number
+    /** One entry: the persons who converted. */
+    step_counts: number[]
+}
+
+export interface ExperimentSetupMeanCountBaselineApi {
+    /** Persons who reached the target. */
+    number_of_samples: number
+    /** Metric events those persons sent in the whole window. */
+    sum: number
+    /** Sum over persons of their metric event count squared. */
+    sum_squares: number
+}
+
+export interface ExperimentSetupCandidateMetricApi {
+    /** Days of events read, ending now. */
+    window_days: number
+    /** The metric event that was counted. */
+    source_event: string
+    /** The property filters that were applied to the metric event. Empty when none were passed. */
+    metric_properties: _ExperimentSetupPropertyFilterListApi
+    /**
+     * The target event the baseline starts from, or null when none was passed.
+     * @nullable
+     */
+    target_event: string | null
+    /** When the numbers were computed. They are cached for an hour. */
+    computed_at: string
+    /** Whether test accounts were left out. It follows the default a new experiment gets, so the baseline matches the population that experiment analyzes. False when the project defines no test-account filters. */
+    test_accounts_filtered: boolean
+    /**
+     * Persons who sent the target event. Null without target_event.
+     * @nullable
+     */
+    persons_reached: number | null
+    /**
+     * Persons who sent the metric event at or after their first target event. Null without target_event.
+     * @nullable
+     */
+    persons_converted: number | null
+    /**
+     * persons_converted divided by persons_reached. Null without target_event.
+     * @nullable
+     */
+    conversion_rate: number | null
+    /** Pass as baseline_stats to experiment-calculate-running-time with metric_type 'funnel'. Null without target_event. */
+    funnel_baseline_stats: ExperimentSetupFunnelBaselineApi | null
+    /** Pass as baseline_stats to experiment-calculate-running-time with metric_type 'mean_count'. It counts metric events in the whole window, not only after the first target event, so it can overstate the baseline. Null without target_event. */
+    mean_count_baseline_stats: ExperimentSetupMeanCountBaselineApi | null
+    /**
+     * What the mean count baseline counts.
+     * @nullable
+     */
+    note: string | null
+    /**
+     * Metric events in the window, with metric_properties applied. 0 means the event did not occur under those filters, so check the event name before you trust a conversion_rate of 0.
+     * @nullable
+     */
+    event_volume: number | null
+    /**
+     * Persons who sent the metric event, with metric_properties applied.
+     * @nullable
+     */
+    unique_persons: number | null
+}
+
+export interface ExperimentSetupCandidateMetricSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** Baseline of the candidate metric. Skipped without metric_event. */
+    data: ExperimentSetupCandidateMetricApi | null
+}
+
+/**
+ * * `draft` - Draft
+ * * `running` - Running
+ * * `paused` - Paused
+ * * `exposure_frozen` - Exposure Frozen
+ * * `stopped` - Stopped
+ */
+export type PreviousExperimentStateEnumApi =
+    (typeof PreviousExperimentStateEnumApi)[keyof typeof PreviousExperimentStateEnumApi]
+
+export const PreviousExperimentStateEnumApi = {
+    Draft: 'draft',
+    Running: 'running',
+    Paused: 'paused',
+    ExposureFrozen: 'exposure_frozen',
+    Stopped: 'stopped',
+} as const
+
+/**
+ * Property filters as an experiment stored them. Any filter type can appear, cohorts included.
+ */
+export type _ExperimentSetupStoredPropertyFilterListApi = (
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | PersonMetadataPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | MetricPropertyFilterApi
+    | SpanPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+    | AccountCustomPropertyFilterApi
+    | WorkflowVariablePropertyFilterApi
+    | BehavioralPropertyFilterApi
+)[]
+
+export interface ExperimentSetupOutcomeApi {
+    /** metric_type of the metric this outcome describes: 'funnel', 'mean', 'ratio' or 'retention'. */
+    metric_type: string
+    /**
+     * Units the result counted across all variants. What a unit is depends on metric_type, so read analyzed_exposures where you need exposures. Null when the result stores no sample counts.
+     * @nullable
+     */
+    metric_samples: number | null
+    /**
+     * metric_samples, but only where the metric type makes it the analyzed population: 'funnel' and 'mean'. Users seen in several variants are left out under the default handling, so it can be lower than exposures. Null for 'retention', whose samples are the units that did the start event, and for 'ratio', whose samples are not exposures either. Also null when the result stores no sample counts, which is not the same as analyzing nobody.
+     * @nullable
+     */
+    analyzed_exposures: number | null
+    /**
+     * What control measured: a conversion rate for 'funnel', an average per unit for 'mean'. Compare it with the rate on the surface itself to see whether the exposure was diluted by users who never reached the surface. Null for other metric types and when control analyzed no units.
+     * @nullable
+     */
+    control_baseline_value: number | null
+    /** Whether any variant was significant on that metric in that result. */
+    any_variant_significant: boolean
+    /**
+     * When that result was computed.
+     * @nullable
+     */
+    result_completed_at: string | null
+    /**
+     * The last moment the result covers. A backfill writes an older day with a recent completed_at, so this says how current the numbers are.
+     * @nullable
+     */
+    result_data_through: string | null
+}
+
+export interface ExperimentSetupPreviousExperimentApi {
+    /** Experiment id. */
+    id: number
+    /** Experiment name. */
+    name: string
+    /** 'draft', 'running', 'paused' (running with its flag turned off), 'exposure_frozen' (running with enrollment closed to the already-exposed users) or 'stopped'.
+     *
+     * * `draft` - Draft
+     * * `running` - Running
+     * * `paused` - Paused
+     * * `exposure_frozen` - Exposure Frozen
+     * * `stopped` - Stopped */
+    state: PreviousExperimentStateEnumApi
+    /** When the experiment was created. */
+    created_at: string
+    /**
+     * When it launched. Null for drafts.
+     * @nullable
+     */
+    start_date: string | null
+    /**
+     * When it ended. Null unless stopped.
+     * @nullable
+     */
+    end_date: string | null
+    /**
+     * The recorded conclusion, for example 'won' or 'inconclusive', or null.
+     * @nullable
+     */
+    conclusion: string | null
+    /** Key of the feature flag the experiment runs on. */
+    feature_flag_key: string
+    /** Variants on the flag, control included. */
+    variant_count: number
+    /**
+     * Whether variants split traffic evenly, read from the flag as it stands now. 34/33/33 counts as even. Null on a boolean flag, which has no variants, and null when serving_single_variant is set.
+     * @nullable
+     */
+    split_even: boolean | null
+    /**
+     * The one variant the flag now serves to everyone it matches, or null. Shipping a variant rewrites the flag this way, so the split the experiment ran with cannot be read from the flag any more. Only a launched experiment can be shipped, so a draft at 100/0 reports its split as it stands.
+     * @nullable
+     */
+    serving_single_variant: string | null
+    /**
+     * Rollout percentage of the flag's first release condition, read from the flag as it stands now.
+     * @nullable
+     */
+    rollout_percentage: number | null
+    /** How users seen in several variants are analyzed, with the default resolved.
+     *
+     * * `exclude` - exclude
+     * * `first_seen` - first_seen */
+    multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnumApi
+    /** Whether the experiment sets multiple_variant_handling itself instead of using the default. */
+    multiple_variant_handling_set: boolean
+    /** Whether the flag keeps a user's variant across authentication steps, read from the flag as it stands now. */
+    ensure_experience_continuity: boolean
+    /** What the flag buckets users on: 'distinct_id' (default) or 'device_id'. Read from the flag as it stands now. */
+    bucketing_identifier: string
+    /** Where the flag may be evaluated: 'server', 'client' or 'all'. Read from the flag as it stands now. */
+    evaluation_runtime: string
+    /** Whether the flag buckets groups instead of persons. */
+    group_aggregation: boolean
+    /**
+     * An exposure event other than the default one, or null. A default event narrowed by exposure_property_filters is still the default event, so it stays null here.
+     * @nullable
+     */
+    custom_exposure_event: string | null
+    /**
+     * Action used as the custom exposure, or null.
+     * @nullable
+     */
+    custom_exposure_action_id: number | null
+    /** Property filters the exposure is narrowed by, whichever event it counts. An experiment that counts exposure only where $pathname is '/' is the precedent for a new test on that page. Any filter type can appear, cohorts included. Empty when the exposure is not narrowed. */
+    exposure_property_filters: _ExperimentSetupStoredPropertyFilterListApi
+    /**
+     * Event a user must send after their first exposure event before they count as exposed, or null. This is activation mode, which sits on top of the default exposure event.
+     * @nullable
+     */
+    activation_event: string | null
+    /**
+     * Action used for activation instead of an event, or null.
+     * @nullable
+     */
+    activation_action_id: number | null
+    /** Whether exposures leave out test accounts. */
+    filter_test_accounts: boolean
+    /** Primary metrics, shared ones included. */
+    primary_metric_count: number
+    /** Secondary metrics, shared ones included. */
+    secondary_metric_count: number
+    /** Shared metrics attached to the experiment. */
+    shared_metric_count: number
+    /** metric_type of each primary metric, for example 'mean', 'funnel', 'ratio' or 'retention'. */
+    primary_metric_types: string[]
+    /** Event names the primary metrics count. */
+    primary_metric_events: string[]
+    /** Actions the primary metrics count. */
+    primary_metric_action_ids: number[]
+    /**
+     * Minimum detectable effect saved from the running time calculator, or null.
+     * @nullable
+     */
+    minimum_detectable_effect: number | null
+    /** 'bayesian' or 'frequentist'. */
+    stats_method: string
+    /** Whether the experiment uses a holdout group. */
+    has_holdout: boolean
+    /** From the completed result that covers the latest data in the experiment's current run. A funnel or a mean primary metric is chosen over a retention or a ratio one, because only its samples are the analyzed population. Null when no result exists for that run, which is also the case for older metric definitions that results are never stored for. */
+    outcome: ExperimentSetupOutcomeApi | null
+}
+
+export interface ExperimentSetupPreviousExperimentsSummaryApi {
+    /** Experiments listed. */
+    total: number
+    /** Listed experiments that launched. */
+    launched: number
+    /** Launched experiments with no completed result. */
+    launched_without_results: number
+    /** Launched experiments whose result says nothing about exposures: it stores no sample counts, or its metric is a retention or a ratio one, whose samples are not exposures. */
+    launched_with_unknown_analyzed_exposures: number
+    /** Launched experiments whose latest result analyzed no one. */
+    launched_with_zero_analyzed_exposures: number
+    /** Launched experiments whose latest result analyzed fewer than 100 units, zero included. */
+    launched_with_under_100_analyzed_exposures: number
+    /** Experiments that bucket on device id. */
+    using_device_id_bucketing: number
+    /** Experiments that keep variants across authentication steps. */
+    using_persistence: number
+    /** Experiments with a custom exposure event or action. */
+    using_custom_exposure: number
+    /** Experiments whose exposure is narrowed by property filters. */
+    using_exposure_property_filters: number
+    /** Experiments that use an activation event or action. */
+    using_activation: number
+    /** Experiments whose variants split traffic unevenly. A flag that now serves one variant is left out, because its split no longer says what the experiment ran with. */
+    using_uneven_split: number
+    /** Launched experiments whose flag now serves one variant to everyone it matches, usually after shipping. */
+    serving_single_variant: number
+}
+
+export interface ExperimentSetupPreviousExperimentsApi {
+    /** Most recently launched first, then drafts. Archived experiments are included, deleted ones are not. */
+    experiments: ExperimentSetupPreviousExperimentApi[]
+    /** Counts over the listed experiments. */
+    summary: ExperimentSetupPreviousExperimentsSummaryApi
+}
+
+export interface ExperimentSetupPreviousExperimentsSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** How the project's recent experiments were set up and how they went. */
+    data: ExperimentSetupPreviousExperimentsApi | null
+}
+
+export interface ExperimentSetupSharedMetricApi {
+    /** Shared metric id, to attach it instead of creating an inline metric. */
+    id: number
+    /** Shared metric name. */
+    name: string
+    /**
+     * 'mean', 'funnel', 'ratio' or 'retention', or null for older metrics.
+     * @nullable
+     */
+    metric_type: string | null
+    /** Event names the metric counts. */
+    events: string[]
+    /** Actions the metric counts. */
+    action_ids: number[]
+    /** Experiments that use it as a primary metric. */
+    used_as_primary: number
+    /** Experiments that use it as a secondary metric. */
+    used_as_secondary: number
+    /**
+     * When it was last attached to an experiment, or null.
+     * @nullable
+     */
+    last_used_at: string | null
+    /**
+     * Whether the metric counts metric_event, directly or through an action. Null when no metric_event was passed.
+     * @nullable
+     */
+    matches_metric_event: boolean | null
+    /**
+     * Where metric_event sits in the metric: 'funnel_step' and 'funnel_final_step' for a funnel, 'mean_source', 'ratio_numerator', 'ratio_denominator', 'retention_start' or 'retention_completion'. A metric that only starts from the event is a different precedent from one that converts on it. Empty when the metric does not count it, and null when no metric_event was passed.
+     * @nullable
+     */
+    metric_event_roles: string[] | null
+}
+
+export interface ExperimentSetupSharedMetricsApi {
+    /**
+     * The metric_event that was matched, or null.
+     * @nullable
+     */
+    metric_event: string | null
+    /** True when the project has more shared metrics than the event match could read, so a match further down the list may be missing. Matching is capped for cost. */
+    metric_event_match_truncated: boolean
+    /** Metrics that match metric_event first, then most reused. A use counts when it is on an experiment you can open and that is not deleted, so the counts follow your access. */
+    metrics: ExperimentSetupSharedMetricApi[]
+}
+
+export interface ExperimentSetupSharedMetricsSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** Shared metrics the project reuses. */
+    data: ExperimentSetupSharedMetricsApi | null
+}
+
+/**
+ * Facts about the project that decide how to configure a new experiment. Facts only, no
+ * recommendations.
+ */
+export interface ExperimentSetupContextResponseApi {
+    /** The project's experiment defaults. */
+    team_defaults: ExperimentSetupTeamDefaultsSectionApi
+    /** Which SDKs call feature flags and where flags are evaluated. */
+    sdk_profile: ExperimentSetupSdkProfileSectionApi
+    /** Traffic on the surface under test. */
+    target_surface: ExperimentSetupTargetSurfaceSectionApi
+    /** Traffic and baseline of the candidate primary metric. */
+    candidate_metric: ExperimentSetupCandidateMetricSectionApi
+    /** Recent experiments in the project. */
+    previous_experiments: ExperimentSetupPreviousExperimentsSectionApi
+    /** Most reused shared metrics. */
+    shared_metrics: ExperimentSetupSharedMetricsSectionApi
 }
 
 export type ExperimentHoldoutsListParams = {

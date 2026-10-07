@@ -23,9 +23,11 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError
 
 from posthog.dataclasses import frozen
+from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
 from posthog.models.team import Team
+from posthog.slack.identity import resolve_slack_profile_by_email
 from posthog.temporal.common.client import sync_connect
 
 from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
@@ -41,6 +43,7 @@ from products.conversations.backend.facade.types import (
     PublicHumanReplies as PublicHumanReplies,
     ResolvedTicketRevision as ResolvedTicketRevision,
     SupportChannel as SupportChannel,
+    SupportSlackSender as SupportSlackSender,
     SupportTicketMessage as SupportTicketMessage,
     TicketSummary as TicketSummary,
 )
@@ -54,9 +57,13 @@ from products.conversations.backend.models import (
     Status,
     Ticket,
 )
+from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE
 from products.conversations.backend.services.messages import public_human_ticket_replies
 from products.conversations.backend.slack import get_slack_client
-from products.conversations.backend.support_slack import get_support_slack_bot_token
+from products.conversations.backend.support_slack import (
+    get_support_slack_bot_token,
+    supporthog_lacks_custom_identity_scope,
+)
 from products.conversations.backend.support_slack_channels import (
     SupportSlackChannelsUnavailable as SupportSlackChannelsUnavailable,
     SupportSlackNotConfigured as SupportSlackNotConfigured,
@@ -103,6 +110,145 @@ class SupportMessageSendError(Exception):
         super().__init__(code)
         self.code = code
         self.retry_after = retry_after
+
+
+class SupportSenderIdentityUnavailable(Exception):
+    """This SupportHog install can't post under a name and avatar other than the bot's own.
+
+    Slack only grants scopes at install time, so an install authorized before
+    ``chat:write.customize`` was requested needs an admin to reconnect.
+    """
+
+
+def accept_github_event(delivery: WebhookDelivery) -> None:
+    """The inbound GitHub App webhook enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import github_events  # noqa: PLC0415
+
+    github_events.accept_github_event(delivery)
+
+
+def accept_slack_event(delivery: WebhookDelivery) -> None:
+    """The inbound SupportHog Slack webhook enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import slack_events  # noqa: PLC0415
+
+    slack_events.accept_slack_event(delivery)
+
+
+def accept_slack_interactivity(delivery: WebhookDelivery) -> None:
+    """The inbound SupportHog Slack click enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import slack_events  # noqa: PLC0415
+
+    slack_events.accept_slack_interactivity(delivery)
+
+
+def slack_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the team the delivery's Slack workspace is connected to.
+
+    Both Slack endpoints ask through here. Ingress asks before it dispatches, and forwards the
+    signed request to the other region when the answer is elsewhere.
+    """
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import slack_events  # noqa: PLC0415
+
+    return slack_events.slack_delivery_ownership(delivery)
+
+
+def accept_teams_event(delivery: WebhookDelivery) -> None:
+    """The inbound SupportHog Teams webhook enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import teams_events  # noqa: PLC0415
+
+    teams_events.accept_teams_event(delivery)
+
+
+def teams_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the team the delivery's Teams tenant is connected to.
+
+    Ingress asks before it dispatches, and forwards the signed request to the other region when
+    the answer is elsewhere.
+    """
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import teams_events  # noqa: PLC0415
+
+    return teams_events.teams_delivery_ownership(delivery)
+
+
+def accept_mailgun_inbound_message(delivery: WebhookDelivery) -> None:
+    """The Mailgun inbox route enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    mailgun_events.accept_mailgun_inbound_message(delivery)
+
+
+def accept_mailgun_outbound_message(delivery: WebhookDelivery) -> None:
+    """The Mailgun outbound capture route enters conversations here."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    mailgun_events.accept_mailgun_outbound_message(delivery)
+
+
+def accept_mailgun_captured_message(delivery: WebhookDelivery) -> None:
+    """The Mailgun catch-all route enters conversations here, for either direction."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    mailgun_events.accept_mailgun_captured_message(delivery)
+
+
+def mailgun_inbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the email channel the delivery's inbox address belongs to.
+
+    Ingress asks before it dispatches, and forwards the signed request to the other region when
+    the answer is elsewhere.
+    """
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_inbound_delivery_ownership(delivery)
+
+
+def mailgun_outbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the email channel the captured message was sent from."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_outbound_delivery_ownership(delivery)
+
+
+def mailgun_capture_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the email channel the catch-all delivery belongs to."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_capture_delivery_ownership(delivery)
+
+
+def mailgun_sender_is_active_here(sender_email: str) -> bool:
+    """Whether this region holds an active customer-communication channel sending as this address.
+
+    The other region asks before it ingests a captured outbound message, because a sender active
+    in both regions would otherwise land on the wrong team's thread.
+    """
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_sender_is_active_here(sender_email)
+
+
+def mailgun_legacy_sender_lookup_status(delivery: WebhookDelivery) -> int:
+    """The answer the outbound route owes a region that still probes it with `sender_lookup=1`.
+
+    Delete this with the provider that reaches it, once both regions run the ingress version.
+    """
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_legacy_sender_lookup_status(delivery)
 
 
 def sync_google_account_email(integration_id: int, team_id: int) -> None:
@@ -172,9 +318,61 @@ def list_support_bot_channels(team_id: int, *, members_only: bool = False) -> li
     return [SupportChannel(id=c["id"], name=c["name"], is_member=c["is_member"]) for c in channels]
 
 
-def post_support_message(team_id: int, channel_id: str, text: str) -> str:
+def _message_identity_kwargs(team: Team, sender: SupportSlackSender | None) -> dict[str, Any]:
+    """``chat.postMessage`` overrides for the name and avatar a message appears under."""
+    if sender is not None:
+        # The bot icon next to a person's name would contradict it, so it is not a fallback.
+        return {"username": sender.name, **({"icon_url": sender.icon_url} if sender.icon_url else {})}
+
+    kwargs: dict[str, Any] = {}
+    support_settings = team.conversations_settings or {}
+    if bot_display_name := support_settings.get("slack_bot_display_name"):
+        kwargs["username"] = bot_display_name
+    if bot_icon_url := support_settings.get("slack_bot_icon_url"):
+        kwargs["icon_url"] = bot_icon_url
+    return kwargs
+
+
+def resolve_support_slack_sender(team_id: int, email: str) -> SupportSlackSender | None:
+    """The Slack name and avatar of the workspace member with this email, or ``None`` when
+    the email matches no Slack user.
+
+    Lets a caller post as a teammate's profile rather than the bot's; the message is still
+    a bot message, Slack only renders it under that name and avatar.
+
+    Raises :class:`SupportSlackNotConfigured` when the bot isn't connected, and
+    :class:`SupportSenderIdentityUnavailable` when the install can't post under a custom
+    identity at all — resolving a profile it could never post under only produces messages
+    Slack rejects one channel at a time.
+    """
+    try:
+        team = Team.objects.get(id=team_id)
+        client = get_slack_client(team)
+    except (Team.DoesNotExist, ValueError):
+        raise SupportSlackNotConfigured()
+
+    if supporthog_lacks_custom_identity_scope(team):
+        raise SupportSenderIdentityUnavailable()
+
+    profile = resolve_slack_profile_by_email(client, email, workspace=client.workspace_id)
+    if not profile or not profile.get("name"):
+        return None
+    return SupportSlackSender(name=str(profile["name"]), icon_url=str(profile.get("avatar") or ""))
+
+
+def post_support_message(
+    team_id: int,
+    channel_id: str,
+    text: str,
+    *,
+    sender: SupportSlackSender | None = None,
+) -> str:
     """Post ``text`` to a Slack channel as the SupportHog bot, applying the team's
     configured bot display name and icon. Returns the posted message's Slack ts.
+
+    ``sender`` overrides that identity for this message only — Slack renders it under the
+    given name and avatar (needs the ``chat:write.customize`` scope), which is how a
+    message can look like it comes from a teammate instead of the bot.
 
     Raises :class:`SupportSlackNotConfigured` when the bot isn't connected and
     :class:`SupportMessageSendError` when the post fails.
@@ -185,12 +383,7 @@ def post_support_message(team_id: int, channel_id: str, text: str) -> str:
     except (Team.DoesNotExist, ValueError):
         raise SupportSlackNotConfigured()
 
-    message_kwargs: dict[str, Any] = {}
-    support_settings = team.conversations_settings or {}
-    if bot_display_name := support_settings.get("slack_bot_display_name"):
-        message_kwargs["username"] = bot_display_name
-    if bot_icon_url := support_settings.get("slack_bot_icon_url"):
-        message_kwargs["icon_url"] = bot_icon_url
+    message_kwargs = _message_identity_kwargs(team, sender)
 
     try:
         response = client.chat_postMessage(channel=channel_id, text=text, **message_kwargs)
@@ -329,6 +522,7 @@ def _support_ticket_last_message(ticket: Ticket, comment: Comment | None) -> Con
         "AI",
         "human",
         "support",
+        WORKFLOW_AUTHOR_TYPE,
     }
     context_name = _get_first_string(
         context,

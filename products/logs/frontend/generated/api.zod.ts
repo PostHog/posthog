@@ -418,13 +418,18 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically. A PagerDuty destination gets the incident opened and incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each incident it opens is resolved.
  */
+export const logsAlertsDestinationsCreateBodyPagerdutySeverityDefault = `critical`
+export const logsAlertsDestinationsCreateBodyPagerdutyRegionDefault = `us`
+
 export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
-        .enum(['slack', 'webhook', 'teams'])
-        .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
-        .describe('Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'),
+        .enum(['slack', 'webhook', 'teams', 'pagerduty'])
+        .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `pagerduty` - pagerduty')
+        .describe(
+            'Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `pagerduty` - pagerduty'
+        ),
     slack_workspace_id: zod
         .number()
         .optional()
@@ -432,6 +437,22 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
     slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
     webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook and teams.'),
+    pagerduty_routing_key: zod
+        .string()
+        .optional()
+        .describe('Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty.'),
+    pagerduty_severity: zod
+        .enum(['critical', 'error', 'warning', 'info'])
+        .describe('\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info')
+        .default(logsAlertsDestinationsCreateBodyPagerdutySeverityDefault)
+        .describe(
+            'Severity PagerDuty records on the incident. Used when type=pagerduty.\n\n\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info'
+        ),
+    pagerduty_region: zod
+        .enum(['us', 'eu'])
+        .describe('\* `us` - us\n\* `eu` - eu')
+        .default(logsAlertsDestinationsCreateBodyPagerdutyRegionDefault)
+        .describe('PagerDuty service region of the account. Used when type=pagerduty.\n\n\* `us` - us\n\* `eu` - eu'),
 })
 
 /**
@@ -802,7 +823,7 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                 ])
                 .optional()
                 .describe(
-                    'Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
+                    "Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts come from a rollup with 5-minute buckets, so the window widens to the buckets that contain date_from and date_to. The rollup honours severityLevels and serviceNames, but not body search, log-attribute filters, or resource-attribute filters. When personId or sessionId is set, counts come from the logs table with the exact window and every other filter. Both paths exclude this facet's own filter.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name"
                 ),
             facetResourceAttribute: zod
                 .string()
@@ -1667,6 +1688,13 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
         .describe('The logs query to execute.'),
 })
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesCreateBodyNameMax = 255
 
 export const logsRetentionRulesCreateBodyEnabledDefault = false
@@ -1692,6 +1720,13 @@ export const LogsRetentionRulesCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesUpdateBodyNameMax = 255
 
 export const logsRetentionRulesUpdateBodyEnabledDefault = false
@@ -1717,6 +1752,13 @@ export const LogsRetentionRulesUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesPartialUpdateBodyNameMax = 255
 
 export const logsRetentionRulesPartialUpdateBodyEnabledDefault = false

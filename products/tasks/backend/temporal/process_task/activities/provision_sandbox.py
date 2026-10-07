@@ -1,3 +1,4 @@
+import json
 import shlex
 import asyncio
 import logging
@@ -11,7 +12,6 @@ from django.utils import timezone
 
 import posthoganalytics
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.models.user_integration import ReauthorizationRequired
@@ -55,6 +55,8 @@ from products.tasks.backend.logic.services.sandbox import (
     get_sandbox_class_for_run_backend,
     get_sandbox_class_for_sandbox_id,
     needs_full_history,
+    parse_requested_sandbox_template,
+    pinned_agent_version,
     sandbox_repo_path,
     workload_for_origin_product,
 )
@@ -76,6 +78,7 @@ from products.tasks.backend.temporal.observability import (
     log_activity_execution,
     log_with_activity_context,
 )
+from products.tasks.backend.temporal.process_task.organization import check_organization_execution
 from products.tasks.backend.temporal.process_task.sandbox_connection import persist_sandbox_connection
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     replace_sandbox_credentials,
@@ -182,12 +185,24 @@ class CheckoutBranchInSandboxInput:
     used_snapshot: bool
 
 
+# Kept in sync with products/desktop/scripts/wait-cloud-task-bootstrap.sh, which the agent
+# runs to block on the build and read its result.
+DESKTOP_BOOTSTRAP_STATE_DIR = "/tmp/posthog-desktop-bootstrap"
+DESKTOP_BOOTSTRAP_WAIT_SCRIPT = "scripts/wait-cloud-task-bootstrap.sh"
+DESKTOP_BOOTSTRAP_TIMEOUT_SECONDS = 15 * 60
+
+
 def _prepare_posthog_desktop_cloud_task(ctx: TaskProcessingContext, sandbox: SandboxBase, repository: str) -> None:
-    """Build Desktop workspace exports from the task's checked-out source.
+    """Start building Desktop workspace exports from the task's checked-out source.
 
     The dev-stack image warms pnpm's content-addressed store but deliberately does
     not retain checkout-specific node_modules or dist directories. Prepare only the
     internal PostHog checkout that uses that image, after its final branch is in place.
+
+    The build runs detached so the agent does not wait for it before its first turn.
+    Most tasks never touch Desktop, and the ones that do wait on the state directory
+    through `pnpm bootstrap:cloud-task:wait`. A failed launch is logged and not raised,
+    because the agent can still run the bootstrap itself.
     """
     if (
         not ctx.desktop_workspace_warm_enabled
@@ -198,18 +213,43 @@ def _prepare_posthog_desktop_cloud_task(ctx: TaskProcessingContext, sandbox: San
         return
 
     repo_path = f"{sandbox_repo_path(repository)}/products/desktop"
-    emit_agent_log(ctx.run_id, "debug", "Preparing Desktop workspace dependencies")
-    result = sandbox.execute(
-        f"cd {shlex.quote(repo_path)} && pnpm bootstrap:cloud-task",
-        timeout_seconds=10 * 60,
+    state_dir = shlex.quote(DESKTOP_BOOTSTRAP_STATE_DIR)
+    # `timeout` replaces the deadline the blocking exec used to enforce. Its exit code is
+    # renamed into place so the wait script never reads a partial file.
+    build = (
+        f"timeout -k 30 {DESKTOP_BOOTSTRAP_TIMEOUT_SECONDS} pnpm bootstrap:cloud-task > {state_dir}/log 2>&1 & "
+        f"echo $! > {state_dir}/build.pid; wait $!; "
+        f"echo $? > {state_dir}/exit.tmp && mv {state_dir}/exit.tmp {state_dir}/exit"
     )
+    # Exit 3 skips a branch without the wait script, because its agent cannot wait on the build.
+    # A retried clone activity recloned the tree under any running build, so stop that build first.
+    # `timeout` leads its own process group, hence the second kill.
+    # setsid detaches the build because the sandbox runtime reaps exec children on return.
+    launch = (
+        f"cd {shlex.quote(repo_path)} || exit 1; "
+        f"[ -f {DESKTOP_BOOTSTRAP_WAIT_SCRIPT} ] || exit 3; "
+        f"if [ -f {state_dir}/launcher.pid ] && [ ! -f {state_dir}/exit ]; then "
+        f'kill -TERM "$(cat {state_dir}/launcher.pid)" 2>/dev/null; '
+        f'kill -TERM -- "-$(cat {state_dir}/build.pid 2>/dev/null)" 2>/dev/null; fi; '
+        f"rm -rf {state_dir} && mkdir -p {state_dir} && date +%s > {state_dir}/started || exit 1; "
+        f"setsid sh -c {shlex.quote(build)} > /dev/null 2>&1 < /dev/null & "
+        f"echo $! > {state_dir}/launcher.pid"
+    )
+    try:
+        result = sandbox.execute(launch, timeout_seconds=30)
+    except Exception as e:
+        logger.warning("desktop_bootstrap_launch_failed", extra={"run_id": ctx.run_id, "error": str(e)})
+        return
+    if result.exit_code == 3:
+        emit_agent_log(ctx.run_id, "debug", "Skipped Desktop workspace preparation: branch has no wait script")
+        return
     if result.exit_code != 0:
-        output = (result.stderr or result.stdout)[-2_000:]
-        raise ApplicationError(
-            f"Failed to prepare Desktop workspace: {output}",
-            type="DesktopCloudTaskBootstrapError",
-            non_retryable=True,
+        logger.warning(
+            "desktop_bootstrap_launch_failed",
+            extra={"run_id": ctx.run_id, "exit_code": result.exit_code, "stderr": result.stderr[-500:]},
         )
+        return
+    emit_agent_log(ctx.run_id, "debug", "Started Desktop workspace preparation in the background")
 
 
 @dataclass
@@ -379,6 +419,8 @@ def _resolve_sandbox_github_token(
     one only after the create-time Desktop gate passed. So a repo-less run with no integration
     stays credential-less, and an entitled discussion can clone a private repository and push.
     """
+    if task.is_scout_trial_judge is True:
+        return ""
     if ctx.github_read_access:
         github_token = get_readonly_github_token(ctx.team_id) or ""
         emit_agent_log(
@@ -541,13 +583,11 @@ def _build_environment_variables(
     environment_variables.update(run_gateway_env_vars(ctx, task))
     environment_variables.update(mcp_exec_skills_env_vars(ctx))
 
-    if settings.DEBUG:
-        # Local eval runs pin models per unit; the agent's overload rescue would silently switch a
-        # session to the fallback model mid-run, breaking prompt-cache sharing (model is part of
-        # the cache key) and cost attribution. Rely on Temporal retries instead.
+    if settings.DEBUG or (ctx.state or {}).get("scout_trial") or (ctx.state or {}).get("scout_trial_judge"):
+        # Pinned eval runs must not switch models after an overload.
         environment_variables["POSTHOG_DISABLE_MODEL_FALLBACK"] = "1"
 
-    if ctx.agent_otel_telemetry_enabled:
+    if ctx.agent_otel_telemetry_enabled and task.is_scout_experiment is not True:
         environment_variables.update(get_sandbox_otel_env_vars())
 
     if ctx.allowed_domains is not None:
@@ -615,6 +655,35 @@ def _build_sandbox_tags(
     return {key: str(value) for key, value in tags.items() if value is not None}
 
 
+def _requested_sandbox_template(value: str | None) -> SandboxTemplate:
+    """The template the run's state asks for. Unknown values and ``VM_BASE`` are fatal."""
+    try:
+        return parse_requested_sandbox_template(value)
+    except ValueError as e:
+        raise TaskInvalidStateError(
+            f"Invalid sandbox template {value!r}",
+            {"sandbox_template": value},
+            cause=e,
+        )
+
+
+def _effective_sandbox_template(*, use_vm_sandbox: bool, requested: SandboxTemplate) -> SandboxTemplate:
+    """VM routing forces ``VM_BASE``, which carries none of a custom template's tooling.
+
+    Silently dropping the requested template would provision an agent without the
+    libraries its task depends on, so the combination fails instead.
+    """
+    if not use_vm_sandbox:
+        return requested
+    if requested != SandboxTemplate.DEFAULT_BASE:
+        raise TaskInvalidStateError(
+            f"Sandbox template {requested.value!r} cannot run on the VM runtime",
+            {"sandbox_template": requested.value},
+            cause=ValueError("custom sandbox template on a VM-routed run"),
+        )
+    return SandboxTemplate.VM_BASE
+
+
 @activity.defn
 @asyncify
 def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> PrepareSandboxForRepositoryOutput:
@@ -626,6 +695,8 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
     ):
         has_repo = bool(ctx.repositories)
         repository = ctx.repository
+        run_state = parse_run_state(ctx.state)
+        sandbox_template = _requested_sandbox_template(run_state.sandbox_template)
 
         snapshot = None
         used_snapshot = False
@@ -633,9 +704,10 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         snapshot_kind = SNAPSHOT_KIND_FILESYSTEM
         snapshot_mount_path: str | None = None
         # Repo-setup snapshots come from default-base sandboxes; restoring one would silently
-        # drop the custom base image. Resume snapshots were taken from this task's own sandbox.
+        # drop a custom base image or a non-default template. Resume snapshots were taken from
+        # this task's own sandbox.
         snapshot_integration_id = _repository_snapshot_integration_id(ctx, has_repo=has_repo)
-        if snapshot_integration_id is not None:
+        if snapshot_integration_id is not None and sandbox_template == SandboxTemplate.DEFAULT_BASE:
             with StepTimer(
                 "snapshot_lookup",
                 origin_product=ctx.origin_product,
@@ -666,7 +738,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         )
 
         try:
-            access_token = create_oauth_access_token_for_run(task, ctx.state)
+            access_token = create_oauth_access_token_for_run(task, ctx.state, run_id=ctx.run_id)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",
@@ -676,7 +748,6 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
 
         environment_variables = _build_environment_variables(ctx, task, github_token, access_token)
 
-        run_state = parse_run_state(ctx.state)
         # VM and gVisor both resume from snapshots. A run's stored snapshot kind
         # determines the restore mechanism; the rollout flag only chooses the
         # kind of new snapshot created after this run.
@@ -699,6 +770,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         resume_mode = resume_mode_label(
             same_run_resume=run_state.same_run_resume,
             using_modal_snapshot=resume_snapshot_external_id is not None,
+            from_import_run=run_state.resume_from_import_run,
         )
         resume_decision_log = (
             activity.logger.warning if is_resume and resume_mode == "neither" else activity.logger.info
@@ -762,6 +834,49 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         )
 
 
+def _pin_governs_sandbox_agent(ctx: TaskProcessingContext, config: SandboxConfig, *, used_snapshot: bool) -> bool:
+    if ctx.sandbox_backend == "hogland" or config.custom_image_name:
+        return False
+    return not used_snapshot or config.snapshot_kind == SNAPSHOT_KIND_DIRECTORY
+
+
+def _persist_sandbox_agent_version(run_id: str, sandbox: SandboxBase, *, compare_with_pin: bool) -> None:
+    version: str | None = None
+    try:
+        result = sandbox.execute("cat /scripts/node_modules/@posthog/agent/package.json", timeout_seconds=10)
+        if result.exit_code == 0:
+            manifest = json.loads(result.stdout)
+            candidate = manifest.get("version") if isinstance(manifest, dict) else None
+            if isinstance(candidate, str) and candidate:
+                version = candidate
+    except Exception:
+        logger.warning("Failed to read sandbox agent version", extra={"run_id": run_id}, exc_info=True)
+
+    expected = pinned_agent_version() if compare_with_pin else None
+    if version is not None and expected is not None and version != expected:
+        logger.warning(
+            "Sandbox agent version differs from the pinned version",
+            extra={
+                "run_id": run_id,
+                "sandbox_id": sandbox.id,
+                "agent_version": version,
+                "agent_version_expected": expected,
+            },
+        )
+
+    updates: dict[str, str] = {}
+    remove_keys: list[str] = []
+    for key, value in (("agent_version", version), ("agent_version_expected", expected)):
+        if value is None:
+            remove_keys.append(key)
+        else:
+            updates[key] = value
+    try:
+        TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
+    except Exception:
+        logger.warning("Failed to persist sandbox agent version", extra={"run_id": run_id}, exc_info=True)
+
+
 @asyncify
 def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
     ctx = input.context
@@ -772,6 +887,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         image_source=prepared.image_source,
         **ctx.to_log_context(),
     ):
+        check_organization_execution(ctx.team_id)
         if not (ctx.state or {}).get("await_user_message"):
             task = _load_task(ctx)
             if reason := get_compute_quota_denial_reason(task):
@@ -789,9 +905,15 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         # can run nested containers; the default template has neither.
         use_vm_sandbox = ctx.use_modal_vm_sandbox
         resource_overrides = ctx.sandbox_resource_overrides()
+        # Read from the run context, not the prepare output: a prepare activity claimed by an
+        # older worker during a rolling deploy would hand over an output without the template.
+        template = _effective_sandbox_template(
+            use_vm_sandbox=use_vm_sandbox,
+            requested=_requested_sandbox_template(parse_run_state(ctx.state).sandbox_template),
+        )
         config = SandboxConfig(
             name=prepared.sandbox_name,
-            template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
+            template=template,
             workload=workload_for_origin_product(ctx.origin_product),
             custom_image_name=ctx.custom_image_name if use_vm_sandbox else None,
             environment_variables=prepared.environment_variables,
@@ -802,6 +924,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             snapshot_source=prepared.snapshot_source,
             metadata=_build_sandbox_tags(ctx, prepared, use_vm_sandbox),
             vm_runtime=use_vm_sandbox,
+            use_hotplug_golden=ctx.use_hogland_hotplug_golden,
             **resource_overrides,
         )
 
@@ -876,6 +999,11 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                     "sandbox_creation_with_policy_request", runtime, "modal_requested", "failure"
                 )
             raise
+        _persist_sandbox_agent_version(
+            ctx.run_id,
+            sandbox,
+            compare_with_pin=_pin_governs_sandbox_agent(ctx, config, used_snapshot=actual_used_snapshot),
+        )
         try:
             if config.outbound_domain_allowlist is not None:
                 emit_agent_log(ctx.run_id, "debug", "Modal sandbox created with network policy requested")
@@ -1262,7 +1390,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                 )
 
         try:
-            access_token = create_oauth_access_token_for_run(task, ctx.state)
+            access_token = create_oauth_access_token_for_run(task, ctx.state, run_id=ctx.run_id)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to refresh OAuth access token for task {ctx.task_id}",

@@ -136,12 +136,13 @@ def _resolve_baselines_with_merge_base(
     rewrites the full file, and git rebase replays it destructively).
 
     Branch entries win on conflict so approvals are preserved.
-    On a merge-queue branch, healing is limited to identifiers this run
-    rendered. An entry missing from the branch baseline whose story still
-    renders is the rebase loss above. An entry missing from both is one the
+    A merge-queue branch heals nothing, because the tested file is the one
+    that lands. An entry missing for a story the run did not render is one the
     branch deleted on purpose, and restoring it only manufactures a REMOVED
     that no one on a queue branch can approve, so it reds the batch and every
-    pull request sharing it until the deleting one lands.
+    pull request sharing it until the deleting one lands. An entry missing for
+    a story that still renders would delete a live baseline on merge, so it
+    raises BaselineEntriesLostError and the run fails.
 
     Ordinary branches keep healing everything, because there the REMOVED is
     the review gate: it is how a reviewer is asked to confirm that a story
@@ -210,6 +211,13 @@ def _resolve_baselines_with_merge_base(
 
     healed = set(healable_merge_base) - set(branch_baseline)
     merged = {**healable_merge_base, **branch_baseline}
+
+    # The name check only adds failures, so trusting an unverified name cannot skip a gate.
+    if on_merge_queue_branch or github_api._MERGE_QUEUE_BRANCH_RE.match(branch):
+        # Raw key sets, not `healed`: a tombstoned story that renders again still needs its baseline.
+        lost = (set(merge_base_baseline) - set(branch_baseline)) & rendered_identifiers
+        if lost:
+            raise errors.BaselineEntriesLostError(sorted(lost))
 
     if healed or tombstoned:
         logger.info(
@@ -285,17 +293,16 @@ def _approved_baseline_updates(snapshots: Iterable[RunSnapshot]) -> list[dict]:
     Derived from DB state so the commit always reflects every approval regardless of how
     many calls it took. Tolerated snapshots are excluded — toleration never updates the baseline.
 
-    Quarantine keeps a flapping hash out of the baseline, so a quarantined CHANGED snapshot is
-    excluded even when approved. A quarantined NEW snapshot has no baseline entry to protect,
-    and only a per-identifier approval can mark it (bulk approve skips quarantined rows), so an
-    approved one is committed. Without this a story that lost its entry while quarantined could
-    never get one back: lifting the quarantine fails every run until the entry lands.
+    Quarantined snapshots are committed when approved, because only a per-identifier approval
+    can mark one: bulk approve skips quarantined rows, so a flapping hash never lands by accident.
+    A quarantined story still renders on every run. If its baseline cannot move while it is
+    quarantined, a code change to the story leaves the entry stale, and the drift fails every
+    run on the day the quarantine is lifted or expires.
     """
     return [
         {"identifier": s.identifier, "new_hash": s.approved_hash}
         for s in snapshots
-        if s.review_state == ReviewState.APPROVED
-        and (s.result == SnapshotResult.NEW or (s.result == SnapshotResult.CHANGED and not s.is_quarantined))
+        if s.review_state == ReviewState.APPROVED and s.result in (SnapshotResult.NEW, SnapshotResult.CHANGED)
     ]
 
 

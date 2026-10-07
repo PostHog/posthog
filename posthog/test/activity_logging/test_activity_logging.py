@@ -1,26 +1,65 @@
+import hmac
+import json
+import time
+import hashlib
 from datetime import timedelta
+from typing import Any
 from uuid import UUID
 
 import pytest
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
+from django.db import transaction
 from django.db.utils import IntegrityError
+from django.http import HttpRequest
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.authentication import BaseAuthentication
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
+from posthog.auth import (
+    ExportRendererAuthentication,
+    InternalAPIAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    ScopedServiceJWTAuthentication,
+    SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
+    WidgetAuthentication,
+    mint_export_renderer_token,
+)
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import User
-from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, Trigger, log_activity
+from posthog.models import SharePassword, SharingConfiguration, User
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    Change,
+    Detail,
+    Trigger,
+    bulk_log_activity,
+    log_activity,
+)
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
-from posthog.models.activity_logging.utils import activity_storage, activity_visibility_manager
+from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_INTENT_MAX_LENGTH,
+    ActivityCredential,
+    activity_storage,
+    activity_visibility_manager,
+)
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
+from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.test.api_keys import create_project_secret_api_key
 
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 
 class TestActivityLogModel(BaseTest):
@@ -52,6 +91,7 @@ class TestActivityLogModel(BaseTest):
         self.assertEqual(log.activity, "updated")
         assert log.detail is not None
         self.assertEqual(log.detail["changes"], [change.__dict__])
+        self.assertEqual((log.credential_type, log.credential_id, log.impersonated_by_id), (None, None, None))
 
     def test_can_save_a_log_that_has_no_model_changes(self) -> None:
         log_activity(
@@ -66,6 +106,38 @@ class TestActivityLogModel(BaseTest):
         )
         log: ActivityLog = ActivityLog.objects.latest("id")
         self.assertEqual(log.activity, "added_to_clink_expander")
+
+    @parameterized.expand(
+        [
+            ("small_detail_is_sent_unchanged", "x" * 100, False),
+            ("oversized_detail_drops_change_values", "x" * (2 * 1024 * 1024), True),
+        ]
+    )
+    def test_internal_event_detail_stays_under_kafka_limit(self, _name: str, after: str, truncated: bool) -> None:
+        change = Change(type="FeatureFlag", field="filters", action="changed", before=None, after=after)
+        with (
+            patch("posthog.cdp.internal_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=6,
+                scope="FeatureFlag",
+                activity="updated",
+                detail=Detail(name="my flag", changes=[change]),
+            )
+
+        properties = mock_produce.call_args.kwargs["event"].properties
+        assert len(json.dumps(properties).encode("utf-8")) < 1024 * 1024
+        assert properties["detail"]["name"] == "my flag"
+        assert properties.get("detail_truncated", False) is truncated
+        expected_change: dict[str, Any] = {"type": "FeatureFlag", "action": "changed", "field": "filters"}
+        if not truncated:
+            expected_change.update(before=None, after=after)
+        assert properties["detail"]["changes"] == [expected_change]
 
     def test_client_is_populated_from_activity_storage(self) -> None:
         activity_storage.set_client("posthog-js/1.234.0")
@@ -173,7 +245,7 @@ class TestActivityLogModel(BaseTest):
         assert log.detail is not None
         self.assertEqual(log.detail["trigger"]["job_type"], "hog_flow")
 
-    def test_an_intent_without_a_task_binding_writes_no_trigger(self) -> None:
+    def test_an_intent_without_a_task_binding_writes_no_task_id(self) -> None:
         activity_storage.set_agent_intent("Disabling the flag per an incident runbook")
         try:
             log_activity(
@@ -191,7 +263,14 @@ class TestActivityLogModel(BaseTest):
 
         log: ActivityLog = ActivityLog.objects.latest("id")
         assert log.detail is not None
-        self.assertIsNone(log.detail["trigger"])
+        self.assertEqual(
+            log.detail["trigger"],
+            {
+                "job_type": "agent",
+                "job_id": "",
+                "payload": {"intent": "Disabling the flag per an incident runbook"},
+            },
+        )
 
     def test_a_failing_agent_trigger_still_writes_the_row(self) -> None:
         with patch(
@@ -281,6 +360,51 @@ class TestActivityLogModel(BaseTest):
         log: ActivityLog = ActivityLog.objects.latest("id")
         self.assertIsNone(log.ip_address)
 
+    def test_a_request_that_recorded_no_credential_is_marked_unattributed(self) -> None:
+        activity_storage.mark_request_scoped()
+        try:
+            log = log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=13,
+                scope="FeatureFlag",
+                activity="created",
+                detail=Detail(),
+            )
+        finally:
+            activity_storage.clear_all()
+
+        assert log is not None
+        assert (log.credential_type, log.credential_id) == ("unattributed", None)
+
+    def test_bulk_log_activity_records_the_request_credential(self) -> None:
+        activity_storage.set_credential(ActivityCredential(type="personal_api_key", id="key-id", impersonated_by_id=7))
+        try:
+            bulk_log_activity(
+                [
+                    {
+                        "organization_id": self.organization.id,
+                        "team_id": self.team.id,
+                        "user": self.user,
+                        "was_impersonated": False,
+                        "item_id": item_id,
+                        "scope": "FeatureFlag",
+                        "activity": "created",
+                        "detail": Detail(),
+                    }
+                    for item_id in (11, 12)
+                ]
+            )
+        finally:
+            activity_storage.clear_credential()
+
+        rows = list(ActivityLog.objects.filter(team_id=self.team.id, scope="FeatureFlag", item_id__in=["11", "12"]))
+        assert [(row.credential_type, row.credential_id, row.impersonated_by_id) for row in rows] == [
+            ("personal_api_key", "key-id", 7)
+        ] * 2
+
     def test_does_not_save_impersonated_activity_without_user(self) -> None:
         log_activity(
             organization_id=self.organization.id,
@@ -333,6 +457,23 @@ class TestActivityLogModel(BaseTest):
             self.assertEqual(warning.args[0], "activity_log.failed_to_write_to_activity_log")
             self.assertIsInstance(warning.kwargs["exception"], IntegrityError)
 
+    def test_strict_write_failure_escapes_active_transaction(self) -> None:
+        with self.settings(TEST=False, ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
+            with patch.object(ActivityLog.objects, "create", side_effect=IntegrityError("write timed out")):
+                with self.assertRaises(IntegrityError):
+                    with transaction.atomic():
+                        log_activity(
+                            organization_id=self.organization.id,
+                            team_id=self.team.id,
+                            user=self.user,
+                            was_impersonated=False,
+                            item_id="12345",
+                            scope="FeatureFlag",
+                            activity="updated",
+                            detail=Detail(changes=[Change(type="FeatureFlag", field="active", action="created")]),
+                            strict=True,
+                        )
+
     def test_does_not_throw_if_cannot_log_activity(self) -> None:
         # Assert on the module logger directly instead of assertLogs: the root logger sits at
         # ERROR under test settings, so whether the warning reaches a root handler depends on
@@ -362,6 +503,120 @@ class TestActivityLogModel(BaseTest):
             self.assertEqual(warning.kwargs["team"], 1)
             self.assertEqual(warning.kwargs["activity"], "does not explode")
             self.assertIsInstance(warning.kwargs["exception"], ValueError)
+
+
+class _ServiceJWTAuthentication(ScopedServiceJWTAuthentication):
+    purpose = ScopedServiceJwtPurpose(
+        audience=PosthogJwtAudience.RECORDING_API, settings_name="ACTIVITY_LOG_TEST_SERVICE_JWT_KEYS"
+    )
+
+
+@override_settings(
+    ACTIVITY_LOG_TEST_SERVICE_JWT_KEYS="activity-log-test-signing-key",
+    INTERNAL_API_SECRET="activity-log-test-internal-secret",
+    INTERNAL_API_SECRET_FALLBACKS=[],
+)
+class TestBearerAuthenticationReplacesSessionActor(BaseTest):
+    def _authenticator_and_request(
+        self, credential_type: str
+    ) -> tuple[BaseAuthentication, HttpRequest, User | None, str | None]:
+        factory = APIRequestFactory()
+
+        def bearer(token: str) -> HttpRequest:
+            return factory.get("/", headers={"Authorization": f"Bearer {token}"})
+
+        if credential_type == "project_secret_key":
+            psak, token = create_project_secret_api_key(self.team, scopes=["endpoint:read"])
+            return ProjectSecretAPIKeyAuthentication(), bearer(token), None, psak.id
+        if credential_type == "personal_api_key":
+            token = generate_random_token_personal()
+            pak = PersonalAPIKey.objects.create(
+                label="pak", user=self.user, secure_value=hash_key_value(token), scopes=["*"]
+            )
+            return PersonalAPIKeyAuthentication(), bearer(token), self.user, pak.id
+        if credential_type == "service_jwt":
+            token = _ServiceJWTAuthentication.purpose.mint({"team_id": self.team.id})
+            return _ServiceJWTAuthentication(), bearer(token), None, PosthogJwtAudience.RECORDING_API.value
+        if credential_type == "sharing_access_token":
+            sharing_configuration = SharingConfiguration.objects.create(team=self.team, enabled=True)
+            request = factory.get(f"/?sharing_access_token={sharing_configuration.access_token}")
+            return SharingAccessTokenAuthentication(), request, None, str(sharing_configuration.id)
+        if credential_type == "sharing_password":
+            sharing_configuration = SharingConfiguration.objects.create(
+                team=self.team, enabled=True, password_required=True
+            )
+            share_password = SharePassword.objects.create(
+                sharing_configuration=sharing_configuration, created_by=self.user, password_hash="unused"
+            )
+            token = sharing_configuration.generate_password_protected_token(share_password)
+            return SharingPasswordProtectedAuthentication(), bearer(token), None, str(share_password.id)
+        if credential_type == "export_renderer":
+            exported_asset = ExportedAsset.objects.create(
+                team=self.team,
+                created_by=self.user,
+                export_format=ExportedAsset.ExportFormat.PNG,
+                export_context={"session_recording_id": "recording-id"},
+            )
+            token = mint_export_renderer_token(
+                user_id=self.user.id,
+                team_id=self.team.id,
+                exported_asset_id=exported_asset.id,
+                scope="session_recording:read",
+            )
+            return ExportRendererAuthentication(), bearer(token), self.user, str(exported_asset.id)
+        if credential_type == "widget_token":
+            self.team.conversations_enabled = True
+            self.team.conversations_settings = {"widget_public_token": "widget-token"}
+            self.team.save()
+            request = factory.get("/", headers={"X-Conversations-Token": "widget-token"})
+            return WidgetAuthentication(), request, None, None
+        request = factory.get("/", headers={"X-Internal-Api-Secret": "activity-log-test-internal-secret"})
+        return InternalAPIAuthentication(), request, None, None
+
+    @parameterized.expand(
+        [
+            ("project_secret_key",),
+            ("personal_api_key",),
+            ("service_jwt",),
+            ("internal_api_secret",),
+            ("sharing_access_token",),
+            ("sharing_password",),
+            ("export_renderer",),
+            ("widget_token",),
+        ]
+    )
+    def test_rows_name_the_bearer_credential_not_an_impersonated_session(self, credential_type: str) -> None:
+        session_user = User.objects.create_and_join(self.organization, "session-user@example.com", None)
+        authenticator, request, expected_user, expected_id = self._authenticator_and_request(credential_type)
+        # ActivityLoggingMiddleware has already recorded an impersonated session on the same request.
+        activity_storage.mark_request_scoped()
+        activity_storage.set_user(session_user)
+        activity_storage.set_was_impersonated(True)
+        activity_storage.set_credential(ActivityCredential(type="session", id="session-id", impersonated_by_id=1))
+        try:
+            authenticator.authenticate(Request(request))
+            log = log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=activity_storage.get_user(),
+                was_impersonated=activity_storage.get_was_impersonated(),
+                item_id=1,
+                scope="Loop",
+                activity="updated",
+                detail=Detail(),
+                force_save=True,
+            )
+        finally:
+            activity_storage.clear_all()
+
+        assert log is not None
+        assert (log.user, log.was_impersonated, log.credential_type, log.credential_id, log.impersonated_by_id) == (
+            expected_user,
+            False,
+            credential_type,
+            expected_id,
+            None,
+        )
 
 
 class TestModelActivityMixinTeamScoping(BaseTest):
@@ -399,12 +654,16 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("instance_setting_updated", "InstanceSetting", "updated", False, True),
             # AI-gateway top-ups are staff-only and must be hidden from non-staff viewers
             ("ai_gateway_credit_added", "AIGatewayCredit", "credit_added", False, True),
+            ("github_diagnostic", "Integration", "github_diagnostic", False, True),
+            ("github_connected", "Integration", "created", False, False),
             # Ticket comment rows reference support-ticket bodies (rows written before write-time
             # masking still hold plaintext) and must be hidden from non-staff viewers
             ("ticket_comment", "Ticket", "commented", False, True),
             ("ticket_task_comment", "Ticket", "created task", False, True),
             ("conversations_ticket_comment", "conversations_ticket", "commented", False, True),
             ("conversations_ticket_task_comment", "conversations_ticket", "created task", False, True),
+            ("desktop_canvas_comment", "desktop_canvas", "commented", False, True),
+            ("canvas_comment", "canvas", "commented", False, True),
             # Ticket lifecycle activities stay visible — only comment rows are hidden
             ("ticket_updated", "Ticket", "updated", False, False),
             # Non-User scopes are unaffected
@@ -553,10 +812,12 @@ class TestActivityTriggerContext(BaseTest):
 class TestAgentAttributionOnApiWrites(APIBaseTest):
     """The intent header, the OAuth token binding and the audit row only meet on a real request."""
 
-    def _authenticate_as_sandbox_agent(self, task_id: UUID | None, delegated: bool = False) -> None:
+    def _authenticate_as_oauth_agent(
+        self, client_id: str, task_id: UUID | None, delegated: bool = False
+    ) -> OAuthAccessToken:
         application = OAuthApplication.objects.create(
-            name="Sandbox",
-            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            name="OAuth application",
+            client_id=client_id,
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
@@ -582,13 +843,16 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
                 PosthogJwtAudience.DELEGATED_USER,
             )
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_value}")
+        return token
 
     @parameterized.expand(
         [
             (
-                "records the intent of a token bound to a sandbox task",
+                "records an allowlisted token bound to a sandbox task",
+                ARRAY_APP_CLIENT_ID_DEV,
                 UUID("019f4c2a-0000-7000-8000-0000000000aa"),
                 False,
+                "Repairing a tile that hit the query row limit",
                 {
                     "job_type": "agent",
                     "job_id": "019f4c2a-0000-7000-8000-0000000000aa",
@@ -596,37 +860,204 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
                 },
             ),
             (
-                "records the intent of a delegated token bound to a sandbox task",
+                "records a third-party delegated token bound to a sandbox task",
+                "third-party-client",
                 UUID("019f4c2a-0000-7000-8000-0000000000aa"),
                 True,
+                "Repairing a tile that hit the query row limit",
                 {
                     "job_type": "agent",
                     "job_id": "019f4c2a-0000-7000-8000-0000000000aa",
                     "payload": {"intent": "Repairing a tile that hit the query row limit"},
                 },
             ),
-            ("ignores the header on a token with no task", None, False, None),
+            (
+                "records unbound Array intent with no task id",
+                ARRAY_APP_CLIENT_ID_DEV,
+                None,
+                False,
+                "Repairing a tile that hit the query row limit",
+                {
+                    "job_type": "agent",
+                    "job_id": "",
+                    "payload": {"intent": "Repairing a tile that hit the query row limit"},
+                },
+            ),
+            (
+                "records unbound delegated Array intent with no task id",
+                ARRAY_APP_CLIENT_ID_DEV,
+                None,
+                True,
+                "Repairing a tile that hit the query row limit",
+                {
+                    "job_type": "agent",
+                    "job_id": "",
+                    "payload": {"intent": "Repairing a tile that hit the query row limit"},
+                },
+            ),
+            (
+                "records third-party intent with no task id",
+                "third-party-client",
+                None,
+                False,
+                "Repairing a tile that hit the query row limit",
+                {
+                    "job_type": "agent",
+                    "job_id": "",
+                    "payload": {"intent": "Repairing a tile that hit the query row limit"},
+                },
+            ),
+            (
+                "records third-party delegated intent with no task id",
+                "third-party-client",
+                None,
+                True,
+                "Repairing a tile that hit the query row limit",
+                {
+                    "job_type": "agent",
+                    "job_id": "",
+                    "payload": {"intent": "Repairing a tile that hit the query row limit"},
+                },
+            ),
+            ("ignores an empty allowlisted intent", ARRAY_APP_CLIENT_ID_DEV, None, False, None, None),
+            (
+                "records an allowlisted task binding without intent",
+                ARRAY_APP_CLIENT_ID_DEV,
+                UUID("019f4c2a-0000-7000-8000-0000000000aa"),
+                False,
+                None,
+                {
+                    "job_type": "agent",
+                    "job_id": "019f4c2a-0000-7000-8000-0000000000aa",
+                    "payload": {},
+                },
+            ),
         ]
     )
     def test_agent_write(
-        self, _name: str, task_id: UUID | None, delegated: bool, expected_trigger: dict | None
+        self,
+        _name: str,
+        client_id: str,
+        task_id: UUID | None,
+        delegated: bool,
+        intent: str | None,
+        expected_trigger: dict | None,
     ) -> None:
-        self._authenticate_as_sandbox_agent(task_id, delegated)
+        self._authenticate_as_oauth_agent(client_id, task_id, delegated)
+        signed_at = str(int(time.time()))
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/",
-            {"name": "Weekly signups"},
-            HTTP_X_POSTHOG_INTENT="Repairing a tile that hit the query row limit",
-        )
+        with self.settings(MCP_CLIENT_IP_SIGNING_KEYS=["mcp-client-ip-test-key"]):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/",
+                {"name": "Weekly signups"},
+                HTTP_X_POSTHOG_CLIENT="mcp",
+                HTTP_X_POSTHOG_TASK_ID="019f4c2a-0000-7000-8000-0000000000bb",
+                HTTP_X_POSTHOG_INTENT=intent or "",
+                HTTP_X_POSTHOG_MCP_CLIENT_IP="203.0.113.7",
+                HTTP_X_POSTHOG_MCP_CLIENT_IP_TIMESTAMP=signed_at,
+                HTTP_X_POSTHOG_MCP_CLIENT_IP_SIGNATURE=hmac.new(
+                    b"mcp-client-ip-test-key", f"203.0.113.7:{signed_at}".encode(), hashlib.sha256
+                ).hexdigest(),
+            )
         self.assertEqual(response.status_code, 201, response.content)
 
         log = ActivityLog.objects.filter(scope="Dashboard").latest("id")
         assert log.detail is not None
         self.assertEqual(log.detail["trigger"], expected_trigger)
+        self.assertEqual(log.user_id, self.user.id)
+        self.assertEqual(log.client, "mcp")
+        self.assertEqual(log.ip_address, "203.0.113.7")
+
+    def test_recording_intent_does_not_re_enter_authentication(self) -> None:
+        self._authenticate_as_oauth_agent(ARRAY_APP_CLIENT_ID_DEV, None)
+
+        with (
+            patch.object(
+                OAuthAccessTokenAuthentication,
+                "_validate_token",
+                autospec=True,
+                side_effect=OAuthAccessTokenAuthentication._validate_token,
+            ) as validate_token,
+            patch("posthog.auth.capture_exception") as capture_exception,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/",
+                {"name": "Weekly signups"},
+                HTTP_X_POSTHOG_INTENT="Repairing a tile that hit the query row limit",
+            )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(validate_token.call_count, 1)
+        capture_exception.assert_not_called()
+        log = ActivityLog.objects.filter(scope="Dashboard").latest("id")
+        assert log.detail is not None
+        self.assertEqual(
+            log.detail["trigger"],
+            {"job_type": "agent", "job_id": "", "payload": {"intent": "Repairing a tile that hit the query row limit"}},
+        )
+
+    def _authenticate_with_a_personal_api_key(self) -> None:
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="MCP",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["dashboard:read", "dashboard:write"],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+    def test_records_intent_from_a_personal_api_key(self) -> None:
+        self._authenticate_with_a_personal_api_key()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"name": "Weekly signups"},
+            HTTP_X_POSTHOG_INTENT="Repairing a tile that hit the query row limit",
+            HTTP_X_POSTHOG_TASK_ID="019f4c2a-0000-7000-8000-0000000000bb",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        log = ActivityLog.objects.filter(scope="Dashboard").latest("id")
+        assert log.detail is not None
+        self.assertEqual(
+            log.detail["trigger"],
+            {"job_type": "agent", "job_id": "", "payload": {"intent": "Repairing a tile that hit the query row limit"}},
+        )
+        self.assertEqual(log.user_id, self.user.id)
+
+    def test_records_intent_from_a_session(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"name": "Weekly signups"},
+            HTTP_X_POSTHOG_INTENT="Disabling the flag per an incident runbook",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        log = ActivityLog.objects.filter(scope="Dashboard").latest("id")
+        assert log.detail is not None
+        self.assertEqual(
+            log.detail["trigger"],
+            {"job_type": "agent", "job_id": "", "payload": {"intent": "Disabling the flag per an incident runbook"}},
+        )
+
+    def test_an_intent_longer_than_the_cap_is_cut_to_it(self) -> None:
+        self._authenticate_with_a_personal_api_key()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"name": "Weekly signups"},
+            HTTP_X_POSTHOG_INTENT="w" * (ACTIVITY_LOG_INTENT_MAX_LENGTH + 20),
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        log = ActivityLog.objects.filter(scope="Dashboard").latest("id")
+        assert log.detail is not None
+        self.assertEqual(log.detail["trigger"]["payload"]["intent"], "w" * ACTIVITY_LOG_INTENT_MAX_LENGTH)
 
     def test_a_failing_attribution_loses_the_intent_and_nothing_else(self) -> None:
         task_id = UUID("019f4c2a-0000-7000-8000-0000000000aa")
-        self._authenticate_as_sandbox_agent(task_id)
+        self._authenticate_as_oauth_agent(ARRAY_APP_CLIENT_ID_DEV, task_id)
 
         with patch("posthog.auth.activity_storage.set_agent_intent", side_effect=RuntimeError("storage is broken")):
             response = self.client.post(

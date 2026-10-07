@@ -16,11 +16,18 @@ from rest_framework.response import Response
 from posthog.schema import PropertyGroupFilter
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS
 from posthog.event_usage import report_user_action
+from posthog.models.team.logs_retention import (
+    LOGS_CUSTOM_RETENTION_FLAG,
+    LOGS_RETENTION_BASE_TIERS_DAYS,
+    logs_retention_days_error,
+    required_logs_retention_feature,
+)
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.models.utils import UUIDModel
+from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from posthog.scopes import APIScopeObjectOrNotSupported
 
 from products.logs.backend.facade.retention import suggest_retention_rule_name
 from products.logs.backend.models import LogsRetentionRule
@@ -35,13 +42,13 @@ from products.logs.backend.presentation.filter_group_validation import (
     filter_group_node_count,
 )
 
-# Retention tiers a rule may assign. Derived from the same source as the team-wide setting in
-# `TeamSerializer` (`posthog/api/team.py`): 14 is the always-available default, and every other
-# tier must have an entitlement feature in `LOGS_RETENTION_FEATURES_BY_DAYS` (currently just 30).
-# Deriving it keeps rules in lockstep with the team-wide setting — a per-log rule can never grant a
-# tier the org couldn't set team-wide, and a new tier (e.g. 90) becomes available here the moment it
-# gets an entitlement mapping.
-VALID_RETENTION_DAYS = {14} | set(LOGS_RETENTION_FEATURES_BY_DAYS.keys())
+# Rules accept the same retention periods as the team-wide setting in `TeamSerializer`
+# (`posthog/api/team.py`), so a per-log rule can never grant a tier the org couldn't set team-wide.
+
+
+def custom_retention_enabled_for(context: dict[str, Any]) -> bool:
+    is_enabled = context.get("custom_retention_enabled")
+    return bool(is_enabled()) if callable(is_enabled) else False
 
 
 def retention_filter_group_error(filter_group: Any) -> str | None:
@@ -107,7 +114,8 @@ class LogsRetentionRuleSerializer(serializers.ModelSerializer):
     created_by: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)  # ty: ignore[invalid-assignment]
 
     class Meta:
-        model = LogsRetentionRule
+        # Annotated with the shared base so the span-rule serializer can point at its own model.
+        model: type[UUIDModel] = LogsRetentionRule
         fields = [
             "id",
             "name",
@@ -121,6 +129,9 @@ class LogsRetentionRuleSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "version", "created_by", "created_at", "updated_at"]
 
+    # Names the setting in the entitlement error. The span-rule serializer overrides it.
+    retention_label = "Logs retention"
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
         config = attrs.get("config")
@@ -133,23 +144,37 @@ class LogsRetentionRuleSerializer(serializers.ModelSerializer):
         # bool is an int subclass — reject it explicitly so `true`/`false` don't slip through.
         if isinstance(retention_days, bool) or not isinstance(retention_days, int):
             raise ValidationError({"config": {"retention_days": "Must be an integer."}})
-        if retention_days not in VALID_RETENTION_DAYS:
-            raise ValidationError(
-                {"config": {"retention_days": f"Must be one of {sorted(VALID_RETENTION_DAYS)} days."}}
-            )
+        # Only a changed period is checked against the flag and the entitlement, so a partial update
+        # such as disabling a rule still works after the flag is turned off.
+        if retention_days != self._stored_retention_days():
+            self._validate_retention_days(retention_days)
+
+        self._validate_filter_group(config.get("filter_group"))
+        return attrs
+
+    def _stored_retention_days(self) -> int | None:
+        stored = self.instance.config if self.instance is not None and isinstance(self.instance.config, dict) else {}
+        return stored.get("retention_days")
+
+    def _validate_retention_days(self, retention_days: int) -> None:
+        custom_enabled = retention_days not in LOGS_RETENTION_BASE_TIERS_DAYS and custom_retention_enabled_for(
+            self.context
+        )
+        error = logs_retention_days_error(retention_days, custom_retention_enabled=custom_enabled)
+        if error:
+            raise ValidationError({"config": {"retention_days": error}})
         # Gate paid tiers on the org entitlement, mirroring TeamSerializer.validate_logs_settings —
         # otherwise a Logs editor could grant a per-log retention tier the org can't set team-wide.
-        required_feature = LOGS_RETENTION_FEATURES_BY_DAYS.get(retention_days)
+        # Span rules are gated on the same Logs entitlement.
+        required_feature = required_logs_retention_feature(retention_days)
         if required_feature is not None:
             get_organization = self.context.get("get_organization")
             organization = get_organization() if callable(get_organization) else None
             if organization is None or not organization.is_feature_available(required_feature):
                 raise PermissionDenied(
-                    f"This organization does not have permission to set Logs retention to {retention_days} days."
+                    f"This organization does not have permission to set {self.retention_label} "
+                    f"to {retention_days} days."
                 )
-
-        self._validate_filter_group(config.get("filter_group"))
-        return attrs
 
     def _validate_filter_group(self, filter_group: Any) -> None:
         message = retention_filter_group_error(filter_group)
@@ -169,8 +194,10 @@ class LogsRetentionRuleSuggestNameSerializer(serializers.Serializer):
     filter_group = serializers.JSONField(help_text="PropertyGroupFilter tree the rule would match on.")
 
     def validate_retention_days(self, value: int) -> int:
-        if value not in VALID_RETENTION_DAYS:
-            raise ValidationError(f"Must be one of {sorted(VALID_RETENTION_DAYS)} days.")
+        custom_enabled = value not in LOGS_RETENTION_BASE_TIERS_DAYS and custom_retention_enabled_for(self.context)
+        error = logs_retention_days_error(value, custom_retention_enabled=custom_enabled)
+        if error:
+            raise ValidationError(error)
         return value
 
     def validate_filter_group(self, value: Any) -> Any:
@@ -189,21 +216,50 @@ class LogsRetentionRuleNameSuggestionSerializer(serializers.Serializer):
 
 
 class LogsRetentionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "logs"
-    queryset = LogsRetentionRule.objects.all().order_by("priority", "created_at")
+    """Retention rules for one record kind.
+
+    `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+    swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+    `team_rules` rather than naming a model.
+    """
+
+    # Annotated (not inferred as Literal["logs"]) so the tracing subclass can pin its own scope.
+    scope_object: APIScopeObjectOrNotSupported = "logs"
+    # Annotated with the shared base so the span-rule viewset can use its own model.
+    queryset: QuerySet[UUIDModel] = LogsRetentionRule.objects.all().order_by("priority", "created_at")
     serializer_class = LogsRetentionRuleSerializer
     lookup_field = "id"
     posthog_feature_flag = "logs-settings-retention-rules"
     permission_classes = [PostHogFeatureFlagPermission]
+    # Record kind for analytics and the name-suggestion prompt.
+    rule_source: str = "logs"
+
+    def team_rules(self) -> QuerySet:
+        """Every rule of this route's kind in the current environment."""
+        return LogsRetentionRule.objects.filter(team_id=self.team_id)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(team_id=self.team_id)
+        return self.team_rules().order_by("priority", "created_at")
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        context["custom_retention_enabled"] = self._custom_retention_enabled
+        return context
+
+    def _custom_retention_enabled(self) -> bool:
+        user = cast(User, self.request.user)
+        return posthog_feature_flag_enabled(
+            LOGS_CUSTOM_RETENTION_FLAG,
+            str(user.distinct_id),
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+        )
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         s = cast(LogsRetentionRuleSerializer, serializer)
         user = cast(User, self.request.user)
         # `or -1` would misfire when the current max is 0 (0 is falsy), so check for None explicitly.
-        max_priority = LogsRetentionRule.objects.filter(team_id=self.team_id).aggregate(m=Max("priority"))["m"]
+        max_priority = self.team_rules().aggregate(m=Max("priority"))["m"]
         raw_priority = s.validated_data.pop("priority", None)
         priority = int(raw_priority) if raw_priority is not None else (0 if max_priority is None else max_priority + 1)
         instance = s.save(
@@ -215,7 +271,7 @@ class LogsRetentionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         report_user_action(
             user,
             "logs retention rule created",
-            {"rule_id": str(instance.id)},
+            {"rule_id": str(instance.id), "source": self.rule_source},
             team=self.team,
             request=self.request,
         )
@@ -227,23 +283,23 @@ class LogsRetentionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # non-nullable column and raise a 500. Drop it so the stored value is preserved.
         if s.validated_data.get("priority") is None:
             s.validated_data.pop("priority", None)
-        instance = cast(LogsRetentionRule, s.save())
-        LogsRetentionRule.objects.filter(pk=instance.pk, team_id=self.team_id).update(version=F("version") + 1)
+        instance = cast(UUIDModel, s.save())
+        self.team_rules().filter(pk=instance.pk).update(version=F("version") + 1)
         instance.refresh_from_db(fields=["version", "updated_at"])
         report_user_action(
             user,
             "logs retention rule updated",
-            {"rule_id": str(instance.id)},
+            {"rule_id": str(instance.id), "source": self.rule_source},
             team=self.team,
             request=self.request,
         )
 
-    def perform_destroy(self, instance: LogsRetentionRule) -> None:
+    def perform_destroy(self, instance: UUIDModel) -> None:
         user = cast(User, self.request.user)
         report_user_action(
             user,
             "logs retention rule deleted",
-            {"rule_id": str(instance.id)},
+            {"rule_id": str(instance.id), "source": self.rule_source},
             team=self.team,
             request=self.request,
         )
@@ -262,18 +318,13 @@ class LogsRetentionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         with transaction.atomic():
             # Validate inside the transaction (and lock the rows) so a concurrent create/delete
             # can't invalidate the check between validation and the priority writes (TOCTOU).
-            team_rule_ids = set(
-                LogsRetentionRule.objects.select_for_update().filter(team_id=self.team_id).values_list("id", flat=True)
-            )
+            team_rule_ids = set(self.team_rules().select_for_update().values_list("id", flat=True))
             if set(ordered_ids) != team_rule_ids or len(ordered_ids) != len(team_rule_ids):
                 raise ValidationError("ordered_ids must list every retention rule for this team exactly once.")
             for index, rid in enumerate(ordered_ids):
-                LogsRetentionRule.objects.filter(id=rid, team_id=self.team_id).update(
-                    priority=index,
-                    version=F("version") + 1,
-                )
-        qs = self.safely_get_queryset(LogsRetentionRule.objects.all()).order_by("priority", "created_at")
-        return Response(LogsRetentionRuleSerializer(qs, many=True).data, status=status.HTTP_200_OK)
+                self.team_rules().filter(id=rid).update(priority=index, version=F("version") + 1)
+        qs = self.team_rules().order_by("priority", "created_at")
+        return Response(self.get_serializer(qs, many=True).data, status=status.HTTP_200_OK)
 
     @extend_schema(
         request=LogsRetentionRuleSuggestNameSerializer,
@@ -296,15 +347,16 @@ class LogsRetentionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def suggest_name(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not self.organization.is_ai_data_processing_approved:
             raise PermissionDenied("AI data processing must be approved by your organization to suggest names")
-        serializer = LogsRetentionRuleSuggestNameSerializer(data=request.data)
+        serializer = LogsRetentionRuleSuggestNameSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
         user = cast(User, request.user)
         # A suggestion doesn't grant a retention tier, so entitlement is deliberately not checked here —
-        # unlike a write, where LOGS_RETENTION_FEATURES_BY_DAYS gates the paid tiers.
+        # unlike a write, where `required_logs_retention_feature` gates the paid tiers.
         name = suggest_retention_rule_name(
             serializer.validated_data["retention_days"],
             serializer.validated_data["filter_group"],
-            distinct_id=str(user.distinct_id) if user.is_authenticated else "logs-retention-name",
+            distinct_id=str(user.distinct_id) if user.is_authenticated else "retention-rule-name",
             team_id=self.team_id,
+            source=self.rule_source,
         )
         return Response({"name": name}, status=status.HTTP_200_OK)

@@ -1,47 +1,12 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product skills
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product skills
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Skills
 feature: skills
 url_prefix: /skills
 ui_apps: {}
 tools:
-    community-skills-install-create:
-        operation: community_skills_install_create
-        enabled: false
-    community-skills-list:
-        operation: community_skills_list
-        enabled: false
-    community-skills-retrieve:
-        operation: community_skills_retrieve
-        enabled: false
-    community-skills-vote-create:
-        operation: community_skills_vote_create
-        enabled: false
-    llm-skills-bundle-retrieve:
-        operation: llm_skills_bundle_retrieve
-        enabled: false
-    llm-skills-import-create:
-        operation: llm_skills_import_create
-        enabled: false
-    llm-skills-marketplace-install-command-retrieve:
-        operation: llm_skills_marketplace_install_command_retrieve
-        enabled: false
-    llm-skills-name-export-retrieve:
-        operation: llm_skills_name_export_retrieve
-        enabled: false
-    llm-skills-name-publish-community-create:
-        operation: llm_skills_name_publish_community_create
-        enabled: false
-    llm-skills-name-skill-md-retrieve:
-        operation: llm_skills_name_skill_md_retrieve
-        enabled: false
-    llm-skills-search-retrieve:
-        operation: llm_skills_search_retrieve
-        enabled: false
     skill-archive:
         operation: llm_skills_name_archive_create
         enabled: true
@@ -127,6 +92,13 @@ tools:
             Remove a bundled file from an agent skill by path. Fails with 404 if the file is not in the latest version.
             Publishes a new skill version and returns 200 with the updated skill body (not 204) — read its 'version'
             field to chain further edits via base_version. Supply base_version for optimistic concurrency.
+        param_overrides:
+            file_path:
+                description: >
+                    The file's path, copied from the `path` field of a skill-get manifest entry (e.g.
+                    `references/limits.md`). Sending it as `path` also works.
+                aliases:
+                    - path
     skill-file-get:
         operation: llm_skills_name_files_retrieve
         enabled: true
@@ -141,6 +113,13 @@ tools:
             Fetch a single bundled file from an agent skill by its path. Use the file manifest from skill-get to
             discover available files. Supports progressive disclosure — only load files when needed rather than fetching
             all content upfront.
+        param_overrides:
+            file_path:
+                description: >
+                    The file's path, copied from the `path` field of a skill-get manifest entry (e.g.
+                    `references/limits.md`). Sending it as `path` also works.
+                aliases:
+                    - path
     skill-file-rename:
         operation: llm_skills_name_files_rename_create
         enabled: true
@@ -213,9 +192,6 @@ tools:
         param_overrides:
             skill_name:
                 description: The current kebab-case name of the skill to rename.
-    skill-resolve:
-        operation: llm_skills_resolve_name_retrieve
-        enabled: false
     skill-store-install-command:
         operation: llm_skills_marketplace_install_command_create
         enabled: true

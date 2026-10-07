@@ -58,7 +58,7 @@ POSTHOG_API_BASE_URL=http://localhost:8000 pnpm dev:hono`, personal API key as
 5. **Ship.** One PR per iteration with before/after scores in the body (format
    in [references/campaign-journal.md](references/campaign-journal.md)). Keep
    it stampable: ≤400 changed lines, only files inside the allowlist below,
-   apply the `stamphog` label. Autonomy level comes from the campaign config —
+   request a stamphog review (MCP first, label fallback, see `/merging-prs`). Autonomy level comes from the campaign config —
    default is **draft PR for human review**; only arm auto-merge when the
    operator has explicitly enabled the self-driving experiment (see
    guardrails).

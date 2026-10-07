@@ -34,7 +34,8 @@ def set_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
 
     for tag in deduped_tags:
         tag_instance, _ = Tag.objects.get_or_create(name=tag, team_id=obj.team_id)
-        tagged_item_instance, _ = obj.tagged_items.get_or_create(tag_id=tag_instance.id)
+        # The instance, not the id, so TaggedItem.save() reads the team without re-fetching.
+        tagged_item_instance, _ = obj.tagged_items.get_or_create(tag=tag_instance)
         tagged_item_objects.append(tagged_item_instance)
 
     # Delete tags that are missing (use individual deletes to trigger activity logging)

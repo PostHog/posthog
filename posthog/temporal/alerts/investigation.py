@@ -16,6 +16,7 @@ from posthog.schema import AlertCalculationInterval, AlertState
 
 from posthog.dataclasses import frozen
 from posthog.tasks.alerts.investigation_notifications import INVESTIGATION_RUNNING_GRACE_MINUTES
+from posthog.tasks.alerts.utils import _should_suppress_notification
 
 from products.alerts.backend.investigation_episode import episode_investigations
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
@@ -54,7 +55,9 @@ _CALCULATION_INTERVAL_DURATIONS: dict[str, timedelta] = {
 @frozen
 class InvestigationDecision:
     should_investigate: bool = False
-    is_first_of_episode: bool = False
+    # The last verdict an earlier check of this firing episode reached. A check that runs no
+    # investigation of its own is held back by it.
+    previous_verdict: str | None = None
 
 
 def investigation_cooldown(alert: AlertConfiguration) -> timedelta:
@@ -64,13 +67,12 @@ def investigation_cooldown(alert: AlertConfiguration) -> timedelta:
 
 
 def decide_investigation(alert: AlertConfiguration, alert_check: AlertCheck) -> InvestigationDecision:
-    """Whether this firing check gets an investigation, and whether it opened the episode.
+    """Whether this firing check gets an investigation, and the episode's last verdict so far.
 
-    Only the episode's first fire may gate the notification, because it is the fire the
-    user has not heard about yet. A later check runs while its notification goes out on the
-    normal path, because holding a reminder of an incident the user already knows about
-    costs more than the verdict is worth. A skipped investigation on an earlier check does
-    not move the gate forward: that check notified all the same.
+    Every investigated check of a gated alert holds its notification until its own verdict,
+    not only the episode's first fire. Each check of a daily or hourly alert flags a new
+    point, so a false positive on a later check is a new false alarm, not a reminder of an
+    incident the user already knows about.
 
     Cooldown is enforced by `claim_investigation_slot`, which does the read-then-write
     inside the caller's transaction.
@@ -84,8 +86,19 @@ def decide_investigation(alert: AlertConfiguration, alert_check: AlertCheck) -> 
 
     episode = episode_investigations(alert, alert_check)
     if episode.started >= MAX_INVESTIGATIONS_PER_EPISODE:
-        return InvestigationDecision()
-    return InvestigationDecision(should_investigate=True, is_first_of_episode=episode.is_first_fire)
+        return InvestigationDecision(previous_verdict=episode.previous_verdict)
+    return InvestigationDecision(should_investigate=True, previous_verdict=episode.previous_verdict)
+
+
+def carried_verdict_suppresses(alert: AlertConfiguration, decision: InvestigationDecision) -> bool:
+    """Whether a firing check that runs no investigation is held back by the episode's last verdict.
+
+    This covers a check past the episode budget or refused by the cooldown. Without it, the
+    budget running out would turn every later false alarm of a long episode into a post.
+    """
+    return bool(alert.investigation_gates_notifications) and _should_suppress_notification(
+        decision.previous_verdict, alert.investigation_inconclusive_action
+    )
 
 
 def claim_investigation_slot(alert: AlertConfiguration, alert_check: AlertCheck) -> bool:

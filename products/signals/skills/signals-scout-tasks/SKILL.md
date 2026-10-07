@@ -61,7 +61,7 @@ Field population is **not** uniform, and two of the traps below are verified, no
 | `tasks.created_by_id`          | always                       | reach; an **integer** id, see routing below                                                   |
 | `tasks.title` / `.description` | usually                      | the demand lens                                                                               |
 | `task_runs.branch`             | ~60%                         | weak; don't build detection on it                                                             |
-| **`task_runs.stage`**          | **unpopulated in practice**  | **never build a lens on it — it reads as null**                                               |
+| **`task_runs.stage`**          | **check before use**         | **probe `countIf(stage != '')` first; a column that reads null carries no lens**              |
 
 Two consequences worth carrying:
 
@@ -240,7 +240,7 @@ Author / edit / remember / skip, against the four-states classifier:
   Only a rate well above baseline is interesting, and even then as a prompt, not a finding.
 - **Known upstream provider errors** — model provider rate limits and third-party outages, already covered by memory.
   Don't re-file unless the shape changes.
-- **`stage`-based findings** — the column is unpopulated; anything derived from it is an artifact.
+- **`stage`-based findings** — when the column reads null across runs, anything derived from it is an artifact.
 - **In-flight runs** — `queued` / `in_progress` rows are not failures.
   Only an aging backlog is a signal.
 

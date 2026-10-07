@@ -9,10 +9,12 @@ from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import published_priorities_for
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
 from products.review_hog.backend.reviewer.tools.publish_review import (
+    FALLBACK_BODY_MAX_CHARS,
     ReviewComment,
     _build_inline_comments,
     _format_issue_comment,
@@ -202,7 +204,14 @@ class TestPostGithubReview:
         # 422 = GitHub rejected the comment payload itself; a retry would hit the same wall, so the
         # review must still land as body-only rather than failing the publish forever.
         _wire_readbacks(mock_paginated)
-        comments: list[ReviewComment] = [{"path": "a.py", "body": "x", "side": "RIGHT", "line": 1}]
+        comments: list[ReviewComment] = [
+            {
+                "path": "a.py",
+                "body": f"### Token leaks into logs\n\nThe token is logged.\n\n{REVIEW_HOG_FINDING_MARKER}",
+                "side": "RIGHT",
+                "line": 1,
+            }
+        ]
 
         def request(method: str, path: str, **kwargs: Any) -> MagicMock:
             if method == "POST" and path.endswith("/reviews") and "comments" in (kwargs.get("json") or {}):
@@ -212,12 +221,80 @@ class TestPostGithubReview:
         mock_request.side_effect = request
 
         _post_github_review(
-            "o", "r", 1, "body", comments, token="t", head_sha="", post_promo=False, marker="m", promo_marker="pm"
+            "o",
+            "r",
+            1,
+            "body\n\nm",
+            comments,
+            token="t",
+            head_sha="",
+            post_promo=False,
+            marker="m",
+            promo_marker="pm",
+            inline_body="m",
         )
 
         first, second = _review_posts(mock_request)
         assert first["comments"] == comments
+        assert first["body"] == "m"
         assert "comments" not in second
+        # The inline-only findings must survive in the fallback body, or the review posts a bare tally.
+        assert second["body"].startswith("body\n\nm")
+        assert "### Token leaks into logs" in second["body"]
+        assert "The token is logged." in second["body"]
+        assert REVIEW_HOG_FINDING_MARKER not in second["body"]
+
+    def _fallback_body(self, mock_request: MagicMock, mock_paginated: MagicMock, comments: list[ReviewComment]) -> str:
+        _wire_readbacks(mock_paginated)
+
+        def request(method: str, path: str, **kwargs: Any) -> MagicMock:
+            if method == "POST" and path.endswith("/reviews") and "comments" in (kwargs.get("json") or {}):
+                raise GitHubAPIError("GitHub API POST returned 422: Unprocessable Entity", status=422)
+            return MagicMock()
+
+        mock_request.side_effect = request
+        _post_github_review(
+            "o",
+            "r",
+            1,
+            "body\n\nm",
+            comments,
+            token="t",
+            head_sha="",
+            post_promo=False,
+            marker="m",
+            promo_marker="pm",
+            inline_body="m",
+        )
+        _first, second = _review_posts(mock_request)
+        return second["body"]
+
+    def test_fallback_renders_a_path_with_backticks_inside_a_longer_fence(
+        self, mock_request: MagicMock, mock_paginated: MagicMock
+    ) -> None:
+        comments: list[ReviewComment] = [
+            {"path": "a`` **x**.py", "body": "finding", "side": "RIGHT", "line": 3},
+            {"path": "`edge`", "body": "finding", "side": "RIGHT", "line": 4},
+        ]
+
+        body = self._fallback_body(mock_request, mock_paginated, comments)
+
+        assert "```a`` **x**.py:3```" in body
+        assert "`` `edge`:4 ``" in body
+
+    def test_fallback_body_stays_under_the_limit_and_reports_omitted_findings(
+        self, mock_request: MagicMock, mock_paginated: MagicMock
+    ) -> None:
+        comments: list[ReviewComment] = [
+            {"path": f"f{i}.py", "body": "x" * 10_000, "side": "RIGHT", "line": i} for i in range(10)
+        ]
+
+        body = self._fallback_body(mock_request, mock_paginated, comments)
+
+        assert len(body) <= FALLBACK_BODY_MAX_CHARS
+        assert "`f0.py:0`" in body
+        assert "`f9.py:9`" not in body
+        assert "5 more finding(s) left out" in body
 
     def test_skips_when_a_review_with_our_marker_is_already_present(
         self, mock_request: MagicMock, mock_paginated: MagicMock
@@ -270,16 +347,42 @@ class TestPublishReviewGate:
         mock_report.report_markdown = "# PostHog Review"
         mock_report_cls.objects.for_team.return_value.get.return_value = mock_report
 
+    @parameterized.expand(
+        [
+            # A valid finding on an off-diff line resolves zero inline comments, but the review (its body
+            # carries it in the "Other findings" section) must still post, not be silently dropped.
+            ("all_off_diff", [240], 0, False),
+            ("mixed", [1, 240], 1, False),
+            ("all_inline", [1], 1, True),
+        ]
+    )
     @patch(_POST)
     @patch(_LOAD_FINDINGS)
     @patch(_REPORT)
-    def test_posts_body_when_all_publishable_findings_are_off_diff(
-        self, mock_report_cls: MagicMock, mock_load: MagicMock, mock_post: MagicMock
+    def test_review_body_depends_on_which_findings_post_inline(
+        self,
+        _name: str,
+        finding_lines: list[int],
+        expected_comments: int,
+        expect_marker_only: bool,
+        mock_report_cls: MagicMock,
+        mock_load: MagicMock,
+        mock_post: MagicMock,
     ) -> None:
-        # A valid should_fix finding on an off-diff line resolves zero inline comments — but the review
-        # (its body carries it in the "Other findings" section) must still post, not be silently dropped.
         self._wire_report(mock_report_cls)
-        mock_load.return_value = [(_finding(), _verdict())]
+        mock_load.return_value = [
+            (_finding().model_copy(update={"lines": [LineRange(start=line, end=line)]}), _verdict())
+            for line in finding_lines
+        ]
+        pr_files = [
+            PRFile(
+                filename="src/auth.py",
+                status="modified",
+                additions=1,
+                deletions=0,
+                changes=[PRFileUpdate(type="addition", new_start_line=1, new_end_line=1, code="x")],
+            )
+        ]
 
         outcome = publish_review(
             owner="o",
@@ -288,7 +391,7 @@ class TestPublishReviewGate:
             team_id=1,
             report_id="rep",
             run_index=1,
-            pr_files=[],
+            pr_files=pr_files,
             token="t",
             head_sha="sha",
             post_promo=False,
@@ -297,7 +400,10 @@ class TestPublishReviewGate:
 
         assert outcome.posted is True
         mock_post.assert_called_once()
-        assert mock_post.call_args.args[4] == []  # body-only post: no inline comments resolved
+        assert len(mock_post.call_args.args[4]) == expected_comments
+        marker = mock_post.call_args.kwargs["marker"]
+        assert marker in mock_post.call_args.args[3]
+        assert mock_post.call_args.kwargs["inline_body"] == (marker if expect_marker_only else None)
 
     @patch(_POST)
     @patch(_LOAD_FINDINGS)
@@ -387,48 +493,30 @@ class TestPublishReviewGate:
 
         assert len(comments) == expected_count
         if expected_count:
-            assert "should_fix" in comments[0]["body"]  # the emitted comment displays the effective priority
+            assert "**Should fix**" in comments[0]["body"]  # the emitted comment displays the effective priority
 
 
 class TestFormatIssueComment:
     @parameterized.expand(
         [
-            (IssuePriority.MUST_FIX, "must_fix-D1242F", "must_fix"),
-            (IssuePriority.SHOULD_FIX, "should_fix-E36209", "should_fix"),
-            (IssuePriority.CONSIDER, "consider-0969DA", "consider"),
+            (IssuePriority.MUST_FIX, "**Must fix**"),
+            (IssuePriority.SHOULD_FIX, "**Should fix**"),
+            (IssuePriority.CONSIDER, "**Consider**"),
         ]
     )
-    def test_severity_badge_tracks_priority(self, priority: IssuePriority, badge_fragment: str, alt: str) -> None:
-        # The colored severity badge is the redesign's whole point: a swapped or recolored mapping (e.g.
-        # must_fix rendering blue) ships a misleading comment, and no other test pins priority→badge.
+    def test_severity_line_tracks_priority(self, priority: IssuePriority, label: str) -> None:
         body = _format_issue_comment(_finding(priority=priority), _verdict())
 
-        assert f"/badge/{badge_fragment}" in body
-        # Alt text is the raw enum value, so the priority still reads when the badge image can't load.
-        assert f"![{alt}]" in body
+        assert f"{label} · bug" in body
 
-    def test_layout_is_title_then_badges_then_collapsed_sections_description_first(self) -> None:
-        # Title leads, badges tag it just beneath, and all four sections stay folded — with the
-        # issue description first (the deliberate reading order: claim → what it is → why it's real).
-        # Catches a badge/title reorder, a re-added `Priority | Lines` meta, a section surfaced inline
-        # instead of collapsed, or a template refactor flipping the order back to validation-first.
+    def test_layout_is_title_severity_issue_fix_without_validator_notes(self) -> None:
         finding = _finding()
         body = _format_issue_comment(finding, _verdict())
 
-        assert body.index(f"### {finding.title}") < body.index("![should_fix]") < body.index("<details>")
-        positions = [
-            body.index(f"<summary><strong>{label}</strong></summary>")
-            for label in (
-                "Issue description",
-                "Why we think it's a valid issue",
-                "Suggested fix",
-                "Prompt to fix with AI (copy-paste)",
-            )
-        ]
-        assert positions == sorted(positions)
-        # Problem and fix stay inside <details>, not surfaced above the first one.
-        assert finding.body not in body[: body.index("<details>")]
-        assert "**Priority:**" not in body and "**Lines:**" not in body
+        assert body.split("\n", 1)[0] == f"### {finding.title}"
+        assert body.index("**Should fix**") < body.index(finding.body) < body.index("**Suggested fix**")
+        assert "reason" not in body
+        assert "<details>" not in body and "![" not in body
 
     def test_carries_the_self_detection_marker_for_the_resolution_stage(self) -> None:
         # The resolution stage's `_source_rank` recognizes ReviewHog's own threads by this hidden marker

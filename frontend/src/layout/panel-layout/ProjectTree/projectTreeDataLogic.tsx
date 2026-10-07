@@ -1,5 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
+import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 
 import { IconDocument, IconFolder, IconPlus } from '@posthog/icons'
@@ -13,12 +15,14 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { fileSystemHomeFolderCreate } from '~/generated/core/api'
+import { FileSystemHomeFolderApi } from '~/generated/core/api.schemas'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import {
     getDefaultTreeData,
@@ -26,21 +30,23 @@ import {
     getDefaultTreeNew,
     getDefaultTreePersons,
     getDefaultTreeProducts,
+    withProductShortcutHref,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { RecentResults, SearchResults, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTree/types'
 import {
     appendResultsToFolders,
+    calculateMovePath,
     convertFileSystemEntryToTreeDataItem,
     escapePath,
     formatUrlAsName,
     isGroupViewShortcut,
     isPathUnder,
-    joinPath,
     matchesRefType,
     parentPath,
     refTypeParams,
     reparentPath,
+    shortcutFromEntry,
     sortFilesAndFolders,
     splitPath,
 } from '~/layout/panel-layout/ProjectTree/utils'
@@ -53,8 +59,6 @@ import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Noun } from '../../../models/groupsModel'
 import type { UserProductListItem } from '../../../queries/schema/schema-general'
 import type { GroupType, GroupTypeIndex, ProjectTreeRef, UserType } from '../../../types'
-import { panelLayoutLogic } from '../panelLayoutLogic'
-import type { PanelLayoutNavIdentifier } from '../panelLayoutLogic'
 import { customProductsLogic } from './customProductsLogic'
 
 const MOVE_ALERT_LIMIT = 50
@@ -66,6 +70,15 @@ const DELETE_ALERT_LIMIT = 0
  * Success/Failure reducers).
  */
 const SHORTCUTS_LOADER_TIMEOUT_MS = 10000
+// kea-localstorage keys only by logic path, and starred items belong to one user in one project.
+// OAuth mode can load this module before the IDs arrive. Without both IDs, starred items are not persisted,
+// because a shared key would show one account's starred items to the next account on the browser.
+const SHORTCUTS_TEAM_ID = getCurrentTeamIdOrNone()
+const SHORTCUTS_USER_ID = getCurrentUserIdOrNone()
+const SHORTCUTS_PERSIST_OPTIONS =
+    SHORTCUTS_TEAM_ID && SHORTCUTS_USER_ID
+        ? { persist: true, prefix: `${SHORTCUTS_TEAM_ID}__${SHORTCUTS_USER_ID}__` }
+        : { persist: false }
 /**
  * Upper bound on a single move request. A batch reports only once every one of its moves has settled, so
  * without this one stalled request would withhold the toast and the Undo from every item that already
@@ -195,6 +208,7 @@ export interface projectTreeDataLogicValues {
     groupTypesLoading: boolean // groupsModel
     groupsAccessStatus: GroupsAccessStatus // groupsModel
     user: UserType | null // userLogic
+    currentHomeFolder: FileSystemHomeFolderApi | null
     folderLoadOffset: Record<string, number>
     folderStates: Record<string, FolderState>
     folders: Record<string, FileSystemEntry[]>
@@ -202,6 +216,9 @@ export interface projectTreeDataLogicValues {
     getShortcutTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[]
     getStaticTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[]
     groupItems: FileSystemImport[]
+    homeFolder: FileSystemHomeFolderApi | null
+    homeFolderLoaded: boolean
+    homeFolderLoading: boolean
     itemsByHref: Record<string, FileSystemEntry>
     itemsByPath: Record<string, FileSystemEntry>
     itemsByRef: Record<string, FileSystemEntry>
@@ -219,6 +236,11 @@ export interface projectTreeDataLogicValues {
     shortcutEntryIdMap: Map<string, string>
     shortcutNonFolderPaths: Set<string>
     sortedItems: FileSystemEntry[]
+    starredNavigationRef:
+        | (ProjectTreeRef & {
+              pathname: string
+          })
+        | null
     treeItemsNew: TreeDataItem[]
     unfiledItems: boolean
     unfiledItemsLoading: boolean
@@ -229,9 +251,34 @@ export interface projectTreeDataLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface projectTreeDataLogicActions {
-    setActivePanelIdentifier: (identifier: PanelLayoutNavIdentifier) => {
-        identifier: PanelLayoutNavIdentifier
-    } // panelLayoutLogic
+    setFeatureFlags: (
+        flags: string[],
+        variants: Record<string, boolean | string>
+    ) => {
+        flags: string[]
+        variants: Record<string, boolean | string>
+    } // featureFlagLogic
+    locationChanged: ({
+        method,
+        pathname,
+        search,
+        searchParams,
+        hash,
+        hashParams,
+        initial,
+        url,
+        routerState,
+    }: LocationChangedPayload) => {
+        hash: string
+        hashParams: Record<string, any>
+        initial: boolean
+        method: 'POP' | 'PUSH' | 'REPLACE'
+        pathname: string
+        routerState: Record<string, any>
+        search: string
+        searchParams: Record<string, any>
+        url: string
+    } // router
     addLoadedResults: (results: RecentResults | SearchResults) => {
         results: RecentResults | SearchResults
     }
@@ -348,6 +395,21 @@ export interface projectTreeDataLogicActions {
         hasMore: boolean
         offsetIncrease: number
     }
+    loadHomeFolder: () => any
+    loadHomeFolderFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadHomeFolderSuccess: (
+        homeFolder: FileSystemHomeFolderApi | null,
+        payload?: any
+    ) => {
+        homeFolder: FileSystemHomeFolderApi | null
+        payload?: any
+    }
     loadShortcuts: () => {
         value: true
     }
@@ -402,13 +464,28 @@ export interface projectTreeDataLogicActions {
         projectTreeLogicKey: string
     }
     moveItems: (
-        moves: { item: FileSystemEntry; newPath: string }[],
+        moves: {
+            item: FileSystemEntry
+            newPath: string
+        }[],
         force: boolean,
         projectTreeLogicKey: string
     ) => {
         force: boolean
-        moves: { item: FileSystemEntry; newPath: string }[]
+        moves: {
+            item: FileSystemEntry
+            newPath: string
+        }[]
         projectTreeLogicKey: string
+    }
+    moveShortcutToFolder: (
+        shortcut: FileSystemEntry,
+        folder: string,
+        projectTreeLogicKey: string
+    ) => {
+        folder: string
+        projectTreeLogicKey: string
+        shortcut: FileSystemEntry
     }
     movedItem: (
         item: FileSystemEntry,
@@ -491,6 +568,13 @@ export interface projectTreeDataLogicActions {
     setLastNewFolder: (folder: string | null) => {
         folder: string | null
     }
+    setStarredNavigationRef: (
+        ref: ProjectTreeRef | null,
+        href?: string
+    ) => {
+        href: string | undefined
+        ref: ProjectTreeRef | null
+    }
     syncTypeAndRef: (
         type: string,
         ref: string
@@ -503,6 +587,10 @@ export interface projectTreeDataLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface projectTreeDataLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        currentHomeFolder: (
+            homeFolder: FileSystemHomeFolderApi | null,
+            viableItems: FileSystemEntry[]
+        ) => FileSystemHomeFolderApi | null
         savedItems: (folders: Record<string, FileSystemEntry[]>) => FileSystemEntry[]
         shortcutEntryIdMap: (shortcutData: FileSystemEntry[]) => Map<string, string>
         savedItemsLoading: (folderStates: Record<string, FolderState>) => boolean
@@ -525,7 +613,7 @@ export interface projectTreeDataLogicMeta {
         groupItems: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             groupsAccessStatus: GroupsAccessStatus,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
             shortcutData: FileSystemEntry[],
             featureFlags: FeatureFlagsSet
         ) => FileSystemImport[]
@@ -576,9 +664,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             userLogic,
             ['user'],
         ],
-        actions: [panelLayoutLogic, ['setActivePanelIdentifier']],
+        actions: [featureFlagLogic, ['setFeatureFlags'], router, ['locationChanged']],
     })),
     actions({
+        setStarredNavigationRef: (ref: ProjectTreeRef | null, href?: string) => ({ ref, href }),
         loadUnfiledItems: true,
 
         loadFolder: (folder: string, forceReload: boolean = false) => ({ folder, forceReload }),
@@ -615,6 +704,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             item,
             newPath,
             force,
+            projectTreeLogicKey,
+        }),
+        moveShortcutToFolder: (shortcut: FileSystemEntry, folder: string, projectTreeLogicKey: string) => ({
+            shortcut,
+            folder,
             projectTreeLogicKey,
         }),
         // Prefer this over looping `moveItem`, which would report each move separately (see MoveBatch).
@@ -656,6 +750,18 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         pruneClosedFolders: (expandedFolders: string[]) => ({ expandedFolders }),
     }),
     loaders(({ actions, values, cache }) => ({
+        homeFolder: [
+            null as FileSystemHomeFolderApi | null,
+            {
+                loadHomeFolder: async () => {
+                    const teamId = getCurrentTeamIdOrNone()
+                    if (!teamId) {
+                        return null
+                    }
+                    return await fileSystemHomeFolderCreate(String(teamId))
+                },
+            },
+        ],
         unfiledItems: [
             false as boolean,
             {
@@ -957,35 +1063,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         SHORTCUTS_LOADER_TIMEOUT_MS,
                         'loadShortcuts timed out'
                     )
-                    return response.results
+                    return response.results.map(withProductShortcutHref)
                 },
                 addShortcutItem: async ({ item }) => {
-                    const shortcutPath = joinPath([splitPath(item.path).pop() ?? 'Unnamed'])
-
-                    const shortcutItem =
-                        item.type === 'folder'
-                            ? {
-                                  path: shortcutPath,
-                                  type: 'folder',
-                                  ref: item.path,
-                              }
-                            : {
-                                  path: shortcutPath,
-                                  type: (item as FileSystemImport).iconType || item.type,
-                                  ref: item.ref,
-                                  href: item.href,
-                              }
+                    const shortcutItem = shortcutFromEntry(item)
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
-                    eventUsageLogic.actions.reportNavbarStarredItemAdded(shortcutItem.type ?? 'unknown', shortcutPath)
-                    lemonToast.success('Added to starred', {
-                        button: {
-                            label: 'View',
-                            dataAttr: 'project-tree-view-shortcuts',
-                            action: () => {
-                                actions.setActivePanelIdentifier('Shortcuts')
-                            },
-                        },
+                    posthog.capture('navbar starred item added', {
+                        item_type: shortcutItem.type ?? 'unknown',
+                        item_name: shortcutItem.path,
                     })
+                    lemonToast.success('Added to starred')
                     return [...values.shortcutData, response]
                 },
                 reorderShortcuts: async ({ orderedIds }) => {
@@ -1003,10 +1090,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 deleteShortcut: async ({ id }) => {
                     const shortcut = values.shortcutData.find((s) => s.id === id)
                     await api.fileSystemShortcuts.delete(id)
-                    eventUsageLogic.actions.reportNavbarStarredItemRemoved(
-                        shortcut?.type ?? 'unknown',
-                        shortcut?.path ?? 'unknown'
-                    )
+                    posthog.capture('navbar starred item removed', {
+                        item_type: shortcut?.type ?? 'unknown',
+                        item_name: shortcut?.path ?? 'unknown',
+                    })
                     lemonToast.success('Removed from starred')
                     return values.shortcutData.filter((s) => s.id !== id)
                 },
@@ -1014,6 +1101,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
     })),
     reducers({
+        starredNavigationRef: [
+            null as (ProjectTreeRef & { pathname: string }) | null,
+            {
+                setStarredNavigationRef: (_, { ref, href }) =>
+                    ref ? { ...ref, pathname: removeProjectIdIfPresent(href ?? '').split(/[?#]/)[0] } : null,
+                locationChanged: (state, { pathname }) =>
+                    state?.pathname === removeProjectIdIfPresent(pathname) ? state : null,
+            },
+        ],
+        homeFolderLoaded: [false, { loadHomeFolderSuccess: () => true }],
         folders: [
             {} as Record<string, FileSystemEntry[]>,
             {
@@ -1176,8 +1273,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
             },
         ],
+        // Persisted so the sidebar renders starred items on load instead of popping them in after the fetch.
+        // Another tab can leave the copy stale, and the fetch on mount replaces it.
         shortcutData: [
             [] as FileSystemEntry[],
+            SHORTCUTS_PERSIST_OPTIONS,
             {
                 deleteTypeAndRef: (state, { type, ref }) => state.filter((s) => s.type !== type || s.ref !== ref),
                 addLoadedResults: (state, { results }) => {
@@ -1198,6 +1298,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
         shortcutDataHasLoaded: [
             false,
+            SHORTCUTS_PERSIST_OPTIONS,
             {
                 loadShortcutsSuccess: () => true,
                 loadShortcutsFailure: () => true,
@@ -1205,6 +1306,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
     }),
     selectors({
+        currentHomeFolder: [
+            (s) => [s.homeFolder, s.viableItems],
+            (
+                homeFolder: FileSystemHomeFolderApi | null,
+                viableItems: FileSystemEntry[]
+            ): FileSystemHomeFolderApi | null => {
+                const folder = homeFolder?.id ? viableItems.find((item) => item.id === homeFolder.id) : undefined
+                return homeFolder && folder ? { ...homeFolder, path: folder.path } : homeFolder
+            },
+        ],
         savedItems: [
             (s) => [s.folders],
             (folders: Record<string, FileSystemEntry[]>): FileSystemEntry[] =>
@@ -1526,6 +1637,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                     disableSelect: true,
                                     type: 'loading-indicator',
                                 })
+                            } else if (converted.length === 0) {
+                                converted.push({
+                                    id: `shortcuts://-folder-empty/${shortcutTreeItem.id}`,
+                                    name: 'Empty folder',
+                                    displayName: <>Empty folder</>,
+                                    disableSelect: true,
+                                    type: 'empty-folder',
+                                })
                             }
 
                             newShortcutData.push({ ...shortcutTreeItem, children: converted })
@@ -1655,7 +1774,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         users,
                         foldersFirst: false,
                         searchTerm,
-                        // With only a few tools pinned, category headers add more noise than structure —
+                        // With only a few products pinned, category headers add more noise than structure —
                         // list them in sequence instead.
                         disableCategories: imports.length <= 5,
                         disabledReason: (item) => getProductAccessDisabledReason(item as FileSystemImport),
@@ -1665,6 +1784,25 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        movedItem: ({ item }) => {
+            if (item.type === 'folder') {
+                // Matching paths can belong to folders in other environments that did not move.
+                actions.loadShortcuts()
+            }
+        },
+        setFeatureFlags: () => {
+            if (
+                values.featureFlags[FEATURE_FLAGS.SIMPLE_SIDEPANEL] &&
+                !values.homeFolderLoaded &&
+                !values.homeFolderLoading
+            ) {
+                actions.loadHomeFolder()
+            }
+        },
+        loadHomeFolderSuccess: () => {
+            actions.loadShortcuts()
+            actions.loadFolder('', true)
+        },
         reorderShortcutByDrag: ({ activeTreeId, overTreeId, position }) => {
             const map = values.shortcutEntryIdMap
             const activeEntryId = map.get(activeTreeId)
@@ -1687,7 +1825,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             actions.reorderShortcuts(next)
         },
         reorderShortcutsSuccess: ({ shortcutData }) => {
-            eventUsageLogic.actions.reportNavbarStarredItemsReordered(shortcutData.length, true)
+            posthog.capture('navbar starred items reordered', {
+                item_count: shortcutData.length,
+                is_ai_first: true,
+            })
         },
         reorderShortcutsFailure: () => {
             actions.loadShortcuts()
@@ -1733,11 +1874,25 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             }
         },
         syncTypeAndRef: async ({ type, ref }) => {
-            const items = await api.fileSystem.list({ ...refTypeParams(type), ref })
-            if (items.users?.length > 0) {
-                actions.addLoadedUsers(items.users)
+            const requestKey = JSON.stringify([type, ref])
+            cache.itemRequests ??= new Map<string, Promise<void>>()
+            if (cache.itemRequests.has(requestKey)) {
+                await cache.itemRequests.get(requestKey)
+                return
             }
-            actions.addLoadedResults(items as any as SearchResults)
+            const request = (async () => {
+                const items = await api.fileSystem.list({ ...refTypeParams(type), ref })
+                if (items.users?.length > 0) {
+                    actions.addLoadedUsers(items.users)
+                }
+                actions.addLoadedResults(items as any as SearchResults)
+            })()
+            cache.itemRequests.set(requestKey, request)
+            try {
+                await request
+            } finally {
+                cache.itemRequests.delete(requestKey)
+            }
         },
         deleteItem: async ({ item, projectTreeLogicKey }) => {
             if (isGroupViewShortcut(item) && values.featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
@@ -1759,6 +1914,33 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 { type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path },
                 projectTreeLogicKey
             )
+        },
+        moveShortcutToFolder: async ({ shortcut, folder, projectTreeLogicKey }) => {
+            const { ref, type } = shortcut
+            if (!ref || !type) {
+                return
+            }
+            try {
+                const response = await api.fileSystem.list(
+                    type === 'folder' ? { type: 'folder', path: ref } : { ...refTypeParams(type), ref }
+                )
+                const item = response.results.find((entry) =>
+                    type === 'folder'
+                        ? entry.type === 'folder' && entry.path === ref
+                        : matchesRefType(entry.type, type) && entry.ref === ref
+                )
+                if (!item) {
+                    lemonToast.error('Could not find the starred item. Refresh the page and try again.')
+                    return
+                }
+                const { newPath, isValidMove } = calculateMovePath(item, folder)
+                if (isValidMove) {
+                    actions.createSavedItem(item)
+                    actions.moveItem(item, newPath, false, projectTreeLogicKey)
+                }
+            } catch {
+                lemonToast.error('Could not load the starred item. Try again.')
+            }
         },
         moveItem: ({ item, newPath, force, projectTreeLogicKey }) => {
             actions.moveItems([{ item, newPath }], force, projectTreeLogicKey)
@@ -1821,8 +2003,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
         actions.loadFolder('')
         actions.loadShortcuts()
+        if (values.featureFlags[FEATURE_FLAGS.SIMPLE_SIDEPANEL]) {
+            actions.loadHomeFolder()
+        }
     }),
 ])

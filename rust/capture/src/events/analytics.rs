@@ -30,7 +30,7 @@ use crate::{
         legacy::{emit_processing_abort_warning, request_context},
     },
     outputs::OutputRegistry,
-    prometheus::{report_clock_skew, report_dropped_events},
+    prometheus::{report_clock_skew, report_dropped_events, report_timestamp_path},
     router,
     utils::uuid_v7_from_datetime,
     v0_request::{
@@ -165,6 +165,11 @@ pub fn process_single_event(
     if let Some(skew) = parsed_timestamp.clock_skew {
         report_clock_skew(skew);
     }
+    report_timestamp_path(
+        parsed_timestamp.source,
+        event.uuid,
+        parsed_timestamp.timestamp,
+    );
 
     let event_name = event.event.clone();
 
@@ -370,9 +375,8 @@ async fn process_events_inner(
     // abort path emits an `invalid_ai_event` ingestion warning alongside the
     // 400, so the project owner sees it too.
     //
-    // Lane membership is the `AI_EVENT_NAMES` allowlist, not an `$ai_` prefix,
-    // so a prefixed-but-unlisted name is rejected here too — the Node AI
-    // pipeline would DLQ it anyway.
+    // Lane membership is the same answer `DataType::from_event_name` stamped on
+    // each event above.
     if context.capture_mode == crate::config::CaptureMode::Ai {
         if let Some(offender) = events
             .iter()
@@ -508,6 +512,7 @@ async fn process_events_inner(
             let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
             let mut limited_event_count: u64 = 0;
             let mut already_disabled_event_count: u64 = 0;
+            let mut already_disabled_over_budget_count: u64 = 0;
             for event in events.iter_mut() {
                 let cache_key =
                     GlobalRateLimitKey::TokenDistinctId(&context.token, &event.event.distinct_id)
@@ -522,6 +527,9 @@ async fn process_events_inner(
                 // so stamp nothing and keep it out of the customer-facing tallies.
                 if event.metadata.skip_person_processing {
                     already_disabled_event_count += 1;
+                    if limited {
+                        already_disabled_over_budget_count += 1;
+                    }
                     continue;
                 }
 
@@ -559,10 +567,23 @@ async fn process_events_inner(
                 );
             }
 
-            if already_disabled_event_count > 0 {
-                // Charged against the limiter but not re-stamped.
-                counter!("capture_global_rate_limiter_already_disabled")
-                    .increment(already_disabled_event_count);
+            // Enforcement alerting needs the over_budget arm; keep both arms emitted.
+            if already_disabled_over_budget_count > 0 {
+                counter!(
+                    "capture_global_rate_limiter_already_disabled",
+                    "over_budget" => "true",
+                )
+                .increment(already_disabled_over_budget_count);
+            }
+
+            let already_disabled_under_budget_count =
+                already_disabled_event_count - already_disabled_over_budget_count;
+            if already_disabled_under_budget_count > 0 {
+                counter!(
+                    "capture_global_rate_limiter_already_disabled",
+                    "over_budget" => "false",
+                )
+                .increment(already_disabled_under_budget_count);
             }
 
             if limited_event_count > 0 {
@@ -1314,7 +1335,7 @@ mod tests {
     }
 
     /// The AI lane assignment holds across capture modes: `Events` and
-    /// `Import` both divert every allowlisted AI event (only the AI lane has AI
+    /// `Import` both divert every AI event (only the AI lane has AI
     /// processing, so imports must divert too), winning over historical.
     /// Non-AI events stay on their normal route in every mode. The topic
     /// itself is resolved in the kafka sink from `DataType::AiEvents`, not
@@ -1410,7 +1431,7 @@ mod tests {
     /// End-to-end: `process_events` drops the over-budget `$ai_generation` and keeps the small one.
     #[tokio::test]
     async fn ai_events_over_byte_budget_are_dropped_end_to_end() {
-        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+        use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
         use crate::sinks::producer::MockKafkaProducer;
 
         // 800-byte budget: the enveloped small event (~672 B) fits, and the
@@ -1420,7 +1441,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
 
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
@@ -1466,10 +1487,10 @@ mod tests {
             1,
             "only the under-budget AI event must reach the sink"
         );
-        let topics = test_topics();
+        let topics = test_outputs();
         let ai_topic = topics.topic_for(&crate::sinks::registry::Destination::AiMain);
         assert_eq!(
-            records[0].topic, ai_topic,
+            &*records[0].topic, ai_topic,
             "the surviving record must be on the AI lane"
         );
     }
@@ -1649,18 +1670,15 @@ mod tests {
         second_event: "$pageview",
         rejected: true,
     })]
-    // Lane membership is the AI_EVENT_NAMES allowlist, not an `$ai_` prefix.
-    // A prefixed-but-unlisted name resolves to AnalyticsMain, so it must be
-    // rejected too -- the Node AI pipeline would DLQ it downstream anyway.
-    #[case::prefixed_but_unlisted_name_is_rejected(AiLaneGateCase {
+    #[case::any_ai_prefixed_name_passes(AiLaneGateCase {
         second_event: "$ai_call",
-        rejected: true,
+        rejected: false,
     })]
     #[case::exception_is_rejected(AiLaneGateCase {
         second_event: "$exception",
         rejected: true,
     })]
-    #[case::second_allowlisted_event_passes(AiLaneGateCase {
+    #[case::second_ai_event_passes(AiLaneGateCase {
         second_event: "$ai_span",
         rejected: false,
     })]
@@ -1753,7 +1771,7 @@ mod tests {
     /// it diverts to `AiEvents` and the AI topic, exactly as under `Events`.
     #[tokio::test]
     async fn ai_mode_routes_ai_events_to_the_ai_lane_end_to_end() {
-        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+        use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
         use crate::sinks::producer::MockKafkaProducer;
 
         // 800-byte budget: the small event fits, the large one takes the
@@ -1763,7 +1781,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
 
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
@@ -1810,11 +1828,11 @@ mod tests {
             1,
             "only the under-budget event must reach the sink under Ai mode"
         );
-        let topics = test_topics();
+        let topics = test_outputs();
         let ai_topic = topics.topic_for(&crate::sinks::registry::Destination::AiMain);
         assert_eq!(
-            records[0].topic, ai_topic,
-            "an allowlisted AI event diverts to the AI lane under Ai mode too"
+            &*records[0].topic, ai_topic,
+            "an AI event diverts to the AI lane under Ai mode too"
         );
     }
 
@@ -2409,7 +2427,7 @@ mod tests {
 
     /// End-to-end gate for the AI overflow valve: a diverted AI event
     /// is overflow-stamped only when the AI limiter is wired (setup builds
-    /// it exactly when `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
+    /// it exactly when `CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC` is
     /// configured), and keeps its AI lane either way.
     #[rstest]
     #[case::limiter_present(AiValveCase {
@@ -2890,13 +2908,36 @@ mod tests {
         assert!(collector.emitted().is_empty());
     }
 
+    /// Counter value for the already-disabled GRL metric at the given `over_budget` label.
+    fn already_disabled_count(
+        snapshotter: &metrics_util::debugging::Snapshotter,
+        over_budget: &str,
+    ) -> Option<u64> {
+        use metrics_util::debugging::DebugValue;
+
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .find_map(|(key, _, _, value)| {
+                if key.key().name() != "capture_global_rate_limiter_already_disabled" {
+                    return None;
+                }
+                let labels: std::collections::HashMap<&str, &str> =
+                    key.key().labels().map(|l| (l.key(), l.value())).collect();
+                if labels.get("over_budget") != Some(&over_budget) {
+                    return None;
+                }
+                match value {
+                    DebugValue::Counter(v) => Some(v),
+                    _ => None,
+                }
+            })
+    }
+
     #[tokio::test]
     async fn global_rate_limit_is_skipped_when_person_processing_was_already_off() {
-        // An ops restriction already took person processing away, so the limiter
-        // is not consulted: it has nothing left to take, and the call would cost a
-        // Redis round trip per event. The event keeps its lane and its partition
-        // key, so the limiter's overflow reroute does not apply either. A hot key
-        // under a restriction is left to the burst limiter downstream.
+        // Still charged so the key's fleet count stays right, but nothing is stamped.
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -2910,6 +2951,10 @@ mod tests {
         let sink = MockSink::new();
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
         let collector = Arc::new(CollectingEmitter::new());
+
+        let recorder = metrics_util::debugging::DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _metrics_guard = metrics::set_default_local_recorder(&recorder);
 
         let service =
             EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
@@ -2945,8 +2990,73 @@ mod tests {
         assert!(captured[0].metadata.skip_person_processing);
         assert_eq!(
             captured[0].metadata.overflow_reason, None,
-            "the limiter is skipped, so it does not reroute the key to overflow"
+            "an already-disabled event is not rerouted to overflow"
         );
+        assert_eq!(
+            already_disabled_count(&snapshotter, "true"),
+            Some(1),
+            "an over-budget event with person processing already off belongs in the over_budget arm"
+        );
+        assert_eq!(
+            already_disabled_count(&snapshotter, "false"),
+            None,
+            "nothing under budget was already disabled in this batch"
+        );
+    }
+
+    #[tokio::test]
+    async fn already_disabled_under_budget_is_counted_separately() {
+        // Under budget: must not enter the enforcement identity.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = MockSink::new();
+        let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&[]));
+
+        let recorder = metrics_util::debugging::DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _metrics_guard = metrics::set_default_local_recorder(&recorder);
+
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
+        let mut manager = RestrictionManager::new();
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::SkipPersonProcessing,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        );
+        service.update(manager).await;
+
+        run_pipeline(
+            Arc::new(OutputRegistry::single(sink.clone())),
+            events,
+            &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                global_rate_limiter: Some(global_limiter),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            already_disabled_count(&snapshotter, "false"),
+            Some(1),
+            "an under-budget event with person processing already off belongs in the other arm"
+        );
+        assert_eq!(already_disabled_count(&snapshotter, "true"), None);
     }
 
     #[tokio::test]
@@ -3108,7 +3218,7 @@ mod tests {
     // tests alone cover: stamp metadata in pipeline, ensure the real sink
     // reads the metadata and produces the expected topic, key, and headers.
 
-    use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+    use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
     use crate::sinks::producer::MockKafkaProducer;
 
     #[tokio::test]
@@ -3126,7 +3236,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
         // test_token in reroute list -> ForceLimited stamped in pipeline.
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
@@ -3146,7 +3256,7 @@ mod tests {
         let records = producer.get_records();
         assert_eq!(records.len(), 1);
         assert_eq!(
-            records[0].topic, "events_plugin_ingestion_overflow",
+            &*records[0].topic, "events_plugin_ingestion_overflow",
             "ForceLimited must route to overflow topic"
         );
         assert_eq!(
@@ -3182,7 +3292,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
         // burst=1 => event[1] stamped RateLimited { preserve_locality }.
         let limiter = build_limiter(1, 1, None, preserve_locality);
@@ -3202,11 +3312,11 @@ mod tests {
         let records = producer.get_records();
         assert_eq!(records.len(), 2);
         assert_eq!(
-            records[0].topic, "events_plugin_ingestion",
+            &*records[0].topic, "events_plugin_ingestion",
             "event[0]: within burst -> main topic"
         );
         assert_eq!(
-            records[1].topic, "events_plugin_ingestion_overflow",
+            &*records[1].topic, "events_plugin_ingestion_overflow",
             "event[1]: over burst -> overflow topic"
         );
         assert!(
@@ -3570,7 +3680,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
 
         run_pipeline(outputs, events, &context, PipelineOptions::default())
@@ -3586,11 +3696,11 @@ mod tests {
 
         let original = records
             .iter()
-            .find(|r| r.topic == "events_plugin_ingestion")
+            .find(|r| &*r.topic == "events_plugin_ingestion")
             .expect("original event should land on the main events topic");
         let redirect = records
             .iter()
-            .find(|r| r.topic == "heatmaps")
+            .find(|r| &*r.topic == "heatmaps")
             .expect("redirect should land on the heatmaps topic");
 
         // ---- original on events topic ----

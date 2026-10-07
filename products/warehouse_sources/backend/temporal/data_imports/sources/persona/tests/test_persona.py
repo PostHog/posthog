@@ -5,10 +5,13 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
+import requests_mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona import persona
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.persona import (
+    PERSONA_BASE_URL,
+    PersonaRedirectError,
     PersonaResumeConfig,
     PersonaRetryableError,
     _build_params,
@@ -25,6 +28,7 @@ class _FakeResumableManager:
     def __init__(self, state: PersonaResumeConfig | None = None) -> None:
         self._state = state
         self.saved: list[PersonaResumeConfig] = []
+        self.cleared = 0
 
     def can_resume(self) -> bool:
         return self._state is not None
@@ -34,6 +38,9 @@ class _FakeResumableManager:
 
     def save_state(self, data: PersonaResumeConfig) -> None:
         self.saved.append(data)
+
+    def clear_state(self) -> None:
+        self.cleared += 1
 
 
 class TestFormatDatetimeZ:
@@ -152,6 +159,40 @@ class TestFetchPageRetryClassification:
         assert session.get.call_count == 1
 
 
+class TestRedirectsRefused:
+    # The apex host answers a redirected request with a 403 bot challenge, which must not be read
+    # as an auth failure. The session refuses the redirect so the key never leaves the API host.
+    API_URL = f"{PERSONA_BASE_URL}/inquiries"
+    TARGET_URL = "https://withpersona.com/api/v1/inquiries"
+
+    @parameterized.expand([("moved_permanently", 301), ("found", 302)])
+    def test_sync_refuses_redirect_and_keeps_key_on_api_host(self, _name: str, status: int) -> None:
+        with requests_mock.Mocker() as m:
+            m.get(self.API_URL, status_code=status, headers={"Location": self.TARGET_URL})
+            m.get(self.TARGET_URL, status_code=403)
+
+            with pytest.raises(PersonaRedirectError, match="redirected the API request to withpersona.com"):
+                list(
+                    get_rows(
+                        api_key="persona_test",
+                        endpoint="inquiries",
+                        logger=MagicMock(),
+                        resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                    )
+                )
+
+            assert [r.hostname for r in m.request_history] == ["api.withpersona.com"]
+            assert m.request_history[0].headers["Authorization"] == "Bearer persona_test"
+
+    def test_validate_credentials_returns_the_redirect_status_without_following(self) -> None:
+        with requests_mock.Mocker() as m:
+            m.get(self.API_URL, status_code=302, headers={"Location": self.TARGET_URL})
+            m.get(self.TARGET_URL, status_code=403)
+
+            assert persona.validate_credentials("persona_test") == 302
+            assert [r.hostname for r in m.request_history] == ["api.withpersona.com"]
+
+
 def _collect(
     manager: _FakeResumableManager,
     monkeypatch: Any,
@@ -256,6 +297,51 @@ class TestResume:
         _collect(manager, monkeypatch, [{"data": [], "links": {"next": None}}])
         # First request on resume must carry the saved page[after] cursor.
         assert "page[after]=inq_saved" in manager.fetched_urls[0]  # type: ignore[attr-defined]
+
+    def test_clears_the_cursor_once_the_walk_completes(self, monkeypatch: Any) -> None:
+        pages = [
+            {
+                "data": [{"type": "inquiry", "id": "inq_1", "attributes": {"created-at": "2026-01-03T00:00:00.000Z"}}],
+                "links": {"next": None},
+            }
+        ]
+        manager = _FakeResumableManager()
+        _collect(manager, monkeypatch, pages)
+        assert manager.cleared == 1
+
+    def test_keeps_the_cursor_when_the_walk_does_not_finish(self, monkeypatch: Any) -> None:
+        # A run cut short by a worker restart must leave its checkpoint behind, so the next attempt
+        # resumes mid-window instead of re-walking from the last completed watermark.
+        pages = iter(
+            [
+                {
+                    "data": [
+                        {"type": "inquiry", "id": "inq_1", "attributes": {"created-at": "2026-01-03T00:00:00.000Z"}}
+                    ],
+                    "links": {"next": "/api/v1/inquiries?page[after]=inq_1"},
+                }
+            ]
+        )
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            try:
+                return next(pages)
+            except StopIteration:
+                raise PersonaRetryableError("worker went away")
+
+        monkeypatch.setattr(persona, "_fetch_page", fake_fetch)
+
+        manager = _FakeResumableManager()
+        with pytest.raises(PersonaRetryableError):
+            for _ in get_rows(
+                api_key="persona_test",
+                endpoint="inquiries",
+                logger=MagicMock(),
+                resumable_source_manager=manager,  # type: ignore[arg-type]
+            ):
+                pass
+
+        assert manager.cleared == 0
 
 
 def _verifications(count: int, prefix: str) -> list[dict]:
@@ -387,6 +473,72 @@ class TestVerificationsFanout:
             )
 
 
+def _template_page(*ids: str) -> dict:
+    return {
+        "data": [{"type": "inquiry-template", "id": tid, "attributes": {"status": "active"}} for tid in ids],
+        "links": {"next": None},
+    }
+
+
+def _template_version(vid: str, status: str = "published") -> dict:
+    return {"type": "inquiry-template-version", "id": vid, "attributes": {"status": status}}
+
+
+class TestInquiryTemplateVersionsFanout:
+    def test_pages_each_templates_versions_and_tags_rows_with_the_template(self, monkeypatch: Any) -> None:
+        pages = [
+            _template_page("itmpl_a", "itmpl_b"),
+            {
+                "data": [_template_version("itmplv_a1", "draft"), _template_version("itmplv_a2")],
+                "links": {"next": "/api/v1/inquiry-template-versions?page[after]=itmplv_a2"},
+            },
+            {"data": [_template_version("itmplv_a3")], "links": {"next": None}},
+            {"data": [_template_version("itmplv_b1")], "links": {"next": None}},
+        ]
+        manager = _FakeResumableManager()
+        rows = _collect(manager, monkeypatch, pages, endpoint="inquiry_template_versions")
+
+        assert [(r["id"], r["inquiry-template-id"]) for r in rows] == [
+            ("itmplv_a1", "itmpl_a"),
+            ("itmplv_a2", "itmpl_a"),
+            ("itmplv_a3", "itmpl_a"),
+            ("itmplv_b1", "itmpl_b"),
+        ]
+        assert manager.fetched_urls == [  # type: ignore[attr-defined]
+            "https://api.withpersona.com/api/v1/inquiry-templates?page[size]=100",
+            "https://api.withpersona.com/api/v1/inquiry-template-versions?filter[inquiry-template-id]=itmpl_a&page[size]=100",
+            "https://api.withpersona.com/api/v1/inquiry-template-versions?filter[inquiry-template-id]=itmpl_a&page[size]=100&page[after]=itmplv_a2",
+            "https://api.withpersona.com/api/v1/inquiry-template-versions?filter[inquiry-template-id]=itmpl_b&page[size]=100",
+        ]
+
+    @parameterized.expand([("gone_template_is_skipped", 404, None), ("server_error_aborts", 500, requests.HTTPError)])
+    def test_version_list_error_handling(self, _name: str, status: int, expected_error: type[Exception] | None) -> None:
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            if "itmpl_gone" in url:
+                response = requests.Response()
+                response.status_code = status
+                raise requests.HTTPError(response=response)
+            if "itmpl_ok" in url:
+                return {"data": [_template_version("itmplv_ok")], "links": {"next": None}}
+            return _template_page("itmpl_gone", "itmpl_ok")
+
+        manager = _FakeResumableManager()
+        with patch.object(persona, "_fetch_page", fake_fetch):
+            rows_iter = get_rows(
+                api_key="persona_test",
+                endpoint="inquiry_template_versions",
+                logger=MagicMock(),
+                resumable_source_manager=manager,  # type: ignore[arg-type]
+            )
+            if expected_error is not None:
+                with pytest.raises(expected_error):
+                    list(rows_iter)
+                return
+            rows = [row for table in rows_iter for row in table.to_pylist()]
+
+        assert [r["id"] for r in rows] == ["itmplv_ok"]
+
+
 class TestPersonaSourceResponse:
     @parameterized.expand(
         [("inquiries", "created_at"), ("events", "created_at"), ("verifications", "inquiry_created_at")]
@@ -406,10 +558,11 @@ class TestPersonaSourceResponse:
         assert response.partition_keys == [partition_key]
         assert response.partition_mode == "datetime"
 
-    def test_full_refresh_endpoint_has_no_partitioning(self) -> None:
+    @parameterized.expand([("inquiry_templates",), ("inquiry_template_versions",)])
+    def test_full_refresh_endpoint_has_no_partitioning(self, endpoint: str) -> None:
         response = persona_source(
             api_key="persona_test",
-            endpoint="inquiry_templates",
+            endpoint=endpoint,
             logger=MagicMock(),
             resumable_source_manager=MagicMock(),
         )

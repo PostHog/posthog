@@ -1,11 +1,14 @@
 import json
-from uuid import uuid4
+from datetime import timedelta
+from typing import Any
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
+from django.db import OperationalError, transaction
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -17,9 +20,25 @@ from social_django.models import UserSocialAuth
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
-from products.signals.backend.artefact_schemas import Priority, PriorityAssessment, SuggestedReviewers, TaskRunArtefact
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalSourceConfig
+from products.signals.backend.artefact_schemas import (
+    AutostartSkip,
+    Priority,
+    PriorityAssessment,
+    SuggestedReviewers,
+    TaskRunArtefact,
+)
+from products.signals.backend.auto_start import _evaluate_link_gates
+from products.signals.backend.models import (
+    MAX_SCOUT_CONTENT_REVISIONS,
+    ArtefactAttribution,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
+    SignalSourceConfig,
+)
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
+from products.signals.backend.scout_harness.serializers import EditReportRequestSerializer, EmitReportRequestSerializer
+from products.signals.backend.scout_harness.tools.emit import remediation_for_skip
 from products.signals.backend.scout_harness.tools.report import (
     MAX_EVIDENCE_DESCRIPTION_LENGTH,
     MAX_REPORT_SIGNALS,
@@ -40,23 +59,28 @@ from products.signals.backend.scout_harness.tools.report import (
     _wants_repo_selection,
     edit_report_sync,
 )
+from products.signals.backend.scout_harness.tools.report_author import ScoutRunReportAuthor
 from products.signals.backend.scout_report import ScoutReportSignal
+from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.temporal.types import SignalData, render_signal_to_text
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
+from products.tasks.backend.models import Task, TaskRun
 
 JUDGE_PATH = "products.signals.backend.scout_report.judge.judge_report_safety"
 EMBED_PATH = "products.signals.backend.scout_report.persistence.emit_embedding_request"
 # Patched at its source module so the lazy import inside `_maybe_autostart_report` picks up the mock.
 AUTOSTART_PATH = "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts"
 CAPTURE_PATH = "products.signals.backend.scout_harness.tools.report.posthoganalytics.capture"
+METRICS_GATE_PATH = "products.signals.backend.scout_harness.tools.report.organization_report_metrics_enabled"
 # The customer-facing copy lands in the scout's own team project via capture_internal (a network boundary).
 CAPTURE_INTERNAL_PATH = "products.signals.backend.scout_harness.tools.report.capture_internal"
 CONNECTED_REPOS_PATH = "products.signals.backend.scout_harness.tools.report._connected_repositories"
 SET_REPOSITORY_PATH = "products.signals.backend.scout_harness.tools.report.set_scout_report_repository"
+REVISION_COUNT_PATH = "products.signals.backend.scout_harness.tools.report.get_content_revision_count"
 _CONNECTED_REPOS = ["acme/widgets", "acme/gadgets"]
 REPORT_TOOLS = ["emit_report", "edit_report"]
 
@@ -92,6 +116,10 @@ class TestScoutReportAPI(APIBaseTest):
         # Keep it inert by default so emit/edit tests don't hit the network; the two dedicated tests
         # assert against this mock.
         self.capture_internal_mock = patch(CAPTURE_INTERNAL_PATH).start()
+        # Report metrics ship behind an organization-level flag that is off outside DEBUG. Opt this
+        # organization in, so the metric cases assert the contract rather than the rollout; the two
+        # gate tests below turn it back off.
+        self.metrics_enabled_mock = patch(METRICS_GATE_PATH, return_value=True).start()
         self.addCleanup(patch.stopall)
 
     def _emit_url(self, run_id: str) -> str:
@@ -110,6 +138,47 @@ class TestScoutReportAPI(APIBaseTest):
         }
         body.update(overrides)
         return body
+
+    def _seed_implementation(self, report_id: str) -> MagicMock:
+        task = Task.objects.create(
+            team=self.team,
+            signal_report_id=report_id,
+            title="Original fix",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            repository="example/repo",
+            internal=True,
+        )
+        run = TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status="completed",
+            environment="cloud",
+            state={"ai_stage": "implementation", "self_driving_head_branch": "automated-original"},
+            output={"pr_url": "https://github.com/example/repo/pull/1"},
+        )
+        with transaction.atomic():
+            record_implementation_task(
+                team_id=self.team.id,
+                report_id=report_id,
+                task_id=str(task.id),
+                run_id=str(run.id),
+                automation_branch="automated-original",
+            )
+        github = MagicMock()
+        github.get_pull_request.return_value = {
+            "success": True,
+            "state": "open",
+            "merged": False,
+            "head_sha": "sha-1",
+            "head_branch": "automated-original",
+            "head_repository": "example/repo",
+        }
+        patcher = patch(
+            "products.signals.backend.supersession.GitHubIntegration.first_for_team_repository", return_value=github
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return github
 
     def _affected_users_metric(self, *, value: int = 17) -> dict:
         return {
@@ -193,6 +262,8 @@ class TestScoutReportAPI(APIBaseTest):
         assert retry["report_id"] == first["report_id"]
         assert retry["idempotent_replay"] is True
         assert SignalReport.objects.filter(team=self.team).count() == 1
+        # A retry that crosses a deploy looks the report up by this stored key, so its format must not drift.
+        assert SignalReport.objects.get(team=self.team).scout_idempotency_key == f"{run.id}:key:checkout-p99"
 
     def test_emit_report_still_authors_a_second_report_for_a_different_finding(self) -> None:
         # The barrier must not swallow a real second finding: one run routinely reports more than one
@@ -410,6 +481,139 @@ class TestScoutReportAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.edited_report_ids == [created["report_id"]]
 
+    def test_edit_report_writes_typed_links_and_rejects_a_cycle(self) -> None:
+        # A scout that splits one finding into a stack has to be able to record the order, and the
+        # cycle guard has to hold on this path too, not only on the REST action.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+            second = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(title="feat(cart): second step"), format="json"
+            ).json()
+
+        with _safe_judge(), patch(EMBED_PATH):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": second["report_id"],
+                    "links": [
+                        {"kind": "depends_on", "report_id": first["report_id"], "reason": "shares the same module"}
+                    ],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["links_appended"] == 1
+        stored = SignalReportArtefact.objects.filter(
+            report_id=second["report_id"], type=SignalReportArtefact.ArtefactType.REPORT_LINK
+        )
+        assert [json.loads(row.content)["report_id"] for row in stored] == [first["report_id"]]
+        # Directed, so the predecessor carries nothing.
+        assert not SignalReportArtefact.objects.filter(
+            report_id=first["report_id"], type=SignalReportArtefact.ArtefactType.REPORT_LINK
+        ).exists()
+
+        with _safe_judge(), patch(EMBED_PATH):
+            cycle = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": first["report_id"],
+                    "links": [{"kind": "depends_on", "report_id": second["report_id"]}],
+                },
+                format="json",
+            )
+        assert cycle.status_code == status.HTTP_400_BAD_REQUEST, cycle.json()
+
+    def test_emit_report_writes_links_before_autostart_reads_the_link_gates(self) -> None:
+        run = _make_run(self.team)
+        resolved = SignalReport.objects.create(team=self.team, status=SignalReport.Status.RESOLVED, title="fixed")
+        gate_at_autostart: list[AutostartSkip | None] = []
+
+        async def _read_gates(*, team_id: int, report_id: str) -> None:
+            gate_at_autostart.append(await sync_to_async(_evaluate_link_gates)(team_id, report_id))
+
+        payload = self._payload(
+            repository="PostHog/PostHog",
+            priority="P1",
+            priority_explanation="big blast radius",
+            links=[{"kind": "duplicate_of", "report_id": str(resolved.id), "reason": "same root cause"}],
+        )
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock(side_effect=_read_gates)):
+            response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert len(gate_at_autostart) == 1
+        gate = gate_at_autostart[0]
+        assert gate is not None
+        assert (gate.skip_reason, gate.linked_report_id) == ("duplicate_of", str(resolved.id))
+
+    @parameterized.expand(
+        [
+            ("unknown_target", lambda self: str(uuid4())),
+            (
+                "other_team_target",
+                lambda self: str(
+                    SignalReport.objects.create(
+                        team=Team.objects.create(organization=self.organization, name="other"),
+                        status=SignalReport.Status.READY,
+                        title="other team",
+                    ).id
+                ),
+            ),
+        ]
+    )
+    def test_emit_report_with_a_rejected_link_authors_no_report(self, _name: str, target_factory: Any) -> None:
+        run = _make_run(self.team)
+        payload = self._payload(links=[{"kind": "depends_on", "report_id": target_factory(self)}])
+        with _safe_judge() as judge, patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+            response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not SignalReport.objects.filter(team=self.team, title=payload["title"]).exists()
+        judge.assert_not_called()
+        autostart.assert_not_awaited()
+
+    def test_a_links_only_edit_counts_as_an_edit(self) -> None:
+        # A links-only edit commits the link and answers 200, so it has to reach the edit tally and
+        # the report-to-run work-log link too. Left out of the `changed` predicate, the link lands
+        # while `edited_report_ids` and the run's transcript link on the report stay unset.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        target = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="depends on")
+
+        with _safe_judge(), patch(EMBED_PATH):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": first["report_id"],
+                    "links": [{"kind": "depends_on", "report_id": str(target.id)}],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        run.refresh_from_db()
+        assert run.edited_report_ids == [first["report_id"]]
+
+    def test_edit_report_rejects_an_unknown_link_kind(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+            other = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(title="feat(cart): other"), format="json"
+            ).json()
+
+        with _safe_judge(), patch(EMBED_PATH):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": created["report_id"],
+                    "links": [{"kind": "blocks", "report_id": other["report_id"]}],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_edit_report_appends_evidence_and_moves_the_report_counts(self) -> None:
         # The evidence rail is create-only without this: a scout with fresh corroboration could only
         # write prose into the collapsed work log. The appended row must land bound to the report and
@@ -459,6 +663,15 @@ class TestScoutReportAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         judge_mock.assert_not_awaited()
         embed_mock.assert_not_called()
+
+    @parameterized.expand([("corroboration_only",), ("supersedes_implementation",)])
+    def test_an_omitted_edit_flag_stays_out_of_the_request_body(self, field: str) -> None:
+        # A DRF default renders as a default on the generated client, which sends an explicit `false`
+        # for a flag the caller omitted. The validator below rejects a field it does not declare, so a
+        # client deployed ahead of this endpoint would fail every edit, not only a supersede request.
+        serializer = EditReportRequestSerializer(data={"report_id": str(uuid4())})
+        assert serializer.is_valid(), serializer.errors
+        assert field not in serializer.validated_data
 
     def test_evidence_append_is_rejected_at_the_report_cap_before_the_judge(self) -> None:
         # Emit plus every append share one cap, and it is checked before the safety judge so a call
@@ -591,6 +804,377 @@ class TestScoutReportAPI(APIBaseTest):
             )
         )
         assert "- Source ID: checkout-errors" in rendered
+
+    @parameterized.expand(
+        [
+            ("title_rewrite", {"title": "a different root cause"}, True),
+            ("summary_rewrite", {"summary": "the checkout handler is fine, the queue is not"}, True),
+            # The 13x difference between counting edits and counting rewrites. A scout re-sending the
+            # text the report already holds has not revised anything.
+            ("restated_title", {"title": "Checkout p99 regressed after 4.2"}, False),
+            ("note_only", {"append_note": "still there"}, False),
+            ("reviewers_only", {"suggested_reviewers": [{"github_login": "OctoCat"}]}, False),
+            ("charts_only", {"charts": []}, False),
+        ]
+    )
+    def test_only_a_real_rewrite_counts_as_a_content_revision(self, _name, edit, expected) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], **edit},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["is_content_revision"] is expected
+        assert response.json()["content_revision_count"] == (1 if expected else 0)
+        assert SignalReport.objects.get(id=created["report_id"]).content_revision_count == (1 if expected else None)
+
+    @parameterized.expand(
+        [
+            ("note_only", {"append_note": "still there"}),
+            ("reviewers_only", {"suggested_reviewers": [{"github_login": "OctoCat"}]}),
+        ]
+    )
+    def test_non_revision_edit_returns_the_stored_running_total(self, _name, edit) -> None:
+        # The count is a running total, not a per-edit sentinel: a note or reviewer change on a report
+        # that has already been rewritten must echo the stored total, not the 0 initializer. The
+        # freshly-emitted case above (count 0) can't tell the two apart, so revise once first.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+            self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "summary": "the queue, not the handler"},
+                format="json",
+            )
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], **edit},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["is_content_revision"] is False
+        assert response.json()["content_revision_count"] == 1
+        assert SignalReport.objects.get(id=created["report_id"]).content_revision_count == 1
+
+    def test_a_failed_running_total_read_takes_the_edit_with_it(self) -> None:
+        # The read above runs inside the edit's transaction, so a database failure on it rolls the
+        # note back instead of reporting a committed edit as failed. `edit_report` is not retry-safe:
+        # the scout's retry would append a second note and count a second corroboration.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        before = SignalReport.objects.get(id=report_id)
+        with (
+            _safe_judge(),
+            patch(AUTOSTART_PATH, new=AsyncMock()),
+            patch("products.signals.backend.scout_harness.tools.report.emit_appended_report_evidence") as emit,
+            patch(REVISION_COUNT_PATH, side_effect=OperationalError("connection lost")),
+        ):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": report_id,
+                    "append_note": "still there",
+                    "corroboration_only": True,
+                    "append_evidence": [{"description": "The retry failed again", "source_id": "retry-2"}],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert not SignalReportArtefact.objects.filter(
+            report_id=report_id, type="note", content__contains="still there"
+        ).exists()
+        after = SignalReport.objects.get(id=report_id)
+        assert after.corroboration_count == before.corroboration_count
+        assert after.signal_count == before.signal_count
+        emit.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # A note says the finding still holds. It is not an argument that the fix changed, so it
+            # must not be a way to close someone's open pull request.
+            ("note_only", {"append_note": "still there"}),
+            ("reviewers_only", {"suggested_reviewers": [{"github_login": "OctoCat"}]}),
+            ("restated_title", {"title": "Checkout p99 regressed after 4.2"}),
+        ]
+    )
+    def test_supersede_needs_a_rewrite_behind_it(self, _name, edit) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "supersedes_implementation": True, **edit},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["supersedes_implementation"] is False
+        assert [warning["field"] for warning in response.json()["warnings"]] == ["supersedes_implementation"]
+        assert (
+            self._latest_artefact(created["report_id"], SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
+            is None
+        )
+
+    def test_supersede_records_a_decision_until_the_report_runs_out_of_revisions(self) -> None:
+        # Past the cap the rewrite still has to land: a scout must always be able to correct a
+        # report. Only the pull-request side stops.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        self._seed_implementation(report_id)
+        recorded = []
+        for index in range(MAX_SCOUT_CONTENT_REVISIONS + 1):
+            with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+                response = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={
+                        "report_id": report_id,
+                        "summary": f"root cause number {index}",
+                        "supersedes_implementation": True,
+                    },
+                    format="json",
+                )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["is_content_revision"] is True
+            recorded.append((response.json()["supersedes_implementation"], autostart.await_count))
+            if response.json()["supersedes_implementation"]:
+                decision = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
+                dispatch = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DISPATCH)
+                assert decision is not None and dispatch is not None
+                progress = json.loads(dispatch.content)
+                assert progress["decision_id"] == str(decision.id)
+                assert progress["status"] == "pending"
+                assert progress["source_skill"] == run.skill_name
+
+        assert recorded == [(True, 1)] * MAX_SCOUT_CONTENT_REVISIONS + [(False, 0)]
+        report = SignalReport.objects.get(id=report_id)
+        assert report.content_revision_count == MAX_SCOUT_CONTENT_REVISIONS + 1
+        assert report.summary == f"root cause number {MAX_SCOUT_CONTENT_REVISIONS}"
+        # The decision is latest-wins and auto-start re-reads it from paths a scout never sees, so
+        # the refused rewrite has to leave a `False` standing rather than the last honored `True`.
+        decision = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
+        assert decision is not None
+        refused = json.loads(decision.content)
+        assert refused["supersede"] is False
+        # A reviewer opens this entry to find out why no replacement started, so the refused claim
+        # must not read back as the scout judging the open pull request still right.
+        assert "asked to replace the open pull request" in refused["reason"]
+        assert "without changing what the fix should be" not in refused["reason"]
+        assert refused["blocked_reason"] == "revision_limit"
+
+    def test_a_rewrite_that_claims_nothing_retracts_the_last_supersede_decision(self) -> None:
+        # Same hazard from the other side: a scout supersedes once, then rewrites again saying
+        # nothing about the fix. A reviewer edit firing auto-start afterwards must not read the old
+        # claim and open a second replacement.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        self._seed_implementation(report_id)
+        for summary, supersede in (("the queue, not the handler", True), ("the queue, with numbers", False)):
+            with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+                response = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={"report_id": report_id, "summary": summary, "supersedes_implementation": supersede},
+                    format="json",
+                )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+        decision = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
+        assert decision is not None and json.loads(decision.content)["supersede"] is False
+
+    @parameterized.expand(
+        [
+            ("lookup_failed",),
+            ("report_changed",),
+            ("no_predecessor",),
+            # A pass rewrites the content on its way out of IN_PROGRESS without moving any counter
+            # the decision is fenced on, so a claim recorded during it would outlive the content.
+            ("report_in_progress",),
+        ]
+    )
+    def test_supersede_rejection_preserves_content_for_retry(self, failure: str) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        github = self._seed_implementation(report_id)
+        verified = github.get_pull_request.return_value
+        if failure == "lookup_failed":
+            github.get_pull_request.return_value = {"success": False, "status_code": 502}
+        elif failure == "no_predecessor":
+            github.get_pull_request.return_value = {**verified, "state": "closed"}
+        elif failure == "report_in_progress":
+            SignalReport.objects.filter(id=report_id).update(status=SignalReport.Status.IN_PROGRESS)
+        else:
+
+            def change_during_lookup(*_args):
+                SignalReport.objects.filter(id=report_id).update(content_revision_count=1)
+                return verified
+
+            github.get_pull_request.side_effect = change_during_lookup
+        edit = {"report_id": report_id, "summary": "The queue needs backpressure.", "supersedes_implementation": True}
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+            rejected = self.client.post(self._edit_url(str(run.id)), data=edit, format="json")
+        assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+        assert SignalReport.objects.get(id=report_id).summary == self._payload()["summary"]
+        assert self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION) is None
+        autostart.assert_not_awaited()
+        github.get_pull_request.side_effect = None
+        github.get_pull_request.return_value = verified
+        SignalReport.objects.filter(id=report_id).update(status=SignalReport.Status.READY)
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+            accepted = self.client.post(self._edit_url(str(run.id)), data=edit, format="json")
+        assert accepted.status_code == status.HTTP_200_OK, accepted.json()
+        assert accepted.json()["supersedes_implementation"] is True
+        decision = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
+        assert decision is not None
+        content = json.loads(decision.content)
+        assert len(content["targets"]) == 1
+        assert "summary" in content["reason"] and "updated_at" not in content["reason"]
+
+    @parameterized.expand(
+        [
+            # A scout first judged the report blocked on a person; new evidence makes it fixable.
+            (
+                "promotion",
+                {"actionability": "requires_human_input"},
+                {
+                    "actionability": "immediately_actionable",
+                    "actionability_explanation": "The failing handler is now identified.",
+                    "priority": "P1",
+                    "priority_explanation": "Checkout errors doubled after the incident escalated.",
+                },
+                ["actionability", "priority"],
+                ("immediately_actionable", False, "P1"),
+            ),
+            # A fix landed elsewhere, so autostart must not open a competing pull request.
+            (
+                "demotion",
+                {"priority": "P2", "priority_explanation": "Moderate impact."},
+                {
+                    "actionability": "immediately_actionable",
+                    "actionability_explanation": "A merged change fixed the handler.",
+                    "already_addressed": True,
+                },
+                ["actionability"],
+                ("immediately_actionable", True, "P2"),
+            ),
+            # Raising priority on a report that never had a pull request.
+            (
+                "priority_only",
+                {},
+                {"priority": "P0", "priority_explanation": "The incident now blocks every checkout."},
+                ["priority"],
+                ("immediately_actionable", False, "P0"),
+            ),
+            # A re-send of the stored decision changes nothing and must not re-run autostart.
+            (
+                "unchanged",
+                {"priority": "P2", "priority_explanation": "Moderate impact."},
+                {"priority": "P2", "priority_explanation": "Moderate impact."},
+                [],
+                ("immediately_actionable", False, "P2"),
+            ),
+        ]
+    )
+    def test_edit_replaces_the_work_decision_and_reruns_autostart(
+        self, _name: str, emitted: dict, edit: dict, expected_fields: list[str], expected: tuple
+    ) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(**emitted), format="json").json()
+        report_id = created["report_id"]
+        status_before = SignalReport.objects.get(id=report_id).status
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+            response = self.client.post(
+                self._edit_url(str(run.id)), data={"report_id": report_id, **edit}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["decision_fields_set"] == expected_fields
+        assert autostart.await_count == (1 if expected_fields else 0)
+        actionability = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
+        priority = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT)
+        assert actionability is not None and priority is not None
+        actionability_content = json.loads(actionability.content)
+        assert (
+            actionability_content["actionability"],
+            actionability_content["already_addressed"],
+            json.loads(priority.content)["priority"],
+        ) == expected
+        assert SignalReport.objects.get(id=report_id).status == status_before
+        notes = SignalReportArtefact.objects.filter(report_id=report_id, type="note", content__contains="Set ")
+        assert notes.count() == len(expected_fields)
+
+    @parameterized.expand(
+        [
+            ("actionability_without_explanation", {"actionability": "not_actionable"}),
+            ("already_addressed_alone", {"already_addressed": True}),
+            ("priority_without_explanation", {"priority": "P1"}),
+            ("explanation_without_priority", {"priority_explanation": "Escalated."}),
+        ]
+    )
+    def test_incomplete_work_decision_is_rejected_before_any_write(self, _name: str, edit: dict) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge() as judge:
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "summary": "A rewrite riding along.", **edit},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        judge.assert_not_awaited()
+        assert SignalReport.objects.get(id=created["report_id"]).summary == self._payload()["summary"]
+
+    @parameterized.expand([("note",), ("unchanged",), ("over_cap",)])
+    def test_ineligible_supersede_does_not_query_github(self, shape: str) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        github = self._seed_implementation(report_id)
+        edit = {"append_note": "Still observed"} if shape == "note" else {"summary": self._payload()["summary"]}
+        if shape == "over_cap":
+            SignalReport.objects.filter(id=report_id).update(content_revision_count=MAX_SCOUT_CONTENT_REVISIONS)
+            edit = {"summary": "A new root cause"}
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "supersedes_implementation": True, **edit},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["supersedes_implementation"] is False
+        github.get_pull_request.assert_not_called()
+
+    def test_free_form_note_survives_after_corroboration_cap(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        SignalReport.objects.filter(id=report_id).update(corroboration_count=4)
+        for corroboration_only, note in [(True, "Still observed"), (False, "The deployment fixed the timeout")]:
+            with _safe_judge():
+                response = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={"report_id": report_id, "append_note": note, "corroboration_only": corroboration_only},
+                    format="json",
+                )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["corroboration_collapsed"] is corroboration_only
+            assert SignalReportArtefact.objects.filter(
+                report_id=report_id, type="note", content__contains=note
+            ).exists() is (not corroboration_only)
+        assert SignalReport.objects.get(id=report_id).corroboration_count == 5
 
     def test_edit_report_records_edited_report_once_across_repeated_edits(self) -> None:
         # The edited tally is set-membership, not a per-edit log: a run editing the same report twice
@@ -799,7 +1383,12 @@ class TestScoutReportAPI(APIBaseTest):
             patch("products.signals.backend.scout_harness.tools.report._assert_edit_gates"),
             pytest.raises(InvalidScoutReportError, match="not in progress"),
         ):
-            edit_report_sync(team=self.team, run=run, report_id=created["report_id"], summary="Late rewrite")
+            edit_report_sync(
+                team=self.team,
+                author=ScoutRunReportAuthor(run=run),
+                report_id=created["report_id"],
+                summary="Late rewrite",
+            )
 
     def _latest_artefact(self, report_id: str, artefact_type: str) -> SignalReportArtefact | None:
         return (
@@ -1189,7 +1778,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=result,
                     title=None,
                     summary=None,
@@ -1441,6 +2030,7 @@ class TestScoutReportAPI(APIBaseTest):
         )
         assert forward.kwargs["token"] == self.team.api_token
         assert forward.kwargs["process_person_profile"] is False
+        assert forward.kwargs["distinct_id"] == f"signals_scout:{run.skill_name}"
         expected_url = None if expected_outcome == "gate_skipped" else f"/inbox/reports/{body['report_id']}"
         if expected_url is None:
             assert forward.kwargs["properties"]["report_url"] is None
@@ -1473,6 +2063,11 @@ class TestScoutReportAPI(APIBaseTest):
         assert forward.kwargs["token"] == self.team.api_token
         assert forward.kwargs["process_person_profile"] is False
         assert forward.kwargs["properties"]["report_url"].endswith(f"/inbox/reports/{created['report_id']}")
+        assert props["run_id"] == str(run.id)
+        assert forward.kwargs["distinct_id"] == f"signals_scout:{run.skill_name}"
+        # Ingestion dedupes on this uuid. If its key drifts, an edit retried across a deploy fires twice.
+        edit_key = f"edit|{run.id}|{created['report_id']}|['title', 'updated_at']|new title||re-validated"
+        assert forward.kwargs["event_uuid"] == str(uuid5(NAMESPACE_URL, f"signals_scout_report:{edit_key}"))
 
     def test_self_improvement_report_classified_on_emit_and_edit(self) -> None:
         # Classification must ride both lifecycle events: stamped from the authored title on emit, and
@@ -1505,7 +2100,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=result,
                     title=None,
                     summary=None,
@@ -1532,7 +2127,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=result,
                     title=None,
                     summary=None,
@@ -1575,7 +2170,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=result,
                     title=None,
                     summary=None,
@@ -1651,29 +2246,48 @@ class TestScoutReportAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("omitted", {}, 1, None),
-            ("null", {"metrics": None}, 1, None),
-            ("empty_list", {"metrics": []}, 0, 0),
+            ("omitted", True, "omit", ["affected-users"], None),
+            ("null", True, "null", ["affected-users"], None),
+            ("replace", True, "replace", ["replacement"], 1),
+            ("empty_list", True, "clear", [], 0),
+            # While the organization is not opted in, a supplied set is dropped, so the report keeps
+            # the metric it holds. A clear carries no definition to gate, so it still lands.
+            ("not_opted_in_replace", False, "replace", ["affected-users"], None),
+            ("not_opted_in_clear", False, "clear", [], 0),
         ]
     )
-    def test_edit_metrics_distinguishes_untouched_from_cleared(
-        self, _name: str, metric_field: dict, expected_stored: int, expected_metrics_set: int | None
+    def test_edit_metrics_distinguishes_untouched_replaced_and_cleared(
+        self,
+        _name: str,
+        opted_in: bool,
+        instruction: str,
+        expected_stored: list[str],
+        expected_metrics_set: int | None,
     ) -> None:
         run = _make_run(self.team)
-        metric = self._affected_users_metric()
+        instructions: dict[str, dict[str, Any]] = {
+            "omit": {},
+            "null": {"metrics": None},
+            "clear": {"metrics": []},
+            "replace": {"metrics": [{**self._affected_users_metric(), "metric_id": "replacement"}]},
+        }
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH):
             created = self.client.post(
-                self._emit_url(str(run.id)), data=self._payload(metrics=[metric]), format="json"
+                self._emit_url(str(run.id)),
+                data=self._payload(metrics=[self._affected_users_metric()]),
+                format="json",
             ).json()
+            self.metrics_enabled_mock.return_value = opted_in
             response = self.client.post(
                 self._edit_url(str(run.id)),
-                data={"report_id": created["report_id"], "append_note": "checked", **metric_field},
+                data={"report_id": created["report_id"], "append_note": "checked", **instructions[instruction]},
                 format="json",
             )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["metrics_set"] == expected_metrics_set
-        assert len(SignalReport.objects.get(id=created["report_id"]).metrics) == expected_stored
+        stored = SignalReport.objects.get(id=created["report_id"]).metrics
+        assert [entry["metric_id"] for entry in stored] == expected_stored
 
     def test_clearing_metrics_is_a_valid_sole_edit(self) -> None:
         run = _make_run(self.team)
@@ -1693,6 +2307,23 @@ class TestScoutReportAPI(APIBaseTest):
         assert response.json()["metrics_set"] == 0
         assert SignalReport.objects.get(id=created["report_id"]).metrics == []
 
+    def test_emit_stores_no_metrics_while_the_organization_is_not_opted_in(self) -> None:
+        # The report still surfaces; only the metrics drop. Without the gate an organization whose
+        # Inbox hides metrics accumulates metric definitions, and the refresh queries behind them.
+        run = _make_run(self.team)
+        self.metrics_enabled_mock.return_value = False
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH):
+            response = self.client.post(
+                self._emit_url(str(run.id)),
+                data=self._payload(metrics=[self._affected_users_metric()]),
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["emitted"] is True
+        assert SignalReport.objects.get(id=body["report_id"], team=self.team).metrics == []
+
     def test_suggested_prompt_edit_event_uuid_keys_on_the_prompts(self) -> None:
         # Same collision class as the chart case above: suggested prompts are a valid sole input to an
         # edit, so two prompt-only edits to one report in a run share every other part of the key.
@@ -1707,7 +2338,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=result,
                     title=None,
                     summary=None,
@@ -1729,7 +2360,7 @@ class TestScoutReportAPI(APIBaseTest):
         with patch(CAPTURE_PATH):
             chart_clear = _capture_report_edited(
                 team=self.team,
-                run=run,
+                author=ScoutRunReportAuthor(run=run),
                 result=EditReportResult(
                     report_id=result.report_id, updated_fields=[], note_appended=False, charts_set=0
                 ),
@@ -1753,7 +2384,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=EditReportResult(
                         report_id=report_id,
                         updated_fields=[],
@@ -1768,18 +2399,17 @@ class TestScoutReportAPI(APIBaseTest):
             assert captured is not None
             return captured.event_uuid
 
-        def observation(source_id: str, description: str = "Checkout errors doubled", weight: float = 1.0):
-            return ScoutReportSignal(description=description, source_id=source_id, weight=weight)
+        def observation(source_id: str, description: str = "Checkout errors doubled"):
+            return ScoutReportSignal(description=description, source_id=source_id, weight=1.0)
 
         checkout = forward([observation("checkout-errors")])
         assert checkout == forward([observation("checkout-errors")])
         # The rail carries a row per source id, so the same prose recorded twice is two observations.
         assert checkout != forward([observation("checkout-errors-eu")])
         assert checkout != forward([observation("checkout-errors", description="Signups fell")])
-        assert checkout != forward([observation("checkout-errors", weight=2.0)])
         # A description is scout-authored free text, so on a pipe-joined key a note carrying the
         # evidence part verbatim hashes like the evidence edit itself and one of the two is dropped.
-        assert checkout != forward([], note='|evidence:[["Checkout errors doubled","checkout-errors",1.0]]')
+        assert checkout != forward([], note='|evidence:[["Checkout errors doubled","checkout-errors"]]')
 
     @parameterized.expand(
         [
@@ -1913,17 +2543,43 @@ class TestScoutReportAPI(APIBaseTest):
             c.kwargs.get("event_name") == "$scout_report_emitted" for c in self.capture_internal_mock.call_args_list
         )
 
+    def test_edit_report_gate_refusal_carries_the_emit_remediation(self) -> None:
+        # Both channels hit the same gate, so a scout blocked on an edit needs the same next step an
+        # emit hands back. A bare reason code leaves it unable to tell a fixable block from a
+        # terminal one, and it has already spent the run by the time it reads this.
+        run = _make_run(self.team)
+        config = run.scout_config
+        assert config is not None
+        config.emit = False
+        config.save(update_fields=["emit"])
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": str(uuid4()), "append_note": "fresh evidence"},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        detail = response.json()["detail"]
+        assert "scout_emit_disabled" in detail
+        assert remediation_for_skip("scout_emit_disabled") in detail
+
     @parameterized.expand(
         [
-            ("invalid_priority", {"priority": "P9", "priority_explanation": "x"}),
-            ("priority_without_explanation", {"priority": "P1"}),
+            ("invalid_priority", {"priority": "P9", "priority_explanation": "x"}, "priority"),
+            ("priority_without_explanation", {"priority": "P1"}, "priority_explanation"),
+            (
+                "priority_with_null_explanation",
+                {"priority": "P1", "priority_explanation": None},
+                "priority_explanation",
+            ),
         ]
     )
-    def test_emit_report_rejects_bad_priority(self, _name: str, overrides: dict) -> None:
+    def test_emit_report_rejects_bad_priority(self, _name: str, overrides: dict, expected_attr: str) -> None:
         run = _make_run(self.team)
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
             response = self.client.post(self._emit_url(str(run.id)), data=self._payload(**overrides), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == expected_attr, response.json()
 
 
 class TestBuildSuggestedReviewers(APIBaseTest):
@@ -2171,3 +2827,169 @@ class TestReportClassificationProps(SimpleTestCase):
         assert props["is_self_improvement_report"] is is_self_improvement
         expected_kind = REPORT_KIND_SELF_IMPROVEMENT if is_self_improvement else REPORT_KIND_FINDING
         assert props["report_kind"] == expected_kind
+
+
+class TestScoutReportCheckAPI(APIBaseTest):
+    """The report-check tools' gate: only a run whose skill opted into the report channel may write one."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Checkout")
+        self.scout_run = _make_run(self.team)
+        _authenticate_as_scout(self, scopes="signals_scout_reports")
+
+    def _opt_in(self, allowed_tools: list[str]) -> None:
+        LLMSkill.objects.create(
+            team=self.team,
+            name=self.scout_run.skill_name,
+            description="scout",
+            body="# scout",
+            allowed_tools=allowed_tools,
+        )
+
+    def _create_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{self.scout_run.id}/report-check-create/"
+
+    def _payload(self) -> dict:
+        return {
+            "report_id": str(self.report.id),
+            "title": "Checkout errors stay low",
+            "kind": "metric_threshold",
+            "config": {
+                "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}]),
+                "comparison": {"operator": "lte", "value": 10},
+            },
+            "next_run_at": (timezone.now() + timedelta(days=3)).isoformat(),
+        }
+
+    def test_an_opted_in_run_writes_a_check_attributed_to_its_task(self) -> None:
+        self._opt_in(REPORT_TOOLS)
+
+        response = self.client.post(self._create_url(), self._payload(), format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        check = SignalReportCheck.objects.for_team(self.team.id).get(id=response.json()["check_id"])
+        assert check.task_id == self.scout_run.task_run.task_id
+        assert check.report_id == self.report.id
+
+    def test_a_run_without_the_report_channel_opt_in_is_refused(self) -> None:
+        self._opt_in([])
+
+        response = self.client.post(self._create_url(), self._payload(), format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert not SignalReportCheck.objects.for_team(self.team.id).exists()
+
+    def test_a_token_minted_for_another_run_cannot_write_through_this_one(self) -> None:
+        self._opt_in(REPORT_TOOLS)
+        sibling = _make_run(self.team)
+        _authenticate_as_scout(self, scopes="signals_scout_reports", sandbox_task_id=sibling.task_run.task_id)
+
+        response = self.client.post(self._create_url(), self._payload(), format="json")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
+        assert not SignalReportCheck.objects.for_team(self.team.id).exists()
+
+    def test_a_check_can_target_a_report_in_a_child_environment(self) -> None:
+        self._opt_in(REPORT_TOOLS)
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        report = SignalReport.objects.create(team=child, status=SignalReport.Status.READY, title="Checkout")
+
+        response = self.client.post(self._create_url(), {**self._payload(), "report_id": str(report.id)}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        check = SignalReportCheck.objects.for_team(child.id).get(id=response.json()["check_id"])
+        assert check.report_id == report.id
+
+    def test_a_check_cannot_target_a_report_outside_the_canonical_team(self) -> None:
+        self._opt_in(REPORT_TOOLS)
+        other_team = Team.objects.create(organization=self.organization, project=self.team.project, name="Other")
+        report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY, title="Checkout")
+
+        response = self.client.post(self._create_url(), {**self._payload(), "report_id": str(report.id)}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not SignalReportCheck.objects.for_team(other_team.id).exists()
+
+    @parameterized.expand([("report_level", False), ("per_run", True)])
+    def test_listing_a_reports_checks_returns_what_the_run_wrote(self, _name: str, via_run: bool) -> None:
+        self._opt_in(REPORT_TOOLS)
+        created = self.client.post(self._create_url(), self._payload(), format="json").json()
+        run_segment = f"{self.scout_run.id}/" if via_run else ""
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/signals/scout/runs/{run_segment}report-checks/",
+            {"report_id": str(self.report.id)},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [row["check_id"] for row in response.json()] == [created["check_id"]]
+
+    def test_report_level_listing_needs_no_run_and_stays_in_the_canonical_team(self) -> None:
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        child_report = SignalReport.objects.create(team=child, status=SignalReport.Status.READY, title="Checkout")
+        other_team = Team.objects.create(organization=self.organization, project=self.team.project, name="Other")
+        other_report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY, title="Other")
+        url = f"/api/projects/{self.team.id}/signals/scout/runs/report-checks/"
+
+        assert self.client.get(url, {"report_id": str(child_report.id)}).status_code == status.HTTP_200_OK
+        assert self.client.get(url, {"report_id": str(other_report.id)}).status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_cancelling_stops_the_check(self) -> None:
+        self._opt_in(REPORT_TOOLS)
+        created = self.client.post(self._create_url(), self._payload(), format="json").json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/runs/{self.scout_run.id}/report-check-cancel/",
+            {"check_id": created["check_id"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["status"] == "cancelled"
+
+
+class TestEmitReportMetricGoalFields(SimpleTestCase):
+    def _payload(self, **metric_overrides: object) -> dict:
+        metric = {
+            "metric_id": "affected-users",
+            "title": "Affected users",
+            "kind": "affected_users",
+            "role": "primary",
+            "value_format": "count",
+            "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}]),
+            **metric_overrides,
+        }
+        return {
+            "title": "Checkout p99 regressed after 4.2",
+            "summary": "The /checkout endpoint p99 doubled after the 4.2 deploy.",
+            "evidence": [{"description": "p99 doubled on /checkout", "source_id": "obs-1"}],
+            "actionability_explanation": "clear fix in the checkout handler",
+            "actionability": "immediately_actionable",
+            "priority": "P2",
+            "priority_explanation": "Checkout is a revenue path.",
+            "metrics": [metric],
+        }
+
+    @parameterized.expand(
+        [
+            ("goal_value", {"goal_value": 10}),
+            ("goal_direction", {"goal_direction": "at_most"}),
+            ("decision_window_days", {"decision_window_days": 7}),
+            ("minimum_data_points", {"minimum_data_points": 30}),
+        ]
+    )
+    def test_a_metric_goal_is_rejected_although_the_schema_omits_it(self, _name: str, goal: dict) -> None:
+        serializer = EmitReportRequestSerializer(data=self._payload(**goal))
+
+        assert not serializer.is_valid()
+        assert "follow-up checks" in str(serializer.errors["metrics"])
+
+    @parameterized.expand(
+        [("no_goal_fields", {}), ("goal_grain_default_from_an_older_client", {"goal_grain": "whole_window"})]
+    )
+    def test_a_metric_without_a_goal_is_accepted(self, _name: str, extra: dict) -> None:
+        serializer = EmitReportRequestSerializer(data=self._payload(**extra))
+
+        assert serializer.is_valid(), serializer.errors
+        assert "goal_grain" not in serializer.validated_data["metrics"][0]

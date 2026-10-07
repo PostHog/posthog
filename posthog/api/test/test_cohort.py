@@ -34,6 +34,7 @@ from posthog.models.file_system.file_system import FileSystem
 from posthog.models.person.util import get_person_by_id
 from posthog.models.property import BehavioralPropertyType
 from posthog.models.team.team import Team
+from posthog.redis import get_client as get_redis_client
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
     calculate_cohort_from_list,
@@ -45,8 +46,9 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.cohort import Cohort, CohortType
-from products.cohorts.backend.models.dependencies import find_behavioral_cohorts
+from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key, find_behavioral_cohorts
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -193,6 +195,12 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 },
                 "name_length": 8,
                 "deleted": False,
+                "is_static": False,
+                # The legacy `groups` payload leaves `filters` empty, so neither classification
+                # is computed for it.
+                "cohort_type": None,
+                "condition_type": None,
+                "realtime_enabled": False,
             },
             team=ANY,
             request=ANY,
@@ -236,11 +244,61 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 },
                 "name_length": 9,
                 "deleted": False,
+                "is_static": False,
+                "cohort_type": None,
+                "condition_type": None,
+                "realtime_enabled": False,
                 "updated_by_creator": True,
             },
             team=ANY,
             request=ANY,
         )
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cohort_created_reports_realtime_classification(
+        self, patch_calculate_cohort, patch_capture, patch_on_commit
+    ):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "performed an action",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$pageview",
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "events",
+                                        "time_value": 30,
+                                        "time_interval": "day",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        cohort = Cohort.objects.get(id=response.json()["id"])
+        reported = patch_capture.call_args[0][2]
+        self.assertEqual(reported["cohort_type"], cohort.cohort_type)
+        self.assertEqual(reported["cohort_type"], CohortType.REALTIME)
+        self.assertFalse(reported["is_static"])
+        self.assertEqual(
+            reported["condition_type"],
+            {"person_properties": False, "behavioral": True, "lifecycle": False, "cohorts": False},
+        )
+        # Realtime-eligible filters on a team the realtime pipeline does not cover.
+        self.assertFalse(reported["realtime_enabled"])
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
@@ -2023,8 +2081,9 @@ email@example.org,
         # `filters` stays: the feature-flag intent warning reads it off the basic list to flag
         # behavioral cohorts. `is_calculating` drives the 5s repoll and `is_static` drives the
         # static-cohort flag warning — both now read only from the basic payload, so trimming
-        # any of these silently breaks a feature. Guard them here.
-        for kept in ("id", "name", "count", "filters", "is_calculating", "is_static"):
+        # any of these silently breaks a feature. `realtime` feeds the flag picker's cohort rows
+        # and the condition chip. Guard them here.
+        for kept in ("id", "name", "count", "filters", "is_calculating", "is_static", "realtime"):
             self.assertIn(kept, basic)
 
     @patch("posthog.api.cohort.report_user_action")
@@ -2052,6 +2111,87 @@ email@example.org,
         basic_sql = " ".join(q["sql"] for q in basic_ctx.captured_queries)
         self.assertNotIn("posthog_cohortcalculationhistory", basic_sql)
         self.assertNotIn("posthog_experiment", basic_sql)
+
+    @patch("posthog.api.cohort.is_realtime_cohort_flag_targeting_enabled")
+    @patch("posthog.api.cohort.report_user_action")
+    def test_realtime_readiness_is_served_only_where_the_pipeline_runs(self, patch_capture, mock_flag_enabled):
+        # The wiring guard for the derived state: a realtime team in the rollout gets it on both the
+        # list and the detail response, and every other team, and every user outside the rollout,
+        # gets null rather than a state its flags can't read.
+        mock_flag_enabled.return_value = True
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="realtime cohort",
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "behavioral", "key": "$pageview", "event_type": "events", "value": "performed_event"}
+                    ],
+                }
+            },
+        )
+
+        with self.settings(REALTIME_COHORT_TEAM_ALLOWLIST="all"):
+            detail = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()
+            listed = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()["results"][0]
+            # The basic payload is what `cohortsById` is built from, so it is where the flag
+            # picker's rows and the condition link's bolt read the state.
+            basic = self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true").json()["results"][0]
+        self.assertEqual(detail["realtime"]["state"], "needs_attention")
+        self.assertEqual(listed["realtime"]["state"], "needs_attention")
+        self.assertEqual(basic["realtime"]["state"], "needs_attention")
+
+        with self.settings(REALTIME_COHORT_TEAM_ALLOWLIST="none"):
+            detail = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()
+        self.assertIsNone(detail["realtime"])
+
+        mock_flag_enabled.return_value = False
+        with self.settings(REALTIME_COHORT_TEAM_ALLOWLIST="all"):
+            detail = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()
+            listed = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()["results"][0]
+        self.assertIsNone(detail["realtime"])
+        self.assertIsNone(listed["realtime"])
+
+    @patch("posthog.api.cohort.is_realtime_cohort_flag_targeting_enabled")
+    @patch("posthog.api.cohort.report_user_action")
+    def test_realtime_readiness_is_resolved_once_for_a_whole_list_page(self, patch_capture, mock_flag_enabled):
+        # `CohortListSerializer` is the only thing that makes this per page rather than per row, and
+        # dropping it changes no JSON: `get_realtime` falls back to resolving the row on its own. The
+        # flag picker's cohort typeahead hits this endpoint on every keystroke.
+        mock_flag_enabled.return_value = True
+        behavioral_filters = {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {"type": "behavioral", "key": "$pageview", "event_type": "events", "value": "performed_event"}
+                ],
+            }
+        }
+        # Two cohorts mid-build, or per row and per page are the same number. A debounce key is the
+        # cheapest way to put a cohort in that state, with no backfill run to set up.
+        for index in range(2):
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name=f"realtime cohort {index}",
+                cohort_type=CohortType.REALTIME,
+                filters=behavioral_filters,
+            )
+            get_redis_client().set(
+                cohort_backfill_pending_key(cohort.id, CohortBackfillKind.BEHAVIORAL),
+                CohortBackfillTrigger.COHORT_CREATED,
+                ex=300,
+            )
+
+        with self.settings(REALTIME_COHORT_TEAM_ALLOWLIST="all"):
+            with capture_db_queries() as ctx:
+                response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
+
+        self.assertEqual([row["realtime"]["state"] for row in response["results"]], ["building", "building"])
+        # Counting the queries that touch the participation table, not substrings of one joined
+        # string: Django qualifies every selected column with the table name.
+        self.assertEqual(sum("cohort_backfill_run_cohorts" in query["sql"] for query in ctx.captured_queries), 1)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_basic_is_ignored_on_detail_fetch(self, patch_capture):
@@ -2207,7 +2347,7 @@ email@example.org,
             ("realtime_backfilled_flag_off", CohortType.REALTIME, True, False, False),
         ]
     )
-    @patch("products.feature_flags.backend.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
+    @patch("posthog.api.cohort.is_realtime_cohort_flag_targeting_enabled")
     @patch("posthog.api.cohort.report_user_action")
     def test_behavioral_cohort_dropdown_visibility(
         self,
@@ -2264,7 +2404,7 @@ email@example.org,
         else:
             self.assertNotIn(behavioral_cohort.id, result_ids)
 
-    @patch("products.feature_flags.backend.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
+    @patch("posthog.api.cohort.is_realtime_cohort_flag_targeting_enabled")
     @patch("posthog.api.cohort.report_user_action")
     def test_nested_cohort_with_flag_compatible_leaf_visible_when_flag_on(
         self,
@@ -5186,6 +5326,77 @@ email@example.org,
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_config_version_2_flags_use_the_cohorts_their_rules_target(self, patch_calculate_cohort, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+        cohort_property = {"key": "id", "value": cohort_id, "type": "cohort"}
+        # Written past the validator, which does not admit cohort targeting yet.
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "version": 2,
+                "return_type": "boolean",
+                "default_value": False,
+                "rules": [
+                    {
+                        "id": "11111111-1111-4111-8111-111111111111",
+                        "rule_type": "targeted_release",
+                        "targeting": {"properties": [cohort_property]},
+                        "value": True,
+                    }
+                ],
+            },
+            name="Rules flag using cohort",
+            key="rules-flag",
+            created_by=self.user,
+            active=True,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"version": 3, "groups": [{"properties": [cohort_property]}]},
+            name="Unreadable flag",
+            key="unreadable-flag",
+            created_by=self.user,
+            active=True,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([flag["key"] for flag in response.json()["feature_flags"]["results"]], ["rules-flag"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_value": 1,
+                                "time_interval": "day",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                            }
+                        ],
+                    }
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "behavioral_cohort_found")
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}", data={"deleted": True})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("used in 1 active feature flag(s): Rules flag using cohort", response.json()["detail"])
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_active_feature_flag(self, patch_calculate_cohort, patch_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -5803,6 +6014,44 @@ email@example.org,
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNotNone(response.json()["last_error_message"])
         self.assertIn("taking too long", response.json()["last_error_message"].lower())
+
+    @parameterized.expand(
+        [
+            ("dynamic", False, True),
+            ("static", True, False),
+        ]
+    )
+    def test_cohort_last_error_message_promises_a_retry_only_when_one_will_run(
+        self, _name: str, is_static: bool, promises_retry: bool
+    ):
+        from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+        from products.cohorts.backend.models.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            is_static=is_static,
+            errors_calculating=1,
+        )
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            error="The system was busy when this cohort was scheduled to calculate.",
+            error_code=CohortErrorCode.CAPACITY,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        message = response.json()["last_error_message"].lower()
+        self.assertIn("system was busy", message)
+        # The periodic queue excludes static cohorts and the stuck sweeper only matches one still
+        # calculating, so a static cohort must not be told to wait for a retry that never comes.
+        self.assertEqual("automatically retry" in message, promises_retry)
 
     def test_cohort_last_error_message_in_list_view(self):
         """Test that list view includes last_error_message via annotation"""

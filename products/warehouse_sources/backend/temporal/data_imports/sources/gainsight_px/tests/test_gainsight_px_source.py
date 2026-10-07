@@ -25,13 +25,16 @@ class TestGainsightPxSource:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
 
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_every_endpoint_is_full_refresh(self, endpoint):
+    @pytest.mark.parametrize(
+        "endpoint, incremental",
+        [(endpoint, endpoint.endswith("_events") or endpoint == "survey_responses") for endpoint in ENDPOINTS],
+    )
+    def test_only_event_streams_support_incremental(self, endpoint, incremental):
         schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        # No Gainsight PX list endpoint exposes a server-side "updated since" filter, so every
-        # table must be full refresh — advertising incremental would silently corrupt the cursor.
-        assert schema.supports_incremental is False
-        assert schema.supports_append is False
+        # Only the `/events/*` streams and survey responses have a server-side date filter. Advertising
+        # incremental on an entity endpoint would silently corrupt the cursor.
+        assert schema.supports_incremental is incremental
+        assert schema.supports_append is incremental
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_every_endpoint_advertises_a_primary_key(self, endpoint):

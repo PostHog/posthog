@@ -1,4 +1,4 @@
-"""RevOps-curated lists for ICP fit scoring: the container, the loader, and the sheet-export parsers.
+"""Versioned ICP fit scoring policy, curated lists, and sheet-export parsers.
 
 The curated tag buckets and quality-investor names live in versioned IcpScoringConfig rows
 (rails are code; brains are rows — the EnrichmentPromptConfig precedent), so RevOps'
@@ -24,6 +24,8 @@ import dataclasses
 from collections import Counter
 from typing import Any, Optional
 
+from products.growth.backend.enrichment.scoring_rules import ScoringRules, parse_scoring_rules
+
 if typing.TYPE_CHECKING:
     from products.growth.backend.models import IcpScoringConfig
 
@@ -46,7 +48,7 @@ def norm(value: Optional[str]) -> str:
 
 @dataclasses.dataclass(frozen=True)
 class CuratedLists:
-    """The RevOps-curated tag buckets and quality-investor names, pre-normalized via norm().
+    """The scoring policy, normalized tag buckets, and quality-investor names.
 
     Built from the active IcpScoringConfig row; tests construct small synthetic instances
     directly. dq/software_negative are curation metadata carried for auditability — the
@@ -60,13 +62,13 @@ class CuratedLists:
     software_negative: frozenset[str] = frozenset()
     dq: frozenset[str] = frozenset()
     quality_investors: frozenset[str] = frozenset()
+    rules: ScoringRules = dataclasses.field(default_factory=ScoringRules)
 
 
 def build_curated_lists(config: "IcpScoringConfig") -> CuratedLists:
     """Parse one config row's JSON into pre-normalized frozensets.
 
-    Malformed rows are skipped rather than raising: a partially-bad sheet export should
-    degrade to a slightly smaller list, not take down scoring.
+    Malformed list entries are skipped; invalid scoring policies raise a validation error.
     """
     buckets: dict[str, set[str]] = {bucket: set() for bucket in TAG_BUCKETS}
     for row in config.tags if isinstance(config.tags, list) else []:
@@ -95,6 +97,7 @@ def build_curated_lists(config: "IcpScoringConfig") -> CuratedLists:
 
     return CuratedLists(
         version=config.version,
+        rules=parse_scoring_rules(config.scoring_rules),
         capital_quality=frozenset(buckets["capital_quality"]),
         ai_positive=frozenset(buckets["ai_positive"]),
         software_positive=frozenset(buckets["software_positive"]),

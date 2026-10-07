@@ -32,7 +32,7 @@ def _record_unaudited_batch(
     """Error every check in the batch, leaving ``failed_blocking`` at zero so a gate publishes."""
     errored = 0
     for check in checks:
-        record_unrunnable_check(check, suite_run, team, STAGED_FILES_UNREADABLE)
+        record_unrunnable_check(check, suite_run, team, STAGED_FILES_UNREADABLE, audited_staged_refresh=True)
         errored += 1
     LOGGER.warning("Could not audit staged files", suite_run_id=str(suite_run.id), checks=errored)
     return BatchOutcome(errored=errored)
@@ -61,7 +61,6 @@ def _run_batch(inputs: RunCheckBatchInputs) -> BatchOutcome:
 
     counts: Counter[str] = Counter()
     failed_blocking = 0
-    newly_failing: list[str] = []
     for check in checks:
         # run_check records a compile or query failure as an errored run rather than raising: one
         # broken check must not fail the activity and take its whole batch down with it.
@@ -69,8 +68,6 @@ def _run_batch(inputs: RunCheckBatchInputs) -> BatchOutcome:
         counts[result.status] += 1
         if result.status is CheckRunStatus.FAILED and check.severity == CheckSeverity.ERROR:
             failed_blocking += 1
-        if result.became_failing:
-            newly_failing.append(str(check.id))
 
     LOGGER.info("Ran check batch", suite_run_id=inputs.suite_run_id, checks=len(inputs.check_ids))
     return BatchOutcome(
@@ -79,5 +76,4 @@ def _run_batch(inputs: RunCheckBatchInputs) -> BatchOutcome:
         errored=counts[CheckRunStatus.ERRORED],
         skipped=counts[CheckRunStatus.SKIPPED],
         failed_blocking=failed_blocking,
-        newly_failing_check_ids=newly_failing,
     )

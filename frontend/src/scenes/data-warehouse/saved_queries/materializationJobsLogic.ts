@@ -20,8 +20,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
-import { DataModelingSyncInterval, DataWarehouseSavedQuery, DataWarehouseSavedQueryIncrementalCheck } from '~/types'
+import type { DataWarehouseSavedQuery } from '~/types'
+import { DataModelingSyncInterval, DataWarehouseSavedQueryIncrementalCheck } from '~/types'
 
 import { dataModelingJobsList, warehouseSavedQueriesResumeCreate } from 'products/data_warehouse/frontend/generated/api'
 import type { PaginatedDataModelingJobListApi } from 'products/data_warehouse/frontend/generated/api.schemas'
@@ -85,12 +87,13 @@ export interface materializationJobsLogicActions {
         errorObject?: any
     } // dataWarehouseViewsLogic
     deleteDataWarehouseSavedQuerySuccess: (
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?: string | undefined
     ) => {
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: string
     } // dataWarehouseViewsLogic
+    loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
     materializationChanged: (viewId: string) => {
         viewId: string
     } // dataWarehouseViewsLogic
@@ -101,17 +104,19 @@ export interface materializationJobsLogicActions {
         viewId: string
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuery: (
-        view: import('./dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
-    ) => import('./dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
+        view: import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+    ) => import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
     updateDataWarehouseSavedQueryFailed: (viewId: string) => {
         viewId: string
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
-        payload?: import('./dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate | undefined
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
+        payload?:
+            | import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+            | undefined
     ) => {
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
-        payload?: import('./dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
+        payload?: import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
     clearSyncFrequencyDraft: () => {
         value: true
@@ -289,6 +294,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 'deleteDataWarehouseSavedQuery',
                 'deleteDataWarehouseSavedQuerySuccess',
                 'deleteDataWarehouseSavedQueryFailure',
+                'loadDataWarehouseSavedQueries',
             ],
         ],
     })),
@@ -671,6 +677,8 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 lemonToast.success('Materialization resumed. The next scheduled run will include this view.')
                 actions.loadSavedQuery()
                 actions.loadDataModelingJobs()
+                // The SQL editor sidebar reads suspension from the view list, not from this view's record.
+                actions.loadDataWarehouseSavedQueries()
             } catch {
                 lemonToast.error(
                     "Couldn't resume materialization. Try again, and contact support if it keeps happening."
@@ -723,7 +731,16 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             if (!dataModelingJobs.results.some((job) => job.status === 'Completed')) {
                 actions.loadLatestCompletedJob()
             }
-            const active = values.startingMaterialization || values.dataModelingJobs?.results[0]?.status === 'Running'
+            // The SQL editor sidebar reads run status from the view list, so reload it once when a run ends.
+            // Compare the newest run's id and status, because a run can start and end between idle polls.
+            const newestJob = dataModelingJobs.results[0]
+            const running = newestJob?.status === 'Running'
+            const newestJobState = newestJob ? `${newestJob.id}:${newestJob.status}` : null
+            if (cache.newestJobState !== undefined && cache.newestJobState !== newestJobState && !running) {
+                actions.loadDataWarehouseSavedQueries()
+            }
+            cache.newestJobState = newestJobState
+            const active = values.startingMaterialization || running
             actions.scheduleJobsRefresh(active ? ACTIVE_REFRESH_INTERVAL_MS : IDLE_REFRESH_INTERVAL_MS)
         },
     })),

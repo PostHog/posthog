@@ -1,8 +1,8 @@
 // Wire-protocol constants for the agent-proxy Redis stream plane.
 //
 // Every value here must stay byte-identical to the Python implementation in
-// products/tasks/backend/stream/redis_stream.py and
-// products/tasks/backend/services/sandbox_config.py — Django and this Node
+// products/tasks/backend/logic/stream/redis_stream.py and
+// products/tasks/backend/logic/services/sandbox_config.py — Django and this Node
 // service share the SAME Redis stream during the cutover window.
 
 // SANDBOX_TTL_SECONDS from sandbox_config.py (production value only; the TEST
@@ -30,6 +30,7 @@ export const STREAM_THIN_MAX_LENGTH = 500
 
 // XREAD tuning
 export const READ_COUNT = 16
+export const STREAM_CURSOR_RECHECK_STALL_MS = 2_000
 export const BLOCK_MS = 100
 
 // wait_for_stream linear backoff (mirrors Python constants, converted to ms)
@@ -112,6 +113,7 @@ export const SSE_EVENT_ERROR = 'error'
 export const SSE_PAYLOAD_KEEPALIVE: Record<string, string> = { type: 'keepalive' }
 export const SSE_PAYLOAD_STREAM_END: Record<string, string> = { status: 'complete' }
 export const SSE_PAYLOAD_ROTATED: Record<string, string> = { type: 'rotated' }
+export const SSE_PAYLOAD_RESYNC: Record<string, string> = { type: 'resync', reason: 'trimmed' }
 
 export function makeSseErrorPayload(error: string): Record<string, string> {
     return { error }

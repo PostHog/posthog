@@ -12,9 +12,19 @@ from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
-@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
-@pytest.mark.parametrize(("file_format", "compression"), SUPPORTED_FILE_FORMAT_COMPRESSIONS, indirect=True)
-@pytest.mark.parametrize("model", TEST_AZURE_BLOB_MODELS)
+@pytest.mark.parametrize(
+    ("model", "file_format", "compression", "interval"),
+    [
+        (model, file_format, compression, "hour")
+        for model in TEST_AZURE_BLOB_MODELS
+        for file_format, compression in SUPPORTED_FILE_FORMAT_COMPRESSIONS
+    ]
+    + [
+        (TEST_AZURE_BLOB_MODELS[index % len(TEST_AZURE_BLOB_MODELS)], file_format, compression, "day")
+        for index, (file_format, compression) in enumerate(SUPPORTED_FILE_FORMAT_COMPRESSIONS)
+    ],
+    indirect=["file_format", "compression", "interval"],
+)
 async def test_workflow_exports_model_successfully(
     ateam,
     azure_batch_export,
@@ -63,6 +73,45 @@ async def test_workflow_exports_model_successfully(
         compression=compression,
         file_format=file_format,
     )
+
+
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize("file_format", ["Parquet"], indirect=True)
+@pytest.mark.parametrize("compression", ["zstd"], indirect=True)
+@pytest.mark.parametrize(("legacy_parquet_extension", "expected_suffix"), [(True, ".parquet.zst"), (False, ".parquet")])
+async def test_workflow_names_parquet_blobs_by_the_extension_setting(
+    ateam,
+    azure_batch_export,
+    azurite_container,
+    container_name,
+    blob_prefix,
+    interval,
+    file_format,
+    compression,
+    data_interval_end,
+    generate_test_data,
+    legacy_parquet_extension,
+    expected_suffix,
+):
+    run = await run_azure_blob_batch_export_workflow(
+        team=ateam,
+        batch_export_id=str(azure_batch_export.id),
+        container_name=container_name,
+        prefix=blob_prefix,
+        interval=interval,
+        data_interval_end=data_interval_end,
+        integration_id=azure_batch_export.destination.integration.id,
+        file_format=file_format,
+        compression=compression,
+        batch_export_model=BatchExportModel(name="events", schema=None),
+        legacy_parquet_extension=legacy_parquet_extension,
+    )
+
+    assert run.status == "Completed"
+
+    blobs = [name for name in await list_blobs(azurite_container, blob_prefix) if not name.endswith("manifest.json")]
+    assert blobs
+    assert all(name.endswith(expected_suffix) for name in blobs), blobs
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)

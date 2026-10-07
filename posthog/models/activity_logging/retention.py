@@ -81,7 +81,13 @@ def activity_log_retention_start_for_team(team: Optional["Team"], team_id: Optio
     if team is None:
         if team_id is None:
             return None
-        team = Team.objects.filter(id=team_id).select_related("organization").first()
+        team = (
+            Team.objects.filter(id=team_id)
+            .select_related("organization")
+            # `_lookback_window` reads the entitlement array and the id, so skip the rest of both rows.
+            .only("id", "organization_id", "organization__id", "organization__available_product_features")
+            .first()
+        )
         if team is None:
             return None
 

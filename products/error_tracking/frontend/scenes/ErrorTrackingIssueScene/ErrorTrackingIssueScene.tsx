@@ -41,6 +41,8 @@ import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsL
 import { getEventMarkerColor } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
+import { manageFingerprintsLogic } from '../../components/FingerprintPreview/manageFingerprintsLogic'
+import { ManageFingerprintsModal } from '../../components/FingerprintPreview/ManageFingerprintsModal'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import {
     ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY,
@@ -75,7 +77,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const isMobile = isWindowLessThan('md')
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
-    const visionCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_ERROR_TRACKING')
 
     // Jump to the session replay list filtered to this issue. Captured so we can measure how often
     // people watch recordings themselves, the baseline the Replay vision cross-sell is weighed against.
@@ -83,7 +84,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     // all three cross-product entry points compare in one breakdown.
     const openRecordings = useCallback(
         (source: 'header' | 'menubar'): void => {
-            posthog.capture('viewed recordings from error tracking', { issue_id: issueId, source })
+            posthog.capture('viewed recordings from error tracking', { issue_id: issueId, ui_source: source })
             newInternalTab(
                 urls.replay(ReplayTabs.Home, {
                     ...getIssueReplayDateRange(
@@ -150,19 +151,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     <SceneMenuBar>
                                         <SceneMenuBarMenu label="File" dataAttr="issue-menubar-file">
                                             <SceneMenuBarFileItems dataAttrKey="issue" />
-                                            {hasIssueSplitting && (
-                                                <SceneMenuBarItem
-                                                    onClick={() =>
-                                                        window.open(
-                                                            urls.errorTrackingIssueFingerprints(issue.id),
-                                                            '_self'
-                                                        )
-                                                    }
-                                                    data-attr="issue-menubar-fingerprints"
-                                                >
-                                                    Manage fingerprints
-                                                </SceneMenuBarItem>
-                                            )}
+                                            {hasIssueSplitting && <ManageFingerprintsMenuItem issueId={issueId} />}
                                         </SceneMenuBarMenu>
                                         <SceneMenuBarMenu label="View" dataAttr="issue-menubar-view">
                                             <SceneMenuBarItem
@@ -172,7 +161,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 <IconRewindPlay />
                                                 View recordings
                                             </SceneMenuBarItem>
-                                            {visionCrossSellEnabled && (
+                                            {issue.name && (
                                                 <SceneMenuBarItem
                                                     onClick={setUpVisionScanner}
                                                     data-attr="issue-menubar-scan-with-vision"
@@ -217,7 +206,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         disabled={issue.status != 'active'}
                                                     />
                                                 </ButtonGroup>
-                                                {visionCrossSellEnabled ? (
+                                                {issue.name ? (
                                                     <ButtonGroup>
                                                         <Button
                                                             variant="outline"
@@ -303,6 +292,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                 )}
 
                                 <ErrorTrackingIssueScenePanel issue={issue} />
+                                {hasIssueSplitting && <ManageFingerprintsModal issueId={issueId} />}
 
                                 <div className="ErrorTrackingIssue flex flex-grow min-h-0 overflow-hidden">
                                     <div className="relative flex flex-1 h-full w-full min-h-0">
@@ -407,5 +397,14 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
 
             {!isMobile && <Resizer {...resizerLogicProps} />}
         </div>
+    )
+}
+
+function ManageFingerprintsMenuItem({ issueId }: { issueId: string }): JSX.Element {
+    const { openManage } = useActions(manageFingerprintsLogic({ issueId }))
+    return (
+        <SceneMenuBarItem onClick={openManage} data-attr="issue-menubar-fingerprints">
+            Manage fingerprints
+        </SceneMenuBarItem>
     )
 }

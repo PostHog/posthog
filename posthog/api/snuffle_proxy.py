@@ -10,6 +10,8 @@ HTTP Basic auth and never exposed to the API caller.
 
 import re
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import ClassVar
 
 from django.conf import settings
@@ -24,12 +26,26 @@ from rest_framework.parsers import FormParser
 from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api_queries_budget import debit
+from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled, get_api_queries_budget_status
+from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.security.outbound_proxy import internal_requests
 
 logger = structlog.get_logger(__name__)
 
+# This private-alpha flag gates all Snuffle proxy endpoints.
+# New subclasses use the flag by default.
+SNUFFLE_API_FEATURE_FLAG = "logs-metrics-snuffle-api"
+
 TEAM_ID_HEADER = "X-Team-ID"
+SNUFFLE_READ_BYTES_HEADER = "X-Snuffle-ClickHouse-Read-Bytes"
+# Debit outside the response-critical path. The bound limits work retained in a web process if
+# Redis is slow or unavailable; a skipped debit is safe because the budget deliberately fails open.
+SNUFFLE_BUDGET_DEBIT_MAX_PENDING = 8
+_snuffle_budget_debit_slots = threading.BoundedSemaphore(SNUFFLE_BUDGET_DEBIT_MAX_PENDING)
+_snuffle_budget_debit_executor: ThreadPoolExecutor | None = None
+_snuffle_budget_debit_executor_lock = threading.Lock()
 # Snuffle also accepts the tenant as a `team_id` parameter, with lower precedence than the header;
 # strip it so the forwarded request only ever names the team from the URL. PostHog accepts the
 # caller's personal API key as a parameter too, and that must never leave PostHog.
@@ -50,6 +66,54 @@ def _error_response(status_code: int, error_type: str, message: str) -> HttpResp
     )
 
 
+def _read_bytes_from(upstream: requests.Response) -> int | None:
+    """Read the total ClickHouse bytes that Snuffle reports for this request.
+
+    A missing or malformed header means an older or unhealthy upstream. Metering
+    must fail open in that case, like the shared query budget does.
+    """
+    value = upstream.headers.get(SNUFFLE_READ_BYTES_HEADER)
+    if value is None:
+        return None
+    try:
+        bytes_read = int(value)
+    except (TypeError, ValueError):
+        logger.warning("snuffle_proxy_invalid_read_bytes", value=value)
+        return None
+    return bytes_read if bytes_read >= 0 else None
+
+
+def _get_snuffle_budget_debit_executor() -> ThreadPoolExecutor:
+    # Start the threads in the serving worker rather than in a pre-fork parent process.
+    global _snuffle_budget_debit_executor
+    if _snuffle_budget_debit_executor is None:
+        with _snuffle_budget_debit_executor_lock:
+            if _snuffle_budget_debit_executor is None:
+                _snuffle_budget_debit_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="snuffle-budget")
+    return _snuffle_budget_debit_executor
+
+
+def schedule_snuffle_budget_debit(team_id: str, bytes_read: int) -> None:
+    """Debit the query budget without delaying a completed Snuffle response."""
+    if not _snuffle_budget_debit_slots.acquire(blocking=False):
+        logger.warning("snuffle_proxy_budget_debit_skipped", team_id=team_id, reason="saturated")
+        return
+
+    def _debit() -> None:
+        try:
+            debit(team_id, bytes_read)
+        except Exception:
+            logger.exception("snuffle_proxy_budget_debit_failed", team_id=team_id)
+        finally:
+            _snuffle_budget_debit_slots.release()
+
+    try:
+        _get_snuffle_budget_debit_executor().submit(_debit)
+    except Exception:
+        _snuffle_budget_debit_slots.release()
+        logger.exception("snuffle_proxy_budget_debit_submit_failed", team_id=team_id)
+
+
 class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Base for the team-scoped Prometheus- and Loki-compatible query endpoints.
 
@@ -63,9 +127,23 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     allowed_paths: ClassVar[tuple[re.Pattern[str], ...]]
 
     scope_object_read_actions = ["proxy"]
+    posthog_feature_flag = SNUFFLE_API_FEATURE_FLAG
+    permission_classes = [PostHogFeatureFlagPermission]
     # The Prometheus and Loki APIs take POST bodies as form fields, the same shape as the query string.
     parser_classes = [FormParser]
+    # Kept as a fallback until the upstream version that reports read bytes is deployed.
+    # The byte-budget flag removes these request-count limits before the proxy action runs.
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+
+    def _is_api_queries_budget_enforced(self) -> bool:
+        if not hasattr(self, "_api_queries_budget_enforced"):
+            self._api_queries_budget_enforced = api_queries_budget_enforcement_enabled(self.team)
+        return self._api_queries_budget_enforced
+
+    def get_throttles(self):
+        if self._is_api_queries_budget_enforced():
+            return []
+        return super().get_throttles()
 
     @extend_schema(exclude=True)
     @action(detail=False, methods=["GET", "POST"], url_path=r"api/v1/(?P<path>[A-Za-z0-9_./-]+)")
@@ -83,6 +161,17 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
 
         team_id = self.team_id
+        enforcement_enabled = self._is_api_queries_budget_enforced()
+        budget_status = get_api_queries_budget_status(self.team) if enforcement_enabled else None
+        if budget_status is not None and budget_status.remaining_bytes <= 0:
+            response = _error_response(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "rate_limited",
+                "ClickHouse query byte budget exhausted. Try again later.",
+            )
+            response["Retry-After"] = str(budget_status.retry_after_seconds)
+            return response
+
         method = request.method or "GET"
         url = f"{base_url.rstrip('/')}{self.upstream_prefix}/{path}"
         params = _forwardable(request.query_params)
@@ -115,8 +204,13 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if upstream.status_code >= 500:
             logger.warning("snuffle_proxy_upstream_error", team_id=team_id, path=path, status=upstream.status_code)
 
-        return HttpResponse(
+        response = HttpResponse(
             upstream.content,
             status=upstream.status_code,
             content_type=upstream.headers.get("Content-Type", "application/json"),
         )
+        bytes_read = _read_bytes_from(upstream)
+        if bytes_read is not None:
+            schedule_snuffle_budget_debit(str(team_id), bytes_read)
+            response["X-PostHog-Query-Bytes-Read"] = str(bytes_read)
+        return response

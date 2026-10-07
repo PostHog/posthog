@@ -16,6 +16,7 @@ export interface AccountPropertyConfiguratorProps {
     onSave: (pinnedPropertyKeys: string[]) => void
     onCancel: () => void
     saveDisabledReason?: string
+    title?: string
 }
 
 export function AccountPropertyConfigurator({
@@ -27,6 +28,7 @@ export function AccountPropertyConfigurator({
     onSave,
     onCancel,
     saveDisabledReason,
+    title = 'Pin properties',
 }: AccountPropertyConfiguratorProps): JSX.Element {
     const optionsByKey = new Map(options.map((option) => [option.key, option]))
     const selectedOptions = pinnedPropertyKeys.map(
@@ -62,7 +64,7 @@ export function AccountPropertyConfigurator({
     return (
         <LemonModal
             isOpen={isOpen}
-            title="Pin properties"
+            title={title}
             onClose={onCancel}
             footer={
                 <>

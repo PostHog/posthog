@@ -105,6 +105,8 @@ MAX_BODY_BYTES = 16 * 1024
 # cached on the instance, so a module-level singleton avoids re-deriving on every request.
 _encrypted_fields = EncryptedFieldMixin()
 
+DEVICE_SUBSCRIPTION_PREFIX = "$device_push_subscription_"
+
 
 # Verification-mode precedence. An app_id can match more than one integration — config identifiers
 # (project_id / bundle_id) aren't covered by a uniqueness constraint — so mode resolution must fail
@@ -205,6 +207,23 @@ def _parse_user_agent_sdk(request: Request) -> _SdkIdentity:
     if not version:
         return _SdkIdentity()
     return _SdkIdentity(name=name[:64], version=version.split()[0][:32])
+
+
+def device_subscription_key(app_id: str, device_token: str) -> str:
+    """Person property key holding one device's push token.
+
+    Naming the device in the key is what lets a person hold several devices on one app; a key on the
+    app alone holds one token, and a second device on the same platform replaces the first.
+
+    The device part is a digest of the token rather than a client-supplied id, so an SDK already in
+    the field lands on the right key without shipping a new build. A device that keeps its token
+    re-registers onto the same key. A device whose token rotates lands on a new key, and the provider
+    reports the old one unregistered on the next send, which prunes it.
+
+    A colon separates the two parts. Neither a Firebase project id nor an APNs bundle id can contain
+    one, so the app part of an existing key can never be read as an app plus a device.
+    """
+    return f"{DEVICE_SUBSCRIPTION_PREFIX}{app_id}:{hashlib.sha256(device_token.encode()).hexdigest()[:16]}"
 
 
 def _api_key_fingerprint(api_key: str) -> str:
@@ -404,6 +423,15 @@ def push_subscriptions(request: Request):
                     "distinct_id": distinct_id,
                     "stored": False,
                     "push_enabled": False,
+                    # The status code cannot say this: a 4xx would make every SDK retry on every app
+                    # open. Without a reason in the body, a developer whose token goes nowhere sees a
+                    # success and has no way to tell the difference from a working registration.
+                    "reason": "no_push_channel_for_app_id",
+                    "detail": (
+                        f"This project has no push channel for app_id '{app_id}'. The device token was "
+                        "not stored. Add a push channel whose Firebase project id or APNs bundle id "
+                        "matches this app_id, and check the project the SDK is sending to."
+                    ),
                 },
                 status=status.HTTP_200_OK,
             ),
@@ -413,13 +441,12 @@ def push_subscriptions(request: Request):
     verification_mode = _strictest_verification_mode(integrations)
     if verification_mode in ("optional", "required"):
         identity_token = data.get("identity_token")
-        # Public keys can live on more than one matching integration; try them all (verify picks the
-        # one that validates, then falls back to the legacy shared secret).
+        # Public keys can live on more than one matching integration; try them all.
         public_keys = [
             key for integration in integrations for key in (integration.config.get("push_identity_public_keys") or [])
         ]
         verified = isinstance(identity_token, str) and verify_push_identity_token(
-            identity_token, team, distinct_id, app_id, public_keys=public_keys
+            identity_token, distinct_id, app_id, public_keys=public_keys
         )
         PUSH_IDENTITY_VERIFICATION_COUNTER.labels(
             mode=verification_mode,
@@ -439,17 +466,21 @@ def push_subscriptions(request: Request):
                 app_id=app_id,
             )
 
-    property_key = f"$device_push_subscription_{app_id}"
+    property_key = device_subscription_key(app_id, device_token)
+    # The app-wide key holds a single device for the whole app. A device is reachable there until it
+    # next registers, and the send path reads it, so one stored that way stays addressable.
+    legacy_property_key = f"{DEVICE_SUBSCRIPTION_PREFIX}{app_id}"
 
-    # $unset of an absent property is a no-op, so DELETE (logout) is idempotent. device_token is
-    # required for a symmetric contract but isn't matched against the stored value: logout clears
-    # this app_id's subscription regardless of which token the client last held.
+    # $unset of an absent property is a no-op, so DELETE (logout) is idempotent.
     properties: dict[str, dict[str, str] | list[str]]
     if request.method == "POST":
         properties = {"$set": {property_key: _encrypted_fields.encrypt(device_token)}}
         failure_message = "Failed to store push subscription."
     else:
-        properties = {"$unset": [property_key]}
+        # The legacy key goes with it. One device cannot tell whether that key holds its own token or
+        # another device's, so logout clears it as it always did rather than leaving a token behind
+        # that nothing can attribute.
+        properties = {"$unset": [property_key, legacy_property_key]}
         failure_message = "Failed to remove push subscription."
 
     try:

@@ -24,7 +24,7 @@ pool as the default user, which is what has always served these frames. ClickHou
 `priority` is deliberately not set: every other query runs at priority 0 (unprioritized),
 so a nonzero value here would participate in a scheduling class of one.
 
-That same flag also hands the object write to ClickHouse (phase 2 of the design doc): it
+That same flag also hands the object write to ClickHouse: it
 issues `INSERT INTO FUNCTION s3(...)` through the pooled native clients (sync_execute), so
 zero result bytes transit the worker, errors arrive in-band and typed, and the streaming
 path's EOS-marker check and query_log recovery are unnecessary. One flag carries both
@@ -64,6 +64,7 @@ from posthog.clickhouse.client.connection import (
     ClickHouseUser,
     get_clickhouse_creds,
     get_kwargs_for_client,
+    is_file_backed_user,
     make_ch_pool,
 )
 from posthog.clickhouse.client.execute import kill_switch_overrides
@@ -611,7 +612,7 @@ def _frame_s3_url(key: str) -> str:
 
 
 def _insert_into_s3_sql(printed_sql: str, key: str) -> tuple[str, dict[str, object]]:
-    """Wrap the printed SELECT in the CH-side object write (design doc phase 2).
+    """Wrap the printed SELECT in the CH-side object write.
 
     The s3() endpoint/bucket/key and any credentials are bound as query parameters, not
     spliced as literals: sync_execute runs one `%`-substitution pass over the whole
@@ -645,13 +646,26 @@ def _bounded_offline_client(team_id: int) -> AbstractContextManager:
     thread. Route through a dedicated pool that shares the offline-host + notebooks-user
     routing but caps the socket timeout just above max_execution_time. `make_ch_pool` is
     cached, so this is one extra pool per (offline, notebooks) combination, not per call.
-    (Note: sync_execute enters the client as its own context manager and disconnects it on
-    exit, so connections aren't kept warm across calls — the pool's value here is the bounded
-    timeout, not connection reuse. Negligible at this path's volume: one reconnect per
-    materialization, dwarfed by the INSERT itself.)
+    sync_execute enters the client as its own context manager and disconnects it on exit,
+    so connections aren't kept warm across calls. The pool's value here is the bounded
+    timeout, not connection reuse. This costs one reconnect per materialization, which is
+    dwarfed by the INSERT itself.
+
+    Mirror the file-backed branch of `get_pool` so a token-authenticated notebooks user
+    stays token-aware. Without `credential_provider` the pool binds with the static
+    password and never picks up a rotated token.
     """
     kwargs = get_kwargs_for_client(workload=Workload.OFFLINE, team_id=team_id, ch_user=ClickHouseUser.NOTEBOOKS)
-    pool = make_ch_pool(send_receive_timeout=_INSERT_SEND_RECEIVE_TIMEOUT_SECONDS, **kwargs)
+    creds = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS)
+    if is_file_backed_user(creds, Workload.OFFLINE, kwargs.get("user")):
+        kwargs.pop("password", None)
+        pool = make_ch_pool(
+            send_receive_timeout=_INSERT_SEND_RECEIVE_TIMEOUT_SECONDS,
+            credential_provider=creds.read_password,
+            **kwargs,
+        )
+    else:
+        pool = make_ch_pool(send_receive_timeout=_INSERT_SEND_RECEIVE_TIMEOUT_SECONDS, **kwargs)
     return pool.get_client()
 
 

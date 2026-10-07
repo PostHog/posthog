@@ -3,13 +3,12 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
-from django.db.models import Model, OuterRef, Prefetch, Subquery, TextField
-from django.db.models.functions import Cast
+from django.db.models import Model, Prefetch
 
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
@@ -17,17 +16,24 @@ from rest_framework.response import Response
 
 from posthog.hogql.database.database import Database
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
-from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.data_modeling.backend.facade.api import (
+    MaterializationFailedError,
+    MaterializationForbiddenError,
+    MaterializationRefusedError,
+    SavedQueryNotFoundError,
+    enable_saved_query_materialization,
+)
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
@@ -40,6 +46,22 @@ logger = structlog.get_logger(__name__)
 class _CancelTarget:
     workflow_id: str
     workflow_run_id: str | None
+
+
+HAS_DEPENDENTS_CODE = "has_dependents"
+
+
+class DependentsValidationError(serializers.ValidationError):
+    """A refused delete, carrying the blocked view's node id for a link to its lineage.
+
+    exceptions_hog renders only str, list, or {field: message} details, so the id travels on
+    `extra`, which the handler attaches to the response verbatim.
+    """
+
+    def __init__(self, detail: str, node_id: str | None = None) -> None:
+        super().__init__(detail, code=HAS_DEPENDENTS_CODE)
+        if node_id:
+            self.extra = {"node_id": node_id}
 
 
 class DataWarehouseSavedQueryPagination(PageNumberPagination):
@@ -90,6 +112,13 @@ class SavedQueryMaterializeSerializer(serializers.Serializer):
     )
 
 
+class SavedQueryListQuerySerializer(serializers.Serializer):
+    include_columns = serializers.BooleanField(
+        default=True,
+        help_text="Include column definitions. Set to false for table-only lists.",
+    )
+
+
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -102,9 +131,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
+    _include_columns: bool = True
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
+        context["include_columns"] = self._include_columns
+        context["report_view_actions"] = self.action in {"create", "update", "partial_update"}
         request_data = getattr(self.request, "data", {})
         # Read actions stay out: building a database selects every view in the team, SQL body
         # included, and neither serializer reads it. Only the write paths below do, to check a
@@ -116,6 +148,14 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         if should_include_database:
             context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         return context
+
+    @validated_request(
+        query_serializer=SavedQueryListQuerySerializer,
+        responses={200: OpenApiResponse(response=view_state.DataWarehouseSavedQueryMinimalSerializer(many=True))},
+    )
+    def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        self._include_columns = request.validated_query_data["include_columns"]
+        return super().list(request, *args, **kwargs)
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -152,6 +192,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 "query", "external_tables", "incremental_state"
             )
 
+        if self.action == "list" and not self._include_columns:
+            base_queryset = base_queryset.defer("columns")
+
         # Detect whether we should include managed views in the queryset
         is_managed_viewset_enabled = posthoganalytics.feature_enabled(
             "managed-viewsets",
@@ -174,31 +217,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         if not is_managed_viewset_enabled:
             base_queryset = base_queryset.filter(managed_viewset__isnull=True)
 
-        # Only the detail serializer returns `latest_history_id`, and the subquery costs a jsonb
-        # key-path filter the GIN index on `detail` cannot serve, so keep it off the list page.
-        if getattr(self, "action", None) == "retrieve":
-            # Scoped to query edits (see QUERY_CHANGE_ACTIVITY_FILTER) so materialization syncs
-            # don't advance the head.
-            latest_activity = (
-                ActivityLog.objects.filter(
-                    scope="DataWarehouseSavedQuery",
-                    item_id=Cast(OuterRef("id"), output_field=TextField()),
-                    team_id=self.team_id,
-                    **editing.QUERY_CHANGE_ACTIVITY_FILTER,
-                )
-                .order_by("-created_at")
-                .values("id")[:1]
-            )
-
-            return base_queryset.annotate(latest_activity_id=Subquery(latest_activity))
-
         return base_queryset
 
     def create(self, request, *args, **kwargs):
         # Check for UPSERT logic
-        saved_query = DataWarehouseSavedQuery.objects.filter(
-            team_id=self.team_id, name=request.data.get("name")
-        ).first()
+        saved_query = (
+            DataWarehouseSavedQuery.objects.exclude(deleted=True)
+            .filter(team_id=self.team_id, name=request.data.get("name"))
+            .first()
+        )
         if saved_query:
             # The UPSERT branch updates an existing row without going through get_object(),
             # so run object-level permission checks explicitly to honor per-object access controls.
@@ -215,15 +242,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        from products.data_modeling.backend.facade.api import HasDependentsError
+        from products.data_modeling.backend.facade.api import HasDependentsError, describe_dependents
 
         instance: DataWarehouseSavedQuery = self.get_object()
         name = instance.name
         try:
             lifecycle.delete_saved_query(instance)
-        except HasDependentsError:
-            raise serializers.ValidationError(
-                "Cannot delete this view because other views depend on it. Delete or update those views first."
+        except HasDependentsError as dependents_error:
+            visible = lifecycle.visible_dependents(dependents_error.dependents, self.user_access_control)
+            raise DependentsValidationError(
+                describe_dependents(name, visible, any_hidden=len(visible) < len(dependents_error.dependents)),
+                node_id=lifecycle.refusal_node_id(dependents_error, visible, self.user_access_control),
             )
 
         log_activity(
@@ -403,104 +432,30 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
 
-        if saved_query.managed_viewset is not None:
-            raise serializers.ValidationError("Cannot materialize a query from a managed viewset.")
-
-        assert_user_can_read_query(saved_query.query, self.team_id, cast(User, request.user))
-
         params = SavedQueryMaterializeSerializer(data=request.data)
         params.is_valid(raise_exception=True)
-        sync_frequency_interval = sync_frequency_to_sync_frequency_interval(params.validated_data["sync_frequency"])
 
-        from products.data_modeling.backend.facade.api import (
-            UnsatisfiableFrequencyError,
-            UnsupportedFrequencyTargetError,
-            check_saved_query_frequency_target,
-            saved_query_target_bounds,
-        )
-
-        if sync_frequency_interval is not None:
-            # Ask before writing, so the ordinary refusal never has to be undone below. Names only
-            # what this caller may read, matching the bounds payload — otherwise one rejected
-            # materialize reads back a node they were never shown.
-            bounds = saved_query_target_bounds(self.team_id, saved_query.pk)
-            try:
-                check_saved_query_frequency_target(
-                    saved_query,
-                    sync_frequency_interval,
-                    visible_names=(
-                        sync_cadence.visible_blocker_names(bounds, self.user_access_control, team_id=self.team_id)
-                        if bounds
-                        else {}
-                    ),
-                )
-            except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
-                raise serializers.ValidationError(str(e))
-
-        previous_interval = saved_query.sync_frequency_interval
-        previously_materialized = saved_query.is_materialized
-
-        saved_query.sync_frequency_interval = sync_frequency_interval
-        saved_query.is_materialized = True
-        saved_query.save(update_fields=["sync_frequency_interval", "is_materialized"])
-
-        # Enable materialization - this handles model path setup and schedule creation
-        # If this fails, it will set is_materialized = False
         try:
-            saved_query.schedule_materialization(trigger_immediate_run=True, triggered_by_id=request.user.pk)
-        except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
-            # The check above already refused every cadence the lineage forbids, so reaching here
-            # means the lineage moved mid-request. Say so plainly rather than forwarding a message
-            # built from unredacted names. `schedule_materialization` re-raises these without
-            # applying its disable-on-failure contract, and this action is not inside an atomic
-            # block, so undo the enable by hand: otherwise the 400 leaves is_materialized=True
-            # behind and the UI reads the rejection as a success.
-            saved_query.sync_frequency_interval = previous_interval
-            saved_query.is_materialized = previously_materialized
-            saved_query.save(update_fields=["sync_frequency_interval", "is_materialized"])
-            raise serializers.ValidationError(
-                "This view's lineage changed while we were setting it up. Reopen it and pick a cadence again."
+            enable_saved_query_materialization(
+                self.team_id,
+                saved_query.id,
+                user=cast(User, request.user),
+                sync_frequency_interval=sync_frequency_to_sync_frequency_interval(
+                    params.validated_data["sync_frequency"]
+                ),
+                visible_blocker_names=lambda bounds: sync_cadence.visible_blocker_names(
+                    bounds, self.user_access_control, team_id=self.team_id
+                ),
+                was_impersonated=is_impersonated(request),
             )
-
-        # Refresh from DB to check if schedule_materialization set is_materialized = False on failure
-        saved_query.refresh_from_db()
-        if saved_query.is_materialized is False:
-            return response.Response(
-                {"error": "Materialization failed. Please try again or contact support."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        # set data modeling node type to matview
-        try:
-            from products.data_modeling.backend.facade.api import update_node_type
-            from products.data_modeling.backend.facade.models import NodeType
-
-            update_node_type(saved_query, NodeType.MAT_VIEW)
-        except Exception as e:
-            capture_exception(e)
-            logger.exception("Failed to update node type to matview", saved_query_name=saved_query.name)
-
-        log_activity(
-            organization_id=self.team.organization_id,
-            team_id=self.team_id,
-            user=cast(User, request.user),
-            was_impersonated=is_impersonated(request),
-            item_id=saved_query.id,
-            scope="DataWarehouseSavedQuery",
-            activity="materialization_enabled",
-            detail=Detail(
-                name=saved_query.name,
-                changes=[
-                    Change(
-                        field="sync_frequency_interval",
-                        action="changed",
-                        type="DataWarehouseSavedQuery",
-                        before=str(previous_interval) if previous_interval else None,
-                        after=str(sync_frequency_interval),
-                    ),
-                ],
-            ),
-        )
+        except SavedQueryNotFoundError:
+            raise exceptions.NotFound()
+        except MaterializationForbiddenError as e:
+            raise exceptions.PermissionDenied(str(e))
+        except MaterializationRefusedError as e:
+            raise serializers.ValidationError(str(e))
+        except MaterializationFailedError as e:
+            return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return response.Response(status=status.HTTP_200_OK)
 

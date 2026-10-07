@@ -304,10 +304,11 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
-    # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
+    # Both replay gate columns embed feature flag IDs in their containment probes, the linked
+    # flag directly and a trigger group nested inside `conditions.flag`. Normalize every one.
     query = re.sub(
-        r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",
-        r"""session_recording_linked_flag" @> '{"id": 99999}'::jsonb""",
+        r"""session_recording_(?:linked_flag|trigger_groups)" @> '[^']*'""",
+        lambda probe: re.sub(r'"id": \d+', '"id": 99999', probe.group(0)),
         query,
     )
 
@@ -1478,7 +1479,7 @@ class NewEventsSchemaSnapshotExtension(AmberSnapshotExtension):
     keeps each schema mode's snapshots safe from the other mode's update runs.
     """
 
-    _file_extension = "new_events_schema.ambr"
+    file_extension = "new_events_schema.ambr"
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -1500,6 +1501,13 @@ class QueryMatchingTest:
         self._new_events_schema_snapshot_index = snapshot_index + 1
         snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
         return self.snapshot(name=snapshot_name, extension_class=NewEventsSchemaSnapshotExtension)
+
+    def sql_snapshot(self, printed: str):
+        """The snapshot to compare printed ClickHouse SQL against: a query that reads the native-JSON events
+        table goes to the schema-specific file, so one test keeps a snapshot per schema mode."""
+        return self._schema_snapshot(
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed.lower()
+        )
 
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
@@ -1784,6 +1792,34 @@ def _create_event(**kwargs):
         kwargs["timestamp"] = dt.datetime.now()
     events_cache_tests.append(kwargs)
     return kwargs["event_uuid"]
+
+
+def _create_flag_evaluations(team_id: int, flag_key: str, count: int = 1, timestamp: dt.datetime | None = None) -> None:
+    """Insert `count` $feature_flag_called rows for flag_key into flag_evaluations. Unlike _create_event, it writes
+    the rows immediately."""
+    timestamp = timestamp or dt.datetime.now(dt.UTC)
+    properties = json.dumps({"$feature_flag": flag_key, "$feature_flag_response": True})
+    # writable_flag_evaluations does not declare flag_key. The shard computes it from properties.$feature_flag.
+    sync_execute(
+        """
+        INSERT INTO writable_flag_evaluations
+            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id)
+        VALUES
+        """,
+        [
+            (
+                str(uuid.uuid4()),
+                "$feature_flag_called",
+                properties,
+                timestamp,
+                team_id,
+                "evaluator",
+                timestamp,
+                str(uuid.uuid4()),
+            )
+            for _ in range(count)
+        ],
+    )
 
 
 def _warn_if_session_id_malformed(session_id: str):
@@ -2365,7 +2401,7 @@ def snapshot_hogql_queries(fn_or_class):
 class HogQLSnapshotExtension(AmberSnapshotExtension):
     """Custom syrupy extension for HogQL snapshots to use separate files."""
 
-    _file_extension = "hogql.ambr"
+    file_extension = "hogql.ambr"
 
     @classmethod
     def serialize(cls, data, **kwargs):

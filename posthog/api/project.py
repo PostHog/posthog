@@ -1,4 +1,5 @@
 import math
+from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 
@@ -21,6 +22,7 @@ from posthog.schema import ProductKey
 
 from posthog.api import project_tags
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 
@@ -29,9 +31,11 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin
 # project.py must NOT depend on team.py at that point. The parity *logic* (config writes, retention check,
 # and the team-config actions) is defined locally below rather than imported, so it survives that removal.
 from posthog.api.team import (
+    LOCKED_CONVERSATIONS_COLUMNS,
     TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS,
     TEAM_CONFIG_FIELDS,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
+    ConversationsSettingsField,
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
     EventIngestionRestrictionSerializer,
@@ -46,11 +50,13 @@ from posthog.api.team import (
     _default_data_color_theme_id,
     _format_serializer_errors,
     get_or_mint_live_events_token,
-    handle_conversations_token_on_update,
     handle_experiments_config,
     handle_logs_config,
     handle_tracing_config,
+    heatmaps_screenshot_secret_for_reader,
+    merge_conversations_settings_locked,
     report_conversations_settings_changes,
+    strip_managed_conversations_settings,
     team_event_ingestion_restrictions_view,
     validate_secret_token_generation,
     validate_team_attrs,
@@ -58,6 +64,7 @@ from posthog.api.team import (
 )
 from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
+from posthog.caching.organization_serializer_cache import _bump_org_serializer_cache_version
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
@@ -120,6 +127,9 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
+from products.dashboards.backend.models import Dashboard
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -567,8 +577,17 @@ class ProjectSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     class Meta:
         model = Project
         # Keep this serializer narrow; legacy Team-compatible fields live on ProjectBackwardCompatSerializer.
-        fields = ["id", "organization_id", "name", "product_description", "created_at", "is_pending_deletion", "tags"]
-        read_only_fields = ["id", "organization_id", "created_at", "is_pending_deletion"]
+        fields = [
+            "id",
+            "organization_id",
+            "name",
+            "product_description",
+            "created_at",
+            "is_pending_deletion",
+            "deletion_scheduled_at",
+            "tags",
+        ]
+        read_only_fields = ["id", "organization_id", "created_at", "is_pending_deletion", "deletion_scheduled_at"]
 
 
 class ProjectBackwardCompatSerializer(
@@ -591,9 +610,22 @@ class ProjectBackwardCompatSerializer(
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
     available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
     managed_viewsets = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    flag_evaluations_mode = serializers.SerializerMethodField(  # Compat with TeamSerializer
+        help_text=(
+            "Which table this project's feature flag usage data is read from. PostHog sets it for the "
+            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
+        )
+    )
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
+    heatmaps_screenshot_secret = serializers.SerializerMethodField(
+        help_text=(
+            "Value this project's heatmap screenshots send as a cookie scoped to your domain, "
+            "so bot protection can allow them. Only project admins can read it; null for "
+            "everyone else and when none has been generated."
+        ),
+    )  # Compat with TeamSerializer
     # project_id mirrors TeamSerializer.project_id; for a Project it equals its own id (Project ↔ Team is 1:1)
     project_id = serializers.IntegerField(
         source="id", read_only=True, help_text="ID of the project this environment belongs to."
@@ -610,9 +642,30 @@ class ProjectBackwardCompatSerializer(
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     workflows_config = TeamWorkflowsConfigSerializer(required=False)  # Compat with TeamSerializer
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)  # Compat with TeamSerializer
+    conversations_settings = ConversationsSettingsField(
+        required=False,
+        allow_null=True,
+        help_text="Settings for Conversations. Must be a JSON object or null.",
+    )
+    # Lives on the passthrough Team's extension too, not a real Team column, so it can't be merged
+    # in by ProjectBackwardCompatBasicSerializer.get_fields() like a normal model field.
+    home_tab_dashboard = TeamScopedPrimaryKeyRelatedField(
+        queryset=Dashboard.objects.all(),
+        required=False,
+        allow_null=True,
+        error_messages={"does_not_exist": "Dashboard does not belong to this team."},
+        help_text=(
+            "ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view."
+        ),
+    )  # Compat with TeamSerializer
     # No `default` on purpose: a default value would be auto-injected into every create payload, which trips the
     # admin-only-fields-on-creation gate in validate_team_attrs and blocks members allowed to create projects.
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, required=False)  # Compat with TeamSerializer
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        if isinstance(self.instance, Project):
+            self.context["team_id"] = self.instance.team_id
+        return super().get_fields()
 
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
@@ -629,15 +682,26 @@ class ProjectBackwardCompatSerializer(
     def validate_conversations_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
+        strip_managed_conversations_settings(value)
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
             validate_authorized_url_wildcards(value["widget_domains"])
+        from products.conversations.backend.api.ai_context import validate_ai_context_conversations_settings
+        from products.conversations.backend.api.ai_reply_playbook import validate_playbook_conversations_settings
+
+        # conversations_settings lives on the passthrough Team, not on Project, so a partial
+        # update that omits docs_source still normalizes against the saved source.
+        existing = self.instance.passthrough_team.conversations_settings if self.instance is not None else None
+        validate_playbook_conversations_settings(value, existing=existing if isinstance(existing, dict) else None)
+        validate_ai_context_conversations_settings(
+            value, team_id=self.instance.passthrough_team.id if self.instance is not None else None
+        )
         return value
 
     class Meta:
         model = Project
-        fields = (
+        fields: tuple[str, ...] = (
             "id",
             "organization",
             "name",
@@ -687,6 +751,7 @@ class ProjectBackwardCompatSerializer(
             "access_control",  # Compat with TeamSerializer
             "week_start_day",  # Compat with TeamSerializer
             "primary_dashboard",  # Compat with TeamSerializer
+            "home_tab_dashboard",  # Compat with TeamSerializer
             "live_events_columns",  # Compat with TeamSerializer
             "recording_domains",  # Compat with TeamSerializer
             "person_on_events_querying_enabled",  # Compat with TeamSerializer
@@ -701,6 +766,7 @@ class ProjectBackwardCompatSerializer(
             "flags_persistence_default",  # Compat with TeamSerializer
             "secret_api_token",  # Compat with TeamSerializer
             "secret_api_token_backup",  # Compat with TeamSerializer
+            "heatmaps_screenshot_secret",  # Compat with TeamSerializer
             "receive_org_level_activity_logs",  # Compat with TeamSerializer
             "business_model",  # Compat with TeamSerializer
             "conversations_enabled",  # Compat with TeamSerializer
@@ -709,9 +775,11 @@ class ProjectBackwardCompatSerializer(
             "proactive_tasks_enabled",  # Compat with TeamSerializer
             "available_setup_task_ids",  # Compat with TeamSerializer
             "is_pending_deletion",
+            "deletion_scheduled_at",
             "project_id",  # Compat with TeamSerializer
             "user_access_level",  # Compat with TeamSerializer
             "managed_viewsets",  # Compat with TeamSerializer
+            "flag_evaluations_mode",  # Compat with TeamSerializer
             "revenue_analytics_config",  # Compat with TeamSerializer
             "marketing_analytics_config",  # Compat with TeamSerializer
             "customer_analytics_config",  # Compat with TeamSerializer
@@ -734,6 +802,7 @@ class ProjectBackwardCompatSerializer(
             "uuid",
             "organization",
             "is_pending_deletion",
+            "deletion_scheduled_at",
             "effective_membership_level",
             "has_group_types",
             "group_types",
@@ -747,10 +816,12 @@ class ProjectBackwardCompatSerializer(
             "product_intents",
             "secret_api_token",
             "secret_api_token_backup",
+            "heatmaps_screenshot_secret",
             "available_setup_task_ids",
             "project_id",
             "user_access_level",
             "managed_viewsets",
+            "flag_evaluations_mode",
         )
 
         team_passthrough_fields = {
@@ -793,6 +864,7 @@ class ProjectBackwardCompatSerializer(
             "access_control",
             "week_start_day",
             "primary_dashboard",
+            "home_tab_dashboard",
             "live_events_columns",
             "recording_domains",
             "person_on_events_querying_enabled",
@@ -929,6 +1001,10 @@ class ProjectBackwardCompatSerializer(
         )
         return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSetKind.choices}
 
+    @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
+    def get_flag_evaluations_mode(self, obj: Project) -> int:
+        return get_flag_evaluations_read_mode(obj.organization_id)
+
     @staticmethod
     def validate_revenue_analytics_config(value):
         return TeamSerializer.validate_revenue_analytics_config(value)
@@ -963,6 +1039,10 @@ class ProjectBackwardCompatSerializer(
         request = self.context.get("request")
         user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
         return get_or_mint_live_events_token(team, user_id)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_heatmaps_screenshot_secret(self, project: Project) -> Optional[str]:
+        return heatmaps_screenshot_secret_for_reader(project.passthrough_team, self.user_permissions)
 
     @extend_schema_field(
         {
@@ -1004,10 +1084,8 @@ class ProjectBackwardCompatSerializer(
         )
         # Trim the stored side too: names created before this validation (or via the ORM) may carry
         # surrounding whitespace and must still count as duplicates of their trimmed form.
-        duplicates = (
-            Project.objects.annotate(trimmed_name=Trim("name"))
-            .filter(organization_id=organization_id, trimmed_name__iexact=value)
-            .exclude(is_pending_deletion=True)
+        duplicates = Project.objects.annotate(trimmed_name=Trim("name")).filter(
+            organization_id=organization_id, trimmed_name__iexact=value
         )
         if self.instance is not None:
             duplicates = duplicates.exclude(pk=self.instance.pk)
@@ -1161,9 +1239,19 @@ class ProjectBackwardCompatSerializer(
         # the passthrough loop below setattr()s everything left in validated_data onto the Project
         # or its Team. So tags come out here and are written at the end.
         tags = validated_data.pop("tags", None)
+        # The settings patch persisted under lock below must not be written again from the
+        # stale request snapshot; the token handler can add the key later, so capture the
+        # client's intent now.
+        patch_conversations_settings = "conversations_settings" in validated_data
+        # Captured before the locked block pops the keys, so the refresh/re-cache step
+        # below still knows this request touched the team row.
+        conversations_lock_applied = patch_conversations_settings or "conversations_enabled" in validated_data
 
         team = instance.passthrough_team
         team_before_update = team.__dict__.copy()
+        if "home_tab_dashboard" in validated_data:
+            dashboard = team.home_tab_dashboard
+            team_before_update["home_tab_dashboard"] = dashboard.id if dashboard else None
         project_before_update = instance.__dict__.copy()
 
         # Analytics configs live on related models, not Team columns — handle them via the shared helpers
@@ -1180,6 +1268,13 @@ class ProjectBackwardCompatSerializer(
 
         if config_data := validated_data.pop("feature_flag_policy_config", None):
             update_team_feature_flag_policy_config(team, config_data, context=config_context)
+
+        # Lives on a Team extension, not a Project or Team column, so it can't flow through the
+        # generic passthrough loop below.
+        if "home_tab_dashboard" in validated_data:
+            dashboard = validated_data.pop("home_tab_dashboard")
+            team.home_tab_dashboard = dashboard
+            home_tab_dashboard_id = dashboard.id if dashboard else None
 
         if "session_recording_retention_period" in validated_data:
             verify_team_session_recording_retention_period(team, validated_data["session_recording_retention_period"])
@@ -1249,16 +1344,6 @@ class ProjectBackwardCompatSerializer(
                 **validated_data["modifiers"],
             }
 
-        # Merge conversations_settings with existing values, unless explicitly clearing with null
-        if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
-            existing_settings = team.conversations_settings or {}
-            new_settings = validated_data["conversations_settings"]
-            validated_data["conversations_settings"] = {**existing_settings, **new_settings}
-
-        validated_data = handle_conversations_token_on_update(
-            validated_data, team.conversations_enabled, team.conversations_settings
-        )
-
         # Persist only the fields this request changes. A full-row save() writes back every
         # column from this request's snapshot of the team, so two concurrent PATCHes clobber
         # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
@@ -1267,6 +1352,8 @@ class ProjectBackwardCompatSerializer(
         updated_team_fields = []
         updated_project_fields = []
         for attr, value in validated_data.items():
+            if attr in LOCKED_CONVERSATIONS_COLUMNS:
+                continue
             if attr not in self.Meta.team_passthrough_fields:
                 # This attr is a Project field
                 setattr(instance, attr, value)
@@ -1284,13 +1371,23 @@ class ProjectBackwardCompatSerializer(
 
         if updated_project_fields:
             instance.save(update_fields=updated_project_fields)
-        if updated_team_fields:
+        # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
+        if conversations_lock_applied:
+            locked_conversations = merge_conversations_settings_locked(
+                team, validated_data, patch_conversations_settings, updated_team_fields
+            )
+            # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
+            team_before_update["conversations_settings"] = locked_conversations["conversations_settings"]
+            team_before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
+        elif updated_team_fields:
             # auto_now fields only refresh when included in update_fields
             team.save(update_fields=[*updated_team_fields, "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         team_after_update = team.__dict__.copy()
-        if updated_team_fields:
+        if "home_tab_dashboard" in team_before_update:
+            team_after_update["home_tab_dashboard"] = home_tab_dashboard_id
+        if updated_team_fields or conversations_lock_applied:
             # The in-memory team may hold stale values for fields a concurrent request
             # changed, and the post-save receiver has already cached that snapshot. Reload
             # and re-cache so the team cache reflects the merged row.
@@ -1335,6 +1432,7 @@ class ProjectBackwardCompatSerializer(
         report_conversations_settings_changes(
             cast(User, self.context["request"].user),
             team_before_update.get("conversations_settings"),
+            team_after_update.get("conversations_settings"),
             team,
         )
 
@@ -1345,8 +1443,17 @@ class ProjectBackwardCompatSerializer(
         return instance
 
 
+class ProjectCreateRequestSerializer(ProjectBackwardCompatSerializer):
+    def get_fields(self) -> dict[str, serializers.Field]:
+        return {name: field for name, field in super().get_fields().items() if not field.read_only}
+
+    class Meta(ProjectBackwardCompatSerializer.Meta):
+        fields = tuple(field for field in ProjectBackwardCompatSerializer.Meta.fields if field != "home_tab_dashboard")
+
+
 @extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
+    create=extend_schema(request=ProjectCreateRequestSerializer, responses=ProjectBackwardCompatSerializer),
     list=extend_schema(
         parameters=project_tags.LIST_FILTER_PARAMETERS,
     ),
@@ -1549,7 +1656,7 @@ class ProjectViewSet(
                 "Project deletion is temporarily disabled during database migration. Please try again later."
             )
 
-        if project.is_pending_deletion:
+        if project.is_deletion_pending():
             raise exceptions.ValidationError("This project is already being deleted.")
 
         # Block deletion of the last project in an org with an active subscription (cloud only).
@@ -1595,20 +1702,40 @@ class ProjectViewSet(
             if warehouse_block_reason:
                 raise exceptions.ValidationError(warehouse_block_reason)
 
-        # Mark as pending deletion so the UI locks this project out until the async task removes it.
+        from posthog.temporal.delete_teams.dispatch import project_deletion_delay, start_delete_project_data_workflow
+
+        deletion_delay = project_deletion_delay(project)
+        deletion_scheduled_at = timezone.now() + (deletion_delay or timedelta())
+        claimed_project = Project.objects.filter(pk=project.pk, is_pending_deletion=False).update(
+            is_pending_deletion=True,
+            deletion_scheduled_at=deletion_scheduled_at,
+        )
+        if not claimed_project:
+            raise exceptions.ValidationError("This project is already being deleted.")
         project.is_pending_deletion = True
-        project.save(update_fields=["is_pending_deletion"])
+        project.deletion_scheduled_at = deletion_scheduled_at
 
         # Hand off all deletion work (bulky postgres, batch exports, project/team records,
         # ClickHouse, email) to the durable Temporal workflow.
-        from posthog.temporal.delete_teams.dispatch import start_delete_project_data_workflow
 
-        start_delete_project_data_workflow(
-            team_ids=team_ids,
-            project_id=project_id,
-            user_id=user.id,
-            project_name=project_name,
-        )
+        try:
+            start_delete_project_data_workflow(
+                team_ids=team_ids,
+                project_id=project_id,
+                user_id=user.id,
+                project_name=project_name,
+                start_delay=(
+                    max(deletion_scheduled_at - timezone.now(), timedelta()) if deletion_delay is not None else None
+                ),
+            )
+        except Exception:
+            Project.objects.filter(pk=project.pk, deletion_scheduled_at=deletion_scheduled_at).update(
+                is_pending_deletion=False,
+                deletion_scheduled_at=None,
+            )
+            project.is_pending_deletion = False
+            project.deletion_scheduled_at = None
+            raise
 
         for team in teams:
             log_activity(
@@ -1640,6 +1767,94 @@ class ProjectViewSet(
             request=self.request,
         )
 
+    @extend_schema(
+        description="Cancel a scheduled project deletion and restore access to the project.",
+        request=None,
+        responses={200: ProjectSerializer},
+    )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="cancel-deletion",
+        permission_classes=[TeamMemberLightManagementPermission],
+    )
+    def cancel_deletion(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        project = cast(Project, self.get_object())
+        membership_level = self.user_permissions.team(project.passthrough_team).effective_membership_level
+        if membership_level is None or membership_level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("You don't have sufficient permissions in the project.")
+        now = timezone.now()
+        if not project.is_deletion_pending():
+            raise exceptions.ValidationError("This project is not pending deletion.")
+        if not project.can_cancel_deletion(at=now):
+            raise exceptions.ValidationError("This project deletion has already started.")
+
+        deletion_scheduled_at = project.deletion_scheduled_at
+        cancellation_claimed_at = now
+        claimed_cancellation = Project.objects.filter(
+            pk=project.pk,
+            is_pending_deletion=True,
+            deletion_scheduled_at=deletion_scheduled_at,
+            deletion_scheduled_at__gt=now,
+        ).update(deletion_scheduled_at=cancellation_claimed_at)
+        if not claimed_cancellation:
+            raise exceptions.ValidationError(
+                "This project deletion can no longer be canceled. Refresh the page to see its current status."
+            )
+
+        from posthog.temporal.delete_teams.dispatch import cancel_delete_project_data_workflow
+
+        try:
+            cancel_delete_project_data_workflow(project_id=project.pk)
+        except Exception:
+            Project.objects.filter(
+                pk=project.pk,
+                is_pending_deletion=True,
+                deletion_scheduled_at=cancellation_claimed_at,
+            ).update(deletion_scheduled_at=deletion_scheduled_at)
+            logger.exception("Failed to cancel the project deletion workflow", project_id=project.pk)
+            raise exceptions.ValidationError("Project deletion could not be canceled. Please try again.")
+
+        cleared_cancellation = Project.objects.filter(
+            pk=project.pk,
+            is_pending_deletion=True,
+            deletion_scheduled_at=cancellation_claimed_at,
+        ).update(is_pending_deletion=False, deletion_scheduled_at=None)
+        if not cleared_cancellation:
+            raise exceptions.ValidationError(
+                "This project deletion can no longer be canceled. Refresh the page to see its current status."
+            )
+
+        project.is_pending_deletion = False
+        project.deletion_scheduled_at = None
+
+        user = cast(User, request.user)
+        was_impersonated = is_impersonated(request)
+        for team in project.teams.only("id", "name"):
+            log_activity(
+                organization_id=cast(UUIDT, project.organization_id),
+                team_id=team.pk,
+                user=user,
+                was_impersonated=was_impersonated,
+                scope="Team",
+                item_id=team.pk,
+                activity="restored",
+                detail=Detail(name=str(team.name)),
+            )
+        log_activity(
+            organization_id=cast(UUIDT, project.organization_id),
+            team_id=project.pk,
+            user=user,
+            was_impersonated=was_impersonated,
+            scope="Project",
+            item_id=project.pk,
+            activity="restored",
+            detail=Detail(name=str(project.name)),
+        )
+
+        return response.Response(ProjectSerializer(project, context=self.get_serializer_context()).data)
+
     @action(
         methods=["PATCH"],
         detail=True,
@@ -1661,8 +1876,22 @@ class ProjectViewSet(
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
-        validate_secret_token_generation(project.passthrough_team, cast(User, request.user))
+        validate_secret_token_generation(project.passthrough_team)
         project.passthrough_team.rotate_secret_token_and_save(
+            user=request.user, is_impersonated_session=is_impersonated(request)
+        )
+        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
+
+    @extend_schema(request=None, responses=ProjectBackwardCompatSerializer)
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def rotate_heatmaps_screenshot_secret(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        project = self.get_object()
+        project.passthrough_team.rotate_heatmaps_screenshot_secret_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
@@ -1985,6 +2214,13 @@ class ProjectViewSet(
                 before=str(current_organization.id),
                 after=str(target_organization.id),
             )
+
+            # The cache invalidation receiver reads organization_id from the saved row, which already
+            # points at the target organization. Without this bump the source organization keeps
+            # listing the project until its cached project list expires. Register it before the saves,
+            # because Django skips the remaining commit hooks when an earlier one raises.
+            source_organization_id = str(current_organization.id)
+            transaction.on_commit(lambda: _bump_org_serializer_cache_version(source_organization_id))
 
             project.organization_id = target_organization.id
             project.save()

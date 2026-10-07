@@ -436,8 +436,6 @@ class TestCoderConfig:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        monkeypatch.setattr(coder, "ensure_tailscale_connected", lambda setup_hint=coder.RUNTIME_SETUP_HINT: None)
-        monkeypatch.setattr(coder, "ensure_tailscale_routes_accepted", lambda: None)
         monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
         monkeypatch.setattr(coder, "coder_installed", lambda: False)
 
@@ -574,7 +572,9 @@ class TestCoderReachable:
         recorded_properties: dict[str, object],
     ) -> None:
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
-        monkeypatch.setattr(coder, "coder_reachable", lambda: False)
+        monkeypatch.setattr(coder, "_probe_coder", lambda timeout=5.0: None)
+        monkeypatch.setattr(coder, "tailscale_connected", lambda: True)
+        monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: True)
         monkeypatch.setattr(
             coder,
             "_diagnose_unreachable_coder",
@@ -595,6 +595,56 @@ class TestCoderReachable:
         assert "stubbed step." in out
         assert "fact: one" in out
         assert recorded_properties == {"devbox_failure_cause": "stubbed_code"}
+
+    @pytest.mark.parametrize(
+        "probe_statuses, expected_tailscale_commands, exits",
+        [
+            ([200], [], False),
+            ([None, 200], [["/usr/bin/tailscale", "set", "--accept-routes"]], False),
+            ([None, None], [["/usr/bin/tailscale", "set", "--accept-routes"]], True),
+            ([503], [], True),
+        ],
+    )
+    def test_ensure_coder_reachable_changes_tailscale_only_when_coder_does_not_respond(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        probe_statuses: list[int | None],
+        expected_tailscale_commands: list[list[str]],
+        exits: bool,
+    ) -> None:
+        def response(status: int | None) -> coder.requests.Response | None:
+            if status is None:
+                return None
+            resp = coder.requests.Response()
+            resp.status_code = status
+            return resp
+
+        probes = iter(probe_statuses)
+        monkeypatch.setattr(coder, "_probe_coder", lambda timeout=5.0: response(next(probes)))
+        monkeypatch.setattr(
+            coder,
+            "_diagnose_unreachable_coder",
+            lambda: coder.CoderReachabilityDiagnosis(code="stubbed_code", cause="", next_step="", facts=[]),
+        )
+        monkeypatch.setattr(coder, "tailscale_connected", lambda: True)
+        monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: False)
+        monkeypatch.setattr(coder, "_resolve_tailscale", lambda: "/usr/bin/tailscale")
+        monkeypatch.setattr(coder.os, "geteuid", lambda: 0)
+        commands: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            commands.append(args)
+            return subprocess.CompletedProcess(args, 0)
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+
+        if exits:
+            with pytest.raises(SystemExit):
+                coder.ensure_coder_reachable()
+        else:
+            coder.ensure_coder_reachable()
+
+        assert commands == expected_tailscale_commands
 
 
 class TestDiagnoseUnreachableCoder:
@@ -911,7 +961,7 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
 
     def stub(
         name: str,
-        disk_size: int,
+        disk_size: int | None,
         *,
         git_name: str | None = None,
         git_email: str | None = None,
@@ -967,7 +1017,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)", "Cold"],
                 "posthog-linux",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+                {"repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # An explicit warm preset that the template defines flows through to
             # the coder argv unchanged, alongside all optional params.
@@ -982,7 +1032,6 @@ class TestWorkspaceCreation:
                 "posthog-linux",
                 "Default (warm)",
                 {
-                    "disk_size": "100",
                     "repo": _REPO,
                     "workspace_region": "us-east-1",
                     "git_name": "PostHog Engineer",
@@ -995,7 +1044,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)"],
                 "posthog-microvm",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+                {"repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # Resolution fallback to "none" is exhaustively covered by
             # TestTemplatePresetResolution; one case here is enough to prove
@@ -1006,7 +1055,7 @@ class TestWorkspaceCreation:
                 ["Cold only"],
                 "posthog-microvm",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+                {"repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # A non-default region is forwarded verbatim as workspace_region.
             (
@@ -1014,7 +1063,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)"],
                 "posthog-linux",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "eu-central-1"},
+                {"repo": _REPO, "workspace_region": "eu-central-1"},
             ),
         ],
         ids=[
@@ -1038,7 +1087,7 @@ class TestWorkspaceCreation:
         monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
         monkeypatch.setattr(coder, "_list_template_presets", lambda template: list(available_presets))
 
-        coder.create_workspace("devbox-test-user", 100, **kwargs)
+        coder.create_workspace("devbox-test-user", None, **kwargs)
 
         args = captured["args"]
         assert args[:3] == ["coder", "create", "devbox-test-user"]
@@ -1414,9 +1463,7 @@ class TestDevboxCommands:
     def test_devbox_setup_runs_explicit_setup_steps(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[str] = []
 
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": calls.append("tailscale"))
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: calls.append("routes"))
-        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: calls.append("reachable"))
+        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda setup_hint="": calls.append("reachable"))
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: calls.append("install"))
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: calls.append("login"))
         monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
@@ -1467,8 +1514,6 @@ class TestDevboxCommands:
 
         assert result.exit_code == 0
         assert calls == [
-            "tailscale",
-            "routes",
             "reachable",
             "install",
             "login",
@@ -1486,9 +1531,7 @@ class TestDevboxCommands:
     ) -> None:
         captured: dict[str, object] = {}
 
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: None)
-        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda setup_hint="": None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: "/tmp/resolved.sock")
@@ -1517,9 +1560,7 @@ class TestDevboxCommands:
         monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
     ) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: None)
-        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda setup_hint="": None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
@@ -1553,9 +1594,7 @@ class TestDevboxCommands:
     ) -> None:
         devbox_config_path.write_text(json.dumps({"git_name": "Existing User", "git_email": "existing@example.com"}))
 
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: None)
-        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda setup_hint="": None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
@@ -1592,7 +1631,7 @@ class TestDevboxCommands:
         assert result.exit_code == 0
         assert captured == {
             "name": "devbox-test-user",
-            "disk_size": "100",
+            "disk_size": "None",
             "git_name": None,
             "git_email": None,
             "dotfiles_uri": None,
@@ -1603,8 +1642,6 @@ class TestDevboxCommands:
         }
 
     def test_devbox_start_forwards_larger_disk_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Guards that --disk 200 is an accepted choice and reaches create_workspace;
-        # regresses if the choice list drifts from the Coder template's disk_size options.
         captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
@@ -2057,12 +2094,7 @@ class TestDevboxCommands:
 @pytest.fixture
 def stub_setup_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """No-op every external dependency in ``devbox_setup`` so reset/gate tests can run hermetically."""
-    for name in (
-        "ensure_tailscale_connected",
-        "ensure_tailscale_routes_accepted",
-        "ensure_coder_reachable",
-        "ensure_coder_authenticated",
-    ):
+    for name in ("ensure_coder_reachable", "ensure_coder_authenticated"):
         monkeypatch.setattr(devbox_cli, name, lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
     monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)

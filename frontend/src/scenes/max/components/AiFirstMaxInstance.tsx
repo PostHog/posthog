@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
 
-import { DebugLogsMenu } from 'products/posthog_ai/frontend/api/primitives'
+import { DebugLogsMenu, useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
 import { EmbeddedRunner } from 'products/posthog_ai/frontend/api/runner'
 
 import { aiSceneView } from '../aiSceneView'
@@ -113,6 +113,7 @@ export function AiFirstMaxInstance({ tabId, taskId, chatId }: AiFirstMaxInstance
     const { threadVisible, threadLogicKey, conversation, conversationId } = useValues(maxLogic({ panelId: tabId }))
     const { startNewConversation } = useActions(maxLogic({ panelId: tabId }))
     const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
+    const skin = useThreadSkin()
 
     if (aiSceneView({ taskId, chatId, effectivePhaiView }) === 'runner') {
         return (
@@ -126,7 +127,11 @@ export function AiFirstMaxInstance({ tabId, taskId, chatId }: AiFirstMaxInstance
                 )}
                 <div className="flex flex-col flex-1 min-h-0">
                     <BindLogic logic={phaiAiComposerSeedLogic} props={{}}>
-                        <EmbeddedRunner taskId={taskId} titleActions={<DebugLogsMenu variant="lemon" />} />
+                        {/* The quill task header carries the debug logs switch in its own overflow menu. */}
+                        <EmbeddedRunner
+                            taskId={taskId}
+                            titleActions={skin === 'lemon' ? <DebugLogsMenu variant="lemon" /> : undefined}
+                        />
                     </BindLogic>
                 </div>
             </div>

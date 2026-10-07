@@ -22,6 +22,8 @@ const config: SignalScoutConfigApi = {
     enabled: true,
     status: 'active',
     pause_reason: null,
+    managed_by: 'team',
+    deprecation: null,
     emit: true,
     run_interval_minutes: 1440,
     run_cron_schedule: '0 9 * * *',
@@ -32,6 +34,7 @@ const config: SignalScoutConfigApi = {
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
+    status_changed_by: null,
     auto_pause_exempt: false,
     network_access: 'trusted',
     model: null,
@@ -39,6 +42,7 @@ const config: SignalScoutConfigApi = {
     source_product: null,
     source_id: null,
     created_at: '2026-07-21T12:00:00Z',
+    updated_at: '2026-07-21T12:00:00Z',
 }
 
 describe('ScoutConfigForm', () => {
@@ -200,8 +204,12 @@ describe('ScoutConfigForm', () => {
     // Guards the pin's wire values: a model option must patch the raw model id (not its display
     // label), and Default must patch null (not '') — the backend treats null as "clear the pin".
     it.each([
-        ['Claude Sonnet 5', 'claude-sonnet-5'],
+        ['Claude Sonnet 5.5', 'claude-sonnet-5-5'],
+        ['Claude Opus 5.5', 'claude-opus-5-5'],
+        ['GPT-6 Luna', 'gpt-6-luna'],
         ['GPT-5.6 Luna', 'gpt-5.6-luna'],
+        ['GPT-6 Sol', 'gpt-6-sol'],
+        ['GPT-6 Astra', 'gpt-6-astra'],
     ])('pins %s from the dropdown and clears the pin via Default', (label, modelId) => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUTS_MODEL_CONFIG], {
@@ -224,6 +232,21 @@ describe('ScoutConfigForm', () => {
         unmount()
     })
 
+    it('keeps showing a stored pin that the picker no longer offers', () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUTS_MODEL_CONFIG], {
+            [FEATURE_FLAGS.SCOUTS_MODEL_CONFIG]: true,
+        })
+        const { getByLabelText, unmount } = render(
+            <ScoutConfigForm config={{ ...config, model: 'claude-opus-5' }} onUpdate={jest.fn()} />
+        )
+
+        const select = getByLabelText('signals-scout-general model')
+        expect(select).toHaveTextContent('claude-opus-5')
+        expect(select).not.toHaveTextContent('Default')
+        unmount()
+    })
+
     it('adds normalized tags as a full replacement set', () => {
         const onUpdate = jest.fn()
         const { getByLabelText, unmount } = render(
@@ -235,6 +258,28 @@ describe('ScoutConfigForm', () => {
         fireEvent.keyDown(input, { key: 'Enter' })
 
         expect(onUpdate).toHaveBeenCalledWith('config-1', { tags: ['on-call', 'revenue'] })
+        unmount()
+    })
+
+    // The scout page keeps the form mounted when the URL moves to another scout, so a draft left on
+    // one scout would otherwise sit in the next scout's editor, ready to save there.
+    it('drops an unsaved schema draft when the form moves to another scout', () => {
+        const onUpdate = jest.fn()
+        const draft = '{"type": "object", "properties": {"verdict": {"type": "string"}}}'
+        const { getByText, getByLabelText, queryByDisplayValue, rerender, unmount } = render(
+            <ScoutConfigForm config={config} onUpdate={onUpdate} />
+        )
+        fireEvent.click(getByText('Structured output'))
+        fireEvent.change(getByLabelText(`${config.skill_name} record schema`), { target: { value: draft } })
+
+        rerender(
+            <ScoutConfigForm
+                config={{ ...config, id: 'config-2', skill_name: 'signals-scout-other' }}
+                onUpdate={onUpdate}
+            />
+        )
+
+        expect(queryByDisplayValue(draft)).toBeNull()
         unmount()
     })
 })

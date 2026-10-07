@@ -1,5 +1,4 @@
 import uuid
-import functools
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
@@ -9,9 +8,6 @@ from unittest import mock
 from django.conf import settings
 from django.test import override_settings
 
-import boto3
-import psycopg
-import pytest_asyncio
 from asgiref.sync import sync_to_async
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
@@ -34,7 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     create_source_templates,
     update_external_data_job_model,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
 from products.warehouse_sources.backend.temporal.data_imports.settings import import_data_activity_sync
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -45,7 +41,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
     ENDPOINTS as STRIPE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
-    check_pipeline_version_activity,
+    acquire_v3_pipeline_lock_activity,
+    release_v3_pipeline_lock_activity,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
     calculate_table_size_activity,
@@ -57,88 +54,12 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     CreateExternalDataJobModelActivityInputs,
     create_external_data_job_model_activity,
 )
-from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
-    ImportDataActivityInputs,
-)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
 )
 
 BUCKET_NAME = "test-pipeline"
-SESSION = boto3.Session()
-create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
-
-
-def delete_all_from_s3(minio_client, bucket_name: str, key_prefix: str):
-    """Delete all objects in bucket_name under key_prefix."""
-    response = minio_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
-
-    if "Contents" in response:
-        for obj in response["Contents"]:
-            if "Key" in obj:
-                minio_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
-
-
-@pytest.fixture
-def bucket_name(request) -> str:
-    """Name for a test S3 bucket."""
-    return BUCKET_NAME
-
-
-@pytest.fixture
-def minio_client(bucket_name):
-    """Manage an S3 client to interact with a MinIO bucket.
-
-    Yields the client after creating a bucket. Upon resuming, we delete
-    the contents and the bucket itself.
-    """
-    minio_client = create_test_client(
-        "s3",
-        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-    )
-
-    try:
-        minio_client.head_bucket(Bucket=bucket_name)
-    except:
-        minio_client.create_bucket(Bucket=bucket_name)
-
-    yield minio_client
-
-    delete_all_from_s3(minio_client, bucket_name, key_prefix="")
-
-    try:
-        minio_client.delete_bucket(Bucket=bucket_name)
-    except:
-        pass
-
-
-@pytest.fixture
-def postgres_config():
-    return {
-        "user": settings.PG_USER,
-        "password": settings.PG_PASSWORD,
-        "database": "external_data_database",
-        "schema": "external_data_schema",
-        "host": settings.PG_HOST,
-        "port": int(settings.PG_PORT),
-    }
-
-
-@pytest_asyncio.fixture
-async def postgres_connection(postgres_config, setup_postgres_test_db):
-    connection = await psycopg.AsyncConnection.connect(
-        user=postgres_config["user"],
-        password=postgres_config["password"],
-        dbname=postgres_config["database"],
-        host=postgres_config["host"],
-        port=postgres_config["port"],
-    )
-
-    yield connection
-
-    await connection.close()
 
 
 def _create_schema(schema_name: str, source: ExternalDataSource, team: Team, table_id: Optional[str] = None):
@@ -355,8 +276,7 @@ def test_sync_new_schemas_activity_self_destructs_when_source_unavailable(
     with mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas.delete_discover_schemas_schedule"
     ) as mock_delete_schedule:
-        with pytest.raises(Exception, match="Source no longer exists"):
-            activity_environment.run(sync_new_schemas_activity, inputs)
+        activity_environment.run(sync_new_schemas_activity, inputs)
 
     mock_delete_schedule.assert_called_once_with(source_id)
 
@@ -714,240 +634,6 @@ def test_invalid_ssh_tunnel_auth_is_non_retryable_for_any_source(error_msg):
     assert is_non_retryable, f"Invalid SSH tunnel auth error should be non-retryable: {error_msg}"
 
 
-@pytest.fixture
-def mock_stripe_client():
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient"
-    ) as MockStripeClient:
-        mock_balance_transaction_list = mock.MagicMock()
-        mock_charges_list = mock.MagicMock()
-        mock_customers_list = mock.MagicMock()
-        mock_invoice_list = mock.MagicMock()
-        mock_price_list = mock.MagicMock()
-        mock_product_list = mock.MagicMock()
-        mock_subscription_list = mock.MagicMock()
-
-        mock_charges_list.auto_paging_iter.return_value = [
-            {
-                "id": "chg_123",
-                "customer": "cus_1",
-                "created": 123,
-            }
-        ]
-        mock_customers_list.auto_paging_iter.return_value = [
-            {
-                "id": "cus_123",
-                "name": "John Doe",
-                "created": 123,
-            }
-        ]
-
-        instance = MockStripeClient.return_value
-        instance.balance_transactions.list.return_value = mock_balance_transaction_list
-        instance.charges.list.return_value = mock_charges_list
-        instance.customers.list.return_value = mock_customers_list
-        instance.invoices.list.return_value = mock_invoice_list
-        instance.prices.list.return_value = mock_price_list
-        instance.products.list.return_value = mock_product_list
-        instance.subscriptions.list.return_value = mock_subscription_list
-
-        yield instance
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_run_stripe_job(activity_environment, team, minio_client, mock_stripe_client, **kwargs):
-    def setup_job_1():
-        new_source = ExternalDataSource.objects.create(
-            source_id=str(uuid.uuid4()),
-            connection_id=str(uuid.uuid4()),
-            destination_id=str(uuid.uuid4()),
-            team=team,
-            status="running",
-            source_type="Stripe",
-            job_inputs={
-                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                "stripe_account_id": "acct_id",
-            },
-        )
-
-        customer_schema = _create_schema(STRIPE_CUSTOMER_RESOURCE_NAME, new_source, team)
-
-        new_job: ExternalDataJob = ExternalDataJob.objects.create(
-            team_id=team.id,
-            pipeline_id=new_source.pk,
-            status=ExternalDataJob.Status.RUNNING,
-            rows_synced=0,
-            schema=customer_schema,
-            pipeline_version=ExternalDataJob.PipelineVersion.V1,
-        )
-
-        new_job = ExternalDataJob.objects.get(id=new_job.id)
-
-        inputs = ImportDataActivityInputs(
-            team_id=team.id,
-            run_id=str(new_job.pk),
-            source_id=new_source.pk,
-            schema_id=customer_schema.id,
-        )
-
-        return new_job, inputs
-
-    def setup_job_2():
-        new_source = ExternalDataSource.objects.create(
-            source_id=str(uuid.uuid4()),
-            connection_id=str(uuid.uuid4()),
-            destination_id=str(uuid.uuid4()),
-            team=team,
-            status="running",
-            source_type="Stripe",
-            job_inputs={
-                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                "stripe_account_id": "acct_id",
-            },
-        )
-
-        charge_schema = _create_schema(STRIPE_CHARGE_RESOURCE_NAME, new_source, team)
-
-        new_job: ExternalDataJob = ExternalDataJob.objects.create(
-            team_id=team.id,
-            pipeline_id=new_source.pk,
-            status=ExternalDataJob.Status.RUNNING,
-            rows_synced=0,
-            schema=charge_schema,
-            pipeline_version=ExternalDataJob.PipelineVersion.V1,
-        )
-
-        new_job = ExternalDataJob.objects.get(id=new_job.id)
-
-        inputs = ImportDataActivityInputs(
-            team_id=team.id,
-            run_id=str(new_job.pk),
-            source_id=new_source.pk,
-            schema_id=charge_schema.id,
-        )
-
-        return new_job, inputs
-
-    job_1, job_1_inputs = await sync_to_async(setup_job_1)()
-    job_2, job_2_inputs = await sync_to_async(setup_job_2)()
-
-    with (
-        override_settings(
-            BUCKET_URL=f"s3://{BUCKET_NAME}",
-            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
-            BUCKET_NAME=BUCKET_NAME,
-        ),
-        mock.patch(
-            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
-            return_value={
-                "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
-                "name": {"clickhouse": "string", "hogql": "StringDatabaseField"},
-            },
-        ),
-    ):
-        await activity_environment.run(import_data_activity_sync, job_1_inputs)
-
-        folder_path = await sync_to_async(job_1.folder_path)()
-        job_1_customer_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/")
-
-        assert len(job_1_customer_objects["Contents"]) == 3
-
-    with (
-        override_settings(
-            BUCKET_URL=f"s3://{BUCKET_NAME}",
-            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
-            BUCKET_NAME=BUCKET_NAME,
-        ),
-        mock.patch(
-            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
-            return_value={
-                "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
-                "customer": {"clickhouse": "string", "hogql": "StringDatabaseField"},
-            },
-        ),
-    ):
-        await activity_environment.run(import_data_activity_sync, job_2_inputs)
-
-        job_2_folder_path = await sync_to_async(job_2.folder_path)()
-        job_2_charge_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{job_2_folder_path}/charge/")
-        assert len(job_2_charge_objects["Contents"]) == 3
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_run_stripe_job_row_count_update(activity_environment, team, minio_client, mock_stripe_client, **kwargs):
-    def setup_job_1():
-        new_source = ExternalDataSource.objects.create(
-            source_id=str(uuid.uuid4()),
-            connection_id=str(uuid.uuid4()),
-            destination_id=str(uuid.uuid4()),
-            team=team,
-            status="running",
-            source_type="Stripe",
-            job_inputs={
-                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                "stripe_account_id": "acct_id",
-            },
-        )
-
-        customer_schema = _create_schema(STRIPE_CUSTOMER_RESOURCE_NAME, new_source, team)
-
-        new_job: ExternalDataJob = ExternalDataJob.objects.create(
-            team_id=team.id,
-            pipeline_id=new_source.pk,
-            status=ExternalDataJob.Status.RUNNING,
-            rows_synced=0,
-            schema=customer_schema,
-            pipeline_version=ExternalDataJob.PipelineVersion.V1,
-        )
-
-        new_job = (
-            ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").prefetch_related("schema").get()
-        )
-
-        inputs = ImportDataActivityInputs(
-            team_id=team.id,
-            run_id=str(new_job.pk),
-            source_id=new_source.pk,
-            schema_id=customer_schema.id,
-        )
-
-        return new_job, inputs
-
-    job_1, job_1_inputs = await sync_to_async(setup_job_1)()
-
-    with (
-        override_settings(
-            BUCKET_URL=f"s3://{BUCKET_NAME}",
-            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
-            BUCKET_NAME=BUCKET_NAME,
-        ),
-        mock.patch(
-            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
-            return_value={
-                "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
-                "name": {"clickhouse": "string", "hogql": "StringDatabaseField"},
-            },
-        ),
-    ):
-        await activity_environment.run(import_data_activity_sync, job_1_inputs)
-
-        folder_path = await sync_to_async(job_1.folder_path)()
-        job_1_customer_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/")
-
-        assert len(job_1_customer_objects["Contents"]) == 3
-
-        await sync_to_async(job_1.refresh_from_db)()
-        assert job_1.rows_synced == 1
-
-
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_external_data_job_workflow_with_schema(team, **kwargs):
@@ -988,7 +674,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
             "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
             return_value={"id": "string"},
         ),
-        mock.patch.object(PipelineNonDLT, "run", mock_func),
+        mock.patch.object(PipelineV3, "run", mock_func),
     ):
         with (
             override_settings(
@@ -1006,7 +692,8 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                     task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                     workflows=[ExternalDataJobWorkflow],
                     activities=[
-                        check_pipeline_version_activity,
+                        acquire_v3_pipeline_lock_activity,
+                        release_v3_pipeline_lock_activity,
                         create_external_data_job_model_activity,
                         update_external_data_job_model,
                         import_data_activity_sync,
@@ -1031,73 +718,3 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
 
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_run_postgres_job(
-    activity_environment, team, minio_client, postgres_connection, postgres_config, **kwargs
-):
-    await postgres_connection.execute(
-        "CREATE TABLE IF NOT EXISTS {schema}.posthog_test (id integer)".format(schema=postgres_config["schema"])
-    )
-    await postgres_connection.execute(
-        "INSERT INTO {schema}.posthog_test (id) VALUES (1)".format(schema=postgres_config["schema"])
-    )
-    await postgres_connection.commit()
-
-    async def setup_job_1():
-        new_source = await sync_to_async(ExternalDataSource.objects.create)(
-            source_id=uuid.uuid4(),
-            connection_id=uuid.uuid4(),
-            destination_id=uuid.uuid4(),
-            team=team,
-            status="running",
-            source_type="Postgres",
-            job_inputs={
-                "host": postgres_config["host"],
-                "port": postgres_config["port"],
-                "database": postgres_config["database"],
-                "user": postgres_config["user"],
-                "password": postgres_config["password"],
-                "schema": postgres_config["schema"],
-                "ssh_tunnel_enabled": False,
-            },
-        )
-
-        posthog_test_schema = await sync_to_async(_create_schema)("posthog_test", new_source, team)
-
-        new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
-            team_id=team.id,
-            pipeline_id=new_source.pk,
-            status=ExternalDataJob.Status.RUNNING,
-            rows_synced=0,
-            schema=posthog_test_schema,
-            pipeline_version=ExternalDataJob.PipelineVersion.V1,
-        )
-
-        new_job = await sync_to_async(
-            ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").prefetch_related("schema").get
-        )()
-
-        inputs = ImportDataActivityInputs(
-            team_id=team.id, run_id=str(new_job.pk), source_id=new_source.pk, schema_id=posthog_test_schema.id
-        )
-
-        return new_job, inputs
-
-    job_1, job_1_inputs = await setup_job_1()
-
-    with override_settings(
-        BUCKET_URL=f"s3://{BUCKET_NAME}",
-        BUCKET_PATH=BUCKET_NAME,
-        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
-        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
-    ):
-        await activity_environment.run(import_data_activity_sync, job_1_inputs)
-
-        folder_path = await sync_to_async(job_1.folder_path)()
-        job_1_team_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/posthog_test/")
-        assert len(job_1_team_objects["Contents"]) == 3

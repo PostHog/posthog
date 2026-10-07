@@ -4,15 +4,473 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/core/api'
 import { castStringToInt } from '@/tools/cast-helpers'
+import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
+import {
+    executeConfirmedAction,
+    prepareConfirmedAction,
+    type PrepareConfirmedActionResult,
+} from '@/tools/confirmed-action-runtime'
 import {
     withPostHogUrl,
+    pickResponseFields,
     withInformationalResponse,
     omitResponseFields,
-    pickResponseFields,
     type WithPostHogUrl,
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const DomainsListSchema = () => {
+    const DomainsListQueryParams = orvalSchemas.DomainsListQueryParams()
+    return DomainsListQueryParams
+}
+
+const domainsList = (): ToolBase<
+    ReturnType<typeof DomainsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedOrganizationDomainList>
+> => ({
+    name: 'domains-list',
+    schema: DomainsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DomainsListSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.PaginatedOrganizationDomainList>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/domains/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, ['id', 'domain', 'is_verified', 'verified_at'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/')
+    },
+})
+
+const IdentityProviderConfigsCreateSchema = () => {
+    const IdentityProviderConfigsCreateBody = orvalSchemas.IdentityProviderConfigsCreateBody()
+    return IdentityProviderConfigsCreateBody
+}
+
+const IdentityProviderConfigsCreateSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const identityProviderConfigsCreatePrepare = (): ToolBase<
+    ReturnType<typeof IdentityProviderConfigsCreateSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'identity-provider-configs-create-prepare',
+    schema: IdentityProviderConfigsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IdentityProviderConfigsCreateSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'identity-provider-configs-create',
+            actionLabel: 'create identity provider configuration',
+            messageTemplate:
+                "Create an identity provider configuration using the supplied protocol, settings, and domain coverage. Review those values and reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { orgId: String(__scopeOrgId) },
+        })
+    },
+})
+
+const identityProviderConfigsCreateExecute = (): ToolBase<
+    typeof IdentityProviderConfigsCreateSchemaExecute,
+    Schemas.IdentityProviderConfig
+> => ({
+    name: 'identity-provider-configs-create-execute',
+    schema: IdentityProviderConfigsCreateSchemaExecute,
+    handler: async (
+        context: Context,
+        confirmationParams: z.infer<typeof IdentityProviderConfigsCreateSchemaExecute>
+    ) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof IdentityProviderConfigsCreateSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'identity-provider-configs-create',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+                expectedScope: { orgId: String(__scopeOrgId) },
+            }
+        )
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const orgId = __scopeOrgId
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.domain_scope !== undefined) {
+            body['domain_scope'] = params.domain_scope
+        }
+        if (params.config_scope !== undefined) {
+            body['config_scope'] = params.config_scope
+        }
+        if (params.organization_domain_ids !== undefined) {
+            body['organization_domain_ids'] = params.organization_domain_ids
+        }
+        if (params.oidc_issuer_url !== undefined) {
+            body['oidc_issuer_url'] = params.oidc_issuer_url
+        }
+        if (params.oidc_client_id !== undefined) {
+            body['oidc_client_id'] = params.oidc_client_id
+        }
+        if (params.oidc_client_secret !== undefined) {
+            body['oidc_client_secret'] = params.oidc_client_secret
+        }
+        if (params.saml_entity_id !== undefined) {
+            body['saml_entity_id'] = params.saml_entity_id
+        }
+        if (params.saml_acs_url !== undefined) {
+            body['saml_acs_url'] = params.saml_acs_url
+        }
+        if (params.saml_x509_cert !== undefined) {
+            body['saml_x509_cert'] = params.saml_x509_cert
+        }
+        if (params.scim_enabled !== undefined) {
+            body['scim_enabled'] = params.scim_enabled
+        }
+        if (params.id_jag_issuer_url !== undefined) {
+            body['id_jag_issuer_url'] = params.id_jag_issuer_url
+        }
+        if (params.id_jag_jwks_url !== undefined) {
+            body['id_jag_jwks_url'] = params.id_jag_jwks_url
+        }
+        if (params.id_jag_allowed_clients !== undefined) {
+            body['id_jag_allowed_clients'] = params.id_jag_allowed_clients
+        }
+        const result = await context.api.request<Schemas.IdentityProviderConfig>({
+            method: 'POST',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/identity_provider_configs/`,
+            body,
+        })
+        return result
+    },
+})
+
+const IdentityProviderConfigsDestroySchema = () => {
+    const IdentityProviderConfigsDestroyParams = orvalSchemas.IdentityProviderConfigsDestroyParams()
+    return IdentityProviderConfigsDestroyParams.omit({ organization_id: true })
+}
+
+const IdentityProviderConfigsDestroySchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const identityProviderConfigsDestroyPrepare = (): ToolBase<
+    ReturnType<typeof IdentityProviderConfigsDestroySchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'identity-provider-configs-destroy-prepare',
+    schema: IdentityProviderConfigsDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IdentityProviderConfigsDestroySchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'identity-provider-configs-destroy',
+            actionLabel: 'delete identity provider configuration',
+            messageTemplate:
+                "Permanently delete identity provider configuration {id}, including its linked domains and authentication settings. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { orgId: String(__scopeOrgId) },
+        })
+    },
+})
+
+const identityProviderConfigsDestroyExecute = (): ToolBase<
+    typeof IdentityProviderConfigsDestroySchemaExecute,
+    unknown
+> => ({
+    name: 'identity-provider-configs-destroy-execute',
+    schema: IdentityProviderConfigsDestroySchemaExecute,
+    handler: async (
+        context: Context,
+        confirmationParams: z.infer<typeof IdentityProviderConfigsDestroySchemaExecute>
+    ) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof IdentityProviderConfigsDestroySchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'identity-provider-configs-destroy',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+                expectedScope: { orgId: String(__scopeOrgId) },
+            }
+        )
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const orgId = __scopeOrgId
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/identity_provider_configs/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const IdentityProviderConfigsListSchema = () => {
+    const IdentityProviderConfigsListQueryParams = orvalSchemas.IdentityProviderConfigsListQueryParams()
+    return IdentityProviderConfigsListQueryParams
+}
+
+const identityProviderConfigsList = (): ToolBase<
+    ReturnType<typeof IdentityProviderConfigsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedIdentityProviderConfigList>
+> => ({
+    name: 'identity-provider-configs-list',
+    schema: IdentityProviderConfigsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IdentityProviderConfigsListSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.PaginatedIdentityProviderConfigList>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/identity_provider_configs/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/')
+    },
+})
+
+const IdentityProviderConfigsPartialUpdateSchema = () => {
+    const IdentityProviderConfigsPartialUpdateBody = orvalSchemas.IdentityProviderConfigsPartialUpdateBody()
+    const IdentityProviderConfigsPartialUpdateParams = orvalSchemas.IdentityProviderConfigsPartialUpdateParams()
+    return IdentityProviderConfigsPartialUpdateParams.omit({ organization_id: true }).extend(
+        IdentityProviderConfigsPartialUpdateBody.shape
+    )
+}
+
+const IdentityProviderConfigsPartialUpdateSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const identityProviderConfigsPartialUpdatePrepare = (): ToolBase<
+    ReturnType<typeof IdentityProviderConfigsPartialUpdateSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'identity-provider-configs-partial-update-prepare',
+    schema: IdentityProviderConfigsPartialUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof IdentityProviderConfigsPartialUpdateSchema>>
+    ) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'identity-provider-configs-partial-update',
+            actionLabel: 'update identity provider configuration',
+            messageTemplate:
+                "Update identity provider configuration {id}. Review the requested settings and domain coverage, then reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { orgId: String(__scopeOrgId) },
+        })
+    },
+})
+
+const identityProviderConfigsPartialUpdateExecute = (): ToolBase<
+    typeof IdentityProviderConfigsPartialUpdateSchemaExecute,
+    Schemas.IdentityProviderConfig
+> => ({
+    name: 'identity-provider-configs-partial-update-execute',
+    schema: IdentityProviderConfigsPartialUpdateSchemaExecute,
+    handler: async (
+        context: Context,
+        confirmationParams: z.infer<typeof IdentityProviderConfigsPartialUpdateSchemaExecute>
+    ) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        const __guard = await executeConfirmedAction<
+            z.infer<ReturnType<typeof IdentityProviderConfigsPartialUpdateSchema>>
+        >(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'identity-provider-configs-partial-update',
+            codec: __runtime.codec,
+            ledger: __runtime.ledger,
+            stash: __runtime.stash,
+            expectedScope: { orgId: String(__scopeOrgId) },
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const orgId = __scopeOrgId
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.domain_scope !== undefined) {
+            body['domain_scope'] = params.domain_scope
+        }
+        if (params.config_scope !== undefined) {
+            body['config_scope'] = params.config_scope
+        }
+        if (params.organization_domain_ids !== undefined) {
+            body['organization_domain_ids'] = params.organization_domain_ids
+        }
+        if (params.oidc_issuer_url !== undefined) {
+            body['oidc_issuer_url'] = params.oidc_issuer_url
+        }
+        if (params.oidc_client_id !== undefined) {
+            body['oidc_client_id'] = params.oidc_client_id
+        }
+        if (params.oidc_client_secret !== undefined) {
+            body['oidc_client_secret'] = params.oidc_client_secret
+        }
+        if (params.saml_entity_id !== undefined) {
+            body['saml_entity_id'] = params.saml_entity_id
+        }
+        if (params.saml_acs_url !== undefined) {
+            body['saml_acs_url'] = params.saml_acs_url
+        }
+        if (params.saml_x509_cert !== undefined) {
+            body['saml_x509_cert'] = params.saml_x509_cert
+        }
+        if (params.scim_enabled !== undefined) {
+            body['scim_enabled'] = params.scim_enabled
+        }
+        if (params.id_jag_issuer_url !== undefined) {
+            body['id_jag_issuer_url'] = params.id_jag_issuer_url
+        }
+        if (params.id_jag_jwks_url !== undefined) {
+            body['id_jag_jwks_url'] = params.id_jag_jwks_url
+        }
+        if (params.id_jag_allowed_clients !== undefined) {
+            body['id_jag_allowed_clients'] = params.id_jag_allowed_clients
+        }
+        const result = await context.api.request<Schemas.IdentityProviderConfig>({
+            method: 'PATCH',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/identity_provider_configs/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const IdentityProviderConfigsRetrieveSchema = () => {
+    const IdentityProviderConfigsRetrieveParams = orvalSchemas.IdentityProviderConfigsRetrieveParams()
+    return IdentityProviderConfigsRetrieveParams.omit({ organization_id: true })
+}
+
+const identityProviderConfigsRetrieve = (): ToolBase<
+    ReturnType<typeof IdentityProviderConfigsRetrieveSchema>,
+    Schemas.IdentityProviderConfig
+> => ({
+    name: 'identity-provider-configs-retrieve',
+    schema: IdentityProviderConfigsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IdentityProviderConfigsRetrieveSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.IdentityProviderConfig>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/identity_provider_configs/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const IdentityProviderConfigsScimTokenCreateSchema = () => {
+    const IdentityProviderConfigsScimTokenCreateParams = orvalSchemas.IdentityProviderConfigsScimTokenCreateParams()
+    return IdentityProviderConfigsScimTokenCreateParams.omit({ organization_id: true })
+}
+
+const IdentityProviderConfigsScimTokenCreateSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const identityProviderConfigsScimTokenCreatePrepare = (): ToolBase<
+    ReturnType<typeof IdentityProviderConfigsScimTokenCreateSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'identity-provider-configs-scim-token-create-prepare',
+    schema: IdentityProviderConfigsScimTokenCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof IdentityProviderConfigsScimTokenCreateSchema>>
+    ) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'identity-provider-configs-scim-token-create',
+            actionLabel: 'regenerate SCIM bearer token',
+            messageTemplate:
+                "Regenerate the SCIM bearer token for identity provider configuration {id}. Existing SCIM clients will stop working until updated. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { orgId: String(__scopeOrgId) },
+        })
+    },
+})
+
+const identityProviderConfigsScimTokenCreateExecute = (): ToolBase<
+    typeof IdentityProviderConfigsScimTokenCreateSchemaExecute,
+    Schemas.SCIMTokenResponse
+> => ({
+    name: 'identity-provider-configs-scim-token-create-execute',
+    schema: IdentityProviderConfigsScimTokenCreateSchemaExecute,
+    handler: async (
+        context: Context,
+        confirmationParams: z.infer<typeof IdentityProviderConfigsScimTokenCreateSchemaExecute>
+    ) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        const __guard = await executeConfirmedAction<
+            z.infer<ReturnType<typeof IdentityProviderConfigsScimTokenCreateSchema>>
+        >(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'identity-provider-configs-scim-token-create',
+            codec: __runtime.codec,
+            ledger: __runtime.ledger,
+            stash: __runtime.stash,
+            expectedScope: { orgId: String(__scopeOrgId) },
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const orgId = __scopeOrgId
+        const result = await context.api.request<Schemas.SCIMTokenResponse>({
+            method: 'POST',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/identity_provider_configs/${encodeURIComponent(String(params.id))}/scim/token/`,
+        })
+        return result
+    },
+})
 
 const MediaImageUploadCompleteSchema = () => {
     const UploadedMediaCompleteUploadCreateParams = orvalSchemas.UploadedMediaCompleteUploadCreateParams()
@@ -119,6 +577,109 @@ const productsEnable = (): ToolBase<ReturnType<typeof ProductsEnableSchema>, Sch
     },
 })
 
+const ProjectCreateSchema = () => {
+    const OrganizationsProjectsCreateBody = orvalSchemas.OrganizationsProjectsCreateBody()
+    return OrganizationsProjectsCreateBody.omit({
+        product_description: true,
+        tags: true,
+        app_urls: true,
+        anonymize_ips: true,
+        completed_snippet_onboarding: true,
+        test_account_filters: true,
+        test_account_filters_default_checked: true,
+        path_cleaning_filters: true,
+        is_demo: true,
+        timezone: true,
+        data_attributes: true,
+        person_display_name_properties: true,
+        correlation_config: true,
+        autocapture_opt_out: true,
+        autocapture_exceptions_opt_in: true,
+        autocapture_web_vitals_opt_in: true,
+        autocapture_web_vitals_allowed_metrics: true,
+        autocapture_exceptions_errors_to_ignore: true,
+        capture_console_log_opt_in: true,
+        capture_performance_opt_in: true,
+        session_recording_opt_in: true,
+        session_recording_sample_rate: true,
+        session_recording_minimum_duration_milliseconds: true,
+        session_recording_linked_flag: true,
+        session_recording_network_payload_capture_config: true,
+        session_recording_masking_config: true,
+        session_recording_url_trigger_config: true,
+        session_recording_url_blocklist_config: true,
+        session_recording_event_trigger_config: true,
+        session_recording_trigger_match_type_config: true,
+        session_recording_trigger_groups: true,
+        session_recording_retention_period: true,
+        session_replay_config: true,
+        survey_config: true,
+        access_control: true,
+        week_start_day: true,
+        primary_dashboard: true,
+        live_events_columns: true,
+        recording_domains: true,
+        inject_web_apps: true,
+        extra_settings: true,
+        modifiers: true,
+        has_completed_onboarding_for: true,
+        surveys_opt_in: true,
+        heatmaps_opt_in: true,
+        flags_persistence_default: true,
+        receive_org_level_activity_logs: true,
+        business_model: true,
+        conversations_enabled: true,
+        conversations_settings: true,
+        logs_settings: true,
+        proactive_tasks_enabled: true,
+        revenue_analytics_config: true,
+        marketing_analytics_config: true,
+        customer_analytics_config: true,
+        workflows_config: true,
+        feature_flag_policy_config: true,
+        base_currency: true,
+        capture_dead_clicks: true,
+        cookieless_server_hash_mode: true,
+        human_friendly_comparison_periods: true,
+        feature_flag_confirmation_enabled: true,
+        feature_flag_confirmation_message: true,
+        default_evaluation_contexts_enabled: true,
+        require_evaluation_contexts: true,
+        default_data_theme: true,
+        onboarding_tasks: true,
+        web_analytics_pre_aggregated_tables_enabled: true,
+    }).extend({
+        name: OrganizationsProjectsCreateBody.shape['name'].describe(
+            'Name for the new project. Must be unique within the organization, ignoring case. If omitted, PostHog generates a default name.'
+        ),
+    })
+}
+
+const projectCreate = (): ToolBase<ReturnType<typeof ProjectCreateSchema>, Schemas.ProjectBackwardCompat> => ({
+    name: 'project-create',
+    schema: ProjectCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ProjectCreateSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        const result = await context.api.request<Schemas.ProjectBackwardCompat>({
+            method: 'POST',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'name',
+            'organization',
+            'api_token',
+            'created_at',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const ProjectGetSchema = () => {
     const OrganizationsProjectsRetrieveParams = orvalSchemas.OrganizationsProjectsRetrieveParams()
     return OrganizationsProjectsRetrieveParams.omit({ organization_id: true }).extend({
@@ -150,6 +711,7 @@ const projectGet = (): ToolBase<ReturnType<typeof ProjectGetSchema>, Schemas.Pro
             'secret_api_token',
             'secret_api_token_backup',
             'live_events_token',
+            'heatmaps_screenshot_secret',
             'default_modifiers',
         ]) as typeof result
         return filtered
@@ -296,6 +858,9 @@ const projectSettingsUpdate = (): ToolBase<
         if (params.primary_dashboard !== undefined) {
             body['primary_dashboard'] = params.primary_dashboard
         }
+        if (params.home_tab_dashboard !== undefined) {
+            body['home_tab_dashboard'] = params.home_tab_dashboard
+        }
         if (params.live_events_columns !== undefined) {
             body['live_events_columns'] = params.live_events_columns
         }
@@ -394,7 +959,15 @@ const projectSettingsUpdate = (): ToolBase<
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, [
+            'api_token',
+            'secret_api_token',
+            'secret_api_token_backup',
+            'live_events_token',
+            'heatmaps_screenshot_secret',
+            'default_modifiers',
+        ]) as typeof result
+        return filtered
     },
 })
 
@@ -542,10 +1115,22 @@ const userSettingsUpdate = (): ToolBase<ReturnType<typeof UserSettingsUpdateSche
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'domains-list': domainsList,
+    'identity-provider-configs-create-prepare': identityProviderConfigsCreatePrepare,
+    'identity-provider-configs-create-execute': identityProviderConfigsCreateExecute,
+    'identity-provider-configs-destroy-prepare': identityProviderConfigsDestroyPrepare,
+    'identity-provider-configs-destroy-execute': identityProviderConfigsDestroyExecute,
+    'identity-provider-configs-list': identityProviderConfigsList,
+    'identity-provider-configs-partial-update-prepare': identityProviderConfigsPartialUpdatePrepare,
+    'identity-provider-configs-partial-update-execute': identityProviderConfigsPartialUpdateExecute,
+    'identity-provider-configs-retrieve': identityProviderConfigsRetrieve,
+    'identity-provider-configs-scim-token-create-prepare': identityProviderConfigsScimTokenCreatePrepare,
+    'identity-provider-configs-scim-token-create-execute': identityProviderConfigsScimTokenCreateExecute,
     'media-image-upload-complete': mediaImageUploadComplete,
     'media-image-upload-start': mediaImageUploadStart,
     'media-images-list': mediaImagesList,
     'products-enable': productsEnable,
+    'project-create': projectCreate,
     'project-get': projectGet,
     'project-settings-update': projectSettingsUpdate,
     'user-get': userGet,

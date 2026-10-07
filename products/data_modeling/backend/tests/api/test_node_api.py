@@ -5,6 +5,8 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -236,6 +238,29 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.json()["name"], "test_view")
         self.assertEqual(response.json()["type"], "view")
         self.assertEqual(response.json()["dag"], str(self.dag.id))
+
+    @parameterized.expand(
+        [
+            (
+                "warehouse",
+                {"origin": "warehouse", "warehouse_table_id": "dbd0dfd6-ae37-4733-a065-0f2601ac3a67"},
+                "warehouse",
+                "dbd0dfd6-ae37-4733-a065-0f2601ac3a67",
+            ),
+            ("posthog", {"origin": "posthog"}, "posthog", None),
+            ("empty", {}, None, None),
+            ("malformed", {"origin": "other", "warehouse_table_id": "not-a-uuid"}, None, None),
+        ]
+    )
+    def test_get_node_exposes_valid_table_identity(self, _name, properties, origin, warehouse_table_id):
+        self.table_node.properties = properties
+        self.table_node.save(update_fields=["properties"])
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.table_node.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["origin"], origin)
+        self.assertEqual(response.json()["warehouse_table_id"], warehouse_table_id)
 
     def test_get_node_includes_upstream_downstream_counts(self):
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
@@ -493,7 +518,7 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @parameterized.expand(["node_id", "saved_query_id"])
+    @parameterized.expand(["node_id", "saved_query_id", "metric_id"])
     def test_lineage_invalid_uuid_returns_400(self, lookup_param):
         response = self.client.get(
             f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?{lookup_param}=not-a-uuid"
@@ -501,7 +526,7 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @parameterized.expand(["node_id", "saved_query_id"])
+    @parameterized.expand(["node_id", "saved_query_id", "metric_id"])
     def test_lineage_does_not_leak_other_teams_nodes(self, lookup_param):
         other_team = Team.objects.create(organization=self.organization)
         other_dag = DAG.objects.create(team=other_team, name=f"posthog_{other_team.id}")
@@ -511,8 +536,19 @@ class TestNodeViewSet(APIBaseTest):
         other_node = Node.objects.create(
             team=other_team, dag=other_dag, saved_query=other_saved_query, type=NodeType.VIEW
         )
+        other_metric_node = Node.objects.create(
+            team=other_team,
+            dag=other_dag,
+            name="other_metric",
+            type=NodeType.METRIC,
+            metric_id=uuid4(),
+        )
 
-        lookup_value = other_node.id if lookup_param == "node_id" else other_saved_query.id
+        lookup_value = {
+            "node_id": other_node.id,
+            "saved_query_id": other_saved_query.id,
+            "metric_id": other_metric_node.metric_id,
+        }[lookup_param]
         response = self.client.get(
             f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?{lookup_param}={lookup_value}"
         )
@@ -650,9 +686,9 @@ class TestNodeViewSet(APIBaseTest):
         original_saved_query_id = self.view_node.saved_query_id
         url = f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/"
         if method == "patch":
-            self.client.patch(url, data={"saved_query_id": str(foreign_sq.id)}, format="json")
+            response = self.client.patch(url, data={"saved_query_id": str(foreign_sq.id)}, format="json")
         else:
-            self.client.put(
+            response = self.client.put(
                 url,
                 data={
                     "name": "test_view",
@@ -663,6 +699,7 @@ class TestNodeViewSet(APIBaseTest):
                 format="json",
             )
 
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.view_node.refresh_from_db()
         self.assertEqual(self.view_node.saved_query_id, original_saved_query_id)
         self.assertNotEqual(self.view_node.name, foreign_sq.name)
@@ -719,6 +756,217 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.view_node.refresh_from_db()
         self.assertEqual(self.view_node.dag_id, self.dag.id)
+
+
+class TestMetricNodeAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
+        self.table_node = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
+        self.saved_query = DataWarehouseSavedQuery.objects.create(
+            name="accounts", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        self.view_node = Node.objects.create(
+            team=self.team, dag=self.dag, saved_query=self.saved_query, type=NodeType.VIEW
+        )
+        self.metric_node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name="weekly_active_accounts",
+            type=NodeType.METRIC,
+            metric_id=uuid4(),
+        )
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.table_node, target=self.view_node)
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=self.metric_node)
+        self.url = f"/api/environments/{self.team.id}/data_modeling_nodes/"
+
+    def test_list_serializes_the_metric_reference(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        serialized = next(node for node in response.json()["results"] if node["id"] == str(self.metric_node.id))
+        self.assertEqual(serialized["type"], NodeType.METRIC)
+        self.assertEqual(serialized["metric_id"], str(self.metric_node.metric_id))
+        self.assertIsNone(serialized["lineage_issue"])
+
+    @parameterized.expand(
+        [
+            ("sync_failed", {"degraded_sync": {"error": "boom", "at": "2026-09-15T00:00:00Z"}}, "boom"),
+            ("unresolved", {"unresolved": {"names": ["gone", "also_gone"], "at": None}}, "gone, also_gone"),
+        ]
+    )
+    def test_list_reports_a_lineage_issue(self, kind, system, expected_detail):
+        self.metric_node.properties = {"system": system}
+        self.metric_node.save()
+
+        response = self.client.get(self.url)
+
+        serialized = next(node for node in response.json()["results"] if node["id"] == str(self.metric_node.id))
+        self.assertEqual(serialized["lineage_issue"]["kind"], kind)
+        self.assertEqual(serialized["lineage_issue"]["detail"], expected_detail)
+
+    def test_lineage_by_metric_id_returns_the_upstream_view_and_table(self):
+        response = self.client.get(f"{self.url}lineage/?metric_id={self.metric_node.metric_id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        node_ids = {node["id"] for node in response.json()["nodes"]}
+        self.assertEqual(node_ids, {str(self.metric_node.id), str(self.view_node.id), str(self.table_node.id)})
+
+    @parameterized.expand(["run", "materialize"])
+    def test_a_metric_node_cannot_be_executed(self, action):
+        response = self.client.post(f"{self.url}{self.metric_node.id}/{action}/", {"direction": "upstream"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("metric", response.json()["error"].lower())
+
+    def test_a_metric_node_cannot_be_deleted_through_the_api(self):
+        response = self.client.delete(f"{self.url}{self.metric_node.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Node.objects.filter(id=self.metric_node.id).exists())
+
+    def test_a_metric_node_cannot_be_retyped_to_table(self):
+        # metric_id is read-only, so a retype to table would leave it set and reach
+        # node_backing_reference_matches_type as an uncaught IntegrityError.
+        response = self.client.patch(f"{self.url}{self.metric_node.id}/", data={"type": NodeType.TABLE}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.metric_node.refresh_from_db()
+        self.assertEqual(self.metric_node.type, NodeType.METRIC)
+
+    @parameterized.expand(["name", "description", "dag_id"])
+    def test_a_metric_node_cannot_be_updated_through_the_api(self, field):
+        payload = (
+            {"dag": str(DAG.objects.create(team=self.team, name="other").id)}
+            if field == "dag_id"
+            else {field: "changed"}
+        )
+        before = getattr(self.metric_node, field)
+
+        response = self.client.patch(f"{self.url}{self.metric_node.id}/", data=payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.metric_node.refresh_from_db()
+        self.assertEqual(getattr(self.metric_node, field), before)
+
+    def test_an_edge_into_a_metric_node_cannot_be_deleted_through_the_api(self):
+        edge = Edge.objects.get(target=self.metric_node)
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Edge.objects.filter(id=edge.id).exists())
+
+    @parameterized.expand(["post", "patch"])
+    def test_only_table_nodes_can_be_written_through_the_api(self, method):
+        if method == "post":
+            response = self.client.post(
+                self.url,
+                data={"name": "sneaky", "type": NodeType.METRIC, "dag": str(self.dag.id)},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertFalse(Node.objects.filter(name="sneaky").exists())
+            return
+
+        response = self.client.patch(f"{self.url}{self.table_node.id}/", data={"type": NodeType.VIEW}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.table_node.refresh_from_db()
+        self.assertEqual(self.table_node.type, NodeType.TABLE)
+
+
+@pytest.mark.ee
+class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
+    resource = "warehouse_objects"
+
+    def setUp(self):
+        super().setUp()
+        self.dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
+        self.view_node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            saved_query=DataWarehouseSavedQuery.objects.create(
+                name="accounts", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            ),
+            type=NodeType.VIEW,
+        )
+        self.metric_node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name="weekly_active_accounts",
+            type=NodeType.METRIC,
+            metric_id=uuid4(),
+        )
+        self.edge = Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=self.metric_node)
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+    def _catalog_access(self, access_level: str) -> None:
+        if access_level == "none":
+            self._create_project_default(resource="data_catalog", access_level="none")
+        else:
+            self._create_access_control(self.viewer_user, resource="data_catalog", access_level=access_level)
+
+    @parameterized.expand(
+        [
+            ("nodes_hidden", "none", False),
+            ("nodes_visible", "viewer", True),
+        ]
+    )
+    def test_nodes_are_visible_only_with_catalog_access(self, _name, catalog_access, expected_visible):
+        self._catalog_access(catalog_access)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
+
+        node_ids = {node["id"] for node in response.json()["results"]}
+        self.assertEqual(str(self.metric_node.id) in node_ids, expected_visible)
+        self.assertIn(str(self.view_node.id), node_ids)
+
+    @parameterized.expand(
+        [
+            ("edges_hidden", "none", False),
+            ("edges_visible", "viewer", True),
+        ]
+    )
+    def test_edges_are_visible_only_with_catalog_access(self, _name, catalog_access, expected_visible):
+        self._catalog_access(catalog_access)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
+
+        edge_ids = {edge["id"] for edge in response.json()["results"]}
+        self.assertEqual(str(self.edge.id) in edge_ids, expected_visible)
+
+    @parameterized.expand(
+        [
+            ("counts_hidden", "none", 0),
+            ("counts_visible", "viewer", 1),
+        ]
+    )
+    def test_downstream_count_never_reports_a_metric_the_reader_cannot_see(self, _name, catalog_access, expected):
+        self._catalog_access(catalog_access)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
+
+        view = next(node for node in response.json()["results"] if node["id"] == str(self.view_node.id))
+        self.assertEqual(view["downstream_count"], expected)
+
+    @parameterized.expand(
+        [
+            ("lineage_hidden", "none", False),
+            ("lineage_visible", "viewer", True),
+        ]
+    )
+    def test_lineage_shows_metric_nodes_only_with_catalog_access(self, _name, catalog_access, expected_visible):
+        self._catalog_access(catalog_access)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={self.view_node.id}"
+        )
+
+        payload = response.json()
+        node_ids = {node["id"] for node in payload["nodes"]}
+        self.assertEqual(str(self.metric_node.id) in node_ids, expected_visible)
+        self.assertEqual(len(payload["edges"]) == 1, expected_visible)
 
 
 @pytest.mark.ee
@@ -827,6 +1075,22 @@ class TestEdgeViewSet(APIBaseTest):
         self.assertEqual(edge["source_id"], str(self.source_node.id))
         self.assertEqual(edge["target_id"], str(self.target_node.id))
         self.assertEqual(edge["dag"], str(self.dag.id))
+
+    def test_list_edges_query_count_does_not_grow_with_edges(self):
+        url = f"/api/environments/{self.team.id}/data_modeling_edges/"
+        self.client.get(url)
+        with CaptureQueriesContext(connection) as baseline:
+            self.client.get(url)
+
+        for i in range(5):
+            target = Node.objects.create(team=self.team, dag=self.dag, name=f"table_{i}", type=NodeType.TABLE)
+            Edge.objects.create(team=self.team, dag=self.dag, source=self.source_node, target=target)
+
+        with CaptureQueriesContext(connection) as grown:
+            response = self.client.get(url)
+
+        self.assertEqual(response.json()["count"], 6)
+        self.assertEqual(len(grown.captured_queries), len(baseline.captured_queries))
 
     def test_list_edges_with_dag_filter(self):
         another_dag = DAG.objects.create(team=self.team, name="another_dag")

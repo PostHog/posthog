@@ -485,9 +485,11 @@ build:
     build:schema-latest-versions:
         bin_script: build-schema-latest-versions.py
         description: Extract latest schema versions and generate frontend JSON config
-    build:taxonomy-json:
-        bin_script: build-taxonomy-json.py
-        description: Generate core filter definitions taxonomy JSON for frontend
+    build:projections:
+        click: hogli_commands.projections:cmd_build_projections
+        description: 'Regenerate the checked-in projections of Python modules that the
+            OpenAPI flow does not carry, as registered in hogli_commands/projections.py.
+            --check verifies without writing, --only NAME picks one. Needs no dev stack'
     build:bot-definitions:
         cmd: python livestream/bot/generate_definitions.py
         description: Generate livestream bot definitions JSON from bot_definitions.py
@@ -531,15 +533,6 @@ build:
     build:openapi-mcp-tools:
         cmd: pnpm --filter=@posthog/mcp run generate-tools
         description: Generate MCP tool handlers from YAML definitions + Orval schemas
-    build:openapi-mcp-scopes:
-        bin_script: build-mcp-oauth-scopes.py
-        description: Generate OAUTH_SCOPES_SUPPORTED for the MCP protected-resource
-            metadata from posthog/scopes.py
-    build:task-model-catalog:
-        cmd: python products/tasks/scripts/build_model_catalog.py
-        description: Generate the web and desktop views of the task run model catalog
-            (runtime adapter, model, reasoning effort) from
-            products/tasks/backend/model_catalog.py
     build:openapi-cli-agent-scopes:
         cmd: pnpm --filter=@posthog/mcp run generate-cli-agent-scopes
         description: Generate the CLI `agent` login use-case scope list from the MCP
@@ -552,14 +545,49 @@ build:
         steps:
             - build:openapi-schema
             - build:widget-types
-            - build:openapi-types
-            - build:openapi-mcp-types
-            - build:openapi-mcp
-            - build:openapi-mcp-tools
-            - build:openapi-mcp-scopes
-            - build:task-model-catalog
+            - cmd: |
+                  log_dir=$(mktemp -d)
+                  generator_names=(frontend_types mcp_types mcp_tools exec_docs)
+                  generator_pids=()
+                  generator_statuses=()
+                  setsid hogli build:openapi-types >"$log_dir/frontend_types.log" 2>&1 &
+                  generator_pids+=("$!")
+                  setsid hogli build:openapi-mcp-types >"$log_dir/mcp_types.log" 2>&1 &
+                  generator_pids+=("$!")
+                  setsid sh -c 'hogli build:openapi-mcp && exec hogli build:openapi-mcp-tools' >"$log_dir/mcp_tools.log" 2>&1 &
+                  generator_pids+=("$!")
+                  setsid hogli build:openapi-exec-docs >"$log_dir/exec_docs.log" 2>&1 &
+                  generator_pids+=("$!")
+                  pids="${generator_pids[*]}"
+                  trap 'for pid in $pids; do kill -- -"$pid" 2>/dev/null || true; done' INT TERM
+                  generation_status=0
+                  for index in "${!generator_names[@]}"; do
+                      if wait "${generator_pids[$index]}"; then
+                          generator_statuses[$index]=0
+                      else
+                          generator_statuses[$index]=$?
+                          generation_status=1
+                      fi
+                  done
+                  for expected_status in 0 1; do
+                      for index in "${!generator_names[@]}"; do
+                          if [ "$expected_status" -eq 0 ]; then
+                              if [ "${generator_statuses[$index]}" -ne 0 ]; then
+                                  continue
+                              fi
+                          elif [ "${generator_statuses[$index]}" -eq 0 ]; then
+                              continue
+                          fi
+                          name="${generator_names[$index]}"
+                          printf '::group::%s (exit %s)\n' "$name" "${generator_statuses[$index]}"
+                          cat "$log_dir/$name.log"
+                          printf '::endgroup::\n'
+                      done
+                  done
+                  rm -rf "$log_dir"
+                  trap - INT TERM
+                  exit "$generation_status"
             - build:openapi-cli-agent-scopes
-            - build:openapi-exec-docs
         description: 'Generate OpenAPI schema and TypeScript types from the backend.
             Needs the dev stack running (Postgres and ClickHouse): Django starts
             before the schema is generated. Start it with hogli up -d'
@@ -570,17 +598,17 @@ build:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
     build:skills:
-        cmd: python products/posthog_ai/scripts/build_skills.py
+        cmd: python -m products.posthog_ai.scripts.build_skills
         description: Build agent skills from products/*/skills/ into dist/skills/ and
             dist/skills.zip
     init:skill:
-        cmd: python products/posthog_ai/scripts/build_skills.py --init
+        cmd: python -m products.posthog_ai.scripts.build_skills --init
         description: Scaffold a new agent skill directory with SKILL.md boilerplate
     sync:skill:
-        cmd: python products/posthog_ai/scripts/build_skills.py --sync
+        cmd: python -m products.posthog_ai.scripts.build_skills --sync
         description: Build a product skill and sync to .agents/skills/ for local testing
     unsync:skill:
-        cmd: python products/posthog_ai/scripts/build_skills.py --sync --clean
+        cmd: python -m products.posthog_ai.scripts.build_skills --sync --clean
         description: Remove a previously synced skill from .agents/skills/
 docker:
     docker:services:up:
@@ -824,7 +852,7 @@ quality:
         cmd: ./bin/ruff.sh format
         description: Format Python files
     lint:skills:
-        cmd: python products/posthog_ai/scripts/build_skills.py --lint
+        cmd: python -m products.posthog_ai.scripts.build_skills --lint
         description: Validate agent skill sources (syntax, frontmatter, depth constraints)
     lint:python:fix:
         cmd: ./bin/ruff.sh check --fix
@@ -857,6 +885,9 @@ quality:
     lint:size:
         click: hogli_commands.size_lint:cmd_lint_size
         description: Check the size of changed Python/TypeScript files (warn-only, crossing 1000 lines)
+    lint:api-ratchet:
+        click: hogli_commands.api_ratchet:cmd_lint_api_ratchet
+        description: Block new frontend/src/lib/api.ts path methods that a generated client already covers
     lint:workflows:
         click: hogli_commands.workflow_lint.cli:cmd_lint_workflows
         description: Lint .github/workflows/** for repo conventions
@@ -997,6 +1028,10 @@ tools:
         bin_script: granian_metrics.py
         description: HTTP server that aggregates Prometheus metrics from Granian workers
         hidden: true
+    tool:granian-shared-socket:
+        bin_script: granian_shared_socket.py
+        description: Granian launcher that keeps one listen socket shared by all workers
+        hidden: true
     sync:storage:
         bin_script: sync-storage
         description: 'TODO: add description for sync-storage'
@@ -1058,35 +1093,38 @@ desktop:
         description: Run the desktop app dev stack (build deps, then phrocs with Electron)
     desktop:test:
         cmd: pnpm --dir products/desktop test
-        description: Run desktop unit tests (Vitest via turbo, nested workspace)
+        description: Run desktop and agent workspace unit tests (Vitest via turbo, nested workspaces)
     desktop:typecheck:
         cmd: pnpm --dir products/desktop typecheck
-        description: Typecheck all desktop packages (turbo)
+        description: Typecheck all desktop and agent workspace packages (turbo)
     desktop:lint:
-        cmd: pnpm --dir products/desktop exec biome ci . && node products/desktop/scripts/check-host-boundaries.mjs
-        description: Check desktop code quality without writing (Biome + host boundaries, mirrors desktop-quality CI)
+        cmd: pnpm --dir products/desktop exec biome ci . && pnpm --dir packages/agent exec biome ci . && node products/desktop/scripts/check-host-boundaries.mjs
+        description: Check desktop and agent workspace code quality without writing (Biome + host boundaries, mirrors desktop-quality CI)
     desktop:lint:fix:
-        cmd: pnpm --dir products/desktop run lint
-        description: Autofix desktop lint issues (biome check --write --unsafe)
+        cmd: pnpm --dir products/desktop run lint && pnpm --dir packages/agent run lint
+        description: Autofix desktop and agent workspace lint issues (biome check --write --unsafe)
 
 owners:
     owners:resolve:
-        click: posthog_owners.cli:cmd_resolve
+        click: owners_yaml.cli:cmd_resolve
         description: Resolve ownership for paths (args or newline-delimited stdin); --json for machine output
     owners:who:
-        click: posthog_owners.cli:cmd_who
+        click: owners_yaml.cli:cmd_who
         description: Show who owns a single path (owners, status, slack, source)
     owners:census:
-        click: posthog_owners.cli:cmd_census
+        click: owners_yaml.cli:cmd_census
         description: Count test files per owning team (optional PREFIX; --json for machine output)
+    owners:codeowners:
+        click: owners_yaml.cli:cmd_codeowners
+        description: Emit a CODEOWNERS projection of test-file ownership for tools that only read CODEOWNERS (-o writes a file)
     owners:unowned:
-        click: posthog_owners.cli:cmd_unowned
+        click: owners_yaml.cli:cmd_unowned
         description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)
     owners:lint:
-        click: posthog_owners.cli:cmd_lint
+        click: owners_yaml.cli:cmd_lint
         description: Validate owners.yaml schema, product.yaml conflicts, dead globs, coverage (--live checks the GitHub org)
     owners:fmt:
-        click: posthog_owners.cli:cmd_fmt
+        click: owners_yaml.cli:cmd_fmt
         description: Dry-run oracle showing how the owners.yaml layout differs from canonical placement (never writes)
 devex:
     devex:feedback:
@@ -1170,7 +1208,7 @@ environment:
         hidden: true
     flags:jumphost:
         bin_script: rust-jumphost
-        description: 'Shell into the flags-cache-jumphost pod (namespace follows the environment: flags-cache-jumphost on dev, posthog elsewhere; $KUBE_NAMESPACE overrides)'
+        description: 'Shell into the flags-cache-jumphost pod (namespace flags-cache-jumphost in every environment; $KUBE_NAMESPACE overrides)'
         hidden: true
     wait:for:postgres:tables:
         bin_script: wait-for-postgres-tables
@@ -1247,4 +1285,12 @@ environment:
     docker:worker:ai:training:privacy:
         bin_script: docker-worker-ai-training-privacy
         description: 'Start the dedicated AI training privacy worker'
+        hidden: true
+    build:recording:rasterizer:image:
+        bin_script: build-recording-rasterizer-image
+        description: 'Build the recording rasterizer Docker image'
+        hidden: true
+    rasterize:recording:file:
+        bin_script: rasterize-recording-file
+        description: 'Render a recording JSONL file to video with the rasterizer'
         hidden: true
