@@ -81,8 +81,11 @@ Create an API key and an application key in your [Datadog organization settings]
 - `metrics_read`
 - `teams_read`
 - `usage_read` and `billing_read` (usage and cost tables)
+- `error_tracking_read` (error tracking issues), `apm_read` (error spans), and `logs_read_data` (logs and error logs)
 
-Logs, audit logs, and events read access is governed by your Datadog account's data retention.""",
+Logs, audit logs, and events read access is governed by your Datadog account's data retention.
+
+Error tracking issues, error spans, and error logs are off by default. Turn them on to feed errors into the PostHog Self-driving inbox. Error spans and error logs only contain `status:error` records.""",
             iconPath="/static/services/datadog.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/datadog",
             fields=cast(
@@ -152,6 +155,7 @@ Logs, audit logs, and events read access is governed by your Datadog account's d
                 supports_incremental=DATADOG_ENDPOINTS[endpoint].supports_incremental,
                 supports_append=DATADOG_ENDPOINTS[endpoint].supports_incremental,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                should_sync_default=DATADOG_ENDPOINTS[endpoint].sync_by_default,
                 description=(
                     "Limited to your Datadog account's retention window on initial sync"
                     if endpoint in LIMITED_RETENTION_ENDPOINTS

@@ -26,6 +26,7 @@ def datadog_incident_emitter(team_id: int, record: dict[str, Any]) -> SignalEmit
     output = _flat_emitter(team_id, record)
     if output is None:
         return None
+    output = dataclasses.replace(output, extra={"kind": "incident", **output.extra})
     details = [
         f"{label}: {value}"
         for label, value in (("Severity", record.get("severity")), ("State", record.get("state")))

@@ -21,6 +21,8 @@ INCREMENTAL_ENDPOINTS = {
     "usage_hourly": "timestamp",
     "usage_summary": "date",
     "usage_historical_cost": "date",
+    "error_spans": "start_timestamp",
+    "error_logs": "timestamp",
 }
 
 
@@ -77,6 +79,16 @@ class TestDatadogSource:
             assert schemas[name].supports_incremental is False
             assert schemas[name].supports_append is False
             assert schemas[name].incremental_fields == []
+
+    def test_error_tables_are_opt_in(self) -> None:
+        # error_tracking_issues needs the error_tracking_read scope, which most keys lack. Spans and logs
+        # are high volume, so selecting them by default would pull every error from a rate-limited API.
+        schemas = self.source.get_schemas(self.config, self.team_id)
+        assert {s.name for s in schemas if not s.should_sync_default} == {
+            "error_tracking_issues",
+            "error_spans",
+            "error_logs",
+        }
 
     def test_get_schemas_retention_description(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}

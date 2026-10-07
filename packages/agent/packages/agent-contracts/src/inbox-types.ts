@@ -50,7 +50,6 @@ const FINDING = "Surface new security and code-quality findings";
 const FEEDBACK = "Turn product feedback and feature requests into inputs";
 const REVIEW = "Monitor new app and product reviews";
 const SEARCH = "Fix pages that rank in Google but lose clicks";
-const INCIDENT = "Surface new and active incidents";
 
 /** Registry of warehouse-backed inbox sources, alphabetical within each category. */
 export const EXTERNAL_INBOX_SOURCES = [
@@ -155,13 +154,13 @@ export const EXTERNAL_INBOX_SOURCES = [
     recordKind: "issue",
     setup: "dynamic",
   },
-  // Monitoring and incidents
+  // Monitoring and errors
   {
     product: "datadog",
     label: "Datadog",
-    description: INCIDENT,
+    description: "Surface new errors from APM traces, logs and error tracking",
     dwSourceType: "Datadog",
-    requiredTables: ["incidents"],
+    requiredTables: ["error_tracking_issues"],
     recordKind: "issue",
     setup: "dynamic",
   },

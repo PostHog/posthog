@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.settings import (
     DATADOG_ENDPOINTS,
     DatadogEndpointConfig,
+    DatadogIssueSearchConfig,
     TimestampFormat,
 )
 
@@ -31,6 +32,7 @@ DATADOG_SITES = (
 DEFAULT_SITE = "datadoghq.com"
 
 REQUEST_TIMEOUT_SECONDS = 60
+SEARCH_BATCH_SIZE = 500
 
 
 class DatadogRetryableError(Exception):
@@ -262,8 +264,13 @@ def _make_fetcher(
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
     )
-    def fetch_page(page_url: str, allow_missing: bool = False) -> Any:
-        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
+    def fetch_page(page_url: str, allow_missing: bool = False, json_body: Optional[dict[str, Any]] = None) -> Any:
+        # The transport only retries GET on its own, so a POST search relies on the retry above.
+        # That is safe because the search reads data and changes nothing.
+        if json_body is not None:
+            response = session.post(page_url, json=json_body, timeout=REQUEST_TIMEOUT_SECONDS)
+        else:
+            response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
 
         # 408 is a transient request timeout on Datadog's side; retry it like 429/5xx rather than
         # letting it raise_for_status() into a fatal, non-retried HTTPError.
@@ -287,21 +294,32 @@ def _walk(
     start_url: str,
     fetch_page: Callable[..., Any],
     host: str,
+    logger: FilteringBoundLogger,
     save_state: Callable[[str], None] | None = None,
     allow_missing: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
     """Page through one endpoint URL, yielding a normalized batch per response."""
     url = start_url
+    pages = 0
     while True:
         data = fetch_page(url, allow_missing)
         if data is None:
             return
+        pages += 1
 
         items = _extract_items(data, config)
         if items:
             if config.flatten_attributes:
                 items = [_flatten_item(item) for item in items]
             yield items
+
+        if config.max_pages_per_sync is not None and pages >= config.max_pages_per_sync:
+            # Rows arrive oldest first and the pipeline checkpoints the newest cursor value, so the
+            # next sync continues where this one stopped instead of losing the rest.
+            logger.warning(
+                f"Datadog: stopped {config.name} after {pages} pages, so rows are still waiting and the next sync continues from here"
+            )
+            return
 
         # An empty page is not the end of the walk: the usage endpoints carry their cursor in
         # `meta` independently of `data`, so only the paginator decides when to stop.
@@ -321,6 +339,7 @@ def _fan_out_rows(
     config: DatadogEndpointConfig,
     fetch_page: Callable[..., Any],
     host: str,
+    logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk a parent endpoint and query the child endpoint once per parent id."""
     fan_out = config.parent
@@ -333,7 +352,7 @@ def _fan_out_rows(
     )
 
     parents_seen = 0
-    for parent_batch in _walk(parent_config, parent_url, fetch_page, host):
+    for parent_batch in _walk(parent_config, parent_url, fetch_page, host, logger):
         for parent in parent_batch:
             if parents_seen >= fan_out.max_parents:
                 # Returning here would write a truncated table that looks like a complete sync.
@@ -356,10 +375,183 @@ def _fan_out_rows(
             )
             # A parent deleted between the list call and its child call answers 404; skip it
             # rather than failing the whole sync.
-            for child_batch in _walk(config, child_url, fetch_page, host, allow_missing=True):
+            for child_batch in _walk(config, child_url, fetch_page, host, logger, allow_missing=True):
                 for row in child_batch:
                     row[fan_out.child_id_field] = parent_id
                 yield child_batch
+
+
+def _epoch_ms_to_iso(value: Any) -> Any:
+    """Render epoch milliseconds like the event endpoints' timestamps (UTC ISO 8601, ms, ``Z``)."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return value
+    try:
+        dt = datetime.fromtimestamp(int(value) // 1000, UTC).replace(microsecond=(int(value) % 1000) * 1000)
+    except (OverflowError, OSError, ValueError):
+        return value
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _build_search_body(search: DatadogIssueSearchConfig, from_ms: int, to_ms: int) -> dict[str, Any]:
+    """Body of an Error Tracking issue search. ``from`` is inclusive and ``to`` is exclusive."""
+    return {
+        "data": {
+            "type": "search_request",
+            "attributes": {
+                "query": search.query,
+                "persona": search.persona,
+                "order_by": search.order_by,
+                "states": list(search.states),
+                "from": from_ms,
+                "to": to_ms,
+            },
+        }
+    }
+
+
+def _join_included(response_json: Any, search: DatadogIssueSearchConfig) -> list[dict[str, Any]]:
+    """Turn search results into one flat row per issue.
+
+    A result only carries window counts and a link to its issue. The issue attributes sit in the
+    ``included`` list, which mixes issue, case, user and team objects, so only the issue type is used.
+    """
+    if not isinstance(response_json, dict):
+        return []
+
+    included = response_json.get("included")
+    issue_attributes: dict[Any, dict[str, Any]] = {}
+    if isinstance(included, list):
+        for inc in included:
+            if isinstance(inc, dict) and inc.get("type") == search.included_type:
+                attributes = inc.get("attributes")
+                issue_attributes[inc.get("id")] = attributes if isinstance(attributes, dict) else {}
+
+    results = response_json.get("data")
+    rows: list[dict[str, Any]] = []
+    for result in results if isinstance(results, list) else []:
+        if not isinstance(result, dict):
+            continue
+        relationship = (result.get("relationships") or {}).get(search.included_type) or {}
+        related = relationship.get("data") if isinstance(relationship, dict) else None
+        issue_id = related.get("id") if isinstance(related, dict) else None
+        issue_id = issue_id or result.get("id")
+        if not issue_id:
+            continue
+
+        # Seeding every known attribute keeps the same columns in the table when a window has no value for one.
+        row: dict[str, Any] = dict.fromkeys(search.issue_fields)
+        row.update(issue_attributes.get(issue_id, {}))
+        counts = result.get("attributes")
+        counts = counts if isinstance(counts, dict) else {}
+        for source_field, column in search.count_fields.items():
+            row[column] = counts.get(source_field)
+        row["id"] = issue_id
+        rows.append(row)
+    return rows
+
+
+def _merge_issue_rows(
+    merged: dict[Any, dict[str, Any]], rows: list[dict[str, Any]], search: DatadogIssueSearchConfig
+) -> None:
+    """Fold rows from one slice into the per-issue totals.
+
+    Slices do not overlap, so event counts add up. Distinct user and session counts do not, because
+    one user can appear in two slices, so they keep the largest slice value. ``first_seen`` and
+    ``last_seen`` describe the whole issue and are the same in every slice, so the min and max only
+    guard against a stale value.
+    """
+    count_columns = list(search.count_fields.values())
+    for row in rows:
+        existing = merged.get(row["id"])
+        if existing is None:
+            merged[row["id"]] = row
+            continue
+        for column in count_columns:
+            if column in search.additive_count_columns:
+                existing[column] = (existing.get(column) or 0) + (row.get(column) or 0)
+            else:
+                existing[column] = max(existing.get(column) or 0, row.get(column) or 0)
+        if row.get("last_seen") is not None:
+            existing["last_seen"] = max(existing.get("last_seen") or 0, row["last_seen"])
+        if row.get("first_seen") is not None:
+            existing["first_seen"] = min(existing.get("first_seen") or row["first_seen"], row["first_seen"])
+
+
+@dataclasses.dataclass(frozen=False)
+class _SearchBudget:
+    """Search requests a sync may still start, beyond the one already made for the current window.
+
+    A split reserves both of its requests up front, so the total never passes the configured cap.
+    """
+
+    remaining: int
+
+
+def _search_window(
+    fetch_page: Callable[..., Any],
+    url: str,
+    search: DatadogIssueSearchConfig,
+    from_ms: int,
+    to_ms: int,
+    merged: dict[Any, dict[str, Any]],
+    logger: FilteringBoundLogger,
+    budget: _SearchBudget,
+) -> None:
+    data = fetch_page(url, False, _build_search_body(search, from_ms, to_ms))
+    rows = _join_included(data, search)
+    result_count = len(data.get("data") or []) if isinstance(data, dict) else 0
+
+    if result_count >= search.max_results_per_request:
+        if to_ms - from_ms > search.min_window_seconds * 1000:
+            if budget.remaining < 2:
+                logger.warning(
+                    f"Datadog error tracking search reached the limit of {search.max_requests_per_sync} requests, "
+                    f"so the window {from_ms} to {to_ms} (epoch ms) is not split and some issues in it are missing"
+                )
+            else:
+                # The API has no pagination, so a full response may hide issues. Halve the window until
+                # no slice is full. Earlier half first, so rows arrive in time order.
+                budget.remaining -= 2
+                midpoint = from_ms + (to_ms - from_ms) // 2
+                _search_window(fetch_page, url, search, from_ms, midpoint, merged, logger, budget)
+                _search_window(fetch_page, url, search, midpoint, to_ms, merged, logger, budget)
+                return
+        else:
+            logger.warning(
+                f"Datadog error tracking search returned the maximum of {search.max_results_per_request} issues "
+                f"for the smallest window ({from_ms} to {to_ms} epoch ms), so some issues in it are missing"
+            )
+
+    _merge_issue_rows(merged, rows, search)
+
+
+def _search_issue_rows(
+    config: DatadogEndpointConfig,
+    fetch_page: Callable[..., Any],
+    host: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Read Error Tracking issues for the lookback window, merged into one row per issue."""
+    search = config.search
+    assert search is not None
+
+    to_ms = int(datetime.now(UTC).timestamp() * 1000)
+    from_ms = to_ms - (config.default_lookback_days or 1) * 24 * 3600 * 1000
+    url = _build_initial_url(host, config.path, config.static_params)
+
+    # Counts for a split issue only add up across the whole window, so rows are held until every
+    # slice has been read. One row per issue keeps this small.
+    merged: dict[Any, dict[str, Any]] = {}
+    budget = _SearchBudget(search.max_requests_per_sync - 1)
+    _search_window(fetch_page, url, search, from_ms, to_ms, merged, logger, budget)
+
+    rows = list(merged.values())
+    for row in rows:
+        for column in search.epoch_ms_fields:
+            if column in row:
+                row[column] = _epoch_ms_to_iso(row[column])
+    for start in range(0, len(rows), SEARCH_BATCH_SIZE):
+        yield rows[start : start + SEARCH_BATCH_SIZE]
 
 
 def _endpoint_config(endpoint: str) -> DatadogEndpointConfig:
@@ -386,10 +578,15 @@ def get_rows(
     session = make_tracked_session(headers=headers, redact_values=(api_key, app_key))
     fetch_page = _make_fetcher(session, logger)
 
+    if config.search is not None:
+        # A search is a set of time windows, not a URL chain, so there is no position to resume from.
+        yield from _search_issue_rows(config, fetch_page, host, logger)
+        return
+
     if config.parent is not None:
         # A fan-out position is a parent cursor plus a child page, which the single-URL resume
         # state cannot express, so these endpoints restart from the first parent instead.
-        yield from _fan_out_rows(config, fetch_page, host)
+        yield from _fan_out_rows(config, fetch_page, host, logger)
         return
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -409,6 +606,7 @@ def get_rows(
         url,
         fetch_page,
         host,
+        logger,
         save_state=lambda next_url: resumable_source_manager.save_state(DatadogResumeConfig(next_url=next_url)),
     )
 

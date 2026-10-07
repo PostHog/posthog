@@ -2132,10 +2132,23 @@ export interface SentryIssueSignalExtraApi {
     firstSeen: string | null
 }
 
-export interface DatadogIncidentSignalExtraApi {
-    severity: string | null
-    state: string | null
-    created: string | null
+export interface DatadogSignalExtraApi {
+    kind: string
+    severity?: string | null
+    state?: string | null
+    created?: string | null
+    service?: string | null
+    platform?: string | null
+    file_path?: string | null
+    function_name?: string | null
+    error_type?: string | null
+    resource_name?: string | null
+    first_seen?: string | null
+    last_seen?: string | null
+    is_crash?: string | null
+    window_total_count?: string | null
+    window_impacted_users?: string | null
+    occurrences?: string | null
 }
 
 export interface RollbarItemSignalExtraApi {
@@ -2340,7 +2353,7 @@ export type SignalExtraApi =
     | GiteaIssueSignalExtraApi
     | ShortcutStorySignalExtraApi
     | SentryIssueSignalExtraApi
-    | DatadogIncidentSignalExtraApi
+    | DatadogSignalExtraApi
     | RollbarItemSignalExtraApi
     | BugsnagErrorSignalExtraApi
     | HoneybadgerFaultSignalExtraApi

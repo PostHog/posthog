@@ -215,3 +215,54 @@ MOCK_GOOGLE_SEARCH_CONSOLE_RECORD: dict = {
 @pytest.fixture
 def google_search_console_record() -> dict:
     return {**MOCK_GOOGLE_SEARCH_CONSOLE_RECORD}
+
+
+MOCK_DATADOG_ERROR_ISSUE_RECORD: dict = {
+    "id": "issue-1",
+    "error_type": "ConnectionRefusedError",
+    "error_message": "Connection refused by upstream payments.example.com",
+    "service": "checkout-api",
+    "state": "OPEN",
+    "platform": "BACKEND",
+    "file_path": "app/payments/client.py",
+    "function_name": "charge",
+    "first_seen": "2026-07-15T10:00:00.000Z",
+    "last_seen": "2026-07-15T12:30:00.000Z",
+    "is_crash": False,
+    "window_total_count": 42,
+    "window_impacted_users": 7,
+}
+
+
+@pytest.fixture
+def datadog_error_issue_record() -> dict:
+    return {**MOCK_DATADOG_ERROR_ISSUE_RECORD}
+
+
+MOCK_DATADOG_ERROR_SPAN_RECORD: dict = {
+    "service": "checkout-api",
+    "resource_name": "POST /orders",
+    "occurrences": 120,
+    "first_seen": "2026-07-15T10:00:00.000Z",
+    "last_seen": "2026-07-15T12:30:00.000Z",
+    "error_type": "TimeoutError",
+}
+
+
+@pytest.fixture
+def datadog_error_span_record() -> dict:
+    return {**MOCK_DATADOG_ERROR_SPAN_RECORD}
+
+
+MOCK_DATADOG_ERROR_LOG_RECORD: dict = {
+    "service": "checkout-api",
+    "message_pattern": "Payment # failed for order #",
+    "occurrences": 87,
+    "first_seen": "2026-07-15T10:00:00.000Z",
+    "last_seen": "2026-07-15T12:30:00.000Z",
+}
+
+
+@pytest.fixture
+def datadog_error_log_record() -> dict:
+    return {**MOCK_DATADOG_ERROR_LOG_RECORD}
