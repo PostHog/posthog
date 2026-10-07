@@ -61,7 +61,6 @@ from products.replay_vision.backend.billing import (
     get_replay_vision_observations_by_team,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
-from products.signals.backend.billing import credited_refund_credits_for_org, get_signals_billing_credits_by_team
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventProperties,
@@ -2035,6 +2034,10 @@ def get_teams_with_signals_credits_used_in_period(
 
     Outcome-based, not LLM spend: see `products/signals/backend/billing.py`.
     """
+    from products.signals.backend.facade.api import (  # noqa: PLC0415 - the signals facade imports ee.billing, which imports this module
+        get_signals_billing_credits_by_team,
+    )
+
     return get_signals_billing_credits_by_team(begin, end)
 
 
@@ -2047,6 +2050,10 @@ def get_signals_credited_refund_credits_for_org(
     from this posthog-layer module (like the usage query above) because the module boundaries
     allow posthog → products.signals but not ee → products.signals.
     """
+    from products.signals.backend.facade.api import (  # noqa: PLC0415 - the signals facade imports ee.billing, which imports this module
+        credited_refund_credits_for_org,
+    )
+
     return credited_refund_credits_for_org(organization_id, begin, end)
 
 
@@ -2059,6 +2066,10 @@ def get_self_driving_credits_used_in_period_for_org(
     fresher number than the cron-patched `todays_usage`. Re-exported from this posthog-layer
     module for the same boundary reason as the helper above.
     """
+    from products.signals.backend.facade.api import (  # noqa: PLC0415 - the signals facade imports ee.billing, which imports this module
+        get_signals_billing_credits_by_team,
+    )
+
     return sum(
         credits for _, credits in get_signals_billing_credits_by_team(begin, end, organization_id=organization_id)
     )
