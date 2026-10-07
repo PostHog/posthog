@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
-import reviewer  # noqa: E402
 import review_pr  # noqa: E402
+import openai_reviewer  # noqa: E402
 from familiarity import AuthorFamiliarity  # noqa: E402
 from github import CommitProvenance, PRData  # noqa: E402
 from review_pr import GateResult, Pipeline  # noqa: E402
@@ -135,7 +135,7 @@ def test_backend_failure_yields_error_except_when_gates_deny(
 ) -> None:
     """A failed LLM call must surface as ERROR (label retained) unless gates
     already DENIED — a deterministic denial outranks an unavailable reviewer."""
-    monkeypatch.setattr(reviewer, "Reviewer", _RaisingReviewer)
+    monkeypatch.setattr(openai_reviewer, "OpenAIReviewer", _RaisingReviewer)
     monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
     monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
     # _llm_review is called directly, so run()'s diff cleanup never happens — keep the scratch
@@ -179,7 +179,7 @@ def test_turn_limit_error_not_retried(
         call_count += 1
         return original_review(self, *args, **kwargs)
 
-    monkeypatch.setattr(reviewer, "Reviewer", _TurnLimitReviewer)
+    monkeypatch.setattr(openai_reviewer, "OpenAIReviewer", _TurnLimitReviewer)
     monkeypatch.setattr(_TurnLimitReviewer, "review", counting_review)
     monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
     monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
@@ -436,7 +436,7 @@ def test_gate_denied_pr_skips_the_wait(monkeypatch: pytest.MonkeyPatch, tmp_path
         def review(self, *args: object, **kwargs: object) -> dict:
             return {"verdict": "REFUSE", "reasoning": "gates denied", "risk": "high", "issues": []}
 
-    monkeypatch.setattr(reviewer, "Reviewer", _RefusingReviewer)
+    monkeypatch.setattr(openai_reviewer, "OpenAIReviewer", _RefusingReviewer)
 
     pr = _fake_pr(head_sha="abc123")
     pr.files = [{"filename": ".github/workflows/ci.yml", "additions": 2, "deletions": 1, "status": "M"}]
@@ -461,7 +461,7 @@ def test_wait_refetch_reclassifies_before_review(monkeypatch: pytest.MonkeyPatch
         def review(self, *args: object, **kwargs: object) -> dict:
             return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
 
-    monkeypatch.setattr(reviewer, "Reviewer", _ApprovingReviewer)
+    monkeypatch.setattr(openai_reviewer, "OpenAIReviewer", _ApprovingReviewer)
 
     initial = _fake_pr(head_sha="abc123")
     initial.files = [{"filename": "docs/readme.md", "additions": 1, "deletions": 0, "status": "M"}]
@@ -804,3 +804,23 @@ def test_self_driving_prerequisites_still_block_changes_requested() -> None:
 
     assert passed is False
     assert "changes requested" in message
+
+
+@pytest.mark.parametrize(
+    "engine_setting, expected_class",
+    [
+        pytest.param(None, "OpenAIReviewer", id="default"),
+        pytest.param("claude", "Reviewer", id="claude-rollback"),
+        pytest.param("anything-else", "OpenAIReviewer", id="unknown-value"),
+    ],
+)
+def test_reviewer_engine_switch_selects_the_reviewer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, engine_setting: str | None, expected_class: str
+) -> None:
+    if engine_setting is None:
+        monkeypatch.delenv("STAMPHOG_REVIEWER_ENGINE", raising=False)
+    else:
+        monkeypatch.setenv("STAMPHOG_REVIEWER_ENGINE", engine_setting)
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+
+    assert type(pipeline._new_reviewer(tmp_path)).__name__ == expected_class

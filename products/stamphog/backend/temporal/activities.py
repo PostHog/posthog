@@ -421,6 +421,10 @@ def _reviewer_environment(run: ReviewRun, gateway: AIGatewayConfig) -> dict[str,
         "AI_GATEWAY_URL": gateway.url,
         **NETWORK_RESTRICTED_AGENT_ENV,
     }
+    # The ops switch to the engine's Claude rollback reviewer, set on the worker. It is not a secret.
+    engine = os.environ.get("STAMPHOG_REVIEWER_ENGINE", "").strip()
+    if engine:
+        env["STAMPHOG_REVIEWER_ENGINE"] = engine
     return {**env, **_engine_analytics_environment(_hosted_analytics_properties(run))}
 
 

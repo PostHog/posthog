@@ -9,6 +9,7 @@ import {
     UNATTRIBUTED_VARIANT,
     scannerVariantsLogic,
     variantComparisonState,
+    variantFilterOptions,
     variantObservationsUrl,
 } from './scannerVariantsLogic'
 
@@ -52,6 +53,17 @@ describe('scannerVariantsLogic', () => {
 
         expect(params.get('variant')).toBe(variantKey)
         expect(params.get('status')).toBe(expectedStatus)
+    })
+
+    // A link or an old URL can name a variant the experiment no longer lists, and the always-on filter
+    // must still show it as selected instead of an empty dropdown.
+    it.each([
+        ['every variant', null, [null, 'control', 'test', UNATTRIBUTED_VARIANT]],
+        ['a listed variant', 'test', [null, 'control', 'test', UNATTRIBUTED_VARIANT]],
+        ['a variant not in the list', 'old-arm', [null, 'control', 'test', 'old-arm', UNATTRIBUTED_VARIANT]],
+        ['no variant', UNATTRIBUTED_VARIANT, [null, 'control', 'test', UNATTRIBUTED_VARIANT]],
+    ])('offers %s in the variant filter', (_name, current, expected) => {
+        expect(variantFilterOptions(['control', 'test'], current).map((option) => option.value)).toEqual(expected)
     })
 
     it('reports one tab view per mount, not one per reload', async () => {
