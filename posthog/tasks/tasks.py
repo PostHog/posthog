@@ -423,6 +423,11 @@ def _process_query_task_failure(
     if isinstance(exc, APIException):
         # User-safe message (e.g. ClickHouseAtCapacity's "try again later" copy)
         query_status.error_message = str(exc.detail)
+        codes = exc.get_codes()
+        if isinstance(codes, str):
+            query_status.error_code = codes
+    elif isinstance(exc, ConcurrencyLimitExceeded):
+        query_status.error_code = ClickHouseAtCapacity.default_code
     query_status.end_time = datetime.datetime.now(datetime.UTC)
     manager.store_query_status(query_status)
 

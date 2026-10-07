@@ -41,6 +41,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
 from posthog.models import Organization, Team, User
 
 from ee.hogai.context.insight.context import InsightContext
@@ -51,7 +52,7 @@ from ee.hogai.context.insight.query_executor import (
     get_example_prompt,
     is_supported_query,
 )
-from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.query import validate_assistant_query
 
 
@@ -455,6 +456,42 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertEqual(str(context.exception), error_message)
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
         self.assertEqual(context.exception.error_type, "internal")
+
+    @parameterized.expand(
+        [
+            ("at_capacity", "clickhouse_at_capacity", ClickHouseAtCapacity.default_detail),
+            ("ran_concurrently", "query_ran_concurrently", QueryRanConcurrently.default_detail),
+            ("concurrency_limit_without_message", "clickhouse_at_capacity", None),
+        ]
+    )
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    async def test_async_query_that_gave_up_on_capacity_asks_the_agent_to_wait(
+        self,
+        _name: str,
+        error_code: str,
+        error_message: str | None,
+        mock_get_query_status: Mock,
+        mock_process_query: Mock,
+    ) -> None:
+        mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
+        mock_get_query_status.return_value = Mock(
+            model_dump=lambda mode: {
+                "id": "test-query-id",
+                "complete": True,
+                "error": True,
+                "error_message": error_message,
+                "error_code": error_code,
+            }
+        )
+
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
+            with self.assertRaises(MaxToolTransientError) as context:
+                await self.query_runner.arun_and_format_query(AssistantTrendsQuery(series=[]))
+
+        self.assertEqual(context.exception.error_type, "rate_limited")
+        self.assertEqual(context.exception.retry_hint, " You may retry this operation once without changes.")
+        self.assertIn(error_message or "too busy", str(context.exception))
 
     @override_settings(TEST=False)
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")

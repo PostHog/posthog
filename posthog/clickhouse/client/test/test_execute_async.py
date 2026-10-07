@@ -23,6 +23,7 @@ from posthog.clickhouse.client import (
 )
 from posthog.clickhouse.client.async_task_chain import execute_task_chain, task_chain_context
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import (
@@ -30,7 +31,7 @@ from posthog.direct_query_cancellation import (
     is_direct_query_cancellation_requested,
 )
 from posthog.errors import ExposedCHQueryError
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, QueryRanConcurrently
 from posthog.models import Organization, Team
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
@@ -72,13 +73,25 @@ class TestQueryStatusManager(SimpleTestCase):
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
-    def test_process_query_task_on_failure_marks_status_errored(self):
+    @parameterized.expand(
+        [
+            ("at_capacity", ClickHouseAtCapacity(), ClickHouseAtCapacity.default_detail, "clickhouse_at_capacity"),
+            (
+                "ran_concurrently",
+                QueryRanConcurrently(),
+                QueryRanConcurrently.default_detail,
+                "query_ran_concurrently",
+            ),
+            ("concurrency_limit", ConcurrencyLimitExceeded(), None, "clickhouse_at_capacity"),
+        ]
+    )
+    def test_process_query_task_on_failure_marks_status_errored(self, _name, exc, error_message, error_code):
         from posthog.tasks.tasks import process_query_task
 
         self.manager.store_query_status(self.query_status)
 
         process_query_task.on_failure(
-            exc=ClickHouseAtCapacity(),
+            exc=exc,
             task_id="celery-task-id",
             args=(self.team_id, None, self.query_id),
             kwargs={},
@@ -88,7 +101,8 @@ class TestQueryStatusManager(SimpleTestCase):
         result = self.manager.get_query_status()
         self.assertTrue(result.complete)
         self.assertTrue(result.error)
-        self.assertEqual(result.error_message, ClickHouseAtCapacity.default_detail)
+        self.assertEqual(result.error_message, error_message)
+        self.assertEqual(result.error_code, error_code)
         self.assertIsNotNone(result.end_time)
 
     def test_store_clickhouse_query_progress(self):
