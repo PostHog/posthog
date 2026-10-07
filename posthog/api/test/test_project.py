@@ -8,6 +8,7 @@ from django.db import DatabaseError
 from django.utils import timezone
 
 from parameterized import parameterized
+from redis.exceptions import ConnectionError as RedisConnectionError
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
@@ -33,6 +34,7 @@ from products.customer_analytics.backend.facade.team_extension import TeamCustom
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 
 class TestProjectAPI(team_api_test_factory()):  # type: ignore
@@ -51,6 +53,59 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         for field_name in ("id", "organization", "created_at", "api_token", "home_tab_dashboard"):
             self.assertNotIn(field_name, serializer.fields)
         self.assertFalse(any(field.read_only for field in serializer.fields.values()))
+
+    @parameterized.expand(
+        [
+            ("team_enable", True, True, False),
+            ("team_disable", True, False, False),
+            ("project_enable", False, True, False),
+            ("project_disable", False, False, False),
+            ("team_reload_unavailable", True, True, True),
+            ("project_reload_unavailable", False, True, True),
+        ]
+    )
+    def test_workflows_config_update_reloads_workers_after_commit(
+        self, _name: str, use_team_serializer: bool, capture_events: bool, reload_unavailable: bool
+    ) -> None:
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team, defaults={"capture_workflows_engagement_events": not capture_events}
+        )
+        self.team.workflows_config.refresh_from_db()
+        payload = {
+            "name": "Updated project",
+            "workflows_config": {"capture_workflows_engagement_events": capture_events},
+        }
+
+        with patch("posthog.plugins.plugin_server_api.publish_message") as publish:
+            if reload_unavailable:
+                publish.side_effect = RedisConnectionError("reload unavailable")
+            with self.captureOnCommitCallbacks(execute=True):
+                if use_team_serializer:
+                    request = APIRequestFactory().patch("/", payload, format="json")
+                    request.user = self.user
+                    updated_team = TeamSerializer(context={"request": request}).update(self.team, payload)
+                    self.assertEqual(updated_team.name, "Updated project")
+                else:
+                    response = self.client.patch(f"/api/projects/{self.project.id}/", payload, format="json")
+                    self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+                    self.assertEqual(response.json()["name"], "Updated project")
+                    self.assertEqual(
+                        response.json()["workflows_config"]["capture_workflows_engagement_events"], capture_events
+                    )
+                publish.assert_not_called()
+
+            publish.assert_called_once_with("reload-team-workflows-config", {"teamId": self.team.id})
+
+        activity_response = self.client.get(f"/api/projects/{self.project.id}/activity")
+        self.assertEqual(activity_response.status_code, status.HTTP_200_OK, activity_response.json())
+        self.assertTrue(
+            any(
+                change["field"] == "workflows_config"
+                for activity in activity_response.json()["results"]
+                for change in activity["detail"]["changes"]
+            ),
+            activity_response.json(),
+        )
 
     def test_projects_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, _, team_in_other_org = Organization.objects.bootstrap(self.user)

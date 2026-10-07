@@ -1752,12 +1752,35 @@ describe('EmailService', () => {
             })
         })
 
-        it('does not capture a PostHog event when engagement capture is disabled for the team', async () => {
-            // Default config has capture_workflows_engagement_events=false, so even on success no event is queued.
+        it('starts capturing sends when the enabled config is reloaded', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             expect(result.capturedPostHogEvents).toHaveLength(0)
+
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_teamworkflowsconfig
+                    (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                     email_sending_suspension_reason)
+                 VALUES ($1, true, 'off', '')
+                 ON CONFLICT (team_id) DO UPDATE SET capture_workflows_engagement_events = true`,
+                [team.id],
+                'test-enable-engagement-capture'
+            )
+
+            const cachedResult = await service.executeSendEmail(invocation)
+            expect(cachedResult.error).toBeUndefined()
+            expect(cachedResult.capturedPostHogEvents).toHaveLength(0)
+
+            await waitForExpect(async () => {
+                await hub.pubSub.publish('reload-team-workflows-config', JSON.stringify({ teamId: team.id }))
+                const reloadedResult = await service.executeSendEmail(invocation)
+                expect(reloadedResult.error).toBeUndefined()
+                expect(reloadedResult.capturedPostHogEvents).toEqual([
+                    expect.objectContaining({ event: '$workflows_email_sent', distinct_id: 'distinct_id' }),
+                ])
+            }, 3000)
         })
 
         it('should capture a $workflows_email_failed PostHog event on failure', async () => {

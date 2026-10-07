@@ -101,6 +101,7 @@ from posthog.permissions import (
     get_authenticator_scoped_team_ids,
     posthog_feature_flag_enabled,
 )
+from posthog.plugins.plugin_server_api import reload_team_workflows_config_on_workers
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
@@ -1001,6 +1002,12 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "workflow_task_rate_limit_per_day",
             "workflow_task_team_rate_limit_per_day",
         ]
+
+    def update(self, instance: TeamWorkflowsConfig, validated_data: dict[str, Any]) -> TeamWorkflowsConfig:
+        instance = super().update(instance, validated_data)
+        team_id = instance.team_id
+        transaction.on_commit(lambda: reload_team_workflows_config_on_workers(team_id), robust=True)
+        return instance
 
     def _enforce_self_serve_ceiling(self, field: str, value: int | None, ceiling: int) -> int | None:
         # As a nested field there is no stored row to compare against; the parent serializer

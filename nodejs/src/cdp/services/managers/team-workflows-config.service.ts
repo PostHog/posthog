@@ -47,9 +47,6 @@ export class TeamWorkflowsConfigService {
             refreshJitterMs: 30 * 1000,
             loader: async (teamIds) => await this.fetchConfigs(teamIds),
         })
-        // The refresh age alone would leave a team the provider paused still sending, and a
-        // reinstated team still blocked, until its entry expired. The provider state sync announces
-        // each change so the next send reads it. Staff kill-switch flips still wait out the age.
         pubSub.on<{ teamId: number }>('reload-team-workflows-config', ({ teamId }) => {
             this.lazyLoader.markForRefresh(String(teamId))
         })
