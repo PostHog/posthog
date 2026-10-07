@@ -53,6 +53,50 @@ describe('runPipelineStages', () => {
         expect(Object.fromEntries(stats.recordsDroppedByStage)).toEqual({ transformations: 1, retention_expired: 1 })
     })
 
+    it.each([
+        {
+            name: 'a surviving row that carries its content in resource attributes',
+            records: [
+                { uuid: 'expired', body: 'x', resource_attributes: null },
+                { uuid: 'fresh', body: '', resource_attributes: { blob: 'r'.repeat(65_536) } },
+            ],
+            minShare: 0,
+            maxShare: 0.001,
+        },
+        {
+            name: 'many dropped rows that share one large resource',
+            records: [
+                ...Array.from({ length: 1000 }, (_, i) => ({
+                    uuid: `expired-${i}`,
+                    body: 'x',
+                    resource_attributes: { blob: 'r'.repeat(65_536) },
+                })),
+                { uuid: 'fresh', body: 'f'.repeat(65_536), resource_attributes: null },
+            ],
+            minShare: 0.45,
+            maxShare: 0.55,
+        },
+    ])('credits only the share of the request that was dropped: $name', async ({ records, minShare, maxShare }) => {
+        const dropExpired: PipelineStage = {
+            kind: 'filter',
+            name: 'retention_expired',
+            run: (rows, batch) => {
+                const stats = EMPTY_STAGE_DROP_STATS()
+                const kept = rows.filter((r) => !r.uuid!.startsWith('expired'))
+                for (const r of rows.filter((r) => r.uuid!.startsWith('expired'))) {
+                    stats.recordsDropped++
+                    stats.contentBytesDropped += batch.contentBytesOf(r)
+                }
+                return { kept, stats }
+            },
+        }
+        const rows = records.map((r) => ({ ...rec(r.uuid), ...r }) as LogRecord)
+        const { stats } = await runPipelineStages(rows, [dropExpired])
+        const share = stats.contentBytesDropped / stats.contentBytesTotal
+        expect(share).toBeGreaterThanOrEqual(minShare)
+        expect(share).toBeLessThanOrEqual(maxShare)
+    })
+
     it('stops running stages once every record is dropped', async () => {
         let laterRan = false
         const dropAll: PipelineStage = {

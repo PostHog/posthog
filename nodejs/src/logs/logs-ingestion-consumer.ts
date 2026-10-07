@@ -321,11 +321,9 @@ export const logsDropFractionHistogram = new Histogram({
  * decided per row (content bytes), so we scale the header down by the dropped content fraction
  * to bill only what survived.
  *
- * Weights are customer-content bytes per row (body + attributes + event_name) — NOT the per-row
- * `bytes_uncompressed` field, whose near-constant denormalization overhead (duplicated resource
- * attributes, server uuid) would skew the ratio toward record-count weighting. Content weights
- * track "share of what the customer sent"; residual error vs true wire share (protobuf framing,
- * per-batch resource blocks) is small and direction-neutral. The result is always ≤ the gross
+ * Weights come from `measureContentWeights`: every sender-controlled field of a row, with resource
+ * and scope bytes split across the rows that share them. The per-row `bytes_uncompressed` field is
+ * not used, because it counts shared resource attributes once per row. The result is always ≤ the gross
  * header (droppedFraction ≤ 1), so a message is never billed above today's gross. Returns 0 when
  * we can't measure (no header or no content bytes), i.e. no credit rather than a wrong one.
  */

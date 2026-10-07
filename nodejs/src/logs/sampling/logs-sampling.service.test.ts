@@ -182,11 +182,11 @@ describe('LogsSamplingService', () => {
         expect(result.recordsDroppedByRuleId.get('rl-kb')).toBe(1)
         expect(result.bytesDropped).toBe(500)
         expect(result.bytesDroppedByRuleId.get('rl-kb')).toBe(500)
-        // Billing pro-rate weights are customer-content bytes (body + attributes + event_name),
-        // independent of the per-row bytes_uncompressed field used for rate limiting:
-        // rows a,b = body 'x' (1 each); dropped row c = body(1) + attrs 'k'+'vv'(3) + 'evt'(3) = 7.
-        expect(result.contentBytesTotal).toBe(9)
-        expect(result.contentBytesDropped).toBe(7)
+        // Billing pro-rate weights are sender-content bytes, independent of the per-row
+        // bytes_uncompressed field used for rate limiting: rows a,b = body 'x' + severity 'info' (5 each);
+        // dropped row c = 5 + attrs 'k'+'vv'(3) + 'evt'(3) = 11.
+        expect(result.contentBytesTotal).toBe(21)
+        expect(result.contentBytesDropped).toBe(11)
 
         expect(result.kept).toHaveLength(2)
     })
@@ -227,9 +227,9 @@ describe('LogsSamplingService', () => {
         expect(result.bytesDropped).toBe(1000)
         expect(result.bytesDroppedByRuleId.get('rl-kb')).toBe(1000)
         // Content weights don't depend on the per-row bytes_uncompressed field at all:
-        // the null-field row still weighs its body bytes (1 each, 3 rows, 1 dropped).
-        expect(result.contentBytesTotal).toBe(3)
-        expect(result.contentBytesDropped).toBe(1)
+        // the null-field row still weighs its body and severity (5 each, 3 rows, 1 dropped).
+        expect(result.contentBytesTotal).toBe(15)
+        expect(result.contentBytesDropped).toBe(5)
 
         expect(result.kept).toHaveLength(2)
     })
@@ -251,9 +251,9 @@ describe('LogsSamplingService', () => {
         // 4 (admit), 4+8=12 (admit), 12+12=24 > 12 (drop row c). Metering on the raw
         // bytes_uncompressed sum (900 each) would have dropped every row.
         const buffer = await encodeLogRecords(LOG_RECORD_AVRO, 'zstandard', [
-            { ...baseLog('a', 'api', 900), body: 'aa' },
-            { ...baseLog('b', 'api', 900), body: 'bbbb' },
-            { ...baseLog('c', 'api', 900), body: 'cccccc' },
+            { ...baseLog('a', 'api', 900), body: 'aa', severity_text: null },
+            { ...baseLog('b', 'api', 900), body: 'bbbb', severity_text: null },
+            { ...baseLog('c', 'api', 900), body: 'cccccc', severity_text: null },
         ])
 
         const checkRateLimitV3 = jest.fn()

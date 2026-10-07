@@ -54,7 +54,7 @@ describe('retention expired stage', () => {
         )
         expect(result.kept.length === 1).toBe(kept)
         expect(result.stats.droppedBy).toBe(kept ? undefined : 'retention_expired')
-        expect(result.stats.contentBytesTotal).toBe(1)
+        expect(result.stats.contentBytesTotal).toBe(5)
     })
 
     it('credits an expired row by the size it arrived with, not the size a transformation gave it', async () => {
@@ -74,7 +74,7 @@ describe('retention expired stage', () => {
             [growExpired, makeRetentionExpiredStage(1, 30, NOW_MICROS)]
         )
 
-        expect(stats).toMatchObject({ contentBytesTotal: 1001, contentBytesDropped: 1 })
+        expect(stats).toMatchObject({ contentBytesTotal: 1009, contentBytesDropped: 5 })
     })
 
     it.each([

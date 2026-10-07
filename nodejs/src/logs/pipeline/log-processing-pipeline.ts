@@ -1,19 +1,51 @@
 import type { LogRecord } from '~/logs/log-record-avro'
 
-/**
- * Customer-sent content bytes of a row: body + attributes + event_name. The billing
- * pro-rate weight — deliberately NOT `bytes_uncompressed`, which includes per-row
- * denormalization overhead (resource attributes duplicated onto every row, server
- * uuid, id placeholders). That overhead is near-constant per row, so as a ratio
- * weight it would skew the pro-rate toward record-count weighting instead of
- * "share of what the customer sent".
- */
-function recordContentBytes(r: LogRecord): number {
-    let total = Buffer.byteLength(r.body ?? '') + Buffer.byteLength(r.event_name ?? '')
-    for (const [k, v] of Object.entries(r.attributes ?? {})) {
-        total += Buffer.byteLength(k) + Buffer.byteLength(v ?? '')
+function stringBytes(value: string | null | undefined): number {
+    return value ? Buffer.byteLength(value) : 0
+}
+
+function mapBytes(map: Record<string, string> | null | undefined): number {
+    let total = 0
+    for (const [k, v] of Object.entries(map ?? {})) {
+        total += Buffer.byteLength(k) + stringBytes(v)
     }
     return total
+}
+
+function resourceKey(map: Record<string, string> | null | undefined): string {
+    return JSON.stringify(Object.entries(map ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+}
+
+/**
+ * Every sender-controlled field counts, or a surviving row can hold its content where it weighs
+ * nothing and a dropped neighbor refunds the whole batch. Resource and scope bytes are split across
+ * the rows that share them, because a per-row count lets a sender inflate the rows it expects to drop.
+ */
+export function measureContentWeights(records: LogRecord[]): Map<LogRecord, number> {
+    const rowsByResource = new Map<string, number>()
+    const rowsByScope = new Map<string, number>()
+    const keys = records.map((record) => {
+        const resource = resourceKey(record.resource_attributes)
+        const scope = JSON.stringify([resource, record.instrumentation_scope ?? ''])
+        rowsByResource.set(resource, (rowsByResource.get(resource) ?? 0) + 1)
+        rowsByScope.set(scope, (rowsByScope.get(scope) ?? 0) + 1)
+        return { resource, scope }
+    })
+
+    const weights = new Map<LogRecord, number>()
+    records.forEach((record, i) => {
+        const { resource, scope } = keys[i]
+        weights.set(
+            record,
+            stringBytes(record.body) +
+                stringBytes(record.event_name) +
+                stringBytes(record.severity_text) +
+                mapBytes(record.attributes) +
+                mapBytes(record.resource_attributes) / rowsByResource.get(resource)! +
+                stringBytes(record.instrumentation_scope) / rowsByScope.get(scope)!
+        )
+    })
+    return weights
 }
 
 export type StageDropStats = {
@@ -98,13 +130,11 @@ export async function runPipelineStages(
     stages: PipelineStage[]
 ): Promise<{ kept: LogRecord[]; stats: DropStats }> {
     const stats = EMPTY_DROP_STATS()
-    const weights = new Map<LogRecord, number>()
-    if (stages.some((stage) => stage.kind === 'filter')) {
-        for (const record of records) {
-            const weight = recordContentBytes(record)
-            weights.set(record, weight)
-            stats.contentBytesTotal += weight
-        }
+    const weights = stages.some((stage) => stage.kind === 'filter')
+        ? measureContentWeights(records)
+        : new Map<LogRecord, number>()
+    for (const weight of weights.values()) {
+        stats.contentBytesTotal += weight
     }
     const batch: BatchContext = {
         contentBytesTotal: stats.contentBytesTotal,
