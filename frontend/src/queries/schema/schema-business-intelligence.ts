@@ -124,9 +124,36 @@ export interface BIConfig {
     columns: BIField[]
     values: BIValue[]
     filters: BIFilter[]
+    rowFilterGroup?: BIConditionGroup
+    resultFilters?: BIResultFilter[]
+    resultFilterGroup?: BIConditionGroup
     limit: BIQueryLimit
     /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
     sort?: BISort | null
     topN?: BITopN
     totals?: BITotals
+}
+
+export interface BIConditionGroup {
+    operator: 'AND' | 'OR'
+    filters: string[]
+    groups: BIConditionGroup[]
+}
+
+export interface BIResultFilter {
+    id: string
+    measureIndex: non_negative_integer
+    operator:
+        | 'equals'
+        | 'not_equals'
+        | 'greater_than'
+        | 'less_than'
+        | 'greater_than_or_equal'
+        | 'less_than_or_equal'
+        | 'between'
+        | 'is_set'
+        | 'is_not_set'
+    value: string
+    valueTo?: string
+    enabled?: boolean
 }

@@ -36,6 +36,7 @@ export interface BuildToolResultOptions {
     includeAppData?: boolean | undefined
     /** PostHog distinctId for analytics metadata (only read when a UI resource is present). */
     distinctId?: string | undefined
+    mcpClientName?: string | undefined
     /**
      * When set, the inner tool's `_meta.ui.resourceUri` is placed on the response payload
      * under both the new (`ui.resourceUri`) and legacy (`ui/resourceUri`) keys. Used by the
@@ -157,6 +158,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         forceUiDataToMeta,
         includeAppData,
         distinctId,
+        mcpClientName,
         includeUiResponseMeta,
         includeRenderNote,
     } = opts
@@ -196,6 +198,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         const analyticsMetadata: AnalyticsMetadata = {
             distinctId: distinctId ?? '',
             toolName,
+            ...(mcpClientName ? { mcpClientName } : {}),
         }
         structuredContent = {
             ...(rawResult as Record<string, unknown>),

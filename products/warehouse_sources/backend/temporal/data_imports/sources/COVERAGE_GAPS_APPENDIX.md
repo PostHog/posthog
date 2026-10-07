@@ -2398,7 +2398,7 @@ Note: docs.decagon.ai is a fully client-rendered Mintlify site that returns the 
 
 ## Deel — **thin**
 
-Today (23): `contracts`, `cost_centers`, `countries`, `currencies`, `departments`, `groups`, `invoice_adjustments`, `invoices`, `job_titles`, `legal_entities`, `offboarding_tracker`, `onboarding_tracker`, `payment_breakdowns`, `payments`, `payroll_cycles`, `payroll_gross_to_net`, `payroll_reports`, `people`, `seniorities`, `teams`, `time_off_events`, `time_offs`, `timesheets`
+Today (27): `contracts`, `cost_centers`, `countries`, `currencies`, `departments`, `equity_awards`, `groups`, `invoice_adjustments`, `invoices`, `it_clearance_requests`, `it_seats`, `job_titles`, `legal_entities`, `offboarding_tracker`, `onboarding_tracker`, `payment_breakdowns`, `payments`, `payroll_cycles`, `payroll_gross_to_net`, `payroll_reports`, `people`, `seniorities`, `teams`, `time_off_events`, `time_off_policies`, `time_offs`, `timesheets`
 
 Diffed against: <https://api.letsdeel.com/openapi/rest/definitions>
 
@@ -2414,9 +2414,15 @@ Diffed against: <https://api.letsdeel.com/openapi/rest/definitions>
 - [x] `/onboarding/tracker and /offboarding/tracker` — worker lifecycle state so joiner/leaver funnels can be measured (medium)
 - [x] `/lookups/countries, /lookups/currencies, /lookups/job-titles, /lookups/seniorities, /lookups/time-off-types` — reference tables that decode the coded fields on contracts, people and time off (medium)
 - [ ] `/ats/applications, /ats/candidates, /ats/job-postings` — recruiting funnel objects for orgs using Deel's ATS (low)
+- [x] `/it/seats` — seats of the organization's IT seat subscription and the worker holding each (medium)
+- [x] `/it/clearance-requests` — device clearance requests raised by the organization (low)
+- [x] `/time-offs/policy` — organization time-off policies, the configuration behind time-off requests (medium)
+- [x] `/equity-awards` — equity awards granted by the organization (medium)
+- [ ] `/ats/hires` — ATS applications mapped to the HRIS profiles they were hired into; Beta-only (needs `X-Beta: true`), revisit once Deel promotes it to stable (low)
 
 Note: The public spec is served from api.letsdeel.com (linked from developer.deel.com); it has hundreds of paths across ATS, EOR, payroll, HRIS, time tracking and IT modules, so the synced tables still cover a small slice.
 Sub-endpoints of the ticked lines that were deliberately not given their own table: `/contracts/{contract_id}/timesheets` returns the same rows as `/timesheets` filtered to one contract; `/time_offs/dailies` is a date-range query for holidays and work schedules with no row identity, whose absence dailies already arrive nested on `/time_offs` rows; and `/lookups/time-off-types` returns a bare array of enum strings with no object shape or row identity, and those same values already arrive on `/time_offs` rows.
+The four dated-endpoint tables (`it_seats`, `it_clearance_requests`, `time_off_policies`, `equity_awards`) are listed only on the `2026-01-01` pin: Deel documents them only under `/rest` with their own `X-Version` date, so sources pinned to `v2` do not list them.
 The gross-to-net line added a third table, `payroll_cycles` (`/legal-entities/{id}/payroll-events`): the report is keyed by payroll cycle and cycles are only listed per legal entity, so the cycle listing is both the path to the report and the table that dates it.
 
 ## Deepgram — gaps
@@ -4423,13 +4429,13 @@ The main spec-verified diff is in [COVERAGE_GAPS.md](COVERAGE_GAPS.md#intercom--
 
 ## Intruder — adequate
 
-Today (7): `fixed_occurrences`, `issues`, `occurrences`, `scan_schedules`, `scans`, `tags`, `targets`
+Today (8): `fixed_occurrences`, `issue_targets`, `issues`, `occurrences`, `scan_schedules`, `scans`, `tags`, `targets`
 
 Diffed against: <https://api.intruder.io/v1/swagger.json>
 
-No material gaps found.
+- [x] `GET /issues/{issue_id}/targets/` — targets affected by each issue (medium)
 
-Note: Full OpenAPI 3.1.1 spec at https://api.intruder.io/v1/swagger.json (linked from the ReadMe docs). Every GET-able analytical collection is already synced: issues, issues/{id}/occurrences, occurrences/fixed, scans, scans/schedules, tags, targets. The only remaining GETs are /health/, /licenses/ (seat/billing), per-occurrence comments and scanner_output (large free-text blobs), and target authentications/api_schemas (scan configuration) — all config or plumbing.
+Note: Full OpenAPI 3.1.1 spec at https://api.intruder.io/v1/swagger.json (linked from the ReadMe docs). Every GET-able analytical collection is already synced: issues, issues/{id}/occurrences, issues/{id}/targets, occurrences/fixed, scans, scans/schedules, tags, targets. The only remaining GETs are /health/, /licenses/ (seat/billing), per-occurrence comments and scanner_output (large free-text blobs), and target authentications/api_schemas (scan configuration) — all config or plumbing.
 
 ## Invoiced — gaps
 
@@ -4721,9 +4727,9 @@ Diffed against: <https://documenter.gw.postman.com/api/collections/15284493/TzCT
 - [ ] `vulnerability-management/detections` — per-device CVE detections — the fact table for vulnerability posture reporting (high)
 - [ ] `vulnerability-management/vulnerabilities` — CVE lookup table resolving the vulnerability IDs carried on detections (high)
 - [ ] `v2/threat/threat-details` — malware/threat detections per device with quarantine status (high)
-- [ ] `users` — lookup table resolving the user IDs already carried on every device record (high)
-- [ ] `devices/{device_id}/status` — library-item run status per device — the compliance state behind device_library_items (high)
-- [ ] `library/custom-apps, library/custom-scripts, library/custom-profiles, library/ipa-apps` — catalog lookup resolving the library item IDs we already sync in device_library_items (high)
+- [x] `users` — lookup table resolving the user IDs already carried on every device record (high)
+- [x] `devices/{device_id}/status` — library-item run status per device — the compliance state behind device_library_items (high)
+- [x] `library/custom-apps, library/custom-scripts, library/custom-profiles, library/ipa-apps` — catalog lookup resolving the library item IDs we already sync in device_library_items (high)
 - [ ] `v2/threat/behavioral-detections/events` — behavioral detection event stream, the time-series counterpart to threat details (medium)
 - [ ] `devices/{device_id}/activity` — per-device activity/state-transition history for enrollment and drift analysis (medium)
 - [ ] `audit/events` — tenant-wide audit event log — who changed what, when (medium)
@@ -4759,13 +4765,13 @@ Today (5): `apps`, `browsers`, `deployments`, `invocations`, `profiles`
 
 Diffed against: <https://docs.onkernel.com/llms.txt>
 
-- [ ] `audit-logs (list audit logs)` — organization-wide event history — the only cross-resource activity log the API offers (high)
-- [ ] `browser-pools (list browser pools)` — lookup resolving the pool a browser session was leased from; also carries pool sizing config for utilization analysis (medium)
-- [ ] `projects (list projects)` — lookup resolving the project ID carried on apps, deployments, browsers, proxies and extensions (medium)
+- [x] `audit-logs (list audit logs)` — organization-wide event history — the only cross-resource activity log the API offers (high)
+- [x] `browser-pools (list browser pools)` — lookup resolving the pool a browser session was leased from; also carries pool sizing config for utilization analysis (medium)
+- [x] `projects (list projects)` — lookup resolving the project ID carried on apps, deployments, browsers, proxies and extensions (medium)
 - [ ] `browser-replays (list browser session replays)` — replay records per browser session, linking runs to recorded evidence (medium)
 - [ ] `managed-auth (list auth connections)` — auth connection inventory with health state, joinable to profiles we already sync (medium)
 - [ ] `managed-auth (get auth connection event timeline)` — chronological login/re-auth/health-check events per connection — state transition history (medium)
-- [ ] `proxies (list proxies)` — lookup resolving proxy IDs referenced by browser sessions (medium)
+- [x] `proxies (list proxies)` — lookup resolving proxy IDs referenced by browser sessions (medium)
 - [ ] `invocations/{id}/browsers` — join table mapping invocations to the browser sessions they created (low)
 - [ ] `extensions (list browser extensions)` — extension inventory per project (low)
 - [x] `browsers/{id_or_name}/telemetry/events` — archived per-session telemetry events (console, network, page, interaction) within the 30-day retention window (medium)
@@ -4778,10 +4784,10 @@ Today (10): `autoqa_ratings`, `autoqa_reviews`, `calibration_sessions`, `csat`, 
 
 Diffed against: <https://pub.klausapp.com/public-export-api.swagger.json>
 
-- [ ] `/api/export/quizzes/{id}/responses` — individual quiz responses per user — quizzes alone is only the quiz definition, so pass rates and knowledge gaps are unqueryable (high)
-- [ ] `/api/export/conversations/search` — the conversation records that reviews and AutoQA ratings attach to; without them scores cannot be tied back to channel, queue, or handling time (high)
-- [ ] `/api/export/quizzes/{id}/overview` — per-quiz aggregate results, the vendor's own summary view (medium)
-- [ ] `/api/export/quizzes/leaderboard` — agent ranking dimension across quizzes (medium)
+- [x] `/api/export/quizzes/{id}/responses` — individual quiz responses per user — quizzes alone is only the quiz definition, so pass rates and knowledge gaps are unqueryable (high). Added as `quiz_responses` (fan-out over `quizzes`).
+- [ ] `/api/export/conversations/search` — the conversation records that reviews and AutoQA ratings attach to; without them scores cannot be tied back to channel, queue, or handling time (high) — skipped: a POST lookup that needs an `endUserEmail` in the body and returns only `externalId` and `externalLink` per match, so it cannot list conversations and carries none of the claimed channel, queue, or handling-time fields.
+- [x] `/api/export/quizzes/{id}/overview` — per-quiz aggregate results, the vendor's own summary view (medium). Added as `quiz_overviews` (fan-out over `quizzes`).
+- [x] `/api/export/quizzes/leaderboard` — agent ranking dimension across quizzes (medium). Added as `quiz_leaderboard`.
 
 Note: Now branded Zendesk QA. pub.klausapp.com hosts two Swagger 2.0 specs; the relevant one is public-export-api.swagger.json (18 paths) — the sibling public-import-api.swagger.json is write-only ingestion and irrelevant here. PostHog's 10 tables map 1:1 onto the workspace-scoped export endpoints; the only genuine holes are the quiz sub-resources and the POST-based conversation search (which needs a request body, so it is more work than the plain GET exports).
 
@@ -4801,10 +4807,10 @@ Today (4): `messages`, `tenants`, `users`, `workflow_recipient_runs`
 
 Diffed against: <https://docs.knock.app/llms.txt>
 
-- [ ] `messages/{id}/events` — per-message state transition history (sent, delivered, opened, clicked) — the deliverability fact table behind the messages we already sync (high)
-- [ ] `messages/{id}/delivery_logs` — provider-level request/response per delivery attempt; the only way to diagnose bounces and provider failures (high)
-- [ ] `objects (list objects in a collection)` — non-user recipients (accounts, projects, devices) — the lookup that resolves object recipient IDs appearing on messages and subscriptions (high)
-- [ ] `schedules (list schedules)` — scheduled and recurring workflow runs, the forward-looking counterpart to workflow_recipient_runs (high)
+- [x] `messages/{id}/events` — per-message state transition history (sent, delivered, opened, clicked) — the deliverability fact table behind the messages we already sync (high)
+- [x] `messages/{id}/delivery_logs` — provider-level request/response per delivery attempt; the only way to diagnose bounces and provider failures (high)
+- [x] `objects (list objects in a collection)` — non-user recipients (accounts, projects, devices) — the lookup that resolves object recipient IDs appearing on messages and subscriptions (high)
+- [x] `schedules (list schedules)` — scheduled and recurring workflow runs, the forward-looking counterpart to workflow_recipient_runs (high)
 - [ ] `messages/{id}/activities` — the trigger activities (actor, recipient, data) that produced a message — links notifications back to the originating event (medium)
 - [ ] `objects/{collection}/{id}/subscriptions and users/{id}/subscriptions` — membership table mapping recipients to the objects they subscribe to; drives audience sizing (medium)
 - [ ] `audiences/{key}/members` — audience membership, a straightforward analytical join for targeting analysis (medium)
@@ -4820,10 +4826,10 @@ Today (8): `group_members`, `groups`, `phishing_campaigns`, `phishing_security_t
 
 Diffed against: <https://developer.knowbe4.com/elvis-swagger.yml>
 
-- [ ] `/v1/users/{user_id}/risk_score_history` — per-user Risk Score over time — KnowBe4's headline metric, and the whole point of syncing users (high)
-- [ ] `/v1/account/risk_score_history` — org-level Risk Score trend, the top-line number every KnowBe4 report opens with (high)
-- [ ] `/v1/groups/{group_id}/risk_score_history` — Risk Score trend per group, the standard department-level breakdown (medium)
-- [ ] `/v1/account` — account-level summary (current risk score, subscription tier, seat counts) providing denominators for coverage metrics (medium)
+- [x] `/v1/users/{user_id}/risk_score_history` — per-user Risk Score over time — KnowBe4's headline metric, and the whole point of syncing users (high)
+- [x] `/v1/account/risk_score_history` — org-level Risk Score trend, the top-line number every KnowBe4 report opens with (high)
+- [x] `/v1/groups/{group_id}/risk_score_history` — Risk Score trend per group, the standard department-level breakdown (medium)
+- [x] `/v1/account` — account-level summary (current risk score, subscription tier, seat counts) providing denominators for coverage metrics (medium)
 - [ ] `/v1/training/policies and /v1/training/policies/{policy_id}` — policy acknowledgement records — the compliance-attestation half of the training program, entirely absent today (medium)
 - [ ] `/v1/phishing/campaigns/{campaign_id}/security_tests` — explicit campaign-to-test join; today the link must be inferred from phishing_security_tests (low)
 - [ ] `/v1/training/store_purchases` — lookup resolving the ModStore content IDs referenced by training campaigns (low)
@@ -4837,10 +4843,10 @@ Today (1): `api_requests`
 
 Diffed against: <https://raw.githubusercontent.com/Kong/developer.konghq.com/main/api-specs/konnect/analytics-requests/v2/openapi.yaml>
 
-- [ ] `/control-planes (Control Planes API v2)` — lookup that resolves the control_plane_id dimension carried on every api_requests row (high)
-- [ ] `/control-planes/{id}/core-entities/services` — lookup resolving the service_id on api_requests to a named gateway service (high)
-- [ ] `/control-planes/{id}/core-entities/routes` — lookup resolving route_id on api_requests to a path/method (high)
-- [ ] `/control-planes/{id}/core-entities/consumers` — lookup resolving consumer_id on api_requests to a named API consumer (high)
+- [x] `/control-planes (Control Planes API v2)` — lookup that resolves the control_plane_id dimension carried on every api_requests row (high)
+- [x] `/control-planes/{id}/core-entities/services` — lookup resolving the service_id on api_requests to a named gateway service (high)
+- [x] `/control-planes/{id}/core-entities/routes` — lookup resolving route_id on api_requests to a path/method (high)
+- [x] `/control-planes/{id}/core-entities/consumers` — lookup resolving consumer_id on api_requests to a named API consumer (high)
 - [ ] `/api-products (API Products v2)` — lookup for the api_product / api_product_version dimensions filterable on api_requests (high)
 - [ ] `/metrics (Analytics Metrics v2)` — vendor's aggregated traffic, latency and error-rate metrics without re-aggregating raw request rows (medium)
 - [ ] `/control-planes/{id}/core-entities/plugins` — which rate-limit/auth plugins were active on a service or route when traffic was served (medium)
@@ -5287,12 +5293,14 @@ Note: Endpoints are enumerated statically in logz_io/source.py; no dynamic table
 
 ## Loops — gaps
 
-Today (10): `audience_segments`, `campaign_groups`, `campaigns`, `components`, `contact_properties`, `mailing_lists`, `themes`, `transactional_emails`, `transactional_groups`, `workflows`
+Today (12): `audience_segments`, `campaign_groups`, `campaign_metrics`, `campaigns`, `components`, `contact_properties`, `mailing_lists`, `themes`, `transactional_email_metrics`, `transactional_emails`, `transactional_groups`, `workflows`
 
 Diffed against: <https://loops.so/docs/openapi.json>
 
 - [ ] `GET /v1/event-patterns` — lookup of event definitions that workflows and campaigns trigger on (high)
 - [ ] `GET /v1/contacts/suppression` — suppressed contacts, needed to reconcile deliverable audience (medium)
+- [x] `GET /v1/campaigns/{campaignId}/metrics` — all-time engagement counters per sent campaign (`campaign_metrics`)
+- [x] `GET /v1/transactional-emails/{transactionalId}/metrics` — all-time delivery counters per transactional email (`transactional_email_metrics`)
 
 Note: Coverage is close to complete — the spec has ~20 listable GET collections and 10 are already exposed. Loops has no bulk contacts list endpoint (only /v1/contacts/find by email or userId), so a contacts table is not implementable against this API; /v1/email-messages/{id} is likewise single-fetch only. Remaining unexposed paths are config/plumbing (api-key, dedicated-sending-ips, uploads) or per-node workflow mutations.
 
@@ -5929,6 +5937,14 @@ Diffed against: <https://developers.northpass.com/reference/get_v2-courses>
 - [ ] `GET /v2/quiz-attempts/{quiz_attempt_uuid}/answers and /v2/question-banks` — per-question answer detail and the question bank lookup; quizzes are synced but nothing about how learners answered (low)
 
 Note: Enumerated every /reference/get_v2-\* route from the ReadMe-hosted reference page (no public OpenAPI file is served). PostHog covers the 6 core objects plus 2 enrollment fan-outs; the learner-activity and assessment halves of the API are entirely absent.
+
+## Notion — gaps
+
+Today (6): `blocks`, `comments`, `databases`, `pages`, `permission_groups`, `users`
+
+Diffed against: <https://developers.notion.com/openapi-adminApi.json>
+
+- [x] `GET /admin/v1/spaces/{space_id}/groups` — workspace permission groups from the Admin API, admin-managed and SCIM-managed (medium). Added as `permission_groups`. It needs an optional organization bot token with the `permission-group:read` scope, which only eligible Enterprise organizations get. The workspace id comes from the integration token's bot user.
 
 ## NpmRegistry — gaps
 
@@ -8984,13 +9000,15 @@ Note: Trigger.dev also ships a TRQL query endpoint (management/query/execute) th
 
 ## TrunkIo — gaps
 
-Today (4): `FailingTests`, `MergeQueuePullRequests`, `QuarantinedTests`, `UnhealthyTests`
+Today (6): `FailingTests`, `MergeQueuePullRequests`, `QuarantinedTests`, `TestCollections` (v2), `Tests` (v2), `UnhealthyTests`
 
 Diffed against: <https://docs.trunk.io/openapi.json> (spec-verified 2026-08-03; supersedes the 2026-07-26 prose-docs pass)
 
 - [x] `listPullRequests` — merge queue history: state, stateChangedAt, priority, batching flags and author per submitted PR. Cursor-paginated (`cursor`/`take`, `nextCursor`) with a `since` filter on conclusion time, so it is a genuine incremental collection (high)
 - [ ] `flaky-tests/get-test-details` — column-level, not a missing table: it returns the same 20 fields as a `list-failing-tests` row, so it adds nothing to `FailingTests`. Its only value is backfilling `most_common_failures` and `failure_rate_last_7d`/`_24h` onto `UnhealthyTests` rows whose test has not failed inside the `FailingTests` window, at the cost of one call per unhealthy test (low)
 - [ ] `getQueue` — merge queue configuration (concurrency, batching, merge method, required statuses) plus a point-in-time `enqueuedPullRequests` snapshot that duplicates `listPullRequests`. Full-refresh only, so it captures the current config and never its history — it cannot answer "did merge time change when we bumped concurrency" retrospectively (low)
+- [x] `GET /v2/test-collections` — test collections, each with its own flake detection and quarantine settings. Cursor-paginated (`limit`/`cursor`, `nextCursor`), full refresh. Served on API version `v2` only (medium)
+- [x] `GET /v2/tests` — tests across every collection in the org, with status, quarantine state and labels. Cursor-paginated, full refresh; test ids differ from the repository-scoped v1 tables. Served on API version `v2` only (medium)
 
 Note: the 2026-07-26 pass recorded Merge Queue as a control plane with no listable collections. The OpenAPI spec contradicts that — `/listPullRequests` is a paginated collection with an incremental filter — hence the correction. It does need a `targetBranch` the flaky-tests endpoints don't (a queue covers one branch), which is why the table ships opt-in via a source config field. Of the remaining 21 paths: `/getMergeQueueTestingDetails` needs a `testRunId` no readable endpoint returns, so a connector cannot reach it; `/getMergeQueueMetrics` is `text/plain` Prometheus; `/status` is Trunk's own service health rather than customer data; the other 11 are writes (submit/cancel/restart PR, queue CRUD, `link-ticket-to-test-case`, alpha `create-ci-run`) or device-auth token flows.
 
