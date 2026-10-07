@@ -72,6 +72,14 @@ class ReplayObservation(UUIDModel):
             "Resolved at scan time so the emitted event can be attributed to the group without re-querying."
         ),
     )
+    session_geoip = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "`$geoip_*` properties the recorded session's events carry (country, region, city, time zone). "
+            "Resolved at scan time and stamped on the emitted event, which is otherwise geolocated to the worker."
+        ),
+    )
 
     status = models.CharField(max_length=16, choices=ObservationStatus.choices, default=ObservationStatus.PENDING)
     error_reason = models.TextField(blank=True, default="", help_text=ERROR_REASON_HELP_TEXT)

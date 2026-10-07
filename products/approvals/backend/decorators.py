@@ -171,6 +171,7 @@ def _create_change_request(
         intent=_json_safe(intent_data),
         intent_display=_json_safe(display_data),
         policy_snapshot=_json_safe(policy_snapshot),
+        owner_kind=action_class.derive_owner_kind(team, resource_id, intent_data),
         created_by=user,
         state=ChangeRequestState.PENDING,
         expires_at=expires_at,
