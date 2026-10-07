@@ -18,6 +18,7 @@ export interface WebAnalyticsAssistantFilters {
     properties: WebAnalyticsPropertyFilters
     doPathCleaning?: boolean
     compareFilter?: CompareFilter | null
+    filterTestAccounts?: boolean
 }
 
 /**
