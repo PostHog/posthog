@@ -10,7 +10,10 @@ import {
     urlForNewWorkflowWithTrigger,
 } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
 
-export function issueWorkflowTrigger(issueId: string): WorkflowTriggerConfig {
+// pinned: reported as the click event's source, so renaming it splits the entry point's history
+const SOURCE = 'error_tracking'
+
+function issueWorkflowTrigger(issueId: string): WorkflowTriggerConfig {
     return {
         type: 'event',
         filters: {
@@ -26,7 +29,7 @@ export function IssueWorkflowButton({ issueId }: { issueId: string }): JSX.Eleme
             fullWidth
             tooltip="Open a new workflow that runs each time someone hits this issue"
             onClick={() => {
-                captureMessageAudienceClicked('error_tracking', 'workflow')
+                captureMessageAudienceClicked(SOURCE, 'workflow')
                 router.actions.push(urlForNewWorkflowWithTrigger(issueWorkflowTrigger(issueId)))
             }}
             data-attr="issue-panel-start-workflow"
