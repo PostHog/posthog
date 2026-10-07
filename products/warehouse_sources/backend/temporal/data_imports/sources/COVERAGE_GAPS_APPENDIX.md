@@ -4801,10 +4801,10 @@ Today (4): `messages`, `tenants`, `users`, `workflow_recipient_runs`
 
 Diffed against: <https://docs.knock.app/llms.txt>
 
-- [ ] `messages/{id}/events` — per-message state transition history (sent, delivered, opened, clicked) — the deliverability fact table behind the messages we already sync (high)
-- [ ] `messages/{id}/delivery_logs` — provider-level request/response per delivery attempt; the only way to diagnose bounces and provider failures (high)
-- [ ] `objects (list objects in a collection)` — non-user recipients (accounts, projects, devices) — the lookup that resolves object recipient IDs appearing on messages and subscriptions (high)
-- [ ] `schedules (list schedules)` — scheduled and recurring workflow runs, the forward-looking counterpart to workflow_recipient_runs (high)
+- [x] `messages/{id}/events` — per-message state transition history (sent, delivered, opened, clicked) — the deliverability fact table behind the messages we already sync (high)
+- [x] `messages/{id}/delivery_logs` — provider-level request/response per delivery attempt; the only way to diagnose bounces and provider failures (high)
+- [x] `objects (list objects in a collection)` — non-user recipients (accounts, projects, devices) — the lookup that resolves object recipient IDs appearing on messages and subscriptions (high)
+- [x] `schedules (list schedules)` — scheduled and recurring workflow runs, the forward-looking counterpart to workflow_recipient_runs (high)
 - [ ] `messages/{id}/activities` — the trigger activities (actor, recipient, data) that produced a message — links notifications back to the originating event (medium)
 - [ ] `objects/{collection}/{id}/subscriptions and users/{id}/subscriptions` — membership table mapping recipients to the objects they subscribe to; drives audience sizing (medium)
 - [ ] `audiences/{key}/members` — audience membership, a straightforward analytical join for targeting analysis (medium)
@@ -4820,10 +4820,10 @@ Today (8): `group_members`, `groups`, `phishing_campaigns`, `phishing_security_t
 
 Diffed against: <https://developer.knowbe4.com/elvis-swagger.yml>
 
-- [ ] `/v1/users/{user_id}/risk_score_history` — per-user Risk Score over time — KnowBe4's headline metric, and the whole point of syncing users (high)
-- [ ] `/v1/account/risk_score_history` — org-level Risk Score trend, the top-line number every KnowBe4 report opens with (high)
-- [ ] `/v1/groups/{group_id}/risk_score_history` — Risk Score trend per group, the standard department-level breakdown (medium)
-- [ ] `/v1/account` — account-level summary (current risk score, subscription tier, seat counts) providing denominators for coverage metrics (medium)
+- [x] `/v1/users/{user_id}/risk_score_history` — per-user Risk Score over time — KnowBe4's headline metric, and the whole point of syncing users (high)
+- [x] `/v1/account/risk_score_history` — org-level Risk Score trend, the top-line number every KnowBe4 report opens with (high)
+- [x] `/v1/groups/{group_id}/risk_score_history` — Risk Score trend per group, the standard department-level breakdown (medium)
+- [x] `/v1/account` — account-level summary (current risk score, subscription tier, seat counts) providing denominators for coverage metrics (medium)
 - [ ] `/v1/training/policies and /v1/training/policies/{policy_id}` — policy acknowledgement records — the compliance-attestation half of the training program, entirely absent today (medium)
 - [ ] `/v1/phishing/campaigns/{campaign_id}/security_tests` — explicit campaign-to-test join; today the link must be inferred from phishing_security_tests (low)
 - [ ] `/v1/training/store_purchases` — lookup resolving the ModStore content IDs referenced by training campaigns (low)

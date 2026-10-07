@@ -621,11 +621,12 @@ describe('llmPlaygroundLogic', () => {
             ])
         })
 
-        it('should keep structured tool calls on the appended assistant message even without text', () => {
+        it('should start an empty tool result per call so the user can mock answers and run again', () => {
             llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Weather?' }])
 
             llmPlaygroundPromptsLogic.actions.addResultToConversation('', [
                 { id: 'call_1', name: 'get_weather', arguments: '{"location": "Paris"}' },
+                { id: 'call_2', name: 'get_weather', arguments: '{"location": "Rome"}' },
             ])
 
             expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
@@ -633,9 +634,13 @@ describe('llmPlaygroundLogic', () => {
                 {
                     role: 'assistant',
                     content: '',
-                    toolCalls: [{ id: 'call_1', name: 'get_weather', arguments: '{"location": "Paris"}' }],
+                    toolCalls: [
+                        { id: 'call_1', name: 'get_weather', arguments: '{"location": "Paris"}' },
+                        { id: 'call_2', name: 'get_weather', arguments: '{"location": "Rome"}' },
+                    ],
                 },
-                { role: 'user', content: '' },
+                { role: 'tool', content: '', toolCallId: 'call_1', toolName: 'get_weather' },
+                { role: 'tool', content: '', toolCallId: 'call_2', toolName: 'get_weather' },
             ])
         })
 
