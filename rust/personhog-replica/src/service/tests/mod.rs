@@ -10,9 +10,10 @@ use personhog_proto::personhog::types::v1::{
     DeleteCohortMembersBulkRequest, DeleteGroupTypeMappingRequest,
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupsBatchForTeamRequest,
     DeletePersonsBatchForTeamRequest, DeletePersonsRequest, DeleteTombstonedPersonsRequest,
-    GetGroupRequest, GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest,
-    InsertCohortMembersRequest, ListCohortMemberIdsRequest, UpdateGroupRequest,
-    UpdateGroupTypeMappingRequest, UpsertHashKeyOverridesRequest,
+    EnsurePersonVersionFloorsRequest, GetGroupRequest, GetPersonRequest,
+    GetPersonsByDistinctIdsInTeamRequest, InsertCohortMembersRequest, ListCohortMemberIdsRequest,
+    PersonVersionFloor, UpdateGroupRequest, UpdateGroupTypeMappingRequest,
+    UpsertHashKeyOverridesRequest,
 };
 use rstest::rstest;
 use tonic::Request;
@@ -1058,6 +1059,84 @@ async fn test_delete_group_type_mappings_batch_for_team_success() {
         .await;
 
     assert!(result.is_ok());
+}
+
+// ============================================================
+// Version floor tests
+// ============================================================
+
+const OWNER_UUID: &str = "00000000-0000-0000-0000-000000000001";
+
+fn uuid_keys(n: usize) -> Vec<String> {
+    (0..n)
+        .map(|i| format!("00000000-0000-0000-0000-{i:012}"))
+        .collect()
+}
+
+async fn ensure_person_floors(
+    service: &PersonHogReplicaService,
+    keys: Vec<String>,
+    min_version: i64,
+) -> Result<(), tonic::Status> {
+    service
+        .ensure_person_version_floors(Request::new(EnsurePersonVersionFloorsRequest {
+            team_id: 1,
+            floors: keys
+                .into_iter()
+                .map(|person_uuid| PersonVersionFloor {
+                    person_uuid,
+                    min_version,
+                })
+                .collect(),
+        }))
+        .await
+        .map(|_| ())
+}
+
+#[rstest]
+#[case::at_cap(uuid_keys(250), 0, None)]
+#[case::over_cap(uuid_keys(251), 0, Some("Maximum 250"))]
+#[case::duplicate(vec![OWNER_UUID.to_string(), OWNER_UUID.to_string()], 0, Some("Duplicate key"))]
+#[case::duplicate_spelling(vec!["0000000a-0000-0000-0000-00000000000b".to_string(), "0000000A-0000-0000-0000-00000000000B".to_string()], 0, Some("Duplicate key"))]
+#[case::negative(uuid_keys(1), -1, Some("must not be negative"))]
+#[case::bad_uuid(vec!["nope".to_string()], 0, Some("Invalid UUID"))]
+#[tokio::test]
+async fn test_ensure_person_version_floors_input_validation(
+    #[case] keys: Vec<String>,
+    #[case] min_version: i64,
+    #[case] expected_error: Option<&str>,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let result = ensure_person_floors(&service, keys, min_version).await;
+
+    match expected_error {
+        None => assert!(result.is_ok(), "{result:?}"),
+        Some(message) => {
+            let status = result.unwrap_err();
+            assert_eq!(status.code(), tonic::Code::InvalidArgument);
+            assert!(status.message().contains(message), "{}", status.message());
+        }
+    }
+}
+
+#[rstest]
+#[case::connection_error(FailingStorage::with_connection_error(), tonic::Code::Unavailable)]
+#[case::query_error(FailingStorage::with_query_error(), tonic::Code::Internal)]
+#[case::lost_race(
+    FailingStorage::with_failed_precondition(),
+    tonic::Code::FailedPrecondition
+)]
+#[tokio::test]
+async fn test_ensure_person_version_floors_storage_error(
+    #[case] storage: FailingStorage,
+    #[case] expected_code: tonic::Code,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(storage));
+
+    let result = ensure_person_floors(&service, uuid_keys(1), 0).await;
+
+    assert_eq!(result.unwrap_err().code(), expected_code);
 }
 
 // ============================================================
