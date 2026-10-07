@@ -1,5 +1,5 @@
-import { mergeInactiveSegments } from './segmenter'
-import { RecordingSegment } from './types'
+import { createSegments, mapSnapshotsToWindowId, mergeInactiveSegments } from './segmenter'
+import { RecordingSegment, RecordingSnapshot } from './types'
 
 function segment(overrides: Partial<RecordingSegment>): RecordingSegment {
     return {
@@ -104,5 +104,55 @@ describe('mergeInactiveSegments', () => {
 
         const result = mergeInactiveSegments(segments)
         expect(result[0].kind).toBe('gap')
+    })
+})
+
+describe('createSegments', () => {
+    const start = 1700000000000
+
+    const mutation = (timestamp: number, attributes: Record<string, string>): RecordingSnapshot =>
+        ({
+            windowId: 1,
+            timestamp,
+            type: 3,
+            data: { source: 0, texts: [], attributes: [{ id: 12345, attributes }], removes: [], adds: [] },
+        }) as unknown as RecordingSnapshot
+
+    const recordingWith = (frame: (timestamp: number) => RecordingSnapshot): RecordingSnapshot[] => [
+        { windowId: 1, timestamp: start, type: 4, data: { width: 400, height: 800, href: '' } } as RecordingSnapshot,
+        { windowId: 1, timestamp: start, type: 2, data: {} } as unknown as RecordingSnapshot,
+        ...Array.from({ length: 19 }, (_, i) => frame(start + (i + 1) * 1000)),
+    ]
+
+    it('keeps a screenshot recording active through its screenshot mutations', () => {
+        // Flutter and iOS screenshot recordings have no touch events, so the frames are the only activity
+        const snapshots = recordingWith((timestamp) =>
+            mutation(timestamp, { src: 'data:image/webp;base64,frame', 'data-posthog-screenshot': 'true' })
+        )
+
+        const segments = createSegments(snapshots, start, start + 19000, null, mapSnapshotsToWindowId(snapshots))
+
+        expect(segments).toEqual([
+            {
+                kind: 'window',
+                startTimestamp: start,
+                endTimestamp: start + 19000,
+                durationMs: 19000,
+                windowId: 1,
+                isActive: true,
+            },
+        ])
+    })
+
+    it('does not count other attribute mutations as activity', () => {
+        const snapshots = recordingWith((timestamp) => mutation(timestamp, { class: 'loaded' }))
+
+        const segments = createSegments(snapshots, start, start + 19000, null, mapSnapshotsToWindowId(snapshots))
+
+        expect(segments.map((s) => [s.kind, s.isActive, s.durationMs])).toEqual([
+            ['window', true, 5000],
+            ['gap', false, 1000],
+            ['window', false, 13000],
+        ])
     })
 })
