@@ -15,7 +15,7 @@ AI_PRODUCT = "aio_stamphog"
 
 # Lives here rather than in reviewer.py so the hosted server can read it without claude_agent_sdk:
 # its fast refusal summary calls the same model through the same gateway.
-REVIEWER_MODEL = "claude-sonnet-5-5"
+REVIEWER_MODEL = "claude-opus-5-5"
 
 
 def analytics_extra_properties() -> dict[str, object]:

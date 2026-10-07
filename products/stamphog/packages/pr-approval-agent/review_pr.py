@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "claude-agent-sdk==0.2.113",
+#     "claude-agent-sdk==0.2.164",
 #     "anthropic==0.80.0",
 #     "posthoganalytics==7.20.4",
 #     "pyyaml==6.0.3",
@@ -72,6 +72,7 @@ from github import (
 from manifest_risk import manifest_script_changes
 from migration_risk import migration_check_pending, safe_migration_files
 from policy import EffectivePolicy, ScopeBudget, _sanitize_untrusted, repo_root, resolve
+from verdict_rule import facts_summary
 from version import STAMPHOG_VERSION
 
 if TYPE_CHECKING:
@@ -1026,6 +1027,7 @@ class Pipeline:
                 "stamphog_llm_reasoning": (self.reviewer_output or {}).get("reasoning", ""),
                 "stamphog_llm_risk": (self.reviewer_output or {}).get("risk", ""),
                 "stamphog_llm_issues": (self.reviewer_output or {}).get("issues", []),
+                "stamphog_llm_facts_summary": facts_summary((self.reviewer_output or {}).get("facts")),
             },
         )
 

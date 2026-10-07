@@ -693,7 +693,7 @@ def test_reviewer_system_composes_guidance_and_scaffold() -> None:
     assert reviewer.REVIEWER_SYSTEM == guidance + reviewer._REVIEWER_SCAFFOLD_TAIL
     assert guidance.startswith(policy.review_guidance_path().read_text())
     assert "showstoppers" in guidance
-    assert "Verdicts:" in reviewer._REVIEWER_SCAFFOLD_TAIL
+    assert "Facts to report:" in reviewer._REVIEWER_SCAFFOLD_TAIL
 
 
 # ── 6. Folder prose is sanitized and capped ──
