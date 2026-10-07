@@ -19,7 +19,7 @@ from uuid import UUID
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
 from posthog.kafka_client.routing import flush_all_producers
 from posthog.kafka_client.topics import KAFKA_PERSON
@@ -53,6 +53,7 @@ RepairOutcome = Literal[
     "repaired",
     "skipped_not_divergent",
     "skipped_not_live",
+    "skipped_team_gone",
     "skipped_tombstoned",
     "skipped_owner_changed",
     "skipped_mapping_gone",
@@ -221,19 +222,20 @@ def _scan_team_ranges(
     on_rows: Callable[[list[Any]], None],
     log: Callable[[str], None],
 ) -> list[int]:
-    """Return each team that runs out of memory even when scanned alone, so the caller can rerun it with more memory."""
+    """Return each team that runs out of memory or time even when scanned alone, so the caller can rerun it with higher limits."""
     skipped: list[int] = []
 
     def scan(lo: int, hi: int) -> None:
         try:
             rows = query(lo, hi)
-        except ClickHouseQueryMemoryLimitExceeded:
+        except (ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut) as exc:
+            reason = "out of memory" if isinstance(exc, ClickHouseQueryMemoryLimitExceeded) else "timed out"
             if hi - lo == 1:
-                log(f"team {lo}: out of memory, skipped")
+                log(f"team {lo}: {reason}, skipped")
                 skipped.append(lo)
                 return
             mid = (lo + hi) // 2
-            log(f"teams [{lo}, {hi}): out of memory, bisecting")
+            log(f"teams [{lo}, {hi}): {reason}, bisecting")
             scan(lo, mid)
             scan(mid, hi)
             return
@@ -917,7 +919,8 @@ def _execute_plan(
     for mapping in owned:
         stored_version = stored_versions.get(mapping.distinct_id)
         if stored_version is None:
-            mapping_actions.append(_mapping_action(plan, mapping, "skipped_owner_changed"))
+            # The primary no longer lists the mapping under this person: it moved or was tombstoned after the raise.
+            mapping_actions.append(_mapping_action(plan, mapping, "skipped_mapping_gone"))
         elif stored_version < mapping.target_version:
             mapping_actions.append(_mapping_action(plan, mapping, "skipped_reread_lagging"))
         else:
@@ -1011,8 +1014,27 @@ def repair_persons(
     undelivered = 0
     pacer = _WritePacer(max_per_second=max_writes_per_second)
     deliveries = _Deliveries()
+    existing_teams = set(Team.objects.filter(id__in=list(by_team)).values_list("id", flat=True))
     try:
         for team_id, person_uuids in sorted(by_team.items()):
+            if team_id not in existing_teams:
+                # A deleted team's ClickHouse rows go with the team, so a repair would only republish what the deletion removed.
+                for person_uuid in person_uuids:
+                    action = RepairAction(
+                        team_id=team_id,
+                        person_uuid=person_uuid,
+                        distinct_id=None,
+                        kind=None,
+                        pg_version=None,
+                        ch_max_version=None,
+                        target_version=None,
+                        outcome="skipped_team_gone",
+                    )
+                    person_outcomes[action.outcome] += 1
+                    on_action(action)
+                    processed += 1
+                log(f"team {team_id}: no longer exists, {len(person_uuids)} persons skipped")
+                continue
             for chunk in _chunks(person_uuids, _REPAIR_CHUNK_SIZE):
                 for plan in _plan_chunk(team_id, chunk):
                     for action in _execute_plan(
