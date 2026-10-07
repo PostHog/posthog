@@ -205,6 +205,8 @@ def _http_error(status_code: int, body: str = "") -> requests.HTTPError:
     ],
 )
 def test_validate_credentials_maps_http_errors(status_code, body, expected_substring):
+    # None of these are bugs worth paging error tracking for: the mapped ones are user/upstream
+    # errors with their own message, and 429/5xx are transient and self-resolving.
     with (
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
@@ -213,32 +215,14 @@ def test_validate_credentials_maps_http_errors(status_code, body, expected_subst
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
             side_effect=_http_error(status_code, body),
         ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.capture_exception"
+        ) as mock_capture,
     ):
         ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
 
     assert ok is False
     assert expected_substring in (message or "")
-
-
-@pytest.mark.parametrize("status_code", [429, 500])
-def test_validate_credentials_does_not_capture_transient_metadata_status(status_code):
-    # Google rate-limiting or briefly failing this probe is expected and self-resolving, not a bug
-    # to page on — it used to reach error tracking as an HTTPError on every occurrence.
-    with (
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
-        ),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
-            side_effect=_http_error(status_code),
-        ),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.capture_exception"
-        ) as mock_capture,
-    ):
-        ok, _ = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
-
-    assert ok is False
     mock_capture.assert_not_called()
 
 
