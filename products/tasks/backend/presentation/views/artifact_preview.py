@@ -39,7 +39,9 @@ def create_artifact_preview_url(
         json.dumps([team_id, task_id, run_id, artifact_id, version, scripts]),
         timeout=PREVIEW_TOKEN_TTL_SECONDS,
     )
-    return f"{tasks_facade.artifact_delivery_origin()}/canvas-artifacts/task-preview/{token}/index.html"
+    from products.canvas.backend.facade.api import artifact_delivery_origin
+
+    return f"{artifact_delivery_origin()}/canvas-artifacts/task-preview/{token}/index.html"
 
 
 @frozen
@@ -105,7 +107,9 @@ def _task_html_artifact_preview_csp(*, scripts: bool) -> str:
 
 @xframe_options_exempt
 def task_artifact_preview(request: HttpRequest, token: str) -> HttpResponse:
-    tasks_facade.require_artifact_host(request.get_host())
+    from products.canvas.backend.facade.api import ARTIFACT_PERMISSIONS_POLICY, require_artifact_host
+
+    require_artifact_host(request.get_host())
     claims = _preview_claims(token)
     if claims.version is None:
         artifact = tasks_facade.task_run_artifact_entry(
@@ -134,5 +138,5 @@ def task_artifact_preview(request: HttpRequest, token: str) -> HttpResponse:
     response["X-Content-Type-Options"] = "nosniff"
     response["Cross-Origin-Resource-Policy"] = "cross-origin"
     response["Content-Security-Policy"] = _task_html_artifact_preview_csp(scripts=claims.scripts)
-    response["Permissions-Policy"] = tasks_facade.ARTIFACT_PERMISSIONS_POLICY
+    response["Permissions-Policy"] = ARTIFACT_PERMISSIONS_POLICY
     return response
