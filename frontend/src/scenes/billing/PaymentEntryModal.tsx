@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
+import { PaymentCompletion } from './PaymentCompletion'
 import { paymentEntryLogic } from './paymentEntryLogic'
 
 const stripeJs = async (): Promise<typeof import('@stripe/stripe-js')> => await import('@stripe/stripe-js')
@@ -79,22 +80,6 @@ export const PaymentForm = (): JSX.Element => {
                     Submit
                 </LemonButton>
             </div>
-        </div>
-    )
-}
-
-export const PaymentCompletion = (): JSX.Element | null => {
-    const { completedPaymentOrganization } = useValues(paymentEntryLogic)
-    const { viewCompletedPaymentOrganization } = useActions(paymentEntryLogic)
-    if (!completedPaymentOrganization) {
-        return null
-    }
-    return (
-        <div className="flex flex-col gap-2">
-            <LemonBanner type="success">Payment setup completed for {completedPaymentOrganization.name}</LemonBanner>
-            <LemonButton type="primary" onClick={viewCompletedPaymentOrganization}>
-                View {completedPaymentOrganization.name}’s billing
-            </LemonButton>
         </div>
     )
 }
