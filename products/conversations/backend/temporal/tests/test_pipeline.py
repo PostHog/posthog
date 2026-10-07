@@ -3460,20 +3460,29 @@ class TestRecordTriageSync:
         # earlier "in_progress" write, not replace ai_triage wholesale.
         ticket = self._make_ticket()
 
-        _record_triage_sync(
-            RecordTriageInput(
-                team_id=ticket.team_id,
-                ticket_id=str(ticket.id),
-                patch={"schema_version": 1, "status": "in_progress", "started_at": "t0"},
+        with patch(f"{RECORD_TRIAGE_MODULE}.ph_background_capture") as background_capture:
+            _record_triage_sync(
+                RecordTriageInput(
+                    team_id=ticket.team_id,
+                    ticket_id=str(ticket.id),
+                    patch={"schema_version": 1, "status": "in_progress", "started_at": "t0"},
+                )
             )
-        )
-        _record_triage_sync(
-            RecordTriageInput(
-                team_id=ticket.team_id,
-                ticket_id=str(ticket.id),
-                patch={"status": "done", "result": "persisted", "finished_at": "t1"},
+            background_capture.return_value.assert_not_called()
+            _record_triage_sync(
+                RecordTriageInput(
+                    team_id=ticket.team_id,
+                    ticket_id=str(ticket.id),
+                    patch={
+                        "status": "done",
+                        "result": "persisted",
+                        "finished_at": "t1",
+                        "ai_trace_id": "trace-1",
+                        "draft_task_run_ids": ["run-a", "run-b"],
+                        "cost": {"sandbox_seconds": 12.5, "llm_calls": 4},
+                    },
+                )
             )
-        )
 
         ticket.refresh_from_db()
         assert ticket.ai_triage == {
@@ -3482,6 +3491,28 @@ class TestRecordTriageSync:
             "status": "done",
             "result": "persisted",
             "finished_at": "t1",
+            "ai_trace_id": "trace-1",
+            "draft_task_run_ids": ["run-a", "run-b"],
+            "cost": {"sandbox_seconds": 12.5, "llm_calls": 4},
+        }
+        capture = background_capture.return_value
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == "support ai reply run completed"
+        assert capture.call_args.kwargs["properties"] == {
+            "ticket_id": str(ticket.id),
+            "workflow_id": None,
+            "run_id": None,
+            "ai_triage_result": "persisted",
+            "ai_triage_status": "done",
+            "ticket_type": None,
+            "attempts": None,
+            "ai_trace_id": "trace-1",
+            "draft_task_run_ids": ["run-a", "run-b"],
+            "draft_run_count": 2,
+            "started_at": "t0",
+            "finished_at": "t1",
+            "llm_calls": 4,
+            "sandbox_seconds": 12.5,
         }
 
     @pytest.mark.django_db
