@@ -143,7 +143,12 @@ def _send_digest_for_user(
         return DigestOutcome.SKIPPED_NO_DATA
 
     accessible_failed_teams = [team for team in failed_teams if has_access(team)]
-    if not accessible_failed_teams and weekly_digest.auto_select_project_for_user(user, accessible_team_data):
+    # Auto-select is a one-shot enrollment, so only a real send may consume it. A test send ranks the
+    # one team it was asked for, which would enroll the member onto that team and leave every other
+    # project of theirs disabled by omission.
+    if not accessible_failed_teams and weekly_digest.auto_select_project_for_user(
+        user, accessible_team_data, persist=not (dry_run or test)
+    ):
         user.refresh_from_db(fields=["partial_notification_settings"])
 
     user_team_sections = []

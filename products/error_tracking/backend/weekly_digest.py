@@ -119,8 +119,7 @@ def auto_select_project_for_user(
     ``persist=False`` keeps the decision in memory so a dry run routes recipients the same way
     without enrolling anyone. Returns True only when settings were written to the database.
     """
-    from posthog.models.user import User
-    from posthog.tasks.email_utils import auto_select_digest_project
+    from posthog.tasks.email_utils import auto_select_digest_project, persist_digest_project_selection
 
     setting_key = DIGEST_PROJECT_SETTING_KEY
     current_settings = user.partial_notification_settings or {}
@@ -132,12 +131,10 @@ def auto_select_project_for_user(
 
     role = (user.role_at_organization or "").lower()
     if role not in ELIGIBLE_ROLES_FOR_AUTO_DIGEST:
-        current_settings[setting_key] = {}
         if not persist:
-            user.partial_notification_settings = current_settings
+            user.partial_notification_settings = {**current_settings, setting_key: {}}
             return False
-        User.objects.filter(pk=user.pk).update(partial_notification_settings=current_settings)
-        return True
+        return persist_digest_project_selection(user, setting_key, {})
 
     return auto_select_digest_project(
         user=user,

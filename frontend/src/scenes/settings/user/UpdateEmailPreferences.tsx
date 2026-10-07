@@ -521,7 +521,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                 <SimpleSwitch
                     setting="web_analytics_weekly_digest"
                     label="Web analytics weekly digest"
-                    description="Get a weekly summary of web traffic across your projects every Monday"
+                    description="Get a summary of web traffic across your projects at the end of each week"
                     dataAttr="web_analytics_weekly_digest_enabled"
                 />
                 {waDigestEnabled && (
