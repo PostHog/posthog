@@ -38,6 +38,7 @@ def _transition(
         condition={"threshold_count": 100, "threshold_operator": "above"},
         source_config={},
         error_message=None,
+        occurred_at=FIRST_FIRING,
     )
 
 
@@ -45,6 +46,7 @@ def _announcement(
     kind: AlertEventKind = AlertEventKind.FIRING, episode_started_at: datetime | None = FIRST_FIRING
 ) -> EvaluationAnnouncement:
     return EvaluationAnnouncement(
+        configuration_id="cfg-1",
         alert_name="API errors",
         consecutive_failures=0,
         transitions=(_transition(kind, episode_started_at),),
@@ -161,6 +163,7 @@ class TestDeliveryDispatch(SimpleTestCase):
         store = RecordingThreadStore()
         transport = FakeTransport()
         announcement = EvaluationAnnouncement(
+            configuration_id="cfg-1",
             alert_name="API errors",
             consecutive_failures=0,
             transitions=(_transition(grouping_key="checkout"), _transition(grouping_key="search")),

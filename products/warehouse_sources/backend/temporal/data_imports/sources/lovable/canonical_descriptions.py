@@ -1,7 +1,7 @@
 """Canonical, documentation-sourced descriptions for Lovable endpoints and columns.
 
 Sourced from the Lovable API v1 reference (https://api.lovable.dev/v1/docs). Keyed by the resource
-names in `settings.py` `LOVABLE_ENDPOINTS`, which match the `ExternalDataSchema.name` of a synced
+names in `settings.py` `LOVABLE_VERSIONS`, which match the `ExternalDataSchema.name` of a synced
 Lovable table. Columns absent here fall back to LLM enrichment.
 """
 
@@ -34,9 +34,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "id": "Project ID.",
             "workspace_id": "Workspace the project belongs to.",
             "user_id": "Project owner user ID.",
-            "name": "Project slug.",
+            "owner_id": "Project owner user UUID.",
+            "name": "Project name. A slug under API version v1, the human-readable name from 2026-09-11.",
             "display_name": "Human-readable project name.",
-            "description": "Description supplied by the caller on create or update.",
+            "description": "Under API version v1, the description supplied on create or update. From 2026-09-11, the AI-written summary of what the project does.",
             "generated_description": "AI-written summary of what the project does. Absent until the agent has completed a response for the project.",
             "project_type": "Project type: project or library.",
             "tech_stack": "Project tech stack.",
@@ -44,6 +45,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "visibility": "Project visibility: draft, private, workspace_view, or public.",
             "is_published": "Whether the project is published.",
             "publish_visibility": "Published visibility: public or private.",
+            "publish_audience": "Who can open the published app. Null while the app is not published.",
             "url": "Published project URL.",
             "folder_id": "Folder the project belongs to, if any.",
             "latest_screenshot_url": "URL of the latest screenshot.",
@@ -54,12 +56,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "WorkspaceMembers": {
-        "description": "A member of a Lovable workspace, including pending invites.",
+        "description": "A member of a Lovable workspace. API version v1 also lists pending invites.",
         "docs_url": _DOCS_URL,
         "columns": {
             "workspace_id": "Workspace the membership belongs to.",
             "user_id": "Stable identifier for the entry: the user ID for active members, the membership row ID for pending invites.",
             "display_name": "User display name as stored on the membership.",
+            "name": "Member display name. Null when unavailable.",
+            "type": "Identity type, such as user.",
             "email": "Member email as stored on the membership. For pending invites this is the invited email.",
             "role": "Workspace role: owner, admin, member, viewer, or collaborator.",
             "monthly_credit_limit": "Explicit monthly credit cap for this member. Absent when the workspace default applies.",
@@ -104,6 +108,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "project_id": "Project that was scanned.",
             "workspace_id": "Workspace the project belongs to.",
             "scan_id": "Unique scan invocation ID.",
+            "id": "Security scan ID.",
             "status": "Scan status: running, completed, or failed.",
             "trigger_source": "What triggered the scan, such as workflow, user, ui_auto, or workspace_scheduled.",
             "triggered_by": "Actor that triggered the scan.",

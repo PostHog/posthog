@@ -281,6 +281,8 @@ def build_rubric_prompt(
     *,
     generation_context: str = "",
 ) -> str:
+    # TODO: Let the generator inspect past run transcripts and reports through read-only MCP
+    # so it can identify gaps that the supplied summaries hide.
     runs = list(
         SignalScoutRun.objects.for_team(team.id)
         .filter(skill_name=config.skill_name)

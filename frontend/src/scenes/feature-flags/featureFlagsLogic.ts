@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers,
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { LemonDialog, PaginationManual } from '@posthog/lemon-ui'
+import { LemonDialog, PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -17,6 +17,13 @@ import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, FeatureFlagType } from '~/types'
+
+import {
+    STALE_ROW_VERSION_RELOADED_MESSAGE,
+    isStaleRowVersionError,
+    rowVersionToken,
+} from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
 
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
 import { openFeatureFlagDisableDialog } from './featureFlagDisableDialog'
@@ -476,11 +483,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     }
                 },
                 updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
+                    const versioned = rowVersionToken(values.featureFlags.results.find((flag) => flag.id === id))
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                         const response = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${id}`,
-                            payload
+                            { ...payload, ...versioned }
                         )
                         const updatedFlags = values.featureFlags.results.map((flag) =>
                             flag.id === response.id ? response : flag
@@ -497,6 +505,18 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                                   ? 'disable this feature flag'
                                   : 'update this feature flag'
                         handleFlagApprovalRequired(e, id, actionDescription)
+                        if (isStaleRowVersionError(versioned, e)) {
+                            // The global error toast skips every 409, so say why the click seemed to do nothing.
+                            lemonToast.error(e?.detail || STALE_ROW_VERSION_RELOADED_MESSAGE)
+                            // The row version we sent is stale: the conflicting write may have replaced the whole
+                            // document, so take the fresh row whole, not only its version.
+                            try {
+                                const fresh = await featureFlagsRetrieve(String(values.currentProjectId), id)
+                                actions.updateFlag(fresh as unknown as FeatureFlagType)
+                            } catch {
+                                // The 409 stays the failure this loader reports.
+                            }
+                        }
                         throw e
                     }
                 },
@@ -516,7 +536,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                         const response = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${id}`,
-                            archived ? { archived: true, active: false } : { archived: false }
+                            {
+                                ...(archived ? { archived: true, active: false } : { archived: false }),
+                                ...rowVersionToken(values.featureFlags.results.find((flag) => flag.id === id)),
+                            }
                         )
                         const updatedFlags = values.featureFlags.results.map((flag) =>
                             flag.id === response.id ? response : flag
@@ -723,6 +746,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
 
             openFeatureFlagDisableDialog({
                 source: 'feature-flags-list',
+                filters: values.featureFlags.results.find((flag) => flag.id === id)?.filters,
                 onDisable: () => applyUpdate({ active: false }),
                 onDisableAndArchive: () =>
                     actions.updateFeatureFlagArchived({ id, archived: true, via: 'disable-confirmation' }),

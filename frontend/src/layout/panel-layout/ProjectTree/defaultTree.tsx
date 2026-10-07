@@ -47,6 +47,7 @@ import {
     IconMessage,
     IconNotebook,
     IconNotification,
+    IconPageChart,
     IconPencil,
     IconPeople,
     IconPerson,
@@ -153,6 +154,13 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     endpoints: {
         icon: <IconEndpoints />,
         iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
+    },
+    business_intelligence: {
+        icon: <IconPageChart />,
+        iconColor: [
+            'var(--color-product-business-intelligence-light)',
+            'var(--color-product-business-intelligence-dark)',
+        ],
     },
     sql_editor: {
         icon: <IconServer />,
@@ -527,7 +535,7 @@ export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIco
 export function getFileSystemIconType(item: Pick<FileSystemEntry, 'type' | 'meta'>): FileSystemIconType | undefined {
     if (item.type === 'insight' && typeof item.meta?.insight_type === 'string') {
         const insightIconType = `insight/${item.meta.insight_type}` as FileSystemIconType
-        if (insightIconType in iconTypes) {
+        if (insightIconType in iconTypes || insightIconType in fileSystemTypes) {
             return insightIconType
         }
     }

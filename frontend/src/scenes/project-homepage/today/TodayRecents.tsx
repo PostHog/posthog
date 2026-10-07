@@ -63,8 +63,8 @@ export function TodayRecents(): JSX.Element {
     const [latest, ...earlier] = recentObjects
 
     const libraryButton = (
-        <button type="button" data-attr="today-home-recent-library" onClick={() => pickPane('library')}>
-            Library
+        <button type="button" data-attr="today-home-recent-library" onClick={() => pickPane('products')}>
+            Products
         </button>
     )
 

@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     verify_delete_enrichment,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
+    PostLoadResult,
     run_post_load_operations,
     supports_partial_data_loading,
 )
@@ -92,7 +93,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     ExportSignalMessage,
     SyncTypeLiteral,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import read_parquet
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import (
+    read_parquet,
+    read_parquet_first_values,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
 )
@@ -405,7 +409,27 @@ async def _handle_partial_data_loading(
     )
 
 
-def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> str | None:
+def _file_count_after_write(
+    delta_table: deltalake.DeltaTable, delta_table_ref: DeltaTableRef, deltalite_file_count_change: int | None
+) -> int | None:
+    """The table's file count after the write, from memory, or None when the handle cannot give it.
+
+    A handle at the newest known version has the count. A handle one commit behind is behind by the
+    deltalite commit of this write, whose added and removed files give the difference. Any other
+    distance means a commit this process did not make, so the caller must read the log.
+    """
+    try:
+        commits_behind = delta_table_ref.latest_known_version(delta_table) - delta_table.version()
+    except Exception:
+        return None
+    if commits_behind == 0:
+        return len(delta_table.file_uris())
+    if commits_behind == 1 and isinstance(deltalite_file_count_change, int):
+        return len(delta_table.file_uris()) + deltalite_file_count_change
+    return None
+
+
+def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> PostLoadResult:
     """Run post-load operations for a final batch whose data was already written to Delta Lake.
 
     Two deliveries land here: a redelivered final row whose earlier attempt committed the write
@@ -416,10 +440,10 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
     All async operations are run within a single async_to_sync call to avoid
     event loop lifecycle issues with aiohttp/s3fs clients.
 
-    Returns the prepared queryable_folder, or None if post-load couldn't run.
+    Returns the post-load result, with no queryable folder if post-load couldn't run.
     """
 
-    async def _run() -> str | None:
+    async def _run() -> PostLoadResult:
         job = await ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").aget(
             id=export_signal.job_id
         )
@@ -440,16 +464,16 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
                 external_data_job_id=export_signal.job_id,
                 batch_index=export_signal.batch_index,
             )
-            return None
+            return PostLoadResult(queryable_folder=None)
 
-        pa_table = read_parquet(export_signal.s3_path)
+        # The batch only decides which string columns hold JSON, and the first non-null value of a
+        # column decides that. The rows are already in the table, so they are not read again.
         internal_schema = HogQLSchema()
         internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
-        internal_schema.add_pyarrow_table(pa_table)
+        internal_schema.add_pyarrow_table(read_parquet_first_values(export_signal.s3_path))
         table_schema_dict = internal_schema.to_hogql_types()
-        del pa_table
 
-        prepared_queryable_folder = await run_post_load_operations(
+        post_load_result = await run_post_load_operations(
             job=job,
             schema=schema,
             source=schema.source,
@@ -462,7 +486,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         )
 
         logger.debug("post_load_operations_complete_for_already_processed_batch")
-        return prepared_queryable_folder
+        return post_load_result
 
     return async_to_sync(_run)()
 
@@ -641,7 +665,7 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
         capture_exception(e)
 
 
-def _trigger_post_import_workflow(export_signal: ExportSignalMessage) -> None:
+def _trigger_post_import_workflow(export_signal: ExportSignalMessage, table_size_written: bool = False) -> None:
     """Fire-and-forget start of `data-import-post-import` after a V3 final batch lands.
 
     V2 starts the same workflow from `external-data-job` after the COMPLETED status
@@ -686,6 +710,7 @@ def _trigger_post_import_workflow(export_signal: ExportSignalMessage) -> None:
                     job_id=export_signal.job_id,
                     schema_id=export_signal.schema_id,
                     source_id=export_signal.source_id,
+                    table_size_written=table_size_written,
                 ),
                 id=build_post_import_workflow_id(export_signal.job_id),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
@@ -806,18 +831,18 @@ def _record_post_load_phases(run_signal: ExportSignalMessage) -> AbstractContext
     )
 
 
-def _complete_run(run_signal: ExportSignalMessage, prepared_queryable_folder: str | None) -> None:
+def _complete_run(run_signal: ExportSignalMessage, post_load_result: PostLoadResult) -> None:
     """Mark the job completed, then start the DuckLake registration and post-import workflows."""
     report_phase("finalize")
     with post_load_phase("job_completion"):
         _mark_job_completed(run_signal)
 
-    if prepared_queryable_folder:
+    if post_load_result.queryable_folder:
         with post_load_phase("ducklake_trigger"):
-            _trigger_ducklake_register_data_imports(run_signal, prepared_queryable_folder)
+            _trigger_ducklake_register_data_imports(run_signal, post_load_result.queryable_folder)
 
     with post_load_phase("post_import_trigger"):
-        _trigger_post_import_workflow(run_signal)
+        _trigger_post_import_workflow(run_signal, post_load_result.table_size_written)
 
 
 def _load_job(job_id: str) -> ExternalDataJob:
@@ -856,7 +881,7 @@ def _finalize_run(
 
     with _record_post_load_phases(run_signal):
         report_phase("post_load")
-        prepared_queryable_folder = async_to_sync(run_post_load_operations)(
+        post_load_result = async_to_sync(run_post_load_operations)(
             job=job,
             schema=schema,
             source=schema.source,
@@ -873,7 +898,7 @@ def _finalize_run(
         if verify_ownership is not None:
             verify_ownership()
 
-        _complete_run(run_signal, prepared_queryable_folder)
+        _complete_run(run_signal, post_load_result)
 
     logger.debug("post_load_operations_complete", external_data_job_id=run_signal.job_id)
 
@@ -1076,6 +1101,8 @@ def _process_message_reported(
             job=job,
             logger=logger,
             is_first_sync=export_signal.is_first_ever_sync,
+            # Batch 0 of a first sync writes the table, so only that batch expects to find none.
+            expect_missing=export_signal.is_first_ever_sync and export_signal.batch_index == 0,
         )
 
         if not warehouse_is_a_destination(export_signal):
@@ -1138,12 +1165,12 @@ def _process_message_reported(
                 verify_ownership()
             with _record_post_load_phases(export_signal):
                 report_phase("post_load")
-                prepared_queryable_folder = _run_post_load_for_already_processed_batch(export_signal)
+                post_load_result = _run_post_load_for_already_processed_batch(export_signal)
                 # Post-load can run minutes (compaction, S3 prep) — re-check before
                 # completion promotes the cursor and releases the lock under a new owner.
                 if verify_ownership is not None:
                     verify_ownership()
-                _complete_run(export_signal, prepared_queryable_folder)
+                _complete_run(export_signal, post_load_result)
             return
 
         logger.debug(
@@ -1189,6 +1216,7 @@ def _process_message_reported(
 
         primary_keys = export_signal.primary_keys
         cdc_write_mode = export_signal.cdc_write_mode
+        deltalite_file_count_change: int | None = None
 
         # Tag every delta commit with (run_uuid, batch_index) so that a redelivery after a writer
         # crash can detect "already committed" even when the Redis dedup flag is missing. A set
@@ -1283,7 +1311,8 @@ def _process_message_reported(
             with DELTA_WRITE_DURATION_SECONDS.labels(
                 team_id=team_id_str, schema_id=schema_id_str, write_type=write_type
             ).time():
-                delta_table = async_to_sync(DeltaWriter(delta_table_ref).write)(
+                delta_writer = DeltaWriter(delta_table_ref)
+                delta_table = async_to_sync(delta_writer.write)(
                     data=pa_table,
                     write_type=write_type,
                     should_overwrite_table=should_overwrite_table,
@@ -1291,6 +1320,7 @@ def _process_message_reported(
                     progress_callback=progress_callback,
                     commit_metadata=commit_metadata,
                 )
+                deltalite_file_count_change = delta_writer.deltalite_file_count_change
 
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
 
@@ -1304,14 +1334,23 @@ def _process_message_reported(
         # but listing every file costs O(files in table), which is the very thing it measures. Sample
         # it instead: the trend is what matters, and the version is cheap enough to log every batch.
         sample_file_count = export_signal.batch_index % FILE_COUNT_LOG_SAMPLE_EVERY == 0
+        file_count = (
+            _file_count_after_write(delta_table, delta_table_ref, deltalite_file_count_change)
+            if sample_file_count
+            else None
+        )
 
         # The handle `write` returns can be one deltalite commit behind the log. Column names and
         # types cannot differ across that commit, so the schema below reads it as is; a file list
-        # can, so the readers of one go through the ref, which catches the handle up first.
-        if sample_file_count or _partial_data_loading_applies(export_signal, schema):
+        # can, so the readers of one go through the ref, which catches the handle up first. The
+        # sampled count needs that read only when the commit's own numbers cannot give it: batch 0
+        # is a sample, so the read would otherwise cost each run a log listing.
+        if (sample_file_count and file_count is None) or _partial_data_loading_applies(export_signal, schema):
             current_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
             if current_delta_table is not None:
                 delta_table = current_delta_table
+            if sample_file_count and file_count is None:
+                file_count = len(delta_table.file_uris())
 
         internal_schema = HogQLSchema()
         # Build from the Delta table schema first to cover all columns from
@@ -1324,7 +1363,7 @@ def _process_message_reported(
             batch_index=export_signal.batch_index,
             batch_count=len(members),
             delta_version=delta_table_ref.latest_known_version(delta_table),
-            file_count=len(delta_table.file_uris()) if sample_file_count else None,
+            file_count=file_count,
         )
 
         async_to_sync(_handle_partial_data_loading)(

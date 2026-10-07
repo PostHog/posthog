@@ -14,6 +14,8 @@ import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
+
 import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
     type ClaudeTaskRunCreateSchemaApi,
@@ -1056,6 +1058,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.submitNewTaskSuccess()
                 actions.loadTasks(values.taskListParams)
                 actions.loadRepositories()
+                // Every composer submits through here, so this is the one place that reaches all of them.
+                todaySpacesLogic.findMounted()?.actions.loadRecentTasks()
                 props.onTaskCreated?.(newTask.id)
             } catch (error) {
                 if (disposables.isDisposed) {

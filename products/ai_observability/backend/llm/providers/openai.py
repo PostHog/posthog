@@ -260,9 +260,10 @@ class OpenAIAdapter:
                     return ContextWindowExceededError(str(error))
                 if is_output_limit_error_message(str(error)):
                     return OutputTokenLimitError(str(error))
-                # Azure OpenAI rejects a prompt that its filter blocks with a 400, before any
-                # completion exists to carry a `content_filter` finish reason.
-                if error.code == "content_filter":
+                # Azure OpenAI (`content_filter`) and OpenAI's usage policy check (`invalid_prompt`)
+                # reject a flagged prompt with a 400, before any completion exists to carry a
+                # `content_filter` finish reason.
+                if error.code in ("content_filter", "invalid_prompt"):
                     return ContentFilteredError(str(error))
             if getattr(error, "status_code", None) in self.QUOTA_EXHAUSTED_STATUS_CODES:
                 return QuotaExceededError(str(error))
