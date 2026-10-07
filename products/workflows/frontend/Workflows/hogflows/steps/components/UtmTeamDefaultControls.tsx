@@ -5,6 +5,8 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import type { WorkflowsConfig } from '~/types'
+
 import { getTeamUtmDefaults, matchesTeamUtmDefaults } from './utmDefaults'
 import type { UtmTagValues } from './UtmTagFields'
 
@@ -37,13 +39,11 @@ export function UtmTeamDefaultControls({ value, onSavedAsTeamDefault }: UtmTeamD
                 disabledReason={currentTeam?.workflows_config ? undefined : 'Loading your workflow settings'}
                 onClick={async () => {
                     await updateCurrentTeam({
+                        // The API updates only the fields sent. A copy of the cached config would overwrite newer settings.
                         workflows_config: {
-                            ...currentTeam?.workflows_config,
-                            capture_workflows_engagement_events:
-                                currentTeam?.workflows_config?.capture_workflows_engagement_events ?? false,
                             email_utm_tags_enabled: true,
                             email_utm_params: value,
-                        },
+                        } satisfies Partial<WorkflowsConfig> as WorkflowsConfig,
                     })
                     // A failed save still resolves, so check what was saved. teamLogic shows the error, and the
                     // email keeps its values as its own so a later bulk apply skips them.

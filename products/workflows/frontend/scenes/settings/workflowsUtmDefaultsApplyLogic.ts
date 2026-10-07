@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
+import type { TeamPublicType, TeamType, WorkflowsConfig } from '../../../../../frontend/src/types'
 import { hogFlowsApplyUtmDefaultsCreate } from '../../generated/api'
 import type { ApplyUtmDefaultsResponseApi } from '../../generated/api.schemas'
 import {
@@ -202,18 +202,15 @@ export const workflowsUtmDefaultsApplyLogic = kea<workflowsUtmDefaultsApplyLogic
             const before = values.savedDefaults
             const offerApply = !matchesTeamUtmDefaults(form.params, before) || (form.enabled && !before.enabled)
             const params = cleanUtmParams(form.params)
-            const config = values.currentTeam?.workflows_config
-            // Without the stored config, the fallbacks below would overwrite real settings.
-            if (!config) {
+            if (!values.currentTeam?.workflows_config) {
                 return
             }
             await teamLogic.asyncActions.updateCurrentTeam({
+                // The API updates only the fields sent. A copy of the cached config would overwrite newer settings.
                 workflows_config: {
-                    ...config,
-                    capture_workflows_engagement_events: config.capture_workflows_engagement_events,
                     email_utm_tags_enabled: form.enabled,
                     email_utm_params: params,
-                },
+                } satisfies Partial<WorkflowsConfig> as WorkflowsConfig,
             })
             // A failed save still resolves, so check what was saved. On failure the form keeps the edits.
             const saved = values.savedDefaults
