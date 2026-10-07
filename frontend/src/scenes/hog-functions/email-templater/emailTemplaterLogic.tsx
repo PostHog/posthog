@@ -103,7 +103,7 @@ export interface EditorRef extends _EditorRef {}
 
 type JSONTemplate = Parameters<Editor['loadDesign']>[0]
 
-function exportEditorHtml(editor: Editor): Promise<{ html: string; design: JSONTemplate }> {
+export function exportEditorHtml(editor: Editor): Promise<{ html: string; design: JSONTemplate }> {
     return new Promise((resolve) =>
         editor.exportHtml((data: { html: string; design: JSONTemplate }) => {
             let design = data.design

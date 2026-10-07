@@ -15,6 +15,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { BrandedStarterModal } from './BrandedStarterModal'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
@@ -54,6 +55,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         messageLoading,
         templateLoading,
         templatePickerOpen,
+        brandedStarterOpen,
         externallyEdited,
         isSyncingExternalEdit,
     } = useValues(logic)
@@ -112,7 +114,13 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 data-attr="send-test-message-template"
                                 type="secondary"
                                 onClick={() => setSendTestEmailModalOpen(true)}
-                                disabledReason={!template.content.email?.subject ? 'Add a subject first' : undefined}
+                                disabledReason={
+                                    brandedStarterOpen
+                                        ? 'Generate or cancel the starter first'
+                                        : !template.content.email?.subject
+                                          ? 'Add a subject first'
+                                          : undefined
+                                }
                                 size="small"
                             >
                                 Send test
@@ -134,11 +142,13 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 onClick={submitTemplate}
                                 loading={isTemplateSubmitting}
                                 disabledReason={
-                                    !templateChanged
-                                        ? 'No changes to save'
-                                        : !template.name
-                                          ? 'Name is required'
-                                          : undefined
+                                    brandedStarterOpen
+                                        ? 'Generate or cancel the starter first'
+                                        : !templateChanged
+                                          ? 'No changes to save'
+                                          : !template.name
+                                            ? 'Name is required'
+                                            : undefined
                                 }
                                 size="small"
                             >
@@ -187,6 +197,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     }
                 />
 
+                {brandedStarterOpen && <BrandedStarterModal {...props} />}
                 <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />
                 <SendTestEmailModal {...props} isOpen={isSendTestEmailModalOpen} />
 

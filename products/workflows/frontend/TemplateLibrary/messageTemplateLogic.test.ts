@@ -338,4 +338,82 @@ describe('messageTemplateLogic', () => {
             await expectLogic(logic).toMatchValues({ templatePickerOpen: true })
         })
     })
+    describe('manual branded starter entry', () => {
+        it.each([
+            { enabled: true, id: 'new', messageId: undefined, starterOpen: true, pickerOpen: false },
+            { enabled: false, id: 'new', messageId: undefined, starterOpen: false, pickerOpen: true },
+            { enabled: true, id: 'existing-id', messageId: undefined, starterOpen: false, pickerOpen: false },
+            { enabled: true, id: 'new', messageId: 'message-id', starterOpen: false, pickerOpen: false },
+        ])(
+            'guards the starter for flag=$enabled id=$id message=$messageId',
+            async ({ enabled, id, messageId, starterOpen, pickerOpen }) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EMAIL_BRANDED_STARTER], {
+                    [FEATURE_FLAGS.EMAIL_BRANDED_STARTER]: enabled,
+                })
+                router.actions.push('/workflows/library/templates/new', { brandedStarter: 'true' })
+                logic = messageTemplateLogic({ id, messageId })
+                logic.mount()
+                await expectLogic(logic).toMatchValues({
+                    brandedStarterOpen: starterOpen,
+                    templatePickerOpen: pickerOpen,
+                })
+            }
+        )
+
+        it('opens the starter when its flag arrives after the page mounted', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            router.actions.push('/workflows/library/templates/new', { brandedStarter: 'true' })
+            logic = messageTemplateLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toMatchValues({ brandedStarterOpen: false, templatePickerOpen: true })
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EMAIL_BRANDED_STARTER], {
+                [FEATURE_FLAGS.EMAIL_BRANDED_STARTER]: true,
+            })
+
+            await expectLogic(logic).toMatchValues({ brandedStarterOpen: true, templatePickerOpen: false })
+        })
+
+        it('keeps a generated starter closed when the flags reload', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EMAIL_BRANDED_STARTER], {
+                [FEATURE_FLAGS.EMAIL_BRANDED_STARTER]: true,
+            })
+            router.actions.push('/workflows/library/templates/new', { brandedStarter: 'true' })
+            logic = messageTemplateLogic({ id: 'new' })
+            logic.mount()
+            logic.actions.setTemplateValue('name', 'Juniper Studio starter template')
+            logic.actions.setBrandedStarterOpen(false)
+            logic.actions.resetTemplate(logic.values.originalTemplate)
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EMAIL_BRANDED_STARTER], {
+                [FEATURE_FLAGS.EMAIL_BRANDED_STARTER]: true,
+            })
+
+            await expectLogic(logic).toMatchValues({ brandedStarterOpen: false, templatePickerOpen: false })
+        })
+
+        it.each([
+            { description: 'kept', discard: false },
+            { description: 'discarded', discard: true },
+        ])(
+            'keeps the picker and the starter closed on a hash change after a starter is $description',
+            async ({ discard }) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EMAIL_BRANDED_STARTER], {
+                    [FEATURE_FLAGS.EMAIL_BRANDED_STARTER]: true,
+                })
+                router.actions.push('/workflows/library/templates/new', { brandedStarter: 'true' })
+                logic = messageTemplateLogic({ id: 'new' })
+                logic.mount()
+                logic.actions.setTemplateValue('name', 'Juniper Studio starter template')
+                logic.actions.setBrandedStarterOpen(false)
+                if (discard) {
+                    logic.actions.resetTemplate(logic.values.originalTemplate)
+                }
+
+                router.actions.replace(router.values.location.pathname, router.values.searchParams, { panel: 'docs' })
+
+                await expectLogic(logic).toMatchValues({ brandedStarterOpen: false, templatePickerOpen: false })
+            }
+        )
+    })
 })

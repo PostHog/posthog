@@ -5,10 +5,13 @@ import { router } from 'kea-router'
 
 import * as readingIsMagicPng from '@posthog/brand/hoggies/png/reading-is-magic'
 import { IconTrash } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -16,7 +19,10 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import MaxTool from 'scenes/max/MaxTool'
 import { urls } from 'scenes/urls'
 
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { MessageTemplateCard } from './MessageTemplateCard'
+import { BRANDED_STARTER_PARAM } from './messageTemplateLogic'
 import { messageTemplatesLogic } from './messageTemplatesLogic'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 
@@ -28,6 +34,8 @@ export function MessageTemplatesTable(): JSX.Element {
     const { deleteTemplate, createTemplate, duplicateTemplate, setSearch, setCreatedByFilter } =
         useActions(messageTemplatesLogic)
     const { startNewTemplate } = useActions(newTemplateAgentLogic)
+
+    const brandedStarterEnabled = useFeatureFlag('EMAIL_BRANDED_STARTER')
 
     const showProductIntroduction = !templatesLoading && templates.length === 0
 
@@ -42,6 +50,25 @@ export function MessageTemplatesTable(): JSX.Element {
                     customHog={HedgehogReadingIsMagic}
                     isEmpty
                 />
+            )}
+            {brandedStarterEnabled && (
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Workflow}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <LemonButton
+                        data-attr="email-branded-starter-open"
+                        type="secondary"
+                        className="mb-4"
+                        onClick={() =>
+                            router.actions.push(urls.workflowsLibraryTemplateNew(), {
+                                [BRANDED_STARTER_PARAM]: 'true',
+                            })
+                        }
+                    >
+                        Start with your brand
+                    </LemonButton>
+                </AccessControlAction>
             )}
             <MaxTool
                 identifier="create_message_template"
