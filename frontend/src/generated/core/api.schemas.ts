@@ -790,6 +790,8 @@ export const BusinessModelEnumApi = {
  * * `configure_workflow_trigger` - configure_workflow_trigger
  * * `add_workflow_action` - add_workflow_action
  * * `launch_workflow` - launch_workflow
+ * * `send_workflow_test_email` - send_workflow_test_email
+ * * `send_from_own_email_domain` - send_from_own_email_domain
  * * `create_first_endpoint` - create_first_endpoint
  * * `configure_endpoint` - configure_endpoint
  * * `test_endpoint` - test_endpoint
@@ -861,6 +863,8 @@ export const AvailableSetupTaskIdsEnumApi = {
     ConfigureWorkflowTrigger: 'configure_workflow_trigger',
     AddWorkflowAction: 'add_workflow_action',
     LaunchWorkflow: 'launch_workflow',
+    SendWorkflowTestEmail: 'send_workflow_test_email',
+    SendFromOwnEmailDomain: 'send_from_own_email_domain',
     CreateFirstEndpoint: 'create_first_endpoint',
     ConfigureEndpoint: 'configure_endpoint',
     TestEndpoint: 'test_endpoint',

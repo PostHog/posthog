@@ -17,6 +17,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
@@ -411,12 +412,18 @@ export const firstRunMakeItYoursLogic: LogicWrapper<firstRunMakeItYoursLogicType
                 return
             }
             rememberFirstRunWorkflow(createdWorkflow.id)
+            if (createdWorkflow.status === 'active') {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchWorkflow)
+            }
             router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
         },
         sendTestSuccess: () => {
             const outcome = values.testSendOutcome
             if (outcome?.kind === 'sent' || outcome?.kind === 'skipped') {
                 posthog.capture('workflows first run test sent', { skipped: outcome.kind === 'skipped' })
+            }
+            if (outcome?.kind === 'sent') {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SendWorkflowTestEmail)
             }
         },
     })),

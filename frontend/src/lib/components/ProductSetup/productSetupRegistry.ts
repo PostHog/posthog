@@ -1,3 +1,5 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { AvailableSetupTaskIdsEnumApi as SetupTaskId } from '~/generated/core/api.schemas'
@@ -642,6 +644,34 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 targetSelector: '[data-attr="workflow-launch"]', // Will be highlighted once they click on a workflow
             },
         ],
+        tasksBehindFlag: {
+            flag: FEATURE_FLAGS.WORKFLOWS_FIRST_RUN,
+            tasks: [
+                {
+                    id: SetupTaskId.SendWorkflowTestEmail,
+                    title: 'Send yourself a test email',
+                    description: 'Pick a template and send its first email to your own inbox.',
+                    taskType: 'onboarding',
+                    getUrl: () => urls.workflows(),
+                    targetSelector: '[data-attr="first-run-recommended-template"]',
+                },
+                {
+                    id: SetupTaskId.LaunchWorkflow,
+                    title: 'Turn on your first workflow',
+                    description: 'Enable a workflow so it starts sending emails.',
+                    taskType: 'onboarding',
+                    getUrl: () => urls.workflows(),
+                },
+                {
+                    id: SetupTaskId.SendFromOwnEmailDomain,
+                    title: 'Send from your own domain',
+                    description: 'Verify your email domain so your emails come from your own address.',
+                    taskType: 'onboarding',
+                    getUrl: () => urls.workflows('channels'),
+                    targetSelector: '[data-attr="new-channel-button"]',
+                },
+            ],
+        },
     },
 
     [ProductKey.ENDPOINTS]: {
@@ -710,22 +740,16 @@ export function getProductSetupConfig(productKey: ProductKey): ProductSetupConfi
     return PRODUCT_SETUP_REGISTRY[productKey] ?? null
 }
 
-/** Get all tasks for a product, optionally filtered by type. AI tasks are appended to every product. */
-export function getTasksForProduct(
-    productKey: ProductKey,
-    taskType?: 'setup' | 'onboarding' | 'explore' | 'ai' | 'all'
-): SetupTask[] {
+/** Get all tasks for a product. AI tasks are appended to every product. */
+export function getTasksForProduct(productKey: ProductKey, featureFlags: FeatureFlagsSet): SetupTask[] {
     const config = getProductSetupConfig(productKey)
     if (!config) {
         return []
     }
 
-    const tasks = [...config.tasks, ...AI_TASKS]
-    if (!taskType || taskType === 'all') {
-        return tasks
-    }
-
-    return tasks.filter((t) => t.taskType === taskType)
+    const { tasksBehindFlag } = config
+    const productTasks = tasksBehindFlag && featureFlags[tasksBehindFlag.flag] ? tasksBehindFlag.tasks : config.tasks
+    return [...productTasks, ...AI_TASKS]
 }
 
 /** List of products that have setup flows configured */

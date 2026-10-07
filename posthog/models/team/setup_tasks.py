@@ -82,6 +82,8 @@ class SetupTaskId(StrEnum):
     ConfigureWorkflowTrigger = "configure_workflow_trigger"
     AddWorkflowAction = "add_workflow_action"
     LaunchWorkflow = "launch_workflow"
+    SendWorkflowTestEmail = "send_workflow_test_email"
+    SendFromOwnEmailDomain = "send_from_own_email_domain"
 
     # Endpoints
     CreateFirstEndpoint = "create_first_endpoint"

@@ -1,4 +1,15 @@
-import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    kea,
+    path,
+    props,
+    reducers,
+    selectors,
+    useActions,
+    useMountedLogic,
+    useValues,
+} from 'kea'
 import { urlToAction } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
@@ -19,6 +30,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
+import { ownSenderQuickStartLogic } from './Channels/ownSenderQuickStartLogic'
 import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { WorkflowsFirstRunTab } from './firstRun/WorkflowsFirstRunTab'
@@ -129,6 +141,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
     const { startNewWorkflow } = useActions(newWorkflowLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    useMountedLogic(ownSenderQuickStartLogic)
     const tabs: LemonTab<WorkflowsSceneTab>[] = [
         {
             label: 'Workflows',

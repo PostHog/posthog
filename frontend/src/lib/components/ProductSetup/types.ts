@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 
+import type { FeatureFlagKey } from 'lib/constants'
+
 import type { AvailableSetupTaskIdsEnumApi } from '~/generated/core/api.schemas'
 import type { ProductKey } from '~/queries/schema/schema-general'
 
@@ -61,6 +63,8 @@ export interface ProductSetupConfig {
     productKey: ProductKey
     title: string
     tasks: SetupTask[]
+    /** Replaces `tasks` while the feature flag is on */
+    tasksBehindFlag?: { flag: FeatureFlagKey; tasks: SetupTask[] }
 }
 
 /** A pending attention highlight, bound to the route that asked for it */

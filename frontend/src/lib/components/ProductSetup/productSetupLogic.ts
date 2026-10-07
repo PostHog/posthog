@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -30,6 +31,7 @@ export interface productSetupLogicValues {
     optimisticTaskStatuses: Record<string, ActivationTaskStatus | null> // globalSetupLogic
     isCurrentOrganizationNew: boolean // organizationLogic
     isCloudOrDev: boolean | undefined // preflightLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     hasReverseProxy: boolean | null // reverseProxyCheckerLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     activeTasks: SetupTaskWithState[]
@@ -116,7 +118,11 @@ export interface productSetupLogicMeta {
     key: ProductKey
     __keaTypeGenInternalSelectorTypes: {
         productConfig: (productKey: ProductKey) => ProductSetupConfig | null
-        allTasks: (productKey: ProductKey, isCloudOrDev: boolean | undefined) => SetupTask[]
+        allTasks: (
+            productKey: ProductKey,
+            isCloudOrDev: boolean | undefined,
+            featureFlags: FeatureFlagsSet
+        ) => SetupTask[]
         savedOnboardingTasks: (
             currentTeam: TeamPublicType | TeamType | null,
             optimisticTaskStatuses: Record<string, ActivationTaskStatus | null>
@@ -176,6 +182,8 @@ export const productSetupLogic = kea<productSetupLogicType>([
             ['isCurrentOrganizationNew'],
             preflightLogic,
             ['isCloudOrDev'],
+            featureFlagLogic,
+            ['featureFlags'],
             globalSetupLogic,
             ['optimisticTaskStatuses'],
         ],
@@ -238,9 +246,9 @@ export const productSetupLogic = kea<productSetupLogicType>([
     selectors({
         productConfig: [(_, p) => [p.productKey], (productKey: ProductKey) => getProductSetupConfig(productKey)],
         allTasks: [
-            (s, p) => [p.productKey, s.isCloudOrDev],
-            (productKey: ProductKey, isCloudOrDev: boolean | undefined) => {
-                const tasks = getTasksForProduct(productKey)
+            (s, p) => [p.productKey, s.isCloudOrDev, s.featureFlags],
+            (productKey: ProductKey, isCloudOrDev: boolean | undefined, featureFlags: FeatureFlagsSet) => {
+                const tasks = getTasksForProduct(productKey, featureFlags)
                 if (!isCloudOrDev) {
                     return tasks.filter((task) => task.id !== SetupTaskId.SetUpReverseProxy)
                 }

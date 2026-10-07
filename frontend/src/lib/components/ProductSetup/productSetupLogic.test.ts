@@ -2,6 +2,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -152,6 +154,39 @@ describe('productSetupLogic', () => {
             expect(aiTask(SetupTaskId.TrackCosts).lockedReason).toBeUndefined()
         } finally {
             aiLogic.unmount()
+        }
+    })
+
+    it.each([
+        {
+            firstRun: true,
+            tasks: [
+                { id: SetupTaskId.SendWorkflowTestEmail, locked: false },
+                { id: SetupTaskId.LaunchWorkflow, locked: false },
+                { id: SetupTaskId.SendFromOwnEmailDomain, locked: false },
+            ],
+        },
+        {
+            firstRun: false,
+            tasks: [
+                { id: SetupTaskId.SetUpFirstWorkflowChannel, locked: false },
+                { id: SetupTaskId.CreateFirstWorkflow, locked: false },
+                { id: SetupTaskId.ConfigureWorkflowTrigger, locked: false },
+                { id: SetupTaskId.AddWorkflowAction, locked: false },
+                { id: SetupTaskId.LaunchWorkflow, locked: true },
+            ],
+        },
+    ])('lists the Workflows quick start tasks with the first run flag on: $firstRun', async ({ firstRun, tasks }) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_FIRST_RUN]: firstRun })
+        const workflowsLogic = productSetupLogic({ productKey: ProductKey.WORKFLOWS })
+        workflowsLogic.mount()
+        try {
+            await setTeam({ onboarding_tasks: {} })
+
+            const productTasks = workflowsLogic.values.tasksWithState.filter((t) => t.taskType !== 'ai')
+            expect(productTasks.map((t) => ({ id: t.id, locked: !!t.lockedReason }))).toEqual(tasks)
+        } finally {
+            workflowsLogic.unmount()
         }
     })
 })
