@@ -5,14 +5,14 @@ import posthog from 'posthog-js'
 import React, { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonBanner, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { LoadNext } from '../../DataNode/LoadNext'
@@ -23,11 +23,12 @@ import { TableDataCell, convertTableValue, dataVisualizationLogic } from '../dat
 import { ColumnScalar } from '../types'
 
 interface TableProps {
-    query: DataVisualizationNode
+    query: VisualizationNode
     uniqueKey: string | number | undefined
-    context: QueryContext<DataVisualizationNode> | undefined
+    context: QueryContext<VisualizationNode> | undefined
     cachedResults: HogQLQueryResponse | undefined
     embedded?: boolean
+    onInspect?: (record: Record<string, unknown>) => void
 }
 
 export const DEFAULT_PAGE_SIZE = 500
@@ -53,8 +54,8 @@ function formatColumnTitle(title: string): React.ReactNode {
 function getDisplayedColumnTitle(
     columnName: string,
     label: string | JSX.Element | undefined,
-    query: DataVisualizationNode,
-    context: QueryContext<DataVisualizationNode> | undefined
+    query: VisualizationNode,
+    context: QueryContext<VisualizationNode> | undefined
 ): React.ReactNode {
     const { title } = renderColumnMeta(columnName, query, context)
     return label || title || columnName
@@ -154,6 +155,7 @@ export const Table = (props: TableProps): JSX.Element => {
         tabularData,
         tabularColumns,
         sourceTabularColumns,
+        sourceTabularData,
         conditionalFormattingRules,
         responseLoading,
         responseError,
@@ -302,6 +304,31 @@ export const Table = (props: TableProps): JSX.Element => {
                             >
                                 {renderedSourceColumnTitle}
                             </div>
+                        )
+                    }
+
+                    if (props.onInspect) {
+                        const sourceRow = isTransposed ? sourceTabularData[index - 1] : data
+                        const sourceColumns = isTransposed ? sourceTabularColumns : tabularColumns
+                        return (
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                className="max-w-full !text-inherit"
+                                tooltip="Explore this result"
+                                onClick={() =>
+                                    props.onInspect?.(
+                                        Object.fromEntries(
+                                            sourceColumns.map((column, index) => [
+                                                column.column.name,
+                                                sourceRow[index]?.value,
+                                            ])
+                                        )
+                                    )
+                                }
+                            >
+                                <span className="truncate">{String(cell.formattedValue ?? '—')}</span>
+                            </LemonButton>
                         )
                     }
 

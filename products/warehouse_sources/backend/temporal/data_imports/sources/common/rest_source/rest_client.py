@@ -15,6 +15,7 @@ from requests.exceptions import (
     HTTPError,
     JSONDecodeError as RequestsJSONDecodeError,
     Timeout as RequestsTimeout,
+    TooManyRedirects,
 )
 from tenacity import RetryCallState, retry, retry_if_exception_type
 
@@ -284,6 +285,12 @@ def _retry_wait_seconds(state: RetryCallState) -> float:
     return float(fallback)
 
 
+def _reach_safe_point_before_retry_wait(_state: RetryCallState) -> None:
+    # A rate-limited endpoint can wait minutes per attempt, and the source yields nothing in that
+    # time. Every page before the failed request has been handed on, so the run can stop here.
+    reach_framework_safe_point()
+
+
 Hooks = dict[str, list[Any]]
 
 
@@ -431,7 +438,20 @@ class RESTClient:
         data_selector_required: bool = False,
         data_selector_empty_ok: bool = False,
         data_selector_malformed_retryable: bool = False,
+        page_state_hook: Optional[Callable[[Optional[dict[str, Any]], bool], None]] = None,
     ) -> Iterator[list[Any]]:
+        """Yield each page of an endpoint.
+
+        `resume_hook` receives the paginator state that fetches the page after the one this call
+        yields, or `None` when no page follows. It runs after the `yield` returns, which is when the
+        caller asks for the next page. A caller that does work between this `yield` and its own (a
+        child request per row, a transform that can raise) needs that order: state staged earlier
+        would cover rows the caller has not handed on.
+
+        `page_state_hook` receives the same state and whether a page follows, before the `yield`.
+        The caller then owns the state until the page reaches the pipeline. `Resource` does this, so
+        the pipeline receives a page and its cursor together and can commit both in one step.
+        """
         paginator = copy.deepcopy(paginator) if paginator else copy.deepcopy(self.paginator)
         hooks = hooks or {}
 
@@ -478,16 +498,19 @@ class RESTClient:
                 paginator.update_state(response, data)
                 paginator.update_request(request)
 
+            has_next_page = paginator is not None and paginator.has_next_page
+            next_page_state = paginator.get_resume_state() if paginator is not None and has_next_page else None
+            if page_state_hook is not None:
+                page_state_hook(next_page_state, has_next_page)
+
             yield data
 
             if resume_hook is not None:
-                resume_hook(paginator.get_resume_state() if paginator is not None and paginator.has_next_page else None)
-                reach_framework_safe_point()
+                resume_hook(next_page_state)
 
             # Direct Resource traversal has consumed the page before execution resumes here, so this
             # is safe even when a dependent resource routes its resume hook only to the child.
-            if resume_hook is None:
-                reach_framework_safe_point()
+            reach_framework_safe_point()
 
             if paginator is None or not paginator.has_next_page:
                 break
@@ -496,6 +519,7 @@ class RESTClient:
         retry=retry_if_exception_type(RESTClientRetryableError),
         stop=_stop_after_client_attempts,
         wait=_retry_wait_seconds,
+        before_sleep=_reach_safe_point_before_retry_wait,
         reraise=True,
     )
     def _send_request(
@@ -535,6 +559,15 @@ class RESTClient:
             # credential-in-query-string reason as the ConnectionError branch.
             raise RESTClientRetryableError(
                 self._redact(f"Request timed out ({type(e).__name__}) for {_safe_url(prepared.url or '')}")
+            ) from e
+        except TooManyRedirects as e:
+            # requests already followed its redirect cap (30) chasing a final response and never
+            # got one — a deterministic loop (e.g. an auth wall, or an http/https scheme mismatch)
+            # baked into how the remote host answers this URL, not a one-off network blip.
+            # Re-fetching replays the same chain, so fail fast and non-retryably instead of burning
+            # the retry budget on 30+ requests per attempt.
+            raise RESTClientNonRetryableError(
+                self._redact(f"Too many redirects for {_safe_url(prepared.url or '')}")
             ) from e
 
         # With redirects disabled, a 3xx is not an error to `raise_for_status` and would fall

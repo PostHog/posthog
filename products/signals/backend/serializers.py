@@ -71,6 +71,7 @@ from .models import (
     SignalUserAutonomyConfig,
 )
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
+from .ranking.staleness import EDIT_ARTEFACT_TYPES, is_stale_score
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members, trusted_manual_reviewer_adders
 from .report_metric_access import ReportMetricAccessPolicy
@@ -1164,6 +1165,12 @@ class ReportRankingSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Heads whose holdout AUC the training run could read. Treat scores of other heads with caution.",
     )
+    stale = serializers.BooleanField(
+        help_text=(
+            "True when the report's title or summary was edited after the text this score read. The score "
+            "describes the old text: the inbox hides its lift and the model sort treats the report as unscored."
+        ),
+    )
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
@@ -1480,6 +1487,16 @@ class SignalReportSerializer(serializers.ModelSerializer):
             )
         if art is None:
             return None
+        prefetched_edits = getattr(obj, "prefetched_latest_edit_artefacts", None)
+        if prefetched_edits is not None:
+            latest_edit_at = prefetched_edits[0].created_at if prefetched_edits else None
+        else:
+            latest_edit_at = (
+                obj.artefacts.filter(type__in=EDIT_ARTEFACT_TYPES)
+                .order_by("-created_at")
+                .values_list("created_at", flat=True)
+                .first()
+            )
         try:
             score = RankingScore.model_validate_json(art.content)
             served = score.results[score.served_key]
@@ -1501,6 +1518,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "scores": served.scores,
             "lifts": lifts,
             "readable_heads": readable_heads,
+            "stale": is_stale_score(score, latest_edit_at),
         }
 
     def get_source_products(self, obj: SignalReport) -> list[str]:
@@ -1700,6 +1718,15 @@ class SignalReportsForYouQuerySerializer(serializers.Serializer):
         max_value=MAX_FOR_YOU_REPORTS,
         help_text=f"How many of the top reports to return, 1 to {MAX_FOR_YOU_REPORTS}. Defaults to 5.",
     )
+    include_unowned = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether to include P0 reports that nobody owns. These belong to the project rather than to "
+            "one person, and they rank above everything else, so a surface that only shows a person's own "
+            "work passes false. Defaults to true."
+        ),
+    )
 
 
 class SignalReportsForYouResponseSerializer(serializers.Serializer):
@@ -1708,13 +1735,15 @@ class SignalReportsForYouResponseSerializer(serializers.Serializer):
         help_text=(
             "The open, actionable reports that matter most to the current user, best first: reports "
             "waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 "
-            "reports that nobody owns. The Today briefing ranks reports the same way."
+            "reports that nobody owns unless `include_unowned` is false. The Today briefing ranks "
+            "reports the same way."
         ),
     )
     count = serializers.IntegerField(
         help_text=(
             "How many open reports are for the current user: the reports in `results`, plus the other "
-            "open, actionable reports that name them as a reviewer."
+            "open, actionable reports that name them as a reviewer. Counted over the same set as "
+            "`results`, so it follows `include_unowned` too."
         ),
     )
 

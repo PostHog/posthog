@@ -282,6 +282,35 @@ class TestFanOut:
         assert sent[1][0] == "https://acme.zendesk.com/qa/api/export/workspace/1/scorecards"
         assert "page" not in sent[1][1]
 
+    def test_fans_out_over_quizzes_and_injects_quiz_id(self) -> None:
+        responses = [
+            _response({"quizzes": [{"id": "7", "name": "Refunds"}, {"id": "8", "name": "Tone"}]}),
+            _response({"responses": [{"responseId": "100", "userId": "1", "correctAnswerPercentage": "80"}]}),
+            _response({}),
+        ]
+        batches, session, _ = _drive("quiz_responses", responses)
+
+        assert [url for url, _ in _sent(session)] == [
+            "https://acme.zendesk.com/qa/api/export/quizzes",
+            "https://acme.zendesk.com/qa/api/export/quizzes/7/responses",
+            "https://acme.zendesk.com/qa/api/export/quizzes/8/responses",
+        ]
+        # proto3 JSON drops an empty repeated field, so a quiz with no responses
+        # returns `{}` and must yield nothing.
+        assert batches == [[{"responseId": "100", "userId": "1", "correctAnswerPercentage": "80", "quiz_id": "7"}]]
+
+    def test_single_object_response_becomes_one_row_per_quiz(self) -> None:
+        responses = [
+            _response({"quizzes": [{"id": "7"}]}),
+            _response({"id": "7", "name": "Refunds", "responseCount": "3", "fields": [{"id": "1"}]}),
+        ]
+        batches, session, _ = _drive("quiz_overviews", responses)
+
+        assert _sent(session)[1][0] == "https://acme.zendesk.com/qa/api/export/quizzes/7/overview"
+        assert batches == [
+            [{"id": "7", "name": "Refunds", "responseCount": "3", "fields": [{"id": "1"}], "quiz_id": "7"}]
+        ]
+
     def test_from_date_applies_to_workspace_requests_but_not_workspace_listing(self) -> None:
         responses = [
             _response({"workspaces": [{"id": 1}]}),
