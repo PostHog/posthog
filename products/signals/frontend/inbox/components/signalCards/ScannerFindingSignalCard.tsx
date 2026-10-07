@@ -62,6 +62,7 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
                         : undefined
                 }
                 alt={`Recording preview for ${extra.scanner_name}`}
+                source="scanner_finding"
             />
 
             {/* Dot-separated meta line: affected user, finding window, active/total duration. */}
