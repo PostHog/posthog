@@ -26813,7 +26813,7 @@ export namespace Schemas {
       readonly created_at: string;
       readonly created_by: UserBasic;
       /** @nullable */
-      last_accessed_at?: string | null;
+      readonly last_accessed_at: string | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
       /**
@@ -26848,6 +26848,10 @@ export namespace Schemas {
          */
       data_color_theme_id?: number | null;
       tags?: unknown[];
+      /** Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
+       *
+       * * `21` - Everyone in the project can edit
+       * * `37` - Only those invited to this dashboard can edit */
       restriction_level?: RestrictionLevelEnum;
       readonly effective_restriction_level: RestrictionLevelEnum;
       readonly effective_privilege_level: PrivilegeLevelEnum;
@@ -26938,7 +26942,7 @@ export namespace Schemas {
       readonly deleted: boolean;
       readonly creation_mode: DashboardCreationModeEnum;
       tags?: unknown[];
-      /** Controls who can edit the dashboard.
+      /** Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
        *
        * * `21` - Everyone in the project can edit
        * * `37` - Only those invited to this dashboard can edit */
@@ -27196,6 +27200,131 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+    }
+
+    export type DashboardWriteOpenApiFilters = { [key: string]: unknown };
+
+    /**
+     * @nullable
+     */
+    export type DashboardWriteOpenApiVariables = { [key: string]: unknown } | null;
+
+    /**
+     * @nullable
+     */
+    export type DashboardWriteOpenApiPersistedFilters = { [key: string]: unknown } | null;
+
+    /**
+     * @nullable
+     */
+    export type DashboardWriteOpenApiPersistedVariables = { [key: string]: unknown } | null;
+
+    export type DashboardWriteOpenApiTilesItem = { [key: string]: unknown };
+
+    /**
+     * Serializer mixin that handles tags for objects.
+     */
+    export interface DashboardWriteOpenApi {
+      readonly id: number;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      description?: string;
+      pinned?: boolean;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly last_accessed_at: string | null;
+      /** @nullable */
+      readonly last_viewed_at: string | null;
+      /**
+         * Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.
+         * @nullable
+         */
+      readonly folder: string | null;
+      /**
+         * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
+         * @nullable
+         */
+      readonly file_system_id: string | null;
+      /**
+         * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
+         * @nullable
+         */
+      readonly file_system_path: string | null;
+      readonly is_shared: boolean;
+      deleted?: boolean;
+      readonly creation_mode: DashboardCreationModeEnum;
+      readonly filters: DashboardWriteOpenApiFilters;
+      /** @nullable */
+      readonly variables: DashboardWriteOpenApiVariables;
+      /**
+         * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
+         * @nullable
+         */
+      breakdown_colors?: BreakdownColorConfig[] | null;
+      /**
+         * ID of the color theme used for chart visualizations.
+         * @nullable
+         */
+      data_color_theme_id?: number | null;
+      tags?: unknown[];
+      /**
+         * Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
+         * @minimum 21
+         * @maximum 21
+         */
+      restriction_level?: number;
+      readonly effective_restriction_level: RestrictionLevelEnum;
+      readonly effective_privilege_level: PrivilegeLevelEnum;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      readonly access_control_version: string;
+      /** @nullable */
+      last_refresh?: string | null;
+      /** @nullable */
+      readonly persisted_filters: DashboardWriteOpenApiPersistedFilters;
+      /** @nullable */
+      readonly persisted_variables: DashboardWriteOpenApiPersistedVariables;
+      readonly team_id: number;
+      /**
+         * List of quick filter IDs associated with this dashboard
+         * @nullable
+         */
+      quick_filter_ids?: string[] | null;
+      /** Dashboard display settings. */
+      readonly customization: DashboardCustomization;
+      /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
+       *
+       * * `tight` - tight
+       * * `condensed` - condensed
+       * * `standard` - standard
+       * * `relaxed` - relaxed
+       * * `wide` - wide */
+      grid_spacing?: TileSpacingEnum;
+      /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+       *
+       * * `vertical` - vertical
+       * * `horizontal` - horizontal
+       * * `stable` - stable */
+      layout_compaction?: LayoutCompactionEnum;
+      /** @nullable */
+      readonly tiles: readonly DashboardWriteOpenApiTilesItem[] | null;
+      /** Template key to create the dashboard from a predefined template. */
+      use_template?: string;
+      /**
+         * ID of an existing dashboard to duplicate.
+         * @nullable
+         */
+      use_dashboard?: number | null;
+      /** When deleting, also delete insights that are only on this dashboard. */
+      delete_insights?: boolean;
+      _create_in_folder?: string;
     }
 
     export interface DataCatalogCertification {
@@ -30838,6 +30967,7 @@ export namespace Schemas {
      * * `GoogleBusinessProfile` - GoogleBusinessProfile
      * * `Ledyer` - Ledyer
      * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -32206,6 +32336,7 @@ export namespace Schemas {
       GoogleBusinessProfile: 'GoogleBusinessProfile',
       Ledyer: 'Ledyer',
       Supermetrics: 'Supermetrics',
+      SQLite: 'SQLite',
     } as const;
 
     /**
@@ -33587,7 +33718,8 @@ export namespace Schemas {
        * * `Dreamdata` - Dreamdata
        * * `GoogleBusinessProfile` - GoogleBusinessProfile
        * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics */
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -36217,7 +36349,8 @@ export namespace Schemas {
        * * `Dreamdata` - Dreamdata
        * * `GoogleBusinessProfile` - GoogleBusinessProfile
        * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics */
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -47492,7 +47625,8 @@ export namespace Schemas {
        * * `Dreamdata` - Dreamdata
        * * `GoogleBusinessProfile` - GoogleBusinessProfile
        * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics */
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -48894,7 +49028,8 @@ export namespace Schemas {
        * * `Dreamdata` - Dreamdata
        * * `GoogleBusinessProfile` - GoogleBusinessProfile
        * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics */
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -79518,11 +79653,12 @@ export namespace Schemas {
          */
       data_color_theme_id?: number | null;
       tags?: string[];
-      /** Who can edit this dashboard.
-       *
-       * * `21` - Everyone in the project can edit
-       * * `37` - Only those invited to this dashboard can edit */
-      restriction_level?: RestrictionLevelEnum;
+      /**
+         * Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
+         * @minimum 21
+         * @maximum 21
+         */
+      restriction_level?: number;
       /**
          * List of quick filter IDs associated with this dashboard.
          * @nullable
@@ -98784,7 +98920,8 @@ export namespace Schemas {
        * * `Dreamdata` - Dreamdata
        * * `GoogleBusinessProfile` - GoogleBusinessProfile
        * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics */
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -100202,7 +100339,8 @@ export namespace Schemas {
        * * `Dreamdata` - Dreamdata
        * * `GoogleBusinessProfile` - GoogleBusinessProfile
        * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics */
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -101602,7 +101740,8 @@ export namespace Schemas {
        * * `Dreamdata` - Dreamdata
        * * `GoogleBusinessProfile` - GoogleBusinessProfile
        * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics */
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
