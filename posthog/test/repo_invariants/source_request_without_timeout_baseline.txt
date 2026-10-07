@@ -6,7 +6,6 @@ billomat/billomat.py::validate_credentials
 bluesky/bluesky.py::validate_credentials
 braze/braze.py::_data_series_rows
 braze/braze.py::_details_rows
-crates_io/crates_io.py::get_rows
 dockerhub/dockerhub.py::_audit_log_action_rows
 dockerhub/dockerhub.py::_audit_log_pages
 dockerhub/dockerhub.py::_fetch_jwt

@@ -45,7 +45,6 @@ postgres/postgres.py::postgres_source.get_rows
 postgres/postgres.py::postgres_source.get_rows.offset_chunking.fetch_page
 postgres/postgres.py::postgres_source.get_rows.offset_chunking.handle_recovery_conflict
 qualtrics/qualtrics.py::_export_responses
-redshift/redshift.py::_retry_on_transient_connection_drop
 salesforce/auth.py::salesforce_refresh_access_token
 serpstat/serpstat.py::SerpstatPaginator.update_request
 singular/singular.py::SingularClient.await_download_url

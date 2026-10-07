@@ -105,6 +105,15 @@ def raw_sleeps(tree: ast.Module) -> list[str]:
     return [name for name, scope in _scopes(tree) if any(is_sleep(node) for node in _own_nodes(scope))]
 
 
+def _is_session_annotation(annotation: ast.AST) -> bool:
+    """A `Session` annotation, also as `Session | None`. Not `dict[str, Callable[[Session], ...]]`."""
+    if isinstance(annotation, ast.BinOp):
+        return _is_session_annotation(annotation.left) or _is_session_annotation(annotation.right)
+    if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
+        return "Session" in annotation.value and "[" not in annotation.value
+    return "Session" in (_terminal_name(annotation) or "")
+
+
 def requests_without_timeout(tree: ast.Module) -> list[str]:
     # A name is a session when `make_tracked_session` builds it, or when its annotation says so.
     sessions: set[str | None] = set()
@@ -112,10 +121,10 @@ def requests_without_timeout(tree: ast.Module) -> list[str]:
         if isinstance(node, ast.Assign) and _called_name(node.value) == "make_tracked_session":
             sessions.update(_terminal_name(target) for target in node.targets)
         elif isinstance(node, ast.AnnAssign) and (
-            _called_name(node.value) == "make_tracked_session" or "Session" in ast.unparse(node.annotation)
+            _called_name(node.value) == "make_tracked_session" or _is_session_annotation(node.annotation)
         ):
             sessions.add(_terminal_name(node.target))
-        elif isinstance(node, ast.arg) and node.annotation is not None and "Session" in ast.unparse(node.annotation):
+        elif isinstance(node, ast.arg) and node.annotation is not None and _is_session_annotation(node.annotation):
             sessions.add(node.arg)
 
     def is_unbounded_request(node: ast.AST) -> bool:
@@ -245,6 +254,12 @@ DETECTION_CASES = [
     ("request_without_timeout", "def rows(http: requests.Session):\n    return http.get(url)\n", ["rows"]),
     ("request_without_timeout", "import requests\ndef rows():\n    return requests.get(url)\n", ["rows"]),
     ("request_without_timeout", "def rows(cache):\n    return cache.get(key)\n", []),
+    (
+        "request_without_timeout",
+        "import requests\nrows: dict[str, Callable[[requests.Session], list]] = {}\ndef pick(name):\n    return rows.get(name)\n",
+        [],
+    ),
+    ("request_without_timeout", "def rows(http: requests.Session | None):\n    return http.get(url)\n", ["rows"]),
     (
         "wrapped_resource",
         "def rows(config):\n    resource = rest_api_resource(config)\n    for page in resource:\n        yield page\n",
