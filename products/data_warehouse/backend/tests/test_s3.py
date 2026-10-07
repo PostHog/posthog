@@ -142,6 +142,13 @@ class TestEnsureBucketExists(SimpleTestCase):
                 "shared by all users of the system. Please select a different name and try again.",
                 False,
             ),
+            (
+                "genuine_aws_collision_with_shared_namespace_wording",
+                "BucketAlreadyExists",
+                "The requested bucket name is not available. The bucket namespace is shared by all "
+                "users of the system. Please select a different name and try again.",
+                True,
+            ),
             ("access_denied", "AccessDenied", "", True),
         ]
     )
@@ -153,8 +160,10 @@ class TestEnsureBucketExists(SimpleTestCase):
         # create_bucket call. BucketAlreadyOwnedByYou means we lost that race but still own the
         # bucket, so it must not surface as a failure. SeaweedFS (the backend behind local/self-hosted
         # setups) has no per-account ownership check, so it reports the identical race as a bare
-        # BucketAlreadyExists with its own fixed message instead — that must not raise either. A
-        # BucketAlreadyExists with any other message is a real, unrelated name collision.
+        # BucketAlreadyExists carrying its own "existing collection" wording instead — that must not
+        # raise either. SeaweedFS's message otherwise reuses AWS's own wording for a genuine collision
+        # verbatim, so a BucketAlreadyExists with AWS's wording but no "existing collection" is a real,
+        # unrelated name collision and must still raise.
         s3_client = MagicMock()
         s3_client.head_bucket.side_effect = _client_error("404")
         s3_client.create_bucket.side_effect = _client_error(create_error_code, create_error_message)

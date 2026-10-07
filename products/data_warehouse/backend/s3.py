@@ -161,10 +161,11 @@ _HEAD_BUCKET_MAX_ATTEMPTS = 4
 
 # SeaweedFS (the S3-compatible backend behind local/self-hosted setups) has no per-account ownership
 # check like AWS's, so it reports the loser of a concurrent create_bucket race as a bare
-# BucketAlreadyExists with this fixed message instead of AWS's BucketAlreadyOwnedByYou. Matched on the
-# message, not just the code, so a genuine cross-tenant name collision on a real multi-tenant S3
-# backend (different message) still raises.
-_SHARED_BUCKET_NAMESPACE_RACE_NEEDLE = "bucket namespace is shared by all users of the system"
+# BucketAlreadyExists instead of AWS's BucketAlreadyOwnedByYou. Its message otherwise reuses AWS's own
+# "bucket namespace is shared by all users of the system" wording verbatim for a genuine collision too,
+# so matching on that alone can't tell the two apart; "existing collection" is SeaweedFS's own
+# bucket-equivalent term inserted into that message and never appears in AWS's.
+_SEAWEEDFS_BUCKET_RACE_NEEDLE = "existing collection"
 
 
 def ensure_bucket_exists(s3_url: str, s3_key: str, s3_secret: str, s3_endpoint: Optional[str] = None) -> None:
@@ -213,7 +214,7 @@ def ensure_bucket_exists(s3_url: str, s3_key: str, s3_secret: str, s3_endpoint: 
                     create_error_code = create_error.response.get("Error", {}).get("Code")
                     is_benign_race = create_error_code == "BucketAlreadyOwnedByYou" or (
                         create_error_code == "BucketAlreadyExists"
-                        and _SHARED_BUCKET_NAMESPACE_RACE_NEEDLE in str(create_error)
+                        and _SEAWEEDFS_BUCKET_RACE_NEEDLE in str(create_error)
                     )
                     if not is_benign_race:
                         raise
