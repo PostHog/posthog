@@ -33,6 +33,15 @@ class SchemaGenerationException(Exception):
         self.validation_message = validation_message
 
 
+def _as_parser_exception(e: ValueError) -> PydanticOutputParserException | OutputParserException | None:
+    if isinstance(e, PydanticOutputParserException | OutputParserException):
+        return e
+    # CPython raises a bare ValueError for JSON integers over the int digit limit, and LangChain wraps only JSONDecodeError.
+    if "integer string conversion" in str(e):
+        return OutputParserException(str(e))
+    return None
+
+
 class SchemaGeneratorNode(AssistantNode, Generic[Q]):
     INSIGHT_NAME: str
     """
@@ -109,7 +118,10 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             # If quality check raises, we will still iterate if we've got any attempts left,
             # however if we don't have any more attempts, we're okay to use `result` (instead of throwing)
             await self._quality_check_output(cast(SchemaGeneratorOutput[Q], result))
-        except (PydanticOutputParserException, OutputParserException) as e:
+        except ValueError as raw_error:
+            e = _as_parser_exception(raw_error)
+            if e is None:
+                raise
             # Try again with feedback a couple times
             if len(intermediate_steps) < RETRIES_ALLOWED:
                 return PartialAssistantState(
