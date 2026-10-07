@@ -27,15 +27,12 @@ def should_check_table_access(instance: Subscription | None, attrs: dict[str, An
     These writes need the check: a create, a change to what the subscription delivers, a change
     to who receives it, and a write that enables or restores the subscription.
 
-    A write that disables or deletes the subscription does not need the check. This lets a member
-    without table access turn a subscription off. The write that enables or restores it later
-    needs the check, and that check also covers any change made in the same write.
+    A write that only disables or deletes the subscription does not need the check. This lets a
+    member without table access turn a subscription off. A write that also changes the delivery
+    or the recipients needs the check, because those changes stay in place after someone else
+    enables the subscription again.
     """
     if instance is None:
-        return True
-    if attrs.get("deleted") is True or attrs.get("enabled") is False:
-        return False
-    if (instance.deleted and attrs.get("deleted") is False) or (not instance.enabled and attrs.get("enabled") is True):
         return True
     if any(field in attrs and attrs[field] != getattr(instance, field) for field in _RECIPIENT_FIELDS):
         return True
@@ -44,8 +41,14 @@ def should_check_table_access(instance: Subscription | None, attrs: dict[str, An
         for field in _TARGET_FIELDS
     ):
         return True
-    return "dashboard_export_insights" in attrs and set(attrs["dashboard_export_insights"]) != set(
+    if "dashboard_export_insights" in attrs and set(attrs["dashboard_export_insights"]) != set(
         instance.dashboard_export_insights.values_list("id", flat=True)
+    ):
+        return True
+    if attrs.get("deleted") is True or attrs.get("enabled") is False:
+        return False
+    return (instance.deleted and attrs.get("deleted") is False) or (
+        not instance.enabled and attrs.get("enabled") is True
     )
 
 
