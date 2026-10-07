@@ -1896,6 +1896,7 @@ export const ObservationDetailInlineScan: StoryObj = observationDetailStory(inli
 
 // Billing hasn't clamped this org's limit yet, so the API still reports it as uncapped.
 export const StartupProgramCap: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
     decorators: [
         mswDecorator({
             get: {
