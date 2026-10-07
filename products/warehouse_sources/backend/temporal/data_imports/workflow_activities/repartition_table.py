@@ -357,7 +357,9 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # `public.users`, folder `users`), and the pipeline writes there too. Deriving the folder from
     # `name` alone probes a path that was never written and the repartition skips as `no_delta_table`.
     resource_name = schema.resolved_s3_folder_name or schema.name
-    table_ref = DeltaTableRef(resource_name=resource_name, job=job, logger=logger)
+    table_ref = DeltaTableRef(
+        resource_name=resource_name, job=job, logger=logger, expect_missing=schema.table_id is None
+    )
 
     if pending is None and swap is None:
         # Nothing was queued by a prior run's post-load detection. Measure now and self-flag if it's
