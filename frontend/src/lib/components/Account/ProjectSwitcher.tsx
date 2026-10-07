@@ -1,5 +1,6 @@
 import { Combobox } from '@base-ui/react/combobox'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
@@ -14,6 +15,7 @@ import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
@@ -112,7 +114,11 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                     }
                 )
                 closeProjectSwitcher()
-            } else if (!item.isCurrent) {
+            } else if (item.isCurrent) {
+                closeProjectSwitcher()
+                setAccountMenuOpen(false)
+                router.actions.push(urls.project(item.team.id, urls.settings('project')))
+            } else {
                 const targetUrl = getProjectSwitchTargetUrl(
                     location.pathname,
                     item.team.id,
@@ -222,7 +228,16 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                             value={item}
                                             onClick={() => handleItemClick(item)}
                                             render={(props) => (
-                                                <ButtonPrimitive {...props} menuItem active className="flex-1" truncate>
+                                                <ButtonPrimitive
+                                                    {...props}
+                                                    menuItem
+                                                    active
+                                                    className="flex-1"
+                                                    truncate
+                                                    tooltip="Project settings"
+                                                    tooltipPlacement="right"
+                                                    data-attr="project-switcher-current-project"
+                                                >
                                                     <IconCheck className="text-tertiary" />
                                                     <ProjectName team={item.team} className="flex-1 min-w-0" />
                                                     <ProjectFreshnessIndicator teamId={item.team.id} />
