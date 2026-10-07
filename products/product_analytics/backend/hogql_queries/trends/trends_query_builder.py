@@ -1,3 +1,5 @@
+import json
+import hashlib
 from typing import Any, cast
 
 from posthog.schema import (
@@ -21,6 +23,7 @@ from posthog.hogql_queries.data_warehouse_mixin import DataWarehouseInsightQuery
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
@@ -1044,8 +1047,76 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 or self.query.trendsFilter.smoothingIntervals is None
                 or self.query.trendsFilter.smoothingIntervals <= 1
             )
+            and self._ranked_breakdown_configuration_allowed()
             and self._team_flag_enabled("trends-breakdown-rank-before-arrays")
         )
+
+    @cached_property
+    def ranked_breakdown_query_signature(self) -> str | None:
+        # Actions can change their predicates without changing the saved query's action ID.
+        if not isinstance(self.series, EventsNode) or (
+            self.query.dateRange and self.query.dateRange.date_from == "all"
+        ):
+            return None
+
+        date_from = self.query_date_range.date_from()
+        date_to = self.query_date_range.date_to()
+        if date_to < date_from:
+            return None
+
+        payload = {
+            "version": 1,
+            "team_id": self.team.pk,
+            "timezone": str(date_from.tzinfo),
+            "week_start_day": self.team.week_start_day,
+            "query": self.query.model_dump(
+                mode="json",
+                exclude_none=True,
+                exclude={
+                    "dateRange",
+                    "series",
+                    "response",
+                    "dataColorTheme",
+                    "tags",
+                    "version",
+                    "modifiers",
+                    "trendsFilter",
+                },
+            ),
+            "display": self._trends_display.display_type,
+            "smoothing_intervals": self.query.trendsFilter.smoothingIntervals if self.query.trendsFilter else 1,
+            "series": self.series.model_dump(
+                mode="json", exclude_none=True, exclude={"response", "custom_name", "name", "version"}
+            ),
+            "modifiers": self.modifiers.model_dump(mode="json", exclude_none=True),
+            "limit_context": self.limit_context.value,
+            "breakdown_limit": self._get_breakdown_limit(),
+            "test_account_filters": self.team.test_account_filters if self.query.filterTestAccounts else [],
+            "date_range": {
+                "seconds": int(date_to.timestamp()) - int(date_from.timestamp()),
+                "start_offset_seconds": int(
+                    (date_from - self.query_date_range.align_with_interval(date_from)).total_seconds()
+                ),
+                "end_offset_seconds": int(
+                    (date_to - self.query_date_range.align_with_interval(date_to)).total_seconds()
+                ),
+                "interval": self.query_date_range.interval_name,
+                "interval_count": self.query_date_range.interval_count,
+                "options": self.query.dateRange.model_dump(
+                    mode="json", exclude_none=True, exclude={"date_from", "date_to", "explicitDate"}
+                )
+                if self.query.dateRange
+                else {},
+            },
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+    def _ranked_breakdown_configuration_allowed(self) -> bool:
+        allowed = get_instance_setting("TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES")
+        if not isinstance(allowed, str) or not allowed.strip():
+            return False
+        signature = self.ranked_breakdown_query_signature
+        return signature is not None and signature in {value.strip() for value in allowed.split(",")}
 
     def _ranked_breakdown_rows_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
         # Rank scalar rows so discarded breakdowns never allocate a full date array.

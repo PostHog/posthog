@@ -57,6 +57,13 @@ CONSTANCE_CONFIG = {
         "Whether unique users should be counted by distinct IDs. Speeds up queries at the cost of accuracy.",
         str,
     ),
+    "TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES": (
+        "",
+        "Comma-separated benchmark-approved TrendsQueryBuilder.ranked_breakdown_query_signature values. "
+        "An empty list keeps the original breakdown plan. The trends-breakdown-rank-before-arrays "
+        "team flag must also be enabled. Changes reach workers within the instance-setting cache TTL.",
+        str,
+    ),
     "PERSON_ON_EVENTS_ENABLED": (
         get_from_env("PERSON_ON_EVENTS_ENABLED", False, type_cast=str_to_bool),
         "Whether to use query path using person_id and person_properties on events or the old query",
@@ -426,6 +433,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",
+    "TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES",
     "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
     "ASYNC_MIGRATIONS_AUTO_CONTINUE",
