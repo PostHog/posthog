@@ -13,7 +13,7 @@ class ContentSegment(BaseModel):
 
 
 class BriefingContent(BaseModel):
-    """Stored in `DailyBriefing.content`. Empty content validates, so a row the agent has not written yet still reads."""
+    """Stored in `DailyBriefing.content`. Empty content validates, so a row that is not written yet still reads."""
 
     model_config = ConfigDict(frozen=True)
 

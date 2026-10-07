@@ -540,6 +540,35 @@ class TestFooterNeverCostsTheAnswer(SimpleTestCase):
         assert not retry.get("blocks")
 
 
+class TestStreamClosedBySlack(SimpleTestCase):
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_the_answer_is_posted_in_the_thread_and_the_closed_stream_gets_nothing_more(
+        self, mock_get_client, mock_get_integration
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.chat_appendStream.side_effect = SlackApiError(
+            "message_not_in_streaming_state", {"error": "message_not_in_streaming_state"}
+        )
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=1, config={}, integration_id="T1")
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        handler = SlackThreadHandler(context, RunFooter(model="claude-opus-5"), actor_slack_user_id="U123")
+
+        assert (
+            handler.append_status_chunks(ts="1.0", task_updates=[{"id": "a", "title": "Read", "status": "in_progress"}])
+            is False
+        )
+        handler.stop_status_stream(ts="1.0", final_markdown="Signups grew.")
+
+        assert mock_client.chat_appendStream.call_count == 1
+        mock_client.chat_stopStream.assert_not_called()
+        posted = mock_client.chat_postMessage.call_args.kwargs
+        assert posted["thread_ts"] == "1234.5678"
+        assert "Signups grew." in posted["text"]
+        assert posted["text"].startswith("<@U123>")
+
+
 class TestRelayedAnswerFooter(SimpleTestCase):
     def _handler(self, footer: RunFooter) -> SlackThreadHandler:
         context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")

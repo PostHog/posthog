@@ -1,5 +1,3 @@
-from uuid import UUID
-
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -31,7 +29,6 @@ from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
-from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.cohorts.backend.models.cohort import Cohort
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
@@ -1063,7 +1060,6 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         self,
         breakdown: MarketingAnalyticsAttributionBreakdown,
         *,
-        precomputed: bool = False,
         live_resolution: bool = False,
     ) -> str:
         query = MarketingAnalyticsAttributionQuery(
@@ -1073,18 +1069,11 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             properties=[],
         )
         runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
-        runner.config.sessions_precomputation_enabled = precomputed
         runner.config.live_session_resolution_enabled = live_resolution
         context = runner._shared_hogql_context
         # execute_hogql_query flips this on the context it is handed; do the same to print the real query.
         context.enable_select_queries = True
-        ready = LazyComputationResult(ready=True, job_ids=[UUID(int=1)])
-        with patch(
-            "products.marketing_analytics.backend.hogql_queries.attribution_sessions_read.ensure_marketing_sessions_precomputed",
-            return_value=ready,
-        ):
-            printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
-        assert runner._sessions_precompute_used == (precomputed and not live_resolution)
+        printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
         assert runner._live_session_resolution_used == live_resolution
         return pretty_print_in_tests(printed[0] if isinstance(printed, tuple) else printed, self.team.pk)
 
@@ -1103,20 +1092,16 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         printed = self._printed_sql(breakdown)
         assert printed == self.sql_snapshot(printed)
 
-    # Entry properties must merge only for exceptional sessions; classifying the full range defeats the cache.
     @parameterized.expand(
         [
-            ("campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN, False),
-            ("source", MarketingAnalyticsAttributionBreakdown.SOURCE, False),
-            ("channel", MarketingAnalyticsAttributionBreakdown.CHANNEL, False),
             ("live_campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN, True),
             ("live_source", MarketingAnalyticsAttributionBreakdown.SOURCE, True),
             ("live_channel", MarketingAnalyticsAttributionBreakdown.CHANNEL, True),
         ]
     )
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_precomputed_sessions_sql(
+    def test_shared_live_sessions_sql(
         self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown, live_resolution: bool
     ):
-        printed = self._printed_sql(breakdown, precomputed=True, live_resolution=live_resolution)
+        printed = self._printed_sql(breakdown, live_resolution=live_resolution)
         assert printed == self.sql_snapshot(printed)

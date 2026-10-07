@@ -359,15 +359,10 @@ class TestSnapshotCapture:
                 {"cdc_mode": "snapshot", "sync_type_config": {"cdc_snapshot_lane": "buffer"}},
                 True,
             ),
-            # Its buffer holds copies of changes the legacy lane already delivered, until capture converts it.
-            ("streaming_on_a_source_not_converted_yet", {"job_inputs": {"cdc_ingest_mode": "legacy"}}, False),
-            # The previous release skipped these tables' capture, so their buffer has a gap.
-            ("streaming_with_deferred_runs_left", {"sync_type_config": {"cdc_deferred_runs": [{"run": 1}]}}, False),
         ]
     )
     def test_a_resnapshot_stays_in_the_buffer_only_when_the_buffer_holds_every_change(self, _name, overrides, stays):
-        schema = _schema(**{"job_inputs": {"cdc_ingest_mode": "buffered"}, **overrides})
-        assert resnapshot_stays_in_buffer(schema) is stays
+        assert resnapshot_stays_in_buffer(_schema(**overrides)) is stays
 
 
 class TestBufferedGating:
@@ -385,20 +380,6 @@ class TestBufferedGating:
     @parameterized.expand([("consolidated",), ("cdc_only",), ("both",)])
     def test_every_streaming_table_mode_serves_the_buffered_lane(self, table_mode):
         assert serves_buffered_lane(_schema(cdc_table_mode=table_mode)) is True
-
-    # A source capture has not converted yet still reads "legacy", and its consumer must run on v3 too.
-    @parameterized.expand(
-        [
-            (f"{table_mode}_{ingest_mode}", table_mode, ingest_mode)
-            for table_mode in ("consolidated", "cdc_only", "both")
-            for ingest_mode in ("buffered", "legacy")
-        ]
-    )
-    def test_a_streaming_schema_forces_the_buffered_consumer_on_its_scheduled_sync(
-        self, _name, table_mode, ingest_mode
-    ):
-        schema = _schema(job_inputs={"cdc_ingest_mode": ingest_mode}, cdc_table_mode=table_mode)
-        assert scheduled_sync_consumes_buffer(schema) is True
 
     @parameterized.expand(
         [

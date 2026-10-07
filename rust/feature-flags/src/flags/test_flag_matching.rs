@@ -7,15 +7,20 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::time::Duration;
     use uuid::Uuid;
 
     use crate::{
-        api::types::{FlagValue, LegacyFlagsResponse},
+        api::{
+            errors::FlagError,
+            types::{FlagValue, LegacyFlagsResponse},
+        },
         cohorts::{
             cohort_cache_manager::CohortCacheManager,
             cohort_models::{Cohort, CohortId, CohortType, MembershipStampPolicy},
             membership::{CohortMembershipError, CohortMembershipProvider},
         },
+        database::PostgresRouter,
         flags::{
             feature_flag_list::PreparedFlags,
             flag_group_type_mapping::{GroupTypeCacheManager, GroupTypeMapping},
@@ -30,17 +35,20 @@ mod tests {
                 Holdout, MultivariateFlagOptions, MultivariateFlagVariant,
             },
         },
+        handler::canonical_log::{run_with_canonical_log, FlagsCanonicalLogLine},
+        metrics::consts::FLAG_DATABASE_ERROR_COUNTER,
         mock,
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::{
             graph_utils::PrecomputedDependencyGraph,
             mock::MockInto,
             test_utils::{
-                failing_group_type_cache, flag_list_with_metadata, mock_group_type_cache,
-                TestContext,
+                counter_total, failing_group_type_cache, flag_list_with_metadata,
+                mock_group_type_cache, setup_invalid_pg_client, StalledPgClient, TestContext,
             },
         },
     };
+    use metrics_util::debugging::DebuggingRecorder;
 
     fn empty_group_type_cache() -> Arc<GroupTypeCacheManager> {
         mock_group_type_cache(HashMap::new())
@@ -616,6 +624,146 @@ mod tests {
             "group-typed filter should resolve against group properties, not the person's"
         );
         assert_eq!(industry_analysis.actual_value, Some(json!("tech")));
+    }
+
+    /// `match_property` cannot evaluate a cohort filter, so a winning condition used to claim its
+    /// own properties did not match. The cohort is dynamic on purpose, because the evaluation state
+    /// caches static and realtime memberships only.
+    #[tokio::test]
+    async fn test_detailed_analysis_resolves_cohort_filters_against_cohort_membership() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort_row = context
+            .insert_cohort(
+                team.id,
+                None,
+                json!({
+                    "properties": {
+                        "type": "OR",
+                        "values": [{
+                            "type": "OR",
+                            "values": [{
+                                "key": "plan",
+                                "type": "person",
+                                "value": "enterprise",
+                                "negation": false,
+                                "operator": "exact"
+                            }]
+                        }]
+                    }
+                }),
+                false,
+            )
+            .await
+            .unwrap();
+
+        context
+            .insert_person(
+                team.id,
+                "cohort_member".to_string(),
+                Some(json!({"plan": "enterprise"})),
+            )
+            .await
+            .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "non_member".to_string(),
+                Some(json!({"plan": "free"})),
+            )
+            .await
+            .unwrap();
+
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: Some(json!(cohort_row.id)),
+                        operator: Some(OperatorType::In),
+                        prop_type: PropertyType::Cohort,
+                        group_type_index: None,
+                        negation: Some(false),
+                        compiled_regex: None,
+                        extra: Default::default(),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                feature_enrollment: None,
+                holdout: None,
+                early_exit: None,
+                non_v1: None,
+                extra: Default::default(),
+            }
+        );
+
+        for (distinct_id, is_member) in [("cohort_member", true), ("non_member", false)] {
+            let mut matcher = FeatureFlagMatcher::new(
+                distinct_id.to_string(),
+                None, // device_id
+                team.id,
+                context.create_postgres_router(),
+                cohort_cache.clone(),
+                empty_group_type_cache(),
+                None,
+            )
+            .with_detailed_analysis(true);
+
+            let flags = flag_list_with_metadata(vec![flag.clone()]);
+            let result = matcher
+                .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
+                .await
+                .unwrap();
+
+            assert!(!result.errors_while_computing_flags);
+            let flag_details = result.flags.get("test_flag").unwrap();
+            assert_eq!(flag_details.to_value(), FlagValue::Boolean(is_member));
+
+            let conditions = flag_details
+                .conditions
+                .as_ref()
+                .expect("detailed_analysis(true) should populate conditions");
+            assert_eq!(conditions.len(), 1);
+
+            assert_eq!(conditions[0].matched, is_member, "user {distinct_id}");
+            assert_eq!(
+                conditions[0].properties_matched, is_member,
+                "user {distinct_id}"
+            );
+
+            // A member's condition explanation must agree with the MATCHED badge.
+            let expected_condition = if is_member {
+                "Condition 1 matched and passed 100% rollout"
+            } else {
+                "Condition 1 did not match properties"
+            };
+            assert_eq!(
+                conditions[0].explanation, expected_condition,
+                "user {distinct_id}"
+            );
+
+            let properties = &conditions[0].properties;
+            assert_eq!(properties.len(), 1);
+            assert_eq!(properties[0].matched, is_member, "user {distinct_id}");
+            let expected = if is_member {
+                format!("Person is in cohort {}", cohort_row.id)
+            } else {
+                format!("Person is not in cohort {}", cohort_row.id)
+            };
+            assert_eq!(properties[0].explanation, expected, "user {distinct_id}");
+        }
     }
 
     /// Helper to create a dependency filter for flag-depends-on-flag patterns.
@@ -1201,6 +1349,332 @@ mod tests {
         }
     }
 
+    #[rstest::rstest]
+    #[case::flags_endpoint(false)]
+    #[case::batch_endpoint(true)]
+    #[tokio::test]
+    async fn test_flags_depending_on_a_failed_flag_fail_only_when_their_answer_needs_it(
+        #[case] batch_endpoint: bool,
+    ) {
+        let enabled_only_flag_keys = if batch_endpoint {
+            HashSet::from(
+                [
+                    "dependent_with_pinned_variant_flag",
+                    "dependent_on_pinned_variant_dependency_flag",
+                ]
+                .map(String::from),
+            )
+        } else {
+            HashSet::new()
+        };
+        let failing_db = setup_invalid_pg_client().await;
+        let router = PostgresRouter::new(
+            failing_db.clone(),
+            failing_db.clone(),
+            failing_db.clone(),
+            failing_db.clone(),
+        );
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            router,
+            Arc::new(CohortCacheManager::new(failing_db, None, None)),
+            empty_group_type_cache(),
+            None,
+        )
+        .with_enabled_only_flag_keys(enabled_only_flag_keys);
+
+        let rollout_flag = mock!(FeatureFlag, id: 1, key: "rollout_flag".mock_into());
+        let person_flag = mock!(FeatureFlag,
+            id: 2,
+            key: "person_flag".mock_into(),
+            filters: mock!(PropertyFilter,
+                key: "email".mock_into(),
+                value: Some(json!("user@example.com")),
+                prop_type: PropertyType::Person
+            ).mock_into()
+        );
+        let dependent_flag = mock!(FeatureFlag,
+            id: 3,
+            key: "dependent_flag".mock_into(),
+            filters: dep_filter(person_flag.id, FlagValue::Boolean(true)).mock_into()
+        );
+        let dependent_with_catch_all_flag = mock!(FeatureFlag,
+            id: 4,
+            key: "dependent_with_catch_all_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(false))])
+                    ),
+                    mock!(FlagPropertyGroup),
+                ]
+            )
+        );
+        let transitive_dependent_flag = mock!(FeatureFlag,
+            id: 5,
+            key: "transitive_dependent_flag".mock_into(),
+            filters: dep_filter(dependent_flag.id, FlagValue::Boolean(false)).mock_into()
+        );
+        let healthy_dependent_flag = mock!(FeatureFlag,
+            id: 6,
+            key: "healthy_dependent_flag".mock_into(),
+            filters: dep_filter(rollout_flag.id, FlagValue::Boolean(true)).mock_into()
+        );
+        let catch_all_before_dependency_flag = mock!(FeatureFlag,
+            id: 7,
+            key: "catch_all_before_dependency_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup),
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))])
+                    ),
+                ]
+            )
+        );
+        let dependent_out_of_rollout_flag = mock!(FeatureFlag,
+            id: 8,
+            key: "dependent_out_of_rollout_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))]),
+                    rollout_percentage: Some(0.0)
+                )]
+            )
+        );
+        // Every user hashes to "control", so an unpinned condition never returns "test".
+        let control_for_everyone = || MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "control".to_string(),
+                    rollout_percentage: 100.0,
+                    ..Default::default()
+                },
+                MultivariateFlagVariant {
+                    key: "test".to_string(),
+                    rollout_percentage: 0.0,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let pinned_test_then_control = || {
+            mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))]),
+                        variant: Some("test".to_string())
+                    ),
+                    mock!(FlagPropertyGroup),
+                ],
+                multivariate: Some(control_for_everyone())
+            )
+        };
+        let dependent_with_pinned_variant_flag = mock!(FeatureFlag,
+            id: 9,
+            key: "dependent_with_pinned_variant_flag".mock_into(),
+            filters: pinned_test_then_control()
+        );
+        let pinned_variant_dependency_flag = mock!(FeatureFlag,
+            id: 17,
+            key: "pinned_variant_dependency_flag".mock_into(),
+            filters: pinned_test_then_control()
+        );
+        let dependent_on_pinned_variant_dependency_flag = mock!(FeatureFlag,
+            id: 18,
+            key: "dependent_on_pinned_variant_dependency_flag".mock_into(),
+            filters: dep_filter(pinned_variant_dependency_flag.id, FlagValue::String("control".to_string())).mock_into()
+        );
+        let dependent_with_same_pinned_variant_flag = mock!(FeatureFlag,
+            id: 11,
+            key: "dependent_with_same_pinned_variant_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))]),
+                        variant: Some("test".to_string())
+                    ),
+                    mock!(FlagPropertyGroup, variant: Some("test".to_string())),
+                ],
+                multivariate: Some(control_for_everyone())
+            )
+        );
+        let dependent_stopping_early_flag = mock!(FeatureFlag,
+            id: 12,
+            key: "dependent_stopping_early_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))]),
+                        rollout_percentage: Some(0.0)
+                    ),
+                    mock!(FlagPropertyGroup),
+                ],
+                early_exit: Some(true)
+            )
+        );
+        let dependent_stopping_early_without_later_match_flag = mock!(FeatureFlag,
+            id: 13,
+            key: "dependent_stopping_early_without_later_match_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))]),
+                    rollout_percentage: Some(0.0)
+                )],
+                early_exit: Some(true)
+            )
+        );
+        let dependent_with_early_exit_flag = mock!(FeatureFlag,
+            id: 10,
+            key: "dependent_with_early_exit_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))])
+                    ),
+                    mock!(FlagPropertyGroup, rollout_percentage: Some(0.0)),
+                ],
+                early_exit: Some(true)
+            )
+        );
+        let dependent_on_variant_flag = mock!(FeatureFlag,
+            id: 14,
+            key: "dependent_on_variant_flag".mock_into(),
+            filters: dep_filter(person_flag.id, FlagValue::String("test".to_string())).mock_into()
+        );
+        let dependent_with_hashed_variant_flag = mock!(FeatureFlag,
+            id: 15,
+            key: "dependent_with_hashed_variant_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))])
+                    ),
+                    mock!(FlagPropertyGroup, variant: Some("control".to_string())),
+                ],
+                multivariate: Some(control_for_everyone())
+            )
+        );
+        let dependent_with_conflicting_filters_flag = mock!(FeatureFlag,
+            id: 16,
+            key: "dependent_with_conflicting_filters_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: Some(vec![
+                        dep_filter(person_flag.id, FlagValue::Boolean(true)),
+                        dep_filter(person_flag.id, FlagValue::Boolean(false)),
+                    ])
+                )]
+            )
+        );
+        let dependent_on_flag_and_its_variant_flag = mock!(FeatureFlag,
+            id: 19,
+            key: "dependent_on_flag_and_its_variant_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: Some(vec![
+                        dep_filter(person_flag.id, FlagValue::Boolean(true)),
+                        dep_filter(person_flag.id, FlagValue::String("test".to_string())),
+                    ])
+                )]
+            )
+        );
+        let mut flags = flag_list_with_metadata(vec![
+            rollout_flag,
+            person_flag,
+            dependent_flag,
+            dependent_with_catch_all_flag,
+            transitive_dependent_flag,
+            healthy_dependent_flag,
+            catch_all_before_dependency_flag,
+            dependent_out_of_rollout_flag,
+            dependent_with_pinned_variant_flag,
+            dependent_with_early_exit_flag,
+            dependent_with_same_pinned_variant_flag,
+            dependent_stopping_early_flag,
+            dependent_stopping_early_without_later_match_flag,
+            dependent_on_variant_flag,
+            dependent_with_hashed_variant_flag,
+            dependent_with_conflicting_filters_flag,
+            pinned_variant_dependency_flag,
+            dependent_on_pinned_variant_dependency_flag,
+            dependent_on_flag_and_its_variant_flag,
+        ]);
+        // Preloaded cohorts keep the cohort definitions lookup off the failing pool.
+        flags.cohorts = Some(Arc::from(Vec::new()));
+
+        let result = matcher
+            .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
+            .await
+            .unwrap();
+
+        let mut settled = vec![
+            ("rollout_flag", FlagValue::Boolean(true)),
+            ("healthy_dependent_flag", FlagValue::Boolean(true)),
+            ("dependent_with_catch_all_flag", FlagValue::Boolean(true)),
+            ("catch_all_before_dependency_flag", FlagValue::Boolean(true)),
+            ("dependent_out_of_rollout_flag", FlagValue::Boolean(false)),
+            (
+                "dependent_with_same_pinned_variant_flag",
+                FlagValue::String("test".to_string()),
+            ),
+            (
+                "dependent_stopping_early_without_later_match_flag",
+                FlagValue::Boolean(false),
+            ),
+            (
+                "dependent_with_hashed_variant_flag",
+                FlagValue::String("control".to_string()),
+            ),
+            (
+                "dependent_with_conflicting_filters_flag",
+                FlagValue::Boolean(false),
+            ),
+        ];
+        let mut failed = vec![
+            "dependent_flag",
+            "transitive_dependent_flag",
+            "dependent_with_early_exit_flag",
+            "dependent_stopping_early_flag",
+            "dependent_on_variant_flag",
+            "pinned_variant_dependency_flag",
+            "dependent_on_pinned_variant_dependency_flag",
+            "dependent_on_flag_and_its_variant_flag",
+        ];
+        if batch_endpoint {
+            settled.push((
+                "dependent_with_pinned_variant_flag",
+                FlagValue::String("control".to_string()),
+            ));
+        } else {
+            failed.push("dependent_with_pinned_variant_flag");
+        }
+
+        assert!(result.errors_while_computing_flags);
+        for (key, value) in settled {
+            assert!(!result.flags[key].failed, "{key}");
+            assert_eq!(result.flags[key].to_value(), value, "{key}");
+        }
+        let stopped_early = &result.flags["dependent_stopping_early_without_later_match_flag"];
+        assert_eq!(stopped_early.reason.code, "out_of_rollout_bound");
+        assert_eq!(stopped_early.reason.condition_index, Some(0));
+        assert_eq!(
+            result.flags["person_flag"].reason.code,
+            "timeout:pool_timeout"
+        );
+        for key in failed {
+            let details = &result.flags[key];
+            assert!(
+                details.failed,
+                "{key} must fail when a flag it depends on fails"
+            );
+            assert!(!details.enabled, "{key}");
+            assert_eq!(details.reason.code, "dependency_failed", "{key}");
+        }
+    }
+
     #[tokio::test]
     async fn test_flags_that_depends_on_other_multivariate_flag_boolean_match() {
         let context = TestContext::new(None).await;
@@ -1472,6 +1946,7 @@ mod tests {
             person_properties: Some(&empty_person),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, &ctx, None, &None)
@@ -1524,6 +1999,7 @@ mod tests {
             person_properties: Some(&empty_person),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, &ctx, None, &None)
@@ -1610,6 +2086,7 @@ mod tests {
             person_properties: Some(&person_properties),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, &ctx, None, &None)
@@ -1640,6 +2117,7 @@ mod tests {
             person_properties: Some(&mismatched_properties),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher2
             .is_condition_match(&flag, &condition, &ctx2, None, &None)
@@ -1665,6 +2143,7 @@ mod tests {
             person_properties: Some(&person_properties),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher3
             .is_condition_match(&flag, &condition, &ctx3, None, &None)
@@ -1723,6 +2202,7 @@ mod tests {
             person_properties: Some(&empty_person),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, &ctx, None, &None)
@@ -1782,6 +2262,7 @@ mod tests {
             person_properties: Some(&overridden_person),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, &ctx, None, &None)
@@ -1799,7 +2280,7 @@ mod tests {
     /// was added. Group-property DB prep is deliberately never run, so
     /// `group_properties_pending(0)` holds unless the caller marks the index fetched.
     async fn group_matcher_without_group_prep(
-        with_group_key: bool,
+        organization_key: Option<serde_json::Value>,
         mapping_knows_organization: bool,
     ) -> (TestContext, FeatureFlagMatcher) {
         let context = TestContext::new(None).await;
@@ -1809,8 +2290,7 @@ mod tests {
             None,
         ));
         let organization_at_zero = HashMap::from([("organization".to_string(), 0)]);
-        let groups =
-            with_group_key.then(|| HashMap::from([("organization".to_string(), json!("acme"))]));
+        let groups = organization_key.map(|key| HashMap::from([("organization".to_string(), key)]));
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             None,
@@ -1899,6 +2379,13 @@ mod tests {
         false,
         "a loaded mapping that lacks the filter's index says nothing about the group, so is_not must not match"
     )]
+    #[case::no_group_key_stale_mapping_matches(
+        false,
+        false,
+        false,
+        true,
+        "a request with no group context gets the same answer under a stale mapping as under a loaded one"
+    )]
     #[tokio::test]
     async fn test_is_condition_match_group_is_not_honors_group_property_fetch_state(
         #[case] with_group_key: bool,
@@ -1907,8 +2394,11 @@ mod tests {
         #[case] expected_match: bool,
         #[case] scenario: &str,
     ) {
-        let (_context, mut matcher) =
-            group_matcher_without_group_prep(with_group_key, mapping_knows_organization).await;
+        let (_context, mut matcher) = group_matcher_without_group_prep(
+            with_group_key.then(|| json!("acme")),
+            mapping_knows_organization,
+        )
+        .await;
         let flag = mock!(FeatureFlag);
         if mark_fetched {
             matcher
@@ -1940,6 +2430,7 @@ mod tests {
             person_properties: None,
             group_properties: &group_properties,
             aggregation: None,
+            request_has_group_context: with_group_key,
         };
         let (is_match, _) = matcher
             .is_condition_match(&flag, &condition, &ctx, None, &None)
@@ -1947,8 +2438,8 @@ mod tests {
         assert_eq!(is_match, expected_match, "{scenario}");
     }
 
-    /// Regression test: a real `GroupTypeCacheManager` failure must reach the fail-closed
-    /// guard, and its outcome must be reused for the rest of the request. Without the mapping
+    /// Regression test: a real `GroupTypeCacheManager` failure must fail the flag, and its
+    /// outcome must be reused for the rest of the request. Without the mapping
     /// the matcher cannot tell "the request sent no organization" from "the lookup broke", and
     /// the former reading would let `is_not` match an empty property map for an organization
     /// that is in fact excluded. The batch path also asks for the mapping once during setup
@@ -1982,8 +2473,8 @@ mod tests {
             .unwrap();
 
         // A matching person filter alongside the group filter keeps the flag in DB
-        // preparation — a failed mapping leaves nothing to fetch for the group filter
-        // itself — and leaves the guard as the only thing stopping the match.
+        // preparation, which succeeds. The flag can then fail only in evaluation, where the
+        // failed lookup leaves the group filter unknown.
         let mut flag = mixed_targeting_flag(team.id, OperatorType::IsNot);
         flag.filters.groups[0]
             .properties
@@ -2012,7 +2503,7 @@ mod tests {
         );
 
         // A mapping failure is deliberately not propagated: it must not poison person flags in
-        // the same batch, so evaluation proceeds and the guard is what stops the match.
+        // the same batch, so evaluation proceeds and fails only the flags that read a group.
         let result = matcher
             .evaluate_all_feature_flags(
                 flag_list_with_metadata(vec![flag.clone()]),
@@ -2027,9 +2518,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            result.flags.get(&flag.key).unwrap().to_value(),
-            FlagValue::Boolean(false),
-            "a failed mapping lookup knows nothing about the organization, so is_not must not match"
+            result.flags[&flag.key].reason.code, "database_unavailable",
+            "a failed mapping lookup knows nothing about the organization, so the flag must fail"
         );
         assert_eq!(
             mapping_fetch_calls.load(std::sync::atomic::Ordering::SeqCst),
@@ -2293,7 +2783,7 @@ mod tests {
             HashSet::from([0, 4])
         );
 
-        let (_context, matcher) = group_matcher_without_group_prep(true, true).await;
+        let (_context, matcher) = group_matcher_without_group_prep(Some(json!("acme")), true).await;
         let industry = HashMap::from([("industry".to_string(), json!("tech"))]);
         let overrides = Some(HashMap::from([(
             "organization".to_string(),
@@ -2370,6 +2860,7 @@ mod tests {
             person_properties: Some(&empty_person),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, &ctx, None, &None)
@@ -2821,6 +3312,7 @@ mod tests {
             person_properties: Some(&empty_person),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &flag.filters.groups[0], &ctx, None, &None)
@@ -3769,6 +4261,102 @@ mod tests {
             result.matches,
             "User should match the static cohort and flag"
         );
+    }
+
+    #[tokio::test]
+    async fn test_detailed_analysis_resolves_static_cohort_filters_against_cohort_membership() {
+        // A static member's membership reaches condition analysis only through the cache that
+        // `prepare_flag_evaluation_state` seeds, because the dynamic path scores every static
+        // cohort as a non-match. Without that seed the condition shows MATCHED above a line
+        // saying the person is not in the cohort.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort = context
+            .insert_cohort(team.id, Some("Static Cohort".to_string()), json!({}), true)
+            .await
+            .unwrap();
+
+        let distinct_id = "static_analysis_user".to_string();
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({})))
+            .await
+            .unwrap();
+        let person_id = context
+            .get_person_id_by_distinct_id(team.id, &distinct_id)
+            .await
+            .unwrap();
+        context
+            .add_person_to_cohort(cohort.id, person_id)
+            .await
+            .unwrap();
+
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            filters: FlagFilters {
+                non_v1: None,
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: Some(json!(cohort.id)),
+                        operator: Some(OperatorType::In),
+                        prop_type: PropertyType::Cohort,
+                        group_type_index: None,
+                        negation: Some(false),
+                        compiled_regex: None,
+                        extra: Default::default(),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                feature_enrollment: None,
+                holdout: None,
+                early_exit: None,
+                extra: Default::default(),
+            }
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id,
+            None, // device_id
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        )
+        .with_detailed_analysis(true);
+
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
+        let result = matcher
+            .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
+            .await
+            .unwrap();
+
+        assert!(!result.errors_while_computing_flags);
+        let flag_details = result.flags.get("test_flag").unwrap();
+        assert_eq!(flag_details.to_value(), FlagValue::Boolean(true));
+
+        let conditions = flag_details
+            .conditions
+            .as_ref()
+            .expect("detailed_analysis(true) should populate conditions");
+        assert_eq!(conditions.len(), 1);
+        assert!(conditions[0].matched);
+        assert_eq!(
+            conditions[0].properties[0].explanation,
+            format!("Person is in cohort {}", cohort.id)
+        );
+        assert!(conditions[0].properties[0].matched);
     }
 
     fn flag_with_group(
@@ -6057,6 +6645,7 @@ mod tests {
                 reason: FeatureFlagMatchReason::ConditionMatch,
                 condition_index: Some(0),
                 payload: None,
+                evaluation_v2: None,
             }
         );
 
@@ -6080,6 +6669,7 @@ mod tests {
                 reason: FeatureFlagMatchReason::ConditionMatch,
                 condition_index: Some(0),
                 payload: None,
+                evaluation_v2: None,
             }
         );
 
@@ -6103,6 +6693,7 @@ mod tests {
                 reason: FeatureFlagMatchReason::ConditionMatch,
                 condition_index: Some(0),
                 payload: None,
+                evaluation_v2: None,
             }
         );
     }
@@ -7597,6 +8188,148 @@ mod tests {
             Some(1),
             "Should match second condition (index 1)"
         );
+    }
+
+    // Paused time makes the elapsed assertion exact: the runtime jumps straight to each timer.
+    #[rstest::rstest]
+    #[case::hash_key_read(true, None, "get_hash_key_overrides")]
+    #[case::hash_key_check(true, Some("anon_distinct_id"), "should_write_hash_key_override")]
+    #[case::group_type_lookup(false, None, "fetch_group_type_mapping")]
+    #[tokio::test(start_paused = true)]
+    async fn test_stalled_persons_db_degrades_within_one_deadline(
+        #[case] with_continuity_flag: bool,
+        #[case] anon_distinct_id: Option<&str>,
+        #[case] first_stopped_call: &str,
+    ) {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let stalled_db = Arc::new(StalledPgClient::default());
+        let router = PostgresRouter::new(
+            stalled_db.clone(),
+            stalled_db.clone(),
+            stalled_db.clone(),
+            stalled_db.clone(),
+        );
+        let deadline = Duration::from_millis(500);
+        let mut matcher = FeatureFlagMatcher::new(
+            "stalled_user".to_string(),
+            None,
+            1,
+            router,
+            Arc::new(CohortCacheManager::new(stalled_db.clone(), None, None)),
+            Arc::new(GroupTypeCacheManager::new(stalled_db.clone(), None, None)),
+            Some(HashMap::from([("project".to_string(), json!("p1"))])),
+        )
+        .with_persons_db_deadline(Some(deadline));
+
+        let rollout_flag = mock!(FeatureFlag, id: 1, key: "rollout_flag".mock_into());
+        let person_flag = mock!(FeatureFlag,
+            id: 2,
+            key: "person_flag".mock_into(),
+            filters: mock!(PropertyFilter,
+                key: "email".mock_into(),
+                value: Some(json!("user@example.com")),
+                prop_type: PropertyType::Person
+            ).mock_into()
+        );
+        let continuity_flag = mock!(FeatureFlag,
+            id: 3,
+            key: "continuity_flag".mock_into(),
+            ensure_experience_continuity: Some(true)
+        );
+        let group_flag = mock!(FeatureFlag,
+            id: 4,
+            key: "group_flag".mock_into(),
+            filters: mock!(FlagFilters, aggregation_group_type_index: Some(0))
+        );
+        // A failed group type lookup keeps this flag out of DB preparation, so the failed
+        // properties fetch does not fail it.
+        let group_filter_flag = mock!(FeatureFlag,
+            id: 5,
+            key: "group_filter_flag".mock_into(),
+            filters: mock!(PropertyFilter,
+                key: "tier".mock_into(),
+                value: Some(json!("enterprise")),
+                prop_type: PropertyType::Group,
+                group_type_index: Some(0)
+            ).mock_into()
+        );
+        let mut flag_list = vec![rollout_flag, person_flag, group_flag, group_filter_flag];
+        if with_continuity_flag {
+            flag_list.push(continuity_flag);
+        }
+        let mut flags = flag_list_with_metadata(flag_list);
+        // Preloaded cohorts keep the cohort definitions lookup off the stalled pool.
+        flags.cohorts = Some(Arc::from(Vec::new()));
+
+        let start = tokio::time::Instant::now();
+        let (response, log) = run_with_canonical_log(
+            FlagsCanonicalLogLine::new(Uuid::new_v4(), "127.0.0.1".to_string()),
+            tokio::time::timeout(
+                Duration::from_secs(60),
+                matcher.evaluate_all_feature_flags(
+                    flags,
+                    None,
+                    None,
+                    anon_distinct_id.map(str::to_string),
+                    Uuid::new_v4(),
+                    None,
+                    false,
+                ),
+            ),
+        )
+        .await;
+        let response = response
+            .expect("a stalled persons DB must not stall flag evaluation")
+            .unwrap();
+        let elapsed = start.elapsed();
+
+        assert!(response.errors_while_computing_flags);
+        assert_eq!(
+            response.flags["rollout_flag"].to_value(),
+            FlagValue::Boolean(true)
+        );
+        assert_eq!(
+            response.flags["person_flag"].reason.code,
+            "timeout:persons_db_deadline"
+        );
+        assert_eq!(
+            response.flags["group_filter_flag"].reason.code,
+            "timeout:persons_db_deadline"
+        );
+        assert_eq!(
+            response
+                .flags
+                .get("continuity_flag")
+                .map(|flag| flag.reason.code.as_str()),
+            with_continuity_flag.then_some("hash_key_override_error")
+        );
+        assert!(
+            elapsed < deadline * 2,
+            "the hash key lookup, the group type lookup, and the properties fetch share one deadline, took {elapsed:?}"
+        );
+        assert_eq!(
+            stalled_db.connection_requests.load(Ordering::SeqCst),
+            1,
+            "a persons call that starts after the deadline must not take a connection"
+        );
+        assert_eq!(log.persons_db_deadline_exceeded, Some(first_stopped_call));
+        for operation in [first_stopped_call, "fetch_properties"] {
+            assert_eq!(
+                counter_total(
+                    &snapshotter,
+                    FLAG_DATABASE_ERROR_COUNTER,
+                    &[
+                        ("timeout_type", "persons_db_deadline"),
+                        ("operation", operation)
+                    ],
+                ),
+                1,
+                "{operation} stop counted once"
+            );
+        }
     }
 
     #[tokio::test]
@@ -10120,6 +10853,132 @@ mod tests {
         assert_eq!(result.condition_index, expected_condition_index);
     }
 
+    fn organization_rollout_condition() -> FlagPropertyGroup {
+        mock!(FlagPropertyGroup, aggregation_group_type_index: Some(Some(1)))
+    }
+
+    fn person_rollout_condition(rollout_percentage: f64) -> FlagPropertyGroup {
+        mock!(FlagPropertyGroup, rollout_percentage: Some(rollout_percentage))
+    }
+
+    fn person_condition_with_organization_filter(operator: OperatorType) -> FlagPropertyGroup {
+        mock!(FlagPropertyGroup, properties: Some(vec![organization_tier_filter(operator)]))
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum RequestGroupContext {
+        GroupKey,
+        UnusableGroupKey,
+        PropertyOverrideOnly,
+        Nothing,
+    }
+
+    /// Regression test: when the group type lookup fails, a flag whose answer depends on a
+    /// group condition must fail, so client SDKs keep their cached value instead of reading
+    /// `false`. Early exit is on, so a person condition outside its rollout must not settle the
+    /// flag after an unknown one. A person match must not settle it after an unknown condition
+    /// below 100% rollout, because that condition could stop on its rollout first.
+    #[rstest::rstest]
+    #[case::group_aggregation_fails_the_flag(
+        vec![organization_rollout_condition()],
+        RequestGroupContext::GroupKey,
+        None
+    )]
+    #[case::group_filter_fails_the_flag(
+        vec![person_condition_with_organization_filter(OperatorType::Exact)],
+        RequestGroupContext::GroupKey,
+        None
+    )]
+    #[case::group_property_override_fails_the_flag(
+        vec![person_condition_with_organization_filter(OperatorType::IsNot)],
+        RequestGroupContext::PropertyOverrideOnly,
+        None
+    )]
+    #[case::no_groups_in_request_settles_false(
+        vec![organization_rollout_condition()],
+        RequestGroupContext::Nothing,
+        Some((false, Some(0)))
+    )]
+    #[case::no_groups_in_request_matches_is_not(
+        vec![person_condition_with_organization_filter(OperatorType::IsNot)],
+        RequestGroupContext::Nothing,
+        Some((true, Some(0)))
+    )]
+    #[case::unusable_group_key_matches_is_not(
+        vec![person_condition_with_organization_filter(OperatorType::IsNot)],
+        RequestGroupContext::UnusableGroupKey,
+        Some((true, Some(0)))
+    )]
+    #[case::later_person_match_settles_true(
+        vec![organization_rollout_condition(), person_rollout_condition(100.0)],
+        RequestGroupContext::GroupKey,
+        Some((true, Some(1)))
+    )]
+    #[case::later_person_miss_fails_the_flag(
+        vec![organization_rollout_condition(), person_rollout_condition(0.0)],
+        RequestGroupContext::GroupKey,
+        None
+    )]
+    #[case::later_person_match_after_partial_rollout_fails_the_flag(
+        vec![
+            mock!(FlagPropertyGroup,
+                properties: Some(vec![organization_tier_filter(OperatorType::Exact)]),
+                rollout_percentage: Some(0.0)
+            ),
+            person_rollout_condition(100.0),
+        ],
+        RequestGroupContext::GroupKey,
+        None
+    )]
+    #[tokio::test]
+    async fn test_failed_group_type_lookup_fails_only_unsettled_flags(
+        #[case] conditions: Vec<FlagPropertyGroup>,
+        #[case] request_groups: RequestGroupContext,
+        #[case] expected_match: Option<(bool, Option<usize>)>,
+    ) {
+        let organization_key = match request_groups {
+            RequestGroupContext::GroupKey => Some(json!("acme")),
+            RequestGroupContext::UnusableGroupKey => Some(json!("")),
+            RequestGroupContext::PropertyOverrideOnly | RequestGroupContext::Nothing => None,
+        };
+        let (_context, mut matcher) =
+            group_matcher_without_group_prep(organization_key.clone(), true).await;
+        let group_property_overrides = match request_groups {
+            RequestGroupContext::PropertyOverrideOnly => Some(HashMap::from([(
+                "organization".to_string(),
+                HashMap::from([("tier".to_string(), json!("enterprise"))]),
+            )])),
+            RequestGroupContext::UnusableGroupKey => {
+                crate::handler::properties::get_group_property_overrides(
+                    organization_key.map(|key| HashMap::from([("organization".to_string(), key)])),
+                    None,
+                )
+            }
+            RequestGroupContext::GroupKey | RequestGroupContext::Nothing => None,
+        };
+        matcher.set_group_type_mapping_failed_for_test(FlagError::DatabaseUnavailable);
+        let flag = mock!(FeatureFlag,
+            filters: FlagFilters {
+                groups: conditions,
+                early_exit: Some(true),
+                ..Default::default()
+            }
+        );
+
+        let result = matcher.get_match(&flag, None, group_property_overrides.as_ref(), None, &None);
+
+        match expected_match {
+            Some(expected) => {
+                let flag_match = result.unwrap();
+                assert_eq!((flag_match.matches, flag_match.condition_index), expected);
+            }
+            None => assert_eq!(
+                result.unwrap_err().evaluation_error_code(),
+                "database_unavailable"
+            ),
+        }
+    }
+
     #[tokio::test]
     async fn test_mixed_targeting_group_condition_matches_before_person_condition() {
         // When both conditions could match, the first one (group) wins because conditions
@@ -10911,6 +11770,7 @@ mod tests {
                 person_properties: Some(&person_props),
                 group_properties: &group_props,
                 aggregation: None,
+                request_has_group_context: false,
             };
             let result = ctx.resolve_for_filter(&person_filter("plan"));
             assert_eq!(result.get("plan"), Some(&json!("pro")));
@@ -10923,6 +11783,7 @@ mod tests {
                 person_properties: None,
                 group_properties: &group_props,
                 aggregation: None,
+                request_has_group_context: false,
             };
             let result = ctx.resolve_for_filter(&person_filter("plan"));
             assert!(result.is_empty());
@@ -10939,6 +11800,7 @@ mod tests {
                 person_properties: Some(&person_props),
                 group_properties: &group_props,
                 aggregation: Some(1),
+                request_has_group_context: false,
             };
             // Explicit group_type_index takes precedence over aggregation
             let result = ctx.resolve_for_filter(&group_filter("size", Some(0)));
@@ -10953,6 +11815,7 @@ mod tests {
                 person_properties: None,
                 group_properties: &group_props,
                 aggregation: Some(1),
+                request_has_group_context: false,
             };
             let result = ctx.resolve_for_filter(&group_filter("tier", None));
             assert_eq!(result.get("tier"), Some(&json!("premium")));
@@ -10966,6 +11829,7 @@ mod tests {
                 person_properties: None,
                 group_properties: &group_props,
                 aggregation: None,
+                request_has_group_context: false,
             };
             let result = ctx.resolve_for_filter(&group_filter("size", None));
             assert!(result.is_empty());

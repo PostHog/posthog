@@ -771,6 +771,16 @@ class MutationNotFound(Exception):
     pass
 
 
+# The other replicas of a shard fetch a patch part asynchronously, so a read straight after a
+# patch-part sweep can still see the rows on a replica that has not fetched it. This is a grace
+# period before such a read, not a guarantee: a replica that lags longer still shows the rows.
+PATCH_PART_REPLICATION_GRACE_SECONDS = 0 if settings.TEST else 60
+
+
+def wait_for_patch_part_replication() -> None:
+    time.sleep(PATCH_PART_REPLICATION_GRACE_SECONDS)
+
+
 # not present in clickhouse_driver.errors.ErrorCodes; see ClickHouse src/Common/ErrorCodes.cpp
 TOO_MANY_MUTATIONS = 692
 AUTHENTICATION_FAILED = 516
@@ -875,6 +885,10 @@ class MutationRunner(abc.ABC):
     # system.mutations, and adopting that finished mutation deletes nothing while reporting done.
     # None keeps the unbounded match, which is right only where the command text pins the data.
     reuse_since: datetime | None = field(default=None, kw_only=True)
+    # Run the statement as a lightweight update or delete, which writes a patch part and returns once
+    # it is written. There is no mutation in system.mutations to adopt, wait for capacity on, or poll.
+    # The table needs enable_block_number_column and enable_block_offset_column.
+    patch_parts: bool = field(default=False, kw_only=True)
 
     @abc.abstractmethod
     def get_all_commands(self) -> Set[str]:
@@ -896,6 +910,17 @@ class MutationRunner(abc.ABC):
         that can be used to check the status of the mutation and wait for it to be finished.
         """
         expected_commands = self.get_all_commands()
+
+        if self.patch_parts:
+            # lightweight_force fails the statement where a patch part is not possible, rather than
+            # running a mutation this runner would never wait for.
+            settings = {
+                **self.settings,
+                "lightweight_delete_mode": "lightweight_update_force",
+                "alter_update_mode": "lightweight_force",
+            }
+            client.execute(self.get_statement(expected_commands), self.parameters, settings=settings)
+            return MutationWaiter(self.table, set())
 
         if self.force:
             logger.info(
@@ -1004,6 +1029,12 @@ class MutationRunner(abc.ABC):
         # value containing the heredoc delimiter would close it early and the rest would parse as
         # SQL. Mutation parameters carry third-party strings (a person's distinct_id), so that is
         # reachable input, and the injection is silent because the surrounding array keeps its length.
+        # Render with this connection's context so datetimes are converted to the server timezone exactly
+        # as `client.execute` does when the mutation is submitted. A fresh pooled client has not connected
+        # yet and has no `server_info`, so connect first. Use a query rather than `force_connect()`, which
+        # leaves the connection marked mid-query and makes the next execute raise PartiallyConsumedQueryError.
+        if client.connection.context.server_info is None:
+            client.execute("SELECT 1")
         rendered_commands = [
             client.substitute_params(f"{alter_prefix}{cmd}", self.parameters, client.connection.context)
             for cmd in command_list

@@ -169,11 +169,13 @@ def build_query(table_name: str, *, pull_requests_table: str | None = None, star
             if(status = 'completed', dateDiff('second', run_started_at, updated_at), NULL) AS duration_seconds,
             {STOPPED_REPORTING_SQL} AS stopped_reporting,
             arrayElement(repo_parts, 1) AS repo_owner,
-            arrayElement(repo_parts, 2) AS repo_name
+            arrayElement(repo_parts, 2) AS repo_name,
+            ci_engine, native_run_id, native_workflow_run_id
         FROM (
             SELECT
                 id,
                 name AS workflow_name,
+                ci_engine, native_run_id, native_workflow_run_id,
                 head_sha,
                 head_branch,
                 status,

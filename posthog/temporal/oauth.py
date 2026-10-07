@@ -4,14 +4,13 @@ from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
 
 from django.conf import settings
-from django.utils import timezone
 
 import structlog
 
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
-from posthog.models import OAuthAccessToken, OAuthApplication
+from posthog.models import OAuthApplication
+from posthog.models.oauth import mint_oauth_access_token
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_oauth_access_token
 from posthog.scopes import (
     API_SCOPE_OBJECTS,
     INTERNAL_API_SCOPE_OBJECTS,
@@ -106,11 +105,18 @@ POSTHOG_AI_OAUTH_APP_CLIENT_IDS = frozenset(
     }
 )
 
+# The WebMCP proxy mints its tokens server-side against this CIMD application, so a request
+# bearing one is attributable to WebMCP for the same reason as above. The CIMD document lives in
+# the posthog.com repo, so one client_id serves every region.
+WEBMCP_APP_CLIENT_ID = "https://posthog.com/.well-known/oauth/webmcp/client-metadata.json"
+
 McpScopePreset = Literal[
     "read_only",
     "full",
     "signals_scout",
     "signals_scout_reports",
+    "signals_scout_experiment",
+    "signals_scout_judge",
     "signals_research",
     "signals_implementation",
 ]
@@ -250,8 +256,8 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          person to approve or reject. Deliberately not `hog_flow:write`, which
 #                          also publishes, updates and test-sends a workflow: this scope can put
 #                          nothing in front of anyone. Creates only; a suggestion is resolved by
-#                          a person. The workflows scout declares it in its SKILL.md
-#                          (`scout-write-scopes`), so no other scout holds it unless granted.
+#                          a person. A person grants it in the scout's write access settings, the
+#                          same way as every other scope here, so no scout holds it by default.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -334,6 +340,8 @@ MCP_SCOPE_PRESETS = (
     "full",
     "signals_scout",
     "signals_scout_reports",
+    "signals_scout_experiment",
+    "signals_scout_judge",
     "signals_research",
     "signals_implementation",
 )
@@ -438,6 +446,21 @@ def resolve_scopes(
             # `RESEARCH_WITHHELD_SCOPES` for why `task:write` comes back out.
             reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
             resolved = [*reads, *scratchpad]
+        elif scopes == "signals_scout_judge":
+            resolved = ["scout_experiment_internal:read"] if include_internal_scopes else []
+        elif scopes == "signals_scout_experiment":
+            # Trials use a separate private Go token; their tool credential must not reach the legacy gateway.
+            reads = [
+                scope
+                for scope in (*MCP_READ_SCOPES, *internal)
+                if scope not in RESEARCH_WITHHELD_SCOPES and scope != "llm_gateway:read"
+            ]
+            private_writes = (
+                [*SCOUT_INTERNAL_SCOPES, *SCOUT_REPORT_SCOPES, "scout_experiment_internal:read"]
+                if include_internal_scopes
+                else []
+            )
+            resolved = [*reads, *private_writes]
         elif scopes in SCOUT_SCOPE_PRESETS:
             # The scout sandbox: reads, the scout's own internal write scope, and a narrow
             # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`) for the durable
@@ -485,6 +508,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
             "full",
             "signals_scout",
             "signals_scout_reports",
+            "signals_scout_experiment",
             "signals_research",
             "signals_implementation",
         )
@@ -577,22 +601,18 @@ def get_sandbox_oauth_app(application: SandboxOAuthApplication = "array") -> OAu
     return get_array_app()
 
 
-def _mint_oauth_access_token(
+def _mint_run_access_token(
     user, team_id: int, *, app: OAuthApplication, scopes: list[str], sandbox_task_id: UUID | None = None
 ) -> str:
-    token_value = generate_random_oauth_access_token(None)
-
-    OAuthAccessToken.objects.create(
-        user=user,
+    access_token = mint_oauth_access_token(
         application=app,
-        token=token_value,
-        expires=timezone.now() + timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
+        user=user,
         scope=" ".join(dict.fromkeys(scopes)),
+        lifetime=timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
         scoped_teams=[team_id],
         sandbox_task_id=sandbox_task_id,
     )
-
-    return token_value
+    return access_token.token
 
 
 def create_oauth_access_token_for_user(
@@ -625,7 +645,7 @@ def create_oauth_access_token_for_user(
     if include_slack_run_scope:
         resolved.append(SLACK_RUN_SCOPE)
     app = get_sandbox_oauth_app(application)
-    return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
+    return _mint_run_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
 
 
 def get_wizard_app() -> OAuthApplication:
@@ -686,4 +706,4 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     if ceiling is None or len(ceiling) == 0:
         raise RuntimeError("Wizard app has no scope ceiling. Must be configured in the database.")
 
-    return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(ceiling))
+    return _mint_run_access_token(user, team_id, app=app, scopes=sorted(ceiling))

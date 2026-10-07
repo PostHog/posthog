@@ -336,6 +336,10 @@ class TestGongSource:
             ("answered_scorecards", ["answeredScorecardId"], "callStartTime", "asc"),
             # A user's stats are one row per day, so the user id alone would merge every day into one.
             ("interaction_stats", ["userId", "day"], "day", "asc"),
+            ("daily_activity", ["userId", "fromDate"], "fromDate", "asc"),
+            # A folder can hold the same call more than once, as different snippets.
+            ("library_folder_calls", ["folderId", "id", "created"], "created", "asc"),
+            ("flows", ["id"], None, "asc"),
             ("workspaces", ["id"], None, "asc"),
         ]
     )
@@ -365,6 +369,11 @@ class TestGongSource:
             "trackers",
             "answered_scorecards",
             "interaction_stats",
+            "daily_activity",
+            "call_outcomes",
+            "library_folders",
+            "library_folder_calls",
+            "flows",
             "workspaces",
         }
 
@@ -731,3 +740,118 @@ class TestDateFilteredStats:
                 list(rows)
 
         assert len(session.requested_urls) == 2
+
+    @time_machine.travel("2026-03-10T15:00:00Z", tick=False)
+    def test_daily_activity_turns_each_users_days_into_rows(self) -> None:
+        session = _FakeSession(
+            [
+                _FakeResponse(
+                    json_data={
+                        "usersDetailedActivities": [
+                            {
+                                "userId": "u1",
+                                "userEmailAddress": "one@example.com",
+                                "userDailyActivityStats": [
+                                    {"fromDate": "2026-03-07T00:00:00-08:00", "callsAsHost": ["c1"]},
+                                    {"fromDate": "2026-03-08T00:00:00-08:00", "callsAsHost": []},
+                                ],
+                            },
+                            {"userId": "u2", "userEmailAddress": "two@example.com", "userDailyActivityStats": None},
+                        ]
+                    }
+                ),
+            ]
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    "key",
+                    "secret",
+                    "daily_activity",
+                    mock.MagicMock(),
+                    _FakeResumableManager(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value="2026-03-07T08:00:00Z",
+                )
+            )
+
+        assert session.posted_bodies == [{"filter": {"fromDate": "2026-03-06", "toDate": "2026-03-09"}}]
+        assert batches == [
+            [
+                {
+                    "userId": "u1",
+                    "userEmailAddress": "one@example.com",
+                    "fromDate": "2026-03-07T00:00:00-08:00",
+                    "callsAsHost": ["c1"],
+                },
+                {
+                    "userId": "u1",
+                    "userEmailAddress": "one@example.com",
+                    "fromDate": "2026-03-08T00:00:00-08:00",
+                    "callsAsHost": [],
+                },
+            ]
+        ]
+
+
+class TestFanOut:
+    def test_library_folder_calls_are_stamped_with_their_folder_and_an_emptied_folder_is_skipped(self) -> None:
+        session = _FakeSession(
+            [
+                _FakeResponse(json_data={"folders": [{"id": "f1"}, {"id": "f2"}]}),
+                _FakeResponse(status_code=404, text='{"errors":["No folders found for the specified period"]}'),
+                _FakeResponse(json_data={"id": "f2", "calls": [{"id": "c1", "created": "2026-01-01T00:00:00Z"}]}),
+            ]
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(get_rows("key", "secret", "library_folder_calls", mock.MagicMock(), _FakeResumableManager()))
+
+        assert session.requested_urls == [
+            f"{GONG_BASE_URL}/v2/library/folders",
+            f"{GONG_BASE_URL}/v2/library/folder-content?folderId=f1",
+            f"{GONG_BASE_URL}/v2/library/folder-content?folderId=f2",
+        ]
+        assert batches == [[{"id": "c1", "created": "2026-01-01T00:00:00Z", "folderId": "f2"}]]
+
+    def test_flows_are_listed_per_active_user_and_kept_once(self) -> None:
+        company_flow = {"id": "company", "visibility": "Company"}
+        session = _FakeSession(
+            [
+                _FakeResponse(
+                    json_data={
+                        "users": [
+                            {"id": "u1", "emailAddress": "one@example.com", "active": True},
+                            {"id": "u2", "emailAddress": "gone@example.com", "active": False},
+                        ],
+                        "records": {"cursor": "users2"},
+                    }
+                ),
+                _FakeResponse(json_data={"flows": [company_flow, {"id": "mine", "visibility": "Personal"}]}),
+                _FakeResponse(json_data={"users": [{"id": "u3", "emailAddress": "three@example.com", "active": True}]}),
+                _FakeResponse(json_data={"flows": [company_flow], "records": {"cursor": "flows2"}}),
+                _FakeResponse(json_data={"flows": [{"id": "shared", "visibility": "Shared"}]}),
+            ]
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(get_rows("key", "secret", "flows", mock.MagicMock(), _FakeResumableManager()))
+
+        assert [unquote(url) for url in session.requested_urls] == [
+            f"{GONG_BASE_URL}/v2/users",
+            f"{GONG_BASE_URL}/v2/flows?flowOwnerEmail=one@example.com",
+            f"{GONG_BASE_URL}/v2/users?cursor=users2",
+            f"{GONG_BASE_URL}/v2/flows?flowOwnerEmail=three@example.com",
+            f"{GONG_BASE_URL}/v2/flows?flowOwnerEmail=three@example.com&cursor=flows2",
+        ]
+        assert [row["id"] for batch in batches for row in batch] == ["company", "mine", "shared"]

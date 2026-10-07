@@ -40,7 +40,7 @@ export interface _MetricAttributeValuesResponseApi {
 export interface _MetricAttributeKeyApi {
     /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
     name: string
-    /** Number of distinct values for this attribute in recent series metadata. */
+    /** Number of distinct values for this attribute in recent data. */
     value_count: number
 }
 
@@ -313,10 +313,12 @@ export const OtelMetricTypeEnumApi = {
 } as const
 
 /**
- * * `second` - second
+ * * `second_15` - second_15
+ * * `second_30` - second_30
  * * `minute` - minute
  * * `minute_5` - minute_5
  * * `minute_15` - minute_15
+ * * `minute_30` - minute_30
  * * `hour` - hour
  * * `hour_6` - hour_6
  * * `day` - day
@@ -325,10 +327,12 @@ export const OtelMetricTypeEnumApi = {
 export type MetricQueryIntervalEnumApi = (typeof MetricQueryIntervalEnumApi)[keyof typeof MetricQueryIntervalEnumApi]
 
 export const MetricQueryIntervalEnumApi = {
-    Second: 'second',
+    Second15: 'second_15',
+    Second30: 'second_30',
     Minute: 'minute',
     Minute5: 'minute_5',
     Minute15: 'minute_15',
+    Minute30: 'minute_30',
     Hour: 'hour',
     Hour6: 'hour_6',
     Day: 'day',
@@ -374,10 +378,12 @@ export interface _MetricExplainBodyApi {
     bucketStart: string
     /** Bucket size the point was plotted at. Must match the query that produced it, or the decomposition explains a different span.
      *
-     * * `second` - second
+     * * `second_15` - second_15
+     * * `second_30` - second_30
      * * `minute` - minute
      * * `minute_5` - minute_5
      * * `minute_15` - minute_15
+     * * `minute_30` - minute_30
      * * `hour` - hour
      * * `hour_6` - hour_6
      * * `day` - day
@@ -669,10 +675,12 @@ export interface _MetricQueryBodyApi {
     groupBy?: _MetricGroupByApi[]
     /** Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).
      *
-     * * `second` - second
+     * * `second_15` - second_15
+     * * `second_30` - second_30
      * * `minute` - minute
      * * `minute_5` - minute_5
      * * `minute_15` - minute_15
+     * * `minute_30` - minute_30
      * * `hour` - hour
      * * `hour_6` - hour_6
      * * `day` - day

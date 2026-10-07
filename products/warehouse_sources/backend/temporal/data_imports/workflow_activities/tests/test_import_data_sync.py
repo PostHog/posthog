@@ -88,12 +88,14 @@ def _patched_activity(source_mock, model=None, schema=None):
     """Patch out every dependency import_data_activity_sync touches before source setup."""
     if model is None:
         model = mock.MagicMock()
+        model.pipeline_version = ExternalDataJob.PipelineVersion.V3
         model.pipeline.source_type = "MongoDB"
         model.pipeline.job_inputs = {}
         model.folder_path = mock.Mock(return_value="dataset")
 
     if schema is None:
         schema = mock.MagicMock()
+        schema.sync_type = ExternalDataSchema.SyncType.FULL_REFRESH
         schema.should_use_incremental_field = False
         schema.row_filters = None
         schema.delta_revive_required = None
@@ -915,6 +917,9 @@ async def test_shared_non_retryable_error_routes_through_handler_without_source_
 
 def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -> mock.MagicMock:
     schema = mock.MagicMock()
+    schema.sync_type = (
+        ExternalDataSchema.SyncType.INCREMENTAL if is_incremental else ExternalDataSchema.SyncType.FULL_REFRESH
+    )
     schema.should_use_incremental_field = True
     schema.is_incremental = is_incremental
     schema.incremental_field_type = IncrementalFieldType.Timestamp
@@ -936,6 +941,7 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
 @contextlib.contextmanager
 def _patched_activity_reaching_run(source_mock, schema, api_version=None):
     model = mock.MagicMock()
+    model.pipeline_version = ExternalDataJob.PipelineVersion.V3
     model.pipeline.source_type = "MongoDB"
     model.pipeline.job_inputs = {}
     model.pipeline.api_version = api_version
@@ -1174,6 +1180,21 @@ async def test_synced_parent_uses_the_warehouse_path(sync_type):
 
 
 @pytest.mark.asyncio
+async def test_persisted_append_mode_reaches_source_before_extraction():
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=False, lookback_seconds=None)
+    schema.sync_type = ExternalDataSchema.SyncType.APPEND
+
+    with _patched_activity_reaching_run(source, schema):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    _, source_inputs = source.source_for_pipeline.call_args.args
+    assert source_inputs.sync_type == ExternalDataSchema.SyncType.APPEND
+
+
+@pytest.mark.asyncio
 async def test_fanout_gate_result_threaded_into_source_inputs():
     # The gate's decision must reach the source via SourceInputs — if this wiring drops,
     # every child silently falls back to re-pulling the parent API.
@@ -1212,6 +1233,7 @@ async def test_parent_gate_inert_for_sources_without_requirements():
 
 def _probe_model() -> mock.MagicMock:
     model = mock.MagicMock()
+    model.pipeline_version = ExternalDataJob.PipelineVersion.V3
     model.pipeline.source_type = "Postgres"
     model.pipeline.job_inputs = {}
     model.folder_path = mock.Mock(return_value="dataset")

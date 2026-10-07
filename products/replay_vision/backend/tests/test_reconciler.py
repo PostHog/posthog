@@ -1,5 +1,6 @@
 import uuid
 import datetime as dt
+import dataclasses
 from collections.abc import Callable
 from typing import Any
 
@@ -27,11 +28,6 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
-from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
-    PromptSuggestionStatus,
-    ReplayScannerPromptSuggestion,
-)
-from products.replay_vision.backend.prompt_evaluation import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
 from products.replay_vision.backend.temporal.activities import (
     delete_scanner_schedule_activity,
     list_enabled_scanners_activity,
@@ -39,6 +35,7 @@ from products.replay_vision.backend.temporal.activities import (
     reap_backfill_schedules_activity,
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
+    start_launched_scanners_activity,
     upsert_scanner_schedule_activity,
 )
 from products.replay_vision.backend.temporal.constants import (
@@ -51,7 +48,6 @@ from products.replay_vision.backend.temporal.constants import (
     RECONCILER_WORKFLOW_NAME,
     SCANNER_SCHEDULE_ID_PREFIX,
     SWEEP_SCANNER_WORKFLOW_NAME,
-    build_evaluate_prompt_suggestion_workflow_id,
 )
 from products.replay_vision.backend.temporal.reconciler import (
     ReconcileScannerSchedulesWorkflow,
@@ -66,6 +62,14 @@ from products.replay_vision.backend.temporal.schedule import (
     compute_schedule_fingerprint,
     load_enabled_scanner_fingerprints,
 )
+from products.replay_vision.backend.tests.helpers import create_experiment
+
+
+def _live_activity_env() -> ActivityEnvironment:
+    env = ActivityEnvironment()
+    # The default start is the epoch, which would put every query budget measured from it in the past.
+    env.info = dataclasses.replace(env.info, started_time=dt.datetime.now(dt.UTC))
+    return env
 
 
 @pytest.fixture
@@ -234,7 +238,11 @@ class _ReconcileMocks:
 
     async def execute_activity(self, activity_fn: Any, activity_input: Any = None, **_: Any) -> Any:
         self.calls.append(activity_fn)
-        if activity_fn in (reap_childless_inline_scanners_activity, reap_backfill_schedules_activity):
+        if activity_fn in (
+            reap_childless_inline_scanners_activity,
+            reap_backfill_schedules_activity,
+            start_launched_scanners_activity,
+        ):
             return 0
         if activity_fn is reap_orphaned_observations_activity:
             self.reap_calls += 1
@@ -543,7 +551,7 @@ async def test_reap_orphaned_observations_activity(org_team) -> None:
         "products.replay_vision.backend.temporal.activities.reap_orphaned_observations.async_connect",
         AsyncMock(return_value=temporal),
     ):
-        reaped = await ActivityEnvironment().run(reap_orphaned_observations_activity)
+        reaped = await _live_activity_env().run(reap_orphaned_observations_activity)
 
     assert reaped == 3
     statuses = {
@@ -558,61 +566,6 @@ async def test_reap_orphaned_observations_activity(org_team) -> None:
         assert statuses[key].completed_at is None, key
     # The fresh row never reaches Temporal; the empty-workflow-id row is reaped without a describe.
     assert set(temporal.described) == {"wf-gone-1", "wf-timed-out", "wf-open", "wf-err"}
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_reap_settles_stuck_prompt_suggestion_evaluations(org_team) -> None:
-    # The evaluation workflow swallows finalize failures, so a terminated run leaves the row claiming to
-    # be running forever: the UI polls a test that will never finish and quota reserves its unspent credits.
-    _, team = org_team
-    scanner = await sync_to_async(_make_scanner)(team)
-    stale = timezone.now() - (EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT * 2 + dt.timedelta(minutes=5))
-
-    def _setup() -> dict[str, ReplayScannerPromptSuggestion]:
-        rows = {}
-        for key, started_at in (("stuck", stale), ("recent", timezone.now()), ("still_open", stale)):
-            rows[key] = ReplayScannerPromptSuggestion.objects.create(
-                scanner=scanner,
-                team=team,
-                suggested_prompt=f"p-{key}",
-                status=PromptSuggestionStatus.PENDING,
-                scanner_version=1,
-                evaluation={
-                    "status": "running",
-                    "started_at": started_at.isoformat(),
-                    "total": 2,
-                    "results": [{"outcome": "kept"}],
-                    "summary": None,
-                },
-            )
-        return rows
-
-    rows = await sync_to_async(_setup)()
-    outcomes = {
-        build_evaluate_prompt_suggestion_workflow_id(rows["stuck"].id): "not_found",
-        build_evaluate_prompt_suggestion_workflow_id(rows["still_open"].id): "open",
-    }
-    temporal = _StubReapTemporal(outcomes)
-
-    with patch(
-        "products.replay_vision.backend.temporal.activities.reap_orphaned_observations.async_connect",
-        AsyncMock(return_value=temporal),
-    ):
-        reaped = await ActivityEnvironment().run(reap_orphaned_observations_activity)
-
-    assert reaped == 1
-    settled = await sync_to_async(lambda: ReplayScannerPromptSuggestion.objects.get(pk=rows["stuck"].pk))()
-    assert settled.evaluation is not None
-    assert settled.evaluation["status"] == "failed"
-    assert settled.evaluation["finished_at"] is not None
-    assert settled.evaluation["summary"] == {"kept": 1, "regressed": 0, "fixed": 0, "still_wrong": 0, "errors": 0}
-    for key in ("recent", "still_open"):
-        untouched = await sync_to_async(lambda k=key: ReplayScannerPromptSuggestion.objects.get(pk=rows[k].pk))()
-        assert untouched.evaluation is not None
-        assert untouched.evaluation["status"] == "running", key
-    # A stamp inside the timeout is never described: only provably-dead runs are settled.
-    assert build_evaluate_prompt_suggestion_workflow_id(rows["recent"].id) not in temporal.described
 
 
 def _make_inline_scanner(team: Team, *, key: str, age: dt.timedelta) -> ReplayScanner:
@@ -671,7 +624,7 @@ async def test_reap_childless_inline_scanners_activity(org_team) -> None:
 
     rows = await sync_to_async(_setup)()
 
-    reaped = await ActivityEnvironment().run(reap_childless_inline_scanners_activity)
+    reaped = await _live_activity_env().run(reap_childless_inline_scanners_activity)
 
     assert reaped == 1
     surviving = await sync_to_async(
@@ -680,3 +633,39 @@ async def test_reap_childless_inline_scanners_activity(org_team) -> None:
     assert rows["childless_old"].id not in surviving
     for key in ("childless_fresh", "has_observation", "configured", "childless_but_claimed"):
         assert rows[key].id in surviving, key
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_start_launched_scanners_activity(org_team) -> None:
+    # The launch signal's receiver never fails a launch, so a failure there leaves the scanner off
+    # after the launch has committed. The reconciler starts it on its next tick. A scanner on a
+    # draft keeps waiting.
+    _, team = org_team
+
+    def _setup() -> tuple[ReplayScanner, ReplayScanner]:
+        launched = create_experiment(team, "launched-flag", launched=True, variants=["control", "test"])
+        draft = create_experiment(team, "draft-flag", variants=["control", "test"])
+
+        def waiting(name: str, experiment_id: int) -> ReplayScanner:
+            return _make_scanner(
+                team,
+                name=name,
+                scanner_type=ScannerType.EXPERIMENT,
+                enabled=False,
+                scanner_config={"prompt": "p", "experiment_id": experiment_id, "start_on_launch": True},
+            )
+
+        return waiting("missed-launch", launched.id), waiting("still-draft", draft.id)
+
+    missed, still_waiting = await sync_to_async(_setup)()
+
+    started = await _live_activity_env().run(start_launched_scanners_activity)
+
+    assert started == 1
+    await sync_to_async(missed.refresh_from_db)()
+    await sync_to_async(still_waiting.refresh_from_db)()
+    assert missed.enabled is True
+    assert "start_on_launch" not in missed.scanner_config
+    assert still_waiting.enabled is False
+    assert await _live_activity_env().run(start_launched_scanners_activity) == 0

@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.ze
     ZendeskCursorIncrementalPaginator,
     ZendeskIncrementalEndpointPaginator,
     ZendeskResumeConfig,
+    ZendeskSinceCursorPaginator,
     get_declarative_resource,
     get_resource,
     normalize_subdomain,
@@ -486,6 +487,48 @@ class TestZendeskAfterUrlPaginator:
         p.update_state(_make_response(body), data=data)
 
         assert p.has_next_page is False
+
+
+class TestZendeskSinceCursorPaginator:
+    def test_drops_since_from_the_next_page_url(self) -> None:
+        # Zendesk echoes `since` back into `links.next` in its own format, which it then
+        # rejects on the next request (400). The cursor alone is enough to continue.
+        p = ZendeskSinceCursorPaginator(next_url_path="links.next")
+        next_url = (
+            f"{BASE}/api/v2/activities.json?page%5Bafter%5D=abc123&page%5Bsize%5D=100&since=1970-01-01+00%3A00%3A00+UTC"
+        )
+
+        p.update_state(_make_response({"activities": [{"id": 1}], "links": {"next": next_url}}))
+
+        req = Request(method="GET", url=f"{BASE}/api/v2/activities.json")
+        req.params = {"page[size]": 100, "since": "1970-01-01T00:00:00Z"}
+        p.update_request(req)
+
+        assert "since" not in req.url
+        assert "page%5Bafter%5D=abc123" in req.url
+        assert req.params == {}
+
+    def test_endpoint_wiring_uses_the_since_cursor_paginator(self) -> None:
+        endpoint_config = _endpoint(get_resource("activities", should_use_incremental_field=True))
+        assert isinstance(endpoint_config["paginator"], ZendeskSinceCursorPaginator)
+
+    def test_drops_since_from_a_restored_checkpoint(self) -> None:
+        # A run that already failed on this URL checkpointed it with `since` still attached —
+        # that's the exact failure this paginator exists to fix. A retry must not resume
+        # straight back into the same URL, or it hits the same 400 forever.
+        p = ZendeskSinceCursorPaginator(next_url_path="links.next")
+        dirty_next_url = (
+            f"{BASE}/api/v2/activities.json?page%5Bafter%5D=abc123&page%5Bsize%5D=100&since=1970-01-01+00%3A00%3A00+UTC"
+        )
+
+        p.set_resume_state({"next_url": dirty_next_url})
+
+        req = Request(method="GET", url=f"{BASE}/api/v2/activities.json")
+        req.params = {"page[size]": 100, "since": "1970-01-01T00:00:00Z"}
+        p.init_request(req)
+
+        assert "since" not in req.url
+        assert "page%5Bafter%5D=abc123" in req.url
 
 
 class TestZendeskDeclarativeIncremental:

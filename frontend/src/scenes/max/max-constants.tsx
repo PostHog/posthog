@@ -642,34 +642,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return ['Filtering recordings...', widgetDef]
         },
     },
-    analyze_user_interviews: {
-        name: 'Analyze user interviews',
-        description: 'Analyze user interviews, summarizing pages of feedback, and extracting learnings',
-        product: Scene.UserInterviews,
-        flag: FEATURE_FLAGS.USER_INTERVIEWS,
-        icon: iconForType('user_interview'),
-        modes: [AgentMode.UserInterview],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Analyzed user interviews'
-            }
-            return 'Analyzing user interviews...'
-        },
-    },
-    create_user_interview_topic: {
-        name: 'Set up user interviews',
-        description: 'Set up user interviews — plan a research topic, target participants, and draft questions',
-        product: Scene.UserInterviews,
-        flag: FEATURE_FLAGS.USER_INTERVIEWS,
-        icon: iconForType('user_interview'),
-        modes: [AgentMode.UserInterview],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Created interview topic'
-            }
-            return 'Setting up interview topic...'
-        },
-    },
     create_hog_function_filters: {
         name: 'Set up function filters',
         description: 'Set up function filters for quick pipeline configuration',
@@ -1500,7 +1472,10 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
 }
 
 export const MODE_DEFINITIONS: Record<
-    Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution | AgentMode.Research | AgentMode.Sandbox>,
+    Exclude<
+        AgentMode,
+        AgentMode.Plan | AgentMode.Execution | AgentMode.Research | AgentMode.Sandbox | AgentMode.UserInterview
+    >,
     ModeDefinition
 > = {
     [AgentMode.ProductAnalytics]: {
@@ -1568,13 +1543,6 @@ export const MODE_DEFINITIONS: Record<
             Scene.AIObservabilityPlayground,
             Scene.AIObservabilityUsers,
         ]),
-    },
-    [AgentMode.UserInterview]: {
-        name: 'User interviews',
-        description: 'Sets up live AI voice interviews and analyzes interview transcripts.',
-        icon: iconForType('user_interview'),
-        scenes: new Set([Scene.UserInterviews, Scene.UserInterview, Scene.UserInterviewResponse]),
-        flag: 'USER_INTERVIEWS',
     },
     [AgentMode.CustomerAnalytics]: {
         name: 'Customer analytics',

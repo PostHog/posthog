@@ -2,6 +2,8 @@
 
 from string import Template
 
+from posthog.hogql.printer.events_json_document import event_document_sql
+
 # Projected columns a HogQL query can select.
 # NOTE: this is just for the 'old' version of our HogQL support, where a user can define a custom
 # SELECT FROM clause, useful for defining a custom schema. It's not related to the new HogQL model,
@@ -502,14 +504,20 @@ SETTINGS
 
 # The `{{}}` literals below are not a typo. `ClickHouseClient.prepare_query` runs `str.format` over
 # the whole query, which turns `{{}}` back into `{}`. A bare `{}` would parse as a positional field
-# and reach ClickHouse as `{0}`, so the `nullIf` would never match an empty object.
+# and reach ClickHouse as `{0}`, so the `nullIf` would never match an empty object. The rebuilt document
+# gets the same doubling for the same reason.
 # `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`,
 # which is why the native query's SETTINGS carry it.
+_PROPERTIES_DOCUMENT = (
+    event_document_sql("properties", "temporary_properties", "properties.`$feature_flags`")
+    .replace("{", "{{")
+    .replace("}", "}}")
+)
 SERIALIZED_EVENTS_JSON_SOURCE = """(
     SELECT * REPLACE (
         toString(uuid) AS uuid,
         toString(person_id) AS person_id,
-        JSONStripEmptyStringsAndNulls(toJSONString(properties)) AS properties,
+        JSONStripEmptyStringsAndNulls(__PROPERTIES_DOCUMENT__) AS properties,
         JSONStripEmptyStringsAndNulls(toJSONString(person_properties)) AS person_properties
     ),
         nullIf(toJSONString(temporary_properties.^`$set`), '{{}}') AS set,
@@ -517,7 +525,7 @@ SERIALIZED_EVENTS_JSON_SOURCE = """(
         nullIf(toJSONString(temporary_properties.^`$unset`), '[]') AS unset,
         nullIf(toJSONString(temporary_properties.^`$group_set`), '{{}}') AS group_set
     FROM events_json
-)"""
+)""".replace("__PROPERTIES_DOCUMENT__", _PROPERTIES_DOCUMENT)
 
 
 def native_events_export_query(

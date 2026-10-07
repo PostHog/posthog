@@ -30,6 +30,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     BranchPRMatch,
     BrokenTestsResult,
     CICardSummary,
+    CIEngine,
     CIFailureLogs,
     CISignalsConfig,
     CITestRunner,
@@ -138,12 +139,13 @@ def get_workflow_run(
     *,
     team: Team,
     run_id: int,
+    ci_engine: CIEngine | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> WorkflowRunDetail | None:
     return logic.build_workflow_run(
-        curated=_authorized_source(team, source_id, user_access_control, repo=repo), run_id=run_id
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), run_id=run_id, ci_engine=ci_engine
     )
 
 
@@ -406,6 +408,7 @@ def list_workflow_jobs(
     *,
     team: Team,
     run_id: int,
+    ci_engine: CIEngine | None = None,
     run_attempt: int | None = None,
     source_id: str | None = None,
     repo: str | None = None,
@@ -414,6 +417,7 @@ def list_workflow_jobs(
     return logic.build_workflow_jobs(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         run_id=run_id,
+        ci_engine=ci_engine,
         run_attempt=run_attempt,
     )
 
@@ -432,13 +436,23 @@ def list_pull_requests(
     *,
     team: Team,
     date_from: str | None = None,
+    date_to: str | None = None,
     author: str | None = None,
+    state: str | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> PullRequestList:
     return logic.build_pull_request_list(
-        curated=_authorized_source(team, source_id, user_access_control, repo=repo), date_from=date_from, author=author
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        date_from=date_from,
+        date_to=date_to,
+        author=author,
+        state=state,
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -722,12 +736,13 @@ def get_run_failure_logs(
     *,
     team: Team,
     run_id: int,
+    ci_engine: CIEngine | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> RunFailureLogs:
     return logic.build_run_failure_logs(
-        curated=_authorized_source(team, source_id, user_access_control, repo=repo), run_id=run_id
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), run_id=run_id, ci_engine=ci_engine
     )
 
 

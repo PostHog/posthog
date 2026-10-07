@@ -1,1 +1,1 @@
-0009_redact_webhook_urls_in_destination_names
+0012_move_platform_models_to_alerts_platform

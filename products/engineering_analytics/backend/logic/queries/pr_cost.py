@@ -27,6 +27,7 @@ from posthog.hogql import ast
 from posthog.clickhouse.workload import Workload
 
 from products.engineering_analytics.backend.facade.contracts import (
+    CIEngine,
     CostPerMergeBucket,
     PRCostSummary,
     RunCost,
@@ -143,10 +144,11 @@ _PR_COST_SELECT = """
         c.workflow_name AS workflow_name,
         c.run_id AS run_id,
         c.run_attempt AS run_attempt,
+        c.ci_engine AS ci_engine,
         __COST_AGGREGATES__
     FROM __COST_SOURCE__ AS c
     WHERE c.pr_number = {pr_number} AND c.repo_owner = {repo_owner} AND c.repo_name = {repo_name}
-    GROUP BY c.workflow_name, c.run_id, c.run_attempt
+    GROUP BY c.workflow_name, c.run_id, c.run_attempt, c.ci_engine
     LIMIT 1000000
 """
 
@@ -173,19 +175,19 @@ def query_pr_cost(
         },
     )
     rows = response.results or []
-    overall = _sum_aggregates(row[3:] for row in rows)
+    overall = _sum_aggregates(row[4:] for row in rows)
     by_workflow_rows: dict[str, list[tuple]] = defaultdict(list)
-    by_run_rows: dict[tuple[int, int], list[tuple]] = defaultdict(list)
-    for workflow, run_id, run_attempt, *agg in rows:
+    by_run_rows: dict[tuple[CIEngine, int, int], list[tuple]] = defaultdict(list)
+    for workflow, run_id, run_attempt, ci_engine, *agg in rows:
         by_workflow_rows[workflow or ""].append(tuple(agg))
-        by_run_rows[(int(run_id), int(run_attempt))].append(tuple(agg))
+        by_run_rows[(CIEngine(ci_engine), int(run_id), int(run_attempt))].append(tuple(agg))
     by_workflow = [
         _to_workflow_cost(workflow, _sum_aggregates(agg_rows))
         for workflow, agg_rows in sorted(by_workflow_rows.items())
     ]
     by_run = [
-        _to_run_cost(run_id, run_attempt, _sum_aggregates(agg_rows))
-        for (run_id, run_attempt), agg_rows in sorted(by_run_rows.items())
+        _to_run_cost(run_id, run_attempt, _sum_aggregates(agg_rows), ci_engine=ci_engine)
+        for (ci_engine, run_id, run_attempt), agg_rows in sorted(by_run_rows.items())
     ]
 
     return PRCostSummary(
@@ -659,10 +661,11 @@ def _has_jobs(aggregate: PRCostAggregate) -> bool:
     return bool(aggregate.costed_jobs + aggregate.unsettled_jobs + aggregate.excluded_jobs)
 
 
-def _to_run_cost(run_id: int, run_attempt: int, aggregate: PRCostAggregate) -> RunCost:
+def _to_run_cost(run_id: int, run_attempt: int, aggregate: PRCostAggregate, *, ci_engine: CIEngine) -> RunCost:
     return RunCost(
         run_id=run_id,
         run_attempt=run_attempt,
+        ci_engine=ci_engine,
         billable_minutes=aggregate.billable_seconds / 60,
         estimated_cost_usd=aggregate.estimated_cost_usd,
     )

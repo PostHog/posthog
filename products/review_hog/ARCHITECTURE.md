@@ -349,9 +349,14 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     whose threshold it was (the author's / the requester's / the default, from `resolved_from`) plus a
     "View them in PostHog" deep link to the exact report (`/project/<team>/code-review?review=<report id>`,
     a **permanent public contract** — the frontend URL sync and `report_deep_link` must keep agreeing on it).
-    Every message a **flash** turn writes — the status comment in each of its states, the promo comment, the
-    review body, and each inline comment — opens with `FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review` + newline (`message_prefix_for_mode`), applied
-    in `_post_github_review` and the status-comment renderers before redaction.
+    The status comment header of a **flash** turn, in each of its states, names `PostHog Review (flash)` instead of `PostHog Review`.
+    A clean flash turn shows the plain line "Nothing worth raising." and never the clean-review media; a full turn follows the `celebrate_clean_reviews` setting.
+    Flash comments posted before reviewhog-flash-1-1 open with a banner line (`LEGACY_FLASH_MODE_MESSAGE_PREFIX`); the publish-idempotency scan and the outcome comment matcher still recognize it.
+    The promo, the review body, and the inline comments carry no flash label, so one review shows the label once.
+    An inline comment holds the title, a plain-text severity line, the issue, and the suggested fix, then the hidden `REVIEW_HOG_FINDING_MARKER`.
+    The validator's argumentation stays out of GitHub; the reviews API returns it as `validator_note`.
+    When every publishable finding posts inline, the review body is only the hidden publish marker, because the tally repeats the comments.
+    The body-only fallback always posts the full body.
     The workflow captures one **`reviewhog_review_started`** product-analytics event per turn that passed every
     gate (`track_review_started_activity`) and, after the publish stage, one **`reviewhog_review_completed`** per
     finalized turn (published or stored), carrying repository / PR / trigger / finding-count / PR-size properties
@@ -368,6 +373,18 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     arm's model mid-turn (`review_arm_fallback`). Best-effort: telemetry can never fail a review.
     Turn event IDs distinguish Full and Flash while preserving the legacy Full IDs across deployments.
     Completion-rate calculations match failures and completions by report, turn, and mode; an absent mode means Full for legacy events.
+    After the skill sync, `record_turn_marker_activity` records the turn's version marker: a version id per review mode
+    (`reviewhog-flash-1-0`, built by `reviewhog_version_for_mode` from the manual (major, minor) bumps in `REVIEWHOG_VERSIONS`,
+    `reviewer/constants.py`) plus a 7-character fingerprint (`reviewer/fingerprint.py`).
+    Full and Flash evolve on separate designs, so each mode bumps its own version.
+    The fingerprint hashes the review mode, the review and validator arms, the chunking / dedup / one-shot pins,
+    the review-turn prompts and schemas, and the content of the skills the acting user runs, team edits included.
+    A prompt or skill edit changes it without a version bump.
+    The marker persists as a `turn_marker` artefact (with the hashed inputs, for comparing two fingerprints),
+    goes on `reviewhog_review_completed` as `reviewhog_version` / `reviewhog_fingerprint`, and ends the final
+    status comment as a hidden `<!-- reviewhog-version: <version id> <fingerprint> -->` line (no visible text).
+    Best-effort like the events.
+    A turn without a marker (started before the patch, or the marker failed) sends both properties as null.
 
 ---
 
@@ -386,6 +403,10 @@ because its tasks carry `origin_product=REVIEW_HOG` (see `SELF_DRIVING_ORIGIN_PR
 `products/tasks/backend/logic/services/sandbox.py`). ReviewHog owns no sandbox code, so this needs nothing here:
 the app is resolved inside the Tasks provisioning activity. Same image and resources as any other run — the split
 only separates the fleet's Modal cost from user-driven runs.
+
+ReviewHog owns each session's lifecycle.
+Tasks with `origin_product=review_hog` do not expose the agent's `finish` tool, because it marks the TaskRun terminal and tears down the sandbox before the caller can validate the final JSON or send another validation turn.
+The agent returns JSON at the end of each turn; the caller validates it and ends the session when its work is complete.
 
 `run_sandbox_review(team_id, user_id, repository, branch, prompt, system_prompt, model_to_validate, step_name) -> Model | None`:
 
@@ -747,6 +768,13 @@ fallback for pre-column rows — and its first tab reads "Published" only when t
 list — every 10s while a run is in progress or freshly triggered, every 30s otherwise, paused on hidden
 tabs with an immediate refresh on tab return — and a poll response that shows a run finishing also
 refreshes the perspective stats and an open drawer's detail (`reviewHogSettingsLogic`).
+
+An active review stays visible while its report or working artefacts have activity within `IN_PROGRESS_STALE_AFTER` (30 minutes).
+Long-running chunking, selection, review, deduplication, and validation activities also refresh `ReviewReport.updated_at` every minute, so an agent can keep working without producing an artefact during that window.
+Each refresh is scoped to the team, report, active status, and reviewed commit.
+These refreshes stop when the activity exits, and stale reviews still expire after the same quiet window.
+Temporal heartbeats continue independently of the database refresh.
+The list selects running candidates by their latest report update, so newer stale runs cannot push a live run off the page.
 
 ---
 

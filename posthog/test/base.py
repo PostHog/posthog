@@ -1479,7 +1479,7 @@ class NewEventsSchemaSnapshotExtension(AmberSnapshotExtension):
     keeps each schema mode's snapshots safe from the other mode's update runs.
     """
 
-    _file_extension = "new_events_schema.ambr"
+    file_extension = "new_events_schema.ambr"
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -1792,6 +1792,34 @@ def _create_event(**kwargs):
         kwargs["timestamp"] = dt.datetime.now()
     events_cache_tests.append(kwargs)
     return kwargs["event_uuid"]
+
+
+def _create_flag_evaluations(team_id: int, flag_key: str, count: int = 1, timestamp: dt.datetime | None = None) -> None:
+    """Insert `count` $feature_flag_called rows for flag_key into flag_evaluations. Unlike _create_event, it writes
+    the rows immediately."""
+    timestamp = timestamp or dt.datetime.now(dt.UTC)
+    properties = json.dumps({"$feature_flag": flag_key, "$feature_flag_response": True})
+    # writable_flag_evaluations does not declare flag_key. The shard computes it from properties.$feature_flag.
+    sync_execute(
+        """
+        INSERT INTO writable_flag_evaluations
+            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id)
+        VALUES
+        """,
+        [
+            (
+                str(uuid.uuid4()),
+                "$feature_flag_called",
+                properties,
+                timestamp,
+                team_id,
+                "evaluator",
+                timestamp,
+                str(uuid.uuid4()),
+            )
+            for _ in range(count)
+        ],
+    )
 
 
 def _warn_if_session_id_malformed(session_id: str):
@@ -2373,7 +2401,7 @@ def snapshot_hogql_queries(fn_or_class):
 class HogQLSnapshotExtension(AmberSnapshotExtension):
     """Custom syrupy extension for HogQL snapshots to use separate files."""
 
-    _file_extension = "hogql.ambr"
+    file_extension = "hogql.ambr"
 
     @classmethod
     def serialize(cls, data, **kwargs):

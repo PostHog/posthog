@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @frozen
@@ -199,29 +198,31 @@ class TestResumeCoversRun:
         # class so the next source to adopt `KeysetResumeState` is held to the same rule. Snowflake
         # is deliberately not caught: it checkpoints on the incremental field, so its resume does
         # cover incremental runs.
+        covered = [
+            source.source_type
+            for source in self._keyset_sources()
+            if source.resume_covers_run(incremental_or_append=True)
+        ]
+        assert covered == []
+
+    def test_a_keyset_source_covers_its_full_loads(self):
+        # The other half of the rule above. A full load seeks and checkpoints, so each extra attempt
+        # continues the read instead of restarting it, which is what the resumable allowance pays for.
+        not_covered = [
+            source.source_type
+            for source in self._keyset_sources()
+            if not source.resume_covers_run(incremental_or_append=False)
+        ]
+        assert not_covered == []
+
+    def _keyset_sources(self) -> list[ResumableSource]:
         keyset_sources: list[ResumableSource] = [
             source
             for source in SourceRegistry.get_all_sources().values()
             if isinstance(source, ResumableSource) and self._resume_state_of(source) is KeysetResumeState
         ]
         assert keyset_sources, "expected at least one source to checkpoint with KeysetResumeState"
-
-        covered = [
-            source.source_type
-            for source in keyset_sources
-            if source.resume_covers_run(incremental_or_append=True, keyset_full_load_enabled=True)
-        ]
-        assert covered == []
-
-    def test_a_full_load_the_flag_has_not_reached_is_not_covered(self):
-        # A full load only resumes once the flag turns seeking on for it. Covering it before then
-        # hands the resumable allowance to a run that still restarts, so each extra attempt redoes
-        # the whole read.
-        postgres = SourceRegistry.get_source(ExternalDataSourceType.POSTGRES)
-        assert isinstance(postgres, ResumableSource)
-
-        assert postgres.resume_covers_run(incremental_or_append=False, keyset_full_load_enabled=False) is False
-        assert postgres.resume_covers_run(incremental_or_append=False, keyset_full_load_enabled=True) is True
+        return keyset_sources
 
     def test_the_default_covers_every_run_of_any_other_resumable_source(self):
         # A REST source paginates the same way whichever sync type it runs, and Snowflake checkpoints

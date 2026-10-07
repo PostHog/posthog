@@ -15,7 +15,7 @@ import { QuestionInput } from './QuestionInput'
 import { QuillRunSurfaceInputs } from './quill/QuillRunSurfaceInputs'
 import { RunLogSkeleton } from './RunLogSkeleton'
 import { ThreadView } from './ThreadView'
-import { TurnFeedbackActions } from './TurnFeedbackActions'
+import { TurnTrailerActions } from './TurnTrailerActions'
 
 export interface RunSurfaceProps {
     taskId: string
@@ -229,14 +229,7 @@ function RunSurfaceThread({
     const renderTurnTrailer = useCallback(
         (trailer: TurnTrailer): JSX.Element | null =>
             feedbackSessionId ? (
-                <TurnFeedbackActions
-                    sessionId={feedbackSessionId}
-                    turnIndex={trailer.turnIndex}
-                    run={feedbackRun}
-                    traceId={trailer.traceId}
-                    turnText={trailer.turnText}
-                    timestamp={trailer.timestamp}
-                />
+                <TurnTrailerActions trailer={trailer} sessionId={feedbackSessionId} run={feedbackRun} />
             ) : null,
         [feedbackSessionId, feedbackRun]
     )
@@ -273,9 +266,11 @@ function RunSurfaceThread({
 function RunSurfaceComposer({
     children,
     isStopping = false,
+    loadingFallback,
 }: {
     children?: ReactNode
     isStopping?: boolean
+    loadingFallback?: ReactNode
 }): JSX.Element | null {
     const { interaction, streamKey, floatingInputsHeight, setFloatingInputsHeight } = useRunSurfaceContext()
     const { pendingPermissionRequest, respondingToPermission, currentRunStatus, runOpening } = useValues(runStreamLogic)
@@ -302,7 +297,7 @@ function RunSurfaceComposer({
                 disabled={isStopping}
             />
         ))
-    const composer = children && (currentRunStatus !== null || runOpening) ? children : null
+    const composer = children && (currentRunStatus !== null || runOpening) ? children : loadingFallback
 
     // Both inputs keep their local state through delivery and restoration, including uncommitted draft keystrokes.
     if (skin === 'quill') {

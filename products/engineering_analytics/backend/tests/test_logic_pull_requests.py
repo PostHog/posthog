@@ -59,7 +59,7 @@ class TestPRLifecycleMapping(BaseTest):
     def test_assembles_ordered_events_and_marks_partial(self) -> None:
         header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
         runs = [(2001, "CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
-        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(runs)]):
+        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp([(*row, "github_actions") for row in runs])]):
             lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
         assert lifecycle is not None
@@ -88,7 +88,7 @@ class TestPRLifecycleMapping(BaseTest):
             # both timestamps null -> both events dropped
             (2002, "Deploy", "completed", "success", None, None),
         ]
-        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(runs)]):
+        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp([(*row, "github_actions") for row in runs])]):
             lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
         assert lifecycle is not None
@@ -137,7 +137,10 @@ class TestPRLifecycleTransitionsMapping(BaseTest):
             ("ready_for_review", _dt("2026-01-11T08:00:00"), "bob"),
         ]
         runs = [(2001, "CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
-        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(transitions), _resp(runs)]):
+        with mock.patch(
+            _RUN_QUERY,
+            side_effect=[_resp([header]), _resp(transitions), _resp([(*row, "github_actions") for row in runs])],
+        ):
             lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
         assert lifecycle is not None
@@ -256,6 +259,20 @@ class TestPullRequestEndpointMapping(BaseTest):
         assert result.truncated is True
         assert result.limit == 2
         assert len(result.items) == 2
+
+    @parameterized.expand(
+        [
+            ("limit_zero", {"limit": 0}),
+            ("limit_over_cap", {"limit": 1001}),
+            ("negative_offset", {"offset": -1}),
+            ("unknown_state", {"state": "draft"}),
+            ("date_to_before_date_from", {"date_from": "-7d", "date_to": "-14d"}),
+        ]
+    )
+    def test_pull_request_list_rejects_invalid_paging(self, _name: str, kwargs: dict[str, Any]) -> None:
+        with mock.patch(_RUN_QUERY) as run, self.assertRaises(ValueError):
+            api.list_pull_requests(team=self.team, **kwargs)
+        run.assert_not_called()
 
 
 class TestResolveBranchMapping(BaseTest):
@@ -499,6 +516,42 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         )
         assert {i.number for i in api.list_pull_requests(team=self.team, author="alice").items} == {81}
         assert {i.number for i in api.list_pull_requests(team=self.team, author="bob").items} == {82}
+
+    def test_pull_request_list_pages_merged_prs_by_merged_at(self) -> None:
+        # PR 21 was opened long ago but merged recently: it must lead the merged page, not sink below
+        # the open backlog. 22 and 23 merge in the same second, so only the number tie-breaker keeps
+        # them from swapping across pages.
+        tied_merge = _ago(3)
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(20, "alice", "open", 0, _ago(1), head_sha="sha20"),
+                _pr_row(21, "alice", "closed", 0, _ago(40), merged_at=_ago(2), head_sha="sha21"),
+                _pr_row(22, "bob", "closed", 0, _ago(5), merged_at=tied_merge, head_sha="sha22"),
+                _pr_row(23, "bob", "closed", 0, _ago(4), merged_at=tied_merge, head_sha="sha23"),
+                _pr_row(24, "carol", "closed", 0, _ago(5), closed_at=_ago(2), head_sha="sha24"),
+                _pr_row(25, "carol", "closed", 0, _ago(30), merged_at=_ago(20), head_sha="sha25"),
+                _pr_row(26, "carol", "closed", 0, _ago(1), merged_at=_ago(0), head_sha="sha26"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(2100, "CI", "sha21", "completed", "success", _ago(2), _ago(2), pr_number=21)],
+        )
+        first = api.list_pull_requests(
+            team=self.team, state="merged", date_from="-14d", date_to=_ago(1), limit=2, offset=0
+        )
+        second = api.list_pull_requests(
+            team=self.team, state="merged", date_from="-14d", date_to=_ago(1), limit=2, offset=2
+        )
+
+        assert ([i.number for i in first.items], first.truncated) == ([21, 23], True)
+        assert ([i.number for i in second.items], second.truncated) == ([22], False)
+        assert first.items[0].ci.passing == 1
+        closed = api.list_pull_requests(team=self.team, state="closed", date_from="-14d")
+        assert [i.number for i in closed.items] == [24]
 
     def test_resolve_branch_orders_open_first(self) -> None:
         # The branch path matches the PR head ref (head.ref); open PRs come before merged/closed ones,

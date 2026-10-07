@@ -1446,10 +1446,13 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     """Request body for triggering a metrics recalculation."""
 
     trigger = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.Trigger.choices,
+        choices=ExperimentMetricsRecalculation.RequestTrigger.choices,
         required=False,
         default="manual",
-        help_text="What triggered this recalculation (manual is the default for user-initiated runs)",
+        help_text=(
+            "What triggered this recalculation (manual is the default for user-initiated runs). Only client "
+            "triggers are accepted; agent_mcp, timeseries_sync and scheduled are set by the server."
+        ),
     )
 
 
@@ -1491,7 +1494,14 @@ class _ExperimentMetricsRecalculationBaseSerializer(serializers.Serializer):
         ),
     )
     # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
-    metric_errors = serializers.JSONField(read_only=True, help_text="Map of metric_uuid to error details")
+    metric_errors = serializers.JSONField(
+        read_only=True,
+        help_text=(
+            "Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is "
+            "true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can "
+            "succeed; false when the metric config, the data, or a resource limit must change first"
+        ),
+    )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the job was created")
     started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing started")
     completed_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing completed")

@@ -21,13 +21,19 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
-from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.data_modeling.backend.facade.api import (
+    MaterializationFailedError,
+    MaterializationForbiddenError,
+    MaterializationRefusedError,
+    SavedQueryNotFoundError,
+    enable_saved_query_materialization,
+)
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
@@ -130,6 +136,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["include_columns"] = self._include_columns
+        context["report_view_actions"] = self.action in {"create", "update", "partial_update"}
         request_data = getattr(self.request, "data", {})
         # Read actions stay out: building a database selects every view in the team, SQL body
         # included, and neither serializer reads it. Only the write paths below do, to check a
@@ -425,104 +432,30 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
 
-        if saved_query.managed_viewset is not None:
-            raise serializers.ValidationError("Cannot materialize a query from a managed viewset.")
-
-        assert_user_can_read_query(saved_query.query, self.team_id, cast(User, request.user))
-
         params = SavedQueryMaterializeSerializer(data=request.data)
         params.is_valid(raise_exception=True)
-        sync_frequency_interval = sync_frequency_to_sync_frequency_interval(params.validated_data["sync_frequency"])
 
-        from products.data_modeling.backend.facade.api import (
-            UnsatisfiableFrequencyError,
-            UnsupportedFrequencyTargetError,
-            check_saved_query_frequency_target,
-            saved_query_target_bounds,
-        )
-
-        if sync_frequency_interval is not None:
-            # Ask before writing, so the ordinary refusal never has to be undone below. Names only
-            # what this caller may read, matching the bounds payload — otherwise one rejected
-            # materialize reads back a node they were never shown.
-            bounds = saved_query_target_bounds(self.team_id, saved_query.pk)
-            try:
-                check_saved_query_frequency_target(
-                    saved_query,
-                    sync_frequency_interval,
-                    visible_names=(
-                        sync_cadence.visible_blocker_names(bounds, self.user_access_control, team_id=self.team_id)
-                        if bounds
-                        else {}
-                    ),
-                )
-            except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
-                raise serializers.ValidationError(str(e))
-
-        previous_interval = saved_query.sync_frequency_interval
-        previously_materialized = saved_query.is_materialized
-
-        saved_query.sync_frequency_interval = sync_frequency_interval
-        saved_query.is_materialized = True
-        saved_query.save(update_fields=["sync_frequency_interval", "is_materialized"])
-
-        # Enable materialization - this handles model path setup and schedule creation
-        # If this fails, it will set is_materialized = False
         try:
-            saved_query.schedule_materialization(trigger_immediate_run=True, triggered_by_id=request.user.pk)
-        except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
-            # The check above already refused every cadence the lineage forbids, so reaching here
-            # means the lineage moved mid-request. Say so plainly rather than forwarding a message
-            # built from unredacted names. `schedule_materialization` re-raises these without
-            # applying its disable-on-failure contract, and this action is not inside an atomic
-            # block, so undo the enable by hand: otherwise the 400 leaves is_materialized=True
-            # behind and the UI reads the rejection as a success.
-            saved_query.sync_frequency_interval = previous_interval
-            saved_query.is_materialized = previously_materialized
-            saved_query.save(update_fields=["sync_frequency_interval", "is_materialized"])
-            raise serializers.ValidationError(
-                "This view's lineage changed while we were setting it up. Reopen it and pick a cadence again."
+            enable_saved_query_materialization(
+                self.team_id,
+                saved_query.id,
+                user=cast(User, request.user),
+                sync_frequency_interval=sync_frequency_to_sync_frequency_interval(
+                    params.validated_data["sync_frequency"]
+                ),
+                visible_blocker_names=lambda bounds: sync_cadence.visible_blocker_names(
+                    bounds, self.user_access_control, team_id=self.team_id
+                ),
+                was_impersonated=is_impersonated(request),
             )
-
-        # Refresh from DB to check if schedule_materialization set is_materialized = False on failure
-        saved_query.refresh_from_db()
-        if saved_query.is_materialized is False:
-            return response.Response(
-                {"error": "Materialization failed. Please try again or contact support."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        # set data modeling node type to matview
-        try:
-            from products.data_modeling.backend.facade.api import update_node_type
-            from products.data_modeling.backend.facade.models import NodeType
-
-            update_node_type(saved_query, NodeType.MAT_VIEW)
-        except Exception as e:
-            capture_exception(e)
-            logger.exception("Failed to update node type to matview", saved_query_name=saved_query.name)
-
-        log_activity(
-            organization_id=self.team.organization_id,
-            team_id=self.team_id,
-            user=cast(User, request.user),
-            was_impersonated=is_impersonated(request),
-            item_id=saved_query.id,
-            scope="DataWarehouseSavedQuery",
-            activity="materialization_enabled",
-            detail=Detail(
-                name=saved_query.name,
-                changes=[
-                    Change(
-                        field="sync_frequency_interval",
-                        action="changed",
-                        type="DataWarehouseSavedQuery",
-                        before=str(previous_interval) if previous_interval else None,
-                        after=str(sync_frequency_interval),
-                    ),
-                ],
-            ),
-        )
+        except SavedQueryNotFoundError:
+            raise exceptions.NotFound()
+        except MaterializationForbiddenError as e:
+            raise exceptions.PermissionDenied(str(e))
+        except MaterializationRefusedError as e:
+            raise serializers.ValidationError(str(e))
+        except MaterializationFailedError as e:
+            return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return response.Response(status=status.HTTP_200_OK)
 

@@ -13,11 +13,14 @@
 # the corresponding `_cache_*` function in conftest.py, and if it no longer holds,
 # delete that patch — do not "fix" the test.
 
+import pytest
+
 from django.db.models.fields.reverse_related import ForeignObjectRel
 from django.db.models.sql.query import Query
+from django.test import SimpleTestCase
 from django.urls import resolvers
 
-from _pytest.fixtures import FixtureManager
+from _pytest.fixtures import FixtureDef, FixtureManager
 from rest_framework.utils import model_meta
 
 from posthog.clickhouse.client.connection import get_client_from_pool, get_pool
@@ -100,7 +103,7 @@ def test_clickhouse_checkout_counter_is_wired():
     assert test_base._clickhouse_pool_checkouts > before
 
 
-def test_fixture_parent_nodeids_cache_matches_unpatched_pytest(request):
+def test_fixture_parent_nodeids_cache_matches_unpatched_pytest(request: pytest.FixtureRequest) -> None:
     # Assumption: a node's parents, and their nodeids, are fixed once the node is
     # constructed, so the set can be memoized per node instead of rebuilt per lookup.
     manager = request._fixturemanager
@@ -116,6 +119,33 @@ def test_fixture_parent_nodeids_cache_matches_unpatched_pytest(request):
         )
         # The second call is served from the memo and must still agree.
         assert list(manager._matchfactories(fixturedefs, node)) == fresh
+
+    assert node.parent is not None
+    other_node = pytest.Function.from_parent(node.parent, name=node.name, callobj=lambda: None)
+    assert other_node.nodeid == node.nodeid
+    node_fixtures = [
+        FixtureDef(
+            config=request.config,
+            baseid=None,
+            argname="parent_canary",
+            func=lambda: None,
+            scope="function",
+            params=None,
+            node=fixture_node,
+            _ispytest=True,
+        )
+        for fixture_node in (node, other_node)
+    ]
+    for fixture_node, fixturedef in zip((node, other_node), node_fixtures):
+        assert list(orig(manager, node_fixtures, fixture_node)) == [fixturedef]
+        assert list(manager._matchfactories(node_fixtures, fixture_node)) == [fixturedef]
+
+
+class TestSubtestFailureIsATestFailure(SimpleTestCase):
+    def test_subtest_failure_propagates_out_of_the_subtest_block(self) -> None:
+        with self.assertRaises(AssertionError):
+            with self.subTest():
+                self.fail()
 
 
 def test_drf_field_info_cache_matches_unpatched_drf():

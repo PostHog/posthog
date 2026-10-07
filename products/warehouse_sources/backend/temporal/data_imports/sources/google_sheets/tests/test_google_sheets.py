@@ -8,6 +8,7 @@ import gspread
 import requests
 from google.auth import exceptions as google_auth_exceptions
 
+from products.warehouse_sources.backend.models.external_data_schema import SCHEMA_RESOURCE_ID_METADATA_KEY
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
     GoogleSheetsSourceConfig,
@@ -16,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_she
     _PERMISSION_DENIED_MESSAGE,
     _REQUEST_TIMEOUT_SECONDS,
     GOOGLE_SHEETS_API_VERSION_V4,
+    DiscoveredWorksheet,
     _assert_unique_normalized_column_names,
     _get_worksheet,
     _retry_on_transient_api_error,
@@ -479,6 +481,20 @@ def test_google_sheets_source_reads_blank_cells_as_null():
     ]
 
 
+def test_google_sheets_source_keeps_cell_text_in_a_column_mixing_numbers_and_text():
+    tables = _read_sheet(
+        ["id", "code"],
+        [["1", "spring sale"], ["2", "1,200"], ["3", ""], ["4", "42"]],
+    )
+
+    assert tables[0].to_pylist() == [
+        {"id": 1, "code": "spring sale"},
+        {"id": 2, "code": "1,200"},
+        {"id": 3, "code": None},
+        {"id": 4, "code": "42"},
+    ]
+
+
 @pytest.mark.parametrize(
     "header_row,expected_columns",
     [
@@ -930,8 +946,8 @@ def test_get_schemas_threads_resolved_pin_into_incremental_fields(pin, expected)
     # source's resolved pin — otherwise a pinned source reads headers under a different key.
     with (
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.get_google_sheets_schemas",
-            return_value=[("sheet1", 10)],
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.get_google_sheets_worksheets",
+            return_value=[DiscoveredWorksheet(name="sheet1", title="Sheet1", worksheet_id=10)],
         ),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.get_google_sheets_schema_incremental_fields",
@@ -942,3 +958,64 @@ def test_get_schemas_threads_resolved_pin_into_incremental_fields(pin, expected)
         GoogleSheetsSource().get_schemas(config, team_id=1, api_version=pin)
 
     assert mock_incremental.call_args.args[-1] == expected
+
+
+@pytest.mark.parametrize(
+    "stored_worksheet_id, worksheet_exists, expected_worksheet_id",
+    [
+        # The worksheet was renamed, so its stored name matches no title, but the stored id finds it.
+        (7, True, 7),
+        # The stored worksheet is gone, so a worksheet with the stored name is read instead.
+        (7, False, 123),
+        # A schema stored before ids were has only its name.
+        (None, True, 123),
+    ],
+    ids=["renamed_worksheet_found_by_id", "missing_id_falls_back_to_name", "no_stored_id_uses_name"],
+)
+def test_google_sheets_source_resolves_the_stored_worksheet_id_before_the_name(
+    stored_worksheet_id, worksheet_exists, expected_worksheet_id
+):
+    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+    mock_worksheet = mock.MagicMock()
+    mock_worksheet.get_all_values.return_value = [["id"]]
+    mock_worksheet.get.return_value = [["id"], ["1"]]
+
+    def get_worksheet(_url, worksheet_id, _api_version):
+        if worksheet_id == 7 and not worksheet_exists:
+            raise gspread.exceptions.WorksheetNotFound("id 7 not found")
+        return mock_worksheet
+
+    module = "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets"
+    with (
+        mock.patch(f"{module}.get_schemas", return_value=[("budget", 123)]),
+        mock.patch(f"{module}._get_worksheet", side_effect=get_worksheet) as mock_get_worksheet,
+    ):
+        response = google_sheets_source(
+            config,
+            "budget",
+            db_incremental_field_last_value=None,
+            api_version=GOOGLE_SHEETS_API_VERSION_V4,
+            worksheet_id=stored_worksheet_id,
+        )
+        list(cast(Iterable[Any], response.items()))
+
+    assert mock_get_worksheet.call_args.args[1] == expected_worksheet_id
+
+
+def test_discovered_schemas_carry_the_worksheet_title_and_id():
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.get_google_sheets_worksheets",
+            return_value=[DiscoveredWorksheet(name="budget_2025", title="Budget 2025", worksheet_id=7)],
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.get_google_sheets_schema_incremental_fields",
+            return_value=[],
+        ),
+    ):
+        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+        [schema] = GoogleSheetsSource().get_schemas(config, team_id=1)
+
+    assert schema.name == "budget_2025"
+    assert schema.label == "Budget 2025"
+    assert schema.schema_metadata == {SCHEMA_RESOURCE_ID_METADATA_KEY: "7"}

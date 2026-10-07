@@ -1,3 +1,6 @@
+import json
+from collections.abc import Callable
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -5,7 +8,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
+import pyarrow as pa
 import deltalake
+import deltalite
+import pyarrow.parquet as pq
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
@@ -21,8 +27,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     _PURGE_S3_PREFIX_MAX_ATTEMPTS,
     DeltaTableRef,
     _purge_s3_prefix,
+    live_row_count,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
+    make_local_table_ref,
+    make_logger,
+)
 
 
 def table_ref():
@@ -532,3 +542,120 @@ class TestInvalidateDropsTheDeltaliteHandle:
             ref.invalidate_cached_table()
 
         assert "s3://bucket/team/job/t" not in cache
+
+
+def _rows(ids: list[int], partition: str) -> pa.Table:
+    return pa.table({"id": pa.array(ids, pa.int64()), "part": [partition] * len(ids)})
+
+
+def _appended(uri: str) -> None:
+    deltalake.write_deltalake(uri, _rows([5, 6], "b"), mode="append", partition_by=["part"])
+
+
+def _overwritten(uri: str) -> None:
+    deltalake.write_deltalake(uri, _rows([7], "c"), mode="overwrite", partition_by=["part"])
+
+
+def _deleted_from(uri: str) -> None:
+    deltalake.DeltaTable(uri).delete("id = 1")
+
+
+def _emptied(uri: str) -> None:
+    deltalake.DeltaTable(uri).delete("id > 0")
+
+
+def _merged(uri: str) -> None:
+    (
+        deltalake.DeltaTable(uri)
+        .merge(_rows([2, 9], "a"), predicate="t.id = s.id", source_alias="s", target_alias="t")
+        .when_matched_update_all()
+        .when_not_matched_insert_all()
+        .execute()
+    )
+
+
+def _upserted_with_deltalite(uri: str) -> None:
+    deltalite.DeltaLiteTable.open(uri).upsert(_rows([3, 10, 11], "a"), primary_keys=["id"], partition_key="part")
+
+
+def _compacted(uri: str) -> None:
+    _appended(uri)
+    deltalake.DeltaTable(uri).optimize.compact()
+
+
+def _vacuumed(uri: str) -> None:
+    _deleted_from(uri)
+    deltalake.DeltaTable(uri).vacuum(retention_hours=0, enforce_retention_duration=False, dry_run=False)
+
+
+def _strip_add_stats(uri: str) -> None:
+    for commit in sorted((Path(uri) / "_delta_log").glob("*.json")):
+        actions = [json.loads(line) for line in commit.read_text().splitlines() if line]
+        for action in actions:
+            action.get("add", {}).pop("stats", None)
+        commit.write_text("\n".join(json.dumps(action) for action in actions) + "\n")
+
+
+class TestLiveRowCount:
+    @staticmethod
+    def _create(tmp_path: Path) -> str:
+        uri = str(tmp_path / "t")
+        deltalake.write_deltalake(uri, _rows([1, 2, 3, 4], "a"), partition_by=["part"])
+        return uri
+
+    @parameterized.expand(
+        [
+            ("append_only", lambda uri: None),
+            ("append", _appended),
+            ("overwrite", _overwritten),
+            ("delete", _deleted_from),
+            ("delete_every_row", _emptied),
+            ("merge", _merged),
+            ("deltalite_upsert", _upserted_with_deltalite),
+            ("compaction", _compacted),
+            ("vacuum", _vacuumed),
+        ]
+    )
+    def test_matches_a_count_of_the_published_files(self, _name: str, history: Callable[[str], None]) -> None:
+        # The query folder is a copy of file_uris(), so a count over it is the sum of their rows.
+        uri = self._create(self.tmp_path)
+        history(uri)
+        table = deltalake.DeltaTable(uri)
+
+        published_rows = sum(pq.read_metadata(path).num_rows for path in table.file_uris())
+
+        assert live_row_count(table) == published_rows == table.to_pyarrow_table().num_rows
+
+    def test_files_without_stats_fall_back_to_a_file_count(self) -> None:
+        uri = self._create(self.tmp_path)
+        _strip_add_stats(uri)
+
+        assert live_row_count(deltalake.DeltaTable(uri)) is None
+
+    def test_unreadable_add_actions_fall_back_to_a_file_count(self) -> None:
+        table = MagicMock()
+        table.get_add_actions.side_effect = Exception("Offset overflow error: 2229224676")
+
+        assert live_row_count(table) is None
+
+    @pytest.mark.asyncio
+    async def test_ref_reads_the_count_after_a_deltalite_commit(self) -> None:
+        # deltalite commits outside the cached delta-rs handle, so a stale handle would miss its rows.
+        uri = self._create(self.tmp_path)
+        ref = make_local_table_ref(uri)
+        assert await ref.get_live_row_count() == 4
+
+        deltalite.DeltaLiteTable.open(uri).upsert(_rows([10, 11], "a"), primary_keys=["id"], partition_key="part")
+        ref.note_deltalite_commit(None)
+
+        assert await ref.get_live_row_count() == 6
+
+    @pytest.mark.asyncio
+    async def test_ref_without_a_table_has_no_count(self) -> None:
+        ref = make_local_table_ref(str(self.tmp_path / "missing"))
+
+        assert await ref.get_live_row_count() is None
+
+    @pytest.fixture(autouse=True)
+    def _tmp(self, tmp_path: Path) -> None:
+        self.tmp_path = tmp_path

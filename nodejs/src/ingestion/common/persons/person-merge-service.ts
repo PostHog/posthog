@@ -17,6 +17,7 @@ import { PersonContext } from './person-context'
 import {
     PersonMergeCallFailedError,
     PersonMergeLimitExceededError,
+    PersonMergeRaceConditionError,
     PersonMergeResponseMismatchError,
     PersonMergeResult,
     PersonMergeUnsettledError,
@@ -303,14 +304,16 @@ export class PersonMergeService {
                 [ConnectError, PersonMergeResponseMismatchError]
             )
         } catch (error) {
-            if (!(error instanceof PersonMergeUnsettledError)) {
+            if (!(error instanceof PersonMergeUnsettledError || error instanceof PersonMergeRaceConditionError)) {
                 throw error
             }
-            // Retries exhausted without a settled answer: dropped with the
-            // race warning, as Postgres drops a persistent conflict. The
-            // drop also counts on the claim-drop series, so the drop rate
-            // reads whole across both backends.
-            mergeUnsettledCounter.inc()
+            // Retries exhausted without a settled answer, or a creation race that
+            // outlasted them: dropped with the race warning, as Postgres drops a
+            // persistent conflict. The drop also counts on the claim-drop series,
+            // so the drop rate reads whole across both backends.
+            if (error instanceof PersonMergeUnsettledError) {
+                mergeUnsettledCounter.inc()
+            }
             mergeClaimDroppedCounter.labels({ call: this.context.event.event }).inc()
             const warningAck = emitIngestionWarning(this.context.outputs, teamId, {
                 type: 'merge_race_condition',
@@ -323,9 +326,10 @@ export class PersonMergeService {
                 pipelineStep: 'person-merge',
                 alwaysSend: true,
             }).then(() => undefined)
-            logger.warn('🤔', 'merge unsettled through every retry; dropped with the race warning', {
+            logger.warn('🤔', 'merge unresolved through every retry; dropped with the race warning', {
                 team_id: teamId,
                 distinct_id: mergeIntoDistinctId,
+                error: error.constructor.name,
             })
             return mergeSuccess(undefined, warningAck, true)
         }

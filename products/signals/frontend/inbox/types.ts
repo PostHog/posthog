@@ -3,6 +3,7 @@ import type { UserBasicType } from '~/types'
 import {
     type ReportChartApi,
     type ReportMetricApi,
+    type ReportRankingApi,
     type SignalReportPullRequestApi,
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
@@ -88,6 +89,8 @@ export interface SignalReport {
     id: string
     title: string | null
     summary: string | null
+    /** The opening of `summary` as plain text, before its first section heading. */
+    summary_lead?: string
     status: SignalReportStatus
     total_weight: number
     signal_count: number
@@ -137,6 +140,8 @@ export interface SignalReport {
     billing_exempt_reason?: string | null
     /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
     refund_ineligibility_reason?: string | null
+    /** The served ranking model's score. Staff only: null for other users and for unscored reports. */
+    ranking?: ReportRankingApi | null
 }
 
 export enum SignalReportStatus {

@@ -1,8 +1,9 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -12,10 +13,18 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.facade.contracts import AlertEventKind, GroupTransition, SourceBatchEvaluation, SourceKind
-from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes, slot_of
-from products.alerts.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
-from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.facade import testing as platform_testing
+from products.alerts_platform.backend.facade.api import due_checks, record_outcomes, slot_of
+from products.alerts_platform.backend.facade.contracts import (
+    AlertEventKind,
+    IncidentAction,
+    PlatformConfigurationSnapshot,
+    SourceBatchEvaluation,
+    SourceKind,
+)
+from products.alerts_platform.backend.facade.lifecycle import AlertState
+from products.alerts_platform.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
 from products.logs.backend.alert_source_cycle import BATCH_QUERY_BUDGET_SECONDS, MAX_QUERY_SECONDS, evaluate_logs_batch
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
@@ -34,11 +43,11 @@ class TestLogsAlertEvaluation(APIBaseTest):
         super().setUp()
         self.cutoff = datetime(2026, 9, 16, 10, tzinfo=UTC)
 
-    def _configuration(self, **overrides) -> PlatformAlertConfiguration:
-        defaults = {
-            "team": self.team,
+    def _configuration(self, **overrides: Any) -> PlatformConfigurationSnapshot:
+        defaults: dict[str, Any] = {
+            "team_id": self.team.id,
             "name": "API errors",
-            "source_kind": PlatformAlertConfiguration.SourceKind.LOGS,
+            "source_kind": SourceKind.LOGS,
             "source_config": {},
             "threshold_count": 10,
             "threshold_operator": "above",
@@ -48,16 +57,17 @@ class TestLogsAlertEvaluation(APIBaseTest):
         }
         defaults.update(overrides)
         with team_scope(self.team.id):
-            return PlatformAlertConfiguration.objects.create(**defaults)
+            return platform_testing.create_configuration(**defaults)
 
     def _run(
         self,
-        *configurations: PlatformAlertConfiguration,
+        *configurations: PlatformConfigurationSnapshot,
         query_error: Exception | None = None,
         now: datetime | None = None,
-    ):
+        count: int = 500,
+    ) -> tuple[SourceBatchEvaluation, MagicMock]:
         now = now or self.cutoff
-        breaching = {str(c.id): [BucketedCount(timestamp=now, count=500)] for c in configurations}
+        breaching = {str(c.id): [BucketedCount(timestamp=now, count=count)] for c in configurations}
         with (
             patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
             patch(f"{_MODULE}.BatchedAlertCheckQuery") as query,
@@ -71,6 +81,23 @@ class TestLogsAlertEvaluation(APIBaseTest):
             slot = slot_of(configurations[0].next_check_at, now)
             return evaluate_logs_batch(self.team.id, slot, now), query
 
+    def _add_incident_destination(self, configuration: PlatformConfigurationSnapshot) -> None:
+        HogFunction.objects.create(
+            team=self.team,
+            type="internal_destination",
+            name="PagerDuty",
+            template_id="template-pagerduty",
+            hog="return event",
+            enabled=True,
+            filters={
+                "source": "internal-events",
+                "events": [{"id": "$logs_alert_incident_closed", "type": "events"}],
+                "properties": [
+                    {"key": "alert_id", "value": str(configuration.id), "operator": "exact", "type": "event"}
+                ],
+            },
+        )
+
     def _slot(self) -> str:
         return slot_of(self.cutoff - timedelta(minutes=1), self.cutoff)
 
@@ -82,19 +109,26 @@ class TestLogsAlertEvaluation(APIBaseTest):
         """
         record_outcomes(self.team.id, evaluation.outcomes, self.cutoff)
 
-    def test_a_breaching_configuration_fires_and_records_its_own_state(self) -> None:
+    @parameterized.expand([("without_a_paging_destination", False), ("with_a_paging_destination", True)])
+    def test_a_breaching_configuration_fires_and_records_its_own_state(self, _name: str, paged: bool) -> None:
         configuration = self._configuration()
+        if paged:
+            self._add_incident_destination(configuration)
 
         evaluation, _ = self._run(configuration)
         self._record(evaluation)
 
-        assert [t for preview in evaluation.previews for t in preview.transitions] == [
-            GroupTransition(grouping_key="", kind=AlertEventKind.FIRING, value=500.0)
+        assert [(o.kind, o.value) for o in evaluation.outcomes] == [(AlertEventKind.FIRING, 500.0)]
+        assert [(d.sends_messages, d.incident_actions) for d in evaluation.deliveries] == [
+            (True, {"": IncidentAction.TRIGGER} if paged else {})
         ]
+        # The event a PagerDuty destination subscribes to, so the trigger reaches it.
+        assert evaluation.deliveries[0].event_ids_by_incident_action["trigger"] == "$logs_alert_incident_opened"
         with team_scope(self.team.id):
-            alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
-            configuration.refresh_from_db()
-        assert alert.state == PlatformAlert.State.FIRING
+            alert = platform_testing.alert_for(configuration.id)
+            assert alert is not None
+            configuration = platform_testing.configuration(configuration.id)
+        assert alert.state == AlertState.FIRING
         assert alert.last_notified_at is not None
         # The schedule advanced, so the next tick does not rediscover this configuration.
         assert configuration.next_check_at is not None
@@ -112,27 +146,25 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(configuration)
 
-        assert evaluation.previews
+        assert evaluation.deliveries
         with team_scope(self.team.id):
-            configuration.refresh_from_db()
-            assert not PlatformAlert.objects.filter(configuration=configuration).exists()
+            configuration = platform_testing.configuration(configuration.id)
+            assert platform_testing.alert_for(configuration.id) is None
         assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
 
     def test_a_delivery_the_batch_cannot_carry_leaves_its_alert_due(self) -> None:
         configurations = [self._configuration(), self._configuration()]
 
-        with patch(f"{_MODULE}.MAX_PREVIEWS_PER_CYCLE", 1):
+        with patch(f"{_MODULE}.MAX_DELIVERIES_PER_CYCLE", 1):
             evaluation, _ = self._run(*configurations)
         self._record(evaluation)
 
         # A firing alert does not fire again, so recording the second outcome would retire its
         # breach with no delivery to announce it.
-        assert len(evaluation.previews) == 1
+        assert len(evaluation.deliveries) == 1
         assert evaluation.omitted == 1
         with team_scope(self.team.id):
-            still_due = PlatformAlertConfiguration.objects.filter(
-                id__in=[c.id for c in configurations], next_check_at__lte=self.cutoff
-            ).count()
+            still_due = platform_testing.count_still_due([c.id for c in configurations], at=self.cutoff)
         assert still_due == 1
 
     def test_two_scheduled_checks_clamped_to_one_window_keep_distinct_keys(self) -> None:
@@ -147,7 +179,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         def run_at(next_check_at: datetime) -> str:
             with team_scope(self.team.id):
-                PlatformAlertConfiguration.objects.filter(id=configuration.id).update(next_check_at=next_check_at)
+                platform_testing.set_due_at(configuration.id, next_check_at)
             with (
                 patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=frozen_checkpoint),
                 patch(f"{_MODULE}.BatchedAlertCheckQuery") as query,
@@ -169,17 +201,22 @@ class TestLogsAlertEvaluation(APIBaseTest):
         configuration = self._configuration(
             schedule_restriction={"blocked_windows": [{"start": "09:00", "end": "12:00"}]}
         )
+        self._add_incident_destination(configuration)
 
         evaluation, query = self._run(configuration)
         self._record(evaluation)
 
         query.assert_called_once()
-        assert evaluation.previews == ()
+        # Quiet hours hold the message, never the incident: the only delivery carries the trigger.
+        assert [(d.sends_messages, d.incident_actions) for d in evaluation.deliveries] == [
+            (False, {"": IncidentAction.TRIGGER})
+        ]
         with team_scope(self.team.id):
-            alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
-            configuration.refresh_from_db()
+            alert = platform_testing.alert_for(configuration.id)
+            assert alert is not None
+            configuration = platform_testing.configuration(configuration.id)
         # An incident wholly inside the window must still leave a trace, and must not move the cooldown.
-        assert alert.state == PlatformAlert.State.FIRING
+        assert alert.state == AlertState.FIRING
         assert alert.last_notified_at is None
         assert alert.firing_started_at == self.cutoff
         # Parked at the end of the window would leave the alert unevaluated until noon.
@@ -190,7 +227,23 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # firing reaching it, a FIRING alert does not fire again on its own and stays silent.
         unmuted, _ = self._run(configuration, now=datetime(2026, 9, 16, 12, 30, tzinfo=UTC))
 
-        assert [t.kind for preview in unmuted.previews for t in preview.transitions] == [AlertEventKind.FIRING]
+        assert [o.kind for o in unmuted.outcomes] == [AlertEventKind.FIRING]
+
+    def test_a_resolve_cooldown_holds_still_closes_the_incident(self) -> None:
+        configuration = self._configuration(cooldown_minutes=60)
+        self._add_incident_destination(configuration)
+        fired, _ = self._run(configuration)
+        record_outcomes(self.team.id, fired.outcomes, self.cutoff)
+        with team_scope(self.team.id):
+            configuration = platform_testing.configuration(configuration.id)
+
+        later = datetime(2026, 9, 16, 10, 10, tzinfo=UTC)
+        cleared, _ = self._run(configuration, now=later, count=0)
+
+        assert [o.kind for o in cleared.outcomes] == [AlertEventKind.CHECK]
+        assert [(d.sends_messages, d.incident_actions) for d in cleared.deliveries] == [
+            (False, {"": IncidentAction.RESOLVE})
+        ]
 
     def test_a_broken_filter_config_stops_being_discovered(self) -> None:
         configuration = self._configuration(source_config={"filterGroup": {"type": "nonsense"}})
@@ -200,8 +253,9 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         query.assert_not_called()
         with team_scope(self.team.id):
-            alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
-        assert alert.state == PlatformAlert.State.BROKEN
+            alert = platform_testing.alert_for(configuration.id)
+            assert alert is not None
+        assert alert.state == AlertState.BROKEN
         assert due_checks(self.team.id, SourceKind.LOGS.value, self._slot(), self.cutoff + timedelta(hours=1)) == ()
 
     @parameterized.expand(
@@ -220,8 +274,9 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         assert [o.consecutive_failures for o in evaluation.outcomes] == [expected_failures]
         with team_scope(self.team.id):
-            alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
-            configuration.refresh_from_db()
+            alert = platform_testing.alert_for(configuration.id)
+            assert alert is not None
+            configuration = platform_testing.configuration(configuration.id)
         assert alert.state == expected_state
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
@@ -229,28 +284,13 @@ class TestLogsAlertEvaluation(APIBaseTest):
     def test_a_failure_the_batch_cannot_record_leaves_the_whole_batch_due(self) -> None:
         configuration = self._configuration(consecutive_failures=4)
 
-        with patch(f"{_MODULE}.list_active_alert_destinations", side_effect=RuntimeError("destinations unreachable")):
+        with patch(f"{_MODULE}._delivery", side_effect=RuntimeError("something after the query failed")):
             with pytest.raises(RuntimeError):
                 self._run(configuration, query_error=ExposedHogQLError("unknown field"))
 
         with team_scope(self.team.id):
-            configuration.refresh_from_db()
-            assert not PlatformAlert.objects.filter(configuration=configuration).exists()
-        assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
-
-    def test_a_destination_lookup_failure_is_not_the_checks_own_failure(self) -> None:
-        configuration = self._configuration()
-
-        # The second answer is what a retry inside the evaluation would reach. Reaching it means
-        # a lookup failure was recorded as a failed check, after a query that succeeded.
-        with patch(f"{_MODULE}.list_active_alert_destinations", side_effect=[RuntimeError("unreachable"), []]):
-            with pytest.raises(RuntimeError):
-                self._run(configuration)
-
-        with team_scope(self.team.id):
-            configuration.refresh_from_db()
-            assert not PlatformAlert.objects.filter(configuration=configuration).exists()
-        assert configuration.consecutive_failures == 0
+            configuration = platform_testing.configuration(configuration.id)
+            assert platform_testing.alert_for(configuration.id) is None
         assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
 
     def test_the_logs_product_rows_are_never_written(self) -> None:
@@ -294,7 +334,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # same window end, and a key without it makes them one evaluation to any reader.
         expected = f"slot:{self.cutoff.isoformat()}|window:{self.cutoff.isoformat()}"
         assert evaluation.outcomes[0].evaluation_key == expected
-        assert [p.evaluation_key for p in evaluation.previews] == [expected]
+        assert [d.evaluation_key for d in evaluation.deliveries] == [expected]
 
 
 class TestEvaluationTimeoutLadder(SimpleTestCase):

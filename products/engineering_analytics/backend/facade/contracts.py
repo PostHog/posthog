@@ -29,6 +29,13 @@ from pydantic.dataclasses import dataclass
 
 from posthog.hogql.database.models import FieldOrTable
 
+from posthog.enums import LabeledStrEnum
+
+
+class CIEngine(LabeledStrEnum):
+    GITHUB_ACTIONS = "github_actions", "GitHub Actions"
+    DEPOT_CI = "depot_ci", "Depot CI"
+
 
 class QueryWorkLimitExceededError(Exception):
     """The complete result needs more warehouse queries than one request allows."""
@@ -384,6 +391,9 @@ class WorkflowRunDetail:
     commit_pr_number: int | None
     # A merge-queue gate attempt landing `pr_number`. Counts as CI; not as a push the author made.
     is_merge_queue: bool
+    ci_engine: CIEngine | None = None
+    native_run_id: str | None = None
+    native_workflow_run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -408,6 +418,7 @@ class WorkflowRunActivityPoint:
     pr_number: int
     # Head commit SHA — lets a chart point link to the commit (e.g. the repo-health bar → GitHub commit).
     head_sha: str
+    ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)
@@ -447,6 +458,11 @@ class WorkflowJob:
     # The job's runner tier label, e.g. '16-core' (self-hosted) or 'ubuntu-latest' (GitHub-hosted).
     runner_label: str
     estimated_cost_usd: float | None
+    ci_engine: CIEngine | None = None
+    native_run_id: str | None = None
+    native_workflow_run_id: str | None = None
+    native_job_id: str | None = None
+    native_attempt_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -481,7 +497,7 @@ class WorkflowCost:
 @dataclass(frozen=True)
 class RunCost:
     """One workflow run's billable CI spend within a PR — the per-run cost shown when a PR's workflow
-    row is expanded to its runs. Keyed by ``(run_id, run_attempt)`` so a re-run's attempts stay
+    row is expanded to its runs. Keyed by ``(ci_engine, run_id, run_attempt)`` so a re-run's attempts stay
     distinct. Billable runners only; same exclusion rules as ``PRCostSummary``.
     """
 
@@ -489,6 +505,7 @@ class RunCost:
     run_attempt: int
     billable_minutes: float
     estimated_cost_usd: float | None
+    ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)
@@ -535,7 +552,7 @@ class PRCostSummary:
     excluded_jobs: int
     # Same spend broken down per workflow, so the PR's per-workflow table can show a cost column.
     by_workflow: list[WorkflowCost]
-    # Same spend broken down per workflow run, keyed by (run_id, run_attempt), so the expanded runs
+    # Same spend broken down per workflow run, keyed by (ci_engine, run_id, run_attempt), so the expanded runs
     # table under a workflow can show a per-run cost column (rolling up to the per-workflow figure).
     by_run: list[RunCost]
     # Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or None when no
@@ -549,8 +566,9 @@ class PRLifecycleEvent:
     kind: PRLifecycleEventKind
     at: datetime
     detail: str | None = None
-    # GitHub Actions run id for ci_* events — links straight to the run page.
+    # Integer run id for ci_* events. It is unique only together with ci_engine.
     run_id: int | None = None
+    ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)
@@ -592,6 +610,7 @@ class CIJobFailureLog:
     line_count: int
     lines: list[CIFailureLogLine]
     truncated: bool
+    ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)
@@ -937,7 +956,7 @@ class PullRequestListItem:
 class PullRequestList:
     """A page of the PR list plus an explicit truncation signal. ``items`` is capped
     at ``limit`` (newest first); ``truncated`` is True when more pull requests match
-    than the cap. Surfaced so a consumer never mistakes a capped page for the whole
+    after this page. Surfaced so a consumer never mistakes a capped page for the whole
     set — the aggregate counts in ``CICardSummary`` can legitimately exceed
     ``len(items)`` when ``truncated`` is True.
     """
@@ -1124,6 +1143,8 @@ class WorkflowHealthItem:
     # filter, so the list can rank queue-gating workflows (the closest proxy for a required check)
     # even when a scope is active.
     merge_queue_run_count: int = 0
+
+    latest_ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)
@@ -1512,6 +1533,7 @@ class MasterFailureGroup:
     last_seen: datetime
     # The most recent failing run in the group — the drill-down anchor.
     latest_run_id: int
+    latest_ci_engine: CIEngine | None = None
 
 
 # The sparkline is a fixed-width hourly histogram; the width is the contract so a caller can render
@@ -1553,6 +1575,8 @@ class BrokenTestRow:
     latest_branch: str
     trend_24h: list[int] = field(default_factory=list)
 
+    latest_ci_engine: CIEngine | None = None
+
 
 @dataclass(frozen=True)
 class BrokenTestsResult:
@@ -1582,6 +1606,7 @@ class RunFailureLogs:
     logs_available: bool
     jobs: list[CIJobFailureLog]
     truncated: bool
+    ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)

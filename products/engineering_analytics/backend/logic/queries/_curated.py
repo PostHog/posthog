@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import connection
+from django.db import connections
 
 import structlog
 
@@ -244,7 +244,9 @@ class CuratedGitHubSource:
         adds the raw-string scan floor — callers must register {run_started_floor} (see
         run_started_floor_constant)."""
         query = workflow_runs.build_query(
-            self._runs_table(), pull_requests_table=self._tables.pull_requests, started_floor=started_floor
+            self._runs_table(),
+            pull_requests_table=self._tables.pull_requests,
+            started_floor=started_floor,
         )
         return f"({query})"
 
@@ -272,11 +274,14 @@ class CuratedGitHubSource:
 
     def _runs_table(self) -> str:
         return depot_ci.with_depot_runs(
-            self._tables.workflow_runs, self._depot_job_attempts(), self._tables.pull_requests
+            self._tables.workflow_runs,
+            self._depot_job_attempts(),
+            self._tables.pull_requests,
+            self._tables.workflow_jobs,
         )
 
-    def _jobs_table(self, workflow_jobs_table: str) -> str:
-        return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts())
+    def _jobs_table(self, workflow_jobs_table: str) -> workflow_jobs.JobsTable:
+        return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts(), self._tables.workflow_runs)
 
     def trunk_merge_queue_source(self) -> str | None:
         """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the
@@ -518,7 +523,8 @@ class CuratedGitHubSource:
     @contextmanager
     def concurrent_reads(self) -> Iterator["ConcurrentReads"]:
         """Run the reads submitted inside the block together when it exits, so a request waits for
-        its slowest read instead of the sum of all of them. Read each result after the block."""
+        its slowest read instead of the sum of all of them. Read each result after the block. A read
+        that needs several reads of its own opens its own block."""
         reads = ConcurrentReads()
         yield reads
         reads.run()
@@ -677,7 +683,7 @@ class CuratedGitHubSource:
 
 
 class ConcurrentReads:
-    """Each worker closes the Postgres connection it opens. Under TEST the reads run inline, because a
+    """Each worker closes the Postgres connections it opens. Under TEST the reads run inline, because a
     worker's connection cannot see the test transaction."""
 
     def __init__(self) -> None:
@@ -708,16 +714,17 @@ class ConcurrentReads:
                 raise errors[0]
             return
         run_in_parallel_threads(
-            [partial(_closing_connection, work) for work in self._work],
+            [partial(_closing_connections, work) for work in self._work],
             thread_name_prefix="engineering_analytics",
         )
 
 
-def _closing_connection(work: Callable[[], None]) -> None:
+def _closing_connections(work: Callable[[], None]) -> None:
     try:
         work()
     finally:
-        connection.close()
+        # A routed read can open a connection on another alias, so the worker closes all of them.
+        connections.close_all()
 
 
 def opt_float(value: float | None) -> float | None:

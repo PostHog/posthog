@@ -1,23 +1,22 @@
 import re
-import copy
 import json
 import uuid as uuid_mod
 import hashlib
 import dataclasses
 from collections.abc import Sequence
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import timedelta
 from time import monotonic
 from typing import Any, Final, NamedTuple, Optional, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.core.cache import cache
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import IntegrityError, models, transaction
-from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
+from django.db.models import Count, F, OuterRef, Q, QuerySet, Subquery, Value
 from django.db.models.expressions import RawSQL
+from django.db.models.functions import Coalesce
 from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -49,10 +48,12 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
 
 from posthog.api.app_metrics2 import (
+    AppMetricResponseSerializer,
     AppMetricsMixin,
-    fetch_app_metric_totals,
+    AppMetricsRequestSerializer,
+    AppMetricsTotalsResponseSerializer,
     fetch_app_metric_totals_by_source,
-    fetch_app_metric_totals_by_team_and_source,
+    fetch_app_metrics_trends,
 )
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.hog_invocation_cancel import (
@@ -83,8 +84,8 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.models import Team, User
-from posthog.models.filters import Filter
 from posthog.models.integration import Integration
+from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
@@ -103,16 +104,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
-from products.cohorts.backend.models.cohort import Cohort
-from products.cohorts.backend.models.util import get_all_cohort_dependencies
-from products.feature_flags.backend.person_sampling import bounded_memory_settings
-from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
-from products.messaging.backend.api.design_operations import apply_design_operations
-from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.api.message_templates import DesignOperationSerializer
-from products.messaging.backend.models import MessageTemplate
-from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.tasks.backend.facade.api import list_workflow_last_runs
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
@@ -123,17 +115,98 @@ from products.tasks.backend.facade.workflow_tasks import (
     resolve_connectors,
     validate_skill_names,
 )
-from products.workflows.backend.facade.api import create_batch_job
-from products.workflows.backend.metrics import (
-    GUARDRAIL_LABELS,
-    GUARDRAIL_METRICS,
+from products.workflows.backend.facade.batch_jobs import (
+    create_batch_job,
+    get_batch_job,
+    hog_flow_ids_with_broadcast_status,
+    list_batch_jobs,
+    set_batch_job_status,
+)
+from products.workflows.backend.facade.blast_radius import (
+    SUPPORTED_DEDUPE_KEYS,
+    get_account_audience_ids_page,
+    get_account_audience_size,
+    get_account_group_type_name,
+    get_audience_person_page,
+    get_audience_size,
+    is_account_audience,
+    parse_account_audience_filters,
+)
+from products.workflows.backend.facade.content import DRAFT_CONTENT_FIELDS, deep_merge, snapshot_content
+from products.workflows.backend.facade.contracts import (
+    EmailDesignRenderFailed,
+    EmailDesignRenderingNotConfigured,
+    StaffPausedError,
+    WorkflowBatchJobNotFound,
+    WorkflowDraftChanged,
+    WorkflowDraftExists,
+    WorkflowRevisionNotFound,
+    WorkflowRevisionSummary,
+    WorkflowScheduleNotFound,
+)
+from products.workflows.backend.facade.email_design import (
+    apply_email_design_operations,
+    get_email_template_content,
+    render_email_design_html,
+)
+from products.workflows.backend.facade.email_health import (
+    fetch_aws_tenant_reputation,
+    fetch_email_totals_by_source,
+    fetch_isp_metrics,
+    fold_email_totals,
+    get_email_sending_state,
+    pause_requires_staff,
+    resume_email_sending,
+    team_email_sending_allowance,
+)
+from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus
+from products.workflows.backend.facade.message_assets import fetch_message_asset_html, fetch_message_assets
+from products.workflows.backend.facade.proposals import (
     HOG_FLOW_VERSION_APP_SOURCE,
-    MIN_EVIDENCE_SAMPLE,
-    TARGET_CLICK_METRIC,
-    TARGET_OPEN_METRIC,
-    TARGET_SEND_METRIC,
-    TARGET_UNTRACKED_METRIC,
-    UNAVAILABLE_GUARDRAILS,
+    PROPOSAL_MERGE_BY_ID_FIELDS,
+    as_the_serializer_stores_it,
+    is_optimization_enabled,
+    merge_proposal_content,
+    proposal_conflicts,
+    proposal_outcome,
+    set_optimization_enabled,
+    staged_proposal_changes,
+    target_metric_in,
+    unstage_workflow_proposals,
+    version_outcome,
+)
+from products.workflows.backend.facade.revisions import count_revisions, get_revision, list_revisions, restore_revision
+from products.workflows.backend.facade.schedules import (
+    compute_next_occurrences,
+    create_schedule,
+    delete_schedule,
+    get_schedule,
+    list_schedules,
+    process_due_schedules,
+    update_schedule,
+    validate_rrule,
+)
+from products.workflows.backend.facade.secrets import (
+    TemplateCache,
+    mask_derived_trigger,
+    mask_secret_action_inputs,
+    merge_secret_maps,
+    plaintext_secret_map,
+    recover_or_drop_masked_inputs,
+    rehydrate_flow_secrets,
+    secret_keys_for_action,
+    strip_content_secrets,
+    strip_secrets_from_content,
+)
+from products.workflows.backend.facade.templates import get_function_template_schema
+from products.workflows.backend.facade.validation import (
+    DURATION_PATTERN,
+    duration_error,
+    duration_minutes,
+    find_behavioral_cohort_name,
+    find_clock_function,
+    is_duration,
+    is_signed_duration,
 )
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
@@ -145,14 +218,10 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     WORKFLOW_SAFE_INTERNAL_EVENTS,
     HogFlow,
 )
-from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
-from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
-from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
-from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.presentation.views.action_redirects import compute_action_redirects
-from products.workflows.backend.presentation.views.graph_operations import _deep_merge, apply_graph_operations
+from products.workflows.backend.presentation.views.graph_operations import apply_graph_operations
 from products.workflows.backend.presentation.views.graph_validation import validate_graph
 from products.workflows.backend.presentation.views.hog_flow_batch_job import (
     HogFlowBatchJobCancelResponseSerializer,
@@ -167,73 +236,15 @@ from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetContentRequestSerializer,
     MessageAssetSerializer,
     MessageAssetsRequestSerializer,
-    fetch_message_asset_html,
-    fetch_message_assets,
 )
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
-from products.workflows.backend.providers.ses import SESProvider
-from products.workflows.backend.services.account_audience import (
-    ACCOUNT_BATCH_SIZE,
-    get_account_audience_count,
-    get_account_audience_page,
-    get_account_group_type_name,
-    is_account_audience,
-    parse_account_audience_filters,
-)
-from products.workflows.backend.services.audience_v2 import (
-    get_dedupe_audience_count_v2,
-    get_person_audience_count_v2,
-    use_audience_query_v2,
-)
-from products.workflows.backend.services.batch_audience import (
-    SUPPORTED_DEDUPE_KEYS,
-    audience_page_size,
-    get_batch_audience_count,
-    get_batch_audience_person_ids,
-)
-from products.workflows.backend.services.email_sending_attribution import (
-    EMAIL_HEALTH_METRIC_NAMES,
-    fold_email_totals_by_flow,
-)
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
 )
-from products.workflows.backend.services.wait_clock_conditions import find_clock_function
-from products.workflows.backend.services.workflow_email_health import (
-    StaffPausedError,
-    pause_requires_staff,
-    resume_workflow_email_sending,
-)
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
-from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
-from products.workflows.backend.utils.durations import (
-    DURATION_PATTERN,
-    duration_error,
-    duration_minutes,
-    is_duration,
-    is_signed_duration,
-)
-from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
-from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
-
-
-# The content of a workflow: everything the draft cycle stages and publish promotes, and nothing
-# else. Metadata (name, description) and lifecycle (status) always apply to the live row. The draft
-# blob is a full snapshot of these fields so publish is a plain copy, not a merge.
-DRAFT_CONTENT_FIELDS = (
-    "actions",
-    "edges",
-    "trigger",
-    "trigger_masking",
-    "conversion",
-    "exit_condition",
-    "email_sending_rate_limit",
-    "abort_action",
-    "variables",
-)
 
 
 # Compiled from the author's filters rather than written by them, and only present once a condition has
@@ -351,92 +362,6 @@ def _reject_clock_based_wait(config: dict, team: Team) -> None:
     )
 
 
-def snapshot_flow_content(flow: HogFlow) -> dict:
-    snapshot = {field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS}
-    # The model's legacy default for actions/edges is `{}`, but the API shape is a list — normalize
-    # so re-validation of a snapshot (draft publish, revision restore) doesn't choke on a
-    # never-edited column.
-    for field in ("actions", "edges"):
-        if not snapshot[field]:
-            snapshot[field] = []
-    # Defensively strip secrets: a legacy row written before encryption shipped still has plaintext
-    # secret inputs in `actions`, and this snapshot feeds revision content — which must never carry
-    # secrets. New rows are already stripped, so this is a no-op for them.
-    return strip_content_secrets(snapshot)
-
-
-# --- Secret function-action inputs -------------------------------------------------------------
-# Function/email/sms steps (and function-shaped triggers) can carry secret inputs - API keys, auth
-# headers - declared `secret: true` on their template's inputs_schema. We split those values out of
-# the plaintext `actions` blob into the encrypted `encrypted_inputs` column (keyed by action id then
-# input key), mirroring HogFunction.encrypted_inputs. The worker re-merges them at execution time.
-_FUNCTION_TRIGGER_CONFIG_TYPES = frozenset({"webhook", "manual", "tracking_pixel"})
-
-
-# A per-call {template_id: template_or_None} memo. Resolving a template is a DB query, and both the
-# read (masking) and write (stripping) paths touch every action, so callers pass one of these to
-# dedupe lookups - within a flow, and across a whole list page when stashed on the serializer context.
-TemplateCache = dict[str, Optional[Any]]
-
-
-def _function_template_for_action(action: dict, template_cache: Optional[TemplateCache] = None) -> Optional[Any]:
-    # A function step, or a trigger whose source is function-shaped, resolves a template whose
-    # inputs_schema tells us which inputs are secret. Everything else has no secret inputs.
-    config = action.get("config") or {}
-    action_type = action.get("type", "") or ""
-    is_function = "function" in action_type or (
-        action_type == "trigger" and config.get("type") in _FUNCTION_TRIGGER_CONFIG_TYPES
-    )
-    if not is_function:
-        return None
-    template_id = config.get("template_id", "") or ""
-    if template_cache is None:
-        return HogFunctionTemplate.get_template(template_id)
-    if template_id not in template_cache:
-        template_cache[template_id] = HogFunctionTemplate.get_template(template_id)
-    return template_cache[template_id]
-
-
-def _secret_keys_for_action(action: dict, template_cache: Optional[TemplateCache] = None) -> set[str]:
-    template = _function_template_for_action(action, template_cache)
-    if not template:
-        return set()
-    return {schema["key"] for schema in (template.inputs_schema or []) if schema.get("secret")}
-
-
-def partition_flow_secrets(
-    actions: list[dict], template_cache: Optional[TemplateCache] = None
-) -> tuple[list[dict], dict[str, dict]]:
-    """Split secret inputs out of each action's config.inputs.
-
-    Returns (stripped_actions, encrypted_map) where encrypted_map is {action_id: {input_key: value}}.
-    The input list is not mutated. The map is rebuilt from scratch each call - never merged onto a
-    prior map - so secrets for deleted or renamed actions drop out rather than orphaning.
-    """
-    stripped: list[dict] = []
-    encrypted: dict[str, dict] = {}
-    for original in actions:
-        action = deepcopy(original)
-        secret_keys = _secret_keys_for_action(action, template_cache)
-        if secret_keys:
-            inputs = (action.get("config") or {}).get("inputs")
-            if isinstance(inputs, dict):
-                moved = {key: inputs.pop(key) for key in list(inputs) if key in secret_keys}
-                if moved:
-                    encrypted[action["id"]] = moved
-        stripped.append(action)
-    return stripped, encrypted
-
-
-def plaintext_secret_map(actions: Any, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
-    # The secret inputs still sitting in plaintext inside an actions blob, as an {action_id: {key:
-    # value}} map. Non-empty only for legacy rows written before encryption shipped - the recovery
-    # base that lets a masked re-save migrate their secrets instead of wiping them.
-    if not isinstance(actions, list):
-        return {}
-    return partition_flow_secrets(actions, template_cache)[1]
-
-
 def existing_secret_map(instance: "HogFlow", template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
     # Every stored secret a masked re-save may need to recover, later sources winning: legacy
     # plaintext (live, then draft), then the encrypted live map, then the encrypted draft map.
@@ -444,67 +369,6 @@ def existing_secret_map(instance: "HogFlow", template_cache: Optional[TemplateCa
     result = merge_secret_maps(result, plaintext_secret_map((instance.draft or {}).get("actions"), template_cache))
     result = merge_secret_maps(result, instance.encrypted_inputs)
     return merge_secret_maps(result, instance.draft_encrypted_inputs)
-
-
-def merge_secret_maps(base: Optional[dict], overlay: Optional[dict]) -> dict[str, dict]:
-    # Per-action, per-key merge of two {action_id: {key: value}} maps; overlay wins on conflicts.
-    result: dict[str, dict] = {action_id: dict(values) for action_id, values in (base or {}).items()}
-    for action_id, values in (overlay or {}).items():
-        result[action_id] = {**result.get(action_id, {}), **values}
-    return result
-
-
-def recover_or_drop_masked_inputs(inputs: Any, secret_keys: set[str], existing: dict) -> None:
-    # A lenient (web draft) save keeps the raw inputs when validation fails. A {"secret": true}
-    # read-back marker in that raw payload must never persist as a stored value - the worker would
-    # treat the marker object as the real input (e.g. compare it against a webhook's auth header and
-    # reject every request). Swap it for the stored secret, or drop the key when there is none.
-    if not isinstance(inputs, dict):
-        return
-    for key in secret_keys:
-        value = inputs.get(key)
-        if isinstance(value, dict) and value.get("secret") and "value" not in value:
-            stored = existing.get(key)
-            if stored:
-                inputs[key] = stored
-            else:
-                inputs.pop(key, None)
-
-
-def mask_secret_action_inputs(
-    actions: list[dict], secrets_by_action: dict[str, dict], template_cache: Optional[TemplateCache] = None
-) -> list[dict]:
-    # Replace every set secret input with the {"secret": True} presence marker for read-back. Mutates
-    # the given action dicts (must be a copy - callers deepcopy first). A value counts as set if it
-    # lives in the encrypted map or, for legacy rows written before the split, still sits in plaintext.
-    for flow_action in actions:
-        secret_keys = _secret_keys_for_action(flow_action, template_cache)
-        if not secret_keys:
-            continue
-        inputs = (flow_action.get("config") or {}).get("inputs")
-        if not isinstance(inputs, dict):
-            continue
-        action_id = flow_action.get("id")
-        action_secrets = secrets_by_action.get(action_id, {}) if isinstance(action_id, str) else {}
-        for key in secret_keys:
-            if action_secrets.get(key) or inputs.get(key):
-                inputs[key] = {"secret": True}
-    return actions
-
-
-def _mask_derived_trigger(content: dict, template_cache: Optional[TemplateCache] = None) -> None:
-    # The `trigger` representation is derived from the trigger action, so once that action's inputs are
-    # masked, re-derive `trigger` from it. Keeps a function-shaped trigger's secret from leaking on the
-    # separately-serialized trigger field. No-op when there's no trigger action or no `trigger` key.
-    actions = content.get("actions")
-    if "trigger" not in content or not isinstance(actions, list):
-        return
-    trigger_action = next(
-        (a for a in actions if isinstance(a, dict) and a.get("type") == "trigger"),
-        None,
-    )
-    if trigger_action is not None:
-        content["trigger"] = trigger_action.get("config")
 
 
 def mask_trigger_config(
@@ -528,30 +392,12 @@ def mask_trigger_config(
     return masked[0].get("config")
 
 
-def strip_secrets_from_content(content: dict, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
-    # Move secret inputs out of content["actions"] into an encrypted map, updating content["actions"]
-    # (stripped) and the derived content["trigger"] in place. Returns the {action_id: {key: value}} map.
-    # Shared by the live write, the draft write, and (map discarded) the snapshot/compare paths.
-    actions = content.get("actions")
-    if not isinstance(actions, list):
-        return {}
-    stripped, encrypted = partition_flow_secrets(actions, template_cache)
-    content["actions"] = stripped
-    if "trigger" in content:
-        trigger_action = next((action for action in stripped if action.get("type") == "trigger"), None)
-        if trigger_action is not None:
-            content["trigger"] = trigger_action.get("config")
-    return encrypted
+def snapshot_flow_content(flow: HogFlow) -> dict:
+    return snapshot_content({field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS})
 
 
-def strip_content_secrets(content: dict, template_cache: Optional[TemplateCache] = None) -> dict:
-    # Return a copy of a content snapshot with secret inputs stripped from actions (and the trigger
-    # re-derived). Used to snapshot revisions secret-free and to compare two snapshots secret-free, so a
-    # resent secret validation recovers into `actions` doesn't read as a content change against the
-    # stored (stripped) snapshot and spuriously bump the revision.
-    normalized = dict(content)
-    strip_secrets_from_content(normalized, template_cache)
-    return normalized
+def item_id(item: Any) -> Any:
+    return item.get("id") if isinstance(item, dict) else None
 
 
 def strip_proposal_secrets(content: dict, live_content: dict, template_cache: Optional[TemplateCache] = None) -> dict:
@@ -563,30 +409,15 @@ def strip_proposal_secrets(content: dict, live_content: dict, template_cache: Op
     actions = stripped.get("actions")
     if not isinstance(actions, list):
         return stripped
-    live_by_id = {_item_id(item): item for item in live_content.get("actions") or []}
+    live_by_id = {item_id(item): item for item in live_content.get("actions") or []}
     for item in actions:
-        live_step = live_by_id.get(_item_id(item))
+        live_step = live_by_id.get(item_id(item))
         inputs = (item.get("config") or {}).get("inputs") if isinstance(item, dict) else None
         if live_step is None or not isinstance(inputs, dict):
             continue
-        for key in _secret_keys_for_action(_deep_merge(deepcopy(live_step), item), template_cache):
+        for key in secret_keys_for_action(deep_merge(deepcopy(live_step), item), template_cache):
             inputs.pop(key, None)
     return stripped
-
-
-def rehydrate_flow_secrets(actions: list[dict], secrets_by_action: dict[str, dict]) -> list[dict]:
-    # Fold decrypted secrets back into each action's config.inputs. Used for inline test runs that
-    # ship a config to the executor directly, bypassing the worker's manager (which decrypts normally).
-    result: list[dict] = []
-    for original in actions:
-        action = deepcopy(original)
-        action_id = action.get("id")
-        action_secrets = secrets_by_action.get(action_id) if isinstance(action_id, str) else None
-        config = action.get("config")
-        if action_secrets and isinstance(config, dict) and isinstance(config.get("inputs"), dict):
-            config["inputs"] = {**config["inputs"], **action_secrets}
-        result.append(action)
-    return result
 
 
 # A batch audience is a one-time snapshot of everyone matching the conditions at run time, so each
@@ -600,7 +431,8 @@ BATCH_FLAG_CONDITION_REJECTION = (
 
 
 def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
-    property_groups = Filter(data=filters or {}, team=team).property_groups
+    # Cohorts are expanded so a flag condition nested inside one is still caught.
+    property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
     if any(prop.type == "flag" for prop in property_groups.flat):
         raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
 
@@ -774,16 +606,15 @@ def _apply_email_template_content(config: dict, team: Team, strict: bool, contex
     # list validates one action at a time, so without this each step re-queries the same row.
     # The context dict is shared across the many=True action list, so the memo (and the
     # materialized-bytes counter below) span all steps in one request.
-    template_cache: dict[str, Optional[MessageTemplate]] = context.setdefault("_message_template_cache", {})
+    template_cache: dict[str, Optional[dict]] = context.setdefault("_message_template_cache", {})
     cache_key = str(parsed_uuid)
     if parsed_uuid is None:
-        template = None
+        email_content = None
     elif cache_key in template_cache:
-        template = template_cache[cache_key]
+        email_content = template_cache[cache_key]
     else:
-        template = MessageTemplate.objects.filter(team_id=team.id, id=parsed_uuid, deleted=False).first()
-        template_cache[cache_key] = template
-    email_content = (template.content or {}).get("email") if template else None
+        email_content = get_email_template_content(team.id, parsed_uuid)
+        template_cache[cache_key] = email_content
     if not isinstance(email_content, dict) or not any(email_content.get(key) for key in _TEMPLATE_EMAIL_BODY_KEYS):
         if strict:
             raise serializers.ValidationError(
@@ -1093,6 +924,41 @@ class InternalBlastRadiusPersonsSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="Whether another page may follow.")
 
 
+class InternalProcessedSchedulesSerializer(serializers.Serializer):
+    """Response contract for the internal due-schedules endpoint, read by the scheduler service."""
+
+    processed = serializers.ListField(
+        child=serializers.CharField(), help_text="Ids of due schedules that dispatched a run."
+    )
+    initialized = serializers.ListField(
+        child=serializers.CharField(), help_text="Ids of new schedules that got their first run time."
+    )
+    failed = serializers.ListField(
+        child=serializers.CharField(), help_text="Ids of due schedules that failed to dispatch."
+    )
+
+
+class InternalBatchJobStatusSerializer(serializers.Serializer):
+    """Response contract for the internal batch job status write, read by the Node batch resolver."""
+
+    id = serializers.CharField(help_text="Batch job id.")
+    status = serializers.CharField(help_text="Status of the batch job after the call.")
+    no_op = serializers.BooleanField(help_text="True when the job was already terminal and nothing changed.")
+
+
+class InternalAccountAudienceSerializer(serializers.Serializer):
+    """Response contract for the internal account audience endpoint, read by the Node batch resolver."""
+
+    accounts = serializers.ListField(
+        child=serializers.CharField(), help_text="Account group keys in this page, in stable pagination order."
+    )
+    cursor = serializers.CharField(
+        allow_null=True, help_text="Cursor for the next call, or null when this page is the last."
+    )
+    has_more = serializers.BooleanField(help_text="Whether another page may follow.")
+    group_type = serializers.CharField(allow_null=True, help_text="Group type the account keys belong to.")
+
+
 class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
     after = serializers.CharField(
         required=False,
@@ -1299,6 +1165,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     on_error = serializers.ChoiceField(
         choices=["continue", "abort"],
         required=False,
+        default=None,
         allow_null=True,
         help_text="On failure: continue (skip the action and proceed) or abort (stop the run).",
     )
@@ -1378,6 +1245,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     )
     output_variable = serializers.JSONField(
         required=False,
+        default=None,
         allow_null=True,
         help_text="Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.",
     )
@@ -1423,27 +1291,17 @@ class HogFlowActionSerializer(serializers.Serializer):
         ]
         if not cohort_ids:
             return
-        project_id = self.context["get_team"]().project_id
-        for cohort_id in cohort_ids:
-            try:
-                cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id, deleted=False)
-            except (Cohort.DoesNotExist, ValueError, TypeError):
-                continue  # missing/invalid cohort surfaces during audience resolution, not here
-            if cohort.is_static:
-                continue
-            for dep in [cohort, *get_all_cohort_dependencies(cohort)]:
-                if dep.is_static:
-                    continue
-                if any(p.type == "behavioral" for p in dep.properties.flat):
-                    raise serializers.ValidationError(
-                        {
-                            "filters": (
-                                f"Cohort '{dep.name}' targets event behavior, which batch/schedule audiences "
-                                "can't evaluate. Use a static or property-based cohort, or an event trigger "
-                                "for behavioral targeting."
-                            )
-                        }
+        cohort_name = find_behavioral_cohort_name(self.context["get_team"]().project_id, cohort_ids)
+        if cohort_name is not None:
+            raise serializers.ValidationError(
+                {
+                    "filters": (
+                        f"Cohort '{cohort_name}' targets event behavior, which batch/schedule audiences "
+                        "can't evaluate. Use a static or property-based cohort, or an event trigger "
+                        "for behavioral targeting."
                     )
+                }
+            )
 
     def _validate_create_task_action(self, inputs: dict) -> None:
         """Save-time checks for the "Create AI task" step beyond input shape: whether the
@@ -1610,7 +1468,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         )
                     if audience_type == "accounts":
                         team = self.context["get_team"]()
-                        if get_account_group_type_name(team) is None:
+                        if get_account_group_type_name(team.id) is None:
                             raise serializers.ValidationError(
                                 {
                                     "filters": (
@@ -1749,7 +1607,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                 get_team = self.context.get("get_team")
                 if get_team is not None:
                     _apply_email_template_content(config, get_team(), strict, self.context)
-            template = HogFunctionTemplate.get_template(template_id)
+            template = get_function_template_schema(template_id)
             gating_flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
             already_stored = data.get("id") in (self.context.get("stored_gated_template_action_ids") or set())
             if template is not None and gating_flag is not None and not already_stored:
@@ -2133,34 +1991,30 @@ class HogFlowEmailSendingRateLimitSerializer(serializers.Serializer):
         return value
 
 
-class HogFlowScheduleSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = HogFlowSchedule
-        fields = [
-            "id",
-            "rrule",
-            "starts_at",
-            "timezone",
-            "variables",
-            "status",
-            "next_run_at",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = ["id", "status", "next_run_at", "created_at", "updated_at"]
-        extra_kwargs = {
-            "rrule": {
-                "help_text": (
-                    "iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once "
-                    "per hour."
-                )
-            },
-            "starts_at": {"help_text": "ISO 8601 datetime the schedule starts from."},
-            "timezone": {"help_text": "IANA timezone for interpreting the RRULE (default 'UTC')."},
-            "variables": {"help_text": "Variable value overrides merged with the workflow defaults on each run."},
-            "status": {"help_text": "active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted)."},
-            "next_run_at": {"help_text": "Next scheduled fire time, computed by the scheduler."},
-        }
+class HogFlowScheduleSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True)
+    rrule = serializers.CharField(
+        help_text=(
+            "iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour."
+        )
+    )
+    starts_at = serializers.DateTimeField(help_text="ISO 8601 datetime the schedule starts from.")
+    timezone = serializers.CharField(
+        max_length=64, required=False, help_text="IANA timezone for interpreting the RRULE (default 'UTC')."
+    )
+    variables = serializers.JSONField(
+        required=False, help_text="Variable value overrides merged with the workflow defaults on each run."
+    )
+    status = serializers.ChoiceField(
+        choices=HogFlowScheduleStatus.choices,
+        read_only=True,
+        help_text="active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted).",
+    )
+    next_run_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="Next scheduled fire time, computed by the scheduler."
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
 
     def validate(self, data):
         # For partial updates, fall back to instance values
@@ -2193,14 +2047,6 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"rrule": "Schedules must run at most once per hour."})
 
         return data
-
-    def update(self, instance, validated_data):
-        if any(field in validated_data for field in ("rrule", "starts_at", "timezone")):
-            # Force the scheduler to recalculate the next occurrence on its next poll
-            instance.next_run_at = None
-            if instance.status != HogFlowSchedule.Status.PAUSED:
-                instance.status = HogFlowSchedule.Status.ACTIVE
-        return super().update(instance, validated_data)
 
 
 class HogFlowRunRequestSerializer(serializers.Serializer):
@@ -2249,122 +2095,6 @@ def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, 
     }
 
 
-SENDING_ALLOWANCE_CACHE_SECONDS = 60
-
-
-@frozen
-class EmailSendingAllowance:
-    """A project's sending tier, what it allows, and how much of that it has used."""
-
-    tier: int
-    max_tier: int
-    emails_per_hour: int
-    emails_per_day: int
-    max_batch_audience: int
-    emails_sent_last_hour: int
-    emails_sent_last_day: int
-    enforced: bool
-
-
-def _team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
-    """
-    Usage comes from the send metrics rather than the worker's token buckets, so the numbers match
-    what the rest of this page reports. Cached briefly because the endpoint reloads on every search
-    keystroke while these two aggregations do not depend on the search.
-    """
-    cache_key = f"workflows_email_sending_allowance_{team_id}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    resolved = resolve_team_email_sending_tier(team_id)
-    now = timezone.now()
-    allowance = EmailSendingAllowance(
-        tier=resolved.tier,
-        max_tier=max_email_sending_tier(),
-        emails_per_hour=resolved.limits.per_hour,
-        emails_per_day=resolved.limits.per_day,
-        max_batch_audience=resolved.limits.max_batch_audience,
-        emails_sent_last_hour=_team_email_sends_since(team_id, now - timedelta(hours=1)),
-        emails_sent_last_day=_team_email_sends_since(team_id, now - timedelta(days=1)),
-        enforced=resolved.enforced,
-    )
-    cache.set(cache_key, allowance, SENDING_ALLOWANCE_CACHE_SECONDS)
-    return allowance
-
-
-def _team_email_sends_since(team_id: int, after: datetime) -> int:
-    totals = fetch_app_metric_totals_by_team_and_source(
-        app_source="hog_flow", name=["email_sent"], after=after, team_ids=[team_id]
-    )
-    return sum(counts.get("email_sent", 0) for counts in totals.get(team_id, {}).values())
-
-
-AWS_TENANT_REPUTATION_CACHE_SECONDS = 5 * 60
-# Failures cache too, but far shorter than successes: long enough that an unreachable SES isn't
-# re-dialled on every request, short enough that a just-fixed config recovers within a minute.
-AWS_TENANT_REPUTATION_ERROR_CACHE_SECONDS = 60
-
-
-def _aws_tenant_health(sending_status: str, reputation_impact: str | None) -> str:
-    if sending_status == "DISABLED":
-        return "suspended"
-    if reputation_impact == "HIGH":
-        return "critical"
-    if reputation_impact == "LOW":
-        return "warning"
-    return "healthy"
-
-
-def _fetch_aws_tenant_reputation(team_id: int) -> dict[str, Any] | None:
-    """
-    AWS-side tenant state for the reputation endpoint, cached briefly: the endpoint reloads on every
-    search keystroke and three SES API round-trips per keystroke would be slow and rate-limited.
-    Failures return None (the response field is nullable) so AWS being unreachable never breaks the
-    rates display; failures cache under a shorter TTL so a broken SES isn't re-dialled per request.
-
-    Deliberately no SES_ACCESS_KEY_ID gate: cloud pods authenticate via their IAM role and leave
-    the key env vars unset, so a key check reads as "SES not configured" exactly where SES IS
-    configured. Environments truly without SES fail the call and land in the error path below.
-    """
-    cache_key = f"workflows_ses_tenant_reputation_{team_id}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached["value"]
-    try:
-        raw = SESProvider().get_tenant_reputation(team_id)
-    except Exception:
-        logger.exception("Failed to fetch SES tenant reputation", team_id=team_id)
-        cache.set(cache_key, {"value": None}, AWS_TENANT_REPUTATION_ERROR_CACHE_SECONDS)
-        return None
-    value = (
-        {
-            "health": _aws_tenant_health(raw["sending_status"], raw["reputation_impact"]),
-            "sending_status": raw["sending_status"],
-            "findings": raw["findings"],
-        }
-        if raw is not None
-        else None
-    )
-    cache.set(cache_key, {"value": value}, AWS_TENANT_REPUTATION_CACHE_SECONDS)
-    return value
-
-
-# VDM aggregates by whole day and the window ends at the last UTC midnight, so these numbers move
-# at most once a day. A five-minute TTL bought nothing and cost a full fan-out on every expiry.
-# One refresh of five domains is 150 queries across 15 sequential BatchGetMetricData calls, and the
-# endpoint reloads on every search keystroke, so this is what keeps typing a workflow name from
-# costing a fan-out per character.
-ISP_METRICS_CACHE_SECONDS = 30 * 60
-# A failure is cached too, briefly: without it an unreachable SES is retried in full per keystroke.
-ISP_METRICS_ERROR_CACHE_SECONDS = 60
-# Held while one request does the fan-out so a cold key admits one, not all of them. Typing races
-# concurrent misses through the same key, and each miss can hold a worker for the whole query
-# budget. Longer than that budget, so the holder always outlives its own work.
-ISP_METRICS_REFRESH_LOCK_SECONDS = 30
-# Bounds the BatchGetMetricData fan-out: every extra domain costs one query per provider per
-# metric. A project with more sending domains gets a breakdown over its first few.
-ISP_METRICS_MAX_DOMAINS = 5
 # Shared with FEATURE_FLAGS in frontend/src/lib/constants.tsx.
 ISP_SENDING_HEALTH_FLAG = "workflows-isp-sending-health"
 
@@ -2453,55 +2183,6 @@ def _isp_domains(team: Team, user_access_control: UserAccessControl, user_permis
         withheld=tuple(withheld),
         shared=tuple(domain for domain in readable if sharers[domain]),
     )
-
-
-def _fetch_isp_metrics(team_id: int, window_days: int, domains: list[str]) -> list[dict[str, Any]]:
-    """
-    Per-mailbox-provider sending health for the given sending domains, cached like the tenant
-    reputation above and for the same reason: the endpoint reloads on every search keystroke.
-
-    Returns an empty list rather than raising when SES is unreachable or VDM is not collecting yet,
-    because the breakdown adds to the rates display and must not stop it loading.
-    """
-    if not domains:
-        return []
-    # The domain set depends on what the caller may see, so it belongs in the key: two members of
-    # one project can be entitled to different domains, and one must not be served the other's.
-    domain_key = hashlib.sha256("|".join(domains).encode()).hexdigest()[:12]
-    cache_key = f"workflows_ses_isp_metrics_{team_id}_{window_days}_{domain_key}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached["value"]
-
-    # Losers show no breakdown rather than queueing behind the holder: the rates above are what the
-    # page is for, and a second fan-out would buy a number the next reload gets from cache anyway.
-    if not cache.add(f"{cache_key}_refreshing", True, ISP_METRICS_REFRESH_LOCK_SECONDS):
-        return []
-
-    try:
-        rows = SESProvider().get_identity_isp_metrics(
-            domains, window_days=window_days, max_domains=ISP_METRICS_MAX_DOMAINS
-        )
-    except Exception:
-        logger.exception("Failed to fetch SES per-ISP metrics", team_id=team_id)
-        cache.set(cache_key, {"value": []}, ISP_METRICS_ERROR_CACHE_SECONDS)
-        return []
-
-    value = [
-        {
-            "isp": row.isp,
-            "emails_sent": row.emails_sent,
-            "delivery_rate": row.delivery_rate,
-            "bounce_rate": row.bounce_rate,
-            "transient_bounce_rate": row.transient_bounce_rate,
-            "complaint_rate": row.complaint_rate,
-            "complaint_base": row.complaint_base,
-            "unavailable": list(row.unavailable),
-        }
-        for row in rows
-    ]
-    cache.set(cache_key, {"value": value}, ISP_METRICS_CACHE_SECONDS)
-    return value
 
 
 class EmailSendingRatesSerializer(serializers.Serializer):
@@ -2837,6 +2518,12 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "with the publish endpoint or throw it away with discard_draft."
         ),
     )
+    pending_suggestions = serializers.SerializerMethodField(
+        help_text="How many suggested changes are waiting for a person on this workflow. Counted on the list only."
+    )
+    suggestions_enabled = serializers.SerializerMethodField(
+        help_text="Whether someone turned suggestions on for this workflow. Read on the list only."
+    )
 
     class Meta:
         model = HogFlow
@@ -2865,6 +2552,8 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "billable_action_types",
             "user_access_level",
             "last_run",
+            "pending_suggestions",
+            "suggestions_enabled",
         ]
         read_only_fields = fields
 
@@ -2880,6 +2569,16 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             last_runs = list_workflow_last_runs(instance.team_id, user_id, [instance.id])
         last_run = last_runs.get(instance.id)
         return HogFlowLastRunSerializer(last_run).data if last_run else None
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_pending_suggestions(self, hog_flow: HogFlow) -> int | None:
+        # Annotated on the list queryset only; the detail serializer leaves it out.
+        return getattr(hog_flow, "pending_suggestions", None)
+
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def get_suggestions_enabled(self, hog_flow: HogFlow) -> bool | None:
+        # A workflow with suggestions on but none waiting is still worth telling apart in the list.
+        return getattr(hog_flow, "suggestions_enabled", None)
 
     def to_representation(self, instance):
         # Never return secret function inputs. Replace each set secret with the {"secret": True}
@@ -2907,7 +2606,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             draft["actions"] = mask_secret_action_inputs(
                 draft["actions"], merge_secret_maps(live_secrets, draft_secrets), template_cache
             )
-            _mask_derived_trigger(draft, template_cache)
+            mask_derived_trigger(draft, template_cache)
             data["draft"] = draft
 
         return data
@@ -3621,19 +3320,20 @@ def _render_action_email_operations(
                 "operations."
             }
         )
-    new_design = apply_design_operations(design, operations)
-    for warning in validate_design(new_design):
+    edited = apply_email_design_operations(design, operations)
+    new_design = edited.design
+    for warning in edited.warnings:
         logger.info("hog_flow_action_email_design_warning", warning=warning, action_id=action_id)
     try:
-        html = render_design_html(new_design)
-    except UnlayerNotConfiguredError:
+        html = render_email_design_html(new_design)
+    except EmailDesignRenderingNotConfigured:
         raise exceptions.ValidationError(
             {
                 "operations": "Design rendering is not configured on this instance - an administrator "
                 "must set UNLAYER_API_KEY to enable design editing."
             }
         )
-    except UnlayerRenderError as e:
+    except EmailDesignRenderFailed as e:
         raise exceptions.ValidationError({"operations": f"Rendering the design to HTML failed: {e}"})
     return _RenderedActionEmailDesign(base_design=design, design=new_design, html=html)
 
@@ -3656,7 +3356,7 @@ def _apply_action_email_edit(
         value["html"] = rendered.html
 
     if email_patch:
-        _deep_merge(value, email_patch)
+        deep_merge(value, email_patch)
 
     return new_actions
 
@@ -3803,21 +3503,19 @@ class HogFlowPublishResponseSerializer(serializers.Serializer):
     )
 
 
-class HogFlowRevisionBasicSerializer(serializers.ModelSerializer):
+class HogFlowRevisionBasicSerializer(serializers.Serializer):
+    version = serializers.IntegerField(read_only=True, help_text="Workflow version this snapshot was published as.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When this version was published.")
     # allow_null: the first tracked write bootstraps a snapshot of the pre-existing live content,
     # which has no author.
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
 
-    class Meta:
-        model = HogFlowRevision
-        fields = ["version", "created_at", "created_by"]
-        read_only_fields = fields
-
 
 class HogFlowRevisionSerializer(HogFlowRevisionBasicSerializer):
-    class Meta(HogFlowRevisionBasicSerializer.Meta):
-        fields = [*HogFlowRevisionBasicSerializer.Meta.fields, "content"]
-        read_only_fields = fields
+    content = serializers.JSONField(
+        read_only=True,
+        help_text="Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version.",
+    )
 
 
 class HogFlowRevisionRestoreRequestSerializer(serializers.Serializer):
@@ -3844,12 +3542,6 @@ SELF_OPTIMISING_FEATURE_FLAG = "self-optimising-workflows"
 # `trigger` and `abort_action` are read-only on the workflow serializer, so publish would drop them.
 PROPOSAL_CONTENT_FIELDS = tuple(field for field in DRAFT_CONTENT_FIELDS if field not in ("trigger", "abort_action"))
 
-
-# Fields a proposal replaces wholesale. `actions` merges per step instead, since steps carry stable
-# ids; edges have no id, and a variable list is short enough to carry whole.
-PROPOSAL_WHOLE_LIST_FIELDS = ("edges", "variables")
-
-PROPOSAL_MERGE_BY_ID_FIELDS = ("actions",)
 
 # Their items reach helpers that read each item as a mapping, so anything else has to fail here as a 400.
 PROPOSAL_LIST_OF_OBJECT_FIELDS = ("actions", "edges", "variables")
@@ -3883,6 +3575,8 @@ WORKFLOW_PROPOSAL_EVIDENCE_SCHEMA = {
         "string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; "
         "`n`, the denominator that value was computed over; and `guardrails`, a list of "
         "{metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. "
+        "PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores "
+        "them under `measured`; the page shows that reading and flags a disagreement with yours. "
         "Also conventional: target_value, window, query, app_source_id. A rate with no denominator "
         "lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change "
         "that lifts one number by harming another, and a number under a key of your own reads to a "
@@ -3897,9 +3591,7 @@ class WorkflowProposalEvidenceField(serializers.JSONField):
 
 
 class HogFlowOptimizationSerializer(serializers.Serializer):
-    enabled = serializers.BooleanField(
-        help_text="Whether PostHog may read this workflow's metrics and suggest changes to it."
-    )
+    enabled = serializers.BooleanField(help_text="Whether PostHog may suggest changes to this workflow.")
 
 
 class WorkflowProposalSerializer(serializers.ModelSerializer):
@@ -3909,7 +3601,7 @@ class WorkflowProposalSerializer(serializers.ModelSerializer):
     is_stale = serializers.SerializerMethodField(
         help_text=(
             "Whether approving this would undo an edit made since it was proposed. False while the "
-            "workflow only changed elsewhere, because approving merges per step."
+            "workflow only changed elsewhere, because approving merges only what the proposal changes."
         )
     )
 
@@ -3941,7 +3633,9 @@ class WorkflowProposalSerializer(serializers.ModelSerializer):
         cache = self.context.setdefault("proposal_conflicts", {})
         key = (proposal.hog_flow_id, proposal.base_version, json.dumps(proposal.content, sort_keys=True))
         if key not in cache:
-            cache[key] = conflicting_parts(proposal.hog_flow, proposal)
+            cache[key] = proposal_conflicts(
+                team_id=proposal.team_id, hog_flow_id=proposal.hog_flow_id, proposal_id=proposal.id
+            )
         return bool(cache[key])
 
 
@@ -3961,12 +3655,11 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
         help_text="The metric numbers behind the proposal, so a human can judge it without re-deriving them.",
     )
     base_version = serializers.IntegerField(
-        required=False,
+        min_value=1,
         help_text=(
-            "Workflow version this was authored against. Required when the proposal changes actions, "
-            "edges or variables: it is the snapshot approve compares against to tell whether someone "
-            "edited the same steps since, and a defaulted version would read as current however long "
-            "the producer took. Defaults to the current live version otherwise."
+            "Workflow version this was authored against, as read from the workflow. It is the snapshot "
+            "approve compares against to tell whether someone edited the same steps or fields since, "
+            "and a defaulted version would read as current however long the producer took."
         ),
     )
     step_id = serializers.CharField(
@@ -3991,8 +3684,14 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
     )
 
     def validate_evidence(self, value: Any) -> dict:
-        if not isinstance(value, dict) or not value:
-            return value or {}
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError(
+                "Send `evidence` as an object whose fields name the metric and its reading, not a bare value."
+            )
+        if not value:
+            return {}
         # The panel reads these back by name; a producer's own key would render as "no data".
         if not isinstance(value.get("metric"), str) or not value["metric"].strip():
             raise exceptions.ValidationError(
@@ -4046,21 +3745,6 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
             _validate_merge_keys(field, value.get(field))
         return value
 
-    def validate(self, attrs: dict) -> dict:
-        changes_the_graph = any(
-            field in attrs.get("content", {}) for field in (*PROPOSAL_WHOLE_LIST_FIELDS, *PROPOSAL_MERGE_BY_ID_FIELDS)
-        )
-        if changes_the_graph and attrs.get("base_version") is None:
-            raise exceptions.ValidationError(
-                {
-                    "base_version": (
-                        "Send the workflow version you read, so approving this can tell whether the "
-                        "workflow moved on while you were writing it."
-                    )
-                }
-            )
-        return attrs
-
 
 class WorkflowProposalApproveRequestSerializer(serializers.Serializer):
     overwrite = serializers.BooleanField(
@@ -4102,9 +3786,43 @@ class WorkflowProposalMetricSerializer(serializers.Serializer):
     )
 
 
+class WorkflowVersionChangeSerializer(serializers.Serializer):
+    step_name = serializers.CharField(
+        allow_null=True, help_text="Step the field belongs to, or null for a workflow field."
+    )
+    field = serializers.CharField(help_text="What changed, as a person reads it, e.g. 'email > subject'.")
+    before = serializers.CharField(allow_null=True, help_text="Value in the version before this one.")
+    after = serializers.CharField(allow_null=True, help_text="Value this version published.")
+    from_suggestion = serializers.BooleanField(help_text="Whether the suggestion is what changed this field.")
+
+
 class WorkflowProposalVersionOutcomeSerializer(serializers.Serializer):
     version = serializers.IntegerField(help_text="Workflow version these numbers belong to.")
+    applied = serializers.BooleanField(required=False, help_text="Whether the suggestion went live as this version.")
+    proposed_against = serializers.BooleanField(
+        required=False, help_text="Whether the suggestion was written against this version."
+    )
+    carries_change = serializers.BooleanField(
+        required=False, help_text="Whether this version still holds what the suggestion changed."
+    )
+    other_changes = serializers.BooleanField(
+        required=False,
+        help_text="Whether this version also changed something the suggestion did not, which the numbers cannot separate.",
+    )
+    changes = WorkflowVersionChangeSerializer(
+        many=True, required=False, help_text="What this version changed against the version before it."
+    )
+    published_at = serializers.DateTimeField(allow_null=True, required=False, help_text="When this version went live.")
+    published_by = UserBasicSerializer(allow_null=True, required=False, help_text="Who published this version.")
+    versions = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        help_text="Every version summed into these numbers. The after side runs on while later versions keep the change.",
+    )
     target = WorkflowProposalMetricSerializer(help_text="The metric the suggestion aimed at.")
+    secondary = WorkflowProposalMetricSerializer(
+        required=False, help_text="The rate read beside the target, so a lift in one is visible against the other."
+    )
     click_through = WorkflowProposalMetricSerializer(
         help_text="Click-through rate over the same window and denominator, since opens alone can move without clicks."
     )
@@ -4114,12 +3832,22 @@ class WorkflowProposalVersionOutcomeSerializer(serializers.Serializer):
 
 
 class WorkflowProposalOutcomeSerializer(serializers.Serializer):
-    window = serializers.CharField(help_text="Relative window both sides were measured over.")
+    versions = WorkflowProposalVersionOutcomeSerializer(
+        many=True,
+        help_text=(
+            "Every published version around the change, each read over its own time live, so a later edit shows up "
+            "as its own point rather than ending the comparison."
+        ),
+    )
     before = WorkflowProposalVersionOutcomeSerializer(
         allow_null=True, help_text="The version the change was proposed against."
     )
     after = WorkflowProposalVersionOutcomeSerializer(
-        allow_null=True, help_text="The version it went live as. Null until the proposal is applied."
+        allow_null=True, help_text="The versions that carried the change. Null until the proposal is applied."
+    )
+    change_ended_at_version = serializers.IntegerField(
+        allow_null=True,
+        help_text="The version that changed what the suggestion changed, which is where the after side stops. Null while the change is still live.",
     )
     unavailable_guardrails = serializers.ListField(
         child=serializers.CharField(),
@@ -4148,6 +3876,12 @@ class ProposalNotRunnableError(exceptions.APIException):
         super().__init__(detail)
 
 
+class WorkflowNotLiveError(exceptions.APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Suggestions need a live workflow. Enable it first."
+    default_code = "workflow_not_live"
+
+
 class WorkflowNotOptimisedError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
@@ -4161,7 +3895,7 @@ class ProposalOutOfDateError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
         "Someone changed this workflow where the suggestion changes it, so approving it would undo "
-        "their edit. Ask for a fresh suggestion."
+        "their edit. Reject it, and the scout can suggest again from the current version on its next run."
     )
     default_code = "proposal_out_of_date"
 
@@ -4172,35 +3906,6 @@ class ProposalOutOfDateError(exceptions.APIException):
         super().__init__(detail)
 
 
-def merge_proposal_content(live_content: dict, proposal_content: dict) -> dict:
-    """Live content with the proposal applied. Whole-list fields replace; `actions` merges per step
-    and, within a step, per field, so a proposal that rewrites one subject line leaves the rest of
-    that email and the rest of the graph exactly as they are now."""
-    merged = {**live_content, **proposal_content}
-    for field in PROPOSAL_MERGE_BY_ID_FIELDS:
-        if field in proposal_content:
-            merged[field] = _merge_by_id(live_content.get(field) or [], proposal_content[field] or [])
-    return merged
-
-
-def _merge_by_id(live_items: list, changed_items: list) -> list:
-    """Merge each changed step into the live step with the same id, field by field, the way the
-    graph API's `update_action` does: a producer sends the fields it changes and nothing else, so a
-    step can never lose its template inputs to a payload that only carried a subject line."""
-    changed_by_id = {item["id"]: item for item in changed_items if isinstance(item, dict) and "id" in item}
-    merged = []
-    for item in live_items:
-        patch = changed_by_id.pop(_item_id(item), None)
-        merged.append(_deep_merge(copy.deepcopy(item), patch) if patch is not None else item)
-    # Anything left names a step the workflow does not have yet, so the proposal is adding it whole.
-    merged.extend(changed_by_id.values())
-    return merged
-
-
-def _item_id(item: Any) -> Any:
-    return item.get("id") if isinstance(item, dict) else None
-
-
 def _validate_merge_keys(field: str, items: Any) -> None:
     """Merging is keyed on `id`, so a missing or repeated one has no defined meaning. Reject it here
     rather than picking a winner and staging a draft the author did not write."""
@@ -4208,159 +3913,14 @@ def _validate_merge_keys(field: str, items: Any) -> None:
         return
     seen: set[str] = set()
     for index, item in enumerate(items):
-        item_id = _item_id(item)
-        if not isinstance(item_id, str) or not item_id:
+        key = item_id(item)
+        if not isinstance(key, str) or not key:
             raise exceptions.ValidationError(
                 f"`{field}[{index}]` needs the `id` of the step it changes. Send only the steps you change."
             )
-        if item_id in seen:
-            raise exceptions.ValidationError(f"`{field}` names `{item_id}` twice.")
-        seen.add(item_id)
-
-
-def describe_steps(hog_flow: HogFlow, step_ids: list[str]) -> list[str]:
-    """Step names for a person to read. A step deleted since has no name left, so it keeps its id."""
-    names = {_item_id(item): item.get("name") for item in snapshot_flow_content(hog_flow).get("actions") or []}
-    return [names.get(step_id) or step_id for step_id in step_ids]
-
-
-def conflicting_parts(hog_flow: HogFlow, proposal: WorkflowProposal, content: Optional[dict] = None) -> list[str]:
-    """Parts of the workflow the proposal changes that someone else already changed since it was
-    written: step ids for `actions`, field names for everything else.
-
-    The check follows merge semantics. A step merges per field, so only the fields the proposal sets
-    on the steps it names are compared, as they were at `base_version` against as they are now. A
-    whole-list field replaces the list, so any publish since counts. Every other field replaces one
-    value, so that value is compared. An edit elsewhere merges cleanly, and an edit that already made
-    the proposed change is nothing to undo, so neither is a reason to refuse."""
-    if hog_flow.version == proposal.base_version:
-        return []
-    base_content = base_content_of(hog_flow, proposal)
-    content = proposal_changes(proposal, base_content) if content is None else content
-    touched_steps = {_item_id(item) for item in content.get("actions") or []} - {None}
-    touched_lists = [field for field in PROPOSAL_WHOLE_LIST_FIELDS if field in content]
-    touched_fields = [
-        field
-        for field in content
-        if field not in PROPOSAL_MERGE_BY_ID_FIELDS and field not in PROPOSAL_WHOLE_LIST_FIELDS
-    ]
-    if touched_lists:
-        # A whole-list field replaces the list, so any publish since counts.
-        return sorted({*touched_steps, *touched_lists, *touched_fields})
-    if base_content is None:
-        # Without the snapshot the proposal read, "changed since" is unanswerable.
-        return sorted({*touched_steps, *touched_fields})
-    live_content = snapshot_flow_content(hog_flow)
-    base_actions = {_item_id(item): item for item in base_content.get("actions") or []}
-    live_actions = {_item_id(item): item for item in live_content.get("actions") or []}
-    proposed_actions = {_item_id(item): item for item in content.get("actions") or []}
-    moved_steps = [
-        step_id
-        for step_id in touched_steps
-        # A step the proposal adds is only a conflict if that id now exists.
-        if not (step_id not in base_actions and step_id not in live_actions)
-        and _moved_since(base_actions.get(step_id), live_actions.get(step_id), proposed_actions[step_id])
-    ]
-    moved_fields = [
-        field
-        for field in touched_fields
-        # These replace the whole value, so a key the proposal does not name still goes with it.
-        if base_content.get(field) != live_content.get(field) and live_content.get(field) != content[field]
-    ]
-    return sorted({*moved_steps, *moved_fields})
-
-
-def base_content_of(hog_flow: HogFlow, proposal: WorkflowProposal) -> dict | None:
-    """The workflow as the proposal read it. That is the live workflow while its version has not
-    moved; after a publish it is the revision snapshot, which a workflow that has never been
-    published under revision tracking may not have."""
-    if hog_flow.version == proposal.base_version:
-        return snapshot_flow_content(hog_flow)
-    revision = HogFlowRevision.objects.filter(hog_flow=hog_flow, version=proposal.base_version).first()
-    return dict(revision.content) if revision is not None else None
-
-
-def proposal_changes(proposal: WorkflowProposal, base_content: dict | None) -> dict:
-    """The proposal's content reduced to what it changes against the workflow as it read it: a
-    step keeps only the fields that read differently there, and a step that reads the same drops
-    out. A producer that sends a whole step therefore still merges as the one-field change it made,
-    and never writes the rest of that step back over a later edit. Without the snapshot the content
-    stands as sent."""
-    content = dict(proposal.content)
-    if base_content is None or "actions" not in content:
-        return content
-    base_steps = {_item_id(item): item for item in base_content.get("actions") or []}
-    changed_steps = []
-    for item in content.get("actions") or []:
-        base_step = base_steps.get(_item_id(item))
-        if not isinstance(item, dict) or base_step is None:
-            changed_steps.append(item)
-            continue
-        changed = _changed_leaves(base_step, {key: value for key, value in item.items() if key != "id"})
-        if changed is not _ABSENT:
-            changed_steps.append({"id": item["id"], **changed})
-    content["actions"] = changed_steps
-    return content
-
-
-_ABSENT = object()
-
-
-def _changed_leaves(base: Any, patch: Any) -> Any:
-    """`patch` without every leaf that already reads the same in `base`, read the way `_deep_merge`
-    writes it; `_ABSENT` when nothing is left."""
-    if isinstance(patch, dict) and isinstance(base, dict):
-        kept = {}
-        for key, value in patch.items():
-            changed = _changed_leaves(base.get(key), value)
-            if changed is not _ABSENT:
-                kept[key] = changed
-        return kept if kept else _ABSENT
-    if patch is None:
-        return _ABSENT if base is None else None
-    return _ABSENT if patch == base else patch
-
-
-def _moved_since(base: Any, live: Any, proposed: Any) -> bool:
-    """Whether someone changed, since `base`, something the proposal sets, and to a value other than
-    the proposed one. Reads the patch the way `_deep_merge` writes it: a dict compares leaf by leaf,
-    anything else as one value."""
-    if not isinstance(proposed, dict) or base is None or live is None:
-        return base != live and live != proposed
-    return any(
-        _leaf(live, path) != _leaf(base, path) and _leaf(live, path) != _leaf(proposed, path)
-        for path in _patch_paths(proposed)
-    )
-
-
-def _patch_paths(patch: Any, prefix: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
-    if not isinstance(patch, dict) or not patch:
-        return [prefix]
-    return [path for key, value in patch.items() for path in _patch_paths(value, (*prefix, key))]
-
-
-def _leaf(item: Any, path: tuple[str, ...]) -> Any:
-    for key in path:
-        if not isinstance(item, dict) or key not in item:
-            return _ABSENT
-        item = item[key]
-    # A null leaf in a patch deletes the key, so it reads as the key being absent.
-    return _ABSENT if item is None else item
-
-
-def unstage_workflow_proposals(hog_flow: HogFlow) -> None:
-    """Put every approved suggestion back in the queue, because the draft it was approved into is
-    about to be replaced.
-
-    Approved means one thing here: this suggestion is what sits in the draft. Discarding the draft,
-    restoring a revision, approving a different suggestion or editing over it all replace that
-    draft, and publish reads approved as "this is what shipped", so it must not record one against
-    a version that never carried it. A suggestion whose change survives the replacement comes back
-    to the queue too, which costs a person one more approval rather than a wrong history entry.
-    """
-    WorkflowProposal.objects.filter(hog_flow=hog_flow, status=WorkflowProposal.Status.APPROVED).update(
-        status=WorkflowProposal.Status.SUGGESTED, resolved_at=None, resolved_by=None
-    )
+        if key in seen:
+            raise exceptions.ValidationError(f"`{field}` names `{key}` twice.")
+        seen.add(key)
 
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
@@ -4441,52 +4001,6 @@ def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
 BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "failed", "archived")
 
 
-def filter_by_broadcast_status(queryset: QuerySet, statuses: set[str]) -> QuerySet:
-    # The status a sender sees on a broadcast, derived the way the broadcasts UI derives it: from the
-    # latest run and whether a schedule still has sends to come.
-    latest_run_status = (
-        HogFlowBatchJob.objects.filter(team_id=OuterRef("team_id"), hog_flow_id=OuterRef("pk"))
-        .order_by("-created_at")
-        .values("status")[:1]
-    )
-    queryset = queryset.annotate(
-        _latest_run_status=Subquery(latest_run_status),
-        _has_pending_schedule=Exists(
-            HogFlowSchedule.objects.filter(
-                team_id=OuterRef("team_id"), hog_flow_id=OuterRef("pk"), status=HogFlowSchedule.Status.ACTIVE
-            )
-        ),
-    )
-    live = Q(status=HogFlow.State.ACTIVE)
-    # Only a wizard launch always leaves a schedule or a run. An opened workflow can wait for an API send.
-    nothing_to_come = Q(_latest_run_status__isnull=True, _has_pending_schedule=False)
-    unfinished_launch = nothing_to_come & Q(origin_product="broadcasts")
-    running = [HogFlowBatchJob.State.WAITING, HogFlowBatchJob.State.QUEUED, HogFlowBatchJob.State.ACTIVE]
-    conditions = {
-        "draft": Q(status=HogFlow.State.DRAFT),
-        "archived": Q(status=HogFlow.State.ARCHIVED),
-        "sending": live & Q(_latest_run_status__in=running),
-        "sent": live & Q(_latest_run_status=HogFlowBatchJob.State.COMPLETED, _has_pending_schedule=False),
-        "scheduled": live
-        & (
-            (
-                Q(_has_pending_schedule=True)
-                & (Q(_latest_run_status__isnull=True) | Q(_latest_run_status=HogFlowBatchJob.State.COMPLETED))
-            )
-            | (nothing_to_come & ~Q(origin_product="broadcasts"))
-        ),
-        "failed": live
-        & (
-            Q(_latest_run_status__in=[HogFlowBatchJob.State.FAILED, HogFlowBatchJob.State.CANCELLED])
-            | unfinished_launch
-        ),
-    }
-    combined = Q()
-    for broadcast_status in statuses:
-        combined |= conditions[broadcast_status]
-    return queryset.filter(combined)
-
-
 class HogFlowFilterSet(FilterSet):
     # A producer's work list, so an agent need not read every workflow to find the few it may look at.
     optimization_enabled = BooleanFilter(
@@ -4504,7 +4018,20 @@ class HogFlowFilterSet(FilterSet):
         # Off keeps its row, so "on" is a row still enabled. Archived workflows drop out: nothing runs there.
         if not value:
             return queryset.exclude(optimization__enabled=True)
-        return queryset.filter(optimization__enabled=True).exclude(status=HogFlow.State.ARCHIVED)
+        return queryset.filter(optimization__enabled=True, status=HogFlow.State.ACTIVE)
+
+
+class _RevisionPages:
+    """Lets LimitOffsetPagination page revisions in the database, as it did over a queryset."""
+
+    def __init__(self, hog_flow_id: uuid_mod.UUID) -> None:
+        self.hog_flow_id = hog_flow_id
+
+    def count(self) -> int:
+        return count_revisions(self.hog_flow_id)
+
+    def __getitem__(self, page: slice) -> list[WorkflowRevisionSummary]:
+        return list_revisions(self.hog_flow_id, offset=page.start or 0, limit=page.stop - (page.start or 0))
 
 
 class HogFlowPagination(LimitOffsetPagination):
@@ -4613,8 +4140,25 @@ def mint_audience_confirm_token(
 WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogFlowSerializer.Meta.read_only_fields)
 
 
+class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
+    """The versioned metrics request: the shared parameters plus the version to read."""
+
+    version = serializers.IntegerField(
+        required=True,
+        help_text=(
+            "Read one workflow version's series: every run of that version, keyed on the workflow. "
+            "The unversioned read keys batch and broadcast runs on the run instead, so it is not the "
+            "sum of the versions; compare versions with each other, not with it."
+        ),
+    )
+
+
 @extend_schema(extensions={"x-product": "workflows"})
 @extend_schema_view(
+    metrics=extend_schema(parameters=[AppMetricsRequestSerializer], responses=AppMetricResponseSerializer),
+    metrics_totals=extend_schema(
+        parameters=[AppMetricsRequestSerializer], responses=AppMetricsTotalsResponseSerializer
+    ),
     list=extend_schema(
         parameters=[
             OpenApiParameter(
@@ -4658,7 +4202,7 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
                 ),
             ),
         ]
-    )
+    ),
 )
 class HogFlowViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
@@ -4669,6 +4213,7 @@ class HogFlowViewSet(
         "retrieve",
         "logs",
         "metrics",
+        "metrics_version",
         "metrics_totals",
         "metrics_global",
         "team_reputation",
@@ -4711,6 +4256,37 @@ class HogFlowViewSet(
     function_kind = "hog_flow"
     _workflow_last_runs: dict[uuid_mod.UUID, WorkflowLastRunDTO] | None = None
 
+    @extend_schema(parameters=[HogFlowVersionMetricsRequestSerializer], responses=AppMetricResponseSerializer)
+    @action(detail=True, methods=["GET"], url_path="metrics/version")
+    def metrics_version(self, request: Request, *args, **kwargs):
+        """One published version's series. Every hog flow metric is mirrored under
+        `hog_flow_version` with the version appended to the id, which is what makes "before and
+        after this change" answerable at all. The unversioned read keys batch and broadcast runs on
+        the run instead, so it is not the sum of the versions."""
+        hog_flow = self.get_object()
+        param_serializer = HogFlowVersionMetricsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
+        after_date, _, _ = relative_date_parse_with_delta_mapping(params.get("after", "-7d"), self.team.timezone_info)
+        before_date, _, _ = relative_date_parse_with_delta_mapping(params.get("before", "-0d"), self.team.timezone_info)
+
+        data = fetch_app_metrics_trends(
+            team_id=self.team_id,
+            app_source=HOG_FLOW_VERSION_APP_SOURCE,
+            app_source_id=f"{hog_flow.id}/{params['version']}",
+            instance_id=params.get("instance_id"),
+            interval=params.get("interval", "day"),
+            after=after_date,
+            before=before_date,
+            breakdown_by=params.get("breakdown_by"),
+            name=params["name"].split(",") if params.get("name") else None,
+            kind=params["kind"].split(",") if params.get("kind") else None,
+        )
+        return Response(AppMetricResponseSerializer(instance=data).data)
+
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # Dual-method custom actions need method-aware scopes — the action-name-based read/write
         # lists above can't distinguish GET (read) from POST (write) on the same action. Without
@@ -4721,10 +4297,11 @@ class HogFlowViewSet(
                 return ["hog_flow:read"]
             return ["hog_flow:write"]
         if self.action == "proposals":
-            # Reading is workflow-read; authoring stages content into the draft, so it is a workflow write.
+            # Listing is workflow-read. Authoring takes its own narrow scope, so a producer can suggest without
+            # being able to publish.
             if request.method in ("GET", "HEAD", "OPTIONS"):
                 return ["hog_flow:read"]
-            return ["hog_flow:write"]
+            return ["hog_flow_proposal:write"]
         if self.action in ("batch_jobs", "schedules"):
             # Dispatching (or scheduling) fans out to persons and renders person properties into
             # outbound messages, so it's person-data access on top of the workflow write - same
@@ -4803,7 +4380,27 @@ class HogFlowViewSet(
         if self.action == "list":
             # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
             # otherwise repeat on one page and never appear on another.
-            queryset = queryset.order_by("-updated_at", "-id")
+
+            pending = (
+                WorkflowProposal.objects.filter(hog_flow=OuterRef("pk"), status=WorkflowProposal.Status.SUGGESTED)
+                .order_by()
+                .values("hog_flow")
+                .annotate(count=Count("id"))
+                .values("count")
+            )
+            queryset = queryset.annotate(
+                pending_suggestions=Coalesce(Subquery(pending), 0),
+                suggestions_enabled=Coalesce(F("optimization__enabled"), Value(False)),
+            )
+            # A suggestion waits on a person, so the page that shows them sorts it above recency. Every
+            # other reader of this list — the MCP tool, any other surface — keeps recency, or a stale
+            # workflow with one suggestion would push a fresh one off their first page.
+            # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
+            # otherwise repeat on one page and never appear on another.
+            if self.request.GET.get("suggestions_first") in ("true", "1"):
+                queryset = queryset.order_by("-pending_suggestions", "-updated_at", "-id")
+            else:
+                queryset = queryset.order_by("-updated_at", "-id")
 
             created_by = self.request.GET.get("created_by")
             if created_by:
@@ -4843,7 +4440,9 @@ class HogFlowViewSet(
                     raise exceptions.ValidationError(
                         {"broadcast_status": f"Must be one or more of: {', '.join(BROADCAST_STATUSES)}"}
                     )
-                queryset = filter_by_broadcast_status(queryset, requested_statuses)
+                queryset = queryset.filter(
+                    id__in=hog_flow_ids_with_broadcast_status(team_id=self.team_id, statuses=requested_statuses)
+                )
 
             # `?type=loop` and `?type=broadcast` return the same rows, but Desktop's Loops list sends
             # this param and ships on its own release cadence, so installed builds keep sending it.
@@ -5056,7 +4655,9 @@ class HogFlowViewSet(
                 "Create as draft, test with workflows-test-run, then enable with workflows-enable."
             )
 
-        serializer.save()
+        with transaction.atomic():
+            serializer.save()
+            self._append_revision(serializer.instance, created_by=self._revision_author())
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, detail_type="standard")
         self._emit_resource_edited(serializer.instance)
 
@@ -5189,7 +4790,7 @@ class HogFlowViewSet(
                     bump = self._stage_revision_bump(serializer.instance, before_update, serializer.validated_data)
                 if clears_staged_draft:
                     serializer.save(draft=None, draft_updated_at=None, draft_encrypted_inputs=None)
-                    unstage_workflow_proposals(serializer.instance)
+                    unstage_workflow_proposals(team_id=serializer.instance.team_id, hog_flow_id=serializer.instance.pk)
                 else:
                     serializer.save()
                 if bump:
@@ -5264,24 +4865,26 @@ class HogFlowViewSet(
         return True
 
     def _append_revisions(self, instance: HogFlow, before: HogFlow) -> None:
-        # Must run inside the same transaction as the content write it snapshots. On the first
-        # tracked write, also snapshot the outgoing live content so the state before any tracked
-        # change is always available to roll back to (there's no backfill).
+        # Must run inside the same transaction as the content write it snapshots. A workflow created
+        # before the create path wrote revisions has no rows, and there is no backfill. On its first
+        # tracked write, also snapshot the outgoing live content, so the state before any tracked
+        # change stays available to roll back to.
         if not HogFlowRevision.objects.filter(hog_flow=instance).exists():
-            HogFlowRevision.objects.create(
-                team_id=self.team_id,
-                hog_flow=instance,
-                version=before.version,
-                content=snapshot_flow_content(before),
-                created_by=None,
-            )
+            self._append_revision(before, created_by=None)
+        self._append_revision(instance, created_by=self._revision_author())
+
+    def _append_revision(self, flow: HogFlow, *, created_by: User | None) -> None:
         HogFlowRevision.objects.create(
             team_id=self.team_id,
-            hog_flow=instance,
-            version=instance.version,
-            content=snapshot_flow_content(instance),
-            created_by=self.request.user if self.request.user.is_authenticated else None,
+            hog_flow=flow,
+            version=flow.version,
+            content=snapshot_flow_content(flow),
+            created_by=created_by,
         )
+
+    def _revision_author(self) -> User | None:
+        user = self.request.user
+        return user if isinstance(user, User) else None
 
     def _write_draft(self, instance: HogFlow, locked: HogFlow, validated_data: dict) -> None:
         # The draft is always a full content snapshot (live config as the base, staged draft on top,
@@ -5304,7 +4907,7 @@ class HogFlowViewSet(
         instance.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
         # An edit over an approved draft may undo the suggestion, and publish reads approved as shipped.
-        unstage_workflow_proposals(instance)
+        unstage_workflow_proposals(team_id=instance.team_id, hog_flow_id=instance.pk)
 
     @extend_schema(request=HogFlowGraphUpdateSerializer, responses={200: HogFlowSerializer})
     @action(detail=True, methods=["PATCH"])
@@ -5524,8 +5127,8 @@ class HogFlowViewSet(
             "filters"
         ):
             return
-        paused = after.schedules.filter(status=HogFlowSchedule.Status.ACTIVE).update(
-            status=HogFlowSchedule.Status.PAUSED, next_run_at=None, updated_at=timezone.now()
+        paused = after.schedules.filter(status=HogFlowScheduleStatus.ACTIVE).update(
+            status=HogFlowScheduleStatus.PAUSED, next_run_at=None, updated_at=timezone.now()
         )
         if paused:
             self._report_workflow_action("hog_flow_schedules_paused_on_audience_change", after, {"paused": paused})
@@ -5599,7 +5202,7 @@ class HogFlowViewSet(
         schedule_overrides = {
             str(schedule_id): variables or {}
             for schedule_id, variables in hog_flow.schedules.exclude(
-                status=HogFlowSchedule.Status.COMPLETED
+                status=HogFlowScheduleStatus.COMPLETED
             ).values_list("id", "variables")
         }
         return build_publish_impact(
@@ -5727,13 +5330,13 @@ class HogFlowViewSet(
             locked.draft = None
             locked.draft_updated_at = None
             locked.draft_encrypted_inputs = None
-            unstage_workflow_proposals(locked)
             # updated_at (auto_now) is deliberately bumped: without a fresh live stamp the
             # resource_edited broadcast carries the old updated_at — older than the draft stamp
             # concurrent editors loaded, so they'd ignore the discard, and their next draft save
             # would pass the staleness guard (which falls back to the live stamp once the draft is
             # gone) and silently resurrect the discarded draft.
             locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs", "updated_at"])
+            unstage_workflow_proposals(team_id=locked.team_id, hog_flow_id=locked.pk)
 
         log_activity_from_viewset(self, locked, activity="draft_discarded", name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
@@ -5749,8 +5352,7 @@ class HogFlowViewSet(
         # Version history: one snapshot per live-content change, newest first. Content is fetched
         # per-version via the detail endpoint — the list stays light.
         instance = self.get_object()
-        queryset = HogFlowRevision.objects.filter(hog_flow=instance).order_by("-version").select_related("created_by")
-        page = self.paginate_queryset(queryset)
+        page = self.paginate_queryset(cast(Sequence[Any], _RevisionPages(instance.pk)))
         return self.get_paginated_response(HogFlowRevisionBasicSerializer(page, many=True).data)
 
     @extend_schema(
@@ -5760,9 +5362,8 @@ class HogFlowViewSet(
     @action(detail=True, methods=["GET"], url_path=r"revisions/(?P<version>\d+)")
     def revision_detail(self, request: Request, version: Optional[str] = None, *args, **kwargs):
         instance = self.get_object()
-        try:
-            revision = HogFlowRevision.objects.get(hog_flow=instance, version=int(version or 0))
-        except HogFlowRevision.DoesNotExist:
+        revision = get_revision(hog_flow_id=instance.pk, version=int(version or 0))
+        if revision is None:
             raise exceptions.NotFound("No such revision for this workflow.")
         return Response(HogFlowRevisionSerializer(revision).data)
 
@@ -5782,39 +5383,26 @@ class HogFlowViewSet(
         param_serializer.is_valid(raise_exception=True)
 
         instance = self.get_object()
-        with transaction.atomic():
-            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
-            locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
-            try:
-                revision = HogFlowRevision.objects.get(hog_flow_id=locked.pk, version=int(version or 0))
-            except HogFlowRevision.DoesNotExist:
-                raise exceptions.NotFound("No such revision for this workflow.")
-            if locked.draft and not param_serializer.validated_data["overwrite"]:
-                raise DraftExistsError()
-            # Overwrite fencing: the client confirms against the draft stamp it saw. A draft staged
-            # or edited between the confirmation dialog and this call carries a different stamp, and
-            # overwriting it would lose unpublished content that no revision snapshots.
-            expected_draft_updated_at = param_serializer.validated_data.get("expected_draft_updated_at")
-            if (
-                locked.draft
-                and expected_draft_updated_at is not None
-                and locked.draft_updated_at != expected_draft_updated_at
-            ):
-                raise StaleWorkflowUpdateError()
-            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
-            before_update = HogFlow.objects.get(pk=instance.pk)
-            locked.draft = dict(revision.content)
-            locked.draft_updated_at = timezone.now()
-            unstage_workflow_proposals(locked)
-            # Revision snapshots carry no secrets (they're stripped before snapshotting), so the
-            # restored draft re-attaches from the live encrypted_inputs on the follow-up publish.
-            # Clear any stale draft secrets from a prior draft so they can't bleed into this one.
-            locked.draft_encrypted_inputs = None
-            locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
+        restored_version = int(version or 0)
+        try:
+            restore_revision(
+                hog_flow_id=instance.pk,
+                version=restored_version,
+                overwrite=param_serializer.validated_data["overwrite"],
+                expected_draft_updated_at=param_serializer.validated_data.get("expected_draft_updated_at"),
+            )
+        except WorkflowRevisionNotFound:
+            raise exceptions.NotFound("No such revision for this workflow.")
+        except WorkflowDraftExists:
+            raise DraftExistsError()
+        except WorkflowDraftChanged:
+            raise StaleWorkflowUpdateError()
+        # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance)
+        locked = HogFlow.objects.get(pk=instance.pk)
 
-        log_activity_from_viewset(self, locked, activity="revision_restored", name=locked.name, previous=before_update)
+        log_activity_from_viewset(self, locked, activity="revision_restored", name=locked.name, previous=instance)
         self._emit_resource_edited(locked)
-        self._report_workflow_action("hog_flow_revision_restored", locked, {"version": revision.version})
+        self._report_workflow_action("hog_flow_revision_restored", locked, {"version": restored_version})
 
         return Response(self.get_serializer(locked).data)
 
@@ -5889,8 +5477,16 @@ class HogFlowViewSet(
         if retry_of:
             return Response(WorkflowProposalSerializer(retry_of).data, status=status.HTTP_200_OK)
 
+        # A version the workflow has not reached names nothing, and the outcome read spans versions.
+        if params["base_version"] > instance.version:
+            raise exceptions.ValidationError(
+                {"base_version": f"This workflow is on version {instance.version}, so there is nothing later to read."}
+            )
+
         # Reading the queue stays open while the flag is on; the workflow's opt-in only gates producing a new one.
-        if not HogFlowOptimization.objects.filter(hog_flow=instance, enabled=True).exists():
+        if instance.status != HogFlow.State.ACTIVE:
+            raise WorkflowNotLiveError()
+        if not is_optimization_enabled(instance.pk):
             raise WorkflowNotOptimisedError()
 
         live_content = snapshot_flow_content(instance)
@@ -5913,15 +5509,47 @@ class HogFlowViewSet(
                         ]
                     }
                 )
+            # Publish revalidates the draft with the workflow serializer; run it here, where the producer can fix what it refuses.
+            # Validation recovers stored secrets into the inputs it is given, and the merge shares
+            # the dicts of steps the proposal adds, so a shallow copy would leak a draft secret.
+            draft_serializer = self.get_serializer(instance, data=deepcopy(merged), partial=True)
+            if not draft_serializer.is_valid():
+                raise exceptions.ValidationError(
+                    {
+                        "content": [
+                            "Publishing this change would be refused, so it cannot be suggested as it is.",
+                            *_flatten_graph_errors(serializers.ValidationError(dict(draft_serializer.errors))),
+                        ]
+                    }
+                )
+            content = as_the_serializer_stores_it(content, draft_serializer.validated_data)
+
+        step_id = params.get("step_id") or None
+        if step_id:
+            # The reading and the outcome are keyed on this step, so it has to exist.
+            known_steps = {item_id(item) for item in snapshot_flow_content(instance).get("actions") or []}
+            added_steps = {item_id(item) for item in content.get("actions") or []}
+            if step_id not in known_steps and step_id not in added_steps:
+                raise exceptions.ValidationError(
+                    {"step_id": "Name a step this workflow has, or one the suggestion adds."}
+                )
+
+        # The producer's numbers are its own claim; PostHog's reading of the same step and version sits beside them.
+        # `measured` is the server's word, so a producer's own copy of that key never survives a failed read.
+        evidence = dict(params.get("evidence") or {})
+        evidence.pop("measured", None)
+        measured = self._measure_evidence(instance, params["base_version"], step_id, evidence)
+        if measured is not None:
+            evidence["measured"] = measured
 
         proposal = WorkflowProposal(
             hog_flow=instance,
             title=params["title"],
             rationale=params["rationale"],
             content=content,
-            evidence=params.get("evidence") or {},
-            step_id=params.get("step_id") or None,
-            base_version=params.get("base_version") or instance.version or 1,
+            evidence=evidence,
+            step_id=step_id,
+            base_version=params["base_version"],
             source_id=source_id,
         )
         try:
@@ -5998,10 +5626,11 @@ class HogFlowViewSet(
                 raise ProposalAlreadyResolvedError()
             if locked.draft and not param_serializer.validated_data["overwrite"]:
                 raise DraftExistsError()
-            changes = proposal_changes(locked_proposal, base_content_of(locked, locked_proposal))
-            conflicts = conflicting_parts(locked, locked_proposal, changes)
-            if conflicts:
-                raise ProposalOutOfDateError(describe_steps(locked, conflicts))
+            staged = staged_proposal_changes(
+                team_id=locked.team_id, hog_flow_id=locked.pk, proposal_id=locked_proposal.pk
+            )
+            if staged.conflicts:
+                raise ProposalOutOfDateError(staged.conflicts)
             expected_draft_updated_at = param_serializer.validated_data.get("expected_draft_updated_at")
             if (
                 locked.draft
@@ -6014,7 +5643,7 @@ class HogFlowViewSet(
             # The draft is a full snapshot (live plus what the suggestion changes), so publish stays
             # a plain copy. A field the suggestion merely echoed is not staged, since writing it back
             # would undo a later edit the conflict check let through.
-            merged = merge_proposal_content(snapshot_flow_content(locked), changes)
+            merged = merge_proposal_content(snapshot_flow_content(locked), staged.changes)
             try:
                 # Create validated the merge against the graph as it was then; it can have moved since.
                 validate_graph(merged.get("actions") or [], merged.get("edges") or [], merged.get("abort_action"))
@@ -6027,7 +5656,7 @@ class HogFlowViewSet(
             locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
             # The new draft replaces what was staged; an earlier approval stays only if the draft still carries it.
-            unstage_workflow_proposals(locked)
+            unstage_workflow_proposals(team_id=locked.team_id, hog_flow_id=locked.pk)
 
             locked_proposal.status = WorkflowProposal.Status.APPROVED
             locked_proposal.resolved_at = timezone.now()
@@ -6044,7 +5673,6 @@ class HogFlowViewSet(
             OpenApiParameter(
                 "proposal_id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="Proposal to read outcomes for."
             ),
-            OpenApiParameter("window", OpenApiTypes.STR, description="Relative window, e.g. -7d. Defaults to -7d."),
         ],
         responses={200: WorkflowProposalOutcomeSerializer},
     )
@@ -6066,62 +5694,42 @@ class HogFlowViewSet(
         self._require_self_optimising_enabled()
         instance = self.get_object()
         proposal = self._get_proposal_or_404(instance, proposal_id)
-        window = request.query_params.get("window") or "-7d"
-        after_date, _, _ = relative_date_parse_with_delta_mapping(window, self.team.timezone_info)
-        # Both reads below go to ClickHouse, which refuses an untagged query.
+        # The read below goes to ClickHouse, which refuses an untagged query.
         tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
-
         return Response(
             WorkflowProposalOutcomeSerializer(
-                {
-                    "window": window,
-                    "before": self._version_outcome(instance, proposal.base_version, after_date, proposal.step_id),
-                    "after": self._version_outcome(instance, proposal.applied_version, after_date, proposal.step_id),
-                    "unavailable_guardrails": list(UNAVAILABLE_GUARDRAILS),
-                }
+                proposal_outcome(team_id=self.team_id, hog_flow_id=instance.pk, proposal_id=proposal.pk)
             ).data
         )
 
-    def _version_outcome(
-        self, hog_flow: HogFlow, version: Optional[int], after: Any, step_id: Optional[str] = None
+    def _measure_evidence(
+        self, hog_flow: HogFlow, base_version: int, step_id: Optional[str], evidence: dict
     ) -> Optional[dict]:
-        if version is None:
+        """PostHog's own reading of the metrics a suggestion is about, taken when it is filed.
+
+        Same read as the outcome's "before" side, over the producer's window when it names a
+        relative one. A read that fails leaves the suggestion filed with the producer's numbers
+        only, which the page labels as unverified."""
+        window = evidence.get("window") if isinstance(evidence.get("window"), str) else None
+        if not window or not re.fullmatch(r"-\d+[dh]", window):
+            window = "-7d"
+        try:
+            after_date, _, _ = relative_date_parse_with_delta_mapping(window, self.team.timezone_info)
+            tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+            reading = version_outcome(
+                team_id=self.team_id,
+                hog_flow_id=hog_flow.pk,
+                versions=[base_version],
+                after=after_date,
+                step_id=step_id,
+                target=target_metric_in(evidence),
+            )
+        except Exception:
+            logger.exception("workflow_proposal: could not measure evidence", extra={"hog_flow_id": str(hog_flow.id)})
             return None
-        # Scoped to the step the suggestion names; several email steps would otherwise share one denominator.
-        totals = fetch_app_metric_totals(
-            team_id=self.team_id,
-            app_source=HOG_FLOW_VERSION_APP_SOURCE,
-            app_source_id=f"{hog_flow.id}/{version}",
-            breakdown_by="name",
-            after=after,
-            instance_id=step_id or None,
-            name=[
-                TARGET_SEND_METRIC,
-                TARGET_OPEN_METRIC,
-                TARGET_CLICK_METRIC,
-                TARGET_UNTRACKED_METRIC,
-                *GUARDRAIL_METRICS,
-            ],
-        ).totals
-        sends = int(totals.get(TARGET_SEND_METRIC, 0))
-        # Untracked sends can never record an open, so opens read against tracked sends; guardrails keep every send.
-        tracked_sends = max(0, sends - int(totals.get(TARGET_UNTRACKED_METRIC, 0)))
-
-        def rate(count: int, label: str, denominator: int) -> dict:
-            return {
-                "metric": label,
-                "value": (count / denominator) if denominator else None,
-                "n": denominator,
-                "below_minimum_sample": denominator < MIN_EVIDENCE_SAMPLE,
-            }
-
-        return {
-            "version": version,
-            "target": rate(int(totals.get(TARGET_OPEN_METRIC, 0)), "email open rate", tracked_sends),
-            # Same denominator as opens: a send with tracking off can record neither.
-            "click_through": rate(int(totals.get(TARGET_CLICK_METRIC, 0)), "click rate", tracked_sends),
-            "guardrails": [rate(int(totals.get(name, 0)), GUARDRAIL_LABELS[name], sends) for name in GUARDRAIL_METRICS],
-        }
+        if reading is None:
+            return None
+        return {**reading, "window": window}
 
     @extend_schema(
         parameters=[
@@ -6159,41 +5767,21 @@ class HogFlowViewSet(
     @extend_schema(request=HogFlowOptimizationSerializer, responses={200: HogFlowOptimizationSerializer})
     @action(detail=True, methods=["GET", "POST"], url_path="optimization", filter_backends=[])
     def optimization(self, request: Request, *args, **kwargs):
-        """Whether PostHog may look at this workflow and suggest changes to it.
+        """Whether PostHog may suggest changes to this workflow.
 
-        Turning it off stops a producer reading the workflow. Suggestions already made are left
-        alone: someone still has them to resolve.
+        Turning it off stops new suggestions. Suggestions already made are left alone: someone
+        still has them to resolve.
         """
         self._require_self_optimising_enabled()
         instance = self.get_object()
-
-        row = HogFlowOptimization.objects.filter(hog_flow=instance).first()
 
         if request.method == "POST":
             param_serializer = HogFlowOptimizationSerializer(data=request.data)
             param_serializer.is_valid(raise_exception=True)
             enabled = param_serializer.validated_data["enabled"]
-            if row is None:
-                # Turning it off for a workflow nobody turned on is a no-op, not a row saying "no".
-                changed = enabled
-                if enabled:
-                    # get_or_create rather than create: two first-time enables race, and the loser of
-                    # the one-to-one constraint would answer 500 for a workflow that is now on.
-                    # nosemgrep: idor-lookup-without-team - team scope is enforced by TeamScopedManager
-                    row, created = HogFlowOptimization.objects.get_or_create(
-                        hog_flow=instance, defaults={"enabled": True}
-                    )
-                    changed = created or not row.enabled
-                    if not created and not row.enabled:
-                        row.enabled = True
-                        row.save(update_fields=["enabled"])
-            else:
-                # Off keeps the row: how many tried this and stopped is a rollout question.
-                changed = row.enabled != enabled
-                if changed:
-                    row.enabled = enabled
-                    row.save(update_fields=["enabled"])
-
+            if enabled and instance.status != HogFlow.State.ACTIVE:
+                raise WorkflowNotLiveError()
+            changed = set_optimization_enabled(hog_flow_id=instance.pk, enabled=enabled)
             if changed:
                 log_activity_from_viewset(
                     self,
@@ -6204,8 +5792,10 @@ class HogFlowViewSet(
                 self._report_workflow_action(
                     "hog_flow_optimization_enabled" if enabled else "hog_flow_optimization_disabled", instance
                 )
+        else:
+            enabled = is_optimization_enabled(instance.pk)
 
-        return Response(HogFlowOptimizationSerializer({"enabled": row is not None and row.enabled}).data)
+        return Response(HogFlowOptimizationSerializer({"enabled": enabled}).data)
 
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
@@ -6285,12 +5875,13 @@ class HogFlowViewSet(
             # data, so it requires the same access the audience editor requires.
             if not self.user_access_control.check_access_level_for_resource("account", "viewer"):
                 raise exceptions.PermissionDenied("You do not have access to customer analytics accounts.")
+            size = get_account_audience_size(team_id=self.team_id, filters=filters, sends_email=params["sends_email"])
             return Response(
                 BlastRadiusSerializer(
                     {
-                        "affected": get_account_audience_count(self.team, filters),
-                        "total": get_account_audience_count(self.team, {"audience_type": "accounts"}),
-                        "limit": get_hogflow_batch_trigger_limit(self.team_id, sends_email=params["sends_email"]),
+                        "affected": size.affected,
+                        "total": size.total,
+                        "limit": size.limit,
                         "dedupe_key": None,
                         "confirm_token": mint_audience_confirm_token(self.team_id, filters, None, None),
                     }
@@ -6299,36 +5890,22 @@ class HogFlowViewSet(
 
         reject_flag_conditions_in_audience(self.team, filters)
 
-        # Preview matches the actual send: with dedup active, "affected" is the number of
-        # sends (unique emails + email-less persons), not the number of matching persons —
-        # the legacy person-count query is skipped entirely, "total" comes straight from
-        # the cached team-wide count it would have returned anyway. The applied key is
-        # echoed back so the frontend labels the count from the response instead of
-        # guessing whether the dedup actually ran.
-        applied_dedupe_key = None
-        audience_v2 = group_type_index is None and use_audience_query_v2(self.team)
-        if dedupe_key is not None and group_type_index is None:
-            if audience_v2:
-                blast_radius = get_dedupe_audience_count_v2(self.team, filters, dedupe_key)
-            else:
-                total = self.team.persons_seen_so_far
-                affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
-                blast_radius = BlastRadiusResult(affected=affected, total=total)
-            applied_dedupe_key = dedupe_key
-        elif audience_v2:
-            blast_radius = get_person_audience_count_v2(self.team, filters)
-        else:
-            blast_radius = get_user_blast_radius(self.team, filters, group_type_index)
-
+        size = get_audience_size(
+            team_id=self.team_id,
+            filters=filters,
+            group_type_index=group_type_index,
+            dedupe_key=dedupe_key,
+            sends_email=params["sends_email"],
+        )
         return Response(
             BlastRadiusSerializer(
                 {
-                    "affected": blast_radius.affected,
-                    "total": blast_radius.total,
-                    "limit": get_hogflow_batch_trigger_limit(self.team_id, sends_email=params["sends_email"]),
-                    "dedupe_key": applied_dedupe_key,
+                    "affected": size.affected,
+                    "total": size.total,
+                    "limit": size.limit,
+                    "dedupe_key": size.dedupe_key,
                     "confirm_token": mint_audience_confirm_token(
-                        self.team_id, filters, group_type_index, applied_dedupe_key
+                        self.team_id, filters, group_type_index, size.dedupe_key
                     ),
                 }
             ).data
@@ -6583,7 +6160,8 @@ class HogFlowViewSet(
                 .filter(id__in=[flow.id for flow in deletable])
                 .values_list("id", flat=True)
             )
-            deleted_count, _ = self.get_queryset().filter(id__in=deleted_ids).delete()
+            _, deleted_by_model = self.get_queryset().filter(id__in=deleted_ids).delete()
+            deleted_count = deleted_by_model.get(HogFlow._meta.label, 0)
             deleted_flows = [flow for flow in deletable if flow.id in deleted_ids]
             for flow in deleted_flows:
                 log_activity_from_viewset(self, flow, activity="deleted", name=flow.name)
@@ -6629,21 +6207,7 @@ class HogFlowViewSet(
         # Members holding just object-level grants still get their (filtered) per-workflow rows.
         can_read_all_workflows = self.user_access_control.check_access_level_for_resource("hog_flow", "viewer")
 
-        # Cached briefly: the UI reloads per search keystroke, but search filters in Python — the
-        # ClickHouse totals are search-independent. Session-authenticated requests bypass the
-        # default (personal-API-key-only) ClickHouse throttles, so without this a member could
-        # re-run the 30-day aggregation on every request.
-        totals_cache_key = f"workflows_email_reputation_totals_{self.team_id}"
-        totals_by_source = cache.get(totals_cache_key)
-        if totals_by_source is None:
-            after = timezone.now() - timedelta(days=self.REPUTATION_WINDOW_DAYS)
-            totals_by_source = fetch_app_metric_totals_by_source(
-                team_id=self.team_id,
-                app_source="hog_flow",
-                after=after,
-                name=EMAIL_HEALTH_METRIC_NAMES,
-            )
-            cache.set(totals_cache_key, totals_by_source, 60)
+        totals_by_source = fetch_email_totals_by_source(self.team_id, self.REPUTATION_WINDOW_DAYS)
 
         # email_blocked is how SES complaint events are recorded (see the plugin server's SES
         # webhook handler), hence "complained".
@@ -6656,24 +6220,24 @@ class HogFlowViewSet(
             else None
         )
 
-        # Sources matching neither a workflow nor a batch job (deleted workflows, non-UUID ids)
-        # still count toward the team aggregate above. Unnamed flows come back as "" to keep
-        # hog_flow_name a plain string in the generated types.
-        team_queryset = self.get_queryset()
-        folded_totals = fold_email_totals_by_flow(
-            team_id=self.team_id, totals_by_source=totals_by_source, flows=team_queryset
-        )
-        counts_by_flow = folded_totals.counts_by_flow
-        names_by_flow_id = folded_totals.names_by_flow_id
-
         # Mirror metrics_global: only surface workflows the caller can see, so reputation doesn't
         # leak names/volumes of access-controlled workflows the list endpoint hides.
+        team_queryset = self.get_queryset()
         accessible_ids = {
             str(flow_id)
             for flow_id in self.user_access_control.filter_queryset_by_access_level(team_queryset).values_list(
                 "id", flat=True
             )
         }
+
+        # Sources matching neither a workflow nor a batch job (deleted workflows, non-UUID ids)
+        # still count toward the team aggregate above. Unnamed flows come back as "" to keep
+        # hog_flow_name a plain string in the generated types.
+        folded_totals = fold_email_totals(
+            team_id=self.team_id, totals_by_source=totals_by_source, flow_ids=accessible_ids
+        )
+        counts_by_flow = folded_totals.counts_by_flow
+        names_by_flow_id = folded_totals.names_by_flow_id
         # Server-side by necessity: the response is capped to the worst 50 workflows, so filtering
         # client-side could never find a healthy workflow beyond the cap.
         search = (request.query_params.get("search") or "").strip().lower()
@@ -6711,13 +6275,9 @@ class HogFlowViewSet(
 
         # Shown to every project member regardless of per-object grants: a suspension stops
         # everyone's email, so hiding it would just leave silent send failures unexplained.
-        suspension = (
-            TeamWorkflowsConfig.objects.filter(team_id=self.team_id)
-            .values("email_sending_suspended_at", "email_sending_suspension_reason")
-            .first()
-        )
-        suspended_at = suspension["email_sending_suspended_at"] if suspension else None
-        suspension_reason = suspension["email_sending_suspension_reason"] if suspension else ""
+        suspension = get_email_sending_state(self.team_id)
+        suspended_at = suspension.suspended_at if suspension else None
+        suspension_reason = suspension.suspension_reason if suspension else ""
 
         # Same project-wide gate as `reputation`: the breakdown pools every workflow's email for a
         # sending domain, so object-level grants alone don't earn it.
@@ -6732,12 +6292,12 @@ class HogFlowViewSet(
                 {
                     # Same gate as `reputation`: the tenant verdict pools ALL workflows' email,
                     # so members holding only object-level grants don't get it.
-                    "aws": _fetch_aws_tenant_reputation(self.team_id) if can_read_all_workflows else None,
+                    "aws": fetch_aws_tenant_reputation(self.team_id) if can_read_all_workflows else None,
                     "reputation": reputation,
                     "workflows": workflow_rows,
                     # Same project-wide gate as `reputation`: the breakdown pools every workflow's
                     # email for a sending domain, so object-level grants alone don't earn it.
-                    "isps": _fetch_isp_metrics(self.team_id, self.REPUTATION_WINDOW_DAYS, list(isp_domains.readable)),
+                    "isps": fetch_isp_metrics(self.team_id, self.REPUTATION_WINDOW_DAYS, list(isp_domains.readable)),
                     "isp_shared_domains": list(isp_domains.shared),
                     "isp_withheld_domains": list(isp_domains.withheld),
                     "email_sending_suspended": suspended_at is not None,
@@ -6745,9 +6305,7 @@ class HogFlowViewSet(
                     "email_sending_suspension_reason": suspension_reason if suspended_at is not None else "",
                     # Same gate again: the allowance is project-wide, so an object-level grant is
                     # not enough to read it.
-                    "sending_allowance": _team_email_sending_allowance(self.team_id)
-                    if can_read_all_workflows
-                    else None,
+                    "sending_allowance": team_email_sending_allowance(self.team_id) if can_read_all_workflows else None,
                 }
             ).data
         )
@@ -6769,19 +6327,15 @@ class HogFlowViewSet(
         with no reputation computation. Every project member sees this — a suspension stops
         everyone's email, so hiding it would leave silent send failures unexplained.
         """
-        suspension = (
-            TeamWorkflowsConfig.objects.filter(team_id=self.team_id)
-            .values("email_sending_suspended_at", "email_sending_suspension_reason")
-            .first()
-        )
-        suspended_at = suspension["email_sending_suspended_at"] if suspension else None
+        suspension = get_email_sending_state(self.team_id)
+        suspended_at = suspension.suspended_at if suspension else None
         return Response(
             EmailSendingSuspensionStatusSerializer(
                 {
                     "email_sending_suspended": suspended_at is not None,
                     "email_sending_suspended_at": suspended_at,
                     "email_sending_suspension_reason": (
-                        suspension["email_sending_suspension_reason"] if suspension and suspended_at is not None else ""
+                        suspension.suspension_reason if suspension and suspended_at is not None else ""
                     ),
                 }
             ).data
@@ -6804,13 +6358,21 @@ class HogFlowViewSet(
         hog_flow = self.get_object()
         before_update = HogFlow.objects.get(id=hog_flow.id)
         try:
-            resumed = resume_workflow_email_sending(hog_flow)
+            resumed_at = resume_email_sending(team_id=hog_flow.team_id, hog_flow_id=hog_flow.id)
         except StaffPausedError:
             raise exceptions.PermissionDenied(
                 "This pause can only be lifted by PostHog. Contact support to get sending re-enabled."
             )
-        if not resumed:
+        if resumed_at is None:
             raise exceptions.ValidationError({"detail": "Email sending is not paused for this workflow."})
+        hog_flow.refresh_from_db(
+            fields=[
+                "email_sending_paused_at",
+                "email_sending_paused_reason",
+                "email_sending_paused_by",
+                "email_sending_resumed_at",
+            ]
+        )
         log_activity_from_viewset(
             self, hog_flow, activity="email_sending_resumed", name=hog_flow.name, previous=before_update
         )
@@ -6870,7 +6432,7 @@ class HogFlowViewSet(
             self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:
-            batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
+            batch_jobs = list_batch_jobs(team_id=self.team_id, hog_flow_id=hog_flow.id)
             serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
             return Response(serializer.data)
 
@@ -6899,16 +6461,18 @@ class HogFlowViewSet(
         hog_flow = self.get_object()
 
         try:
-            batch_job = HogFlowBatchJob.objects.get(id=kwargs["batch_job_id"], hog_flow=hog_flow, team_id=self.team_id)
-        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
-            # DjangoValidationError fires when the id is not a parseable UUID — surface
-            # as 404 rather than a 500 reported to error tracking.
+            batch_job = get_batch_job(
+                team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=kwargs["batch_job_id"]
+            )
+        except WorkflowBatchJobNotFound:
+            # An id that is not a parseable UUID lands here too, as a 404 rather than a 500
+            # reported to error tracking.
             raise exceptions.NotFound("Batch job not found")
 
         non_terminal = {
-            HogFlowBatchJob.State.WAITING,
-            HogFlowBatchJob.State.QUEUED,
-            HogFlowBatchJob.State.ACTIVE,
+            HogFlowBatchJobState.WAITING,
+            HogFlowBatchJobState.QUEUED,
+            HogFlowBatchJobState.ACTIVE,
         }
         if batch_job.status not in non_terminal:
             return Response({"status": batch_job.status, "marked": 0, "remaining": 0, "done": True})
@@ -6934,13 +6498,15 @@ class HogFlowViewSet(
 
         if data["done"]:
             # Conditional so a completion that landed mid-cancel wins over the flip; the
-            # resolver's own terminal write absorbs the reverse race. `.update()` bypasses
-            # auto_now, so stamp updated_at explicitly.
-            HogFlowBatchJob.objects.filter(id=batch_job.id, status__in=non_terminal).update(
-                status=HogFlowBatchJob.State.CANCELLED, updated_at=timezone.now()
+            # resolver's own terminal write absorbs the reverse race.
+            set_batch_job_status(
+                team_id=self.team_id,
+                batch_job_id=batch_job.id,
+                status=HogFlowBatchJobState.CANCELLED,
+                from_statuses=non_terminal,
             )
 
-        batch_job.refresh_from_db()
+        batch_job = get_batch_job(team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=str(batch_job.id))
         self._report_workflow_action(
             "hog_flow_batch_job_cancel_requested",
             hog_flow,
@@ -6975,11 +6541,11 @@ class HogFlowViewSet(
 
             serializer = HogFlowScheduleSerializer(data=request.data, context=self.get_serializer_context())
             serializer.is_valid(raise_exception=True)
-            schedule = serializer.save(team=self.team, hog_flow=hog_flow)
+            schedule = create_schedule(team_id=self.team_id, hog_flow_id=hog_flow.id, fields=serializer.validated_data)
             self._report_workflow_action("hog_flow_schedule_created", hog_flow, {"schedule_id": str(schedule.id)})
-            return Response(serializer.data, status=201)
+            return Response(HogFlowScheduleSerializer(schedule).data, status=201)
 
-        schedules = HogFlowSchedule.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
+        schedules = list_schedules(team_id=self.team_id, hog_flow_id=hog_flow.id)
         serializer = HogFlowScheduleSerializer(schedules, many=True)
         return Response(serializer.data)
 
@@ -6998,13 +6564,13 @@ class HogFlowViewSet(
     def schedule_detail(self, request: Request, schedule_id=None, *args, **kwargs):
         hog_flow = self.get_object()
         try:
-            schedule = HogFlowSchedule.objects.get(id=schedule_id, hog_flow=hog_flow, team=self.team)
-        except HogFlowSchedule.DoesNotExist:
+            schedule = get_schedule(team_id=self.team_id, hog_flow_id=hog_flow.id, schedule_id=schedule_id)
+        except WorkflowScheduleNotFound:
             raise exceptions.NotFound("Schedule not found")
 
         if request.method == "DELETE":
             schedule_id_str = str(schedule.id)
-            schedule.delete()
+            delete_schedule(team_id=self.team_id, hog_flow_id=hog_flow.id, schedule_id=schedule.id)
             self._report_workflow_action("hog_flow_schedule_deleted", hog_flow, {"schedule_id": schedule_id_str})
             return Response(status=204)
 
@@ -7012,9 +6578,11 @@ class HogFlowViewSet(
             schedule, data=request.data, partial=True, context=self.get_serializer_context()
         )
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        schedule = update_schedule(
+            team_id=self.team_id, hog_flow_id=hog_flow.id, schedule_id=schedule.id, fields=serializer.validated_data
+        )
         self._report_workflow_action("hog_flow_schedule_updated", hog_flow, {"schedule_id": str(schedule.id)})
-        return Response(serializer.data)
+        return Response(HogFlowScheduleSerializer(schedule).data)
 
     @extend_schema(
         request=HogFlowRunRequestSerializer,
@@ -7141,18 +6709,19 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            if group_type_index is None and use_audience_query_v2(team):
-                result = get_person_audience_count_v2(team, filters)
-            else:
-                result = get_user_blast_radius(team, filters, group_type_index)
+            result = get_audience_size(
+                team_id=team.id,
+                filters=filters,
+                group_type_index=group_type_index,
+                dedupe_key=None,
+                sends_email=bool(request.data.get("sends_email", True)),
+            )
             return Response(
                 BlastRadiusSerializer(
                     {
                         "affected": result.affected,
                         "total": result.total,
-                        "limit": get_hogflow_batch_trigger_limit(
-                            team.id, sends_email=bool(request.data.get("sends_email", True))
-                        ),
+                        "limit": result.limit,
                         "dedupe_key": None,
                     }
                 ).data
@@ -7189,18 +6758,19 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            enumeration_settings = (
-                bounded_memory_settings() if group_type_index is None and use_audience_query_v2(team) else None
-            )
-            users_affected = get_batch_audience_person_ids(
-                team, filters, group_type_index, cursor, dedupe_key=dedupe_key, settings=enumeration_settings
+            page = get_audience_person_page(
+                team_id=team.id,
+                filters=filters,
+                group_type_index=group_type_index,
+                cursor=cursor,
+                dedupe_key=dedupe_key,
             )
             return Response(
                 InternalBlastRadiusPersonsSerializer(
                     {
-                        "users_affected": users_affected,
-                        "cursor": users_affected[-1] if users_affected else None,
-                        "has_more": len(users_affected) == audience_page_size(group_type_index),
+                        "users_affected": page.ids,
+                        "cursor": page.ids[-1] if page.ids else None,
+                        "has_more": page.has_more,
                     }
                 ).data
             )
@@ -7226,20 +6796,22 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         filters = request.data.get("filters") or {}
         if not is_account_audience(filters):
             return Response({"error": "Filters must declare audience_type 'accounts'"}, status=400)
-        group_type = get_account_group_type_name(team)
+        group_type = get_account_group_type_name(team.id)
         if group_type is None:
             return Response({"error": "No customer analytics account group type configured"}, status=400)
 
         cursor = request.data.get("cursor")
         try:
-            accounts = get_account_audience_page(team, filters, cursor)
+            page = get_account_audience_ids_page(team_id=team.id, filters=filters, cursor=cursor)
             return Response(
-                {
-                    "accounts": accounts,
-                    "cursor": accounts[-1] if accounts else None,
-                    "has_more": len(accounts) == ACCOUNT_BATCH_SIZE,
-                    "group_type": group_type,
-                }
+                InternalAccountAudienceSerializer(
+                    {
+                        "accounts": page.ids,
+                        "cursor": page.ids[-1] if page.ids else None,
+                        "has_more": page.has_more,
+                        "group_type": group_type,
+                    }
+                ).data
             )
         except exceptions.ValidationError as e:
             return Response({"error": _validation_error_message(e)}, status=400)
@@ -7252,160 +6824,16 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         Internal endpoint called by the scheduler service to process due schedules.
         Handles both executing due schedules and initializing next_run_at for new ones.
         """
-        from django.db import transaction  # noqa: PLC0415
-
-        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob  # noqa: PLC0415
-        from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule  # noqa: PLC0415
-        from products.workflows.backend.utils.rrule_utils import compute_next_occurrences  # noqa: PLC0415
-
-        def advance_next_run(schedule, after=None):
-            """Compute and set next_run_at, or mark completed if RRULE is exhausted."""
-            occurrences = compute_next_occurrences(
-                rrule_string=schedule.rrule,
-                starts_at=schedule.starts_at,
-                timezone_str=schedule.timezone,
-                after=after,
-                count=1,
-            )
-            if occurrences:
-                schedule.next_run_at = occurrences[0]
-                schedule.save(update_fields=["next_run_at", "updated_at"])
-            else:
-                schedule.status = HogFlowSchedule.Status.COMPLETED
-                schedule.next_run_at = None
-                schedule.save(update_fields=["status", "next_run_at", "updated_at"])
-            return occurrences
-
-        def resolve_variables(hog_flow, schedule):
-            """Build default variables from HogFlow schema, then merge schedule overrides."""
-            variables = {}
-            for var in hog_flow.variables or []:
-                variables[var.get("key")] = var.get("default")
-            variables.update(schedule.variables or {})
-            return variables
-
-        processed = []
-        initialized = []
-        failed = []
-
         try:
-            # 1. Process due schedules (next_run_at <= now)
-            # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)
-            due_schedule_ids = list(
-                HogFlowSchedule.objects.filter(
-                    status=HogFlowSchedule.Status.ACTIVE, next_run_at__lte=timezone.now()
-                ).values_list("id", flat=True)
-            )
-
-            for schedule_id in due_schedule_ids:
-                try:
-                    batch_job_params: dict | None = None
-                    schedule_invocation_params: dict | None = None
-                    with transaction.atomic():
-                        # Per-schedule transaction: lock only one row at a time to minimize
-                        # lock duration and allow concurrent replicas via skip_locked.
-                        # Re-checks conditions since the schedule may have been processed
-                        # between the ID scan and this lock.
-                        schedule = (
-                            # nosemgrep: idor-lookup-without-team
-                            HogFlowSchedule.objects.select_for_update(skip_locked=True)
-                            .select_related("hog_flow")
-                            .filter(
-                                id=schedule_id, status=HogFlowSchedule.Status.ACTIVE, next_run_at__lte=timezone.now()
-                            )
-                            .first()
-                        )
-                        if not schedule:
-                            continue
-
-                        hog_flow = schedule.hog_flow
-                        trigger_type = (hog_flow.trigger or {}).get("type")
-
-                        if hog_flow.status != "active" or trigger_type not in SCHEDULED_TRIGGER_TYPES:
-                            schedule.next_run_at = None
-                            schedule.save(update_fields=["next_run_at", "updated_at"])
-                            continue
-
-                        advance_next_run(schedule, after=schedule.next_run_at)
-
-                        if trigger_type == "batch":
-                            batch_job_params = {
-                                "team_id": schedule.team_id,
-                                "hog_flow": hog_flow,
-                                "variables": resolve_variables(hog_flow, schedule),
-                                "filters": (hog_flow.trigger or {}).get("filters", {}),
-                            }
-                        else:
-                            schedule_invocation_params = {
-                                "team_id": schedule.team_id,
-                                "hog_flow_id": str(hog_flow.id),
-                                "variables": resolve_variables(hog_flow, schedule),
-                            }
-
-                    # Dispatch outside the transaction so HTTP calls don't hold the row lock.
-                    if batch_job_params:
-                        with transaction.atomic():
-                            # Re-read the status under the flow's lock, so a stop that committed after
-                            # the check above wins, and a stop that lands later sees this job.
-                            still_active = (
-                                HogFlow.objects.select_for_update()
-                                .filter(id=batch_job_params["hog_flow"].id, status=HogFlow.State.ACTIVE)
-                                .exists()
-                            )
-                            if still_active:
-                                HogFlowBatchJob.objects.create(
-                                    **batch_job_params,
-                                    status=HogFlowBatchJob.State.QUEUED,
-                                )
-                        if still_active:
-                            processed.append(str(schedule_id))
-                    elif schedule_invocation_params:
-                        response = create_hog_flow_scheduled_invocation(**schedule_invocation_params)
-                        response.raise_for_status()
-                        processed.append(str(schedule_id))
-                except Exception:
-                    logger.exception("Error processing schedule", schedule_id=str(schedule_id))
-                    failed.append(str(schedule_id))
-
-            # 2. Initialize next_run_at for schedules that need it
-            # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)
-            uninitialized_ids = list(
-                HogFlowSchedule.objects.filter(
-                    status=HogFlowSchedule.Status.ACTIVE,
-                    next_run_at__isnull=True,
-                    hog_flow__status="active",
-                    hog_flow__trigger__type__in=SCHEDULED_TRIGGER_TYPES,
-                ).values_list("id", flat=True)
-            )
-
-            for schedule_id in uninitialized_ids:
-                try:
-                    with transaction.atomic():
-                        # Per-schedule transaction: lock only one row at a time to minimize
-                        # lock duration and allow concurrent replicas via skip_locked.
-                        # Re-checks conditions since the schedule may have been initialized
-                        # between the ID scan and this lock.
-                        schedule = (
-                            # nosemgrep: idor-lookup-without-team
-                            HogFlowSchedule.objects.select_for_update(skip_locked=True)
-                            .filter(id=schedule_id, status=HogFlowSchedule.Status.ACTIVE, next_run_at__isnull=True)
-                            .first()
-                        )
-                        if not schedule:
-                            continue
-
-                        if advance_next_run(schedule):
-                            initialized.append(str(schedule.id))
-                except Exception:
-                    logger.exception("Error initializing schedule", schedule_id=str(schedule_id))
-                    failed.append(str(schedule_id))
-
+            result = process_due_schedules()
             return Response(
-                {
-                    "processed": processed,
-                    "initialized": initialized,
-                    "failed": failed,
-                }
+                InternalProcessedSchedulesSerializer(
+                    {
+                        "processed": result.processed,
+                        "initialized": result.initialized,
+                        "failed": result.failed,
+                    }
+                ).data
             )
         except Exception as e:
             logger.exception("Error in internal_process_due_schedules", error=str(e))
@@ -7420,8 +6848,6 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         Accepts: { status: "completed" | "failed" }
         """
-        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob  # noqa: PLC0415
-
         if request.method != "PUT":
             return Response({"error": "Method not allowed"}, status=405)
 
@@ -7431,45 +6857,45 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": "Team not found"}, status=404)
 
         new_status = request.data.get("status")
-        if new_status not in (HogFlowBatchJob.State.COMPLETED, HogFlowBatchJob.State.FAILED):
+        if new_status not in (HogFlowBatchJobState.COMPLETED, HogFlowBatchJobState.FAILED):
             return Response(
                 {"error": "status must be one of: completed, failed"},
                 status=400,
             )
 
         try:
-            batch_job = HogFlowBatchJob.objects.get(id=batch_job_id, team=team)
-        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
-            # `DjangoValidationError` fires when `batch_job_id` is not a parseable
-            # UUID (UUIDField rejects it before the lookup). `ValueError` is a
-            # belt-and-suspenders catch for str→int / str→UUID edge cases on
-            # other backends. Either way, surface as 404, not 500.
+            batch_job = get_batch_job(team_id=team.id, batch_job_id=batch_job_id)
+        except WorkflowBatchJobNotFound:
+            # An unparseable `batch_job_id` lands here too: surface as 404, not 500.
             return Response({"error": "Batch job not found"}, status=404)
 
         terminal_states = {
-            HogFlowBatchJob.State.COMPLETED,
-            HogFlowBatchJob.State.FAILED,
-            HogFlowBatchJob.State.CANCELLED,
+            HogFlowBatchJobState.COMPLETED,
+            HogFlowBatchJobState.FAILED,
+            HogFlowBatchJobState.CANCELLED,
         }
         if batch_job.status in terminal_states:
             # Idempotent no-op: already in a terminal state.
             return Response(
-                {
-                    "id": str(batch_job.id),
-                    "status": batch_job.status,
-                    "no_op": True,
-                }
+                InternalBatchJobStatusSerializer(
+                    {
+                        "id": str(batch_job.id),
+                        "status": batch_job.status,
+                        "no_op": True,
+                    }
+                ).data
             )
 
         try:
-            batch_job.status = new_status
-            batch_job.save(update_fields=["status", "updated_at"])
+            set_batch_job_status(team_id=team.id, batch_job_id=batch_job.id, status=HogFlowBatchJobState(new_status))
             return Response(
-                {
-                    "id": str(batch_job.id),
-                    "status": batch_job.status,
-                    "no_op": False,
-                }
+                InternalBatchJobStatusSerializer(
+                    {
+                        "id": str(batch_job.id),
+                        "status": new_status,
+                        "no_op": False,
+                    }
+                ).data
             )
         except Exception as e:
             logger.exception(

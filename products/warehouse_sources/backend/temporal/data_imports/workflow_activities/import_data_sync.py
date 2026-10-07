@@ -38,6 +38,9 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    external_destination_ids_for,
+)
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     TERMINAL_JOB_STATUSES,
     get_worker_shutdown_handoff_metric,
@@ -60,7 +63,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -70,9 +72,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     SimpleSource,
     SourceExtractionNotImplementedError,
     error_message_matches,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.byte_bounded_extraction_flag import (
-    is_byte_bounded_extraction_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import (
     SourceCursorManager,
@@ -97,7 +96,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
+from products.warehouse_sources.backend.temporal.data_imports.util import (
+    NonRetryableException,
+    PostHogInternalDatabaseError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -117,9 +119,6 @@ class ImportDataActivityInputs:
     fast_return_eligible: bool = False
     # Kept apart from `reset_pipeline`, which every retry would read again and wipe the table again.
     scheduled_full_refresh: bool = False
-    # Fixed for the job lifetime so a flag change between activity attempts cannot mix a stale
-    # keyset checkpoint with a server-cursor retry that reset the destination table.
-    keyset_full_load_enabled: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -131,7 +130,6 @@ class ImportDataActivityInputs:
             "reset_pipeline": self.reset_pipeline,
             "fast_return_eligible": self.fast_return_eligible,
             "scheduled_full_refresh": self.scheduled_full_refresh,
-            "keyset_full_load_enabled": self.keyset_full_load_enabled,
         }
 
 
@@ -390,20 +388,26 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         model = await _get_external_data_job(inputs.run_id)
 
-        if model.pipeline_version == ExternalDataJob.PipelineVersion.V3:
-            attempt = current_activity_attempt()
-            if attempt > 1 and model.status in TERMINAL_JOB_STATUSES:
-                await logger.ainfo(
-                    "Skipping retry - job already terminal",
-                    status=model.status,
-                    attempt=attempt,
-                )
-                # The consumer already finalized this run (that's how it became terminal), so the
-                # workflow must not overwrite the status or release the lock — see PipelineResult.
-                return PipelineResult(
-                    should_trigger_cdp_producer=False,
-                    consumer_manages_job_status=True,
-                )
+        if model.pipeline_version != ExternalDataJob.PipelineVersion.V3:
+            # Only a job created before every run moved to V3 can get here, and the V2 pipeline
+            # that ran it no longer exists.
+            raise NonRetryableException(
+                f"Job {inputs.run_id} uses pipeline version {model.pipeline_version}. Only V3 jobs can run."
+            )
+
+        attempt = current_activity_attempt()
+        if attempt > 1 and model.status in TERMINAL_JOB_STATUSES:
+            await logger.ainfo(
+                "Skipping retry - job already terminal",
+                status=model.status,
+                attempt=attempt,
+            )
+            # The consumer already finalized this run (that's how it became terminal), so the
+            # workflow must not overwrite the status or release the lock — see PipelineResult.
+            return PipelineResult(
+                should_trigger_cdp_producer=False,
+                consumer_manages_job_status=True,
+            )
 
         # A rewrite spanning several activity budgets resumes only while live stays at the Delta
         # version its checkpoint was built against, and the merge below is what moves it. Importing
@@ -518,9 +522,6 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             fanout_warehouse_reuse = await _warehouse_parent_reuse_available(
                 new_source, schema, inputs.source_id, inputs.team_id, logger
             )
-            byte_bounded_extraction = await database_sync_to_async_pool(is_byte_bounded_extraction_enabled)(
-                inputs.team_id, str(source_type)
-            )
             # INFO so it's visible without DEBUG: confirms which parent-source path a fan-out
             # child took, and doubles as rollout-adoption telemetry. Only fan-out children
             # (schemas with required parents) log it; every other schema stays quiet.
@@ -539,6 +540,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
             source_inputs = SourceInputs(
                 schema_name=schema.name,
+                sync_type=ExternalDataSchema.SyncType(schema.sync_type) if schema.sync_type is not None else None,
                 schema_id=str(schema.id),
                 source_id=str(inputs.source_id),
                 team_id=inputs.team_id,
@@ -568,8 +570,6 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 # A schema-level override (user-managed) wins over the source pin.
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
-                byte_bounded_extraction=byte_bounded_extraction,
-                keyset_full_load=inputs.keyset_full_load_enabled,
                 activity_attempt=activity.info().attempt if activity.in_activity() else 1,
                 source_cursor=source_cursor_manager,
             )
@@ -664,6 +664,10 @@ class ImportJobModels:
     schema: ExternalDataSchema
     source: ExternalDataSource
     table: DataWarehouseTable | None
+    # The run's destinations minus the PostHog warehouse. Resolved here because this is the
+    # run's one async-safe ORM fetch: the pipeline is built inside an async activity, where
+    # the same query raises `SynchronousOnlyOperation`.
+    external_destination_ids: list[str] = dataclasses.field(default_factory=list)
 
 
 @database_sync_to_async_pool
@@ -683,7 +687,13 @@ def _get_models(
         raise Exception("No source attached to job")
 
     table: DataWarehouseTable | None = schema.table
-    return ImportJobModels(job=job, schema=schema, source=source, table=table)
+    return ImportJobModels(
+        job=job,
+        schema=schema,
+        source=source,
+        table=table,
+        external_destination_ids=external_destination_ids_for(job.team_id, list(job.destination_ids or [])),
+    )
 
 
 # What a customer reads when a PostHog-managed credential is unavailable. Deliberately says
@@ -980,33 +990,16 @@ async def _run(
         reset_pipeline = reset_pipeline or source_response.destination_reset_required
         models = await _get_models(job_inputs.run_id)
 
-        use_v3 = models.job.pipeline_version == ExternalDataJob.PipelineVersion.V3
-
-        if use_v3:
-            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
-
-            logger.info("Running V3 pipeline (persisted job.pipeline_version is V3)")
-            pipeline: PipelineV3 | PipelineNonDLT = v3_pipeline_class(source_response)(
-                source_response,
-                logger,
-                job_inputs.run_id,
-                reset_pipeline,
-                shutdown_monitor,
-                resumable_source_manager,
-                models=models,
-                source_cursor_manager=source_cursor_manager,
-            )
-        else:
-            pipeline = PipelineNonDLT(
-                source_response,
-                logger,
-                job_inputs.run_id,
-                reset_pipeline,
-                shutdown_monitor,
-                resumable_source_manager,
-                models=models,
-                source_cursor_manager=source_cursor_manager,
-            )
+        pipeline = v3_pipeline_class(source_response)(
+            source_response,
+            logger,
+            job_inputs.run_id,
+            reset_pipeline,
+            shutdown_monitor,
+            resumable_source_manager,
+            models=models,
+            source_cursor_manager=source_cursor_manager,
+        )
 
         result = await pipeline.run()
         del pipeline

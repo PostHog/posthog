@@ -1,33 +1,46 @@
 import { useActions, useValues } from 'kea'
+import { ComponentPropsWithoutRef, forwardRef } from 'react'
 
-import {
-    IconBook,
-    IconChat,
-    IconHome,
-    IconLogomark,
-    IconSearch,
-    IconSidebarClose,
-    IconSidebarOpen,
-    IconWrench,
-} from '@posthog/icons'
+import { IconSearch, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
+import { Button, Separator, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
+import { Logomark } from 'lib/brand'
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
 import { PendingInviteDot } from 'lib/components/Account/ProjectMenu'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { cn } from 'lib/utils/css-classes'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { TODAY_RAIL_WIDTH, TodayRailPane, todayShellLogic } from './todayShellLogic'
+import { TODAY_RAIL_ITEMS } from './todayRailItems'
+import { TodayRailTile } from './TodayRailTile'
+import { TODAY_RAIL_WIDTH, railPaneHref, todayShellLogic } from './todayShellLogic'
 
-const RAIL_ITEMS: { pane: TodayRailPane; label: string; icon: JSX.Element }[] = [
-    { pane: 'home', label: 'Home', icon: <IconHome /> },
-    { pane: 'spaces', label: 'Spaces', icon: <IconChat /> },
-    { pane: 'library', label: 'Library', icon: <IconBook /> },
-    { pane: 'tools', label: 'Tools', icon: <IconWrench /> },
-]
+const RailUtility = forwardRef<
+    HTMLButtonElement,
+    { label: string; children: JSX.Element } & ComponentPropsWithoutRef<typeof Button>
+>(function RailUtility({ label, children, ...props }, ref): JSX.Element {
+    return (
+        <Tooltip>
+            <TooltipTrigger
+                delay={0}
+                render={
+                    <Button
+                        variant="default"
+                        size="icon"
+                        aria-label={label}
+                        className="relative size-10 rounded-md text-muted-foreground hover:text-foreground [&_svg]:size-5"
+                        {...props}
+                        ref={ref}
+                    />
+                }
+            >
+                {children}
+            </TooltipTrigger>
+            <TooltipContent side="right">{label}</TooltipContent>
+        </Tooltip>
+    )
+})
 
 export function TodayRail(): JSX.Element {
     const { activePane, sidebarVisible } = useValues(todayShellLogic)
@@ -39,86 +52,64 @@ export function TodayRail(): JSX.Element {
     return (
         <nav
             aria-label="Main"
-            className="flex flex-col items-center gap-1 py-3 shrink-0"
+            className="flex shrink-0 flex-col items-center gap-3 border-r border-[var(--border)] pb-3"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
-            <div className="flex items-center justify-center size-9 mb-2 text-primary" aria-hidden>
-                <IconLogomark className="size-6" />
+            {/* h-12 matches QuillSceneHeader, so the line under the logo meets the pane header's bottom border. */}
+            <div className="-mb-1 flex h-12 w-full shrink-0 flex-col items-center" aria-hidden>
+                <div className="flex flex-1 items-center">
+                    <Logomark className="h-auto w-6" />
+                </div>
+                <Separator />
             </div>
-            {RAIL_ITEMS.map(({ pane, label, icon }) => {
-                const active = activePane === pane
-                return (
-                    <ButtonPrimitive
-                        key={pane}
-                        iconOnly
-                        size="lg"
-                        active={active}
-                        aria-label={label}
-                        aria-current={active ? 'page' : undefined}
-                        tooltip={label}
-                        tooltipPlacement="right"
-                        data-attr={`today-rail-${pane}`}
-                        className={cn('text-secondary [&_svg]:size-5', active && 'text-primary')}
-                        onClick={() => pickPane(pane)}
-                    >
-                        {icon}
-                    </ButtonPrimitive>
-                )
-            })}
+            {TODAY_RAIL_ITEMS.map(({ pane, label, icon }) => (
+                <TodayRailTile
+                    key={pane}
+                    label={label}
+                    icon={icon}
+                    active={activePane === pane}
+                    to={railPaneHref(pane)}
+                    onClick={() => pickPane(pane)}
+                    dataAttr={`today-rail-${pane}`}
+                />
+            ))}
             <div className="mt-auto flex flex-col items-center gap-1">
                 {!sidebarVisible && (
                     <NewAccountMenu
                         side="right"
                         align="end"
                         renderTrigger={(props) => (
-                            <ButtonPrimitive
-                                {...props}
-                                iconOnly
-                                size="lg"
-                                aria-label="Account menu"
-                                tooltip="Account menu"
-                                tooltipPlacement="right"
-                                data-attr="new-account-menu-button"
-                                className="relative"
-                            >
-                                <UploadedLogo
-                                    name={currentOrganization?.name ?? '?'}
-                                    entityId={currentOrganization?.id ?? ''}
-                                    mediaId={currentOrganization?.logo_media_id ?? ''}
-                                    size="small"
-                                />
-                                {pendingInvites.length > 0 && (
-                                    <PendingInviteDot className="absolute top-1.5 right-1.5" />
-                                )}
-                            </ButtonPrimitive>
+                            <RailUtility {...props} label="Account menu" data-attr="new-account-menu-button">
+                                <>
+                                    <UploadedLogo
+                                        name={currentOrganization?.name ?? '?'}
+                                        entityId={currentOrganization?.id ?? ''}
+                                        mediaId={currentOrganization?.logo_media_id ?? ''}
+                                        size="small"
+                                    />
+                                    {pendingInvites.length > 0 && (
+                                        <PendingInviteDot className="absolute top-1.5 right-1.5" />
+                                    )}
+                                </>
+                            </RailUtility>
                         )}
                     />
                 )}
-                <ButtonPrimitive
-                    iconOnly
-                    size="lg"
-                    aria-label="Search"
-                    tooltip="Search"
-                    tooltipPlacement="right"
+                <RailUtility
+                    label="Search"
                     data-attr="today-rail-search"
-                    className="text-secondary [&_svg]:size-5"
                     onClick={() => toggleCommand('nav-search-button')}
                 >
                     <IconSearch />
-                </ButtonPrimitive>
-                <ButtonPrimitive
-                    iconOnly
-                    size="lg"
-                    aria-label={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
-                    tooltip={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
-                    tooltipPlacement="right"
+                </RailUtility>
+                <RailUtility
+                    label={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
                     data-attr="today-rail-toggle-sidebar"
-                    className="text-secondary [&_svg]:size-5"
                     onClick={toggleSidebar}
                 >
                     {sidebarVisible ? <IconSidebarClose /> : <IconSidebarOpen />}
-                </ButtonPrimitive>
+                </RailUtility>
             </div>
         </nav>
     )

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from posthog.schema_enums import AlertState as InsightAlertState
 
-from products.alerts.backend.facade.lifecycle import (
+from products.alerts_platform.backend.facade.lifecycle import (
     AlertCheckOutcome,
     AlertPolicy,
     AlertSnapshot,

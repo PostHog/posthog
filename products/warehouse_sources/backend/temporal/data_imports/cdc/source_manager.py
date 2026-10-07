@@ -177,8 +177,6 @@ _CONSUMED_MTIME_MARGIN = dt.timedelta(minutes=5)
 BUFFER_LISTED_AT_KEY = "cdc_buffer_listed_at"
 # File name to ETag of the files at the highest position that listing saw, kept beside it.
 BUFFER_LISTED_TAIL_KEY = "cdc_buffer_listed_tail"
-# When capture moved the table's legacy source onto the buffer, kept in the table's sync_type_config.
-LEGACY_CONVERTED_AT_KEY = "cdc_legacy_converted_at"
 
 
 @frozen
@@ -259,11 +257,6 @@ def buffer_may_have_expired_unread(schema: ExternalDataSchema, now: dt.datetime)
     if schema.last_synced_at is None:
         return False
     cutoff = now - BUFFER_FILE_RETENTION
-    # The conversion empties the buffer at a position the legacy lane had already delivered, so the
-    # table is current from then on, though no run has listed the buffer yet.
-    converted_at = (schema.sync_type_config or {}).get(LEGACY_CONVERTED_AT_KEY)
-    if converted_at is not None and dt.datetime.fromisoformat(converted_at) >= cutoff:
-        return False
     # Every completion moves it, so nothing has drained since the cutoff either.
     if schema.last_synced_at < cutoff:
         return True

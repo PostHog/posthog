@@ -722,6 +722,29 @@ return result`,
                 await expectLogic(logic).toMatchValues({ formValid: true })
             })
 
+            it('requires numeric bounds only while a System One judge is selected', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_type: 'numeric',
+                    output_config: {},
+                    model_configuration: { provider: 'system_one', model: 'custom-model', provider_key_id: 'key-1' },
+                })
+                expect(logic.values.formValid).toBe(false)
+
+                logic.actions.patchOutputConfig({ min: 1, max: 10 })
+                expect(logic.values.formValid).toBe(true)
+                logic.actions.patchOutputConfig({ max: null })
+                expect(logic.values.formValid).toBe(false)
+
+                logic.actions.setModelConfiguration({
+                    provider: 'openai',
+                    model: 'gpt-5-mini',
+                    provider_key_id: 'key-1',
+                })
+                expect(logic.values.formValid).toBe(true)
+            })
+
             // A loaded evaluation whose stored shape doesn't match its type (e.g. an llm_judge
             // record with no prompt) used to crash formValid with a TypeError on render.
             it.each([

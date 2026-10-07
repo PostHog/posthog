@@ -7,6 +7,7 @@ from parameterized import parameterized
 from pydantic import BaseModel
 
 from products.review_hog.backend.reviewer.sandbox.executor import (
+    JSON_RETRY_PROMPT,
     end_sandbox_session,
     run_sandbox_review,
     start_sandbox_session,
@@ -55,6 +56,8 @@ class TestRunSandboxReview:
         assert call_kwargs["origin_product"] == TaskOriginProduct.REVIEW_HOG
         assert call_kwargs["internal"] is True
         assert call_kwargs["ai_stage"] == "split"
+        # Without the retry prompt a prose first turn fails the whole activity and reruns the review.
+        assert call_kwargs["json_retry_prompt"] == JSON_RETRY_PROMPT
 
     @pytest.mark.asyncio
     async def test_context_built_from_explicit_identity(self) -> None:

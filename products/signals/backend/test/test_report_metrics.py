@@ -388,6 +388,25 @@ class TestReportMetric(SimpleTestCase):
         with self.assertRaisesRegex(ValidationError, f"at most {MAX_LIVE_METRIC_QUERY_SERIES} series"):
             ReportMetric.model_validate(content)
 
+    def test_live_query_validates_custom_hogql_aggregation_syntax(self) -> None:
+        for series in ({"kind": "EventsNode", "event": "$pageview"}, {"kind": "ActionsNode", "id": 1}):
+            for math_kind, expression, valid in (
+                ("hogql", "sum(", False),
+                ("hogql", "", False),
+                ("hogql", "count()", True),
+                ("hogql", "sum(properties.amount)", True),
+                ("total", "sum(", True),
+            ):
+                with self.subTest(series=series, math=math_kind, expression=expression):
+                    content = _affected_users_metric().model_dump(mode="json")
+                    content["kind"] = "custom"
+                    content["query"]["source"]["series"] = [{**series, "math": math_kind, "math_hogql": expression}]
+                    if valid:
+                        assert ReportMetric.model_validate(content).query == content["query"]
+                    else:
+                        with self.assertRaisesRegex(ValidationError, "math_hogql.*valid HogQL expression"):
+                            ReportMetric.model_validate(content)
+
     def test_live_query_rejects_formulas_the_trends_runner_cannot_execute(self) -> None:
         for description, trends_formula in (
             ("empty formulas entry", {"formulas": [""]}),

@@ -49,6 +49,12 @@ class TestGetAttributionHealth(SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.team = Team(id=1)
+        flag_patcher = patch(
+            "products.marketing_analytics.backend.services.native_integrations.get_feature_flag_or_none",
+            return_value=True,
+        )
+        self.mock_flag = flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
         from products.marketing_analytics.backend.services.native_integrations import canonical_source_aliases
 
         fetch_patcher = patch(
@@ -157,6 +163,27 @@ class TestGetAttributionHealth(SimpleTestCase):
         # Totals reflect ALL events the team had (intentional — overall context still useful).
         assert response.total_events_with_utm == 300
         assert response.total_events_matched_to_any_integration == 300
+
+    @parameterized.expand([(True, None), (False, None), (True, "TwitterAds"), (False, "TwitterAds")])
+    @pytest.mark.asyncio
+    async def test_disabled_sources_are_not_attribution_targets(self, enabled: bool, source_type: str | None) -> None:
+        self.mock_flag.return_value = enabled
+        self.mock_fetch.return_value = [
+            _UtmRow(raw_utm_source="twitter", event_count=20, last_seen_at=None),
+            _UtmRow(raw_utm_source="twitter_paid", event_count=10, last_seen_at=None),
+            _UtmRow(raw_utm_source="google", event_count=50, last_seen_at=None),
+        ]
+
+        response = await get_attribution_health(self.team, source_type=source_type)
+
+        assert any(e.integration_key == "twitter_ads" for e in response.integrations) is enabled
+        assert any(e.integration_key == "google_ads" for e in response.integrations) is (source_type is None)
+        assert response.total_events_with_utm == 80
+        assert response.total_events_matched_to_any_integration == (70 if enabled else 50)
+        assert response.total_events_unmatched == (10 if enabled else 30)
+        samples = {s.raw_value: s for s in response.all_utm_source_samples}
+        assert samples["twitter"].matched_integration == ("twitter_ads" if enabled else None)
+        assert samples["twitter_paid"].suggested_integration == ("twitter_ads" if enabled else None)
 
     @pytest.mark.asyncio
     async def test_unknown_source_type_filter_returns_empty(self):
@@ -390,6 +417,15 @@ class TestAttributionHealthSourceTypeFilterClickhouse(ClickhouseTestMixin, BaseT
 @time_machine.travel("2026-09-15T12:00:00Z", tick=False)
 class TestAttributionHealthPaidSignalClickhouse(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        flag_patcher = patch(
+            "products.marketing_analytics.backend.services.native_integrations.get_feature_flag_or_none",
+            return_value=True,
+        )
+        flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
 
     @parameterized.expand(
         [
