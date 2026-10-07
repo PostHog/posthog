@@ -4485,13 +4485,13 @@ Today (9): `buildings`, `categories`, `computer_groups`, `computers`, `departmen
 Diffed against: <https://developer.jamf.com/jamf-pro/reference/get_v1-buildings>
 
 - [x] `GET /api/v1/users` — lookup resolving the user/owner assigned to the computers and mobile devices we sync (high)
-- [ ] `GET /api/v2/computer-groups/smart-group-membership/{id} and /static-group-membership/{id}` — membership junction for the computer_groups we already sync — group rows without members are unusable (high)
-- [ ] `GET /api/v2/mobile-device-groups (+ smart/static group membership)` — mobile equivalent of computer_groups plus its membership; we sync mobile_devices but no groups (high)
+- ~~`GET /api/v2/computer-groups/smart-group-membership/{id} and /static-group-membership/{id}`~~ — skipped: the Jamf Pro API has no static computer group membership endpoint, and `computers` already carries every computer's smart and static memberships in its `groupMemberships` section (high)
+- [x] `GET /api/v2/mobile-device-groups (+ smart/static group membership)` — mobile equivalent of computer_groups plus its membership; we sync mobile_devices but no groups (high). Added as `mobile_device_groups`, `mobile_device_smart_group_memberships` and `mobile_device_static_group_memberships` (fan-out over smart or static groups, cut down to the device id).
 - [x] `GET /api/v3/patch-software-title-configurations and /{id}/patch-report, /{id}/patch-summary` — patch compliance per software title and per device — Jamf's headline reporting surface (high)
 - [x] `GET /api/v2/mdm-commands` — MDM command history and status per device; the state-transition record for device management (high)
 - [x] `GET /api/v1/managed-software-updates/update-statuses (+ /computers/{id}, /computer-groups/{id})` — OS update enforcement status per device — core compliance metric (high)
-- [ ] `GET /api/v2/patch-policies and /api/v2/patch-policies/{id}/logs` — per-device patch deployment outcomes for the packages we sync (medium)
-- [ ] `GET /api/v1/computers-inventory/filevault (and /{id}/filevault)` — FileVault encryption compliance per computer (medium)
+- [x] `GET /api/v2/patch-policies and /api/v2/patch-policies/{id}/logs` — per-device patch deployment outcomes for the packages we sync (medium). Added as `patch_policies` and `patch_policy_logs` (fan-out over `patch_policies`).
+- ~~`GET /api/v1/computers-inventory/filevault (and /{id}/filevault)`~~ — skipped: `computers` already syncs the `DISK_ENCRYPTION` section with the same compliance fields; the only extra field is the personal recovery key, a secret that does not belong in the warehouse (medium)
 - [ ] `GET /api/v1/computer-extension-attributes and /api/v1/mobile-device-extension-attributes` — lookup resolving the custom extension-attribute IDs embedded in inventory records (medium)
 - [ ] `GET /api/v1/volume-purchasing-locations/{id}/content and /api/v1/volume-purchasing-subscriptions` — VPP app license inventory and consumption (medium)
 - [ ] `GET /api/v1/device-enrollments and /{id}/devices` — ADE/DEP enrollment records and their device rosters (medium)

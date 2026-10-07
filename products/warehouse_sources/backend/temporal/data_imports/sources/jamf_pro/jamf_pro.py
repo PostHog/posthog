@@ -428,6 +428,8 @@ def _iter_endpoint_pages(
 
     def shape(row: dict[str, Any]) -> dict[str, Any]:
         row = _hoist_cursor(config, row)
+        if config.row_fields:
+            row = {key: row.get(key) for key in config.row_fields}
         if parent_id is not None and config.parent_id_field:
             row = {**row, config.parent_id_field: parent_id}
         return row
@@ -470,6 +472,27 @@ def _iter_endpoint_pages(
         if not has_more:
             break
         page += 1
+
+
+def _fetch_parent_rows(
+    fetch_page: Callable[[str], Any], host: str, parent_config: JamfProEndpointConfig
+) -> list[dict[str, Any]]:
+    if not parent_config.paginated:
+        data = fetch_page(_build_url(host, parent_config, {}))
+        return data if isinstance(data, list) else data.get("results", [])
+
+    params = _build_params(parent_config, False, None)
+    rows: list[dict[str, Any]] = []
+    for page in range(MAX_PAGES):
+        data = fetch_page(_build_url(host, parent_config, {**params, "page": page}))
+        results = data.get("results", [])
+        rows.extend(results)
+        total_count = data.get("totalCount")
+        if not results or (total_count is not None and len(rows) >= total_count):
+            return rows
+    raise JamfProPaginationLimitError(
+        f"Jamf Pro pagination for {parent_config.name} exceeded {MAX_PAGES} pages without terminating"
+    )
 
 
 def get_rows(
@@ -553,8 +576,10 @@ def get_rows(
         return
 
     parent_config = JAMF_PRO_ENDPOINTS[config.parent]
-    parent_data = fetch_page(_build_url(host, parent_config, {}))
-    parent_rows = parent_data if isinstance(parent_data, list) else parent_data.get("results", [])
+    parent_rows = _fetch_parent_rows(fetch_page, host, parent_config)
+    if config.parent_filter is not None:
+        filter_field, filter_value = config.parent_filter
+        parent_rows = [row for row in parent_rows if row.get(filter_field) == filter_value]
     # Walk parents in a deterministic order so a resume can skip the parents already synced.
     parent_ids = sorted((str(row["id"]) for row in parent_rows if row.get("id") is not None), key=_parent_sort_key)
 
