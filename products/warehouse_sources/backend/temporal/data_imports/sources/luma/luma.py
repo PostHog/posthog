@@ -29,7 +29,7 @@ class LumaRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class LumaResumeConfig:
     # `next_cursor` from the last fully processed page, passed back as `pagination_cursor`. For
     # fan-out endpoints this is the *events list* cursor: state is saved only after every child of an
