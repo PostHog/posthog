@@ -4,6 +4,13 @@ import { ChartDisplayType } from '~/types'
 
 import { getBIDateField } from './biQueryFilters'
 
+export const BI_COMPARISON_EMPTY_LABEL = '(empty)'
+
+export function biComparisonCategory(expression: string): string {
+    const empty = escapeHogQLString(BI_COMPARISON_EMPTY_LABEL)
+    return `if(${expression} IS NULL, ${empty}, if(startsWith(toString(${expression}), ${empty}), concat(toString(${expression}), ' (category)'), toString(${expression})))`
+}
+
 export function getBIComparisonDisabledReason(config: BIConfig): string | undefined {
     if (!getBIDateField(config) || !config.dateRange?.date_from || config.dateRange.date_from === 'all') {
         return 'Select a date column and a bounded date range first'

@@ -63,9 +63,14 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, ScannerType
+from products.replay_vision.backend.models.replay_scanner import (
+    PromptValence,
+    ReplayScanner,
+    ScannerOrigin,
+    ScannerType,
+)
 from products.replay_vision.backend.observation_formatting import summarize_observation
-from products.replay_vision.backend.prompt_questions import question_for_snapshot
+from products.replay_vision.backend.prompt_questions import question_for_snapshot, valence_for_snapshot
 from products.replay_vision.backend.scanner_access import (
     accessible_observations,
     can_read_targeted_experiment,
@@ -390,6 +395,24 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             source=getattr(obj, "scanner_prompt_question_source", "") or "",
         )
 
+    prompt_valence = serializers.SerializerMethodField(
+        help_text=(
+            "For a monitor or scorer: `good` when a yes or a high score is good news for the team, `bad` when it "
+            "is a problem, `neutral` when neither. Judged by AI from the prompt. Null for other scanner types, "
+            "when not judged, or when the prompt has changed since this observation was scanned."
+        ),
+    )
+
+    @extend_schema_field(serializers.ChoiceField(choices=PromptValence.choices, allow_null=True))
+    def get_prompt_valence(self, obj: ReplayObservation) -> PromptValence | None:
+        snapshot = obj.scanner_snapshot or {}
+        return valence_for_snapshot(
+            snapshot_config=snapshot.get("scanner_config"),
+            scanner_type=snapshot.get("scanner_type"),
+            valence=getattr(obj, "scanner_prompt_valence", "") or "",
+            source=getattr(obj, "scanner_prompt_question_source", "") or "",
+        )
+
     summary_line = serializers.SerializerMethodField(
         help_text=(
             "One line of plain text saying what the scanner found: its verdict, score, tags or title, then its "
@@ -416,6 +439,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "scanner_snapshot",
             "scanner_result",
             "prompt_question",
+            "prompt_valence",
             "triggered_by",
             "triggered_by_user",
             "backfill_id",

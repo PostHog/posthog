@@ -23,6 +23,10 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
+class UnsupportedSyncTypeError(ValueError):
+    """The stored sync type is not a mode PostHog can run."""
+
+
 @dataclass(frozen=True)
 class RevenueViewSyncInput:
     team_id: int
