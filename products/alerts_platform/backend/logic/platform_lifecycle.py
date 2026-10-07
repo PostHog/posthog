@@ -288,6 +288,10 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
 
     Keyed on the row it came from, so a second run updates rather than duplicates.
 
+    `next_check_at` is copied into a new row, and into a disabled copy that this run turns back on.
+    Otherwise the platform owns its schedule: a source can park its own next check, for example at
+    the end of quiet hours, and copying that would skip checks the platform still runs.
+
     The recurrence is checked here rather than where the schedule advances, because an
     unparseable unit or anchor raised there would fail a whole batch of unrelated checks.
     """
@@ -296,23 +300,30 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     anchor_time = validate_and_normalize_schedule_start_time(upsert.anchor_time)
 
     with transaction.atomic():
+        was_enabled = (
+            PlatformAlertConfiguration.objects.unscoped()
+            .filter(legacy_configuration_id=upsert.legacy_configuration_id)
+            .values_list("enabled", flat=True)
+            .first()
+        )
+        defaults = {
+            "team_id": upsert.team_id,
+            "name": upsert.name,
+            "enabled": upsert.enabled,
+            "source_kind": upsert.source_kind.value,
+            "source_config": upsert.source_config,
+            "check_interval_minutes": upsert.check_interval_minutes,
+            "recurrence_unit": upsert.recurrence_unit,
+            "anchor_time": anchor_time,
+            "evaluation_periods": upsert.evaluation_periods,
+            "datapoints_to_alarm": upsert.datapoints_to_alarm,
+            "cooldown_minutes": upsert.cooldown_minutes,
+            "schedule_restriction": upsert.schedule_restriction,
+        }
+        if not was_enabled:
+            defaults["next_check_at"] = upsert.next_check_at
         configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
-            legacy_configuration_id=upsert.legacy_configuration_id,
-            defaults={
-                "team_id": upsert.team_id,
-                "name": upsert.name,
-                "enabled": upsert.enabled,
-                "source_kind": upsert.source_kind.value,
-                "source_config": upsert.source_config,
-                "check_interval_minutes": upsert.check_interval_minutes,
-                "recurrence_unit": upsert.recurrence_unit,
-                "anchor_time": anchor_time,
-                "evaluation_periods": upsert.evaluation_periods,
-                "datapoints_to_alarm": upsert.datapoints_to_alarm,
-                "cooldown_minutes": upsert.cooldown_minutes,
-                "schedule_restriction": upsert.schedule_restriction,
-                "next_check_at": upsert.next_check_at,
-            },
+            legacy_configuration_id=upsert.legacy_configuration_id, defaults=defaults
         )
         alert = _alerts_for_write(upsert.team_id, [configuration])[str(configuration.id)]
         # State is left alone because a muted alert keeps tracking reality.

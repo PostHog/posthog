@@ -4,10 +4,17 @@ from uuid import uuid4
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from posthog.clickhouse.client import sync_execute
 from posthog.models.scoping import team_scope
 
-from products.alerts_platform.backend.facade.api import due_checks, record_outcomes, upsert_configuration
+from products.alerts_platform.backend.facade.api import (
+    disable_configurations,
+    due_checks,
+    record_outcomes,
+    upsert_configuration,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     FiringEpisode,
@@ -134,6 +141,52 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         assert rows == [("not_firing", self.cutoff)]
         assert self._alert().firing_started_at is None
+
+    @parameterized.expand(
+        [
+            # The source parks its own next check at the end of quiet hours. The platform still
+            # checks through them and only mutes, so taking that time would skip the muted checks.
+            ("an_enabled_copy_keeps_its_own_schedule", False, timedelta(minutes=-1)),
+            # A copy switched off with --disable comes back at the source's next due time.
+            ("a_disabled_copy_takes_the_source_schedule", True, timedelta(minutes=34)),
+        ]
+    )
+    def test_a_second_copy_keeps_the_schedule_the_platform_owns(
+        self, _name: str, disabled_between: bool, expected_offset: timedelta
+    ) -> None:
+        legacy_id = uuid4()
+
+        def copy(next_check_at: datetime) -> None:
+            upsert_configuration(
+                PlatformAlertUpsert(
+                    legacy_configuration_id=legacy_id,
+                    team_id=self.team.id,
+                    name="Quiet hours alert",
+                    enabled=True,
+                    source_kind=SourceKind.LOGS,
+                    source_config={
+                        "condition": {"threshold_count": 1, "threshold_operator": "above", "window_minutes": 5}
+                    },
+                    check_interval_minutes=5,
+                    evaluation_periods=1,
+                    datapoints_to_alarm=1,
+                    cooldown_minutes=0,
+                    schedule_restriction={"blocked_windows": [{"start": "15:00", "end": "15:34"}]},
+                    next_check_at=next_check_at,
+                    snooze_until=None,
+                )
+            )
+
+        def scheduled() -> datetime | None:
+            with team_scope(self.team.id):
+                return PlatformAlertConfiguration.objects.get(legacy_configuration_id=legacy_id).next_check_at
+
+        copy(self.cutoff - timedelta(minutes=1))
+        if disabled_between:
+            disable_configurations(SourceKind.LOGS, team_id=self.team.id)
+        copy(self.cutoff + timedelta(minutes=34))
+
+        assert scheduled() == self.cutoff + expected_offset
 
     def test_a_copied_snooze_mutes_without_holding_back_the_check(self) -> None:
         legacy_id = uuid4()
