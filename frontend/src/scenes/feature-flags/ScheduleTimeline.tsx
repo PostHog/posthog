@@ -27,6 +27,12 @@ const WIDEST_LABEL = 'still 100% (needs approval)'
  * builder's longest string carries through here on its own.
  */
 const LABEL_EDGE_PAD = (WIDEST_LABEL.length * LABEL_CHAR_WIDTH) / 2 + 5
+/**
+ * Digits and "%" draw wider than the average character. In RoundHog at the 9px size, "99.99%" measures
+ * about 33 units against 27 from the average, a shortfall that the label gap does not cover.
+ */
+const LABEL_DIGIT_WIDTH = 5.5
+const LABEL_PERCENT_WIDTH = 8.7
 /** The width estimate runs short on labels such as "On". Two labels with no space between them read as one word. */
 const LABEL_GAP = LABEL_CHAR_WIDTH
 const TOP_LABEL_LANE_OFFSET = LABEL_FONT_SIZE + 1
@@ -147,9 +153,17 @@ interface PlacedLabel {
     right: number
 }
 
+function estimateLabelWidth(text: string): number {
+    let width = 0
+    for (const char of text) {
+        width += char === '%' ? LABEL_PERCENT_WIDTH : /\d/.test(char) ? LABEL_DIGIT_WIDTH : LABEL_CHAR_WIDTH
+    }
+    return width
+}
+
 function placeLabel(x: number, y: number, text: string): PlacedLabel {
     const anchor = labelAnchor(x)
-    const width = text.length * LABEL_CHAR_WIDTH
+    const width = estimateLabelWidth(text)
     const left = anchor === 'start' ? x : anchor === 'end' ? x - width : x - width / 2
     return { text, y, anchor, left, right: left + width }
 }

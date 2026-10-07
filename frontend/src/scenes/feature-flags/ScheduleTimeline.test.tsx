@@ -208,6 +208,18 @@ describe('ScheduleTimeline', () => {
             earlierText: 'On',
             offAt: '2099-09-05T03:22:00Z',
         },
+        {
+            // Digits and "%" draw wider than the average character. At the average width the two boxes
+            // clear the minimum space, but the app font draws the labels as "99.99%Off".
+            name: 'a bare percentage step label',
+            earlier: occurrence({
+                operation: ScheduledChangeOperationType.AddReleaseCondition,
+                addedRolloutPercentage: 99.99,
+                projected: { active: true, rolloutPercentage: 99.99, variantCount: null },
+            }),
+            earlierText: '99.99%',
+            offAt: '2099-08-28T05:22:00Z',
+        },
     ])('lifts a marker label clear of $name in the same row', ({ earlier, earlierText, offAt }) => {
         render(
             <ScheduleTimeline
