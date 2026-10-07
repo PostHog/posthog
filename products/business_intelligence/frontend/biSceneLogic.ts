@@ -601,6 +601,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         },
         saveInsightSuccess: ({ insight }) => {
             if (insight) {
+                actions.setName(insight.name || 'Untitled worksheet')
                 localStorage.removeItem(`bi-worksheet-${values.currentTeamId}-${props.tabId}`)
                 refreshTreeItem('insight', insight.short_id)
                 const dashboard = router.values.searchParams.dashboard
