@@ -303,6 +303,12 @@ class AlertDeliveryRequest:
     configuration while the platform runs beside a source's own stack. `event_ids_by_kind` maps
     each kind the source can announce onto the event id its destinations filter on. The platform
     imports no source, so it cannot derive either.
+
+    `incident_actions` maps a grouping key to whether its transition opened or closed a firing.
+    It is a decision rather than a fact a message states, so it travels here like
+    `event_ids_by_kind`. It is set even when cooldown or mute held the announcement back, which
+    is the case it exists for. `sends_messages` is False on a delivery that exists only for those
+    actions, so its rows reach no message destination even when their kind has an event id.
     """
 
     source: SourceKind
@@ -311,6 +317,8 @@ class AlertDeliveryRequest:
     evaluation_key: str
     destination_alert_id: str
     event_ids_by_kind: dict[str, str]
+    incident_actions: dict[str, IncidentAction] = field(default_factory=dict)
+    sends_messages: bool = True
 
 
 @frozen
