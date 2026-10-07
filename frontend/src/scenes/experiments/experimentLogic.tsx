@@ -284,7 +284,7 @@ export function getSectionMetricUuids(experiment: Experiment, isSecondary: boole
 
 function isPrimaryMetric(experiment: Experiment, uuid: string): boolean {
     const sharedMetric = ((experiment.saved_metrics || []) as ExperimentSavedMetric[]).find(
-        ({ query }) => query.uuid === uuid
+        ({ query }) => query?.uuid === uuid
     )
     return sharedMetric ? sharedMetric.metadata.type === 'primary' : experiment.metrics.some((m) => m.uuid === uuid)
 }
