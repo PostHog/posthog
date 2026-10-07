@@ -514,15 +514,16 @@ describe('DNS lookup settings', () => {
             async ({ request, lookup, readNegativeCacheCounter }) => {
                 lookup.mockRejectedValueOnce(dnsError('ENOTFOUND'))
                 lookup.mockRejectedValueOnce(dnsError('ENOTFOUND'))
-                lookup.mockResolvedValueOnce([{ address: '1.1.1.1', family: 4 }])
+                lookup.mockResolvedValue([{ address: '1.1.1.1', family: 4 }])
 
                 await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow()
                 await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow()
                 await request.raiseIfUserProvidedUrlUnsafe('https://example.com')
+                await request.raiseIfUserProvidedUrlUnsafe('https://example.com')
 
-                expect(lookup).toHaveBeenCalledTimes(3)
-                expect(await readNegativeCacheCounter('shadow_hit')).toEqual(2)
-                expect(await readNegativeCacheCounter('shadow_hit_resolved')).toEqual(1)
+                expect(lookup).toHaveBeenCalledTimes(4)
+                expect(await readNegativeCacheCounter('shadow_hit')).toEqual(3)
+                expect(await readNegativeCacheCounter('shadow_hit_resolved')).toEqual(2)
             }
         )
     })

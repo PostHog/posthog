@@ -294,10 +294,13 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
         dnsLookupsInFlight.dec()
     }
     if (cachedFailure) {
+        // A shadow hit keeps the entry, because enforce mode would not have run this lookup and would keep failing the
+        // hostname until the entry expires. Each later success within the TTL then counts here too.
         dnsNegativeCacheCounter.inc({ result: 'shadow_hit_resolved' })
+    } else {
+        // A lookup that started before another one cached the failure can still succeed. The hostname resolves now.
+        dnsNegativeCache?.delete(cacheKey)
     }
-    // A lookup that started before another one cached the failure can still succeed. The hostname resolves now.
-    dnsNegativeCache?.delete(cacheKey)
     const resolvedIps = addrinfo.map((a) => a.address)
     for (const addrInfo of addrinfo) {
         const parsed = ipaddr.parse(addrInfo.address)
