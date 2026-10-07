@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconChevronDown, IconCopy, IconLogomark, IconSparkles } from '@posthog/icons'
+import { IconChevronDown, IconCopy, IconLogomark } from '@posthog/icons'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
@@ -202,7 +202,7 @@ const AGENTS: AgentDef[] = [
     {
         key: 'posthog-ai',
         name: 'PostHog',
-        logo: <IconSparkles className="size-4 shrink-0 text-ai" />,
+        logo: <IconLogomark className="size-4 shrink-0" />,
         verb: 'Open',
         open: (prompt, { askSidePanelMax }) => askSidePanelMax(prompt),
     },

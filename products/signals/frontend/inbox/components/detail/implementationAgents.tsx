@@ -1,4 +1,4 @@
-import { IconLogomark, IconSparkles } from '@posthog/icons'
+import { IconLogomark } from '@posthog/icons'
 
 import {
     buildClaudeCodeDeepLink,
@@ -29,7 +29,7 @@ export const IMPLEMENTATION_AGENTS: ImplementationAgent[] = [
     {
         key: 'posthog-ai',
         name: 'PostHog',
-        icon: <IconSparkles className="size-4 shrink-0 text-ai" />,
+        icon: <IconLogomark />,
         open: (prompt) => newInternalTab(urls.ai(undefined, prompt)),
     },
     {
