@@ -29,6 +29,7 @@ import { AnyPropertyFilter, IntervalType } from '~/types'
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
 import { type MCPSharedQueryFilters, mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
+import { mcpToolReportUrl } from './mcpAnalyticsToolQualityLogic'
 
 export interface DateFilter {
     dateFrom: string | null
@@ -612,6 +613,9 @@ export interface mcpDashboardOverviewLogicActions {
     markFilterInteraction: () => {
         value: true
     }
+    openToolReport: (tool: string) => {
+        tool: string
+    }
     reloadAll: () => {
         value: true
     }
@@ -686,6 +690,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         reloadAll: true,
         markFilterInteraction: true,
+        openToolReport: (tool: string) => ({ tool }),
     }),
     reducers({
         hasFilterInteraction: [false, { markFilterInteraction: () => true }],
@@ -1002,6 +1007,9 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
     listeners(({ actions, values }) => ({
         setDateFilter: () => {
             actions.reloadAll()
+        },
+        openToolReport: ({ tool }) => {
+            router.actions.push(mcpToolReportUrl(tool, values.dateFilter))
         },
         setFilterTestAccounts: () => {
             actions.markFilterInteraction()

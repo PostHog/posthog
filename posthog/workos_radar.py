@@ -4,9 +4,8 @@ WorkOS Radar integration for bot/fraud detection during authentication flows.
 This module provides a client for the WorkOS Radar Attempts API to evaluate
 signup attempts for potential fraud or bot activity. When Radar returns a
 BLOCK verdict, the attempt is rejected with a SuspiciousAttemptBlocked
-exception unless the email is on the Redis bypass list managed via the
-admin tool, or a security access rule exempts it from the signup risk
-check.
+exception unless a security access rule exempts that address from the
+signup risk check.
 """
 
 import time
@@ -22,7 +21,6 @@ import structlog
 import posthoganalytics
 from rest_framework.exceptions import APIException
 
-from posthog.redis import get_client
 from posthog.turnstile import create_challenge_nonce, validate_and_consume_nonce, verify_turnstile_token
 from posthog.utils import get_ip_address, get_short_user_agent
 
@@ -32,7 +30,6 @@ logger = structlog.get_logger(__name__)
 
 WORKOS_RADAR_API_URL = "https://api.workos.com/radar/attempts"
 WORKOS_RADAR_TIMEOUT = 5.0
-WORKOS_RADAR_BYPASS_REDIS_KEY = "workos_radar_bypass_emails"
 
 
 class SuspiciousAttemptBlocked(APIException):
@@ -84,18 +81,6 @@ def _get_raw_user_agent(request: HttpRequest) -> str:
     return request.headers.get("user-agent", "")
 
 
-def is_radar_bypass_email(email: str) -> bool:
-    return bool(get_client().sismember(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower()))
-
-
-def add_radar_bypass_email(email: str) -> None:
-    get_client().sadd(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower())
-
-
-def remove_radar_bypass_email(email: str) -> None:
-    get_client().srem(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower())
-
-
 def evaluate_auth_attempt(
     request: HttpRequest,
     email: str,
@@ -109,8 +94,8 @@ def evaluate_auth_attempt(
     Evaluate an authentication attempt using the WorkOS Radar Attempts API.
 
     Raises:
-        SuspiciousAttemptBlocked: When verdict is BLOCK and the email is
-            not in the Redis bypass list and not exempted by an access rule.
+        SuspiciousAttemptBlocked: When verdict is BLOCK and no access rule
+            exempts the address from the signup risk check.
         ChallengeRequired: When verdict is CHALLENGE and no valid Turnstile
             token was provided.
     """
@@ -145,8 +130,10 @@ def evaluate_auth_attempt(
         user_agent=short_user_agent,
         duration_ms=duration_ms,
         was_blocked=outcome == "block",
-        was_bypassed=outcome.startswith("bypass"),
-        bypass_source=outcome.removeprefix("bypass_") if outcome.startswith("bypass") else None,
+        was_bypassed=outcome == "bypass",
+        # Only access rules bypass Radar now, but the property stays so queries written
+        # while the Redis list existed keep working and the event still says why.
+        bypass_source="rule" if outcome == "bypass" else None,
         was_challenged=outcome == "challenge",
         was_challenge_completed=outcome == "completed",
     )
@@ -194,20 +181,6 @@ def _evaluate_verdict(
     return verdict, (time.perf_counter() - start_time) * 1000
 
 
-def _legacy_bypass(email: str) -> bool:
-    """The Redis list, read so a Redis failure cannot decide the signup on its own.
-
-    Raising here would 500 the request before the access rules are consulted, so an
-    address with a valid exemption would be refused by an outage in the list it does
-    not use. Treating the failure as a miss hands the decision to the rule check.
-    """
-    try:
-        return is_radar_bypass_email(email)
-    except Exception:
-        logger.warning("workos_radar_bypass_list_unavailable", email_hash=_hash_email(email))
-        return False
-
-
 def _decide_outcome(
     verdict: RadarVerdict,
     email: str,
@@ -215,21 +188,14 @@ def _decide_outcome(
     challenge_nonce: str,
     ip_address: str,
 ) -> str:
-    """Return one of: 'allow', 'block', 'bypass_legacy', 'bypass_rule', 'challenge', 'completed'.
-
-    The two bypass values name the source, because after an incident the event stream has
-    to say whether an admin's Redis entry or an access rule let the address through.
-    """
+    """Return one of: 'allow', 'block', 'bypass', 'challenge', 'completed'."""
     if turnstile_token and challenge_nonce:
         nonce_valid = validate_and_consume_nonce(challenge_nonce, email, ip_address)
         token_valid = nonce_valid and verify_turnstile_token(turnstile_token, ip_address)
         return "completed" if token_valid else "block"
 
-    if verdict in (RadarVerdict.BLOCK, RadarVerdict.CHALLENGE):
-        if _legacy_bypass(email):
-            return "bypass_legacy"
-        if is_signup_risk_exempt(email):
-            return "bypass_rule"
+    if verdict in (RadarVerdict.BLOCK, RadarVerdict.CHALLENGE) and is_signup_risk_exempt(email):
+        return "bypass"
 
     if verdict == RadarVerdict.BLOCK:
         return "block"

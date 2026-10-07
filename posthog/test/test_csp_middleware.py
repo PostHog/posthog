@@ -1,8 +1,10 @@
+from html.parser import HTMLParser
 from urllib.parse import parse_qs, urlsplit
 
 from posthog.test.base import APIBaseTest, override_settings
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory, SimpleTestCase
 
@@ -27,6 +29,37 @@ def _parse_policies(header: str) -> list[dict[str, list[str]]]:
 
 def _report_version(policy: dict[str, list[str]]) -> list[str] | None:
     return parse_qs(urlsplit(policy.get("report-uri", [""])[0]).query).get("v")
+
+
+class _PageLoads(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.scripts: list[tuple[dict[str, str | None], str]] = []
+        self.stylesheets: list[str] = []
+        self._script: dict[str, str | None] | None = None
+        self._script_body = ""
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "script":
+            self._script, self._script_body = dict(attrs), ""
+        elif tag == "link" and dict(attrs).get("rel") == "stylesheet":
+            self.stylesheets.append(dict(attrs).get("href") or "")
+
+    def handle_data(self, data: str) -> None:
+        if self._script is not None:
+            self._script_body += data
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "script" and self._script is not None:
+            self.scripts.append((self._script, self._script_body.strip()))
+            self._script = None
+
+
+def _admits(sources: list[str], url: str) -> bool:
+    parts = urlsplit(url)
+    if not parts.netloc:
+        return "'self'" in sources
+    return f"{parts.scheme}://{parts.netloc}" in sources
 
 
 # Tests run as a self-hosted install, which never enforces. LOCAL enforces without turning on DEBUG.
@@ -99,6 +132,39 @@ class TestCSPMiddleware(APIBaseTest):
         assert response["Content-Security-Policy"] == "default-src 'none'"
         assert "Content-Security-Policy-Report-Only" not in response
 
+    @parameterized.expand([("swagger", "/api/schema/swagger-ui/"), ("redoc", "/api/schema/redoc/")])
+    @override_settings(
+        TEST=False,
+        DEBUG=False,
+        CLOUD_DEPLOYMENT="US",
+        SITE_URL="https://us.posthog.com",
+        JS_URL="https://app-static-prod.posthog.com",
+    )
+    def test_api_doc_pages_load_only_what_the_app_policy_admits(self, _name: str, path: str) -> None:
+        # drf-spectacular defaults to a public CDN and to an inline init script with no nonce. The
+        # enforced app policy refuses both, and the page renders blank with no error shown.
+        response = self.client.get(path)
+        assert response.status_code == 200
+        policy = next(p for p in _parse_policies(response["Content-Security-Policy"]) if "script-src" in p)
+        page = _PageLoads()
+        page.feed(response.content.decode())
+
+        assert page.scripts
+        for attrs, body in page.scripts:
+            src = attrs.get("src")
+            if src is None:
+                assert f"'nonce-{attrs.get('nonce')}'" in policy["script-src"], body[:80]
+            else:
+                assert _admits(policy["script-src"], src), src
+                if not urlsplit(src).netloc and not src.startswith(settings.STATIC_URL):
+                    # The Swagger init script comes from the page's own URL. A response that is not
+                    # JavaScript leaves the page blank without any violation to report.
+                    script = self.client.get(src)
+                    assert script.status_code == 200, src
+                    assert "javascript" in script["Content-Type"], src
+        for href in page.stylesheets:
+            assert _admits(policy["style-src"], href), href
+
     @parameterized.expand(
         [
             ("app_root", "/", True),
@@ -124,7 +190,7 @@ class TestCSPMiddleware(APIBaseTest):
         # Framing is enforced ahead of the flag because it is what lets posthog.com frame the app.
         # The enforced list has to be the one the reported policy names, or the two drift apart.
         enforced = response["Content-Security-Policy"]
-        assert enforced.startswith("frame-ancestors https://posthog.com")
+        assert enforced.startswith("frame-ancestors 'self' https://posthog.com")
         assert "default-src" not in enforced
         assert enforced in reported
 
@@ -394,7 +460,6 @@ class TestAppCspHeaderName(SimpleTestCase):
             ("shared_dashboard", "/shared_dashboard/abc123"),
             ("shared", "/shared/abc123"),
             ("embedded", "/embedded/abc123"),
-            ("interview", "/interview/abc123"),
             ("exporter_with_token", "/exporter/abc123"),
             ("exporter_render", "/exporter"),
             ("render_query", "/render_query"),

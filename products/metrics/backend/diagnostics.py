@@ -38,14 +38,15 @@ from products.metrics.backend.facade.contracts import (
 from products.metrics.backend.fundamentals import Sample, TemporalReducer, apply_plan, plan_reduction, reduce_temporal
 from products.metrics.backend.metric_query_runner import (
     _QUERY_SETTINGS,
-    MetricQueryRunner,
     _interval_step,
     counter_lookback,
+    points_query,
     series_labels_query,
     series_scope_expr,
-    time_range_expr,
     type_filter_expr,
 )
+from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
+from products.metrics.backend.metrics4_samples import reads_metrics4_only
 
 # How much of a bucket the breakdown lists. Totals are computed over everything
 # in the bucket; these only bound what gets rendered, and the decomposition says
@@ -71,6 +72,7 @@ def _raw_samples_query(
     bucket_end: dt.datetime,
     filters: Sequence[MetricFilter],
     metric_type: str | None,
+    timezone: str,
 ) -> ast.SelectQuery:
     # The labels are joined on after the LIMIT so the row bound applies to the
     # data points read, not to the join output. A series without a row yet
@@ -94,11 +96,7 @@ def _raw_samples_query(
                     aggregation_temporality,
                     timestamp,
                     value
-                FROM posthog.metrics
-                WHERE metric_name = {metric_name}
-                  AND {time_range}
-                  AND {series_scope}
-                  AND {type_filter}
+                FROM {points}
                 ORDER BY timestamp ASC
                 LIMIT {row_limit}
             ) AS s
@@ -106,10 +104,22 @@ def _raw_samples_query(
             ORDER BY s.timestamp ASC
         """,
         placeholders={
-            "metric_name": ast.Constant(value=metric_name),
-            "time_range": time_range_expr(date_from, bucket_end),
-            "series_scope": series_scope_expr(metric_name, filters),
-            "type_filter": type_filter_expr(metric_type),
+            "points": points_query(
+                from_samples=reads_metrics4_only(date_from),
+                columns=(
+                    "series_fingerprint",
+                    "service_name",
+                    "metric_type",
+                    "aggregation_temporality",
+                    "timestamp",
+                    "value",
+                ),
+                metric_names=(metric_name,),
+                date_from=date_from,
+                date_to=bucket_end,
+                timezone=timezone,
+                row_filters=(series_scope_expr(metric_name, filters), type_filter_expr(metric_type)),
+            ),
             "row_limit": ast.Constant(value=_MAX_ROWS_READ),
             "series_labels": series_labels_query(metric_name),
         },
@@ -136,7 +146,7 @@ def _actual_value(
     functions' predecessor sample, so this asks for exactly the one bucket the
     decomposition is explaining.
     """
-    rows = MetricQueryRunner(
+    rows = build_metric_query_runner(
         team=team,
         metric_name=metric_name,
         aggregation=aggregation,
@@ -185,6 +195,7 @@ def decompose_bucket(
             bucket_end=bucket_end,
             filters=filters,
             metric_type=metric_type,
+            timezone=team.timezone,
         ),
         team=team,
         workload=Workload.LOGS,

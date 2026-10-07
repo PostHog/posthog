@@ -6,9 +6,11 @@ import pytest
 from unittest import mock
 
 import pyarrow as pa
+import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.gitea import (
     GiteaResumeConfig,
+    _add_comment_issue_number,
     _flatten_commit,
     _make_webhook_dedupe_transformer,
     _parse_next_url,
@@ -282,6 +284,139 @@ class TestGetRows:
         assert row["author_login"] == "alice"
         # The commit timestamp survives as the cursor/partition column.
         assert row["created"] == "2024-01-01T00:00:00Z"
+
+    @pytest.mark.parametrize(
+        "endpoint, page_1, page_2, headers",
+        [
+            ("issue_comments", [{"id": 1}, {"id": 2}], [{"id": 3}], {"X-Total-Count": "3"}),
+            (
+                "workflow_runs",
+                {"total_count": 3, "workflow_runs": [{"id": 3}, {"id": 2}]},
+                {"total_count": 3, "workflow_runs": [{"id": 1}]},
+                {},
+            ),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.PAGE_SIZE", 2)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_total_count_pagination_pages_by_number_without_link_header(
+        self, mock_session, endpoint, page_1, page_2, headers
+    ):
+        mock_session.return_value.get.side_effect = [
+            _response(page_1, headers=headers),
+            _response(page_2, headers=headers),
+        ]
+        manager = _make_manager()
+
+        batches = list(get_rows(BASE_URL, "tok", REPO, endpoint, mock.MagicMock(), manager))
+
+        assert sorted(row["id"] for batch in batches for row in batch) == [1, 2, 3]
+        # The total is covered after page 2, so no third request goes out.
+        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        assert len(urls) == 2
+        assert "page=2" in urls[1]
+        assert [call.args[0].next_url for call in manager.save_state.call_args_list] == [urls[1]]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_workflow_runs_not_found_raises_actions_unavailable(self, mock_session):
+        not_found = _response({"message": "Not Found"}, status_code=404)
+        not_found.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=not_found)
+        mock_session.return_value.get.return_value = not_found
+
+        with pytest.raises(ValueError, match="Gitea Actions runs are unavailable"):
+            list(get_rows(BASE_URL, "tok", REPO, "workflow_runs", mock.MagicMock(), _make_manager()))
+
+
+class TestFanOut:
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_timeline_fans_out_over_issues_in_one_unpaged_request_each(self, mock_session):
+        issues_page_2 = f"{BASE_URL}/api/v1/repos/{REPO}/issues?limit=50&page=2"
+        deleted_issue = _response({"message": "Not Found"}, status_code=404)
+        deleted_issue.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=deleted_issue)
+        responses = {
+            f"/repos/{REPO}/issues?": [
+                _response([{"number": 1}, {"number": 2}], headers={"Link": f'<{issues_page_2}>; rel="next"'}),
+                _response([{"number": 3}]),
+            ],
+            f"/repos/{REPO}/issues/1/timeline": [_response([{"id": 10}, {"id": 11}], headers={"X-Total-Count": "2"})],
+            f"/repos/{REPO}/issues/2/timeline": [deleted_issue],
+            f"/repos/{REPO}/issues/3/timeline": [_response([{"id": 30}])],
+        }
+
+        def get(url, timeout):
+            return next(responses[key].pop(0) for key in responses if key in url)
+
+        mock_session.return_value.get.side_effect = get
+        manager = _make_manager()
+
+        batches = list(
+            get_rows(
+                BASE_URL,
+                "tok",
+                REPO,
+                "issue_timeline",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+        )
+
+        assert [row for batch in batches for row in batch] == [
+            {"id": 10, "issue_number": 1},
+            {"id": 11, "issue_number": 1},
+            {"id": 30, "issue_number": 3},
+        ]
+        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        timeline_urls = [url for url in urls if "/timeline" in url]
+        assert len(timeline_urls) == 3
+        # Gitea drops rows from a timeline page after paging, and its X-Total-Count is the
+        # filtered page length, so a paged walk can stop early. Without `page` the endpoint
+        # returns the whole timeline in one response.
+        assert not any("page=" in url or "limit=" in url for url in timeline_urls)
+        # The watermark bounds both the parent issues and each issue's timeline.
+        assert all("since=2024-01-02T00%3A00%3A00Z" in url for url in [urls[0], *timeline_urls])
+        assert "type=issues" in urls[0]
+        # State points at the next parent page once every child of the current one is yielded.
+        assert [call.args[0].next_url for call in manager.save_state.call_args_list] == [issues_page_2]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_resume_starts_from_saved_parent_page(self, mock_session):
+        resume_url = f"{BASE_URL}/api/v1/repos/{REPO}/pulls?limit=50&page=4"
+        mock_session.return_value.get.side_effect = [
+            _response([{"number": 9}]),
+            _response([{"id": 90}]),
+        ]
+
+        batches = list(
+            get_rows(
+                BASE_URL,
+                "tok",
+                REPO,
+                "reviews",
+                mock.MagicMock(),
+                _make_manager(GiteaResumeConfig(next_url=resume_url)),
+            )
+        )
+
+        assert batches == [[{"id": 90, "pull_request_number": 9}]]
+        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        assert urls[0] == resume_url
+        # Gitea drops other users' pending reviews after paging, so reviews are fetched unpaged.
+        assert urls[1] == f"{BASE_URL}/api/v1/repos/{REPO}/pulls/9/reviews"
+
+
+class TestAddCommentIssueNumber:
+    @pytest.mark.parametrize(
+        "item, expected",
+        [
+            ({"issue_url": f"{BASE_URL}/{REPO}/issues/12", "pull_request_url": ""}, 12),
+            ({"issue_url": "", "pull_request_url": f"{BASE_URL}/{REPO}/pulls/7"}, 7),
+            ({"issue_url": None, "pull_request_url": None}, None),
+        ],
+    )
+    def test_derives_number_from_url(self, item, expected):
+        assert _add_comment_issue_number(item)["issue_number"] == expected
 
 
 class TestFlattenCommit:

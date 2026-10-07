@@ -23,17 +23,17 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
+from posthog.enums import LabeledStrEnum
+
 # Re-exported: the exception is defined in an import-light module so ``storage.py`` can raise it
 # without dragging this module onto the ``django.setup()`` path.
 from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized as TaskRunLogAppendUnserialized
 
 
-class DesktopAccessReason(StrEnum):
-    STARTUP_PLAN = "startup_plan"
-    PREPAID_CREDITS = "prepaid_credits"
-
-
-DESKTOP_ACCESS_REASON_SCHEMA_VALUES = [*(reason.value for reason in DesktopAccessReason), None]
+# Each label repeats its value, because the API documents these choices as plain values.
+class DesktopAccessReason(LabeledStrEnum):
+    STARTUP_PLAN = "startup_plan", "startup_plan"
+    PREPAID_CREDITS = "prepaid_credits", "prepaid_credits"
 
 
 @dataclass(frozen=True)
@@ -53,6 +53,16 @@ class TaskDTO:
     created_by_id: int | None = None
     task_number: int | None = None
     slug: str = ""
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentTaskRunDTO:
+    """Identity and workflow handle for a newly dispatched agent task."""
+
+    task_id: UUID
+    run_id: UUID
+    team_id: int
+    workflow_id: str
 
 
 @dataclass(frozen=True)
@@ -270,6 +280,14 @@ class ChannelDTO:
 
 
 @dataclass(frozen=True)
+class ChannelContributorsDTO:
+    """The people who own at least one task or canvas in a channel, most recently active first."""
+
+    channel: UUID
+    people: list["TaskUserBasicInfo"]
+
+
+@dataclass(frozen=True)
 class ProvisionedChannelsDTO:
     channels: list[ChannelDTO]
     personal_created: bool
@@ -373,6 +391,17 @@ class TaskArtifactDTO:
     id: str
     type: str
     name: str
+
+
+@dataclass(frozen=True)
+class TaskRunInputFile:
+    """An existing server-owned object attached before a task run starts."""
+
+    id: str
+    name: str
+    storage_path: str
+    size_bytes: int
+    content_type: str
 
 
 @dataclass(frozen=True)
@@ -1013,3 +1042,16 @@ class ComputeQuotaDenialReason(StrEnum):
 class TaskPullRequest:
     url: str
     state: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class LivingArtifactVersionContent:
+    name: str
+    content_type: str
+    content: bytes
+
+
+@dataclass(frozen=True, kw_only=True)
+class LivingArtifactVersionDownload:
+    url: str | None
+    error: Literal["not_found", "not_stored", "unavailable"] | None

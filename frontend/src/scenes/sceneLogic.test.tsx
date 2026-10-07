@@ -6,6 +6,7 @@ import { expectLogic, partial, testUtilsContext, truth } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -42,6 +43,7 @@ const sceneImport = (): any => ({ scene: { component: Component, logic: testLogi
 
 const testScenes: Record<string, () => any> = {
     [Scene.Alerts]: sceneImport,
+    [Scene.AIObservabilityEvaluations]: sceneImport,
     [Scene.Billing]: sceneImport,
     [Scene.DataManagement]: sceneImport,
     [Scene.OrganizationCreateFirst]: sceneImport,
@@ -227,6 +229,19 @@ describe('sceneLogic', () => {
         expect(router.values.hashParams).toEqual(hash)
     })
 
+    it('redirects a copied event link to the activity list filtered to its uuid and event name', async () => {
+        const uuid = '0190a4c2-0000-7000-8000-000000000001'
+        router.actions.push(urls.event(uuid, '2026-01-01T00:00:00.000Z', '$feature_flag_called'))
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(
+            urls.activity(ActivityTab.ExploreEvents)
+        )
+        expect(router.values.hashParams.q.source).toMatchObject({
+            event: '$feature_flag_called',
+            properties: [{ key: `uuid = '${uuid}'` }],
+        })
+    })
+
     it.each([
         ['the product root', () => '/engineering-analytics', () => urls.engineeringAnalytics()],
         [
@@ -281,6 +296,31 @@ describe('sceneLogic', () => {
             [Scene.DataManagement]: expectedAnnotation,
             [Scene.Settings]: expectedSettings,
         })
+    })
+
+    it.each([
+        [AccessControlLevel.Viewer, Scene.AIObservabilityEvaluations],
+        [AccessControlLevel.None, Scene.ErrorAccessDenied],
+    ])('gates the combined evaluations entry with scorer access %s', async (scorerAccess, expectedScene) => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                effective_resource_access_control: {
+                    ...priorAppContext?.effective_resource_access_control,
+                    [AccessControlResourceType.Evaluation]: AccessControlLevel.None,
+                    [AccessControlResourceType.LlmAnalytics]: scorerAccess,
+                },
+            } as AppContext
+            logic.actions.setScene(Scene.AIObservabilityEvaluations, 'aiObservabilityEvaluations', {
+                params: {},
+                searchParams: {},
+                hashParams: {},
+            })
+            await expectLogic(logic).toMatchValues({ activeSceneId: expectedScene })
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
     })
 
     it('does not blanket deny the combined alerts scene without insight access', async () => {
@@ -423,6 +463,16 @@ describe('sceneLogic', () => {
             router.actions.push(urls.projectHomepage())
             await expectLogic(logic).delay(1)
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+        })
+
+        it('stays on /home with the rail nav even when a homepage is configured', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.projectHomepage())
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
         })
 
         it('stays on the launchpad at /home when no homepage is configured', async () => {

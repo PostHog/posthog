@@ -40,8 +40,19 @@ export function buildAdjacencyMaps(edges: DataModelingEdge[]): AdjacencyMaps {
     const downstream = new Map<string, string[]>()
 
     for (const edge of edges) {
-        upstream.set(edge.target_id, [...(upstream.get(edge.target_id) ?? []), edge.source_id])
-        downstream.set(edge.source_id, [...(downstream.get(edge.source_id) ?? []), edge.target_id])
+        const upstreamNodes = upstream.get(edge.target_id)
+        if (upstreamNodes) {
+            upstreamNodes.push(edge.source_id)
+        } else {
+            upstream.set(edge.target_id, [edge.source_id])
+        }
+
+        const downstreamNodes = downstream.get(edge.source_id)
+        if (downstreamNodes) {
+            downstreamNodes.push(edge.target_id)
+        } else {
+            downstream.set(edge.source_id, [edge.target_id])
+        }
     }
 
     return { upstream, downstream }
@@ -49,8 +60,8 @@ export function buildAdjacencyMaps(edges: DataModelingEdge[]): AdjacencyMaps {
 
 function walk(startId: string, adjacency: Map<string, string[]>, reached: Set<string>): void {
     const queue = [startId]
-    while (queue.length > 0) {
-        const current = queue.shift() as string
+    for (let cursor = 0; cursor < queue.length; cursor++) {
+        const current = queue[cursor]
         for (const neighbor of adjacency.get(current) ?? []) {
             if (!reached.has(neighbor)) {
                 reached.add(neighbor)
@@ -62,8 +73,8 @@ function walk(startId: string, adjacency: Map<string, string[]>, reached: Set<st
 
 function walkDistances(startId: string, adjacency: Map<string, string[]>, distances: Map<string, number>): void {
     const queue = [startId]
-    while (queue.length > 0) {
-        const current = queue.shift() as string
+    for (let cursor = 0; cursor < queue.length; cursor++) {
+        const current = queue[cursor]
         const distance = distances.get(current) ?? 0
         for (const neighbor of adjacency.get(current) ?? []) {
             const nextDistance = distance + 1

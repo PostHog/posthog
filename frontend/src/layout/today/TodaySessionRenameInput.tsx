@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
-import { useRef, useState } from 'react'
+import { ChangeEvent, KeyboardEvent, useRef, useState } from 'react'
 
-import { LemonInput } from '@posthog/lemon-ui'
+import { Input } from '@posthog/quill'
 
 import { todaySessionMenuLogic } from './todaySessionMenuLogic'
 
@@ -29,24 +29,21 @@ export function TodaySessionRenameInput({ sessionId, title }: TodaySessionRename
     }
 
     return (
-        <div className="TodayPaneRow">
-            <LemonInput
-                size="xsmall"
-                fullWidth
-                autoFocus
-                value={value}
-                onChange={setValue}
-                onPressEnter={save}
-                onBlur={save}
-                onKeyDown={(event) => {
-                    if (event.key === 'Escape') {
-                        finished.current = true
-                        stopRenaming()
-                    }
-                }}
-                aria-label="Session title"
-                data-attr="today-session-rename-input"
-            />
-        </div>
+        <Input
+            autoFocus
+            value={value}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => setValue(event.target.value)}
+            onBlur={save}
+            onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+                if (event.key === 'Enter') {
+                    save()
+                } else if (event.key === 'Escape') {
+                    finished.current = true
+                    stopRenaming()
+                }
+            }}
+            aria-label="Session title"
+            data-attr="today-session-rename-input"
+        />
     )
 }

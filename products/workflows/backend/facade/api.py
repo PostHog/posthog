@@ -17,8 +17,10 @@ from products.workflows.backend.facade.contracts import (
     TwilioPhoneNumber,
     WorkflowActivitySummary,
     WorkflowSummary,
+    WorkflowTaskDailyLimits,
 )
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
+from products.workflows.backend.services.batch_jobs import create_batch_job
 from products.workflows.backend.services.email_sending_controls import (
     ensure_workflows_config,
     get_email_sending_state,
@@ -41,6 +43,7 @@ from products.workflows.backend.utils.rrule_utils import compute_next_occurrence
 __all__ = [
     "MIN_EMAIL_SENDING_TIER",
     "compute_next_occurrences",
+    "create_batch_job",
     "ensure_workflows_config",
     "filter_hog_flow_references_by_access_level",
     "get_email_sending_state",
@@ -132,6 +135,24 @@ def get_workflow_owner_id(*, team_id: int, workflow_id: UUID) -> int | None:
         return HogFlow.objects.values_list("created_by_id", flat=True).get(team_id=team_id, id=workflow_id)
     except HogFlow.DoesNotExist:
         raise WorkflowNotFound() from None
+
+
+def workflow_exists(*, team_id: int, workflow_id: UUID) -> bool:
+    return HogFlow.objects.filter(team_id=team_id, id=workflow_id).exists()
+
+
+def get_workflow_task_daily_limits(*, team_id: int) -> WorkflowTaskDailyLimits:
+    config = (
+        TeamWorkflowsConfig.objects.filter(team_id=team_id)
+        .only("workflow_task_rate_limit_per_day", "workflow_task_team_rate_limit_per_day")
+        .first()
+    )
+    if config is None:
+        return WorkflowTaskDailyLimits(per_workflow=None, per_team=None)
+    return WorkflowTaskDailyLimits(
+        per_workflow=config.workflow_task_rate_limit_per_day,
+        per_team=config.workflow_task_team_rate_limit_per_day,
+    )
 
 
 def accept_github_event(delivery: WebhookDelivery) -> None:

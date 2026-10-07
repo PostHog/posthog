@@ -20,6 +20,11 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.presentation.destination_connection_check import (
+    CheckFailure,
+    DestinationConnectionCheckError,
+    check_postgres_destination,
+)
 
 # Which Integration kind holds the credentials for each destination type. A type absent from
 # this map needs no integration; the PostHog warehouse is the only such type today.
@@ -178,8 +183,23 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
 
         if self.instance is not None:
             self._reject_retargeting(attrs)
+        elif destination_type == ExternalDataDestination.Type.POSTGRES:
+            self._check_postgres_connection(integration, attrs.get("config"))
 
         return attrs
+
+    # Only creation tests the connection. A destination keeps its server, database and schema
+    # after that (see `_reject_retargeting`), so there is nothing new to test on update.
+    def _check_postgres_connection(self, integration: Integration, config: dict[str, Any] | None) -> None:
+        try:
+            check_postgres_destination(integration, config)
+        except DestinationConnectionCheckError as error:
+            field = (
+                "config"
+                if error.failure in (CheckFailure.UNKNOWN_DATABASE, CheckFailure.MISSING_PRIVILEGE)
+                else "integration"
+            )
+            raise ValidationError({field: str(error)})
 
     # Where a destination points is fixed once it exists. Everything already synced sits at the
     # current server and schema, so repointing one strands that data and needs a full resync of

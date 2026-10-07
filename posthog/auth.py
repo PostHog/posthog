@@ -28,7 +28,7 @@ from rest_framework.request import Request
 from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
-from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
+from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.two_factor_session import enforce_two_factor
@@ -170,7 +170,10 @@ class ZxcvbnValidator:
             )
 
 
-class SessionAuthentication(ActivityCredentialMixin, authentication.SessionAuthentication):
+class SessionAuthentication(
+    ActivityCredentialMixin,
+    authentication.SessionAuthentication,  # nosemgrep: no-drf-session-authentication
+):
     """
     This class is needed, because REST Framework's default SessionAuthentication does never return 401's,
     because they cannot fill the WWW-Authenticate header with a valid value in the 401 response. As a
@@ -481,6 +484,9 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
 
     keyword = "Bearer"
     activity_credential_type = "project_secret_key"
+    # True on routes where a backfilled PSAK (#63111) mirroring the team's legacy token
+    # must fall through to the route's legacy branch; transitional until #66179.
+    defer_migrated_team_tokens = False
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         token = _extract_phs_token(request)
@@ -489,6 +495,12 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
 
         psak = find_project_secret_api_key(token)
         if psak is None:
+            return None
+
+        if self.defer_migrated_team_tokens and token in (
+            psak.team.secret_api_token,
+            psak.team.secret_api_token_backup,
+        ):
             return None
 
         now = timezone.now()
@@ -836,9 +848,9 @@ class SharingAccessTokenAuthentication(ActivityCredentialMixin, authentication.B
             if request.method not in ["GET", "HEAD"]:
                 raise AuthenticationFailed(detail="Sharing access token can only be used for GET requests.")
             try:
-                sharing_configuration = SharingConfiguration.objects.filter(SharingConfiguration.tokens_active_q()).get(
-                    access_token=sharing_access_token
-                )
+                sharing_configuration = SharingConfiguration.objects.filter(
+                    SharingConfiguration.tokens_active_q(), SharingConfiguration.without_retired_resources_q()
+                ).get(access_token=sharing_access_token)
 
                 # If password is required, don't authenticate via direct access_token
                 # Let the view handle showing the unlock page
@@ -894,7 +906,8 @@ class SharingPasswordProtectedAuthentication(ActivityCredentialMixin, authentica
                 SharePassword.objects.select_related("sharing_configuration")
                 .filter(
                     models.Q(sharing_configuration__expires_at__isnull=True)
-                    | models.Q(sharing_configuration__expires_at__gt=timezone.now())
+                    | models.Q(sharing_configuration__expires_at__gt=timezone.now()),
+                    SharingConfiguration.without_retired_resources_q(prefix="sharing_configuration__"),
                 )
                 .get(
                     id=payload["share_password_id"],
@@ -1005,6 +1018,8 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
             team_id=user.current_team_id,
             access_method=AccessMethod.OAUTH,
         )
+        if access_token.sandbox_task_id is not None and "scout_experiment_internal:read" in access_token.scope.split():
+            tag_queries(is_scout_experiment=True)
 
         # ActivityLoggingMiddleware only captures session-authenticated users (it runs
         # before DRF auth), so signal-driven activity logging would otherwise record
@@ -1198,7 +1213,7 @@ class WidgetAuthentication(ActivityCredentialMixin, authentication.BaseAuthentic
         try:
             Team = apps.get_model(app_label="posthog", model_name="Team")
             team = Team.objects.get(conversations_settings__widget_public_token=token, conversations_enabled=True)
-        except Team.DoesNotExist:
+        except (Team.DoesNotExist, Team.MultipleObjectsReturned):
             raise AuthenticationFailed("Invalid token or conversations not enabled")
 
         self.record_activity_actor(None)

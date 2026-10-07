@@ -512,7 +512,7 @@ class TestOAuthAPI(APIBaseTest):
             self.base_authorization_post_body,
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_authorize_post_authorization_granted(self):

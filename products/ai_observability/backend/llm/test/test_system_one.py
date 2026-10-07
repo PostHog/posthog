@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterator
+from contextlib import nullcontext
 from ipaddress import ip_address
 from uuid import uuid4
 
@@ -10,7 +11,7 @@ from django.test import override_settings
 
 import httpx
 
-from posthog.llm.system_one import NoulAnswer, NoulQuestion
+from posthog.llm.system_one import NoulAnswer, NoulQuestion, ScoreAnswer, ScoreQuestion
 from posthog.models import Team
 
 from products.ai_observability.backend.llm.client import Client
@@ -31,7 +32,9 @@ from products.ai_observability.backend.llm.system_one import (
 
 
 def _response(status: int, body: dict[str, object] | str = "") -> httpx.Response:
-    return httpx.Response(status, content=json.dumps(body) if isinstance(body, dict) else body)
+    return httpx.Response(
+        status, stream=httpx.ByteStream((json.dumps(body) if isinstance(body, dict) else body).encode())
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -43,29 +46,32 @@ def public_endpoint_dns() -> Iterator[None]:
 
 
 @pytest.mark.parametrize(
-    "base_url,internal,flag,enabled",
+    "base_url,flag,enabled",
     [
-        ("https://api.typesafe.ai/v1", False, True, False),
-        ("", False, True, False),
-        ("https://decisions.example.com/v1", False, True, True),
-        ("https://decisions.example.com/v1", False, False, False),
-        ("https://api.typesafe.ai/v1", False, None, False),
-        ("https://ai-gateway.us.posthog.com/v1", False, True, False),
-        ("https://ai-gateway.eu.posthog.com/v1", False, True, False),
-        ("https://AI-GATEWAY.US.POSTHOG.COM.:443/v1", False, True, False),
-        ("https://ａｉ-gateway.us.posthog.com/v1", False, True, False),
-        ("https://ai-gateway.us.posthog.com/v1", True, False, False),
-        ("https://ai-gateway.us.posthog.com/v1", True, True, True),
+        ("https://api.typesafe.ai/v1", True, False),
+        ("", True, False),
+        ("https://decisions.example.com/v1", True, True),
+        ("https://decisions.example.com/v1", False, False),
+        ("https://decisions.example.com/v1", None, False),
+        ("https://ai-gateway.us.posthog.com/v1", True, True),
+        ("https://ai-gateway.eu.posthog.com/v1", True, True),
+        ("https://AI-GATEWAY.US.POSTHOG.COM.:443/v1", True, True),
+        ("https://ａｉ-gateway.us.posthog.com/v1", True, True),
+        ("https://ai-gateway.us.posthog.com/v1", False, False),
+        ("https://ai-gateway.us.posthog.com/v1", None, False),
     ],
 )
-def test_system_one_connections_require_flag_and_reserve_posthog_gateway_for_internal_projects(
-    base_url: str, internal: bool, flag: bool | None, enabled: bool
+def test_system_one_connections_require_flag_and_supported_endpoint(
+    base_url: str, flag: bool | None, enabled: bool
 ) -> None:
     team = Team(id=1, organization_id=uuid4(), uuid=uuid4())
     with (
-        override_settings(POSTHOG_INTERNAL_ORG_IDS=[str(team.organization_id)] if internal else []),
+        override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
         patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
-        patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=flag),
+        patch(
+            "products.ai_observability.backend.llm.system_one.get_feature_flag_or_none",
+            side_effect=lambda *args, groups, **kwargs: flag if groups["project"] == str(team.uuid) else False,
+        ),
     ):
         teams.return_value.get.return_value = team
         assert system_one_evaluations_enabled(team.id, base_url=base_url) is enabled
@@ -81,25 +87,37 @@ def test_system_one_key_validation(status: int, expected_state: str) -> None:
             "usage": {"input_tokens": 12, "output_tokens": 0},
         },
     )
+    response.headers["x-request-id"] = "example-request-id"
     with (
-        patch("httpx.HTTPTransport.handle_request", return_value=response) as request,
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as request,
+        patch("posthoganalytics.tag") as tag,
     ):
         state, message = Client.validate_key(
             "system_one", "example-token", base_url="https://decisions.example.com/v1", model="custom-model"
         )
 
     assert state == expected_state
+    tag.assert_any_call("provider.last_status", status)
+    tag.assert_any_call("provider.last_request_id", "example-request-id")
     assert (message is None) == (expected_state == "ok")
     assert str(request.call_args.args[0].url) == "https://decisions.example.com/v1/systemone"
     assert request.call_args.args[0].headers["Authorization"] == "Bearer example-token"
     assert request.call_args.args[0].extensions["timeout"] == {"connect": 10, "read": 10, "write": 10, "pool": 10}
 
 
-@pytest.mark.parametrize("error", [httpx.ConnectError("Connection refused"), httpx.ReadTimeout("Timed out")])
-def test_transport_failures_are_retryable_connection_errors(error: Exception) -> None:
+@pytest.mark.parametrize(
+    "error,expected_error",
+    [
+        (httpx.ConnectError("Connection refused"), ProviderConnectionError),
+        (httpx.ReadTimeout("Timed out"), ProviderConnectionError),
+        (httpx.DecodingError("The endpoint must return an uncompressed response."), SystemOneRequestRejectedError),
+        (httpx.DecodingError("The endpoint response exceeds the size limit."), SystemOneRequestRejectedError),
+    ],
+)
+def test_transport_failures_map_to_provider_errors(error: Exception, expected_error: type[Exception]) -> None:
     with (
-        patch("httpx.HTTPTransport.handle_request", side_effect=error),
-        pytest.raises(ProviderConnectionError),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=error),
+        pytest.raises(expected_error),
     ):
         SystemOneClient.evaluate(
             api_key="example-token",
@@ -121,7 +139,7 @@ def test_system_one_rejects_invalid_probabilities(probability: object) -> None:
         },
     )
     with (
-        patch("httpx.HTTPTransport.handle_request", return_value=response),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
         pytest.raises(StructuredOutputParseError),
     ):
         SystemOneClient.evaluate(
@@ -133,12 +151,67 @@ def test_system_one_rejects_invalid_probabilities(probability: object) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "patch_answer,valid",
+    [
+        ({}, True),
+        ({"score": 0}, True),
+        ({"score": 2}, True),
+        ({"score": -0.1}, False),
+        ({"score": 2.1}, False),
+        ({"score": True}, False),
+        ({"score": "1.5"}, False),
+        ({"score": float("nan")}, False),
+        ({"score": float("inf")}, False),
+        ({"type": "choice"}, False),
+        ({"confidence": 1.1}, False),
+        ({"probabilities": {"0": 0.5, "1": 0.5}}, False),
+        ({"probabilities": {"0": 0, "1": 0, "2": True}}, False),
+    ],
+)
+def test_system_one_score_response(patch_answer: dict[str, object], valid: bool) -> None:
+    answer = {"score": 1.5, "confidence": 0.5, "probabilities": {"0": 0.0, "1": 0.5, "2": 0.5}, **patch_answer}
+    question = ScoreQuestion(instructions="Rate answer quality.", criteria=["Incorrect", "Partly correct", "Correct"])
+    with (
+        patch(
+            "httpx.AsyncHTTPTransport.handle_async_request",
+            return_value=_response(200, {"model": "custom-model", "answers": {"score": answer}}),
+        ) as request,
+        nullcontext() if valid else pytest.raises(StructuredOutputParseError),
+    ):
+        result = SystemOneClient.evaluate(
+            api_key="",
+            base_url="https://decisions.example.com/v1",
+            model="custom-model",
+            state="Hello!",
+            questions={"score": question},
+        )
+    if not valid:
+        return
+    parsed = result.answers["score"]
+    assert isinstance(parsed, ScoreAnswer)
+    assert parsed.score == answer["score"]
+    assert parsed.confidence == 0.5
+    assert parsed.probabilities == {"0": 0.0, "1": 0.5, "2": 0.5}
+    assert json.loads(request.call_args.args[0].content)["questions"]["score"] == {
+        "type": "score",
+        "instructions": "Rate answer quality.",
+        "criteria": ["Incorrect", "Partly correct", "Correct"],
+    }
+
+
+@pytest.mark.parametrize("level_count", [0, 1, 11])
+def test_system_one_rejects_unsupported_score_rubric_sizes(level_count: int) -> None:
+    with pytest.raises(ValueError, match="between 2 and 10"):
+        ScoreQuestion(instructions="Score quality.", criteria=[str(index) for index in range(level_count)])
+
+
 @pytest.mark.parametrize("status", [408, 429, 503, 529])
 def test_system_one_rate_limits_are_retryable(status: int) -> None:
     response = _response(status)
     response.headers["Retry-After"] = "15"
     with (
-        patch("httpx.HTTPTransport.handle_request", return_value=response),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
         pytest.raises(SystemOneRateLimitError) as error,
     ):
         SystemOneClient.evaluate(
@@ -170,7 +243,7 @@ def test_unavailable_usage_does_not_discard_a_valid_answer(
             "usage": usage,
         },
     )
-    with patch("httpx.HTTPTransport.handle_request", return_value=response):
+    with patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response):
         result = SystemOneClient.evaluate(
             api_key="example-token",
             base_url="https://decisions.example.com/v1",
@@ -189,7 +262,7 @@ def test_unavailable_usage_does_not_discard_a_valid_answer(
 )
 def test_official_endpoint_is_blocked(base_url: str) -> None:
     with (
-        patch("httpx.HTTPTransport.handle_request") as request,
+        patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
         pytest.raises(SystemOneEndpointBlockedError, match="hosted endpoint is not available"),
     ):
         SystemOneClient.evaluate(
@@ -213,7 +286,7 @@ def test_system_one_requires_every_requested_answer(answers: dict[str, object]) 
         },
     )
     with (
-        patch("httpx.HTTPTransport.handle_request", return_value=response),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
         pytest.raises(StructuredOutputParseError),
     ):
         SystemOneClient.evaluate(
@@ -245,7 +318,7 @@ def test_system_one_preserves_error_categories(status: int, message: str, error_
     response = _response(status, message)
     response.headers["Location"] = "https://other.example.com/systemone"
     with (
-        patch("httpx.HTTPTransport.handle_request", return_value=response),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
         pytest.raises(error_type),
     ):
         SystemOneClient.evaluate(
@@ -283,7 +356,7 @@ def test_custom_endpoint_and_model(api_key: str) -> None:
         return response
 
     with (
-        patch("httpx.HTTPTransport.handle_request", side_effect=respond) as request,
+        patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=respond) as request,
         patch("posthog.egress.typesafe.transport.consume_typesafe_sync") as budget,
         patch("posthog.egress.typesafe.observability.typesafe_egress.record_response") as telemetry,
     ):
@@ -319,7 +392,7 @@ def test_custom_endpoint_and_model(api_key: str) -> None:
     ],
 )
 def test_invalid_endpoint_is_rejected_before_sending_credentials(base_url: str) -> None:
-    with patch("httpx.HTTPTransport.handle_request") as request:
+    with patch("httpx.AsyncHTTPTransport.handle_async_request") as request:
         state, _ = SystemOneClient.validate_key("example-token", base_url=base_url, model="custom-model")
     assert state == "error"
     request.assert_not_called()
@@ -330,7 +403,7 @@ def test_private_endpoint_is_blocked(base_url: str) -> None:
     with (
         override_settings(DEBUG=False, TEST=False),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("127.0.0.1")}),
-        patch("httpx.HTTPTransport.handle_request") as request,
+        patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
     ):
         state, _ = SystemOneClient.validate_key("example-token", base_url=base_url, model="custom-model")
     assert state == "error"

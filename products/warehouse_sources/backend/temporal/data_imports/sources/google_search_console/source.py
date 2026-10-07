@@ -373,7 +373,8 @@ class GoogleSearchConsoleSource(
                         placeholder="https://example.com/ or sc-domain:example.com",
                         caption=(
                             "The exact verified property URL as it appears in Google Search Console. "
-                            "Use the trailing slash for URL prefix properties or the `sc-domain:` prefix for domain properties."
+                            "Use the trailing slash for URL prefix properties or the `sc-domain:` prefix for domain properties. "
+                            "Each source syncs one property, so add another Google Search Console source for each extra property."
                         ),
                         required=True,
                     ),

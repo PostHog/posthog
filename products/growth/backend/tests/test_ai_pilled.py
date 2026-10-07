@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -36,6 +37,7 @@ from products.growth.backend.models import (
 _BACKFILL = "products.growth.backend.management.commands.backfill_icp_fit_scores"
 
 
+@override_settings(FIRECRAWL_API_KEY="fc-test-key")
 class TestEnrichmentScoreApplication(BaseTest):
     def setUp(self):
         super().setUp()

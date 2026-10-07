@@ -269,6 +269,7 @@
          COUNT("posthog_sessionrecordingplaylistitem"."id") AS "c"
   FROM "posthog_sessionrecordingplaylistitem"
   INNER JOIN "posthog_sessionrecordingplaylist" ON ("posthog_sessionrecordingplaylistitem"."playlist_id" = "posthog_sessionrecordingplaylist"."id")
+  LEFT OUTER JOIN "posthog_sessionrecording" ON ("posthog_sessionrecordingplaylistitem"."recording_id" = "posthog_sessionrecording"."session_id")
   WHERE ("posthog_sessionrecordingplaylist"."team_id" = 99999
          AND "posthog_sessionrecordingplaylistitem"."playlist_id" IN (1,
                                                                       2,
@@ -276,7 +277,9 @@
                                                                       4,
                                                                       5 /* ... */)
          AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
-                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL))
+                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
+         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
+                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
   GROUP BY 1
   '''
 # ---
@@ -286,12 +289,17 @@
          "posthog_sessionrecordingplaylistitem"."recording_id" AS "recording_id"
   FROM "posthog_sessionrecordingplaylistitem"
   INNER JOIN "posthog_sessionrecordingplaylist" ON ("posthog_sessionrecordingplaylistitem"."playlist_id" = "posthog_sessionrecordingplaylist"."id")
+  LEFT OUTER JOIN "posthog_sessionrecording" ON ("posthog_sessionrecordingplaylistitem"."recording_id" = "posthog_sessionrecording"."session_id")
   WHERE ("posthog_sessionrecordingplaylist"."team_id" = 99999
          AND "posthog_sessionrecordingplaylistitem"."playlist_id" IN (1,
                                                                       2,
                                                                       3,
                                                                       4,
-                                                                      5 /* ... */))
+                                                                      5 /* ... */)
+         AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
+                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
+         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
+                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.13
@@ -364,6 +372,7 @@
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -501,6 +510,7 @@
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -554,6 +564,7 @@
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -631,6 +642,7 @@
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -910,6 +922,7 @@
          COUNT("posthog_sessionrecordingplaylistitem"."id") AS "c"
   FROM "posthog_sessionrecordingplaylistitem"
   INNER JOIN "posthog_sessionrecordingplaylist" ON ("posthog_sessionrecordingplaylistitem"."playlist_id" = "posthog_sessionrecordingplaylist"."id")
+  LEFT OUTER JOIN "posthog_sessionrecording" ON ("posthog_sessionrecordingplaylistitem"."recording_id" = "posthog_sessionrecording"."session_id")
   WHERE ("posthog_sessionrecordingplaylist"."team_id" = 99999
          AND "posthog_sessionrecordingplaylistitem"."playlist_id" IN (1,
                                                                       2,
@@ -917,7 +930,9 @@
                                                                       4,
                                                                       5 /* ... */)
          AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
-                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL))
+                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
+         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
+                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
   GROUP BY 1
   '''
 # ---
@@ -927,12 +942,17 @@
          "posthog_sessionrecordingplaylistitem"."recording_id" AS "recording_id"
   FROM "posthog_sessionrecordingplaylistitem"
   INNER JOIN "posthog_sessionrecordingplaylist" ON ("posthog_sessionrecordingplaylistitem"."playlist_id" = "posthog_sessionrecordingplaylist"."id")
+  LEFT OUTER JOIN "posthog_sessionrecording" ON ("posthog_sessionrecordingplaylistitem"."recording_id" = "posthog_sessionrecording"."session_id")
   WHERE ("posthog_sessionrecordingplaylist"."team_id" = 99999
          AND "posthog_sessionrecordingplaylistitem"."playlist_id" IN (1,
                                                                       2,
                                                                       3,
                                                                       4,
-                                                                      5 /* ... */))
+                                                                      5 /* ... */)
+         AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
+                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
+         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
+                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.23
@@ -1313,6 +1333,7 @@
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1450,6 +1471,7 @@
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1503,6 +1525,7 @@
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1573,6 +1596,7 @@
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1625,6 +1649,7 @@
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1875,6 +1900,7 @@
          COUNT("posthog_sessionrecordingplaylistitem"."id") AS "c"
   FROM "posthog_sessionrecordingplaylistitem"
   INNER JOIN "posthog_sessionrecordingplaylist" ON ("posthog_sessionrecordingplaylistitem"."playlist_id" = "posthog_sessionrecordingplaylist"."id")
+  LEFT OUTER JOIN "posthog_sessionrecording" ON ("posthog_sessionrecordingplaylistitem"."recording_id" = "posthog_sessionrecording"."session_id")
   WHERE ("posthog_sessionrecordingplaylist"."team_id" = 99999
          AND "posthog_sessionrecordingplaylistitem"."playlist_id" IN (1,
                                                                       2,
@@ -1882,7 +1908,9 @@
                                                                       4,
                                                                       5 /* ... */)
          AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
-                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL))
+                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
+         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
+                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
   GROUP BY 1
   '''
 # ---
@@ -1892,12 +1920,17 @@
          "posthog_sessionrecordingplaylistitem"."recording_id" AS "recording_id"
   FROM "posthog_sessionrecordingplaylistitem"
   INNER JOIN "posthog_sessionrecordingplaylist" ON ("posthog_sessionrecordingplaylistitem"."playlist_id" = "posthog_sessionrecordingplaylist"."id")
+  LEFT OUTER JOIN "posthog_sessionrecording" ON ("posthog_sessionrecordingplaylistitem"."recording_id" = "posthog_sessionrecording"."session_id")
   WHERE ("posthog_sessionrecordingplaylist"."team_id" = 99999
          AND "posthog_sessionrecordingplaylistitem"."playlist_id" IN (1,
                                                                       2,
                                                                       3,
                                                                       4,
-                                                                      5 /* ... */))
+                                                                      5 /* ... */)
+         AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
+                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
+         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
+                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.45
@@ -2071,6 +2104,7 @@
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -2124,6 +2158,7 @@
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -2201,6 +2236,7 @@
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",

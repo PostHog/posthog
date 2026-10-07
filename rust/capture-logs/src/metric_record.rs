@@ -5,7 +5,6 @@ use anyhow::Result;
 use base64::{prelude::BASE64_STANDARD, Engine};
 use chrono::serde::ts_microseconds;
 use chrono::DateTime;
-use chrono::TimeDelta;
 use chrono::Utc;
 use opentelemetry_proto::tonic::{
     common::v1::{
@@ -23,7 +22,7 @@ use siphasher::sip::SipHasher13;
 use tracing::debug;
 use uuid::Uuid;
 
-use crate::log_record::{extract_span_id, extract_trace_id};
+use crate::log_record::{extract_span_id, extract_trace_id, override_timestamp};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KafkaMetricRow {
@@ -452,19 +451,6 @@ fn temporality_str(temporality: i32) -> String {
     }
 }
 
-const TIMESTAMP_OVERRIDE_HOURS: i64 = 24;
-
-pub fn override_timestamp(timestamp: DateTime<Utc>) -> (DateTime<Utc>, Option<DateTime<Utc>>) {
-    let now = Utc::now();
-    let max_delta = TimeDelta::hours(TIMESTAMP_OVERRIDE_HOURS);
-
-    if timestamp < now - max_delta || timestamp > now + max_delta {
-        (now, Some(timestamp))
-    } else {
-        (timestamp, None)
-    }
-}
-
 fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> String {
     if let Some(value) = attributes.get(key) {
         if let Ok(JsonValue::String(value)) = serde_json::from_str::<JsonValue>(value) {
@@ -534,33 +520,7 @@ fn any_value_to_string(value: AnyValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_override_timestamp_within_range_is_unchanged() {
-        let now = Utc::now();
-        let one_hour_ago = now - TimeDelta::hours(1);
-        let (final_ts, original) = override_timestamp(one_hour_ago);
-        assert_eq!(final_ts, one_hour_ago);
-        assert!(original.is_none());
-    }
-
-    #[test]
-    fn test_override_timestamp_far_past_is_overridden() {
-        let now = Utc::now();
-        let two_days_ago = now - TimeDelta::hours(48);
-        let (final_ts, original) = override_timestamp(two_days_ago);
-        assert!((final_ts - now).num_seconds().abs() < 2);
-        assert_eq!(original.unwrap(), two_days_ago);
-    }
-
-    #[test]
-    fn test_override_timestamp_far_future_is_overridden() {
-        let now = Utc::now();
-        let two_days_ahead = now + TimeDelta::hours(48);
-        let (final_ts, original) = override_timestamp(two_days_ahead);
-        assert!((final_ts - now).num_seconds().abs() < 2);
-        assert_eq!(original.unwrap(), two_days_ahead);
-    }
+    use chrono::TimeDelta;
 
     #[test]
     fn test_number_value_as_double() {

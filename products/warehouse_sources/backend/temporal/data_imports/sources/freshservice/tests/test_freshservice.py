@@ -268,6 +268,11 @@ class TestFanout:
                 "applications/{}/installations",
             ),
             ("ticket_time_entries", "tickets", "time_entries", "ticket_id", "tickets/{}/time_entries"),
+            ("ticket_conversations", "tickets", "conversations", "ticket_id", "tickets/{}/conversations"),
+            ("ticket_tasks", "tickets", "tasks", "ticket_id", "tickets/{}/tasks"),
+            ("problem_tasks", "problems", "tasks", "problem_id", "problems/{}/tasks"),
+            ("change_tasks", "changes", "tasks", "change_id", "changes/{}/tasks"),
+            ("release_tasks", "releases", "tasks", "release_id", "releases/{}/tasks"),
         ],
     )
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -343,6 +348,83 @@ class TestFanout:
 
         assert [s["url"] for s in snapshots[1:]] == ["https://acme.freshservice.com/api/v2/applications/9/users"]
         assert rows == [{"id": 100, "application_id": 9}]
+
+
+class TestApprovals:
+    @staticmethod
+    def _slices(snapshots: list[dict[str, Any]]) -> list[tuple[str, str, int]]:
+        return [(s["params"]["parent"], s["params"]["status"], s["params"]["page"]) for s in snapshots]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_sweeps_every_parent_and_status(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response({"approvals": [{"id": 1, "parent": "ticket"}]}),
+                _response({"approvals": []}),
+                *[_response({"approvals": []}) for _ in range(7)],
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _run("approvals", manager=manager)
+
+        assert rows == [{"id": 1, "parent": "ticket"}]
+        # The listing rejects a request without a second filter, so every status is asked for
+        # separately, and each slice pages until an empty page.
+        assert self._slices(snapshots) == [
+            ("ticket", "requested", 1),
+            ("ticket", "requested", 2),
+            ("ticket", "approved", 1),
+            ("ticket", "rejected", 1),
+            ("ticket", "cancelled", 1),
+            ("change", "requested", 1),
+            ("change", "approved", 1),
+            ("change", "rejected", 1),
+            ("change", "cancelled", 1),
+        ]
+        assert manager.save_state.call_args.args[0].completed == [
+            f"{parent}:{status}"
+            for parent in ("ticket", "change")
+            for status in ("requested", "approved", "rejected", "cancelled")
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_at_the_saved_slice_and_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response({"approvals": [{"id": 5, "parent": "change"}]}),
+                _response({"approvals": []}),
+                _response({"approvals": []}),
+                _response({"approvals": []}),
+            ],
+        )
+
+        manager = _make_manager(
+            resume_state=FreshserviceResumeConfig(
+                completed=[
+                    "ticket:requested",
+                    "ticket:approved",
+                    "ticket:rejected",
+                    "ticket:cancelled",
+                    "change:requested",
+                ],
+                current="change:approved",
+                child_state={"page": 3},
+            )
+        )
+        rows = _run("approvals", manager=manager)
+
+        assert rows == [{"id": 5, "parent": "change"}]
+        assert self._slices(snapshots) == [
+            ("change", "approved", 3),
+            ("change", "approved", 4),
+            ("change", "rejected", 1),
+            ("change", "cancelled", 1),
+        ]
 
 
 class TestValidateCredentials:

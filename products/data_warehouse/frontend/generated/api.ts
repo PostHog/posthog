@@ -27,6 +27,7 @@ import type {
     DataWarehouseManagedViewSetUpdateResponseApi,
     DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams,
     DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
+    DataWarehouseRunningActivityRetrieveParams,
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryColumnAnnotationApi,
     DataWarehouseSavedQueryDraftApi,
@@ -631,8 +632,23 @@ export const dataWarehouseResetPasswordCreate = async (
     })
 }
 
-export const getDataWarehouseRunningActivityRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_warehouse/running_activity/`
+export const getDataWarehouseRunningActivityRetrieveUrl = (
+    projectId: string,
+    params?: DataWarehouseRunningActivityRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/running_activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/running_activity/`
 }
 
 /**
@@ -641,9 +657,10 @@ export const getDataWarehouseRunningActivityRetrieveUrl = (projectId: string) =>
  */
 export const dataWarehouseRunningActivityRetrieve = async (
     projectId: string,
+    params?: DataWarehouseRunningActivityRetrieveParams,
     options?: RequestInit
 ): Promise<PipelineActivityResponseApi> => {
-    return apiMutator<PipelineActivityResponseApi>(getDataWarehouseRunningActivityRetrieveUrl(projectId), {
+    return apiMutator<PipelineActivityResponseApi>(getDataWarehouseRunningActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

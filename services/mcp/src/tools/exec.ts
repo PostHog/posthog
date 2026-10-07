@@ -1,6 +1,8 @@
 import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
+import { getToolInputProperties, type ShouldRecordInputKeyFn } from '@posthog/mcp-analytics'
+
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
@@ -14,10 +16,12 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
+import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
 import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
+import { readParamAliases } from './cast-helpers'
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
@@ -216,7 +220,7 @@ export interface ExecToolOptions {
     learnCatalog?: ExecLearnCatalog
     /**
      * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
-     * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
+     * response (Claude Code). Gets the same UI-app payload treatment as the
      * PostHog Desktop consumer: structuredContent suppressed toward the model, app data
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
@@ -467,7 +471,7 @@ const TOOL_TARGETING_VERBS = new Set(['info', 'schema', 'call'])
  * reason (it echoes the caller's tool name); the rejection reason on the event says
  * which of the two failed, so the sentinel loses only the misspelling itself.
  */
-const UNRECOGNIZED_EXEC_TOKEN = 'unrecognized'
+export const UNRECOGNIZED_EXEC_TOKEN = 'unrecognized'
 
 export interface ExecCommandShape {
     /** The dispatcher verb, or `unrecognized` when it isn't one we accept. */
@@ -534,27 +538,6 @@ function isRecordableToolName(name: string, isKnownToolName: (name: string) => b
     return isKnownToolName(name) || Object.prototype.hasOwnProperty.call(DEPRECATED_TOOL_REDIRECTS, name)
 }
 
-// Resolves the inner tool an `exec` call targets: given a request, return the
-// inner tool's { name, description } when the agent invoked it via
-// `call <tool> ...`, or undefined otherwise. Lives here (alongside
-// parseExecCallInnerToolName) so callers and tests share one factory.
-export function createExecInnerToolCallResolver(
-    allTools: ReadonlyArray<Tool<ZodObjectAny>>
-): (request: unknown) => { name: string; description: string } | undefined {
-    return (request: unknown) => {
-        const params = (request as { params?: { name?: unknown; arguments?: { command?: unknown } } })?.params
-        if (params?.name !== 'exec' || typeof params.arguments?.command !== 'string') {
-            return
-        }
-        const innerName = parseExecCallInnerToolName(params.arguments.command)
-        if (!innerName) {
-            return
-        }
-        const tool = allTools.find((t) => t.name === innerName)
-        return tool ? { name: tool.name, description: tool.description } : undefined
-    }
-}
-
 // Tools deleted from the MCP server. When the model attempts to call one,
 // surface a targeted redirect to the replacement instead of dumping the full
 // tool catalog. Keep the redirect text editorial — schemas don't carry
@@ -595,6 +578,19 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     // caller gets an unfiltered list instead of an error.
     'self-driving-inbox-get': () =>
         'Tool "self-driving-inbox-get" was removed. Use "inbox-reports-list", which lists the same reports. For the old default, pass { "view": "actionable", "use_priority_preference": true, "sort": "priority", "limit": 10 }. The array filters became comma-separated strings: `priorities` is now `priority`, `source_products` is now `source_product`, and `scouts` is now `scout`. `view`, `scope`, `teammate_uuid`, `search`, and `offset` keep their names.',
+    // The `experiment-get-all` -> `experiment-list` deprecation alias was deleted in #101042.
+    // Same arguments, so the redirect only has to hand over the new name.
+    'experiment-get-all': () =>
+        'Tool "experiment-get-all" was removed. It was a deprecation alias for "experiment-list", which takes the same arguments. Call "experiment-list" instead.',
+    // Replay Vision prompt suggestions were removed. Ratings now steer scanners without a review step.
+    'vision-scanners-prompt-suggestions-apply': () =>
+        'Tool "vision-scanners-prompt-suggestions-apply" was removed. Replay Vision no longer proposes prompt rewrites to review. Rate observations with "vision-observations-label-create" instead: ratings improve the scanner automatically. To change the prompt yourself, use "vision-scanners-update".',
+    'vision-scanners-prompt-suggestions-current': () =>
+        'Tool "vision-scanners-prompt-suggestions-current" was removed. Replay Vision no longer proposes prompt rewrites to review. Rate observations with "vision-observations-label-create" instead: ratings improve the scanner automatically. To change the prompt yourself, use "vision-scanners-update".',
+    'vision-scanners-prompt-suggestions-dismiss': () =>
+        'Tool "vision-scanners-prompt-suggestions-dismiss" was removed. Replay Vision no longer proposes prompt rewrites to review. Rate observations with "vision-observations-label-create" instead: ratings improve the scanner automatically. To change the prompt yourself, use "vision-scanners-update".',
+    'vision-scanners-prompt-suggestions-generate': () =>
+        'Tool "vision-scanners-prompt-suggestions-generate" was removed. Replay Vision no longer proposes prompt rewrites to review. Rate observations with "vision-observations-label-create" instead: ratings improve the scanner automatically. To change the prompt yourself, use "vision-scanners-update".',
 }
 
 /** The form caller keys and field names are matched on, so `date_from` reaches a field
@@ -1025,13 +1021,13 @@ function namedKeys(keys: readonly string[]): string {
         .join(', ')
 }
 
-/** Bound on the parameter description echoed back with a missing-parameter
- *  rejection, so a tool with a long field description cannot inflate the
- *  analytics error message. */
-const MAX_MISSING_PARAM_HINT = 200
+/** Bound on the parameter description echoed back with a missing or wrong-type
+ *  parameter rejection, so a tool with a long field description cannot inflate
+ *  the analytics error message. */
+const MAX_PARAM_HINT = 200
 
 /**
- * The missing parameter's own description, appended to the rejection.
+ * The parameter's own description, appended to a missing or wrong-type rejection.
  *
  * A bare `missing required parameter: short_id` names the field to fill but not
  * what to fill it with, so a caller that never held the identifier retries the
@@ -1044,7 +1040,7 @@ const MAX_MISSING_PARAM_HINT = 200
  * input, so it is safe in the message returned to the caller and recorded as the
  * analytics error message.
  */
-function missingParameterHint(path: ReadonlyArray<PropertyKey>, schema: ZodObjectAny | undefined): string {
+function parameterHint(path: ReadonlyArray<PropertyKey>, schema: ZodObjectAny | undefined): string {
     if (!schema || path.length !== 1) {
         return ''
     }
@@ -1056,9 +1052,7 @@ function missingParameterHint(path: ReadonlyArray<PropertyKey>, schema: ZodObjec
         return ''
     }
     const capped =
-        description.length > MAX_MISSING_PARAM_HINT
-            ? `${description.slice(0, MAX_MISSING_PARAM_HINT).trimEnd()}...`
-            : description
+        description.length > MAX_PARAM_HINT ? `${description.slice(0, MAX_PARAM_HINT).trimEnd()}...` : description
     return ` (${capped})`
 }
 
@@ -1278,7 +1272,7 @@ export function formatInputValidationError(
         const path = issue.path.map(String).join('.')
         if (issue.code === 'invalid_type') {
             if ('input' in issue && issue.input === undefined) {
-                const hint = missingParameterHint(issue.path, schema)
+                const hint = parameterHint(issue.path, schema)
                 if (looksLikeUnwrappedPayload(issue.path, input, schema)) {
                     const { shape, unplaced } = acceptedWrapperShape(path, input, schema)
                     const rejected = unplaced.length
@@ -1297,7 +1291,9 @@ export function formatInputValidationError(
                 }
                 return `missing required parameter: ${path}${hint}`
             }
-            return `parameter "${path}" must be of type ${issue.expected}`
+            // The type alone does not say which values the field accepts, for
+            // example a bucket count where the caller sent a unit such as "day".
+            return `parameter "${path}" must be of type ${issue.expected}${parameterHint(issue.path, schema)}`
         }
         if (issue.code === 'invalid_union') {
             const expanded = describeUnionIssue(issue.errors, issue.path)
@@ -1480,9 +1476,6 @@ export function describeApiValidationError(attr: string | undefined, code: strin
  * `fields` are the offending field path + issue code, plus the received type where
  * that distinguishes the bug (e.g. `id:invalid_type:undefined` for an omitted
  * parameter vs `query:invalid_union:string` for an envelope the agent flattened).
- * `inputKeys` — the top-level keys the caller actually sent — is what surfaces an
- * unaccepted alias (e.g. `organizationId` where the schema wants `orgId`).
- *
  * Records only structural information: field names, issue codes, and the TYPE of a
  * rejected value. It never records input VALUES — the ZodError embeds those in
  * `issue.input` and in `.message` (see `formatInputValidationError`), so this reads
@@ -1490,11 +1483,7 @@ export function describeApiValidationError(attr: string | undefined, code: strin
  * true of the field paths as well: a key the schema never declared belongs to the
  * caller, so it is masked rather than recorded (see `normalizeDescriptorPath`).
  */
-export function describeValidationError(
-    error: z.ZodError,
-    input: Record<string, unknown>,
-    schema: z.ZodType
-): { fields: string[]; inputKeys: string[] } {
+export function describeValidationError(error: z.ZodError, schema: z.ZodType): { fields: string[] } {
     const declaredNames = declaredPropertyNames(schema)
     const fields = [
         ...new Set(
@@ -1510,11 +1499,43 @@ export function describeValidationError(
             })
         ),
     ].slice(0, MAX_VALIDATION_DESCRIPTORS)
-    const inputKeys = Object.keys(input)
-        .sort()
-        .slice(0, MAX_VALIDATION_DESCRIPTORS)
-        .map((key) => key.slice(0, MAX_KEY_LENGTH))
-    return { fields, inputKeys }
+    return { fields }
+}
+
+const PARAMETER_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+const DIGIT_RUN_PATTERN = /\d{5}/
+const POSTHOG_TOKEN_PREFIX_PATTERN = /^ph[a-z]_/
+const CREDENTIAL_SEGMENT_MIN_LENGTH = 16
+
+function hasCredentialSegment(key: string): boolean {
+    return key.split('_').some((segment) => segment.length >= CREDENTIAL_SEGMENT_MIN_LENGTH && /\d/.test(segment))
+}
+
+/**
+ * Undeclared names come from the caller and can hold private data, so only parameter-shaped
+ * ones are recorded. The digit checks keep out phone numbers, IDs, and most tokens. The prefix
+ * check keeps out PostHog tokens, whose suffix can have no digits.
+ */
+const shouldRecordInputKey: ShouldRecordInputKeyFn = (key, { declared }) =>
+    declared ||
+    (PARAMETER_NAME_PATTERN.test(key) &&
+        !DIGIT_RUN_PATTERN.test(key) &&
+        !hasCredentialSegment(key) &&
+        !POSTHOG_TOKEN_PREFIX_PATTERN.test(key))
+
+/**
+ * `$mcp_input_keys` and `$mcp_input_aliases_used` for one call, from the SDK helper, with no
+ * values. The alias map comes from the schema's own `normalizeParamAliases` layers, so
+ * alias names count as declared and each alias the normaliser relied on is recorded as
+ * `alias:canonical`. The SDK owns the limits (20 names, 64 characters), declared-names-first
+ * ordering, and dropping its injected `context`, `llm_model`, and `conversation_id` unless the
+ * schema declares them. `shouldRecordInputKey` decides which undeclared names are recorded.
+ */
+export function describeInputShape(input: unknown, schema?: z.ZodType): Record<string, unknown> {
+    return getToolInputProperties(input, schema, {
+        shouldRecordInputKey,
+        inputAliases: schema ? readParamAliases(schema) : undefined,
+    })
 }
 
 /** Whether the tool's input schema declares an `output_format` field. Unwraps
@@ -1983,15 +2004,19 @@ export function createExecTool(
                         // which field/alias was rejected — without the payload.
                         throw new ToolInputValidationError(
                             message,
-                            describeValidationError(validation.error, input, toolSchema)
+                            describeValidationError(validation.error, toolSchema)
                         )
                     }
+                    const ignoredKeys = findIgnoredInputKeys(input, validation.data, toolSchema)
                     input = validation.data as Record<string, unknown>
 
                     const startedAt = Date.now()
                     let result: unknown
                     try {
-                        result = markNoncanonicalMetricRun(tool.name, await tool.handler(context, input))
+                        result = withIgnoredInputKeys(
+                            markNoncanonicalMetricRun(tool.name, await tool.handler(context, input)),
+                            ignoredKeys
+                        )
                     } catch (err) {
                         // PostHogValidationError is the API's 400 validation_error body.
                         const apiError = findRecoverableApiError(err)
@@ -2072,7 +2097,7 @@ export function createExecTool(
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
-                                // Inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork)
+                                // Inline-exec UI-app hosts (PostHog Desktop, Claude Code)
                                 // surface `structuredContent` to the model in preference to the
                                 // text content, which would bury a compact formatted table under
                                 // the raw JSON. When such a table exists, re-home the UI app's data

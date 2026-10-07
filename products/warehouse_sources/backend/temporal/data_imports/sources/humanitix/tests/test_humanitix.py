@@ -14,10 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.
     humanitix_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.settings import (
-    ENDPOINTS,
-    HUMANITIX_ENDPOINTS,
-)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -204,6 +200,76 @@ class TestPagination:
             _collect(_source("events", manager))
 
 
+class TestEventFanout:
+    @staticmethod
+    def _wire_with_urls(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str, dict[str, Any]]]:
+        session.headers = {}
+        sent: list[tuple[str, dict[str, Any]]] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            sent.append((request.url, dict(request.params or {})))
+            prepared = mock.MagicMock()
+            prepared.url = request.url
+            return prepared
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = responses
+        return sent
+
+    @parameterized.expand([("orders",), ("tickets",)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fetches_each_event_and_stamps_event_id(self, endpoint, MockSession) -> None:
+        session = MockSession.return_value
+        sent = self._wire_with_urls(
+            session,
+            [
+                _response([{"_id": "e1"}, {"_id": "e2"}], total=2),
+                _response([{"_id": "c1"}], total=1, list_key=endpoint),
+                _response([{"_id": "c2", "eventId": "e2"}], total=1, list_key=endpoint),
+            ],
+        )
+
+        response = _source(endpoint, _make_manager())
+        rows = _collect(response)
+
+        assert [(url.rsplit("/v1", 1)[-1], params) for url, params in sent[1:]] == [
+            (f"/events/e1/{endpoint}", {"page": 1, "pageSize": PAGE_SIZE}),
+            (f"/events/e2/{endpoint}", {"page": 1, "pageSize": PAGE_SIZE}),
+        ]
+        # Orders may omit `eventId`, but it is part of the primary key, so every row must carry it.
+        assert [{key: row[key] for key in response.primary_keys} for row in rows] == [
+            {"eventId": "e1", "_id": "c1"},
+            {"eventId": "e2", "_id": "c2"},
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_completed_events_and_continues_the_current_one(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = self._wire_with_urls(
+            session,
+            [
+                _response([{"_id": "e1"}, {"_id": "e2"}], total=2),
+                _response(_rows("o", 1), total=PAGE_SIZE + 1, list_key="orders"),
+            ],
+        )
+
+        manager = _make_manager(
+            HumanitixResumeConfig(
+                completed=["/events/e1/orders"], current="/events/e2/orders", child_state={"next_page": 2}
+            )
+        )
+        rows = _collect(_source("orders", manager))
+
+        assert len(rows) == 1
+        assert len(sent) == 2
+        assert sent[1][0].endswith("/events/e2/orders")
+        assert sent[1][1]["page"] == 2
+        # Finishing e2 records it as completed so a later restart skips it too.
+        assert manager.save_state.call_args.args[0] == HumanitixResumeConfig(
+            completed=["/events/e1/orders", "/events/e2/orders"], current=None, child_state=None
+        )
+
+
 class TestRetryAndErrors:
     @mock.patch(SLEEP_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -275,8 +341,3 @@ class TestSourceResponse:
         # Every endpoint is full refresh only, so there is no datetime partitioning.
         assert response.partition_mode is None
         assert response.partition_keys is None
-
-    def test_every_endpoint_uses_id_primary_key(self) -> None:
-        # Humanitix Mongo `_id`s are globally unique, so a single `_id` key is sufficient table-wide.
-        assert all(config.primary_keys == ["_id"] for config in HUMANITIX_ENDPOINTS.values())
-        assert set(HUMANITIX_ENDPOINTS) == set(ENDPOINTS)

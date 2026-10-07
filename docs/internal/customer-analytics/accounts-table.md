@@ -1,5 +1,16 @@
 # Accounts table
 
+## Default pinned account properties
+
+Project admins choose an ordered set of default pinned properties under Customer analytics > Accounts settings.
+The defaults can include account custom properties and relationships.
+They appear in account detail sidebars and expanded Accounts rows until a user saves a personal selection.
+
+The user configuration inherits when it has no personal selection, including historical empty lists without an override marker or legacy pinned IDs.
+Reads resolve the current project defaults without copying them into the user row, so later project changes reach every user who still inherits.
+A personal save stores the complete ordered list and an override marker.
+A saved empty list means the user chose no pinned properties and no longer inherits project changes.
+
 ## Query scheduling
 
 Account row and overview requests use a dedicated frontend queue with two concurrent slots.
@@ -8,45 +19,63 @@ Other query types keep their existing global or scene-specific concurrency limit
 
 ## Unsaved filters and views
 
-The Accounts list keeps unsaved filters when a user opens an account and returns to the list.
-The draft includes search, tags, assignment filters, account property and relationship filters, and the selected overview tile filter.
+The Accounts list keeps unsaved changes in memory while the user edits the list.
+Only the Back link on an account details page can restore those changes after navigation.
+Other navigation, including tabs, the sidebar, browser Back, and page reloads, discards them and loads the current saved view.
+Save or update a view to keep its filters, sorting, columns, column display settings, and overview tiles.
+Neither browser storage nor the URL stores an unsaved view snapshot.
+Column widths remain a separate browser preference.
+
 Account property, relationship, and custom-property filters can be placed in OR groups.
 Filters within each group use AND, while search, tags, assignment status, and selected overview tile filters apply to every group.
-Saved views and shared links keep the groups; older views without groups retain their AND behavior.
-A group that filters on churned or ignored accounts includes them only in that group; other groups still exclude them by default.
+Saved views keep the groups. Older views without groups retain their AND behavior.
+A group that filters on churned or ignored accounts includes them only in that group. Other groups still exclude them by default.
 When a saved condition refers to a deleted property, the list keeps the valid conditions in that group.
-It also keeps sorting, selected columns, column display settings, and overview tile settings.
 
 The toolbar keeps a Filters button with a spaced, theme-aware accent count. The button highlights while the compact groups are open in a bordered area below it.
 Restored filters start collapsed. Relationship pills show member names using the same member list as the value picker. Adding the first condition opens the groups, and removing the last group restores the Filter button.
 Empty OR groups do not affect results. Search, tags, and assignment controls remain outside the editor.
 
-The browser stores one draft per project and user in `sessionStorage`.
-Draft restoration waits for the loaded project and user IDs before deciding whether to apply a saved view.
-Automatic column updates do not replace the pending draft with default URL state.
-The draft survives list remounts and page reloads in the same tab.
-It does not update a saved view or store account rows.
-Closing the browser tab ends the draft session.
+### Saved-view links and restoration
 
-Restoration uses this order:
+The Accounts URL identifies a saved view with `?view=<id>`.
+A copied link loads that view's current saved configuration, not the sender's unsaved changes.
+Renaming a view does not change its link.
+The browser remembers only the last selected saved-view ID and name for each project and user.
+The picker shows that name immediately and keeps the same button while the current saved definition loads.
+Filters, columns, sorting, and tiles still come from the server, never from the name cache.
+A missing saved view clears the cached selection.
 
-1. An explicit `#view` in the URL takes priority over the draft, including an empty view.
-2. Without a view hash, the list restores the draft.
-3. Without a draft, the list restores the last selected saved view, if available.
-4. Otherwise, the list uses its defaults and the shared My accounts preference.
+On a fresh load, restoration uses this order:
 
-On a fresh tab, restoring the My accounts preference does not create a draft or mark default columns as a restored selection.
-Draft and URL writes wait while the last selected saved view loads, then store the resolved view.
+1. An explicit `?view=<id>` selects the saved view.
+2. Without an explicit selection, the list restores the remembered saved view.
+3. Without an available saved view, the list uses its defaults.
+
+Accounts and Notes have independent My accounts filters.
+Changing one does not change the other, including when switching tabs.
+Removing My accounts on the Accounts list restores all assignment statuses.
+Fresh Accounts loads do not restore unsaved filters or the Notes preference.
+Saved-view restoration waits for the project, user, and saved configuration to resolve before issuing list and overview queries.
 Relationship definitions can load before or after saved views without replacing saved columns.
+A missing or inaccessible view clears the stale selection and uses defaults.
+A failed view request offers a retry and does not make the default configuration appear modified.
 
-Selecting a saved view replaces the draft.
-Clearing filters keeps them cleared on return, even when a saved view remains selected.
-Saving or updating a view still requires an explicit action.
-If browser storage is unavailable or invalid, the list uses URL state and saved views without failing.
+Selecting another saved view replaces the working configuration.
+Opening an account from the list prepares a one-use return link for its Back button.
+The link contains the saved view ID, existing scene parameters, and an opaque `restore_view` token. It never contains filters or a view snapshot.
+The token only restores an in-memory return in the same app context and is removed from the URL after use.
+Copied links, reloads, and reused tokens load the current saved definition instead.
+A pristine view also reloads its current saved definition on Back, so a teammate's updates do not appear as unsaved edits.
+Other navigation keeps the selected view but discards unsaved changes. An explicit different view ID changes the selection.
+Later background view loads do not replace unsaved changes.
+Saving or updating a view requires an explicit action.
 
-`accountsLogic.viewState` supplies the shared snapshot for drafts and saved views.
-`applyViewState` restores it without intermediate URL writes.
-The parent scene preserves the view hash when changing date or test-account filters.
+Existing `#view` snapshot links remain readable for compatibility, but the list no longer creates them.
+An explicit query-string view ID takes precedence over a legacy snapshot.
+Browser storage failures do not prevent URL-based selection.
+`accountsLogic.viewState` supplies the snapshot for working state and explicit saves.
+The parent scene preserves the selected view ID when changing date or test-account filters.
 
 ## Sorting
 
@@ -94,8 +123,22 @@ Automatic sizing uses the existing resized-table layout and does not change scro
 
 The `ManyColumns` story in `AccountsTab.stories.tsx` covers six added custom properties alongside native and relationship columns.
 Its browser assertions check content-dependent widths, the 200px cap, horizontal scrolling, and the row expansion control.
-At narrow widths, it also covers custom-property inline editing: the input fits the available column width, and Save and Cancel stay together below it when needed, aligned to the right.
+At narrow widths, it also covers custom-property inline editing: the input and Clear value action fit the available column width, and Save and Cancel stay together below it when needed, aligned to the right.
+Wrapped editor controls have an 8px gap between rows.
 The row grows without widening the column.
+
+## Clearing custom properties
+
+Every editable custom-property cell offers Clear value, including select, boolean, numeric, date, and datetime properties.
+The action asks for confirmation before saving `null` through the existing custom-property-values endpoint.
+Canceling the confirmation keeps the value unchanged.
+A cleared cell shows an unset value while the table refreshes, rather than falling back to its stale value.
+A failed write restores the previous value and lets the user try again.
+Canonical and warehouse-backed properties remain read-only.
+Workflow-backed properties remain editable, with the existing warning that a future workflow run can overwrite a manual change.
+
+The `ClearCustomProperties` story checks clearing every display type and canceling the confirmation.
+It includes zero and false values, which must stay distinct from an unset value.
 
 ## Relationship member pickers
 

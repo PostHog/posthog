@@ -32,6 +32,15 @@ def _mock_team() -> MagicMock:
 
 
 class TestFormatQueryResultsForLlm(TestCase):
+    def test_shared_sql_formatter_keeps_large_mcp_output(self) -> None:
+        value = "example text " * 6000
+        result = format_query_results_for_llm(
+            DataVisualizationNode(source=HogQLQuery(query="SELECT example FROM example_table")),
+            {"columns": ["example"], "results": [[value]]},
+            _mock_team(),
+        )
+        self.assertEqual(result, "example\n" + value)
+
     @parameterized.expand(
         [
             (

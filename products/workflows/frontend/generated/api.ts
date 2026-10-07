@@ -39,8 +39,8 @@ import type {
     HogFlowsMetricsGlobalRetrieveParams,
     HogFlowsMetricsRetrieveParams,
     HogFlowsMetricsTotalsRetrieveParams,
+    HogFlowsMetricsVersionRetrieveParams,
     HogFlowsProposalsListParams,
-    HogFlowsProposalsOutcomeRetrieveParams,
     HogFlowsReputationRetrieveParams,
     HogFlowsRevisionsListParams,
     HogInvocationCancelRequestApi,
@@ -154,7 +154,7 @@ export const getHogFlowTemplatesRetrieveUrl = (projectId: string, id: string) =>
 
 /**
  * Check file-based global templates first, then DB team templates.
- * The queryset excludes all global templates from DB, so this only returns team templates from DB.
+ * The DB lookup excludes all global templates, so this only returns team templates from DB.
  */
 export const hogFlowTemplatesRetrieve = async (
     projectId: string,
@@ -746,15 +746,53 @@ export const hogFlowsMetricsTotalsRetrieve = async (
     })
 }
 
+export const getHogFlowsMetricsVersionRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: HogFlowsMetricsVersionRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/metrics/version/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/metrics/version/`
+}
+
+/**
+ * One published version's series. Every hog flow metric is mirrored under
+ * `hog_flow_version` with the version appended to the id, which is what makes "before and
+ * after this change" answerable at all. The unversioned read keys batch and broadcast runs on
+ * the run instead, so it is not the sum of the versions.
+ */
+export const hogFlowsMetricsVersionRetrieve = async (
+    projectId: string,
+    id: string,
+    params: HogFlowsMetricsVersionRetrieveParams,
+    options?: RequestInit
+): Promise<AppMetricsResponseApi> => {
+    return apiMutator<AppMetricsResponseApi>(getHogFlowsMetricsVersionRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getHogFlowsOptimizationRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/optimization/`
 }
 
 /**
- * Whether PostHog may look at this workflow and suggest changes to it.
+ * Whether PostHog may suggest changes to this workflow.
  *
- * Turning it off stops a producer reading the workflow. Suggestions already made are left
- * alone: someone still has them to resolve.
+ * Turning it off stops new suggestions. Suggestions already made are left alone: someone
+ * still has them to resolve.
  */
 export const hogFlowsOptimizationRetrieve = async (
     projectId: string,
@@ -772,10 +810,10 @@ export const getHogFlowsOptimizationCreateUrl = (projectId: string, id: string) 
 }
 
 /**
- * Whether PostHog may look at this workflow and suggest changes to it.
+ * Whether PostHog may suggest changes to this workflow.
  *
- * Turning it off stops a producer reading the workflow. Suggestions already made are left
- * alone: someone still has them to resolve.
+ * Turning it off stops new suggestions. Suggestions already made are left alone: someone
+ * still has them to resolve.
  */
 export const hogFlowsOptimizationCreate = async (
     projectId: string,
@@ -884,25 +922,8 @@ export const hogFlowsProposalsApproveCreate = async (
     })
 }
 
-export const getHogFlowsProposalsOutcomeRetrieveUrl = (
-    projectId: string,
-    id: string,
-    proposalId: string,
-    params?: HogFlowsProposalsOutcomeRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/hog_flows/${id}/proposals/${proposalId}/outcome/?${stringifiedParams}`
-        : `/api/projects/${projectId}/hog_flows/${id}/proposals/${proposalId}/outcome/`
+export const getHogFlowsProposalsOutcomeRetrieveUrl = (projectId: string, id: string, proposalId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/proposals/${proposalId}/outcome/`
 }
 
 /**
@@ -918,16 +939,12 @@ export const hogFlowsProposalsOutcomeRetrieve = async (
     projectId: string,
     id: string,
     proposalId: string,
-    params?: HogFlowsProposalsOutcomeRetrieveParams,
     options?: RequestInit
 ): Promise<WorkflowProposalOutcomeApi> => {
-    return apiMutator<WorkflowProposalOutcomeApi>(
-        getHogFlowsProposalsOutcomeRetrieveUrl(projectId, id, proposalId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+    return apiMutator<WorkflowProposalOutcomeApi>(getHogFlowsProposalsOutcomeRetrieveUrl(projectId, id, proposalId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getHogFlowsProposalsRejectCreateUrl = (projectId: string, id: string, proposalId: string) => {

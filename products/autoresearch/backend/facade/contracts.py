@@ -127,6 +127,7 @@ class Model:
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    in_shadow_set: bool
 
 
 @dataclass(frozen=True)
@@ -163,6 +164,7 @@ class TrainingRunSummary:
     dead_ends: list[TrainingRunSummaryLadderItem]
     recommended_next: str
     distillation: str
+    report_notebook_short_id: str
 
 
 @dataclass(frozen=True)
@@ -342,6 +344,48 @@ class TrainingRunHistory:
     runs: list[TrainingRunHistoryEntry]
 
 
+# ── Online performance ─────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class CalibrationBin:
+    n: int
+    mean_p_y: float
+    positive_rate: float
+
+
+@dataclass(frozen=True)
+class OnlinePerformanceRow:
+    """One model's realized metrics for one validated prediction date."""
+
+    validation_run_id: UUID
+    prediction_date: date
+    horizon_days: int
+    weekday: int
+    model_id: UUID
+    emitted_role: str
+    current_role: str
+    n_scored: int
+    n_positive: int
+    base_rate: float
+    mean_p_y: float | None
+    realized_auc: float | None
+    realized_auc_ci_low: float | None
+    realized_auc_ci_high: float | None
+    brier_score: float | None
+    calibration_error: float | None
+    lift_at_10: float | None
+    lift_at_20: float | None
+    calibration_bins: list[CalibrationBin] | None
+    warning: str | None
+    validated_at: datetime | None
+
+
+@dataclass(frozen=True)
+class OnlinePerformance:
+    rows: list[OnlinePerformanceRow]
+
+
 # ── Artifact bundle ────────────────────────────────────────────────────────
 
 
@@ -387,3 +431,6 @@ class MaterializedFeatures:
     n_holdout: int
     n_features: int
     feature_cols: list[str]
+    elapsed_s: float
+    rows_read: int
+    hints: list[str]

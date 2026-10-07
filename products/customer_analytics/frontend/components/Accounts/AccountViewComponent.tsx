@@ -3,7 +3,6 @@ import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { CustomerTasksTabContent } from '../CustomerTasks/CustomerTasksTabContent'
-import { AccountEventStreamToggle } from '../EventStream/AccountEventStreamToggle'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { AccountConversationsExpansion } from './AccountConversationsExpansion'
 import { AccountFeatureRequestsExpansion } from './AccountFeatureRequestsExpansion'
@@ -64,7 +63,5 @@ export function AccountViewComponent({
             return <AccountConversationsExpansion accountId={accountId} embedded={embedded} {...tileProps} />
         case 'meetings':
             return <AccountMeetingsExpansion accountId={accountId} embedded={embedded} {...tileProps} />
-        case 'event_stream':
-            return <AccountEventStreamToggle accountId={accountId} externalId={externalId} />
     }
 }

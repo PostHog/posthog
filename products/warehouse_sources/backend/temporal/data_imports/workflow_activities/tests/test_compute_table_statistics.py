@@ -1,6 +1,7 @@
 import json
 import uuid
 import datetime as dt
+import threading
 from decimal import Decimal
 from typing import Any
 
@@ -278,7 +279,6 @@ class TestComputeTableStatisticsSync:
         }
         helper = self._mock_delta(pa.table({"num_records": [999]}), version=9)
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", side_effect=lambda _uri, _options, version: commits[version]),
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
@@ -307,7 +307,6 @@ class TestComputeTableStatisticsSync:
 
         # First fold: version 7 -> 8.
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=[self._add(10, amount=(1, 60, 1))]),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(pa.table({"num_records": [999]}), version=8)),
         ):
@@ -327,7 +326,6 @@ class TestComputeTableStatisticsSync:
         # Second fold: version 8 -> 9. A fold that reset full_scan_at would make the row look like
         # it was freshly full-scanned; it must not.
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=[self._add(5, amount=(3, 7, 0))]),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(pa.table({"num_records": [999]}), version=9)),
         ):
@@ -344,7 +342,6 @@ class TestComputeTableStatisticsSync:
         )
         add_actions = pa.table({"num_records": [999], "null_count.amount": [0], "min.amount": [0], "max.amount": [100]})
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=[self._add(2, amount=(0, 100, 0))]) as mock_read,
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions, version=10)),
         ):
@@ -371,7 +368,6 @@ class TestComputeTableStatisticsSync:
         )
         add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=[self._add(1, amount=(1, 1, 0))]) as mock_read,
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions, version=8)),
         ):
@@ -444,7 +440,6 @@ class TestComputeTableStatisticsSync:
         helper = self._mock_delta(pa.table({"num_records": [999]}), version=8, delta_types={"amount": delta_type})
         commit = [self._add(1, amount=(log_min, log_max, 0))]
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=commit),
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
@@ -505,7 +500,6 @@ class TestComputeTableStatisticsSync:
         )
         helper = self._mock_delta(add_actions, version=table_version, delta_types=columns)
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=commit) as mock_read,
             patch.object(comp, "capture_exception") as mock_capture,
             patch(DELTA_HELPER_PATH, return_value=helper),
@@ -532,7 +526,6 @@ class TestComputeTableStatisticsSync:
         add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         helper = self._mock_delta(add_actions, version=8, delta_types={"amount": "long"})
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=[self._add(1, amount=(1, 1, 0))]) as mock_read,
             patch.object(comp, "capture_exception") as mock_capture,
             patch(DELTA_HELPER_PATH, return_value=helper),
@@ -562,7 +555,6 @@ class TestComputeTableStatisticsSync:
         add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         helper = self._mock_delta(add_actions, version=8, delta_types=delta_types)
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=[self._add(1, amount=(1, 1, 0))]) as mock_read,
             patch.object(comp, "capture_exception") as mock_capture,
             patch(DELTA_HELPER_PATH, return_value=helper),
@@ -589,7 +581,6 @@ class TestComputeTableStatisticsSync:
             delta_types={"amount": "long", "payload": {"type": "struct", "fields": []}},
         )
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=commit),
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
@@ -603,15 +594,6 @@ class TestComputeTableStatisticsSync:
         amount = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount")
         assert amount.max_value == "60"
 
-    def test_skipped_when_flag_disabled(self) -> None:
-        team = self._team()
-        self._schema_table_job(team)
-        schema = ExternalDataSchema.objects.get(team=team)
-        with patch.object(comp, "statistics_enabled", return_value=False):
-            result = compute_table_statistics_sync(team.id, schema.id)
-        assert result == {"status": "skipped", "reason": "flag_disabled"}
-        assert WarehouseColumnStatistics.objects.for_team(team.id).count() == 0
-
     def test_persists_per_column_statistics(self) -> None:
         team = self._team()
         schema, table, _ = self._schema_table_job(team)
@@ -619,7 +601,6 @@ class TestComputeTableStatisticsSync:
             {"num_records": [10, 30], "null_count.amount": [1, 3], "min.amount": [5, 2], "max.amount": [9, 50]}
         )
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions, version=12)),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -643,7 +624,6 @@ class TestComputeTableStatisticsSync:
         schema, table, _ = self._schema_table_job(team)
         add_actions = pa.table({"num_records": [10], "null_count.amount": [1], "min.amount": [5], "max.amount": [9]})
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)),
             patch.object(
                 comp, "_upsert_statistics", side_effect=[OperationalError("server conn crashed?"), None]
@@ -673,7 +653,6 @@ class TestComputeTableStatisticsSync:
 
         with (
             patch.object(comp.Team.objects, "select_related", side_effect=select_related_losing_first_deadlock),
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)),
             patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry.time.sleep"),
             patch(
@@ -694,12 +673,11 @@ class TestComputeTableStatisticsSync:
         add_actions = pa.table({"num_records": [1], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         captured: dict = {}
 
-        def _capture_helper(*, resource_name, job, logger):
+        def _capture_helper(*, resource_name, job, logger, **_kwargs):
             captured["job"] = job
             return self._mock_delta(add_actions)
 
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, side_effect=_capture_helper),
         ):
             compute_table_statistics_sync(team.id, schema.id)
@@ -715,7 +693,6 @@ class TestComputeTableStatisticsSync:
         schema, table, _ = self._schema_table_job(team)
         add_actions = pa.table({"num_records": [1], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -735,7 +712,6 @@ class TestComputeTableStatisticsSync:
         )
         add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions, version=5)),
         ):
             compute_table_statistics_sync(team.id, schema.id)
@@ -774,7 +750,6 @@ class TestComputeTableStatisticsSync:
         add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         helper = self._mock_delta(add_actions, version=table_version)
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -832,7 +807,6 @@ class TestComputeTableStatisticsSync:
         )
         helper = self._mock_delta(add_actions, version=7)
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -868,7 +842,6 @@ class TestComputeTableStatisticsSync:
         add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         helper = self._mock_delta(add_actions, version=7)
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -910,7 +883,6 @@ class TestComputeTableStatisticsSync:
         )
         helper = self._mock_delta(add_actions, version=7)
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -926,7 +898,6 @@ class TestComputeTableStatisticsSync:
         schema, _, _ = self._schema_table_job(team, columns={})
         helper = self._mock_delta(pa.table({"num_records": [1]}))
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -942,7 +913,6 @@ class TestComputeTableStatisticsSync:
         )
         helper = self._mock_delta(pa.table({"num_records": [1]}))
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=helper) as mock_helper,
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -971,8 +941,7 @@ class TestComputeTableStatisticsSync:
             source_id="src", connection_id="conn", team=team, source_type="Stripe"
         )
         schema = ExternalDataSchema.objects.create(name="Charge", team=team, source=source, table=None)
-        with patch.object(comp, "statistics_enabled", return_value=True):
-            result = compute_table_statistics_sync(team.id, schema.id)
+        result = compute_table_statistics_sync(team.id, schema.id)
         assert result == {"status": "skipped", "reason": "no_table"}
 
     def test_skipped_when_no_files(self) -> None:
@@ -980,7 +949,6 @@ class TestComputeTableStatisticsSync:
         schema, table, _ = self._schema_table_job(team)
         empty = pa.table({"num_records": pa.array([], type=pa.int64())})
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(empty)),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -989,6 +957,19 @@ class TestComputeTableStatisticsSync:
 
 @pytest.mark.django_db(transaction=True)
 class TestComputeTableStatisticsActivity:
+    async def test_activity_uses_a_dedicated_executor(self) -> None:
+        thread_names: list[str] = []
+
+        def record_thread(*_args) -> dict[str, Any]:
+            thread_names.append(threading.current_thread().name)
+            return {"status": "done"}
+
+        with patch.object(comp, "compute_table_statistics_sync", side_effect=record_thread):
+            inputs = ComputeTableStatisticsInputs(team_id=1, schema_id=uuid.uuid4())
+            await ActivityEnvironment().run(compute_table_statistics_activity, inputs)
+
+        assert thread_names[0].startswith("warehouse-table-statistics")
+
     async def test_activity_returns_sync_result(self) -> None:
         with patch.object(
             comp, "compute_table_statistics_sync", return_value={"status": "done", "columns": 1, "row_count": 5}

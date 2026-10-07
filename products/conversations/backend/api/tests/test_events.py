@@ -1133,7 +1133,9 @@ class TestConversationEvents(BaseTest):
 
     @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
-    def test_capture_ticket_created_persists_organization_id(self, mock_get_persons, mock_capture):
+    def test_capture_ticket_created_persists_organization_id_for_verified_relayed_ticket(
+        self, mock_get_persons, mock_capture
+    ):
         from posthog.models.person.person import Person
 
         person_org = Organization.objects.create(name="Persist Org")
@@ -1141,6 +1143,9 @@ class TestConversationEvents(BaseTest):
         OrganizationMembership.objects.create(user=person_user, organization=person_org)
 
         mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+        self.ticket.channel_source = "email"
+        self.ticket.identity_verified = True
+        self.ticket.anonymous_traits = {**(self.ticket.anonymous_traits or {}), "email_relayed": True}
 
         assert self.ticket.organization_id is None
         capture_ticket_created(self.ticket)
@@ -1151,6 +1156,31 @@ class TestConversationEvents(BaseTest):
         stored = Ticket.objects.get(id=self.ticket.id)
         assert stored.organization_id == str(person_org.id)
         assert stored.organization_id_source == OrganizationIdSource.PERSON
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_relayed_ticket_does_not_resolve_organization_from_asserted_requester(self, mock_get_persons, mock_capture):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="",
+            distinct_id="customer@example.com",
+            channel_source="email",
+            identity_verified=False,
+            anonymous_traits={
+                "name": "Customer",
+                "email": "customer@example.com",
+                "email_relayed": True,
+            },
+        )
+
+        capture_ticket_created(ticket)
+
+        mock_get_persons.assert_not_called()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+        ticket.refresh_from_db()
+        assert ticket.organization_id is None
 
     @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events._resolve_org_groups")

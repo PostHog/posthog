@@ -38,6 +38,7 @@ export interface facetValuesLogicValues {
     facetSearch: string
     facetValues: _LogFacetValueApi[]
     facetValuesLoading: boolean
+    fetchFailed: boolean
     fetchSignature: string
     fetchedSignature: string | null
     scopeSignature: string
@@ -157,6 +158,15 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                 loadFacetValues: (_, { signature }) => signature,
                 loadFacetValuesFailure: () => null,
                 clearFetchedSignature: () => null,
+            },
+        ],
+        // Drives this facet's inline error state, so one broken facet shows in place rather than
+        // as a global toast.
+        fetchFailed: [
+            false,
+            {
+                loadFacetValuesSuccess: () => false,
+                loadFacetValuesFailure: () => true,
             },
         ],
     }),

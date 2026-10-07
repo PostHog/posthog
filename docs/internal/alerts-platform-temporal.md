@@ -1,6 +1,6 @@
 # Alerts noop workers
 
-The Alerts product registers three queues through `products/alerts/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
+The alerts platform registers three queues through `products/alerts_platform/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
 
 | Setting in `posthog/settings/temporal.py`         | Queue                                             | Workflow                      |
 | ------------------------------------------------- | ------------------------------------------------- | ----------------------------- |
@@ -228,7 +228,7 @@ than within one.
 
 ## Source evaluation bindings
 
-`products/alerts/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.
+`products/alerts_platform/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.
 A source in that map gets its own workflow started by name, carrying one batch key and the tick cutoff.
 A source absent from it keeps the noop `alerts-platform-evaluate` path, which receives no key.
 The alerts product imports nothing from a source: the binding holds a name, and `test_every_source_evaluation_binding_names_a_registered_workflow` fails if that name is not registered on the evaluation queue.
@@ -237,7 +237,7 @@ The alerts product imports nothing from a source: the binding holds a name, and 
 
 ## Logs source evaluation
 
-`logs-alert-evaluate` evaluates one batch key, a team's alerts due in one minute, and previews one delivery per notification.
+`logs-alert-evaluate` evaluates one batch key, a team's alerts due in one minute, and previews one delivery per notification or incident edge.
 The evaluation is a plain function in `products/logs/backend/alert_source_cycle.py`, so a test calls it without Temporal.
 
 It writes its own state and never the logs product's rows.
@@ -246,7 +246,7 @@ so a write to those rows, a `LogsAlertEvent` row or a Kafka message here would t
 State transitions land on `PlatformAlert` and schedule advancement on `PlatformAlertConfiguration`, which the logs fleet never reads.
 Delivery stops at `alerts-platform-deliver-preview`, which records what would have been sent and contacts no destination.
 
-The lifecycle decision comes from `products/alerts/backend/facade/lifecycle.py` configured with `LOGS_ALERT_POLICY`,
+The lifecycle decision comes from `products/alerts_platform/backend/facade/lifecycle.py` configured with `LOGS_ALERT_POLICY`,
 which is the shared machine the logs product's own state machine is a thin adapter over.
 Going to the shared machine directly keeps the platform's lifecycle out of a source product's import path.
 
@@ -282,6 +282,41 @@ a real grouping key, and would bury them where Postgres cannot lift them into an
 
 `alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
 
+### What a check leaves behind
+
+Every check writes one row to `platform_alert_events` in ClickHouse, including a check that
+confirmed the alert.
+Postgres could not take that volume without a per-check retention flag, and a TTL'd ClickHouse
+table needs no such flag, so nothing has to decide which checks are worth keeping.
+
+The row is self-sufficient.
+`alert_name`, `condition_snapshot` and `source_config_snapshot` are read when the outcome is
+recorded, so a threshold edited between a check and a retried send cannot change what a message
+claims was breached, and a rename cannot make one thread contradict itself.
+The snapshots are taken at write time rather than shipped with the outcome, because a source's copy
+of `source_config` is a filter tree and shipping one per outcome would cost Temporal payload on
+every batch.
+
+The write happens after the Postgres transaction commits, not inside it.
+`insert_events` never raises: the alert's state and schedule are already written by then, so a
+ClickHouse outage costs a gap in history rather than an alert left due with its state unwritten.
+`alerts_platform_history_rows_dropped_total` counts that gap.
+
+`platform_alert_events` is a plain `ReplicatedMergeTree`, because every row is a distinct check
+and nothing supersedes anything.
+A `ReplacingMergeTree` would have made every count over the table wrong on any part a merge had
+not reached, and ClickHouse never promises a merge will run.
+
+ClickHouse has no unique constraint, so the insert carries an `insert_deduplication_token` naming
+the batch by its contents.
+A retried batch arrives under a token the engine has already seen and is dropped.
+A reader still deduplicates on `(alert_id, evaluation_key)`, because the token only covers a retry
+of the same batch and the engine only remembers a bounded window of them.
+
+`labels` lands empty and stays empty until a source groups its results.
+It is the group's identity, not the alert's filter scope; service and severity live in
+`source_config_snapshot`, which is where a message should read them.
+
 ### A mute holds the announcement, not the check
 
 A snooze and a schedule restriction both mute. Neither stops a check.
@@ -308,6 +343,43 @@ Three consequences worth stating:
 `AlertCheckOutcome.muted_notification` carries what was held, and
 `alerts_platform_notifications_muted_total{source,reason}` counts it by `snooze` or `quiet_hours`.
 
+### Incident edges ignore cooldown and mute
+
+A paging destination such as PagerDuty holds an incident open until it receives a resolve, so it needs one
+resolve for every trigger. Cooldown and mute hold back announcements while the state still moves, so a paging
+destination cannot follow announcements.
+
+`decide_incident_action` in `facade/lifecycle.py` reads the state before and after a transition: entering a
+firing is a trigger, leaving it for any reason is a resolve. It shares its firing rule with
+`decide_firing_episode`, so a policy that parks a firing alert in SNOOZED keeps its incident open there, and
+a snooze under any other policy ends the firing and resolves the incident.
+The legacy logs stack's `incident_edge` wraps the same rule.
+
+- The source decides the action under its own policy and puts it on `AlertDeliveryRequest.incident_actions`,
+  keyed by grouping key, because the history row does not record the policy.
+- The source sets an action only when the alert has a destination subscribed to its incident events, so an
+  alert without a paging destination starts no extra delivery.
+- A source sends a delivery whenever a check announces or moves a firing. A delivery that exists only for its
+  incident actions has `sends_messages=False`, and none of its rows reach a message destination.
+- `announcement()` also returns the held CHECK row of a group in `incident_grouping_keys`.
+- A mute never holds an incident edge: a fire inside quiet hours or a snooze triggers the incident.
+- Delivery routes each action to the event id in `event_ids_by_incident_action`, which only an incident
+  manager destination subscribes to. A message destination never sees an incident action.
+- The PagerDuty transport sends a trigger or a resolve with the `dedup_key`
+  `<configuration_id>:<grouping_key>:<episode_started_at>`, so a resolve closes the incident of its own
+  firing episode. It names the platform in `source`, because a team on the pilot also gets the HogFunction
+  path's incident.
+
+A fire a mute swallowed is still owed an announcement.
+`_firing_is_unannounced` in `facade/lifecycle.py` decides that, and its docstring holds the rule.
+Without it an alert reaches the end of its quiet hours already FIRING, and `renotify_while_firing`
+is false, so nobody is ever told.
+A recovery that happened entirely inside a mute is not announced when the mute lifts, which is what
+Datadog does and what a person muting an alert expects.
+Production logs gets the same reset on snooze expiry, by way of the SNOOZED branch in
+`evaluate_alert_check`; under mute semantics the state is never SNOOZED, so the reset needs its own
+signal.
+
 ### Evaluating and writing are separate activities
 
 `evaluate_logs_alerts_activity` reads and decides; it writes nothing.
@@ -323,7 +395,7 @@ The write is safe to run twice. An attempt that commits leaves every configurati
 and a replay skips those rows rather than advancing them again and skipping a cycle.
 It runs in one transaction, so no alert is marked as notified while its schedule still says the check is due.
 
-`MAX_PREVIEWS_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
+`MAX_DELIVERIES_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
 Recording an outcome whose preview the batch cannot carry would leave an alert firing with nothing announcing it,
 and a firing alert does not fire again. Dropping the pair leaves it due, the way a truncated cohort already behaves.
 `alerts_platform_deliveries_deferred_total` counts them.
@@ -354,7 +426,7 @@ Logs does not group yet; the list is the shape that lets fan-out change the eval
 ### Metrics
 
 The path emits through Temporal's own meter, so every series carries the worker, queue and activity attributes
-the runtime attaches. `products/alerts/backend/temporal/metrics.py` holds them and a source reaches them through
+the runtime attaches. `products/alerts_platform/backend/temporal/metrics.py` holds them and a source reaches them through
 `facade/platform_metrics.py`.
 
 | Metric                                                    | What it answers                                             |

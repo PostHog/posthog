@@ -39,6 +39,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
     DEFAULT_DELETION_TARGETS,
+    EVENTS_TARGETS,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
     _any_node_has,
@@ -46,8 +47,6 @@ from posthog.models.deletion_targets import (
     surviving_rows_sql,
     sweep_clusters,
 )
-from posthog.models.event.deletion import events_data_tables
-from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import (
     PERSON_DISTINCT_ID2_TABLE,
@@ -104,9 +103,6 @@ class DeleteConfig(dagster.Config):
 
 
 class SweepTargetsConfig(dagster.Config):
-    # sharded_events_json is skipped until the events cluster is reliably reachable from the sweep.
-    # A run that resolves it inconsistently can report an erasure without mutating its rows. Add it
-    # to DEFAULT_DELETION_TARGETS to sweep and verify it again, or pass [] for one run.
     skip_targets: list[str] = pydantic.Field(
         default_factory=lambda: [
             target.data_table for target in PERSONAL_DATA_TARGETS if target not in DEFAULT_DELETION_TARGETS
@@ -117,7 +113,7 @@ class SweepTargetsConfig(dagster.Config):
         "addressed at all. Its rows stay readable while the requests covering them are still "
         "marked verified, so only skip a target whose rows you accept leaving in place. An "
         "unrecognised name fails the run rather than silently sweeping every target. Defaults to "
-        '["sharded_events_json"]; pass [] to sweep every registered target.',
+        "the targets outside DEFAULT_DELETION_TARGETS; pass [] to sweep every registered target.",
     )
 
 
@@ -209,7 +205,7 @@ class Table:
         raise NotImplementedError()
 
 
-@dataclass
+@dataclass(frozen=False)
 class PendingDeletesTable(Table):
     """
     Represents a table storing pending deletions.
@@ -249,7 +245,7 @@ class PendingDeletesTable(Table):
                 deletion_type UInt8,
                 key String,
                 group_type_index Nullable(String),
-                created_at DateTime,
+                created_at DateTime64(6, 'UTC'),
                 delete_verified_at Nullable(DateTime),
                 created_by_id Nullable(String),
                 team_id Int64
@@ -324,7 +320,7 @@ class PendingDeletesDictionary(Dictionary):
 
     @property
     def schema(self) -> str:
-        return "team_id Int64, deletion_type UInt8, key String, created_at DateTime"
+        return "team_id Int64, deletion_type UInt8, key String, created_at DateTime64(6, 'UTC')"
 
     @property
     def primary_key(self) -> str:
@@ -702,6 +698,7 @@ def delete_events(
                     load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary
                 ),
                 reuse_since=reuse_floor,
+                patch_parts=placement.target.uses_patch_parts,
             ),
         )
         for placement in placements
@@ -950,7 +947,7 @@ def _count_through(
     """Survivors on ``table``, or None when no attempt could complete.
 
     None is deliberately not zero: a count that errored or ran out of time says nothing about
-    whether rows remain, and mark_deletions_verified refuses to mark on it. Each attempt gets the
+    whether rows remain, so mark_deletions_verified logs the table as unchecked. Each attempt gets the
     full time budget, and the runner picks a host per call, so a retry also routes around a single
     slow or sick host.
     """
@@ -1254,22 +1251,24 @@ def find_partitions_to_cleanup(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> list[int]:
     """Find partitions that contain old events for the specified teams."""
-    query = f"""
-        SELECT toYYYYMM(timestamp) as partition, count(1) as rows
-        FROM {EVENTS_DATA_TABLE()}
-        WHERE team_id IN %(team_ids)s
-        AND age('month', timestamp, now()) >= %(min_age_months)s
-        GROUP BY partition
-        ORDER BY partition DESC
-    """
-
     parameters = {
         "team_ids": config.team_ids,
         "min_age_months": config.min_age_months,
     }
 
-    results = cluster.any_host_by_role(Query(query, parameters=parameters), NodeRole.DATA).result()
-    partitions = [partition for partition, _rows in results]
+    # Each events table is read on every shard of its own cluster: a month can hold old rows in one
+    # table or shard and none in the others, and the cleanup only visits the months found here.
+    found: set[int] = set()
+    for placement in resolve_placements(cluster, EVENTS_TARGETS):
+        query = f"""
+            SELECT DISTINCT toYYYYMM(timestamp) as partition
+            FROM {placement.target.data_table}
+            WHERE team_id IN %(team_ids)s
+            AND age('month', timestamp, now()) >= %(min_age_months)s
+        """
+        results = placement.cluster.map_one_host_per_shard(Query(query, parameters=parameters)).result()
+        found.update(partition for rows in results.values() for (partition,) in rows)
+    partitions = sorted(found, reverse=True)
 
     context.add_output_metadata(
         {
@@ -1300,14 +1299,14 @@ def cleanup_old_events_by_partition(
     #
     # Events only, deliberately: this enforces a multi-year retention floor for a named set of
     # teams, and every other personal-data table already expires sooner under its own TTL.
-    event_tables = events_data_tables(cluster)
+    placements = resolve_placements(cluster, EVENTS_TARGETS)
 
     for idx, partition in enumerate(partitions, 1):
         context.log.info(f"Processing partition {partition} ({idx}/{total_partitions})")
 
-        for table in event_tables:
+        for placement in placements:
             delete_mutation_runner = LightweightDeleteMutationRunner(
-                table=table,
+                table=placement.target.data_table,
                 predicate="""
                 team_id IN %(team_ids)s
                 AND age('month', timestamp, now()) >= %(min_age_months)s
@@ -1318,13 +1317,14 @@ def cleanup_old_events_by_partition(
                 },
                 partition=str(partition),
                 settings={"lightweight_deletes_sync": 0},
+                patch_parts=placement.target.uses_patch_parts,
             )
 
             # Run on one host per shard
-            shard_mutations = cluster.map_one_host_per_shard(delete_mutation_runner).result()
+            shard_mutations = placement.cluster.map_one_host_per_shard(delete_mutation_runner).result()
 
             # Wait for all mutations to complete
-            _ = cluster.map_all_hosts_in_shards(
+            _ = placement.cluster.map_all_hosts_in_shards(
                 {
                     host.shard_num: mutation.wait
                     for host, mutation in shard_mutations.items()

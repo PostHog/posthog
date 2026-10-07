@@ -23,6 +23,19 @@ from products.signals.backend.temporal.agentic.scout_suggestions import (
     run_scout_suggestions_activity,
     stamp_requested_scout_suggestions_activity,
 )
+from products.signals.backend.temporal.agentic.scout_trial_comparison import (
+    RunScoutTrialComparisonWorkflow,
+    dispatch_scout_trial_comparison_activity,
+    fail_scout_trial_comparison_activity,
+    finish_scout_trial_comparison_activity,
+    prepare_scout_trial_comparison_evaluation_activity,
+)
+from products.signals.backend.temporal.agentic.scout_trial_evaluation import (
+    RunScoutTrialEvaluationWorkflow,
+    finish_scout_trial_evaluation_activity,
+    judge_scout_trial_run_activity,
+    load_scout_trial_evaluation_activity,
+)
 from products.signals.backend.temporal.agentic.select_repository import select_repository_activity
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingWorkflow,
@@ -108,6 +121,8 @@ WORKFLOWS = [
     EmitEvalSignalWorkflow,
     CustomSignalAgentWorkflow,
     RunSignalsScoutWorkflow,
+    RunScoutTrialEvaluationWorkflow,
+    RunScoutTrialComparisonWorkflow,
     SignalsScoutCoordinatorWorkflow,
     RunScoutSuggestionsWorkflow,
     ScoutSuggestionsCoordinatorWorkflow,
@@ -115,6 +130,13 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    load_scout_trial_evaluation_activity,
+    dispatch_scout_trial_comparison_activity,
+    fail_scout_trial_comparison_activity,
+    prepare_scout_trial_comparison_evaluation_activity,
+    finish_scout_trial_comparison_activity,
+    judge_scout_trial_run_activity,
+    finish_scout_trial_evaluation_activity,
     generate_scout_rubrics_activity,
     fail_scout_rubrics_activity,
     dispatch_inbox_slack_notifications_activity,

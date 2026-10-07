@@ -20,8 +20,8 @@ from posthog.models import PropertyDefinition
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.access_control.backend.models.property_access_control import PropertyAccessControl
-from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.access_control.backend.facade.api import upsert_property_access_control
+from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.error_tracking.backend.facade.query_utils import (
     ISSUE_BREAKDOWN_TOP_VALUES,
     MAX_STACK_FRAMES,
@@ -362,20 +362,22 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 400
 
-    def test_rejects_large_volume_resolution(self) -> None:
+    @parameterized.expand([("too_large", 201), ("time_unit", "day")])
+    def test_rejects_invalid_volume_resolution_with_accepted_values(self, _name: str, value: object) -> None:
         list_response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issues",
-            data={"volumeResolution": 201},
+            data={"volumeResolution": value},
             format="json",
         )
         detail_response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issue",
-            data={"issueId": self.issue_id, "volumeResolution": 201},
+            data={"issueId": self.issue_id, "volumeResolution": value},
             format="json",
         )
 
-        assert list_response.status_code == 400
-        assert detail_response.status_code == 400
+        for response in (list_response, detail_response):
+            assert response.status_code == 400
+            assert "integer bucket count from 0 to 200" in response.content.decode()
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issues_list_filters_by_assignee(self) -> None:
@@ -768,11 +770,14 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             name="$referrer",
             type=PropertyDefinition.Type.EVENT,
         )
-        PropertyAccessControl.objects.create(
-            team=self.team,
-            property_definition=property_definition,
-            access_level=PropertyAccessLevel.NONE.value,
-            organization_member=self.organization_membership,
+        upsert_property_access_control(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            input=UpsertPropertyAccessControlInput(
+                property_definition_id=str(property_definition.id),
+                access_level=PropertyAccessLevel.NONE,
+                organization_member_id=self.organization_membership.id,
+            ),
         )
         self.create_issue()
 
@@ -876,11 +881,14 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         property_definition = PropertyDefinition.objects.create(
             team=self.team, name="$pathname", type=PropertyDefinition.Type.EVENT
         )
-        PropertyAccessControl.objects.create(
-            team=self.team,
-            property_definition=property_definition,
-            access_level=PropertyAccessLevel.NONE.value,
-            organization_member=self.organization_membership,
+        upsert_property_access_control(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            input=UpsertPropertyAccessControlInput(
+                property_definition_id=str(property_definition.id),
+                access_level=PropertyAccessLevel.NONE,
+                organization_member_id=self.organization_membership.id,
+            ),
         )
         self.create_issue()
         self.create_exception_event(properties={"$pathname": "/checkout", "$browser": "Chrome"})

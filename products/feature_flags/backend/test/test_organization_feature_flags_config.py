@@ -6,9 +6,9 @@ from parameterized import parameterized
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization
 
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import is_flag_evaluations_table_enabled
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
-from products.feature_flags.backend.models.team_feature_flags_config import FlagEvaluationsMode
 
 
 class TestOrganizationFeatureFlagsConfig(BaseTest):
@@ -57,7 +57,7 @@ class TestFlagEvaluationsTableGate(BaseTest):
             ),
             ("no_config_row_without_the_flag", None, False, False, False),
             (
-                "read_flag_evaluations_while_the_usage_tab_is_forced_to_events",
+                "read_flag_evaluations_while_reads_are_forced_to_events",
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                 False,
                 True,
@@ -66,7 +66,7 @@ class TestFlagEvaluationsTableGate(BaseTest):
         ]
     )
     def test_table_is_enabled_by_the_organization_mode_or_the_flag(
-        self, _name, mode, flag_enabled, usage_tab_forced_to_events, expected
+        self, _name, mode, flag_enabled, reads_forced_to_events, expected
     ):
         config = OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization)
         if mode is None:
@@ -77,6 +77,6 @@ class TestFlagEvaluationsTableGate(BaseTest):
         with (
             self.settings(DEBUG=False, E2E_TESTING=False),
             patch("products.feature_flags.backend.facade.flags.feature_enabled_or_false", return_value=flag_enabled),
-            override_instance_config("FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS", usage_tab_forced_to_events),
+            override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
         ):
             self.assertEqual(is_flag_evaluations_table_enabled(self.team), expected)

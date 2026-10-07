@@ -82,6 +82,17 @@ function businessKnowledgeSearchLine(execSyntax: boolean): string {
     return `- First, ${search} with a short, broad query based on the user's topic. If \`business-knowledge-document-window-retrieve\` is also available, use it when a result needs more context.`
 }
 
+const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'
+
+/** Knowledge search never reads the team's GitHub repositories, so code questions need the repo tools.
+ *  The exec line stays short to keep the exec description under Claude Code's 2048-char cap. */
+function businessKnowledgeRepoSearchLine(execSyntax: boolean): string {
+    if (execSyntax) {
+        return `- For this team's code: \`call ${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL} <json_input>\`.`
+    }
+    return `- For a question about this team's code, call \`${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL}\` with file names or identifiers, not a sentence. Read a hit with \`business-knowledge-repositories-file-retrieve\` and cite its permalink.`
+}
+
 /** Resolve the field, falling back to the advertised tool list for callers that
  *  build a context without it (the CLI's `--agent-help`). */
 function docsSearchAvailable(ctx: InstructionsContext): boolean {
@@ -108,9 +119,13 @@ export class InstructionsFormatter {
         const businessKnowledgeSearchEnabled = ctx.tools?.some(
             ({ name }) => name === 'business-knowledge-documents-search'
         )
+        const businessKnowledgeRepoSearchEnabled = ctx.tools?.some(
+            ({ name }) => name === BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL
+        )
         return this.knowledgeFirstSectionsForCapabilities({
             docsSearchEnabled: docsSearchAvailable(ctx),
             businessKnowledgeSearchEnabled,
+            businessKnowledgeRepoSearchEnabled,
             execSyntax: false,
         })
     }
@@ -121,19 +136,26 @@ export class InstructionsFormatter {
     private knowledgeFirstSectionsForCapabilities(opts: {
         docsSearchEnabled?: boolean
         businessKnowledgeSearchEnabled?: boolean
+        businessKnowledgeRepoSearchEnabled?: boolean
         execSyntax: boolean
     }): string[] {
         if (!opts.docsSearchEnabled) {
             return []
         }
+        const businessKnowledgeLines = opts.businessKnowledgeSearchEnabled
+            ? [
+                  businessKnowledgeSearchLine(opts.execSyntax),
+                  ...(opts.businessKnowledgeRepoSearchEnabled
+                      ? [businessKnowledgeRepoSearchLine(opts.execSyntax)]
+                      : []),
+              ]
+            : []
         return [
             formatPrompt(BUSINESS_KNOWLEDGE_FIRST, {
                 docs_search_call: opts.execSyntax
                     ? 'Run `call docs-search <json_input>`'
                     : 'Call the `docs-search` tool',
-                business_knowledge_search: opts.businessKnowledgeSearchEnabled
-                    ? businessKnowledgeSearchLine(opts.execSyntax)
-                    : '',
+                business_knowledge_search: businessKnowledgeLines.join('\n'),
             }),
         ]
     }
@@ -219,6 +241,7 @@ export class InstructionsFormatter {
             skillsEnabled?: boolean
             docsSearchEnabled?: boolean
             businessKnowledgeSearchEnabled?: boolean
+            businessKnowledgeRepoSearchEnabled?: boolean
         } = {}
     ): string {
         const knowledgeSections = this.knowledgeFirstSectionsForCapabilities({ ...opts, execSyntax: true })

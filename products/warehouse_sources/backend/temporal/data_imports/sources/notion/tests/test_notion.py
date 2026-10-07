@@ -36,6 +36,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.set
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion"
 
 
+def _fresh_manager() -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+    return manager
+
+
 class FakeResponse:
     def __init__(
         self,
@@ -269,20 +275,62 @@ class TestNotion:
         assert len(blocks) == MAX_BLOCK_DEPTH + 1
         assert any("exceeds max depth" in str(call.args[0]) for call in logger.warning.call_args_list)
 
-    def test_blocks_stream_resumes_from_saved_queue(self) -> None:
-        # On retry the blocks stream must consume the persisted page queue instead of re-running the
+    @parameterized.expand(
+        [
+            ("blocks", _blocks_stream, "/v1/blocks/p2/children"),
+            ("comments", _comments_stream, "/v1/comments"),
+        ]
+    )
+    def test_page_fan_out_resumes_from_saved_queue(self, _name, stream, expected_path) -> None:
+        # On retry the fan-out must consume the persisted page queue instead of re-running the
         # full page search from scratch — restarting from zero was what burned API quota on retries.
         session = FakeSession([_list_response([{"id": "b1", "has_children": False}], has_more=False, next_cursor=None)])
         manager = mock.MagicMock()
         manager.can_resume.return_value = True
         manager.load_state.return_value = NotionResumeConfig(remaining_page_ids=["p2"])
 
-        tables = list(_blocks_stream(cast(requests.Session, session), mock.MagicMock(), manager))
+        tables = list(stream(cast(requests.Session, session), mock.MagicMock(), manager))
 
         assert sum(t.num_rows for t in tables) == 1
-        # Only the resumed page's block-children fetch runs; no /v1/search re-enumeration.
+        # Only the resumed page's fetch runs; no /v1/search re-enumeration.
         assert len(session.calls) == 1
-        assert session.calls[0]["url"].endswith("/v1/blocks/p2/children")
+        assert session.calls[0]["url"].endswith(expected_path)
+
+    @parameterized.expand([("blocks", _blocks_stream), ("comments", _comments_stream)])
+    def test_pages_without_rows_move_the_queue_and_reach_safe_points(self, _name, stream) -> None:
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "p1"}, {"id": "p2"}, {"id": "p3"}], has_more=False, next_cursor=None)
+            return _list_response([], has_more=False, next_cursor=None)
+
+        session = FakeSession(responses)
+        manager = _fresh_manager()
+
+        with mock.patch(f"{MODULE}.EMPTY_PAGE_STAGE_INTERVAL_SECONDS", 0):
+            tables = list(stream(cast(requests.Session, session), mock.MagicMock(), manager))
+
+        assert tables == []
+        saved = [call.args[0].remaining_page_ids for call in manager.save_state.call_args_list]
+        assert saved == [["p2", "p3"], ["p3"], []]
+        assert manager.safe_point.call_count == 3
+
+    def test_a_sparse_page_run_yields_a_partial_chunk_with_its_queue_staged_first(self) -> None:
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "p1"}, {"id": "p2"}], has_more=False, next_cursor=None)
+            return _list_response([{"id": f"cm{index}"}], has_more=False, next_cursor=None)
+
+        session = FakeSession(responses)
+        manager = _fresh_manager()
+        events: list[Any] = []
+        manager.save_state.side_effect = lambda state: events.append(state.remaining_page_ids)
+
+        with mock.patch(f"{MODULE}.PARTIAL_FLUSH_INTERVAL_SECONDS", 0):
+            for table in _comments_stream(cast(requests.Session, session), mock.MagicMock(), manager):
+                events.append(table.num_rows)
+
+        assert events == [["p2"], 1, [], 1]
+        manager.safe_point.assert_not_called()
 
     def test_blocks_stream_saves_progress_after_each_yield(self) -> None:
         # After a batch is flushed the in-progress page must be persisted at the head of the queue, so a
@@ -474,7 +522,7 @@ class TestNotion:
 
         session = FakeSession(responses)
         logger = mock.MagicMock()
-        tables = list(_comments_stream(cast(requests.Session, session), logger))
+        tables = list(_comments_stream(cast(requests.Session, session), logger, _fresh_manager()))
 
         total_rows = sum(t.num_rows for t in tables)
         assert total_rows == 1
@@ -493,7 +541,7 @@ class TestNotion:
 
         session = FakeSession(responses)
         logger = mock.MagicMock()
-        tables = list(_comments_stream(cast(requests.Session, session), logger))
+        tables = list(_comments_stream(cast(requests.Session, session), logger, _fresh_manager()))
 
         total_rows = sum(t.num_rows for t in tables)
         assert total_rows == 1
@@ -539,7 +587,7 @@ class TestNotion:
 
         session = FakeSession(responses)
         logger = mock.MagicMock()
-        list(_comments_stream(cast(requests.Session, session), logger))
+        list(_comments_stream(cast(requests.Session, session), logger, _fresh_manager()))
 
         # One search call plus the capped number of comment-page fetches.
         assert len(session.calls) == 1 + MAX_CHILD_PAGES_PER_PARENT

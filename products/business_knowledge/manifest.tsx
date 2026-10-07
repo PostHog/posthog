@@ -65,10 +65,10 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Business knowledge',
-            intents: [ProductKey.CONVERSATIONS],
+            intents: [ProductKey.BUSINESS_KNOWLEDGE],
             category: ProductItemCategory.DATA,
             href: urls.businessKnowledge(),
-            tags: ['alpha'],
+            tags: ['beta'],
             iconType: 'business_knowledge',
             iconColor: [
                 'var(--color-product-business-knowledge-light)',

@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::storage::error::StorageResult;
 use crate::storage::types::{
-    DeletePersonsMode, DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, SplitResult,
+    DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, PersonVersionFloorResult, SplitResult,
     TombstonedDeleteOutcome, TombstonedPerson,
 };
 
@@ -54,13 +54,11 @@ pub trait PersonLookup: Send + Sync {
 
     // Deletes
 
-    /// `Hard` removes the rows, tombstoned ones included. `Tombstone` keeps
-    /// them and reports the versions written for the ClickHouse tombstones.
+    /// Tombstones the persons and reports the versions written for the ClickHouse tombstones.
     async fn delete_persons(
         &self,
         team_id: i64,
         uuids: &[Uuid],
-        mode: DeletePersonsMode,
     ) -> StorageResult<DeletePersonsOutcome>;
 
     /// Delete persons that are still tombstoned, at most `max_rows` dependent rows per call:
@@ -146,4 +144,12 @@ pub trait PersonLookup: Send + Sync {
         person_id: i64,
         min_version: i64,
     ) -> StorageResult<bool>;
+
+    /// Raise each person tombstone to at least its min version in one primary transaction, inserting a
+    /// tombstone for a missing person and leaving a live row unchanged; `floors` must not repeat a uuid.
+    async fn ensure_person_version_floors(
+        &self,
+        team_id: i64,
+        floors: &[(Uuid, i64)],
+    ) -> StorageResult<Vec<PersonVersionFloorResult>>;
 }

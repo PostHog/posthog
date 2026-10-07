@@ -28,6 +28,47 @@ Suggested entry format:
 
 ---
 
+## 2026-10-06: Single-person event lookups under override-based person IDs: prefilter on stored person ID or override distinct IDs, keep the resolved check
+
+**Context.** The related groups panel on person pages (`ee/clickhouse/queries/related_actors_query.py`, `_query_related_groups`): `SELECT DISTINCT` group keys `FROM events WHERE person_id = {person} AND timestamp` in the last 90 days. Under the override-based persons-on-events modes, HogQL resolves `events.person_id` through `person_distinct_id_overrides` for every row in the window before the person filter can apply. On team 2 a large share of loads failed with `MEMORY_LIMIT_EXCEEDED` after ~40s.
+
+**Question.** Can the lookup stop resolving identity for the whole team's window without changing which groups come back for merged, detached or squashed persons?
+
+**What we tried.** In production, in two steps:
+
+- (A) Baseline.
+- (B) [#107324](https://github.com/PostHog/posthog/pull/107324): read the group key columns (`$group_N`, or `_$group_N_raw` when the group type has a `created_at`) instead of group keys from JSON `properties`.
+- (C) [#109931](https://github.com/PostHog/posthog/pull/109931): B plus a `PREWHERE` that narrows to candidate rows, while the resolved `person_id = {person}` filter stays in `WHERE` as the correctness check:
+
+```sql
+PREWHERE events.team_id = {team_id} AND timestamp > {after} AND timestamp < {before}
+  AND (events.event_person_id = {person}
+       OR events.distinct_id IN (SELECT distinct_id FROM raw_person_distinct_id_overrides WHERE person_id = {person}))
+```
+
+The candidate set is a superset: a row resolves to the person either through its stored `event_person_id` (no override) or through an override row for its `distinct_id`. A stale override that now points elsewhere passes the prefilter and fails the `WHERE`. The `IN` is local, not `GLOBAL IN`, so candidates and resolution read the same shard's snapshot; a replica ahead of the initiator could otherwise miss overrides.
+
+**Numbers.** Team 2 production, initial queries from `system.query_log`, split by `lc_plan_fingerprint`, relative to A. A and B cover a few hours each on the same day; C covers the ~24h after its deploy:
+
+| Variant                    | p50 duration, successful | Read bytes | Median peak memory | Worst-case peak memory   |
+| -------------------------- | ------------------------ | ---------- | ------------------ | ------------------------ |
+| A baseline                 | 1.0x                     | 1.0x       | 1.0x               | at the per-query limit   |
+| B group key columns        | ~1.0x                    | ~0.95x     | ~0.95x             | at the per-query limit   |
+| C B + candidate `PREWHERE` | ~0.95x                   | ~0.5x      | ~0.05x             | under 1 GB, far below it |
+
+C ended the memory-limit failures. Rows read did not change: every query still read the whole window.
+
+**Caveats.** Team 2 only. B's effect depends on the events table: its PR benchmark showed the win on the native-JSON events table, and team 2 showed none. Under cluster-wide load a few C queries still took 15-60s with unchanged memory and reads.
+
+**Takeaways.**
+
+- **The win was memory, not wall time.** Distinct ID filtering can't use the events sort key without an `event` filter, so every row in the window is still read. Removing the per-row override resolution removed the memory that grew with the team's event volume. Judge a fix like this on failure rate and peak memory, not successful-query p50.
+- **Prove equivalence on real persons before shipping.** Run old and new SQL over the same fixed window, with the query as a subquery, and compare `count()` plus `cityHash64(arrayStringConcat(arraySort(groupArray(...))))` computed in the outer query. Aggregating inside ClickHouse matters: HogQL adds a default `LIMIT 100` to an outer query without one, and with no `ORDER BY` the two plans can return different subsets of a larger result. Include persons whose events sit under an older `event_person_id`, so the override path runs. Run the two halves as separate queries: in one `UNION ALL`, the old half can hit the memory limit on its own.
+- **Split before and after by plan fingerprint, not merge time.** `lc_plan_fingerprint` changes when the generated SQL shape changes, so the first new fingerprint marks the moment the deploy reached production. Each variant then gets its own rows even within one day.
+- **Check a fix that seems to land.** B merged and looked done, but team 2's failure rate did not move. Measure each step separately instead of crediting the series.
+
+---
+
 ## 2026-07-02: GROUP BY elements_chain is scan-bound; URL filters prune by granule-spread, not row-selectivity; OFFSET re-runs the whole aggregation
 
 **Context.** The toolbar clickmap endpoint (`/api/element/stats/`, `GET_ELEMENTS` in `posthog/models/element/sql.py`): raw single-team SQL grouping `events.elements_chain` by chain and event type over a team + date range + `$current_url` filter, ordered by count. Production p50 is fine (~250ms) but wide date ranges on pages whose URL is dense in the team's own traffic read hundreds of GiB and take seconds; the toolbar also paginates this with LIMIT/OFFSET.

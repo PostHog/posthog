@@ -67,7 +67,6 @@ import {
 } from "@posthog/ui/features/canvas/freeform/canvasGenerationStatus";
 import { invalidateCanvasLifecycle } from "@posthog/ui/features/canvas/hooks/invalidateCanvasLifecycle";
 import { useCanvasBuilds } from "@posthog/ui/features/canvas/hooks/useCanvasBuilds";
-import { useCanvasCommentsEnabled } from "@posthog/ui/features/canvas/hooks/useCanvasCommentsEnabled";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import {
   useCanvasDrafts,
@@ -356,7 +355,6 @@ export function FreeformCanvasView({
     interactive ? dashboardId : undefined,
   );
   const commentTaskId = canvasCommentTaskId(genTaskId, versions);
-  const commentsEnabled = useCanvasCommentsEnabled(commentTaskId);
   // The run whose chat the panel shows: this person's own run on the canvas,
   // found through the record's task or the versions they published. Another
   // person's run never shows, so each editor keeps their own conversation.
@@ -534,17 +532,13 @@ export function FreeformCanvasView({
     () => ({ scope: "canvas" as const, itemId: dashboardId }),
     [dashboardId],
   );
-  const commentsQuery = useCommentsQuery(
-    commentsEnabled ? commentTarget : null,
-    commentTaskId ?? "",
-  );
+  const commentsQuery = useCommentsQuery(commentTarget, commentTaskId ?? "");
   const focusedCommentId = useCommentNavigationStore(
     (state) =>
       state.focusByTask[canvasCommentFocusKey(dashboardId)]?.threadId ?? null,
   );
   const activateComment = useCallback(
     (id: string) => {
-      if (!commentsEnabled) return;
       useCanvasChatPanelStore.getState().openComments();
       useCommentNavigationStore
         .getState()
@@ -555,7 +549,7 @@ export function FreeformCanvasView({
           { intent: "reveal-thread" },
         );
     },
-    [commentsEnabled, commentTarget, dashboardId],
+    [commentTarget, dashboardId],
   );
   const commentHighlights = useMemo<CanvasCommentHighlight[]>(() => {
     const threads = buildCommentThreads(commentsQuery.data ?? []);
@@ -862,7 +856,6 @@ export function FreeformCanvasView({
     generatingPanelOpen,
     viewOpen: embedded ? false : panelViewOpen,
     collapsed,
-    commentsEnabled,
   });
   const showPanel = panelVisibility.editing;
   // Build failures/progress surface in view mode too — the toolbar renders
@@ -1358,7 +1351,6 @@ export function FreeformCanvasView({
           <CanvasSidePanel
             chatTaskId={chatTaskId}
             commentTaskId={commentTaskId}
-            commentsEnabled={commentsEnabled}
             interactive={interactive}
             onMinimize={() => {
               setCollapsed(true);
@@ -1386,7 +1378,7 @@ export function FreeformCanvasView({
         </ResizableSidebar>
       )}
 
-      {!embedded && commentsEnabled && (
+      {!embedded && (
         <CanvasSelectionCommentAction
           selection={textSelection}
           taskId={commentTaskId}
