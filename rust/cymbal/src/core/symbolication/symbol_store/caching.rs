@@ -2,12 +2,12 @@ use std::{any::Any, collections::HashMap, sync::Arc, time::Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 use tracing::info;
 
 use crate::metric_consts::{
     STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS, STORE_CACHE_EVICTION_RUNS, STORE_CACHE_HITS,
-    STORE_CACHE_MISSES,
+    STORE_CACHE_MISSES, SYMBOL_SET_LARGE_PARSE_WAIT_MS,
 };
 
 use super::{chunk_id::SymbolSetCacheKey, Fetcher, Parser, Provider};
@@ -23,6 +23,33 @@ const LARGE_PARSED_BYTES: usize = 50_000_000;
 pub struct Caching<P> {
     inner: P,
     cache: Arc<Mutex<SymbolSetCache>>, // This inner cache is shared across providers
+    parse_limiter: Option<ParseLimiter>,
+}
+
+// Bounds how many large symbol sets are parsed at once. A parse can need many times the
+// fetched size in transient memory, and the cache budget does not count it. Clones share
+// one set of permits, so a single limiter covers every provider it is given to.
+#[derive(Clone)]
+pub struct ParseLimiter {
+    large_parse_bytes: usize,
+    permits: Arc<Semaphore>,
+}
+
+impl ParseLimiter {
+    pub fn new(large_parse_bytes: usize, max_concurrent_large_parses: usize) -> Self {
+        Self {
+            large_parse_bytes,
+            permits: Arc::new(Semaphore::new(max_concurrent_large_parses.max(1))),
+        }
+    }
+
+    async fn acquire(&self, fetched_bytes: usize) -> Option<OwnedSemaphorePermit> {
+        if fetched_bytes < self.large_parse_bytes {
+            return None;
+        }
+        // UNWRAP - we never close the semaphore
+        Some(self.permits.clone().acquire_owned().await.unwrap())
+    }
 }
 
 impl<P> Caching<P>
@@ -36,7 +63,16 @@ where
     P::Set: Countable + Any + Send + Sync,
 {
     pub fn new(inner: P, cache: Arc<Mutex<SymbolSetCache>>) -> Self {
-        Self { inner, cache }
+        Self {
+            inner,
+            cache,
+            parse_limiter: None,
+        }
+    }
+
+    pub fn with_parse_limiter(mut self, parse_limiter: ParseLimiter) -> Self {
+        self.parse_limiter = Some(parse_limiter);
+        self
     }
 }
 
@@ -68,14 +104,27 @@ where
         let found = self.inner.fetch(team_id, r).await?;
         let fetched_bytes = found.byte_count();
         let set_type = set_type_name::<P::Set>();
+
+        let wait_start = Instant::now();
+        let permit = match &self.parse_limiter {
+            Some(limiter) => limiter.acquire(fetched_bytes).await,
+            None => None,
+        };
+        let wait_ms = wait_start.elapsed().as_millis() as u64;
+        if permit.is_some() {
+            metrics::histogram!(SYMBOL_SET_LARGE_PARSE_WAIT_MS).record(wait_ms as f64);
+        }
+
         if fetched_bytes >= LARGE_FETCHED_BYTES {
             info!(
                 team_id,
-                cache_key, set_type, fetched_bytes, "Parsing large symbol set"
+                cache_key, set_type, fetched_bytes, wait_ms, "Parsing large symbol set"
             );
         }
         let parse_start = Instant::now();
-        let parsed = self.inner.parse(found).await?;
+        let parsed = self.inner.parse(found).await;
+        drop(permit);
+        let parsed = parsed?;
         let bytes = parsed.byte_count();
         if fetched_bytes >= LARGE_FETCHED_BYTES || bytes >= LARGE_PARSED_BYTES {
             info!(
@@ -278,6 +327,67 @@ mod tests {
         assert_eq!(both.as_ref(), b"both");
         assert_eq!(chunk_only.as_ref(), b"chunk-id");
         assert_eq!(fetches.load(Ordering::SeqCst), 2);
+    }
+
+    struct SizedProvider {
+        fetched_bytes: usize,
+        in_flight: Arc<AtomicUsize>,
+        max_in_flight: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Fetcher for SizedProvider {
+        type Ref = OrChunkId<Url>;
+        type Fetched = Vec<u8>;
+        type Err = Infallible;
+
+        async fn fetch(&self, _team_id: i32, _r: Self::Ref) -> Result<Self::Fetched, Self::Err> {
+            Ok(vec![0; self.fetched_bytes])
+        }
+    }
+
+    #[async_trait]
+    impl Parser for SizedProvider {
+        type Source = Vec<u8>;
+        type Set = Vec<u8>;
+        type Err = Infallible;
+
+        async fn parse(&self, data: Self::Source) -> Result<Self::Set, Self::Err> {
+            let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_in_flight.fetch_max(now, Ordering::SeqCst);
+            for _ in 0..5 {
+                tokio::task::yield_now().await;
+            }
+            self.in_flight.fetch_sub(1, Ordering::SeqCst);
+            Ok(data)
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn parse_limiter_bounds_only_large_parses() {
+        // (fetched bytes, expected max concurrent parses) with a 1-permit limiter at 100 bytes
+        for (fetched_bytes, expected_max) in [(100, 1), (99, 3)] {
+            let max_in_flight = Arc::new(AtomicUsize::new(0));
+            let provider = SizedProvider {
+                fetched_bytes,
+                in_flight: Arc::new(AtomicUsize::new(0)),
+                max_in_flight: max_in_flight.clone(),
+            };
+            let cache = Arc::new(Mutex::new(SymbolSetCache::new(1 << 20)));
+            let caching =
+                Caching::new(provider, cache).with_parse_limiter(ParseLimiter::new(100, 1));
+
+            futures::future::join_all(
+                (0..3).map(|i| caching.lookup(1, OrChunkId::<Url>::chunk_id(format!("set-{i}")))),
+            )
+            .await;
+
+            assert_eq!(
+                max_in_flight.load(Ordering::SeqCst),
+                expected_max,
+                "fetched_bytes = {fetched_bytes}"
+            );
+        }
     }
 
     #[test]
