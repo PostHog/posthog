@@ -134,9 +134,7 @@ def _conjuncts(expr: ast.Expr | None) -> list[ast.Expr]:
     return [expr]
 
 
-def _describe_events_read(
-    select: ast.SelectQuery, events_aliases: set[str], join_conditions: list[ast.Expr]
-) -> str:
+def _describe_events_read(select: ast.SelectQuery, events_aliases: set[str], join_conditions: list[ast.Expr]) -> str:
     lower: set[str] = set()
     upper: set[str] = set()
     # One entry for each condition, because two conditions on the event name narrow each other.

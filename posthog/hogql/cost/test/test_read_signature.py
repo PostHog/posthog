@@ -122,7 +122,9 @@ class TestReadSignature(SimpleTestCase):
         assert read_signature(parse_select("WITH events AS (SELECT 'a' AS event) SELECT count() FROM events")) is None
 
     def test_root_cte_is_visible_in_every_union_branch(self):
-        with_cte = parse_select("WITH scoped AS (SELECT event FROM events) SELECT * FROM scoped UNION ALL SELECT * FROM scoped")
+        with_cte = parse_select(
+            "WITH scoped AS (SELECT event FROM events) SELECT * FROM scoped UNION ALL SELECT * FROM scoped"
+        )
         without_cte = parse_select("SELECT * FROM events UNION ALL SELECT * FROM events")
 
         assert read_signature(with_cte) == read_signature(without_cte)
