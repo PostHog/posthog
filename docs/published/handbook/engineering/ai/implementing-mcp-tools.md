@@ -358,6 +358,15 @@ Product teams own their definitions and control which operations are exposed as 
    name fails generation instead of silently dropping the argument at runtime.
    See "UI apps" in `services/mcp/CONTRIBUTING.md` for the rules.
 
+   In single-exec mode, UI hosts receive `exec` and `render-ui` as model tools,
+   plus the connection's permitted read-only tools with `ui.visibility: ["app"]`.
+   App-only descriptors let the host authorize visualization data fetches and
+   drill-down calls without exposing those tools to the model. These descriptors
+   use compact input schemas; direct calls still validate against the full tool schema.
+   Required model analytics arguments are omitted from app-only descriptors because
+   app data fetches have no model context to supply them.
+   After changing descriptors, refresh the client's tool list and start a fresh conversation.
+
    A custom UI app can set `resource_domains` when it loads an image, font, script, or stylesheet from an external source. Each value must be a CSP source expression. Declare only the required origin or path.
 
    #### Custom input schemas

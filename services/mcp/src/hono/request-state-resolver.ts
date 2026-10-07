@@ -1,5 +1,6 @@
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
+import { env } from '@/lib/env'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -188,10 +189,9 @@ export class RequestStateResolver {
             userAgent: props.clientUserAgent,
         })
 
-        // `render-ui` is only meaningful for MCP Apps hosts (Claude web/desktop) that can
-        // mount its iframe. Single-exec CLI clients like Claude Code can't mount it, so the
-        // tool's advertisement and execution stay gated on the UI-host check.
-        const renderUiEnabled = clientProfile.isClaudeUiHost()
+        const renderUiEnabled =
+            clientProfile.isClaudeUiHost() ||
+            (env.NODE_ENV === 'development' && env.POSTHOG_MCP_FORCE_RENDER_UI === 'true')
 
         const { mode: resolvedMode, useSingleExec } = resolveMode({
             mode: requestContext.mode,

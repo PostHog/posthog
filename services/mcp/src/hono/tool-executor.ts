@@ -89,8 +89,8 @@ interface ExecMetricState {
  *
  * CLI-mode clients read `content[].text`, so for them the structured copy only adds
  * tokens. A render-ui host in single-exec mode is the exception, because there
- * `buildAdvertisedTools` offers `exec` and `render-ui` only, and `handleToolCall` routes
- * both of those before this path. Any other tool name that reaches here is therefore the
+ * `buildAdvertisedTools` offers `exec` and `render-ui` to the model, and `handleToolCall`
+ * routes both of those before this path. Any other tool name that reaches here is therefore the
  * render-ui app calling `callServerTool` to load its own data. That app reads
  * `structuredContent` and ignores the text channel, so dropping the structured payload
  * leaves it with nothing to draw, and it shows its error state instead of the chart. The
@@ -157,7 +157,13 @@ export class ToolExecutor {
     // Guarded because analytics must never break `tools/list`.
     private injectAnalyticsParameters(tools: ListToolsResult['tools']): ListToolsResult['tools'] {
         try {
-            return getPostHogClient().prepareToolList(tools)
+            const appTools = tools.filter((tool) => {
+                const visibility = (tool._meta?.ui as { visibility?: unknown } | undefined)?.visibility
+                return Array.isArray(visibility) && visibility.length === 1 && visibility[0] === 'app'
+            })
+            // App data requests have no model context to populate the SDK's required arguments.
+            const modelTools = tools.filter((tool) => !appTools.includes(tool))
+            return [...getPostHogClient().prepareToolList(modelTools), ...appTools]
         } catch {
             return tools
         }
@@ -166,7 +172,38 @@ export class ToolExecutor {
     private buildAdvertisedTools(state: ResolvedState): ListToolsResult['tools'] {
         if (state.useSingleExec) {
             const renderUiEntry = state.renderUiEnabled ? this.instructionsBuilder.buildRenderUiToolEntry(state) : null
-            return [this.instructionsBuilder.buildExecToolEntry(state), ...(renderUiEntry ? [renderUiEntry] : [])]
+            // Hosts build the app's trusted tool scope from tools/list, even when the
+            // server accepts direct calls to tools hidden behind exec.
+            const appToolNames = new Set(
+                renderUiEntry
+                    ? state.allTools.filter((tool) => tool.annotations.readOnlyHint).map((tool) => tool.name)
+                    : []
+            )
+            const appTools = this.catalog
+                .getPreBuiltEntries()
+                .filter((entry) => appToolNames.has(entry.name))
+                .map((entry) => {
+                    const uiMeta = entry._meta?.ui
+                    return {
+                        ...entry,
+                        description: `Load ${entry.name} data for a PostHog app.`,
+                        // Apps already construct these arguments. Publishing every generated
+                        // query schema makes discovery enormous; calls still use the full validator.
+                        inputSchema: { type: 'object' as const, additionalProperties: true },
+                        _meta: {
+                            ...entry._meta,
+                            ui: {
+                                ...(uiMeta && typeof uiMeta === 'object' ? uiMeta : {}),
+                                visibility: ['app'],
+                            },
+                        },
+                    }
+                })
+            return [
+                this.instructionsBuilder.buildExecToolEntry(state),
+                ...(renderUiEntry ? [renderUiEntry] : []),
+                ...appTools,
+            ]
         }
 
         const nameSet = new Set(state.allTools.map((t) => t.name))
