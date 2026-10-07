@@ -197,6 +197,7 @@ class ReviewPerspectivesWorkflow:
                         run_index=inputs.run_index,
                         review_mode=inputs.review_mode,
                         flash_reasoning_effort=inputs.flash_reasoning_effort,
+                        repository_instructions=inputs.repository_instructions,
                         perspectives=ordered,
                     ),
                     start_to_close_timeout=_SANDBOX_TIMEOUT,
@@ -228,6 +229,7 @@ class ReviewPerspectivesWorkflow:
                         run_index=inputs.run_index,
                         review_mode=inputs.review_mode,
                         flash_reasoning_effort=inputs.flash_reasoning_effort,
+                        repository_instructions=inputs.repository_instructions,
                         chunk_id=chunk_id,
                         pass_number=pass_number,
                         skill_name=skill_name,
@@ -484,6 +486,7 @@ class ReviewPRWorkflow:
         # override the CLI and inbox triggers set. The label trigger falls back to the default run
         # user on an unmapped author (someone explicitly asked for this review); other triggers keep
         # the author-only contract, so an unmapped author still skips there. Gate before sandbox spend.
+        policy = inputs.effective_repository_policy
         acting = await workflow.execute_activity(
             resolve_acting_user_activity,
             ResolveActingUserInput(
@@ -493,6 +496,8 @@ class ReviewPRWorkflow:
                 report_id=report_id,
                 trigger_source=inputs.trigger_source,
                 default_user_id=inputs.user_id,
+                author_opt_in_required=policy.author_opt_in_required,
+                flash_reasoning_effort_override=policy.flash_reasoning_effort,
             ),
             start_to_close_timeout=_QUICK_TIMEOUT,
             retry_policy=_RETRY,
@@ -516,7 +521,11 @@ class ReviewPRWorkflow:
         if inputs.trigger_source == TRIGGER_INBOX and not acting.review_inbox_prs:
             workflow.logger.info(f"Acting user {acting.acting_user_id} has inbox reviews turned off; skipping review")
             return report_id
-        if inputs.trigger_source == TRIGGER_AUTOMATIC and not acting.review_authored_prs:
+        if (
+            inputs.trigger_source == TRIGGER_AUTOMATIC
+            and policy.author_opt_in_required
+            and not acting.review_authored_prs
+        ):
             workflow.logger.info("Automatic reviews are disabled for the author; skipping review")
             return report_id
         acting_user_id = acting.acting_user_id
@@ -606,6 +615,7 @@ class ReviewPRWorkflow:
                 run_index=meta.run_index,
                 review_mode=inputs.review_mode,
                 flash_reasoning_effort=acting.flash_reasoning_effort,
+                repository_instructions=policy.instructions,
             )
 
             workflow.logger.info("STAGE 2/7 · Split into chunks")
@@ -632,6 +642,7 @@ class ReviewPRWorkflow:
                     run_index=stage.run_index,
                     review_mode=stage.review_mode,
                     flash_reasoning_effort=stage.flash_reasoning_effort,
+                    repository_instructions=stage.repository_instructions,
                     chunk_ids=chunk_ids,
                     acting_user_id=acting_user_id,
                 ),
@@ -664,6 +675,7 @@ class ReviewPRWorkflow:
                     run_index=stage.run_index,
                     review_mode=stage.review_mode,
                     flash_reasoning_effort=stage.flash_reasoning_effort,
+                    repository_instructions=stage.repository_instructions,
                     issue_ids=dedup.issue_ids,
                     acting_user_id=acting_user_id,
                 ),

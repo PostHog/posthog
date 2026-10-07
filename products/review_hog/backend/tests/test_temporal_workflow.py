@@ -39,6 +39,7 @@ from products.review_hog.backend.temporal.activities import (
     PublishInput,
     PublishResult,
     RemoveTriggerLabelInput,
+    ResolveActingUserInput,
     ResolveActingUserResult,
     ReviewChunkInput,
     ReviewMeta,
@@ -59,6 +60,7 @@ from products.review_hog.backend.temporal.resolution import (
     ResolveThreadsInput,
 )
 from products.review_hog.backend.temporal.types import (
+    RepositoryReviewPolicy,
     ResolvePRWorkflowInputs,
     ReviewPRWorkflowInputs,
     resolve_pr_workflow_id,
@@ -124,6 +126,7 @@ async def _run_full_review_pr_workflow(
     review_authored_prs: bool = False,
     already_completed: bool = False,
     pr_open: bool = True,
+    repository_policy: RepositoryReviewPolicy | None = None,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -159,6 +162,11 @@ async def _run_full_review_pr_workflow(
     # off it, so a stage that drops it silently runs (or labels) a flash turn as a full one.
     mode_calls: dict[str, set[str]] = {}
     effort_calls: dict[str, set[str]] = {}
+    # The repository instructions every review unit received; the config's guidance has to reach
+    # the prompt through the child workflow or it silently reviews without it.
+    instruction_calls: set[str] = set()
+    # (author_opt_in_required, flash_reasoning_effort_override) as the resolve activity received them.
+    resolve_policy_calls: list[tuple[bool, str | None]] = []
 
     def _saw_mode(stage: str, mode: str) -> None:
         mode_calls.setdefault(stage, set()).add(mode)
@@ -188,7 +196,8 @@ async def _run_full_review_pr_workflow(
         )
 
     @activity.defn(name="resolve_acting_user_activity")
-    async def resolve_acting_user(input) -> ResolveActingUserResult:
+    async def resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResult:
+        resolve_policy_calls.append((input.author_opt_in_required, input.flash_reasoning_effort_override))
         # Non-default threshold and resolved_from, so the threading asserts can't pass on the
         # dataclass defaults.
         return ResolveActingUserResult(
@@ -247,6 +256,7 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="review_chunk_activity")
     async def review(input: ReviewChunkInput) -> bool:
         effort_calls.setdefault("review", set()).add(input.flash_reasoning_effort)
+        instruction_calls.add(input.repository_instructions)
         _saw_mode("review", input.review_mode)
         review_calls.append(
             (
@@ -403,6 +413,7 @@ async def _run_full_review_pr_workflow(
                         head_branch=input_head_branch,
                         resolve_comments=input_resolve_comments,
                         review_mode=review_mode,
+                        repository_policy=repository_policy,
                     ),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
@@ -439,6 +450,8 @@ async def _run_full_review_pr_workflow(
         "resolve_dispatches": list(StubResolvePRWorkflow.dispatches),
         "modes": mode_calls,
         "efforts": effort_calls,
+        "instructions": instruction_calls,
+        "resolve_policies": resolve_policy_calls,
         "markers": marker_calls,
     }
 
@@ -608,12 +621,21 @@ async def test_review_pr_workflow_flash_turn_threads_its_mode_and_never_chains_r
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "enabled,completed,pr_open,expected_review",
-    [(True, False, True, True), (False, False, True, False), (True, True, True, False), (True, False, False, False)],
+    "enabled,completed,pr_open,opt_in_required,expected_review",
+    [
+        (True, False, True, True, True),
+        (False, False, True, True, False),
+        (True, True, True, True, False),
+        (True, False, False, True, False),
+        # `authors: members` in the repository config waives the author's own opt-in.
+        (False, False, True, False, True),
+        (False, True, True, False, False),
+    ],
 )
 async def test_automatic_reviews_recheck_consent_and_skip_completed_or_closed_prs(
-    enabled: bool, completed: bool, pr_open: bool, expected_review: bool
+    enabled: bool, completed: bool, pr_open: bool, opt_in_required: bool, expected_review: bool
 ) -> None:
+    policy = RepositoryReviewPolicy(author_opt_in_required=opt_in_required, flash_reasoning_effort="xhigh")
     recorded = await _run_full_review_pr_workflow(
         publish=True,
         trigger_source="automatic",
@@ -621,9 +643,25 @@ async def test_automatic_reviews_recheck_consent_and_skip_completed_or_closed_pr
         review_authored_prs=enabled,
         already_completed=completed,
         pr_open=pr_open,
+        repository_policy=policy,
     )
     assert bool(recorded["review"]) is expected_review
     assert bool(recorded["publish"]) is expected_review
+    if not completed and pr_open:
+        assert recorded["resolve_policies"] == [(opt_in_required, "xhigh")]
+
+
+@pytest.mark.asyncio
+async def test_repository_instructions_reach_every_review_unit() -> None:
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        trigger_source="automatic",
+        review_mode="flash",
+        review_authored_prs=True,
+        repository_policy=RepositoryReviewPolicy(instructions="Flag blocking calls in async code."),
+    )
+    assert recorded["review"]
+    assert recorded["instructions"] == {"Flag blocking calls in async code."}
 
 
 @pytest.mark.asyncio

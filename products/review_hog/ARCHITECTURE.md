@@ -40,7 +40,7 @@ in flight, with the detail in DECISIONS.md.
 ## Status & next
 
 ReviewHog runs end-to-end: label / UI / inbox / automatic authored-PR triggers → the Temporal pipeline → published PR review.
-Opted-in authors receive Flash reviews on new PRs and pushes in `PostHog/posthog`, including drafts.
+Authors receive Flash reviews on new PRs and pushes in every repository the GitHub App installation covers that commits a `.github/review-hog.yml` ([REPOSITORY_CONFIG.md](./REPOSITORY_CONFIG.md)); the file decides whether the author's own opt-in is required.
 The per-PR queue serializes reviews and coalesces automatic pushes into a follow-up for the latest head.
 The current focus is productionizing the reviewer-topology eval and tightening the finder/validator balance
 (validator strictness, fewer junk candidates, the coverage gap).
@@ -739,9 +739,12 @@ whoever controls the run, the sandbox agent included), **MCP tools**
 (`review-hog-reviews-{trigger,list,get}`, defined in `products/review_hog/mcp/tools.yaml` and gated on the
 `review-hog` feature flag) that drive the same reviews viewset with a personal API key or OAuth token, and **automatic authored-PR Flash reviews**.
 The automatic trigger consumes signed GitHub `pull_request` deliveries through `review_hog_authored_prs` and queues a Celery task for identity and opt-in checks.
-It accepts `opened` and `synchronize` for open `PostHog/posthog` PRs whose head and base belong to that repository, including drafts.
+It accepts `opened`, `synchronize`, `ready_for_review`, `unlabeled`, and base-branch `edited` events for open PRs whose head and base belong to the delivering repository, in any repository the configured team's GitHub App installation covers.
+`ready_for_review` starts the first review under `drafts: false`, and also catches a draft whose earlier events a since-cleared gate skipped; a head the turn already completed is not reviewed again.
+The Celery task then reads the repository's `.github/review-hog.yml` on the default branch, so the PR under review cannot change its own rules (`backend/repository_config.py`, format in [REPOSITORY_CONFIG.md](./REPOSITORY_CONFIG.md)): no file means no review, and the file's gates (`enabled`, `drafts`, `pushes`, `base_branches`, `skip_labels`, `ignore_authors`) and its `authors` policy decide whether the author's own opt-in is still required.
+What the file decides for the turn travels as `RepositoryReviewPolicy` on the workflow input: the opt-in requirement, a Flash effort that replaces the author's setting, and repository-wide `instructions` that every perspective prompt renders.
 Enabling the setting performs no backfill; existing PRs become eligible on their next push.
-The turn rechecks the author's opt-in before starting and uses their saved severity threshold; Flash never starts resolution.
+The turn rechecks the author's opt-in before starting (unless the policy waives it) and uses their saved severity threshold; Flash never starts resolution.
 The UI and MCP paths are one surface: the viewset carries the grantable `review_hog` scope (`review_hog:read` for list /
 retrieve / perspective_stats, `review_hog:write` for trigger). Both require the `review-hog` feature flag,
 and the trigger action checks the URL, GitHub App access, fork status, and open state regardless of caller.

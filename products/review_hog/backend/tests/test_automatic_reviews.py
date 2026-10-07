@@ -26,11 +26,14 @@ from posthog.models.team import Team
 
 from products.review_hog.backend.automatic_reviews import enqueue_authored_pr_review
 from products.review_hog.backend.models import ReviewUserSettings
+from products.review_hog.backend.repository_config import RepositoryConfigError, RepositoryReviewConfig
 from products.review_hog.backend.tasks import process_authored_pr_event
+from products.review_hog.backend.temporal.types import RepositoryReviewPolicy
 from products.review_hog.backend.webhook_consumers import WEBHOOK_CONSUMERS
 
 _QUEUE = "products.review_hog.backend.tasks.process_authored_pr_event.delay"
 _START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
+_LOAD_CONFIG = "products.review_hog.backend.automatic_reviews.load_repository_config"
 _SECRET = "test-review-hog-webhook-secret"
 _HEAD_SHA = "a" * 40
 _DISPATCH_METRIC = "posthog_review_hog_authored_pr_review_total"
@@ -40,20 +43,36 @@ def _dispatch_count(outcome: str) -> float:
     return REGISTRY.get_sample_value(_DISPATCH_METRIC, {"outcome": outcome}) or 0.0
 
 
-def _payload(*, action: str = "opened", draft: bool = False) -> dict[str, object]:
+def _payload(*, action: str = "opened", draft: bool = False, repository: str = "PostHog/posthog") -> dict[str, object]:
     return {
         "action": action,
         "installation": {"id": 1234},
-        "repository": {"full_name": "PostHog/posthog"},
+        "repository": {"full_name": repository},
         "pull_request": {
             "number": 42,
             "state": "open",
             "draft": draft,
             "merged": False,
             "user": {"login": "OctoCat"},
-            "head": {"sha": _HEAD_SHA, "repo": {"full_name": "posthog/PostHog"}},
-            "base": {"repo": {"full_name": "PostHog/posthog"}},
+            "labels": [{"name": "chore"}, {"name": "no-reviewhog"}],
+            "head": {"sha": _HEAD_SHA, "repo": {"full_name": repository.swapcase()}},
+            "base": {"ref": "master", "repo": {"full_name": repository}},
         },
+        **({"changes": {"base": {"ref": {"from": "main"}}}} if action == "edited" else {}),
+    }
+
+
+def _queued_kwargs(*, action: str = "opened", draft: bool = False, repository: str = "PostHog/posthog") -> dict:
+    return {
+        "installation_id": "1234",
+        "repository": repository,
+        "author_login": "octocat",
+        "pr_number": 42,
+        "head_sha": _HEAD_SHA,
+        "action": action,
+        "base_ref": "master",
+        "draft": draft,
+        "labels": ["chore", "no-reviewhog"],
     }
 
 
@@ -85,17 +104,28 @@ class TestAuthoredPRWebhook(SimpleTestCase):
         )
         return self.view(request)
 
-    @parameterized.expand([("opened", False), ("opened", True), ("synchronize", False), ("synchronize", True)])
+    @parameterized.expand(
+        [
+            ("opened", False, "PostHog/posthog"),
+            ("opened", True, "PostHog/posthog"),
+            ("synchronize", False, "PostHog/posthog"),
+            ("synchronize", True, "PostHog/posthog"),
+            ("ready_for_review", False, "PostHog/posthog"),
+            ("unlabeled", False, "PostHog/posthog"),
+            ("edited", False, "PostHog/posthog"),
+            ("opened", False, "PostHog/posthog-js"),
+        ]
+    )
     @patch(_QUEUE)
-    def test_signed_eligible_events_enqueue_once(self, action: str, draft: bool, enqueue: MagicMock) -> None:
-        body = json.dumps(_payload(action=action, draft=draft)).encode()
+    def test_signed_eligible_events_enqueue_once(
+        self, action: str, draft: bool, repository: str, enqueue: MagicMock
+    ) -> None:
+        body = json.dumps(_payload(action=action, draft=draft, repository=repository)).encode()
 
         assert self._post(body).status_code == 202
         assert self._post(body).status_code == 202
 
-        enqueue.assert_called_once_with(
-            installation_id="1234", author_login="octocat", pr_number=42, head_sha=_HEAD_SHA
-        )
+        enqueue.assert_called_once_with(**_queued_kwargs(action=action, draft=draft, repository=repository))
 
     @parameterized.expand(
         [
@@ -133,16 +163,18 @@ class TestAuthoredPRWebhook(SimpleTestCase):
     @parameterized.expand(
         [
             ("label", ("action",), "labeled"),
-            ("ready_for_review", ("action",), "ready_for_review"),
+            ("edit_without_base_change", ("action",), "edited"),
             ("closed", ("pull_request", "state"), "closed"),
             ("merged", ("pull_request", "merged"), True),
             ("fork", ("pull_request", "head", "repo", "full_name"), "octocat/posthog"),
             ("deleted_fork", ("pull_request", "head", "repo"), None),
-            ("other_repository", ("repository", "full_name"), "PostHog/another-repo"),
+            ("head_in_other_repository", ("repository", "full_name"), "PostHog/another-repo"),
             ("other_base", ("pull_request", "base", "repo", "full_name"), "PostHog/another-repo"),
+            ("no_repository", ("repository",), None),
             ("no_installation", ("installation",), None),
             ("no_author", ("pull_request", "user"), None),
             ("no_head", ("pull_request", "head", "sha"), ""),
+            ("no_base_ref", ("pull_request", "base", "ref"), ""),
         ]
     )
     @patch(_QUEUE)
@@ -175,21 +207,26 @@ class TestAuthoredPRReviewTask(BaseTest):
         self.preferences = ReviewUserSettings.objects.for_team(self.team.id).create(
             team_id=self.team.id, user_id=self.user.id, review_authored_prs=True
         )
+        # The repository's config, as the task reads it; the default has no skip label hit.
+        self.load_config = self.enterContext(patch(_LOAD_CONFIG))
+        self.load_config.return_value = RepositoryReviewConfig(skip_labels=[])
 
-    def _queued_event(self) -> Mapping[str, object]:
+    def _queued_event(self, repository: str = "PostHog/posthog") -> Mapping[str, object]:
         with patch(_QUEUE) as enqueue:
-            enqueue_authored_pr_review(_payload())
+            enqueue_authored_pr_review(_payload(repository=repository))
         enqueue.assert_called_once()
         return enqueue.call_args.kwargs
 
+    @parameterized.expand([("PostHog/posthog",), ("PostHog/posthog-js",)])
     @patch(_START)
-    def test_opted_in_author_schedules_flash_on_the_configured_team(self, start: MagicMock) -> None:
+    def test_opted_in_author_schedules_flash_on_the_configured_team(self, repository: str, start: MagicMock) -> None:
         started_before = _dispatch_count("started")
 
-        process_authored_pr_event.run(**self._queued_event())
+        process_authored_pr_event.run(**self._queued_event(repository=repository))
 
+        self.load_config.assert_called_once_with(self.integration, repository)
         start.assert_called_once_with(
-            pr_url="https://github.com/PostHog/posthog/pull/42",
+            pr_url=f"https://github.com/{repository}/pull/42",
             team_id=self.team.id,
             user_id=self.user.id,
             acting_user_id=self.user.id,
@@ -198,8 +235,56 @@ class TestAuthoredPRReviewTask(BaseTest):
             review_mode="flash",
             trigger_source="automatic",
             requested_head_sha=_HEAD_SHA,
+            repository_policy=RepositoryReviewPolicy(),
         )
         assert _dispatch_count("started") - started_before == 1.0
+
+    @patch(_START)
+    def test_config_decides_the_turns_policy(self, start: MagicMock) -> None:
+        self.load_config.return_value = RepositoryReviewConfig(
+            authors="members", flash={"effort": "xhigh"}, instructions="Flag blocking calls.", skip_labels=[]
+        )
+        self.preferences.delete()
+
+        process_authored_pr_event.run(**self._queued_event())
+
+        assert start.call_args.kwargs["repository_policy"] == RepositoryReviewPolicy(
+            author_opt_in_required=False, flash_reasoning_effort="xhigh", instructions="Flag blocking calls."
+        )
+
+    @parameterized.expand(
+        [
+            ("no_config", None, "no_config"),
+            ("config_invalid", RepositoryConfigError("bad"), "config_invalid"),
+            ("config_disabled", RepositoryReviewConfig(enabled=False), "config_disabled"),
+            ("skip_label", RepositoryReviewConfig(), "label_skipped"),
+            ("ignored_author", RepositoryReviewConfig(skip_labels=[], ignore_authors=["octo*"]), "author_ignored"),
+        ]
+    )
+    @patch(_START)
+    def test_config_gates_run_before_the_opt_in_check(
+        self, _name: str, config: object, expected_outcome: str, start: MagicMock
+    ) -> None:
+        if isinstance(config, Exception):
+            self.load_config.side_effect = config
+        else:
+            self.load_config.return_value = config
+        outcome_before = _dispatch_count(expected_outcome)
+
+        process_authored_pr_event.run(**self._queued_event())
+
+        start.assert_not_called()
+        assert _dispatch_count(expected_outcome) - outcome_before == 1.0
+
+    @patch(_START)
+    def test_queued_task_without_event_state_is_dropped(self, start: MagicMock) -> None:
+        outcome_before = _dispatch_count("event_state_missing")
+
+        process_authored_pr_event.run(installation_id="1234", author_login="octocat", pr_number=42, head_sha=_HEAD_SHA)
+
+        start.assert_not_called()
+        self.load_config.assert_not_called()
+        assert _dispatch_count("event_state_missing") - outcome_before == 1.0
 
     @parameterized.expand(
         [
@@ -233,6 +318,8 @@ class TestAuthoredPRReviewTask(BaseTest):
 
         start.assert_not_called()
         assert _dispatch_count(expected_outcome) - outcome_before == 1.0
+        if expected_outcome == "author_unmapped":
+            self.load_config.assert_not_called()
 
     @parameterized.expand(
         [
@@ -263,4 +350,5 @@ class TestAuthoredPRReviewTask(BaseTest):
         process_authored_pr_event.run(**queued)
 
         start.assert_not_called()
+        self.load_config.assert_not_called()
         assert _dispatch_count(expected_outcome) - outcome_before == 1.0

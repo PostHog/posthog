@@ -285,9 +285,13 @@ async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None
         patch(f"{_MODULE}.persist_perspective_results"),
         patch(f"{_MODULE}.run_sandbox_review", mock_review),
     ):
-        assert await env.run(review_chunk_activity, _review_input()) is True
+        assert (
+            await env.run(review_chunk_activity, _review_input(repository_instructions="Flag blocking calls.")) is True
+        )
 
     assert mock_prepare.call_args.args[-1] == arm
+    # The repository's own guidance rides on the stage input; dropping the kwarg reviews without it.
+    assert mock_prepare.call_args.kwargs["repository_instructions"] == "Flag blocking calls."
 
     kwargs = mock_review.call_args.kwargs
     assert (

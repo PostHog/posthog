@@ -98,6 +98,17 @@ def test_covered_findings_merges_same_turn_wave_issues_on_chunk_files() -> None:
     assert "the wave fix" not in out
 
 
+def test_review_prompt_renders_repository_instructions_only_when_given() -> None:
+    # The repository's own guidance (.github/review-hog.yml) has to land in the prompt after the
+    # perspective skill, and an empty or whitespace value must not leave an empty block behind.
+    prompt = _render_prompt(repository_instructions="  Flag blocking calls in async code.  ")
+    assert "<repository_review_instructions>" in prompt
+    assert "Flag blocking calls in async code." in prompt
+    assert prompt.index("<your_review_perspective>") < prompt.index("<repository_review_instructions>")
+
+    assert "<repository_review_instructions>" not in _render_prompt(repository_instructions="   ")
+
+
 def test_review_prompt_pins_the_skill_and_injects_wave_lenses_for_the_blind_spot_check() -> None:
     # The sweep = a normal pulled skill + the wave's lens list + dig-deeper framing; losing any of
     # the three silently degrades it to a generic re-review.

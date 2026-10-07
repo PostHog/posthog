@@ -1,0 +1,21 @@
+# PostHog Review (ReviewHog) Flash settings for this repository.
+# Reference: products/review_hog/REPOSITORY_CONFIG.md
+
+# Only authors who turned on "Review all your PRs in Flash mode" are reviewed.
+authors: opted_in
+drafts: true
+pushes: true
+base_branches: ['*']
+skip_labels: ['skip-agent-review']
+ignore_authors: ['dependabot[bot]', 'renovate[bot]', 'posthog-bot', 'trunk-io', 'trunk-io[bot]']
+flash:
+    # Each author's own Flash strength setting applies.
+    effort: null
+instructions: >-
+    Do not comment on alphabetical sorting, trailing commas, or formatting. Linters catch these.
+    Judge code by four simplicity rules: it passes all the tests, expresses every idea it needs
+    to express, says everything once and only once, and has no superfluous parts.
+    Prefer parameterised tests over near-duplicate test functions.
+    In async Python, flag blocking synchronous calls such as ORM queries, HTTP requests, file I/O, and sleep.
+    Skills under products/*/skills ship to every MCP client: flag any instruction that uses a command,
+    flag, tool, or capability not available to every MCP user (flag-gated, client-specific, or mode-specific).

@@ -57,8 +57,11 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
     )
     review_authored_prs = serializers.BooleanField(
         required=False,
-        help_text="Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. "
-        "Off by default. Flash reviews post findings without resolving comments.",
+        help_text="Automatically review pull requests authored by this user in Flash mode. Applies in "
+        "repositories whose .github/review-hog.yml sets `authors: opted_in`. A repository with "
+        "`authors: members` reviews its members whether this is on or off, and the repository file "
+        "decides whether drafts and new commits are reviewed. Off by default. "
+        "Flash reviews post findings without resolving comments.",
     )
     flash_reasoning_effort = serializers.ChoiceField(
         required=False,
