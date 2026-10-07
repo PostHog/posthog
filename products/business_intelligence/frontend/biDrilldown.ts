@@ -87,7 +87,12 @@ export function getBIDrillSelection(config: BIConfig, record: Record<string, unk
             continue
         }
         const displayValue = value
-        if (config.totals?.rows || config.totals?.columns || config.totals?.subtotals) {
+        if (
+            config.chartType === ChartDisplayType.TwoDimensionalHeatmap ||
+            config.totals?.rows ||
+            config.totals?.columns ||
+            config.totals?.subtotals
+        ) {
             if (value === 'Total') {
                 continue
             }
