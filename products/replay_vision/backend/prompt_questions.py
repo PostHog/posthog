@@ -154,7 +154,6 @@ def _generate(*, prompt: str, scale_line: str, scanner_type: str, team_id: int) 
         system_instruction=_SYSTEM_PROMPT,
         response_mime_type="application/json",
         response_json_schema=_LlmQuestion.model_json_schema(),
-        temperature=0.2,
     )
     # Client setup is inside the guard too: a missing key must fall back, not fail the save.
     try:

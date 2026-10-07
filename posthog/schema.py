@@ -5051,7 +5051,9 @@ class BIValue(BaseModel):
     )
     aggregation: BIAggregation
     customExpression: str | None = None
+    display: ChartSettingsDisplay | None = None
     field: BIField
+    formatting: ChartSettingsFormatting | None = None
     label: str | None = None
     tableCalculation: BITableCalculation | None = None
 

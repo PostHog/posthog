@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { BI_TABLE_CALCULATIONS } from './biAnalysis'
 import { biEditorLogic } from './biEditorLogic'
@@ -8,7 +8,7 @@ import { getBIValuePillLabel } from './biEditorTypes'
 
 export function BIMeasureAnalysis({ index }: { index: number }): JSX.Element {
     const { config } = useValues(biEditorLogic)
-    const { setTableCalculation } = useActions(biEditorLogic)
+    const { setTableCalculation, editMeasureSettings } = useActions(biEditorLogic)
     const value = config.values[index]
     const calculation = value.tableCalculation
     return (
@@ -23,6 +23,14 @@ export function BIMeasureAnalysis({ index }: { index: number }): JSX.Element {
                 options={[{ value: null, label: 'No table calculation' }, ...BI_TABLE_CALCULATIONS]}
                 onChange={(type) => setTableCalculation(index, type ? { ...calculation, type } : undefined)}
             />
+            <LemonButton
+                size="xsmall"
+                type="tertiary"
+                data-attr="bi-editor-measure-display"
+                onClick={() => editMeasureSettings(index)}
+            >
+                Format and display
+            </LemonButton>
             {calculation ? (
                 <>
                     <LemonSelect

@@ -24,7 +24,7 @@ use crate::{
     symbolication::symbol_store::{chunk_id::SymbolSetKey, BlobClient},
 };
 
-use super::{Fetcher, Parser};
+use super::{caching::Countable, Fetcher, Parser};
 
 pub(crate) const MAX_REF_BYTES: usize = 2048;
 
@@ -121,6 +121,12 @@ pub struct Saveable {
     pub storage_ptr: Option<String>, // This is None if we still need to save this data
     pub team_id: i32,
     pub save_ref: Option<String>,
+}
+
+impl Countable for Saveable {
+    fn byte_count(&self) -> usize {
+        self.data.len()
+    }
 }
 
 impl<F> Saving<F> {

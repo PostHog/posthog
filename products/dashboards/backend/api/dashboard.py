@@ -1987,10 +1987,15 @@ class DashboardSerializer(DashboardMetadataSerializer):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
             from posthog.models.team import Team
 
+            from products.dashboards.backend.models import TeamHomeTabDashboardConfig
+
             Team.objects.filter(
                 primary_dashboard=instance,
                 id=instance.team_id,
             ).update(primary_dashboard=None)
+            TeamHomeTabDashboardConfig.objects.for_team(instance.team_id).filter(dashboard_id=instance.id).update(
+                dashboard=None
+            )
             from posthog.models.group_type_mapping import clear_dashboard_from_group_type_mapping
 
             clear_dashboard_from_group_type_mapping(
