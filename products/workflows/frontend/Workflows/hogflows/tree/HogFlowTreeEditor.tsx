@@ -9,6 +9,7 @@ import { setHogFlowDragImage } from '../dragPreview'
 import { useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlowEdge } from '../types'
+import { HogFlowTreeCollapseAllButton } from './HogFlowTreeCollapseAllButton'
 import { HogFlowTreeDropzone } from './HogFlowTreeDropzone'
 import { HogFlowTreeFeaturePreview } from './HogFlowTreeFeaturePreview'
 import { HogFlowTreeFocusHeader } from './HogFlowTreeFocusHeader'
@@ -231,8 +232,14 @@ export function HogFlowTreeEditor(): JSX.Element {
                     onDragOver={onTreeDragOver}
                     onDropCapture={onTreeDropCapture}
                 >
-                    {focused && (
+                    {focused ? (
                         <HogFlowTreeFocusHeader focusedPath={focusedPath} onReturnToWorkflow={returnToWorkflow} />
+                    ) : (
+                        <HogFlowTreeCollapseAllButton
+                            tree={tree}
+                            viewStates={viewStates}
+                            onViewStateChange={updateViewState}
+                        />
                     )}
                     {(focused?.branch.sequence ?? tree).nodes.map((node) => (
                         <HogFlowTreeNode
