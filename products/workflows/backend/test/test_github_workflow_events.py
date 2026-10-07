@@ -13,7 +13,12 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.workflows.backend.github_workflow_events import _GITHUB_EVENT_NAMESPACE, emit_github_event
+from products.workflows.backend.github_workflow_events import (
+    _GITHUB_EVENT_NAMESPACE,
+    GITHUB_EVENT_RECEIVED_EVENT,
+    emit_github_event,
+)
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.webhook_consumers import WEBHOOK_CONSUMERS
 
 INSTALLATION_ID = 4242
@@ -39,10 +44,29 @@ def produce():
         yield mock
 
 
+@pytest.fixture(autouse=True)
+def flag_enabled():
+    with patch("products.workflows.backend.github_workflow_events.feature_enabled_or_false", return_value=True) as mock:
+        yield mock
+
+
+def _create_workflow(team: Team, status: str = HogFlow.State.ACTIVE, event: str = GITHUB_EVENT_RECEIVED_EVENT) -> None:
+    HogFlow.objects.create(
+        team=team,
+        name="On GitHub activity",
+        status=status,
+        trigger={
+            "type": "internal-event",
+            "filters": {"source": "internal-events", "events": [{"id": event, "type": "events"}]},
+        },
+    )
+
+
 @pytest.fixture
 def integration(db):
     org = Organization.objects.create(name="Org")
     team = Team.objects.create(organization=org, name="Test")
+    _create_workflow(team)
     return Integration.objects.create(
         team=team,
         kind="github",
@@ -51,7 +75,19 @@ def integration(db):
     )
 
 
-def test_emits_once_per_connected_project(produce, integration) -> None:
+@pytest.mark.parametrize(
+    "workflow_status,workflow_event,flag_on,emitted",
+    [
+        (HogFlow.State.ACTIVE, GITHUB_EVENT_RECEIVED_EVENT, True, True),
+        (HogFlow.State.DRAFT, GITHUB_EVENT_RECEIVED_EVENT, True, False),
+        (HogFlow.State.ACTIVE, "$slack_message_received", True, False),
+        (None, None, True, False),
+        (HogFlow.State.ACTIVE, GITHUB_EVENT_RECEIVED_EVENT, False, False),
+    ],
+)
+def test_emits_once_per_connected_project_with_an_active_github_workflow(
+    produce, integration, flag_enabled, workflow_status, workflow_event, flag_on, emitted
+) -> None:
     second_team = Team.objects.create(organization=integration.team.organization, name="Second")
     second_integration = Integration.objects.create(
         team=second_team,
@@ -59,17 +95,22 @@ def test_emits_once_per_connected_project(produce, integration) -> None:
         integration_id=str(INSTALLATION_ID),
         config={},
     )
+    if workflow_status is not None:
+        _create_workflow(second_team, status=workflow_status, event=workflow_event)
+    flag_enabled.side_effect = lambda _key, distinct_id, **_kwargs: flag_on or distinct_id != str(second_team.pk)
 
     emit_github_event("issues", ISSUE_EVENT, "delivery-1")
 
-    assert {call.args[0] for call in produce.call_args_list} == {integration.team_id, second_team.pk}
-    # Same delivery, different projects: the uuids have to differ or the second project's run would
-    # be discarded as a duplicate of the first.
-    assert len({call.args[1].uuid for call in produce.call_args_list}) == 2
-    assert {call.args[1].properties["integration_id"] for call in produce.call_args_list} == {
-        integration.pk,
-        second_integration.pk,
-    }
+    expected = {integration.team_id, second_team.pk} if emitted else {integration.team_id}
+    assert {call.args[0] for call in produce.call_args_list} == expected
+    if emitted:
+        # Same delivery, different projects: the uuids have to differ or the second project's run
+        # would be discarded as a duplicate of the first.
+        assert len({call.args[1].uuid for call in produce.call_args_list}) == 2
+        assert {call.args[1].properties["integration_id"] for call in produce.call_args_list} == {
+            integration.pk,
+            second_integration.pk,
+        }
 
 
 def test_emits_nothing_for_an_unconnected_installation(produce, integration) -> None:
