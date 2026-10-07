@@ -3,6 +3,9 @@ from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from products.signals.backend.billing import first_billable_pr_run_at
@@ -200,17 +203,25 @@ class TestTaskRunArtefacts(BaseTest):
             report.refresh_from_db()
             assert report.status == SignalReport.Status.RESOLVED
 
-        TaskRun.objects.create(
-            team=self.team,
-            task=task,
-            status=TaskRun.Status.COMPLETED,
-            output={
-                "pr_url": "https://github.com/PostHog/posthog/pull/42",
-                "pr_state": "merged",
-                "pr_merged": True,
-                "pr_urls": ["https://github.com/PostHog/posthog/pull/42", "https://github.com/example/app/pull/43"],
-            },
-        )
+        with CaptureQueriesContext(connection) as queries:
+            TaskRun.objects.create(
+                team=self.team,
+                task=task,
+                status=TaskRun.Status.COMPLETED,
+                output={
+                    "pr_url": "https://github.com/PostHog/posthog/pull/42",
+                    "pr_state": "merged",
+                    "pr_merged": True,
+                    "pr_urls": ["https://github.com/PostHog/posthog/pull/42", "https://github.com/example/app/pull/43"],
+                },
+            )
+
+        report_locks = [
+            q["sql"]
+            for q in queries.captured_queries
+            if 'FROM "signals_signalreport"' in q["sql"] and "FOR UPDATE" in q["sql"]
+        ]
+        assert len(report_locks) == 1
 
         assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
         assert assignment is not None

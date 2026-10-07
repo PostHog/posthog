@@ -255,8 +255,13 @@ def sync_task_pull_request_to_assignments(
     pr_url: str,
     pr_state: str | None = None,
     pr_merged: bool = False,
+    locked_reports: list[SignalReport] | None = None,
 ) -> int:
-    """Copy a task-run PR onto reports still owned by that task, or without an explicit PR."""
+    """Copy a task-run PR onto reports still owned by that task, or without an explicit PR.
+
+    Pass `locked_reports` when the caller already holds the row locks on the task's reports, in `id`
+    order, inside its own transaction. The sync then uses those rows and does not query them again.
+    """
     parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
     if parsed is None or not 0 < parsed.number <= MAX_PR_NUMBER:
         return 0
@@ -269,19 +274,25 @@ def sync_task_pull_request_to_assignments(
     if merged:
         state = SignalReportAssignment.PrState.MERGED
 
-    report_ids = list(
-        SignalReport.objects.filter(team_id=team_id)
-        .filter(SignalReport.reports_for_task_filter(task_id))
-        .values_list("id", flat=True)
-    )
-    if not report_ids:
+    if locked_reports is None:
+        report_ids = list(
+            SignalReport.objects.filter(team_id=team_id)
+            .filter(SignalReport.reports_for_task_filter(task_id, team_id=team_id))
+            .values_list("id", flat=True)
+        )
+        if not report_ids:
+            return 0
+    elif not locked_reports:
         return 0
 
     actor = ArtefactAttribution.from_task(task_id)
     with transaction.atomic():
-        reports = list(
-            SignalReport.objects.select_for_update().filter(team_id=team_id, id__in=report_ids).order_by("id")
-        )
+        if locked_reports is None:
+            reports = list(
+                SignalReport.objects.select_for_update().filter(team_id=team_id, id__in=report_ids).order_by("id")
+            )
+        else:
+            reports = locked_reports
         for report in reports:
             import_report_pull_requests(report, notify_reviewers=True)
             historical = (

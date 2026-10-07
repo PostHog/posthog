@@ -917,7 +917,7 @@ class SignalReport(UUIDModel):
         )
 
     @staticmethod
-    def reports_for_task_filter(task_id: Any) -> "models.Q":
+    def reports_for_task_filter(task_id: Any, *, team_id: int | None = None) -> "models.Q":
         """A `Q` on `SignalReport.id` matching the reports `task_id` is associated with, unified
         across the `task_run` artefact log and the legacy `SignalReportTask` gate rows — the
         reverse-direction (task → reports) counterpart of `associated_task_runs_filter`, for
@@ -925,15 +925,26 @@ class SignalReport(UUIDModel):
 
         Both subqueries seek the indexed `task_id` FK column (artefact + gate row), so this stays a
         couple of index lookups regardless of how many artefacts a report accumulates.
+
+        Pass `team_id` whenever the caller works within one team. The only assignment index
+        (`signals_assign_task_idx`) leads with `team`, so without it the assignment subquery cannot
+        seek that index and scans instead.
         """
-        artefact_report_ids = SignalReportArtefact.objects.filter(
+        artefact_rows = SignalReportArtefact.objects.filter(
             type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id=task_id
-        ).values("report_id")
-        legacy_report_ids = SignalReportTask.objects.filter(task_id=task_id).values("report_id")
-        assignment_report_ids = SignalReportAssignment.all_teams.filter(
+        )
+        legacy_rows = SignalReportTask.objects.filter(task_id=task_id)
+        assignment_rows = SignalReportAssignment.all_teams.filter(
             actor_kind=SignalActorKind.TASK,
             actor_task_id=task_id,
-        ).values("report_id")
+        )
+        if team_id is not None:
+            artefact_rows = artefact_rows.filter(team_id=team_id)
+            legacy_rows = legacy_rows.filter(team_id=team_id)
+            assignment_rows = assignment_rows.filter(team_id=team_id)
+        artefact_report_ids = artefact_rows.values("report_id")
+        legacy_report_ids = legacy_rows.values("report_id")
+        assignment_report_ids = assignment_rows.values("report_id")
         return (
             models.Q(id__in=artefact_report_ids)
             | models.Q(id__in=legacy_report_ids)
