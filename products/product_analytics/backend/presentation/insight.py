@@ -162,7 +162,7 @@ from products.dashboards.backend.facade.api import (
     update_insight_dashboard_membership,
 )
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
-from products.exports.backend.facade.api import delete_insight_subscriptions, subscription_delivers
+from products.exports.backend.facade.api import delete_insight_subscriptions, insight_has_active_subscription
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
@@ -884,7 +884,10 @@ class InsightSerializer(InsightBasicSerializer):
             and instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
             # org admins have full access, so skip the gate for a faster save
             and not (self.user_access_control and self.user_access_control.is_organization_admin)
-            and (is_publicly_shared(instance) or subscription_delivers(instance.team_id, insight_id=instance.id))
+            and (
+                is_publicly_shared(instance)
+                or insight_has_active_subscription(team_id=instance.team_id, insight_id=instance.id)
+            )
         ):
             blocked = blocked_access_for_user(self.context["request"].user, instance.team, [new_query])
             if blocked:

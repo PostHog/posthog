@@ -4,7 +4,7 @@ from collections.abc import Collection
 from datetime import datetime, timedelta
 
 from django.conf import settings
-from django.db.models import Q, QuerySet
+from django.db.models import Q
 from django.http.response import HttpResponseBase
 
 import structlog
@@ -139,22 +139,19 @@ def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]
     )
 
 
-def _active_subscriptions(team_id: int) -> QuerySet[Subscription]:
-    # A disabled or deleted subscription delivers nothing, and enabling or restoring it runs the
-    # save-time table-access check on the requester.
-    return Subscription.objects.filter(team_id=team_id, deleted=False, enabled=True)
+def insight_has_active_subscription(*, team_id: int, insight_id: int) -> bool:
+    """Decide if an enabled subscription delivers this insight.
 
+    A subscription delivers the insight in three cases: it targets the insight, its dashboard
+    selection names the insight, or it has no selection and the insight is a live tile of its
+    dashboard. A selected insight counts when its tile is deleted, and a tile counts when its
+    dashboard is deleted. A restore of the tile or the dashboard starts delivery again without a
+    subscription write, so the insight edit check must stay in place.
 
-def subscription_delivers_insight(*, team_id: int, insight_id: int) -> bool:
-    """Whether an active subscription delivers this insight.
-
-    A subscription delivers the insight when it targets the insight, when its dashboard selection
-    names the insight, or when it has no selection and the insight is a live tile of its dashboard.
-    A selected insight counts even while it is not a live tile, and a tile of a deleted dashboard
-    counts too: restoring the tile or the dashboard delivers the insight again without a
-    subscription write, so the check must stay on the insight edit meanwhile.
+    A disabled or deleted subscription does not count. Enabling or restoring it runs the
+    subscription save check on the requester.
     """
-    active = _active_subscriptions(team_id)
+    active = Subscription.objects.filter(team_id=team_id, deleted=False, enabled=True)
     if active.filter(insight_id=insight_id).exists():
         return True
     if active.filter(dashboard_export_insights=insight_id).exists():
@@ -167,29 +164,17 @@ def subscription_delivers_insight(*, team_id: int, insight_id: int) -> bool:
     ).exists()
 
 
-def subscription_delivers_whole_dashboard(*, team_id: int, dashboard_id: int) -> bool:
-    """Whether an active subscription delivers every insight on this dashboard, which includes an
-    insight added after the subscription was saved.
+def dashboard_has_active_full_subscription(*, team_id: int, dashboard_id: int) -> bool:
+    """Decide if an enabled subscription delivers every insight on this dashboard. Such a
+    subscription also delivers an insight that is added after the subscription was saved.
 
     A subscription with an insight selection does not count, because it does not deliver a tile
-    that is outside its selection.
+    outside its selection. A disabled or deleted subscription does not count. Enabling or
+    restoring it runs the subscription save check on the requester.
     """
-    return (
-        _active_subscriptions(team_id)
-        .filter(dashboard_id=dashboard_id, dashboard_export_insights__isnull=True)
-        .exists()
-    )
-
-
-def subscription_delivers(team_id: int, *, insight_id: int | None = None, dashboard_id: int | None = None) -> bool:
-    """Decide if an active subscription delivers this insight, or every live tile of this dashboard.
-    An edit to such an artifact must pass the editor's table-access check, because the recipients'
-    own access is never checked."""
-    if insight_id is not None:
-        return subscription_delivers_insight(team_id=team_id, insight_id=insight_id)
-    if dashboard_id is not None:
-        return subscription_delivers_whole_dashboard(team_id=team_id, dashboard_id=dashboard_id)
-    return False
+    return Subscription.objects.filter(
+        team_id=team_id, deleted=False, enabled=True, dashboard_id=dashboard_id, dashboard_export_insights__isnull=True
+    ).exists()
 
 
 # The limit contexts an export writer can pin, keyed by the string it stores in export_context.
