@@ -121410,6 +121410,10 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Exclude Business intelligence worksheets from the insight list.
+     */
+    exclude_bi?: boolean;
+    /**
      * Include this parameter (any value) to restrict results to insights marked as favorited.
      */
     favorited?: boolean;
@@ -121419,7 +121423,7 @@ export namespace Schemas {
      */
     include_dashboards?: boolean;
     /**
-     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
+     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries; `BI` matches editable worksheets.
      */
     insight?: InsightsListInsight;
     /**
@@ -121438,6 +121442,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort by an insight field, with a leading minus for descending order. Supports last_modified_at and last_viewed_at.
+     */
+    order?: string;
     /**
      *
      * Whether to refresh the retrieved insights, how aggressively, and if sync or async:
@@ -121481,6 +121489,7 @@ export namespace Schemas {
 
 
     export const InsightsListInsight = {
+      Bi: 'BI',
       Funnels: 'FUNNELS',
       Journeys: 'JOURNEYS',
       Json: 'JSON',

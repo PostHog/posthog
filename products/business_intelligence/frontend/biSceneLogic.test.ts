@@ -105,6 +105,7 @@ describe('biSceneLogic', () => {
                     ]
                 },
                 '/api/projects/:team_id/insights/': save,
+                '/api/projects/:team_id/insights/viewed/': [201],
                 '/api/projects/:team_id/warehouse_saved_queries/': exportView,
             },
             patch: { '/api/projects/:team_id/insights/:id/': save },
@@ -186,6 +187,7 @@ describe('biSceneLogic', () => {
         logic.actions.setName('Revenue worksheet')
         await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
         expect(save).toHaveBeenCalledTimes(1)
+        expect(router.values.location.pathname).toBe('/project/997/bi/bi-test')
         expect(stored.query).toMatchObject({ kind: NodeKind.BIVisualizationNode, config })
         expect(stored.query.source).not.toHaveProperty('biConfig')
         logic.unmount()

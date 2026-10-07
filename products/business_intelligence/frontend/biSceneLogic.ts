@@ -29,12 +29,17 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import { HogQLFilters, NodeKind, VisualizationNode } from '~/queries/schema/schema-general'
 import { isBIVisualizationNode } from '~/queries/utils'
-import { AccessControlLevel, AccessControlResourceType, InsightShortId } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { warehouseSavedQueriesCreate } from 'products/data_warehouse/frontend/generated/api'
 import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
 import { connectionSelectorLogic } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
-import { insightsCreate, insightsList, insightsPartialUpdate } from 'products/product_analytics/frontend/generated/api'
+import {
+    insightsCreate,
+    insightsList,
+    insightsPartialUpdate,
+    insightsViewedCreate,
+} from 'products/product_analytics/frontend/generated/api'
 import { BIVisualizationNodeApi, InsightApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import type { BIConfig } from '../../../frontend/src/queries/schema/schema-business-intelligence'
@@ -458,6 +463,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                     worksheet = { ...worksheet, source: { ...worksheet.source, filters: filters as HogQLFilters } }
                 }
                 actions.restoreWorksheet(worksheet)
+                void insightsViewedCreate(String(values.currentTeamId), { insight_ids: [insight.id] }).catch(() => {})
             }
         },
         saveInsightSuccess: ({ insight }) => {
@@ -466,7 +472,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 refreshTreeItem('insight', insight.short_id)
                 const dashboard = router.values.searchParams.dashboard
                 router.actions.push(
-                    urls.insightView(insight.short_id as InsightShortId),
+                    urls.businessIntelligenceWorksheet(insight.short_id),
                     dashboard ? { dashboard } : {}
                 )
             }
@@ -539,7 +545,9 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             )
             cache.lastHash = JSON.stringify(values.worksheet)
             router.actions.replace(
-                urls.businessIntelligence({ insightShortId: values.insight?.short_id }),
+                values.insight
+                    ? urls.businessIntelligenceWorksheet(values.insight.short_id)
+                    : urls.businessIntelligenceNew(),
                 router.values.searchParams,
                 { q: cache.lastHash }
             )
@@ -550,16 +558,20 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         },
         openWorksheet: () => {
             const { searchParams, hashParams } = router.values
+            const pathId = router.values.location.pathname.match(/\/bi\/([^/]+)$/)?.[1]
+            const insightShortId =
+                searchParams.open_insight || (pathId && pathId !== 'new' ? decodeURIComponent(pathId) : undefined)
             if (searchParams.open_view) {
                 router.actions.replace(urls.sqlEditor({ view_id: searchParams.open_view }))
                 return
             }
-            if (searchParams.open_insight && cache.loadingId !== searchParams.open_insight) {
-                cache.loadingId = searchParams.open_insight
-                actions.loadInsight(searchParams.open_insight)
+            if (insightShortId && cache.loadingId !== insightShortId) {
+                cache.loadingId = insightShortId
+                cache.firstChartCaptured = false
+                actions.loadInsight(insightShortId)
                 return
             }
-            if (searchParams.open_insight) {
+            if (insightShortId) {
                 return
             }
             if (cache.lastHash !== undefined && hashParams.q === cache.lastHash) {
@@ -592,7 +604,11 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             actions.setName('Untitled worksheet')
         },
     })),
-    urlToAction(({ actions }) => ({ '/bi': () => actions.openWorksheet() })),
+    urlToAction(({ actions }) => ({
+        '/bi': () => actions.openWorksheet(),
+        '/bi/new': () => actions.openWorksheet(),
+        '/bi/:insightShortId': () => actions.openWorksheet(),
+    })),
     beforeUnmount(({ props }) => {
         if (releaseConnectionScope(`bi:${props.tabId}`, databaseTableListLogic.values.connectionId)) {
             databaseTableListLogic.actions.resetConnectionScope()

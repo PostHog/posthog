@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { isDataVisualizationNode } from '~/queries/utils'
@@ -64,6 +65,9 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         <BindLogic logic={biSceneLogic} props={{ tabId }}>
             <div className="flex h-full min-h-0 flex-col" data-attr="bi-worksheet">
                 <header className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
+                    <LemonButton size="small" to={urls.businessIntelligence()}>
+                        Worksheets
+                    </LemonButton>
                     <LemonInput
                         aria-label="Worksheet name"
                         value={name}
