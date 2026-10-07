@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID
 
+from django.db.models import Count, Min
+
 import structlog
 from temporalio import activity
 from temporalio.client import Client
@@ -11,7 +13,11 @@ from temporalio.client import Client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
-from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_observation import (
+    IN_FLIGHT_STATUSES,
+    ObservationStatus,
+    ReplayObservation,
+)
 from products.replay_vision.backend.temporal.activities.observation_state import mark_observation_terminal
 from products.replay_vision.backend.temporal.activities.reaping import classify_stale_rows
 from products.replay_vision.backend.temporal.constants import (
@@ -21,13 +27,28 @@ from products.replay_vision.backend.temporal.constants import (
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind
-from products.replay_vision.backend.temporal.metrics import record_failure_kind
+from products.replay_vision.backend.temporal.metrics import push_in_flight_observation_gauges, record_failure_kind
 from products.replay_vision.backend.temporal.query_budget import bounded_queries
 
 logger = structlog.get_logger(__name__)
 
 _LIVE_STATUSES = (ObservationStatus.PENDING, ObservationStatus.RUNNING)
 _ORPHANED_ERROR_REASON = f"{FailureKind.ORPHANED.value}:The analysis stopped without recording an outcome."
+
+
+def _measure_in_flight() -> None:
+    """Report how many observations are pending or running and how old the oldest is, so a growing queue
+    shows before rows reach the orphan cutoff."""
+    now = datetime.now(UTC)
+    with bounded_queries(REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT):
+        rows = {
+            row["status"]: (row["count"], (now - row["oldest"]).total_seconds())
+            for row in ReplayObservation.objects.filter(status__in=IN_FLIGHT_STATUSES)
+            .order_by()
+            .values("status")
+            .annotate(count=Count("id"), oldest=Min("created_at"))
+        }
+    push_in_flight_observation_gauges({status.value: rows.get(status, (0, 0.0)) for status in IN_FLIGHT_STATUSES})
 
 
 def _list_stale_observations() -> list[dict[str, Any]]:
@@ -84,6 +105,10 @@ async def reap_orphaned_observations_activity() -> int:
 
     The describe check protects rows reclaimed by a live re-trigger of the same deterministic workflow id.
     """
+    try:
+        await database_sync_to_async(_measure_in_flight, thread_sensitive=False)()
+    except Exception:
+        logger.exception("replay_vision.reap_orphaned_observations.measure_in_flight_failed")
     rows = await database_sync_to_async(_list_stale_observations, thread_sensitive=False)()
     if not rows:
         return 0

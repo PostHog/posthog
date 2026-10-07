@@ -127,11 +127,25 @@ def _as_uuid(value: str | UUID | None) -> UUID | None:
 # ── Mappers ────────────────────────────────────────────────────────────────
 
 
+def _champion_lift_at_10(champion: AutoresearchModel | None) -> float | None:
+    """Lift in the top decile on the champion's latest validated prediction date.
+
+    None when no scored person did the target on that date. Lift has no value without positives,
+    and online validation stores 0.0 for it only as a fallback.
+    """
+    if champion is None:
+        return None
+    realized = (champion.metrics or {}).get("realized") or {}
+    if realized.get("n_positive") == 0:
+        return None
+    lift = realized.get("lift_at_10")
+    return float(lift) if isinstance(lift, int | float) else None
+
+
 def _pipeline_to_contract(
     row: AutoresearchPipeline,
     *,
-    champion_holdout_auc: float | None = None,
-    champion_realized_auc: float | None = None,
+    champion: AutoresearchModel | None = None,
 ) -> Pipeline:
     return Pipeline(
         id=row.id,
@@ -158,18 +172,16 @@ def _pipeline_to_contract(
         created_at=row.created_at,
         updated_at=row.updated_at,
         last_scored_at=row.last_scored_at,
-        champion_holdout_auc=champion_holdout_auc,
-        champion_realized_auc=champion_realized_auc,
+        champion_holdout_auc=champion.holdout_score if champion else None,
+        champion_realized_auc=champion.realized_score if champion else None,
+        champion_lift_at_10=_champion_lift_at_10(champion),
+        champion_is_preliminary=champion.is_preliminary if champion else None,
     )
 
 
 def _pipeline_with_champion(row: AutoresearchPipeline) -> Pipeline:
     champion = row.models.filter(role=AutoresearchModel.Role.CHAMPION).order_by("-created_at").first()
-    return _pipeline_to_contract(
-        row,
-        champion_holdout_auc=champion.holdout_score if champion else None,
-        champion_realized_auc=champion.realized_score if champion else None,
-    )
+    return _pipeline_to_contract(row, champion=champion)
 
 
 def _model_to_contract(row: AutoresearchModel, *, in_shadow_set: bool) -> Model:
@@ -343,7 +355,20 @@ def list_pipelines(team_id: int, *, offset: int, limit: int) -> tuple[list[Pipel
         .order_by("-created_at")
     )
     count = qs.count()
-    return [_pipeline_with_champion(row) for row in qs[offset : offset + limit]], count
+    rows = qs[offset : offset + limit].prefetch_related(
+        Prefetch(
+            "models",
+            queryset=AutoresearchModel.objects.for_team(team_id)
+            .filter(role=AutoresearchModel.Role.CHAMPION)
+            .order_by("-created_at"),
+            to_attr="prefetched_champions",
+        )
+    )
+    pipelines = []
+    for row in rows:
+        champions: list[AutoresearchModel] = row.prefetched_champions
+        pipelines.append(_pipeline_to_contract(row, champion=champions[0] if champions else None))
+    return pipelines, count
 
 
 def get_pipeline(team_id: int, pipeline_id: str | UUID) -> Pipeline:
