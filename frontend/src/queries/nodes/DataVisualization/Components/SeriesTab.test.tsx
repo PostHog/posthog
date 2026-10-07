@@ -53,6 +53,14 @@ describe('SeriesTab', () => {
             labelDisabled: true,
         },
         {
+            name: 'lists every value column for a pie with several value columns',
+            display: ChartDisplayType.ActionsPie,
+            xAxis: { column: 'day' },
+            valueColumns: ['signups', 'logins'],
+            listsEveryValueColumn: true,
+            labelDisabled: true,
+        },
+        {
             name: 'picks one value column for a pie grouped by a label column',
             display: ChartDisplayType.ActionsPie,
             xAxis: { column: 'day' },
@@ -103,6 +111,7 @@ describe('SeriesTab', () => {
         expect(container.querySelector('[data-attr="part-of-whole-label-column"]')?.getAttribute('aria-disabled')).toBe(
             String(labelDisabled)
         )
+        expect(screen.queryByRole('button', { name: 'Delete series breakdown' }) !== null).toBe(!!seriesBreakdownColumn)
     })
 
     it('persists table column formatting changes immediately', async () => {

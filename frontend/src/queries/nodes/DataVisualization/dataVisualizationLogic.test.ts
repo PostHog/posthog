@@ -514,6 +514,34 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it.each([ChartDisplayType.ActionsProportionBar, ChartDisplayType.ActionsPie])(
+        'gives a numeric x-axis back to the values when %s draws one part per column',
+        async (displayType) => {
+            dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+                columns: ['signups', 'logins', 'purchases'],
+                types: [
+                    ['signups', 'Int64'],
+                    ['logins', 'Int64'],
+                    ['purchases', 'Int64'],
+                ],
+                results: [[1, 2, 3]],
+            })
+            logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
+            await expectLogic(logic).toMatchValues({ selectedXAxis: 'signups' })
+
+            logic.actions.setVisualizationType(displayType)
+
+            await expectLogic(logic).toMatchValues({
+                selectedXAxis: null,
+                selectedYAxis: [
+                    expect.objectContaining({ name: 'signups' }),
+                    expect.objectContaining({ name: 'logins' }),
+                    expect.objectContaining({ name: 'purchases' }),
+                ],
+            })
+        }
+    )
+
     it('keeps a numeric x-axis and drops it from the y-series when a scatter plot is picked', async () => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['session_duration', 'revenue'],

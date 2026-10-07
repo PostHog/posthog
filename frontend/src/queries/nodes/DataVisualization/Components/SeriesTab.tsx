@@ -122,6 +122,7 @@ export const SeriesTab = (): JSX.Element => {
 
     if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
         const parts = partOfWholeChartData(seriesBreakdownData, xData, yData)
+        const breakdownSplitsValue = parts.yData.some(isBreakdownSeries)
         const valueColumn = selectedYAxis?.find((series) => series !== null)?.name ?? null
         const valueOptions = numericalColumns.map(({ name, type }) => ({
             value: name,
@@ -160,7 +161,7 @@ export const SeriesTab = (): JSX.Element => {
                             ? 'Query loading...'
                             : yData.length > 1
                               ? 'A label splits one value column. Remove the other values to use it.'
-                              : parts.yData.some(isBreakdownSeries)
+                              : breakdownSplitsValue
                                 ? 'The breakdown already splits the value. Remove the breakdown to use a label.'
                                 : undefined
                     }
@@ -172,6 +173,8 @@ export const SeriesTab = (): JSX.Element => {
                         }
                     }}
                 />
+
+                {breakdownSplitsValue && <SeriesBreakdownSelector />}
 
                 {drawsOnePartPerSeries(parts.xData, parts.yData) ? (
                     <YSeriesList label="Values" addLabel="Add value" showAdd={!hideAddYSeries} />

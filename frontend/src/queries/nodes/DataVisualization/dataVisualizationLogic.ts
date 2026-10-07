@@ -18,7 +18,7 @@ import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
 import posthog from 'posthog-js'
 
-import { PIE_DISPLAY_TYPES } from 'lib/constants'
+import { PART_OF_WHOLE_DISPLAY_TYPES, PIE_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import type { execHog } from 'lib/hog'
 import { RGBToHex, lightenDarkenColor } from 'lib/utils/colors'
@@ -555,6 +555,19 @@ export function applyVisualizationType(
 
     if (visualizationType === ChartDisplayType.Metric) {
         yAxis = yAxis.slice(0, 1)
+    }
+
+    // With several values a part-of-whole chart draws one part per column and ignores the x-axis, so a
+    // numeric column a line or scatter chart moved onto the x-axis goes back to the values.
+    const numericXAxisColumn = numericalColumns.find((column) => column.name === selectedXAxis)
+    if (
+        PART_OF_WHOLE_DISPLAY_TYPES.includes(visualizationType) &&
+        yAxis.length > 1 &&
+        numericXAxisColumn &&
+        !yAxis.some((series) => series.column === numericXAxisColumn.name)
+    ) {
+        yAxis = [{ column: numericXAxisColumn.name, settings: DefaultAxisSettings() }, ...yAxis]
+        chartSettings.xAxis = undefined
     }
 
     if (
