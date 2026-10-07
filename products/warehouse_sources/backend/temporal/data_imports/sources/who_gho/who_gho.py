@@ -28,6 +28,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.se
 )
 
 BASE_URL = "https://ghoapi.azureedge.net/api"
+# (connect, read) seconds, so a connection the API accepts but never answers can't hold the worker.
+REQUEST_TIMEOUT = (10, 120)
 
 # Codes may be pasted one per line, comma separated, or semicolon separated.
 _CODE_SEPARATORS = re.compile(r"[,;\s]+")
@@ -93,6 +95,7 @@ def _rest_config(resource: EndpointResource) -> RESTAPIConfig:
         "client": {
             "base_url": BASE_URL,
             "paginator": _paginator(),
+            "request_timeout": REQUEST_TIMEOUT,
         },
         "resource_defaults": {"write_disposition": "replace"},
         "resources": [resource],
@@ -125,7 +128,7 @@ def _catalog_pages(
 def _fetch_all_dimension_codes() -> list[str]:
     """One-off, unpaginated-by-default catalog: fetched fresh at the start of every
     dimension_values sync rather than hardcoded, since WHO adds dimensions over time."""
-    client = RESTClient(base_url=BASE_URL, paginator=_paginator())
+    client = RESTClient(base_url=BASE_URL, paginator=_paginator(), request_timeout=REQUEST_TIMEOUT)
     codes: list[str] = []
     for rows in client.paginate(CATALOG_ENDPOINTS[DIMENSIONS_ENDPOINT].path, data_selector="value"):
         codes.extend(row["Code"] for row in rows if row.get("Code"))
