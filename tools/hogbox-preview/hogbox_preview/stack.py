@@ -214,6 +214,8 @@ class PostHogPreviewStack:
     COMPOSE_PROJECT = "posthog"
     SELF_CAPTURE_SERVICES = ["capture", "feature-flags", "property-defs-rs", "ingestion-general"]
     TELEMETRY_SERVICES = ["capture-logs", "ingestion-logs", "ingestion-traces", "ingestion-metrics", "otel-collector"]
+    CELERY_SERVICES = ["worker"]
+    CELERY_CONCURRENCY = 2
     REPO_DIR = "/home/hog/posthog"
     COMPOSE = "docker-compose.dev-full.yml"
     OVERRIDE = "docker-compose.preview.yml"
@@ -573,7 +575,7 @@ class PostHogPreviewStack:
             "      - PERSONHOG_ENABLED=true",
             *_OTEL_ENV,
         ]
-        lines += self._self_capture_services() + self._telemetry_services()
+        lines += self._self_capture_services() + self._telemetry_services() + self._celery_worker_service()
         # Mirror the bake script's personhog service definitions (hogland
         # scripts/posthog-preview-setup.sh): dev-full.yml carries NO personhog
         # services (dev runs them via hogli), so define them here the way HOBBY
@@ -700,6 +702,30 @@ class PostHogPreviewStack:
             *_OTEL_ENV,
         ]
         self.backend.write_file(f"{self.repo_dir}/{self.OVERRIDE}", "\n".join(lines) + "\n")
+
+    def _celery_worker_service(self) -> list[str]:
+        lines = ["  worker:"]
+        if self.image:
+            lines.append(f"    image: {self.image}")
+        lines.append("    command: ./bin/docker-worker-celery")
+        if self.image and self.mount:
+            lines.append("    volumes:")
+            lines += [f"      - ./{src}:{dst}" for src, dst in self.MOUNTS]
+        return [
+            *lines,
+            "    environment:",
+            f"      - SITE_URL={self.backend.web_url}",
+            "      - DEBUG=0",
+            f"      - SECRET_KEY={self.secret_key}",
+            f"      - OIDC_RSA_PRIVATE_KEY={self.oidc_private_key}",
+            "      - PERSONHOG_ADDR=personhog-router:50052",
+            "      - USE_LOCAL_SETUP=1",
+            "      - SELF_CAPTURE=1",
+            "      - SELF_CAPTURE_HOST=http://static-proxy:8000",
+            f"      - WEB_CONCURRENCY={self.CELERY_CONCURRENCY}",
+            "      - OTEL_SERVICE_NAME=posthog-celery-worker",
+            *_OTEL_ENV,
+        ]
 
     def _self_capture_services(self) -> list[str]:
         return [
@@ -862,7 +888,14 @@ class PostHogPreviewStack:
         timing.stage("start web + temporal worker containers")
         self.write_otel_collector_config()
         services = " ".join(
-            ["web", "temporal-django-worker", "static-proxy", *self.SELF_CAPTURE_SERVICES, *self.TELEMETRY_SERVICES]
+            [
+                "web",
+                "temporal-django-worker",
+                "static-proxy",
+                *self.CELERY_SERVICES,
+                *self.SELF_CAPTURE_SERVICES,
+                *self.TELEMETRY_SERVICES,
+            ]
         )
         self.backend.run_long(self._compose(f"up -d --no-build {services}"), name="up-web", timeout=1800)
 
@@ -1008,7 +1041,7 @@ class PostHogPreviewStack:
             self.backend.wait_http_ok("/_health", expect=200, timeout=900)
 
     def report_pipeline_health(self, settle_seconds: int = 90) -> None:
-        services = " ".join([*self.SELF_CAPTURE_SERVICES, *self.TELEMETRY_SERVICES])
+        services = " ".join([*self.CELERY_SERVICES, *self.SELF_CAPTURE_SERVICES, *self.TELEMETRY_SERVICES])
         compose = f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE}"
         report = "/tmp/hogbox-pipeline-health.txt"
         script = (
