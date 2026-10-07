@@ -60,7 +60,6 @@ describe('generated query wrappers', () => {
         ['before-and-after chart', 'SlopeGraph'],
         ['box-and-whisker', 'BoxPlot'],
         ['doughnut', 'ActionsDonut'],
-        ['punch card', 'CalendarHeatmap'],
         ['grouped bar', 'ActionsUnstackedBar'],
         ['choropleth', 'WorldMap'],
         ['KPI', 'BoldNumber'],

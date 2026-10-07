@@ -563,7 +563,6 @@ class AssistantTrendsDisplayType(StrEnum):
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
-    CALENDAR_HEATMAP = "CalendarHeatmap"
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
 
