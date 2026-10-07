@@ -10,13 +10,14 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import DataTableNode, DataVisualizationNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
-from posthog.api.shared_or_subscribed_edit_gate import check_can_add_insight_to_shared_or_subscribed_dashboard
+from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
 from posthog.event_usage import EventSource, report_user_action
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.subscription_query_access import check_can_add_insight_to_subscribed_dashboard
 from products.product_analytics.backend.facade.api import (
     get_or_create_saved_insight,
     insights_including_soft_deleted_for_team,
@@ -375,7 +376,8 @@ class UpsertDashboardTool(MaxTool):
                 if created:
                     created_insights.append((artifact, insight))
 
-            check_can_add_insight_to_shared_or_subscribed_dashboard(
+            check_can_add_insight_to_shared_dashboard(self._user, dashboard, insight.query, self.user_access_control)
+            check_can_add_insight_to_subscribed_dashboard(
                 self._user, dashboard, insight.query, self.user_access_control
             )
 

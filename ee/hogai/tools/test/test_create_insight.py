@@ -219,7 +219,7 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
     @parameterized.expand(
         [
             ("public_share", "publicly shared"),
-            ("subscription", "a subscription delivers this insight"),
+            ("subscription", "delivered by a subscription"),
         ]
     )
     async def test_saved_update_blocks_restricted_query_on_exposed_insight(self, exposure: str, expected_reason: str):
