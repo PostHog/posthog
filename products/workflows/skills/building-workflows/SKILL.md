@@ -71,7 +71,7 @@ The server compiles and manages these. Authoring them by hand is the fastest way
 
 ## Minimal worked example
 
-Event trigger, wait 1 day, send email, exit. Note: exactly one `trigger`, every non-exit node has an outgoing edge, ids are referenced consistently by `edges`, and no `bytecode` is sent.
+Event trigger, wait 1 day, send email, exit. Replace sender integration ID `123` with a verified sender in the project. Note: exactly one `trigger`, every non-exit node has an outgoing edge, ids are referenced consistently by `edges`, and no `bytecode` is sent.
 
 ```json
 {
@@ -105,7 +105,7 @@ Event trigger, wait 1 day, send email, exit. Note: exactly one `trigger`, every 
         "inputs": {
           "email": {
             "value": {
-              "to": { "email": "{person.properties.email}", "name": "" },
+              "to": { "email": "{{ person.properties.email }}", "name": "" },
               "from": { "integrationId": 123, "name": "Example" }
             }
           }
