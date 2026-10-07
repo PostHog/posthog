@@ -44,7 +44,7 @@ from posthog.api.github_callback.team_services import (
     list_org_github_installations,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
-from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
+from posthog.api.integration import INTEGRATION_NOT_FOUND_DETAIL, IntegrationSerializer, IntegrationViewSet
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
@@ -8010,3 +8010,19 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/integrations/github/link_existing/", payload)
         assert response.status_code == 200
         assert link.call_args.kwargs["installation_id_param"] is None
+
+
+class TestIntegrationNotFoundDetail(APIBaseTest):
+    @parameterized.expand([("unknown_id", False), ("id_from_another_team", True)])
+    def test_missed_integration_id_answers_with_actionable_detail(self, _name: str, other_team_owns_it: bool) -> None:
+        integration_id = 9999999
+        if other_team_owns_it:
+            other_team = Team.objects.create(organization=self.organization)
+            integration_id = Integration.objects.create(
+                team=other_team, kind="slack", integration_id="T123", config={}
+            ).id
+
+        response = self.client.get(f"/api/environments/{self.team.id}/integrations/{integration_id}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
+        assert response.json()["detail"] == INTEGRATION_NOT_FOUND_DETAIL
