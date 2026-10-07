@@ -1,19 +1,19 @@
-import { useValues } from 'kea'
-import { Fragment, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { Fragment } from 'react'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { queryScanDashboardEntries } from '~/queries/nodes/DataNode/queryScan'
+import { QueryScanDashboardEntry, queryScanDashboardEntries } from '~/queries/nodes/DataNode/queryScan'
 
 import { dashboardLogic } from './dashboardLogic'
+import { dashboardQueryScanBannerLogic } from './dashboardQueryScanBannerLogic'
 
 const COLLAPSED_ENTRY_COUNT = 3
 
 export function DashboardQueryScanBanner(): JSX.Element | null {
     const { dashboard, insightTiles, canEditDashboard } = useValues(dashboardLogic)
-    const [expanded, setExpanded] = useState(false)
     if (!dashboard || !canEditDashboard) {
         return null
     }
@@ -22,6 +22,20 @@ export function DashboardQueryScanBanner(): JSX.Element | null {
     if (entries.length === 0) {
         return null
     }
+
+    return <QueryScanBannerContent dashboardId={dashboard.id} entries={entries} />
+}
+
+function QueryScanBannerContent({
+    dashboardId,
+    entries,
+}: {
+    dashboardId: number
+    entries: QueryScanDashboardEntry[]
+}): JSX.Element {
+    const logic = dashboardQueryScanBannerLogic({ dashboardId })
+    const { expanded } = useValues(logic)
+    const { setExpanded } = useActions(logic)
 
     const single = entries.length === 1
     const hiddenCount = Math.max(entries.length - COLLAPSED_ENTRY_COUNT, 0)
@@ -37,22 +51,23 @@ export function DashboardQueryScanBanner(): JSX.Element | null {
                     <Link to={urls.insightView(entry.shortId)}>{entry.name}</Link>
                 </Fragment>
             ))}
+            {/* Wrapped in a span so that page translation, which replaces text nodes, cannot leave stale text behind. */}
             {hiddenCount > 0 && !expanded && (
-                <>
+                <span>
                     {' and '}
                     <Link onClick={() => setExpanded(true)} data-attr="dashboard-query-scan-banner-toggle">
                         {`${hiddenCount} more`}
                     </Link>
-                </>
+                </span>
             )}
             {single ? '. Open it to see the advice.' : '. Open an insight to see the advice.'}
             {hiddenCount > 0 && expanded && (
-                <>
+                <span>
                     {' '}
                     <Link onClick={() => setExpanded(false)} data-attr="dashboard-query-scan-banner-toggle">
                         Show less
                     </Link>
-                </>
+                </span>
             )}
         </LemonBanner>
     )
