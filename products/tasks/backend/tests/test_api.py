@@ -10245,8 +10245,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
         api_path = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/preview/"
 
-        minted = self.client.get(api_path)
+        static = self.client.get(api_path)
+        self.assertEqual(static.status_code, status.HTTP_200_OK)
+        self.assertEqual((static.json()["scripts_enabled"], static.json()["scripts_available"]), (False, True))
+        static_csp = self.client.get(urlsplit(static.json()["url"]).path, HTTP_HOST="usercontent.example")[
+            "Content-Security-Policy"
+        ]
+        self.assertIn("sandbox;", static_csp)
+        self.assertIn("script-src 'none'", static_csp)
+        self.assertNotIn("allow-scripts", static_csp)
+        self.assertEqual(self.client.get(f"{api_path}?scripts=yes").status_code, status.HTTP_400_BAD_REQUEST)
+
+        minted = self.client.get(f"{api_path}?scripts=true")
         self.assertEqual(minted.status_code, status.HTTP_200_OK)
+        self.assertTrue(minted.json()["scripts_enabled"])
         preview_path = urlsplit(minted.json()["url"]).path
         preview = self.client.get(preview_path, HTTP_HOST="usercontent.example")
 
@@ -10292,6 +10304,89 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(preview.content, versions[1]["content"].encode())
         self.assertEqual(self.client.get(f"{api_path}?version=1").status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(self.client.get(f"{api_path}?version={'9' * 21}").status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("no_environment", None, 1, True),
+            ("full_network", SandboxEnvironment.NetworkAccessLevel.FULL, 1, True),
+            ("trusted_network", SandboxEnvironment.NetworkAccessLevel.TRUSTED, 1, False),
+            ("custom_network", SandboxEnvironment.NetworkAccessLevel.CUSTOM, 1, False),
+            ("full_network_changed_after_run", SandboxEnvironment.NetworkAccessLevel.FULL, -1, False),
+            ("deleted_environment", "deleted", 1, False),
+        ]
+    )
+    @override_settings(
+        CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
+    )
+    def test_html_artifact_preview_runs_scripts_only_for_unrestricted_runs(
+        self, _name, network_access_level, run_started_minutes_after_environment, scripts_available
+    ):
+        task = self.create_task()
+        state: dict[str, Any] = {}
+        environment = None
+        if network_access_level is not None:
+            environment = SandboxEnvironment.objects.create(
+                team=self.team,
+                name="Preview env",
+                created_by=self.user,
+                network_access_level=SandboxEnvironment.NetworkAccessLevel.FULL
+                if network_access_level == "deleted"
+                else network_access_level,
+            )
+            state["sandbox_environment_id"] = str(environment.id)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state=state,
+            created_at=(environment.updated_at if environment else django_timezone.now())
+            + timedelta(minutes=run_started_minutes_after_environment),
+        )
+        if network_access_level == "deleted":
+            assert environment is not None
+            environment.delete()
+        living = self._create_slack_file_living_artifact(task, run)
+        living.name = "interactive.html"
+        versions = living.versions
+        versions[1]["content_type"] = "text/html"
+        living.versions = versions
+        living.save(update_fields=["name", "versions"])
+        api_path = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{living.id}/preview/?version=2"
+
+        static = self.client.get(api_path)
+        scripted = self.client.get(f"{api_path}&scripts=true")
+
+        self.assertEqual(static.status_code, status.HTTP_200_OK)
+        self.assertEqual(static.json()["scripts_available"], scripts_available)
+        self.assertEqual(scripted.status_code, status.HTTP_200_OK if scripts_available else status.HTTP_403_FORBIDDEN)
+
+    @override_settings(
+        CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
+    )
+    def test_html_living_artifact_preview_requires_analytics_scopes_of_the_whole_task(self):
+        task = self.create_task()
+        protected_run = TaskRun.objects.create(
+            task=task, team=self.team, state={"analytics_query_context": [TASK_ANALYTICS_QUERY]}
+        )
+        open_run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        artifact = self._create_slack_file_living_artifact(task, protected_run)
+        artifact.name = "report.html"
+        versions = artifact.versions
+        versions[1]["content_type"] = "text/html"
+        artifact.versions = versions
+        artifact.save(update_fields=["name", "versions"])
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Preview reader", user=self.user, secure_value=hash_key_value(raw_key), scopes=["task:read"]
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{open_run.id}/artifacts/{artifact.id}/preview/?version=2"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_download_artifact_not_found(self):
         task = self.create_task()

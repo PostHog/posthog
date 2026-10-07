@@ -29,14 +29,14 @@ def is_html_artifact(name: str, content_type: str) -> bool:
 
 
 def create_artifact_preview_url(
-    *, team_id: int, task_id: str, run_id: str, artifact_id: str, version: int | None = None
+    *, team_id: int, task_id: str, run_id: str, artifact_id: str, version: int | None = None, scripts: bool = False
 ) -> str | None:
     if not settings.CANVAS_ARTIFACT_ORIGIN and not (settings.DEBUG or settings.TEST):
         return None
     token = secrets.token_urlsafe(32)
     cache.set(
         _cache_key(token),
-        json.dumps([team_id, task_id, run_id, artifact_id, version]),
+        json.dumps([team_id, task_id, run_id, artifact_id, version, scripts]),
         timeout=PREVIEW_TOKEN_TTL_SECONDS,
     )
     return f"{tasks_facade.artifact_delivery_origin()}/canvas-artifacts/task-preview/{token}/index.html"
@@ -49,6 +49,7 @@ class _PreviewClaims:
     run_id: UUID
     artifact_id: str
     version: int | None
+    scripts: bool
 
 
 def _preview_claims(token: str) -> _PreviewClaims:
@@ -58,8 +59,13 @@ def _preview_claims(token: str) -> _PreviewClaims:
     if not isinstance(raw_claims, str):
         raise Http404
     try:
-        team_id, task_id, run_id, artifact_id, version = json.loads(raw_claims)
-        if not isinstance(team_id, int) or isinstance(team_id, bool) or not isinstance(artifact_id, str):
+        team_id, task_id, run_id, artifact_id, version, scripts = json.loads(raw_claims)
+        if (
+            not isinstance(team_id, int)
+            or isinstance(team_id, bool)
+            or not isinstance(artifact_id, str)
+            or not isinstance(scripts, bool)
+        ):
             raise ValueError
         if version is not None and (not isinstance(version, int) or isinstance(version, bool) or version < 1):
             raise ValueError
@@ -69,19 +75,20 @@ def _preview_claims(token: str) -> _PreviewClaims:
             run_id=UUID(run_id),
             artifact_id=artifact_id,
             version=version,
+            scripts=scripts,
         )
     except (TypeError, ValueError):
         raise Http404 from None
 
 
-def _task_html_artifact_preview_csp() -> str:
+def _task_html_artifact_preview_csp(*, scripts: bool) -> str:
     site = urlsplit(settings.SITE_URL)
     ancestors = dict.fromkeys([f"{site.scheme}://{site.netloc}", *app_frame_ancestor_sources()])
     return "; ".join(
         [
-            "sandbox allow-scripts",
+            "sandbox allow-scripts" if scripts else "sandbox",
             "default-src 'none'",
-            "script-src 'unsafe-inline'",
+            "script-src 'unsafe-inline'" if scripts else "script-src 'none'",
             "style-src 'unsafe-inline'",
             "img-src data: blob:",
             "font-src data:",
@@ -126,6 +133,6 @@ def task_artifact_preview(request: HttpRequest, token: str) -> HttpResponse:
     response["Referrer-Policy"] = "no-referrer"
     response["X-Content-Type-Options"] = "nosniff"
     response["Cross-Origin-Resource-Policy"] = "cross-origin"
-    response["Content-Security-Policy"] = _task_html_artifact_preview_csp()
+    response["Content-Security-Policy"] = _task_html_artifact_preview_csp(scripts=claims.scripts)
     response["Permissions-Policy"] = tasks_facade.ARTIFACT_PERMISSIONS_POLICY
     return response

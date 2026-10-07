@@ -3004,14 +3004,29 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 description="Living artifact version",
                 required=False,
             ),
+            OpenApiParameter(
+                "scripts",
+                OpenApiTypes.BOOL,
+                OpenApiParameter.QUERY,
+                description=(
+                    "Return a URL whose page runs its scripts. Without it the page renders with scripts off. "
+                    "Refused when scripts_available is false."
+                ),
+                required=False,
+            ),
         ],
         responses={
             200: TaskRunArtifactPreviewResponseSerializer,
+            400: OpenApiResponse(description="Invalid version or scripts value"),
+            403: OpenApiResponse(description="Scripts or analytics data are not available to the caller"),
             404: OpenApiResponse(description="HTML artifact not found"),
             503: OpenApiResponse(description="Artifact preview origin unavailable"),
         },
         summary="Open an isolated HTML artifact preview",
-        description="Returns a short-lived URL for one HTML artifact version on the artifact origin.",
+        description=(
+            "Returns a short-lived URL for one HTML artifact version on the artifact origin. "
+            "The page runs its scripts only when scripts=true."
+        ),
     )
     @action(
         detail=True,
@@ -3027,6 +3042,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ):
             raise ValidationError({"version": "Enter a positive version number."})
         version = int(raw_version) if raw_version is not None else None
+        raw_scripts = request.query_params.get("scripts", "false")
+        if raw_scripts not in ("true", "false"):
+            raise ValidationError({"scripts": "Enter true or false."})
+        run_scripts = raw_scripts == "true"
+        if version is not None and not run_context.may_read_task_run_context(
+            request=request, team_id=self.team_id, task_id=task_id, run_id=None
+        ):
+            raise PermissionDenied("The analytics data in this task run is not available to you.")
         if version is None:
             artifact = tasks_facade.task_run_artifact_entry(pk, task_id, self.team_id, artifact_id=artifact_id)
             if artifact is None or not is_html_artifact(
@@ -3039,12 +3062,28 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
             if error is not None or content is None or not is_html_artifact(content.name, content.content_type):
                 raise NotFound()
+        scripts_available = tasks_facade.task_run_artifact_scripts_allowed(
+            pk, task_id, self.team_id, task_wide=version is not None
+        )
+        if run_scripts and not scripts_available:
+            raise PermissionDenied(
+                "Scripts can't run in this artifact because its task run has limited network access."
+            )
         url = create_artifact_preview_url(
-            team_id=self.team_id, task_id=task_id, run_id=str(pk), artifact_id=artifact_id, version=version
+            team_id=self.team_id,
+            task_id=task_id,
+            run_id=str(pk),
+            artifact_id=artifact_id,
+            version=version,
+            scripts=run_scripts,
         )
         if url is None:
             return Response({"error": "Artifact preview is unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        return Response(TaskRunArtifactPreviewResponseSerializer({"url": url}).data)
+        return Response(
+            TaskRunArtifactPreviewResponseSerializer(
+                {"url": url, "scripts_enabled": run_scripts, "scripts_available": scripts_available}
+            ).data
+        )
 
     def _preview_unavailable_page(self, outcome: str, task_id: str) -> HttpResponse:
         if outcome == "ended":

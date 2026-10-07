@@ -335,6 +335,7 @@ __all__ = [
     "presign_task_run_living_artifact_version_download",
     "read_task_run_artifact",
     "read_task_run_living_artifact_version",
+    "task_run_artifact_scripts_allowed",
     "get_task_run_log_urls",
     "get_task_run_log_size",
     "read_task_run_log_content",
@@ -4727,6 +4728,31 @@ def presign_task_run_artifact_download(
     if not url:
         return None, "unavailable"
     return url, None
+
+
+def _run_has_open_network(run: TaskRun) -> bool:
+    if not (run.state or {}).get("sandbox_environment_id"):
+        return True
+    environment = run.get_sandbox_environment()
+    return (
+        environment is not None
+        and environment.network_access_level == SandboxNetworkAccessLevel.FULL
+        and environment.updated_at <= run.created_at
+    )
+
+
+def task_run_artifact_scripts_allowed(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, task_wide: bool
+) -> bool:
+    runs = TaskRun.objects.filter(team_id=team_id, task_id=task_id).select_related("task")
+    if not task_wide:
+        runs = runs.filter(pk=run_id)
+    checked = False
+    for run in runs:
+        if not _run_has_open_network(run):
+            return False
+        checked = True
+    return checked
 
 
 def task_run_artifact_entry(

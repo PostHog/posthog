@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { KeyboardEvent, useEffect, useMemo, useState } from 'react'
+import { KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     IconCheck,
@@ -12,7 +12,6 @@ import {
     IconEllipsis,
     IconExpand45,
     IconExternal,
-    IconLock,
     IconPencil,
     IconShare,
     IconHide,
@@ -95,7 +94,12 @@ import {
     objectPageUrl,
     postHogObjectRef,
 } from '../taskRunArtifacts'
-import { FullPageSource, artifactDownloadUrl, taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
+import {
+    ArtifactHtmlPreview,
+    FullPageSource,
+    artifactDownloadUrl,
+    taskRunArtifactsLogic,
+} from '../taskRunArtifactsLogic'
 import { ArtifactCommentActions } from './ArtifactCommentActions'
 import { ArtifactCommentsButton, ArtifactCommentsPage } from './ArtifactCommentsPage'
 import { ArtifactEditor } from './ArtifactEditor'
@@ -194,15 +198,74 @@ function IconAction({
     )
 }
 
-function SandboxedHtmlFrame({ url, name }: { url: string; name: string }): JSX.Element {
+function SandboxedHtmlFrame({
+    url,
+    name,
+    scripts,
+    onLeave,
+}: {
+    url: string
+    name: string
+    scripts: boolean
+    onLeave: () => void
+}): JSX.Element {
+    const loads = useRef(0)
     return (
         <iframe
             className="size-full border-0 bg-white"
-            sandbox="allow-scripts"
+            sandbox={scripts ? 'allow-scripts' : ''}
             referrerPolicy="no-referrer"
             src={url}
             title={`Preview of ${name}`}
+            onLoad={() => {
+                loads.current += 1
+                if (loads.current > 1) {
+                    onLeave()
+                }
+            }}
         />
+    )
+}
+
+function HtmlScriptsBar({
+    preview,
+    loading,
+    onRunScripts,
+    onStopScripts,
+}: {
+    preview: ArtifactHtmlPreview
+    loading: boolean
+    onRunScripts: () => void
+    onStopScripts: () => void
+}): JSX.Element {
+    const message = preview.scriptsEnabled
+        ? 'Scripts are on. This page can send its content and what you type in it to other sites.'
+        : preview.scriptsAvailable
+          ? 'Scripts are off. Run them only if you trust this file. A page with scripts can send its content to other sites.'
+          : 'Scripts are off because the task run that made this file has limited network access.'
+    return (
+        <div
+            className={cn(
+                'flex min-h-9 shrink-0 items-center gap-2 border-b border-border px-3 py-1.5',
+                preview.scriptsEnabled ? 'bg-warning text-warning-foreground' : 'bg-background'
+            )}
+        >
+            <Text size="xs" render={<span />} className="min-w-0">
+                {message}
+            </Text>
+            {(preview.scriptsEnabled || preview.scriptsAvailable) && (
+                <Button
+                    size="xs"
+                    variant="outline"
+                    className="ml-auto shrink-0"
+                    loading={loading}
+                    onClick={preview.scriptsEnabled ? onStopScripts : onRunScripts}
+                    data-attr={preview.scriptsEnabled ? 'task-artifact-stop-scripts' : 'task-artifact-run-scripts'}
+                >
+                    {preview.scriptsEnabled ? 'Turn off scripts' : 'Run scripts'}
+                </Button>
+            )}
+        </div>
     )
 }
 
@@ -406,7 +469,8 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
         htmlPreview,
         htmlPreviewLoading,
     } = useValues(taskRunArtifactsLogic({ taskId }))
-    const { ensureSelectedText, loadArtifactText, loadHtmlPreview } = useActions(taskRunArtifactsLogic({ taskId }))
+    const { ensureSelectedText, loadArtifactText, loadHtmlPreview, runHtmlPreviewScripts, leaveHtmlPreview } =
+        useActions(taskRunArtifactsLogic({ taskId }))
     useEffect(() => {
         ensureSelectedText()
     }, [selectedArtifact?.id, selectedRun?.id, currentProjectId, mode, ensureSelectedText])
@@ -463,6 +527,28 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
                 </div>
             )
         }
+        if (htmlPreview.left) {
+            return (
+                <Empty className="h-full">
+                    <EmptyHeader>
+                        <EmptyTitle>This file tried to open a different page</EmptyTitle>
+                        <EmptyDescription>
+                            PostHog closed the preview because the other page is not part of this file. Reload the
+                            preview to see the file again.
+                        </EmptyDescription>
+                    </EmptyHeader>
+                    <EmptyContent>
+                        <Button
+                            variant="outline"
+                            onClick={() => loadHtmlPreview(selectedArtifact)}
+                            data-attr="task-artifact-reload-preview"
+                        >
+                            Reload preview
+                        </Button>
+                    </EmptyContent>
+                </Empty>
+            )
+        }
         if (!htmlPreview.url) {
             return (
                 <Empty className="h-full">
@@ -483,7 +569,25 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
                 </Empty>
             )
         }
-        return <SandboxedHtmlFrame key={selectedArtifact.id} url={htmlPreview.url} name={selectedArtifact.name} />
+        return (
+            <div className="flex h-full flex-col">
+                <HtmlScriptsBar
+                    preview={htmlPreview}
+                    loading={htmlPreviewLoading}
+                    onRunScripts={() => runHtmlPreviewScripts(selectedArtifact)}
+                    onStopScripts={() => loadHtmlPreview(selectedArtifact)}
+                />
+                <div className="min-h-0 flex-1">
+                    <SandboxedHtmlFrame
+                        key={htmlPreview.url}
+                        url={htmlPreview.url}
+                        name={selectedArtifact.name}
+                        scripts={htmlPreview.scriptsEnabled}
+                        onLeave={leaveHtmlPreview}
+                    />
+                </div>
+            </div>
+        )
     }
     if (!selectedText) {
         return selectedKind === 'html' ? (
@@ -831,20 +935,6 @@ function ArtifactToolbar({
                 </TooltipContent>
             </Tooltip>
             {versioned && selectedFile && <VersionSelect taskId={taskId} file={selectedFile} />}
-            {kind === 'html' && (
-                <Tooltip>
-                    <TooltipTrigger className="shrink-0">
-                        <Badge>
-                            <IconLock />
-                            Sandboxed
-                        </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                        This artifact runs scripts in an isolated frame. It cannot access your PostHog cookies or
-                        session. It can send its contents and anything you enter to external sites.
-                    </TooltipContent>
-                </Tooltip>
-            )}
             <div className="ml-auto flex shrink-0 items-center gap-1">
                 {hasRenderedForm && (
                     <ToggleGroup

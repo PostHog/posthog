@@ -3984,6 +3984,10 @@ export interface TaskRunArtifactsUploadResponseApi {
 export interface TaskRunArtifactPreviewResponseApi {
     /** Short-lived URL for the isolated HTML preview */
     url: string
+    /** Whether the page at this URL runs its scripts */
+    scripts_enabled: boolean
+    /** Whether the caller can request a preview that runs scripts. False when a task run that can write this artifact has limited network access. */
+    scripts_available: boolean
 }
 
 export interface TaskRunArtifactsDismissRequestApi {
@@ -6130,6 +6134,10 @@ export type TasksRunsListParams = {
 }
 
 export type TasksRunsArtifactsPreviewRetrieveParams = {
+    /**
+     * Return a URL whose page runs its scripts. Without it the page renders with scripts off. Refused when scripts_available is false.
+     */
+    scripts?: boolean
     /**
      * Living artifact version
      */

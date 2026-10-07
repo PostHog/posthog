@@ -165,6 +165,8 @@ describe('taskRunArtifactsLogic', () => {
                 new Response(
                     JSON.stringify({
                         url: `https://usercontent.example/canvas-artifacts/task-preview/${path}/index.html`,
+                        scripts_enabled: path === 'scripts',
+                        scripts_available: true,
                     }),
                     { status, headers: { 'Content-Type': 'application/json' } }
                 )
@@ -208,6 +210,16 @@ describe('taskRunArtifactsLogic', () => {
         logic.actions.loadHtmlPreview(secondArtifact)
         await expectLogic(logic, () => respond(3, 'retry')).toFinishAllListeners()
         expect(logic.values.htmlPreview?.url).toContain('/task-preview/retry/')
+
+        logic.actions.runHtmlPreviewScripts(secondArtifact)
+        expect(global.fetch).toHaveBeenLastCalledWith(expect.stringContaining('scripts=true'), expect.anything())
+        await expectLogic(logic, () => respond(4, 'scripts')).toFinishAllListeners()
+        expect(logic.values.htmlPreview).toMatchObject({ scriptsEnabled: true, scriptsAvailable: true })
+
+        logic.actions.leaveHtmlPreview()
+        logic.actions.ensureSelectedText()
+        expect(pending).toHaveLength(5)
+        expect(logic.values.htmlPreview).toMatchObject({ url: null, left: true })
     })
 
     it.each([

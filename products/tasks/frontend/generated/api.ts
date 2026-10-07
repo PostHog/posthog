@@ -1994,7 +1994,7 @@ export const getTasksRunsArtifactsPreviewRetrieveUrl = (
 }
 
 /**
- * Returns a short-lived URL for one HTML artifact version on the artifact origin.
+ * Returns a short-lived URL for one HTML artifact version on the artifact origin. The page runs its scripts only when scripts=true.
  * @summary Open an isolated HTML artifact preview
  */
 export const tasksRunsArtifactsPreviewRetrieve = async (
