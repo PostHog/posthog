@@ -27,7 +27,7 @@ export interface ModelQualityInput {
     target: string
 }
 
-export function modelQualityVerdict(auc: number): ModelQualityVerdict {
+function modelQualityVerdict(auc: number): ModelQualityVerdict {
     if (auc >= MODEL_QUALITY_THRESHOLDS.strong) {
         return 'Strong'
     }
@@ -37,7 +37,7 @@ export function modelQualityVerdict(auc: number): ModelQualityVerdict {
     return 'Weak'
 }
 
-export function liftSentence(liftAt10: number | null | undefined, target: string): string {
+function liftSentence(liftAt10: number | null | undefined, target: string): string {
     if (liftAt10 == null) {
         return 'Not checked against real outcomes yet'
     }
