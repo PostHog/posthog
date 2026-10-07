@@ -58,7 +58,7 @@ pub struct Args {
     pub delete_after: bool,
 
     /// Use bundler-provided debug IDs known to be available to the application at runtime.
-    /// Pairs without a chunk ID or debug ID are skipped with a warning in this mode.
+    /// Pairs without a source-carried chunk ID or debug ID are skipped with a warning.
     #[arg(long)]
     pub native_debug_ids: bool,
 
@@ -323,14 +323,14 @@ fn select_uploadable_pairs(
             String::new()
         };
         warn!(
-            "Native debug IDs detected; skipping {} source map pairs without a chunk ID or native debug ID: {}{}",
+            "Native debug ID mode enabled; skipping {} source map pairs without a source-carried chunk ID or native debug ID: {}{}",
             skipped.len(),
             listed_paths.join(", "),
             rest
         );
         for pair in skipped {
             debug!(
-                "Skipping {}: no chunk ID or native debug ID",
+                "Skipping {}: no source-carried chunk ID or native debug ID",
                 pair.source.inner.path.display()
             );
         }
