@@ -16,6 +16,7 @@ const meta: Meta<typeof ReportSourceSuggestionView> = {
     reason:
       "Logs from the checkout service could show whether the timeout starts at the payment provider.",
     actionLabel: "Set up logs",
+    url: "https://us.posthog.com/project/1/logs",
     onOpen: () => {},
   },
 };

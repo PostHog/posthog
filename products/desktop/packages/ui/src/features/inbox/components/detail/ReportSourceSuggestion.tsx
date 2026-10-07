@@ -11,7 +11,7 @@ import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/util
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { projectPathUrl } from "@posthog/ui/utils/posthogLinks";
-import { useEffect } from "react";
+import { useEffect, useEffectEvent } from "react";
 
 function suggestionEventProperties(report: SignalReport, product: string) {
   return {
@@ -39,13 +39,17 @@ export function ReportSourceSuggestion({
   const url = target ? projectPathUrl(target.path) : null;
   const shown = url !== null;
 
+  const trackShown = useEffectEvent(() => {
+    track(
+      ANALYTICS_EVENTS.INBOX_REPORT_SOURCE_SUGGESTION_SHOWN,
+      suggestionEventProperties(report, suggestion.product),
+    );
+  });
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: once per report and product, not on every report refetch.
   useEffect(() => {
     if (shown) {
-      track(
-        ANALYTICS_EVENTS.INBOX_REPORT_SOURCE_SUGGESTION_SHOWN,
-        suggestionEventProperties(report, suggestion.product),
-      );
+      trackShown();
     }
   }, [shown, report.id, suggestion.product]);
 
@@ -56,6 +60,7 @@ export function ReportSourceSuggestion({
       product={suggestion.product}
       reason={suggestion.reason}
       actionLabel={target.actionLabel}
+      url={url}
       onOpen={() => {
         track(
           ANALYTICS_EVENTS.INBOX_REPORT_SOURCE_SUGGESTION_CLICKED,
@@ -71,11 +76,13 @@ export function ReportSourceSuggestionView({
   product,
   reason,
   actionLabel,
+  url,
   onOpen,
 }: {
   product: string;
   reason: string;
   actionLabel: string;
+  url: string;
   onOpen: () => void;
 }) {
   const meta = getSourceProductMeta(product);
@@ -95,11 +102,17 @@ export function ReportSourceSuggestionView({
       </div>
       <p className="m-0 text-foreground text-xs">{reason}</p>
       <Button
-        type="button"
+        // biome-ignore lint/a11y/useAnchorContent: Button renders its children inside the anchor.
+        render={<a href={url} target="_blank" rel="noreferrer" />}
+        nativeButton={false}
         variant="outline"
         size="sm"
         className="self-start"
-        onClick={onOpen}
+        onClick={(event) => {
+          // The host opens external URLs, so the anchor's own navigation must not run too.
+          event.preventDefault();
+          onOpen();
+        }}
       >
         <ArrowSquareOutIcon size={12} />
         {actionLabel}

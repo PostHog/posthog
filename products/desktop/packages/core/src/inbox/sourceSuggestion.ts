@@ -24,5 +24,7 @@ const SOURCE_SUGGESTION_PRODUCTS: Record<
 export function sourceSuggestionTarget(
   product: string,
 ): { path: string; actionLabel: string } | null {
-  return SOURCE_SUGGESTION_PRODUCTS[product as SuggestedSourceProduct] ?? null;
+  return Object.hasOwn(SOURCE_SUGGESTION_PRODUCTS, product)
+    ? SOURCE_SUGGESTION_PRODUCTS[product as SuggestedSourceProduct]
+    : null;
 }
