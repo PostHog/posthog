@@ -31,9 +31,11 @@ import { tagsModel } from '~/models/tagsModel'
 import { Breadcrumb, UserType } from '~/types'
 
 import {
+    canEditEmailMatching,
     cleanDomains,
     cleanEmails,
 } from 'products/customer_analytics/frontend/components/Accounts/accountEmailMatching'
+import { accountLinksLogic } from 'products/customer_analytics/frontend/components/Accounts/accountLinksLogic'
 import {
     AccountExpansionTab,
     getVisibleAccountExpansionTab,
@@ -65,6 +67,24 @@ export const ACCOUNT_ID_FIELDS = [
 ] as const
 
 type AccountIdFieldKey = (typeof ACCOUNT_ID_FIELDS)[number]['key']
+
+export const ACCOUNT_LIST_FIELDS = [
+    { key: 'email_domains', label: 'Email domains', placeholder: 'example.com' },
+    { key: 'known_emails', label: 'Known emails', placeholder: 'jane@example.com' },
+] as const
+
+type AccountListFieldKey = (typeof ACCOUNT_LIST_FIELDS)[number]['key']
+
+export type AccountFieldKey = AccountIdFieldKey | AccountListFieldKey
+
+export interface AccountFieldEditor {
+    key: AccountFieldKey
+    scope: string
+}
+
+export function isAccountListField(key: AccountFieldKey): key is AccountListFieldKey {
+    return key === 'email_domains' || key === 'known_emails'
+}
 
 export type AccountEditFormValues = Record<AccountIdFieldKey, string> & {
     name: string
@@ -122,6 +142,8 @@ export interface customerAnalyticsAccountSceneLogicValues {
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     account: AccountApi | null
+    accountFieldEditor: AccountFieldEditor | null
+    accountFieldSaveFailed: boolean
     accountEditorOpen: boolean
     accountEditorOpenedValues: AccountEditFormValues
     accountForm: AccountEditFormValues
@@ -144,6 +166,7 @@ export interface customerAnalyticsAccountSceneLogicValues {
     isAccountFormValid: boolean
     isAccountMissing: boolean
     requestedTab: string
+    savingAccountField: AccountFieldKey | null
     showAccountFormErrors: boolean
     tagsSaving: boolean
 }
@@ -157,8 +180,18 @@ export interface customerAnalyticsAccountSceneLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
+    cancelAccountFieldEdit: () => {
+        value: true
+    }
     closeAccountEditor: () => {
         value: true
+    }
+    editAccountField: (
+        key: AccountFieldKey,
+        scope: string
+    ) => {
+        key: AccountFieldKey
+        scope: string
     }
     closeEventStreamModal: () => {
         value: true
@@ -189,6 +222,19 @@ export interface customerAnalyticsAccountSceneLogicActions {
     }
     resetAccountForm: (values?: AccountEditFormValues) => {
         values?: AccountEditFormValues
+    }
+    saveAccountField: (
+        key: AccountFieldKey,
+        value: string | string[]
+    ) => {
+        key: AccountFieldKey
+        value: string | string[]
+    }
+    saveAccountFieldFailure: (key: AccountFieldKey) => {
+        key: AccountFieldKey
+    }
+    saveAccountFieldSuccess: (key: AccountFieldKey) => {
+        key: AccountFieldKey
     }
     restoreActiveTab: (tab: string | undefined) => {
         tab: string
@@ -306,6 +352,11 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         updateTagsDone: (account: AccountApi | null) => ({ account }),
         openAccountEditor: true,
         closeAccountEditor: true,
+        editAccountField: (key: AccountFieldKey, scope: string) => ({ key, scope }),
+        cancelAccountFieldEdit: true,
+        saveAccountField: (key: AccountFieldKey, value: string | string[]) => ({ key, value }),
+        saveAccountFieldSuccess: (key: AccountFieldKey) => ({ key }),
+        saveAccountFieldFailure: (key: AccountFieldKey) => ({ key }),
         openEventStreamModal: true,
         closeEventStreamModal: true,
     }),
@@ -421,6 +472,32 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             { resetAccountForm: (_, { values }) => values ?? EMPTY_ACCOUNT_EDIT_FORM },
         ],
         eventStreamModalOpen: [false, { openEventStreamModal: () => true, closeEventStreamModal: () => false }],
+        accountFieldEditor: [
+            null as AccountFieldEditor | null,
+            {
+                editAccountField: (_, { key, scope }) => ({ key, scope }),
+                cancelAccountFieldEdit: () => null,
+                saveAccountFieldSuccess: (state, { key }) => (state?.key === key ? null : state),
+            },
+        ],
+        savingAccountField: [
+            null as AccountFieldKey | null,
+            {
+                saveAccountField: (_, { key }) => key,
+                saveAccountFieldSuccess: () => null,
+                saveAccountFieldFailure: () => null,
+            },
+        ],
+        // A failed save keeps the editor open, so the draft stays available for a retry.
+        accountFieldSaveFailed: [
+            false,
+            {
+                editAccountField: () => false,
+                cancelAccountFieldEdit: () => false,
+                saveAccountField: () => false,
+                saveAccountFieldFailure: () => true,
+            },
+        ],
     }),
     selectors({
         activeTab: [
@@ -466,6 +543,39 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         },
         openEventStreamModal: () => {
             posthog.capture(AccountsEvents.EventStreamModalOpened)
+        },
+        saveAccountField: async ({ key, value }) => {
+            try {
+                if (!props.projectId || !values.account) {
+                    throw new Error('Could not determine the current project or account.')
+                }
+                if (isAccountListField(key) && !canEditEmailMatching(teamLogic.values.currentTeam)) {
+                    throw new Error('Only project admins can edit email matching.')
+                }
+                const projectId = String(props.projectId)
+                const currentAccount = await accountsRetrieve(projectId, values.account.id)
+                if (key === 'stripe_customer_id' && !currentAccount.properties?.stripe_customer_id) {
+                    throw new Error('The account has no Stripe ID to edit.')
+                }
+                const nextValue = Array.isArray(value)
+                    ? (key === 'email_domains' ? cleanDomains : cleanEmails)(value)
+                    : value.trim() || null
+                // Merging into the latest properties keeps concurrent edits to the other keys.
+                const updatedAccount = await accountsPartialUpdate(projectId, values.account.id, {
+                    properties: { ...currentAccount.properties, [key]: nextValue } as PatchedAccountApiProperties,
+                })
+                actions.loadAccountSuccess(updatedAccount)
+                accountLinksLogic
+                    .findMounted({ accountId: updatedAccount.id })
+                    ?.actions.loadAccountSuccess(updatedAccount)
+                actions.saveAccountFieldSuccess(key)
+                posthog.capture(AccountsEvents.AccountViewPropertySaved, { property_kind: 'field', field: key })
+            } catch (error) {
+                actions.saveAccountFieldFailure(key)
+                posthog.captureException(error instanceof Error ? error : new Error('Could not update account field'), {
+                    scope: 'customerAnalyticsAccountSceneLogic.saveAccountField',
+                })
+            }
         },
         submitAccountFormSuccess: () => {
             actions.closeAccountEditor()

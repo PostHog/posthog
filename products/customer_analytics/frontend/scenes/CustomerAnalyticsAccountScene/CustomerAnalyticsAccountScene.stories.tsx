@@ -422,3 +422,52 @@ export const PinnedPropertiesNarrow: Story = {
         testOptions: { waitForSelector: '[data-attr="account-property-row"]', viewport: { width: 800, height: 900 } },
     },
 }
+
+const propertiesView = {
+    ...accountView,
+    content: createAccountViewContent([
+        {
+            nodeId: 'properties',
+            kind: 'properties',
+            span: 5,
+            config: {
+                properties: [
+                    'field:website_domain',
+                    'custom:22222222-3333-4444-8555-666666666666',
+                    'relationship:33333333-4444-4555-8666-777777777777',
+                    'field:email_domains',
+                    'field:sfdc_id',
+                ],
+            },
+        },
+        { nodeId: 'notes', kind: 'notes', span: 7 },
+    ]),
+    text_content: 'Properties\nNotes',
+}
+
+export const PropertiesTile: Story = {
+    render: () => <App />,
+    decorators: [
+        mswDecorator({
+            get: {
+                [ACCOUNT_VIEWS_ENDPOINT]: [propertiesView],
+                [VALUES_ENDPOINT]: [
+                    {
+                        id: 'value-arr',
+                        definition_id: '22222222-3333-4444-8555-666666666666',
+                        account_id: ACCOUNT_ID,
+                        value: 120000,
+                        created_at: '2026-05-10T10:00:00Z',
+                        created_by_id: 1,
+                    },
+                ],
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: {
+            waitForSelector: '[data-attr="account-view-properties-list"]',
+            viewport: { width: 1280, height: 900 },
+        },
+    },
+}

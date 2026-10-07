@@ -55,6 +55,7 @@ export function AccountPinnedPropertiesPanel({
         propertyDataLoading,
         propertySaveFailed,
         editingPropertyKey,
+        editingScope,
         savingPropertyKey,
         availableMembers,
         membersLoading,
@@ -70,6 +71,7 @@ export function AccountPinnedPropertiesPanel({
         }
     }
     const configuratorKey = `${source}:${accountId}`
+    const editingHere = editingScope === configuratorKey
     const propertyOptions: AccountPropertyOption[] = [
         ...(availableDefinitions?.customProperties ?? []).map((definition) => ({
             key: pinnedPropertyToConfiguratorKey({ kind: 'custom_property', id: definition.id }),
@@ -114,7 +116,7 @@ export function AccountPinnedPropertiesPanel({
                             </LemonBanner>
                         </div>
                     ) : null}
-                    {propertySaveFailed ? (
+                    {propertySaveFailed && editingHere ? (
                         <div className="px-4 pt-4">
                             <LemonBanner type="error">
                                 Could not save this property. Review the value and try again.
@@ -134,14 +136,14 @@ export function AccountPinnedPropertiesPanel({
                     <AccountPinnedProperties
                         properties={sidebarProperties}
                         layout={layout}
-                        editingPropertyKey={editingPropertyKey}
+                        editingPropertyKey={editingHere ? editingPropertyKey : null}
                         savingPropertyKey={savingPropertyKey}
                         availableMembers={availableMembers}
                         membersLoading={membersLoading}
                         onConfigure={() => beginConfiguring(configuratorKey)}
                         onEdit={(property) => {
                             if (!savingPropertyKey) {
-                                editProperty(property)
+                                editProperty(property, configuratorKey)
                             }
                         }}
                         onCancelEdit={() => {

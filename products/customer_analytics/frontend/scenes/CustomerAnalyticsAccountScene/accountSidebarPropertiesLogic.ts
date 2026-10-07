@@ -51,7 +51,9 @@ export interface AccountSidebarPropertiesLogicProps {
 }
 
 export type AccountPropertiesPanelState = 'loading' | 'failed' | 'ready'
-export type AccountPropertyEditSource = 'account_sidebar' | 'list_expansion'
+export type AccountPropertyEditSource = 'account_sidebar' | 'list_expansion' | 'account_view'
+
+const DEFAULT_EDITOR_SCOPE = 'default'
 
 export interface RelationshipEditBaseline {
     propertyKey: string
@@ -68,8 +70,11 @@ export interface accountSidebarPropertiesLogicValues {
     resolvedPinnedProperties: ResolvedPinnedAccountProperty[] // accountSidebarConfigLogic
     members: OrganizationMemberType[] | null // membersLogic
     membersLoading: boolean // membersLogic
+    accountProperties: AccountSidebarProperty[]
+    allPropertyDataRequested: boolean
     availableMembers: AccountRelationshipMember[]
     editingPropertyKey: string | null
+    editingScope: string
     propertiesAvailable: boolean
     propertiesLoadFailed: boolean
     propertiesPanelState: AccountPropertiesPanelState
@@ -93,8 +98,12 @@ export interface accountSidebarPropertiesLogicActions {
     cancelEditing: () => {
         value: true
     }
-    editProperty: (property: AccountSidebarProperty) => {
+    editProperty: (
+        property: AccountSidebarProperty,
+        scope?: string
+    ) => {
         property: AccountSidebarProperty
+        scope: string
     }
     loadPropertyData: (_: void) => void
     loadPropertyDataFailure: (
@@ -235,6 +244,9 @@ export interface accountSidebarPropertiesLogicActions {
         propertyKey: string
         source: AccountPropertyEditSource
     }
+    requestAllPropertyData: () => {
+        value: true
+    }
     setRelationshipEditBaseline: (baseline: RelationshipEditBaseline) => {
         baseline: RelationshipEditBaseline
     }
@@ -246,6 +258,10 @@ export interface accountSidebarPropertiesLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sidebarProperties: (
             resolvedPinnedProperties: ResolvedPinnedAccountProperty[],
+            propertyData: AccountSidebarPropertyData | null
+        ) => AccountSidebarProperty[]
+        accountProperties: (
+            availableDefinitions: AvailableDefinitions | null,
             propertyData: AccountSidebarPropertyData | null
         ) => AccountSidebarProperty[]
         availableMembers: (
@@ -300,7 +316,12 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
             actions: [membersLogic, ['ensureAllMembersLoaded']],
         })),
         actions({
-            editProperty: (property: AccountSidebarProperty) => ({ property }),
+            // The scope tells apart the panels and tiles that share this logic, so only one of them opens the editor.
+            editProperty: (property: AccountSidebarProperty, scope: string = DEFAULT_EDITOR_SCOPE) => ({
+                property,
+                scope,
+            }),
+            requestAllPropertyData: true,
             cancelEditing: true,
             saveCustomProperty: (
                 propertyKey: string,
@@ -329,7 +350,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                 null as AccountSidebarPropertyData | null,
                 {
                     loadPropertyData: async (_: void, breakpoint): Promise<AccountSidebarPropertyData | null> => {
-                        if (values.resolvedPinnedProperties.length === 0) {
+                        if (values.resolvedPinnedProperties.length === 0 && !values.allPropertyDataRequested) {
                             return null
                         }
                         const [customValues, relationships] = await Promise.all([
@@ -417,6 +438,17 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
             ],
         })),
         reducers({
+            allPropertyDataRequested: [false, { requestAllPropertyData: () => true }],
+            editingScope: [
+                DEFAULT_EDITOR_SCOPE,
+                {
+                    editProperty: (state, { property, scope }) =>
+                        property.editable !== false &&
+                        (property.kind === 'relationship' || isCustomPropertyEditable(property.provenance))
+                            ? scope
+                            : state,
+                },
+            ],
             relationshipEditBaseline: [
                 null as RelationshipEditBaseline | null,
                 {
@@ -495,6 +527,33 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                 ): AccountSidebarProperty[] =>
                     buildAccountSidebarProperties(
                         pinned,
+                        data,
+                        userHasAccess(AccessControlResourceType.CustomerAnalytics, AccessControlLevel.Editor)
+                    ),
+            ],
+            accountProperties: [
+                (s) => [s.availableDefinitions, s.propertyData],
+                (
+                    definitions: AvailableDefinitions | null,
+                    data: AccountSidebarPropertyData | null
+                ): AccountSidebarProperty[] =>
+                    buildAccountSidebarProperties(
+                        [
+                            ...(definitions?.customProperties ?? []).map(
+                                (definition): ResolvedPinnedAccountProperty => ({
+                                    kind: 'custom_property',
+                                    reference: { kind: 'custom_property', id: definition.id },
+                                    definition,
+                                })
+                            ),
+                            ...(definitions?.relationships ?? []).map(
+                                (definition): ResolvedPinnedAccountProperty => ({
+                                    kind: 'relationship',
+                                    reference: { kind: 'relationship', id: definition.id },
+                                    definition,
+                                })
+                            ),
+                        ],
                         data,
                         userHasAccess(AccessControlResourceType.CustomerAnalytics, AccessControlLevel.Editor)
                     ),
@@ -578,7 +637,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                     }
                 },
                 saveCustomProperty: ({ propertyKey, value, source }) => {
-                    const property = values.sidebarProperties.find((row) => row.key === propertyKey)
+                    const property = values.accountProperties.find((row) => row.key === propertyKey)
                     if (
                         values.savingPropertyKey ||
                         property?.kind !== 'custom' ||
@@ -590,7 +649,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                     actions.persistCustomProperty({ propertyKey, definitionId: property.definition.id, value, source })
                 },
                 saveRelationship: ({ propertyKey, memberIds, source }) => {
-                    const property = values.sidebarProperties.find((row) => row.key === propertyKey)
+                    const property = values.accountProperties.find((row) => row.key === propertyKey)
                     if (values.savingPropertyKey || property?.kind !== 'relationship' || property.editable === false) {
                         return
                     }
@@ -621,7 +680,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                     })
                 },
                 persistCustomPropertySuccess: ({ savedPropertyKey, payload }) => {
-                    const property = values.sidebarProperties.find((row) => row.key === savedPropertyKey)
+                    const property = values.accountProperties.find((row) => row.key === savedPropertyKey)
                     if (property?.kind === 'custom') {
                         // The property name and value stay out because they can hold customer data.
                         posthog.capture(AccountsEvents.CustomPropertyUpdated, {
@@ -630,10 +689,13 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                             source: payload?.source ?? 'account_sidebar',
                         })
                     }
+                    if (payload?.source === 'account_view') {
+                        posthog.capture(AccountsEvents.AccountViewPropertySaved, { property_kind: 'custom' })
+                    }
                     refresh()
                 },
                 persistRelationshipSuccess: ({ savedPropertyKey, payload }) => {
-                    const property = values.sidebarProperties.find((row) => row.key === savedPropertyKey)
+                    const property = values.accountProperties.find((row) => row.key === savedPropertyKey)
                     if (property?.kind === 'relationship') {
                         const memberIds = payload?.memberIds ?? []
                         posthog.capture(AccountsEvents.RoleAssigned, {
@@ -643,9 +705,17 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                             source: payload?.source ?? 'account_sidebar',
                         })
                     }
+                    if (payload?.source === 'account_view') {
+                        posthog.capture(AccountsEvents.AccountViewPropertySaved, { property_kind: 'relationship' })
+                    }
                     refresh()
                 },
                 persistRelationshipFailure: refresh,
+                requestAllPropertyData: () => {
+                    if (!values.propertyData && !values.propertyDataLoading) {
+                        actions.loadPropertyData()
+                    }
+                },
                 [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.loadConfigSuccess]: () =>
                     actions.loadPropertyData(),
                 [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.persistPinnedPropertiesSuccess]:

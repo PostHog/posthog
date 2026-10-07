@@ -3,14 +3,20 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import type { AccountExpansionTab } from './accountsExpansionLogic'
 
-export type AccountViewComponentKind = AccountExpansionTab
+export type AccountViewComponentKind = AccountExpansionTab | 'properties'
 
 export interface AccountViewComponentDefinition {
     kind: AccountViewComponentKind
     tagName: string
     label: string
-    systemTabId: `system:${AccountViewComponentKind}`
+    // Components without a system tab exist only as tiles in account views.
+    systemTabId?: `system:${AccountExpansionTab}`
     featureFlag?: FeatureFlagKey
+}
+
+export interface AccountTabComponentDefinition extends AccountViewComponentDefinition {
+    kind: AccountExpansionTab
+    systemTabId: `system:${AccountExpansionTab}`
 }
 
 export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
@@ -57,11 +63,18 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
         systemTabId: 'system:meetings',
         featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
     },
+    { kind: 'properties', tagName: 'Properties', label: 'Properties' },
 ]
 
 export function listAvailableAccountViewComponents(featureFlags: FeatureFlagsSet): AccountViewComponentDefinition[] {
     return ACCOUNT_VIEW_COMPONENTS.filter(
         (component) => !component.featureFlag || !!featureFlags[component.featureFlag]
+    )
+}
+
+export function listAvailableAccountTabComponents(featureFlags: FeatureFlagsSet): AccountTabComponentDefinition[] {
+    return listAvailableAccountViewComponents(featureFlags).filter(
+        (component): component is AccountTabComponentDefinition => component.systemTabId !== undefined
     )
 }
 

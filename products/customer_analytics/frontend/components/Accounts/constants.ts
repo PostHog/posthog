@@ -72,6 +72,7 @@ export const AccountsEvents = {
     GongCallOpened: 'customer analytics account gong call opened',
     AccountEditorOpened: 'customer analytics account editor opened',
     AccountEdited: 'customer analytics account edited',
+    AccountViewPropertySaved: 'customer analytics account view property saved',
     EventStreamModalOpened: 'customer analytics account event stream modal opened',
     EventStreamMembershipToggled: 'customer analytics account event stream toggled',
     EventStreamConfigSaved: 'customer analytics event stream config saved',
