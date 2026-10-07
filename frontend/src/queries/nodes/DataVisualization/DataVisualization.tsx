@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { useCallback, useRef, useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { PIE_DISPLAY_TYPES } from 'lib/constants'
@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
+    DashboardFilter,
     VisualizationNode,
     HogQLQuery,
     HogQLQueryResponse,
@@ -28,6 +29,10 @@ import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { getBIChartRecord } from 'products/business_intelligence/frontend/biDrilldown'
+import { biDrilldownLogic } from 'products/business_intelligence/frontend/biDrilldownLogic'
+import { BIDrilldownModal } from 'products/business_intelligence/frontend/BIDrilldownModal'
+import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
@@ -38,6 +43,7 @@ import { QueryFeature } from '../DataTable/queryFeatures'
 import { PieChart } from './Components/Charts/PieChart'
 import { SqlBoxPlot } from './Components/Charts/SqlBoxPlot'
 import { isSqlChartVisualizationType, SqlChart } from './Components/Charts/SqlChart'
+import { getSeriesKey } from './Components/Charts/sqlLineGraphAdapter'
 import { SqlMetricCard } from './Components/Charts/SqlMetricCard'
 import { SqlScatterGraph } from './Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
@@ -67,6 +73,7 @@ export interface DataTableVisualizationProps {
     inSharedMode?: boolean
     exportContext?: ExportContext
     /** Dashboard variables to override the ones in the query */
+    filtersOverride?: DashboardFilter | null
     variablesOverride?: Record<string, HogQLVariable> | null
     /** Attach ourselves to another logic, such as the scene logic */
     attachTo?: BuiltLogic | LogicWrapper
@@ -82,6 +89,7 @@ export function DataTableVisualization({
     cachedResults,
     readOnly,
     variablesOverride,
+    filtersOverride,
     attachTo,
     editMode,
     embedded,
@@ -111,17 +119,19 @@ export function DataTableVisualization({
             applyDataVisualizationQueryUpdate(queryRef, setter, setQuery)
         },
         cachedResults,
-        variablesOverride,
+        variablesOverride: variablesOverride ?? insightProps.variablesOverride,
+        filtersOverride: filtersOverride ?? insightProps.filtersOverride,
         limitContext: context?.limitContext,
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
-        query: query.source,
+        query: getBIVisualizationSource(query),
         key: vizKey,
         cachedResults,
         loadPriority: insightProps.loadPriority,
         dataNodeCollectionId,
-        variablesOverride,
+        variablesOverride: variablesOverride ?? insightProps.variablesOverride,
+        filtersOverride: filtersOverride ?? insightProps.filtersOverride,
         limitContext: context?.limitContext,
     }
 
@@ -137,7 +147,8 @@ export function DataTableVisualization({
         sourceQuery: query,
         setQuery: setQuery,
         onUpdate: (query: VisualizationNode) => {
-            loadData(shouldQueryBeAsync(query.source) ? 'force_async' : 'force_blocking', undefined, query.source)
+            const source = getBIVisualizationSource(query)
+            loadData(shouldQueryBeAsync(source) ? 'force_async' : 'force_blocking', undefined, source)
         },
     }
 
@@ -163,6 +174,8 @@ export function DataTableVisualization({
                                 editMode={editMode}
                                 embedded={embedded}
                                 inSharedMode={inSharedMode}
+                                filtersOverride={filtersOverride ?? insightProps.filtersOverride}
+                                variablesOverride={variablesOverride ?? insightProps.variablesOverride}
                             />
                         </BindLogic>
                     </BindLogic>
@@ -195,6 +208,14 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     } = useValues(dataVisualizationLogic)
 
     const presetChartHeight = !props.embedded && scenePresetChartHeight
+    const drilldownProps = {
+        key: dataVisualizationProps.key,
+        query,
+        filtersOverride: props.filtersOverride,
+        variablesOverride: props.variablesOverride,
+    }
+    const { inspect } = useActions(biDrilldownLogic(drilldownProps))
+    const canDrill = query.kind === NodeKind.BIVisualizationNode && !props.inSharedMode
 
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
@@ -261,6 +282,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 context={props.context}
                 cachedResults={props.cachedResults as HogQLQueryResponse | undefined}
                 embedded={props.embedded}
+                onInspect={canDrill ? inspect : undefined}
             />
         )
     } else if (isSqlChartVisualizationType(effectiveVisualizationType)) {
@@ -280,6 +302,26 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     showAnnotations={!props.inSharedMode && isDateXAxis && chartSettings.showAnnotations === true}
                     presetChartHeight={presetChartHeight}
                     embedded={props.embedded}
+                    onPointClick={
+                        canDrill
+                            ? (seriesKey, dataIndex) => {
+                                  const series = _yData.find(
+                                      (series, index) => getSeriesKey(series, index) === seriesKey
+                                  )
+                                  if (_xData) {
+                                      inspect(
+                                          getBIChartRecord(
+                                              query,
+                                              _xData.column.name,
+                                              _xData.data[dataIndex],
+                                              series && 'breakdownValue' in series ? series.breakdownValue : undefined
+                                          )
+                                      )
+                                  }
+                              }
+                            : undefined
+                    }
+                    pointClickHint={canDrill ? 'Click a series to explore this result' : undefined}
                 />
             </BindLogic>
         )
@@ -323,7 +365,12 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
-        component = <TwoDimensionalHeatmap allowSorting={!(props.embedded && readOnly)} />
+        component = (
+            <TwoDimensionalHeatmap
+                allowSorting={!(props.embedded && readOnly)}
+                onInspect={canDrill ? inspect : undefined}
+            />
+        )
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     } else if (effectiveVisualizationType === ChartDisplayType.Metric) {
@@ -334,6 +381,24 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 metricSettings={chartSettings.metric}
                 presetChartHeight={presetChartHeight}
             />
+        )
+    }
+
+    if (query.kind === NodeKind.BIVisualizationNode) {
+        component = (
+            <>
+                {seriesBreakdownData.warning ? (
+                    <LemonBanner type="info">{seriesBreakdownData.warning}</LemonBanner>
+                ) : null}
+                {!responseLoading && response && 'hasMore' in response && response.hasMore ? (
+                    <LemonBanner type="info">
+                        This worksheet reached its {query.config.limit.toLocaleString()} row limit. Increase the limit
+                        or narrow the filters to see all results.
+                    </LemonBanner>
+                ) : null}
+                {component}
+                {canDrill ? <BIDrilldownModal logicProps={drilldownProps} /> : null}
+            </>
         )
     }
 
