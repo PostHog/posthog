@@ -3,8 +3,14 @@ from io import StringIO
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
-from products.messaging.backend.models.message_preferences import MessageRecipientPreference, PreferenceStatus
+from products.messaging.backend.models.message_preferences import (
+    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+    MessageRecipientPreference,
+    PreferenceStatus,
+)
 
 from .customerio_import_service import CustomerIOImportService
 
@@ -14,6 +20,77 @@ class TestCustomerIOImportService(BaseTest):
         super().setUp()
         self.api_key = "test-api-key"
         self.service = CustomerIOImportService(self.team, self.api_key, self.user)
+
+    @parameterized.expand(
+        [
+            ("true", "", True, True),
+            (" TRUE ", "invalid json", True, True),
+            ("false", "", False, True),
+            ("", "", False, True),
+            ("true", "", True, False),
+        ]
+    )
+    def test_csv_import_global_unsubscribe(
+        self, unsubscribed: str, topics: str, globally_opted_out: bool, has_categories: bool
+    ) -> None:
+        if has_categories:
+            MessageCategory.objects.create(team=self.team, key="customerio_topic_1", name="Newsletter")
+        recipient = MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="unsubscribed@example.com",
+            preferences={"existing_category": PreferenceStatus.OPTED_IN.value},
+        )
+        csv_content = (
+            f"email,unsubscribed,cio_subscription_preferences\nunsubscribed@example.com,{unsubscribed},{topics}\n"
+        )
+
+        result = self.service.process_preferences_csv(StringIO(csv_content))
+
+        assert result["status"] == "completed"
+        assert result["parse_errors"] == (1 if topics == "invalid json" else 0)
+        if topics == "invalid json":
+            assert result["failed_imports"][0]["email"] == "unsubscribed@example.com"
+            assert "Global opt-out imported" in result["failed_imports"][0]["error"]
+        recipient.refresh_from_db()
+        assert recipient.get_preference("existing_category") == PreferenceStatus.OPTED_IN
+        assert recipient.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == (
+            PreferenceStatus.OPTED_OUT if globally_opted_out else PreferenceStatus.NO_PREFERENCE
+        )
+
+    def test_csv_short_row_preserves_pending_global_optouts(self) -> None:
+        csv_content = (
+            "email,cio_subscription_preferences,unsubscribed\nunsubscribed@example.com,,true\nshort@example.com,\n"
+        )
+
+        result = self.service.process_preferences_csv(StringIO(csv_content))
+
+        assert result["status"] == "completed"
+        assert result["users_with_optouts"] == 1
+        preference = MessageRecipientPreference.objects.get(team=self.team, identifier="unsubscribed@example.com")
+        assert preference.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
+
+    def test_csv_reports_topic_optouts_without_categories(self) -> None:
+        csv_content = (
+            'email,unsubscribed,cio_subscription_preferences\ntopic@example.com,false,{"topics":{"topic_1":false}}\n'
+        )
+
+        result = self.service.process_preferences_csv(StringIO(csv_content))
+
+        assert result["parse_errors"] == 1
+        assert result["users_skipped"] == 0
+        assert result["failed_imports"][0]["email"] == "topic@example.com"
+        assert "No categories found" in result["failed_imports"][0]["error"]
+
+    def test_csv_global_unsubscribe_preserves_topic_choices(self) -> None:
+        category = MessageCategory.objects.create(team=self.team, key="customerio_topic_1", name="Newsletter")
+        csv_content = 'email,unsubscribed,cio_subscription_preferences\nunsubscribed@example.com,true,{"topics":{"topic_1":false}}\n'
+
+        result = self.service.process_preferences_csv(StringIO(csv_content))
+
+        assert result["parse_errors"] == 0
+        preference = MessageRecipientPreference.objects.get(team=self.team, identifier="unsubscribed@example.com")
+        assert preference.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
+        assert preference.get_preference(str(category.id)) == PreferenceStatus.OPTED_OUT
 
     def test_process_preferences_csv_complete_flow(self):
         """Test complete CSV processing flow with batching"""
@@ -124,7 +201,7 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
         assert result["topics_found"] == 2
         assert result["categories_created"] == 2
         assert result["globally_unsubscribed_count"] == 3
-        assert result["preferences_updated"] == 6  # 3 users * 2 categories
+        assert result["preferences_updated"] == 9
 
         # Check categories were created
         cat1 = MessageCategory.objects.get(team=self.team, key="customerio_topic_1")
@@ -139,6 +216,7 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
         pref1 = MessageRecipientPreference.objects.get(team_id=self.team.id, identifier="unsubbed1@example.com")
         assert pref1.preferences[str(cat1.id)] == PreferenceStatus.OPTED_OUT.value
         assert pref1.preferences[str(cat2.id)] == PreferenceStatus.OPTED_OUT.value
+        assert pref1.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
 
     def test_save_csv_batch_with_existing_preferences(self):
         """Test batch saving when some users already have preferences"""
@@ -179,6 +257,22 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
         # Check new users were created
         new_pref = MessageRecipientPreference.objects.get(team_id=self.team.id, identifier="user2@example.com")
         assert new_pref.preferences[str(cat1.id)] == PreferenceStatus.OPTED_OUT.value
+
+    @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
+    def test_api_import_global_unsubscribe_without_topics(self, mock_client_class) -> None:
+        mock_client = mock_client_class.return_value
+        mock_client.validate_credentials.return_value = True
+        mock_client.get_subscription_topics.return_value = []
+        mock_client.get_globally_unsubscribed_customers.return_value = {
+            "identifiers": [{"email": "unsubscribed@example.com"}],
+        }
+
+        result = self.service.import_api_data()
+
+        assert result["status"] == "completed"
+        assert result["globally_unsubscribed_count"] == 1
+        preference = MessageRecipientPreference.objects.get(team=self.team, identifier="unsubscribed@example.com")
+        assert preference.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
 
     def test_process_csv_without_categories(self):
         """Test CSV processing when no categories exist"""

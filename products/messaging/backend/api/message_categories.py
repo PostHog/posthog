@@ -330,7 +330,7 @@ class MessageCategoryViewSet(
     def import_preferences_csv(self, request, **kwargs):
         """
         Import customer preferences from CSV file
-        Expected CSV columns: id, email, cio_subscription_preferences
+        Expected CSV columns: id, email, unsubscribed, cio_subscription_preferences
         """
         csv_file = request.FILES.get("csv_file")
 

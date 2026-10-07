@@ -270,8 +270,12 @@ describe('RecipientPreferencesService', () => {
                 }
             )
 
-            it('should return true if recipient is opted out of all marketing messaging', async () => {
-                const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
+            it.each([
+                ['an existing category', '123e4567-e89b-12d3-a456-426614174000'],
+                ['no category', ''],
+                ['a category created after the opt-out', '123e4567-e89b-12d3-a456-426614174001'],
+            ])('should block globally opted-out recipients for %s', async (_name, categoryId) => {
+                const action = createEmailAction('test@example.com', categoryId)
                 const invocation = createFunctionStepInvocation(action)
                 const recipient = createRecipient('test@example.com', {
                     '123e4567-e89b-12d3-a456-426614174000': 'OPTED_IN', // Opted in for this category
@@ -279,8 +283,6 @@ describe('RecipientPreferencesService', () => {
                 })
 
                 mockRecipientsManagerGet.mockResolvedValue(recipient)
-                mockRecipientsManagerGetPreference.mockReturnValue('OPTED_IN')
-                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('OPTED_OUT')
 
                 const result = await service.shouldSkipAction(invocation, action)
 

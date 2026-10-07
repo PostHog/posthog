@@ -80,7 +80,7 @@ export const MessagingCategoriesImportFromCustomerioCreateBody = /* @__PURE__ */
 
 /**
  * Import customer preferences from CSV file
- * Expected CSV columns: id, email, cio_subscription_preferences
+ * Expected CSV columns: id, email, unsubscribed, cio_subscription_preferences
  */
 export const messagingCategoriesImportPreferencesCsvCreateBodyKeyMax = 64
 
