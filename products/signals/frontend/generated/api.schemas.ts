@@ -605,6 +605,8 @@ export interface ReportRankingApi {
     lifts: ReportRankingApiLifts
     /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
     readable_heads: string[]
+    /** True when the report's title or summary was edited after the text this score read. The score describes the old text: the inbox hides its lift and the model sort treats the report as unscored. */
+    stale: boolean
 }
 
 export interface SignalReportListApi {
@@ -3097,9 +3099,9 @@ export interface SignalReportBulkStateResponseApi {
 }
 
 export interface SignalReportsForYouResponseApi {
-    /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns. The Today briefing ranks reports the same way. */
+    /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns unless `include_unowned` is false. The Today briefing ranks reports the same way. */
     results: SignalReportListApi[]
-    /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. */
+    /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. Counted over the same set as `results`, so it follows `include_unowned` too. */
     count: number
 }
 
@@ -5659,21 +5661,21 @@ export const ScoutRubricReportChannelEnumApi = {
 } as const
 
 export interface ScoutRubricReferenceTextDocumentApi {
-    /** Path of the reference supplied to the generator. */
+    /** Path of the captured reference file. */
     path: string
-    /** Content type of the supplied reference. */
+    /** Content type of the captured reference file. */
     content_type: string
-    /** Exact reference text supplied to the generator. */
+    /** Saved reference text used for judging. */
     content: string
 }
 
 export interface ScoutRubricReferenceLimitsDocumentApi {
     /**
-     * Number of reference files not supplied.
+     * Number of files missing from the saved reference.
      * @minimum 0
      */
     omitted_files: number
-    /** Reference paths whose supplied content was truncated. */
+    /** Paths of files truncated in the saved reference. */
     truncated_files: string[]
 }
 
@@ -5686,11 +5688,11 @@ export interface ScoutRubricReferenceContextDocumentApi {
     skill_name: string
     /** Skill version used for generation. */
     skill_version: number
-    /** Scout description supplied to the generator. */
+    /** Scout description captured for this reference. */
     description: string
-    /** Exact instructions supplied to the generator. */
+    /** Saved scout instructions used for judging. */
     instructions: string
-    /** Whether the supplied instructions were truncated. */
+    /** Whether the saved instructions were truncated. */
     instructions_truncated: boolean
     /** Report capabilities used to select the source rules.
      *
@@ -5699,15 +5701,15 @@ export interface ScoutRubricReferenceContextDocumentApi {
      * * `edit` - Edit
      * * `both` - Both */
     report_channel: ScoutRubricReportChannelEnumApi
-    /** Exact report-disposition rules supplied to the generator. */
+    /** Report-disposition rules captured for this reference. */
     report_disposition_instructions: string
-    /** Reference-file inventory supplied to the generator. */
+    /** Reference-file inventory captured for this reference. */
     reference_files: string[]
     /** Whether the reference-file inventory was truncated. */
     reference_files_truncated: boolean
-    /** Reference texts supplied to the generator. */
+    /** Saved reference texts used for judging. */
     reference_texts: ScoutRubricReferenceTextDocumentApi[]
-    /** Limits on the supplied reference texts. */
+    /** Missing or truncated text in the saved reference. */
     reference_limits: ScoutRubricReferenceLimitsDocumentApi
 }
 
@@ -6239,6 +6241,19 @@ export interface ReportLinkWriteApi {
 }
 
 /**
+ * * `immediately_actionable` - immediately_actionable
+ * * `requires_human_input` - requires_human_input
+ * * `not_actionable` - not_actionable
+ */
+export type ActionabilityEnumApi = (typeof ActionabilityEnumApi)[keyof typeof ActionabilityEnumApi]
+
+export const ActionabilityEnumApi = {
+    ImmediatelyActionable: 'immediately_actionable',
+    RequiresHumanInput: 'requires_human_input',
+    NotActionable: 'not_actionable',
+} as const
+
+/**
  * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
  */
 export interface EditReportRequestApi {
@@ -6304,8 +6319,44 @@ export interface EditReportRequestApi {
      * @maxItems 10
      */
     links?: ReportLinkWriteApi[]
-    /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. */
+    /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. When the flag is not applied, `warnings` says why. */
     supersedes_implementation?: boolean
+    /** Optional new actionability call, for when new evidence changed your judgment. Replaces the report's actionability decision and re-runs autostart: `immediately_actionable` can open a draft PR, `requires_human_input` and `not_actionable` stop autostart from opening one. The report's inbox status does not change. Send it with `actionability_explanation`, and with `already_addressed` when the issue is handled, since the three replace the decision as one unit.
+     *
+     * * `immediately_actionable` - immediately_actionable
+     * * `requires_human_input` - requires_human_input
+     * * `not_actionable` - not_actionable */
+    actionability?: ActionabilityEnumApi | null
+    /**
+     * 2-3 sentence evidence-grounded justification for `actionability`. Required when you set it.
+     * @nullable
+     */
+    actionability_explanation?: string | null
+    /**
+     * Whether the issue is already handled: fixed, or with a fix in flight. Part of the actionability decision, so it requires `actionability` and `actionability_explanation` too; omitted means false. Set it when a fix lands or starts, so autostart does not open a duplicate PR.
+     * @nullable
+     */
+    already_addressed?: boolean | null
+    /** Optional new priority (`P0`-`P4`), for when the issue escalated or eased. Replaces the report's priority and re-runs autostart, which needs a priority to open a draft PR. Requires `priority_explanation`.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    priority?: AutonomyPriorityEnumApi | null
+    /**
+     * 2-3 sentence justification for `priority`. Required when `priority` is set.
+     * @nullable
+     */
+    priority_explanation?: string | null
+}
+
+export interface EditReportWarningApi {
+    /** The request field the edit did not apply. */
+    field: string
+    /** Why the field was not applied. The rest of the edit landed. */
+    message: string
 }
 
 export interface EditReportResponseApi {
@@ -6349,6 +6400,10 @@ export interface EditReportResponseApi {
     content_revision_count: number
     /** Whether the edit recorded that the report's pull request should be replaced. False when you did not ask for it, when the edit changed no content, or when the report has already been rewritten too many times. */
     supersedes_implementation: boolean
+    /** Which work decisions the edit replaced (`actionability`, `priority`). Empty when you set none, or re-sent the decisions the report already held. */
+    decision_fields_set: string[]
+    /** Request fields the edit did not apply, each with the reason. Empty when every field applied. */
+    warnings: EditReportWarningApi[]
     /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
     corroboration_collapsed: boolean
 }
@@ -6414,19 +6469,6 @@ export interface ScoutEmissionReportLinkApi {
     /** The inbox report this finding linked to, or null if none could be resolved. */
     report: LinkedSignalReportApi | null
 }
-
-/**
- * * `immediately_actionable` - immediately_actionable
- * * `requires_human_input` - requires_human_input
- * * `not_actionable` - not_actionable
- */
-export type ActionabilityEnumApi = (typeof ActionabilityEnumApi)[keyof typeof ActionabilityEnumApi]
-
-export const ActionabilityEnumApi = {
-    ImmediatelyActionable: 'immediately_actionable',
-    RequiresHumanInput: 'requires_human_input',
-    NotActionable: 'not_actionable',
-} as const
 
 /**
  * Request body for `emit-report`. Run attribution is taken from the URL path.
@@ -7599,6 +7641,10 @@ export type SignalsReportsAvailableReviewersRetrieve200 = {
 }
 
 export type SignalsReportsForYouRetrieveParams = {
+    /**
+     * Whether to include P0 reports that nobody owns. These belong to the project rather than to one person, and they rank above everything else, so a surface that only shows a person's own work passes false. Defaults to true.
+     */
+    include_unowned?: boolean
     /**
      * How many of the top reports to return, 1 to 20. Defaults to 5.
      * @minimum 1

@@ -227,6 +227,7 @@ class MeetingView:
 
     id: UUID
     title: str
+    is_recurring: bool
     gong_url: str | None
     start_time: datetime
     end_time: datetime | None

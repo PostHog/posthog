@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -8,11 +10,13 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.response import Response
 
 from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
 from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataDestination,
@@ -22,6 +26,12 @@ from products.warehouse_sources.backend.models.external_data_destination import 
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.presentation.destination_connection_check import (
+    FAILURE_MESSAGES,
+    CheckFailure,
+    DestinationConnectionCheckError,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_destination import (
     ExternalDataDestinationViewSet,
 )
@@ -31,6 +41,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class DestinationAPITestBase(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        check_patcher = patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_destination.check_postgres_destination"
+        )
+        self.check_connection = check_patcher.start()
+        self.addCleanup(check_patcher.stop)
         self.base = f"/api/projects/{self.team.pk}/external_data_destinations"
         self.source = ExternalDataSource.objects.create(
             team=self.team,
@@ -89,6 +104,58 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "integration" in response.json()["attr"]
+
+    @parameterized.expand(
+        [
+            (CheckFailure.UNREACHABLE, "integration"),
+            (CheckFailure.AUTHENTICATION, "integration"),
+            (CheckFailure.UNKNOWN_DATABASE, "config"),
+            (CheckFailure.MISSING_PRIVILEGE, "config"),
+        ]
+    )
+    def test_a_postgres_destination_that_fails_the_connection_test_is_not_created(
+        self, failure: CheckFailure, expected_field: str
+    ) -> None:
+        self.check_connection.side_effect = DestinationConnectionCheckError(failure)
+
+        response = self.client.post(
+            self.base,
+            {
+                "type": ExternalDataDestination.Type.POSTGRES,
+                "name": "unusable",
+                "integration": self._integration().pk,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == expected_field
+        assert response.json()["detail"] == FAILURE_MESSAGES[failure]
+        assert not ExternalDataDestination.objects.for_team(self.team.pk).filter(name="unusable").exists()
+
+    def test_the_connection_test_gets_the_requested_config(self) -> None:
+        integration = self._integration()
+
+        response = self.client.post(
+            self.base,
+            {
+                "type": ExternalDataDestination.Type.POSTGRES,
+                "name": "with config",
+                "integration": integration.pk,
+                "config": {"database": "analytics", "schema": "posthog"},
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        self.check_connection.assert_called_once_with(integration, {"database": "analytics", "schema": "posthog"})
+
+    def test_updating_a_destination_does_not_run_the_connection_test(self) -> None:
+        destination = self._create_destination()
+        self.check_connection.reset_mock()
+
+        response = self.client.patch(f"{self.base}/{destination.id}", {"name": "renamed"})
+
+        assert response.status_code == status.HTTP_200_OK
+        self.check_connection.assert_not_called()
 
     def test_the_posthog_warehouse_is_not_user_managed(self) -> None:
         response = self.client.post(self.base, {"type": ExternalDataDestination.Type.POSTHOG_WAREHOUSE, "name": "mine"})
@@ -248,6 +315,205 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         destination.refresh_from_db()
         assert destination.name == "analytics postgres"
+
+
+class TestAddSources(DestinationAPITestBase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.destination = self._create_destination()
+        self.url = f"{self.base}/{self.destination.id}/add_sources/"
+
+    def _source(self, name: str) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=name,
+            connection_id=f"{name}-connection",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+
+    def test_attaches_two_sources_and_keeps_existing_destinations(self) -> None:
+        second = self._source("second")
+        previous = self._create_destination(name="previous")
+        ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=self.source, destination=previous
+        )
+
+        response = self.client.post(self.url, {"source_ids": [str(self.source.id), str(second.id)]}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [entry["id"] for entry in response.json()["attached"]] == [str(self.source.id), str(second.id)]
+        assert response.json()["skipped"] == []
+        assert response.json()["tables_resyncing"] == 0
+        links = ExternalDataSourceDestination.objects.for_team(self.team.pk)
+        assert set(links.filter(source=self.source, enabled=True).values_list("destination_id", flat=True)) == {
+            previous.id,
+            self.destination.id,
+        }
+        assert list(links.filter(source=second, enabled=True).values_list("destination_id", flat=True)) == [
+            self.destination.id
+        ]
+
+    def test_already_attached_source_is_skipped_without_duplicate(self) -> None:
+        ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=self.source, destination=self.destination
+        )
+
+        response = self.client.post(self.url, {"source_ids": [str(self.source.id)]}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["attached"] == []
+        assert response.json()["skipped"][0]["id"] == str(self.source.id)
+        assert response.json()["skipped"][0]["reason"] == "Already attached."
+        assert (
+            ExternalDataSourceDestination.objects.for_team(self.team.pk)
+            .filter(source=self.source, destination=self.destination)
+            .count()
+            == 1
+        )
+
+    def test_limit_skips_one_source_and_attaches_another(self) -> None:
+        second = self._source("second")
+        for index in range(10):
+            other = ExternalDataDestination.objects.for_team(self.team.pk).create(
+                team_id=self.team.pk, type=ExternalDataDestination.Type.POSTGRES, name=f"other-{index}"
+            )
+            ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+                team_id=self.team.pk, source=self.source, destination=other
+            )
+
+        response = self.client.post(self.url, {"source_ids": [str(self.source.id), str(second.id)]}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [entry["id"] for entry in response.json()["attached"]] == [str(second.id)]
+        assert response.json()["skipped"][0]["id"] == str(self.source.id)
+        assert "10 enabled destinations" in response.json()["skipped"][0]["reason"]
+        assert (
+            not ExternalDataSourceDestination.objects.for_team(self.team.pk)
+            .filter(source=self.source, destination=self.destination)
+            .exists()
+        )
+
+    @parameterized.expand([("empty", []), ("too_many", [str(uuid4()) for _ in range(51)])])
+    def test_rejects_invalid_source_count(self, _name: str, source_ids: list[str]) -> None:
+        response = self.client.post(self.url, {"source_ids": source_ids}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 0
+
+    def test_unknown_source_is_rejected_and_named(self) -> None:
+        unknown = str(uuid4())
+
+        response = self.client.post(self.url, {"source_ids": [str(self.source.id), unknown]}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert unknown in str(response.json())
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 0
+
+    def test_soft_deleted_destination_is_rejected(self) -> None:
+        self.destination.deleted = True
+        self.destination.save(update_fields=["deleted"])
+
+        response = self.client.post(self.url, {"source_ids": [str(self.source.id)]}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 0
+
+    def test_resync_false_does_not_start_a_resync(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_destination.resync_schema"
+        ) as resync:
+            response = self.client.post(self.url, {"source_ids": [str(self.source.id)], "resync": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tables_resyncing"] == 0
+        resync.assert_not_called()
+
+    def test_resync_true_only_starts_enabled_tables_on_new_sources(self) -> None:
+        disabled = ExternalDataSchema.objects.create(
+            team=self.team, source=self.source, name="disabled", should_sync=False
+        )
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_destination.resync_schema",
+            return_value=Response(status=status.HTTP_200_OK),
+        ) as resync:
+            response = self.client.post(self.url, {"source_ids": [str(self.source.id)], "resync": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tables_resyncing"] == 1
+        resync.assert_called_once()
+        assert resync.call_args.args[0].id == self.schema.id
+        assert resync.call_args.args[0].id != disabled.id
+
+    def test_rejects_system_managed_sources(self) -> None:
+        self.source.connection_metadata = {"system_managed": True}
+        self.source.save(update_fields=["connection_metadata"])
+
+        response = self.client.post(self.url, {"source_ids": [str(self.source.id)], "resync": True}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 0
+
+    def test_resync_true_rejected_before_attaching_when_syncs_are_paused(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_destination.is_any_external_data_schema_paused",
+            return_value=True,
+        ):
+            response = self.client.post(self.url, {"source_ids": [str(self.source.id)], "resync": True}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 0
+
+    def test_resync_failure_is_reported_and_links_are_kept(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_destination.resync_schema",
+            return_value=Response(status=status.HTTP_400_BAD_REQUEST, data={"detail": "boom"}),
+        ):
+            response = self.client.post(self.url, {"source_ids": [str(self.source.id)], "resync": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["tables_resyncing"] == 0
+        assert [failure["schema_id"] for failure in body["resync_failures"]] == [str(self.schema.id)]
+        assert len(body["attached"]) == 1
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 1
+
+    def test_requires_editor_on_selected_source_tables(self) -> None:
+        table = DataWarehouseTable.objects.create(name="charges", team=self.team, external_data_source=self.source)
+        self.schema.table = table
+        self.schema.save(update_fields=["table"])
+
+        original = UserAccessControl.get_user_access_level
+
+        def access_level(uac: UserAccessControl, obj: object, *args: object, **kwargs: object) -> str | None:
+            # Only the source and its table are overridden; the team keeps its real project-level access.
+            if obj == table:
+                return "viewer"
+            if obj == self.source:
+                return "editor"
+            return original(uac, obj, *args, **kwargs)  # type: ignore[arg-type]
+
+        with patch.object(UserAccessControl, "get_user_access_level", access_level):
+            response = self.client.post(self.url, {"source_ids": [str(self.source.id)]}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 0
+
+    def test_requires_editor_on_tables_already_wired_to_destination(self) -> None:
+        second = self._source("second")
+        ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=self.source, destination=self.destination
+        )
+
+        with patch.object(ExternalDataDestinationViewSet, "_assert_can_mutate", side_effect=PermissionDenied("nope")):
+            response = self.client.post(self.url, {"source_ids": [str(second.id)]}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            not ExternalDataSourceDestination.objects.for_team(self.team.pk)
+            .filter(source=second, destination=self.destination)
+            .exists()
+        )
 
 
 class TestSyncedSources(DestinationAPITestBase):

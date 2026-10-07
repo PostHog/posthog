@@ -441,3 +441,18 @@ export function mergeReportMetricSnapshots<T extends { id: string; metrics?: Rep
     })
     return changed ? { ...report, metrics } : report
 }
+
+export function selectReportCardImpactMetric(metrics?: ReportMetricApi[]): ReportMetricApi | null {
+    if (!metrics?.length) {
+        return null
+    }
+
+    const hasSnapshot = (metric: ReportMetricApi): boolean =>
+        metric.value !== null && Number.isFinite(metric.value) && formatReportMetricValue(metric, metric.value) !== null
+
+    return (
+        metrics.find((metric) => metric.kind === 'affected_users' && hasSnapshot(metric)) ??
+        metrics.find((metric) => metric.role === 'primary' && hasSnapshot(metric)) ??
+        null
+    )
+}

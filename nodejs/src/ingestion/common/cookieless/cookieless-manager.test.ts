@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import path from 'path'
 
 import { cookielessRedisErrorCounter } from '~/common/metrics'
+import { COOKIELESS_SENTINEL_VALUE } from '~/common/persons/person-utils'
 import { RedisOperationError } from '~/common/utils/db/error'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -16,7 +17,6 @@ import { CookielessServerHashMode, EventHeaders, PipelineEvent, Team } from '~/t
 
 import {
     COOKIELESS_MODE_FLAG_PROPERTY,
-    COOKIELESS_SENTINEL_VALUE,
     CookielessManager,
     bufferToSessionState,
     extractRootDomain,

@@ -70,6 +70,7 @@ depends_on = [
     "products.replay_vision",
     "products.skills",
     "products.revenue_analytics",
+    "products.security",
     "products.surveys",
     "products.tasks",
     "products.business_knowledge",
@@ -715,6 +716,7 @@ depends_on = [
     # two sides share one definition. The skills product has no facade, so this matches how
     # review_hog, signals and tasks reach it.
     "products.skills",
+    "products.signals",
     "products.tasks",
 ]
 layer = "modules"
@@ -981,6 +983,7 @@ depends_on = [
     # product has no facade, so this matches how review_hog and signals reach LLMSkill.
     "products.skills",
     "products.slack_app", "products.access_control",
+    "products.security",
 ]
 layer = "modules"
 
@@ -997,62 +1000,6 @@ depends_on = [
     "products.mcp_store",
 ]
 layer = "modules"
-
-# Canvas's public surface: routes + presentation for the API layer, tasks for
-# the Celery registrations posthog/tasks/scheduled.py imports.
-[[interfaces]]
-expose = [
-    "backend\\.routes.*",
-]
-from = [
-    "products.canvas",
-]
-
-# Canvas is still a legacy product, so notebooks use a narrow product-owned
-# integration instead of exposing its whole facade and claiming strict isolation.
-[[interfaces]]
-expose = [
-    "backend\\.notebook_integration.*",
-]
-from = [
-    "products.canvas",
-]
-
-[[interfaces]]
-expose = [
-    "backend\\.teaching.*",
-    "backend\\.artifacts.*",
-    "backend\\.tasks.*",
-    # Temporal wiring the worker registers (start_temporal_worker.py) — the
-    # canvas analog of the backend.tasks Celery registration above. Canvas is
-    # not isolated yet, so this stays a legacy leak rather than a facade expose.
-    "backend\\.temporal\\.registry.*",
-    # tasks' tests build canvases that point at a generation task.
-    "backend\\.models\\.Canvas",
-]
-from = [
-    "products.canvas",
-]
-
-# Generic Comments delegates Canvas ownership checks to this narrow,
-# product-owned boundary; Canvas never imports Comments or Tasks here.
-[[interfaces]]
-expose = [
-    "backend\\.comment_access.*",
-]
-from = [
-    "products.canvas",
-]
-
-# The shared activity log delegates personal-canvas visibility to this narrow,
-# product-owned boundary, mirroring how loops do it for tasks.
-[[interfaces]]
-expose = [
-    "backend\\.activity_visibility.*",
-]
-from = [
-    "products.canvas",
-]
 
 [[modules]]
 path = "products.tracing"
@@ -1132,7 +1079,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(autoresearch|batch_exports|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|visual_review|warehouse_sources|workflows)",
+    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|visual_review|warehouse_sources|workflows)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -1199,7 +1146,6 @@ from = [
 
 [[interfaces]]
 expose = [
-    "backend\\.analysis_health.*",
     "backend\\.experiment_saved_metric_service.*",
     "backend\\.experiment_service.*",
     "backend\\.hogql_queries.*",
@@ -1447,7 +1393,7 @@ from = [
 
 [[modules]]
 path = "products.wizard"
-depends_on = ["posthog", "products.event_definitions", "products.tasks"]
+depends_on = ["posthog", "products.event_definitions", "products.security", "products.tasks"]
 layer = "modules"
 
 [[interfaces]]
@@ -1695,4 +1641,37 @@ expose = [
 ]
 from = [
     "products.webmcp",
+]
+
+[[modules]]
+path = "products.cross_project_dashboards"
+depends_on = ["posthog", "products.access_control", "products.product_analytics"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.cross_project_dashboards",
+]
+
+[[modules]]
+path = "products.warehouse_suggestions"
+depends_on = [
+    "posthog",
+    "products.access_control",
+    "products.data_modeling",
+    "products.warehouse_sources",
+]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.warehouse_suggestions",
 ]

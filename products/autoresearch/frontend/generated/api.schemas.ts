@@ -84,6 +84,29 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface AutoresearchRealizedAucPointApi {
+    /** Validated prediction date. */
+    readonly prediction_date: string
+    /** Realized AUC on that date. */
+    readonly realized_auc: number
+}
+
+export interface AutoresearchLiveTrainingRunApi {
+    /** Unique UUID of the live training run. */
+    readonly id: string
+    /** Maximum experiments allowed for this run. */
+    readonly iteration_budget: number
+    /** Experiments the agent has recorded so far in this run. */
+    readonly experiment_count: number
+    /**
+     * Best holdout AUC so far in this run. Null before any is recorded.
+     * @nullable
+     */
+    readonly best_holdout_score: number | null
+    /** The agent's rationale for its newest experiment. */
+    readonly latest_agent_description: string
+}
+
 /**
  * Resolved target definition: {"type": "event"} or {"type": "action", "action_id": N}.
  */
@@ -200,6 +223,29 @@ export interface AutoresearchPipelineApi {
      * @nullable
      */
     readonly champion_realized_auc: number | null
+    /**
+     * Lift in the top 10% of scores for the current champion model, from its latest validated prediction date. 2.0 means the top 10% converts at twice the average rate.
+     * @nullable
+     */
+    readonly champion_lift_at_10: number | null
+    /**
+     * True while the current champion model has no realized AUC yet. Null when the pipeline has no champion.
+     * @nullable
+     */
+    readonly champion_is_preliminary: boolean | null
+    /** Realized AUC of the current champion on its newest 14 validated prediction dates, oldest first. */
+    readonly champion_realized_auc_trend: readonly AutoresearchRealizedAucPointApi[]
+    /**
+     * People scored by the most recent completed inference run. Null before the first scoring run.
+     * @nullable
+     */
+    readonly people_scored: number | null
+    /** Training runs started for this pipeline. */
+    readonly training_run_count: number
+    /** Experiments (iterations) recorded across every training run. */
+    readonly experiment_count: number
+    /** Progress of the pending or running training run. Null when no run is live. */
+    readonly live_training_run: AutoresearchLiveTrainingRunApi | null
 }
 
 export interface PaginatedAutoresearchPipelineListApi {
@@ -315,14 +361,59 @@ export const AutoresearchModelRoleEnumApi = {
 } as const
 
 /**
+ * * `positive` - Positive
+ * * `negative` - Negative
+ */
+export type FeatureDirectionEnumApi = (typeof FeatureDirectionEnumApi)[keyof typeof FeatureDirectionEnumApi]
+
+export const FeatureDirectionEnumApi = {
+    Positive: 'positive',
+    Negative: 'negative',
+} as const
+
+export interface FeatureImportanceApi {
+    /**
+     * Feature column name, as returned by the feature SQL.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * Non-negative importance, for example the mean holdout AUC drop when the feature is shuffled.
+     * @minimum 0
+     */
+    importance: number
+    /** 'positive' if a higher value raises the predicted probability, 'negative' if it lowers it.
+     *
+     * * `positive` - Positive
+     * * `negative` - Negative */
+    direction: FeatureDirectionEnumApi
+}
+
+/**
+ * Global feature importances for the model card.
+ */
+export interface ModelExplanationFieldApi {
+    /**
+     * At most 30 features, strongest first.
+     * @maxItems 30
+     */
+    top_features?: FeatureImportanceApi[]
+    /**
+     * Short description of how the importances were computed, e.g. 'permutation importance on holdout'.
+     * @maxLength 500
+     */
+    method?: string
+    /**
+     * Optional caveat shown under the chart.
+     * @maxLength 500
+     */
+    note?: string
+}
+
+/**
  * Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata.
  */
 export type AutoresearchModelApiModelRecipe = { [key: string]: unknown }
-
-/**
- * Global feature importance and directionality. Used to explain top drivers on the model card.
- */
-export type AutoresearchModelApiModelExplanation = { [key: string]: unknown }
 
 /**
  * Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.
@@ -345,7 +436,7 @@ export interface AutoresearchModelApi {
     /** Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata. */
     model_recipe: AutoresearchModelApiModelRecipe
     /** Global feature importance and directionality. Used to explain top drivers on the model card. */
-    model_explanation: AutoresearchModelApiModelExplanation
+    model_explanation: ModelExplanationFieldApi
     /**
      * AUC on the held-out test split at training time. Preliminary signal before online labels mature.
      * @nullable
@@ -896,11 +987,6 @@ export interface StoredArtifactApi {
 }
 
 /**
- * Global feature importance / directionality bundle for the champion model card.
- */
-export type CompleteTrainingRunApiModelExplanation = { [key: string]: unknown }
-
-/**
  * Input for finalizing a training run. The backend selects/promotes the champion.
  */
 export interface CompleteTrainingRunApi {
@@ -910,7 +996,7 @@ export interface CompleteTrainingRunApi {
      */
     best_iteration_id?: string | null
     /** Global feature importance / directionality bundle for the champion model card. */
-    model_explanation?: CompleteTrainingRunApiModelExplanation
+    model_explanation?: ModelExplanationFieldApi
     /**
      * What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete; max 2000 characters.
      * @maxLength 2000
@@ -1122,6 +1208,12 @@ export interface MaterializeFeaturesResponseApi {
     n_features: number
     /** The numeric feature column names (excludes distinct_id, __label, __fold). */
     feature_cols: string[]
+    /** Seconds the server spent on the queries that materialized the matrix. Scoring runs features_sql over the whole inference population on every cadence, so a slow query here is slow there too. */
+    elapsed_s: number
+    /** Rows ClickHouse read to materialize the matrix. */
+    rows_read: number
+    /** Advice on the cost of features_sql. A hint does not block the materialization or the upload, but a champion whose features.sql cannot score today's population in time is not promoted. */
+    hints: string[]
 }
 
 /**

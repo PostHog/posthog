@@ -21,7 +21,7 @@ import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
 from posthog.dataclasses import frozen
-from posthog.event_usage import groups
+from posthog.event_usage import AnalyticsProps, groups
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
@@ -582,7 +582,9 @@ def bulk_check_upload(
     return bulk_check_symbol_sets(uploads, team, force=force, skip_on_conflict=skip_on_conflict)
 
 
-def bulk_finish_upload(team: Team, content_hashes: dict[str, str]) -> None:
+def bulk_finish_upload(
+    team: Team, content_hashes: dict[str, str], *, analytics_props: AnalyticsProps | None = None
+) -> None:
     if not settings.OBJECT_STORAGE_ENABLED:
         raise ValidationError(
             code="object_storage_required",
@@ -632,6 +634,7 @@ def bulk_finish_upload(team: Team, content_hashes: dict[str, str]) -> None:
         posthoganalytics.capture(
             "error_tracking_symbol_set_uploaded",
             properties={
+                **(analytics_props or {}),
                 "file_size": total_file_size,
                 "success": False,
                 "file_count": file_count,
@@ -645,6 +648,7 @@ def bulk_finish_upload(team: Team, content_hashes: dict[str, str]) -> None:
     posthoganalytics.capture(
         "error_tracking_symbol_set_uploaded",
         properties={
+            **(analytics_props or {}),
             "file_size": total_file_size,
             "success": True,
             "file_count": file_count,

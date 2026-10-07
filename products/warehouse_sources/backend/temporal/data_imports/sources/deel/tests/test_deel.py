@@ -13,6 +13,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deel.deel 
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.deel.settings import (
+    DEEL_API_VERSION_2026_01_01,
+    DEEL_API_VERSION_V2,
     DEEL_ENDPOINTS,
     ENDPOINTS,
     PAGE_SIZE,
@@ -22,6 +24,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deel.setti
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 # validate_credentials builds its own tracked session in the deel module.
 DEEL_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.deel.deel.make_tracked_session"
+
+# (pin, base URL, version headers): the legacy pin sends no selector, the dated pin sends X-Version.
+VERSION_WIRES = [
+    (DEEL_API_VERSION_V2, "https://api.letsdeel.com/rest/v2", {}),
+    (DEEL_API_VERSION_2026_01_01, "https://api.letsdeel.com/rest", {"X-Version": "2026-01-01"}),
+]
 
 
 def _response(items: list[dict[str, Any]] | None, *, cursor: str | None = None, drop_data: bool = False) -> Response:
@@ -97,8 +105,10 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     return params
 
 
-def _source(endpoint: str, manager: mock.MagicMock):
-    return deel_source("token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+def _source(endpoint: str, manager: mock.MagicMock, api_version: str = DEEL_API_VERSION_V2):
+    return deel_source(
+        "token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, api_version=api_version
+    )
 
 
 def _rows(source_response) -> list[dict[str, Any]]:
@@ -121,13 +131,28 @@ class TestValidateCredentials:
         response.status_code = status_code
         mock_session.return_value.get.return_value = response
 
-        assert validate_credentials("token") == expected
+        assert validate_credentials("token", DEEL_API_VERSION_V2) == expected
+
+    @pytest.mark.parametrize("api_version, base_url, version_headers", VERSION_WIRES)
+    @mock.patch(DEEL_SESSION_PATCH)
+    def test_validate_credentials_probes_on_the_pinned_version(
+        self, mock_session, api_version, base_url, version_headers
+    ):
+        response = mock.MagicMock()
+        response.status_code = 200
+        mock_session.return_value.get.return_value = response
+
+        validate_credentials("token", api_version)
+
+        call = mock_session.return_value.get.call_args
+        assert call.args[0] == f"{base_url}/people?limit=1"
+        assert call.kwargs["headers"] == {"Authorization": "Bearer token", **version_headers}
 
     @mock.patch(DEEL_SESSION_PATCH)
     def test_validate_credentials_reports_network_error_distinctly(self, mock_session):
         # A transient network failure must not masquerade as a bad token.
         mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        valid, error = validate_credentials("token")
+        valid, error = validate_credentials("token", DEEL_API_VERSION_V2)
         assert valid is False
         assert error is not None and error.startswith("Could not reach Deel")
 
@@ -402,9 +427,12 @@ class TestFanoutEndpoints:
 
 
 class TestTimeOffEvents:
+    @pytest.mark.parametrize("api_version, base_url, version_headers", VERSION_WIRES)
     @mock.patch(DEEL_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_people_by_query_param(self, MockClientSession, MockDeelSession):
+    def test_fans_out_over_people_by_query_param(
+        self, MockClientSession, MockDeelSession, api_version, base_url, version_headers
+    ):
         _wire(MockClientSession.return_value, [_response([{"id": "prof_1"}, {"id": "prof_2"}])])
         child_session = MockDeelSession.return_value
         child_session.get.side_effect = [
@@ -412,11 +440,15 @@ class TestTimeOffEvents:
             _wrapped_response({"data": [{"id": "ev_2"}]}),
         ]
 
-        rows = _rows(_source("time_off_events", _make_manager()))
+        rows = _rows(_source("time_off_events", _make_manager(), api_version))
 
         assert [call.args[0] for call in child_session.get.call_args_list] == [
-            "https://api.letsdeel.com/rest/v2/time_offs/time-off-events"
+            f"{base_url}/time_offs/time-off-events"
         ] * 2
+        assert all(
+            call.kwargs["headers"].get("X-Version") == version_headers.get("X-Version")
+            for call in child_session.get.call_args_list
+        )
         assert [call.kwargs["params"]["hris_profile_id"] for call in child_session.get.call_args_list] == [
             "prof_1",
             "prof_2",
@@ -491,21 +523,25 @@ class TestLookupEndpoints:
     @pytest.mark.parametrize(
         "endpoint, path",
         [
-            ("departments", "https://api.letsdeel.com/rest/v2/departments"),
-            ("teams", "https://api.letsdeel.com/rest/v2/teams"),
-            ("countries", "https://api.letsdeel.com/rest/v2/lookups/countries"),
-            ("currencies", "https://api.letsdeel.com/rest/v2/lookups/currencies"),
-            ("seniorities", "https://api.letsdeel.com/rest/v2/lookups/seniorities"),
+            ("departments", "/departments"),
+            ("teams", "/teams"),
+            ("countries", "/lookups/countries"),
+            ("currencies", "/lookups/currencies"),
+            ("seniorities", "/lookups/seniorities"),
         ],
     )
+    @pytest.mark.parametrize("api_version, base_url, version_headers", VERSION_WIRES)
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_lookups_send_one_request_with_no_page_size(self, MockSession, endpoint, path):
+    def test_unpaginated_lookups_send_one_request_with_no_page_size(
+        self, MockSession, api_version, base_url, version_headers, endpoint, path
+    ):
         session = MockSession.return_value
         params, urls = _wire_capture(session, [_response([{"code": "US"}])])
 
-        _rows(_source(endpoint, _make_manager()))
+        _rows(_source(endpoint, _make_manager(), api_version))
 
-        assert urls == [path]
+        assert urls == [f"{base_url}{path}"]
+        assert session.headers == version_headers
         assert params[0] == {}
         assert session.send.call_count == 1
 
@@ -548,8 +584,9 @@ class TestPayrollEndpoints:
 
 
 class TestGrossToNet:
+    @pytest.mark.parametrize("api_version, base_url, version_headers", VERSION_WIRES)
     @mock.patch(DEEL_SESSION_PATCH)
-    def test_walks_legal_entities_then_cycles_then_reports(self, MockSession):
+    def test_walks_legal_entities_then_cycles_then_reports(self, MockSession, api_version, base_url, version_headers):
         session = MockSession.return_value
         session.get.side_effect = [
             _response([{"id": "le_1"}]),
@@ -558,14 +595,18 @@ class TestGrossToNet:
         ]
 
         manager = _make_manager()
-        rows = _rows(_source("payroll_gross_to_net", manager))
+        rows = _rows(_source("payroll_gross_to_net", manager, api_version))
 
         assert [call.args[0] for call in session.get.call_args_list] == [
-            "https://api.letsdeel.com/rest/v2/legal-entities",
-            "https://api.letsdeel.com/rest/v2/legal-entities/le_1/payroll-events",
+            f"{base_url}/legal-entities",
+            f"{base_url}/legal-entities/le_1/payroll-events",
             # cy_2 publishes no report, so it is never requested.
-            "https://api.letsdeel.com/rest/v2/reports/payroll/cycles/cy_1/gross-to-net",
+            f"{base_url}/reports/payroll/cycles/cy_1/gross-to-net",
         ]
+        assert all(
+            call.kwargs["headers"].get("X-Version") == version_headers.get("X-Version")
+            for call in session.get.call_args_list
+        )
         assert rows == [{"contract_oid": "con_1", "cycle_id": "cy_1", "legal_entity_id": "le_1"}]
         assert rows[0]["legal_entity_id"] == "le_1"
         # The cycle is checkpointed once its rows are out, so a resume skips it. A cycle id is
@@ -623,3 +664,59 @@ class TestGrossToNet:
 
         assert [r["contract_oid"] for r in rows] == ["con_1", "con_1"]
         assert session.get.call_count == 4
+
+
+class TestDatedVersionEndpoints:
+    @pytest.mark.parametrize(
+        "endpoint, path, x_version, cursor_key, cursor_param, page_size_param, page_size, has_more_key",
+        [
+            ("it_seats", "/it/seats", "2026-09-25", "next_cursor", "cursor", "limit", 20, "has_more"),
+            (
+                "it_clearance_requests",
+                "/it/clearance-requests",
+                "2026-09-16",
+                "next_cursor",
+                "cursor",
+                "limit",
+                20,
+                "has_more",
+            ),
+            (
+                "time_off_policies",
+                "/time-offs/policy",
+                "2026-09-09",
+                "next",
+                "next",
+                "page_size",
+                PAGE_SIZE,
+                "has_next_page",
+            ),
+            ("equity_awards", "/equity-awards", "2026-09-09", "next_cursor", "cursor", "limit", PAGE_SIZE, "has_more"),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_on_the_endpoints_own_published_version(
+        self, MockSession, endpoint, path, x_version, cursor_key, cursor_param, page_size_param, page_size, has_more_key
+    ):
+        # These endpoints were published after the 2026-01-01 baseline, and Deel rejects a date an
+        # endpoint was not published under, so each one must send its own date.
+        session = MockSession.return_value
+        params, urls = _wire_capture(
+            session,
+            [
+                _wrapped_response({"data": [{"id": "a"}], has_more_key: True, cursor_key: "cur_1"}),
+                _wrapped_response({"data": [{"id": "b"}], has_more_key: False, cursor_key: None}),
+            ],
+        )
+
+        rows = _rows(_source(endpoint, _make_manager(), DEEL_API_VERSION_2026_01_01))
+
+        assert [r["id"] for r in rows] == ["a", "b"]
+        assert urls == [f"https://api.letsdeel.com/rest{path}"] * 2
+        assert session.headers == {"X-Version": x_version}
+        assert params[0][page_size_param] == page_size
+        assert params[1][cursor_param] == "cur_1"
+
+    def test_an_undeclared_pin_fails_instead_of_sending_no_version(self):
+        with pytest.raises(ValueError, match="Unsupported Deel API version"):
+            _source("people", _make_manager(), "2099-01-01")
