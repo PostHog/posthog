@@ -1,6 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -34,10 +37,12 @@ describe('firstRunAgentHelpLogic', () => {
 
     let seenEvents: string[]
     let personProperties: string[]
+    let propertyRequests: number
 
     beforeEach(() => {
         seenEvents = []
         personProperties = []
+        propertyRequests = 0
         useMocks({
             get: {
                 '/api/projects/:team_id/hog_flow_templates/': { count: TEMPLATES.length, results: TEMPLATES },
@@ -53,6 +58,7 @@ describe('firstRunAgentHelpLogic', () => {
                     ]
                 },
                 '/api/projects/:team_id/property_definitions/': ({ request }) => {
+                    propertyRequests++
                     const params = new URL(request.url).searchParams
                     const names = params.get('properties')?.split(',') ?? []
                     const definitions =
@@ -65,10 +71,16 @@ describe('firstRunAgentHelpLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_FIRST_RUN]: true })
         capture = jest.spyOn(posthog, 'capture').mockImplementation()
     })
 
-    async function openFirstRun(project: { seenEvents: string[]; personProperties: string[] }): Promise<void> {
+    async function openFirstRun(project: {
+        seenEvents: string[]
+        personProperties: string[]
+        enabled?: boolean
+    }): Promise<void> {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_FIRST_RUN]: project.enabled ?? true })
         seenEvents = project.seenEvents
         personProperties = project.personProperties
         logic = firstRunAgentHelpLogic()
@@ -109,18 +121,35 @@ describe('firstRunAgentHelpLogic', () => {
             personProperties: ['email'],
             missing: null,
         },
+        {
+            project: 'while first run is disabled',
+            seenEvents: ['signed_up'],
+            personProperties: [],
+            missing: null,
+            enabled: false,
+        },
     ])('asks a project $project for help with missing data: $missing', async ({ missing, ...project }) => {
         await openFirstRun(project)
+        if (project.enabled === false) {
+            logic.actions.loadEmailProperty()
+            await expectLogic(logic).toFinishAllListeners()
+        }
 
         expect(logic.values.missingData).toEqual(missing)
         expect(agentHelpShownCalls()).toEqual(missing ? [['workflows first run agent help shown', { missing }]] : [])
+        expect(propertyRequests).toEqual(project.enabled === false ? 0 : 1)
     })
 
-    it('reports a copied prompt with the data it fixes', async () => {
+    it.each([true, false])('reports a copied prompt only while first run is enabled=%s', async (enabled) => {
         await openFirstRun({ seenEvents: ['signed_up'], personProperties: [] })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_FIRST_RUN]: enabled })
 
         logic.actions.reportPromptCopied()
 
-        expect(capture).toHaveBeenCalledWith('workflows first run agent prompt copied', { missing: 'email' })
+        if (enabled) {
+            expect(capture).toHaveBeenCalledWith('workflows first run agent prompt copied', { missing: 'email' })
+        } else {
+            expect(capture).not.toHaveBeenCalledWith('workflows first run agent prompt copied', expect.anything())
+        }
     })
 })
