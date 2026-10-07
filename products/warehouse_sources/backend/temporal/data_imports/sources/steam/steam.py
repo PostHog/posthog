@@ -3,7 +3,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
-from requests import Session
+from requests import HTTPError, Session
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -21,7 +21,7 @@ REQUEST_TIMEOUT_SECONDS = 30
 # GetPlayerSummaries accepts at most this many ids in one request.
 PLAYER_SUMMARIES_BATCH = 100
 
-_STEAM_ID_RE = re.compile(r"^\d{17}$")
+_STEAM_ID_RE = re.compile(r"^[0-9]{17}$")
 
 
 def parse_steam_ids(raw: str) -> list[str]:
@@ -47,7 +47,10 @@ def probe_api_key(api_key: str) -> int:
 
 def _get(session: Session, api_key: str, path: str, params: dict[str, Any]) -> dict[str, Any]:
     response = session.get(f"{STEAM_API_URL}{path}", params={"key": api_key, **params}, timeout=REQUEST_TIMEOUT_SECONDS)
-    response.raise_for_status()
+    if not response.ok:
+        # `raise_for_status` puts the request URL in the message, and the URL carries the API key.
+        kind = "Client" if response.status_code < 500 else "Server"
+        raise HTTPError(f"{response.status_code} {kind} Error: {response.reason}", response=response)
     return response.json().get("response") or {}
 
 

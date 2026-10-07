@@ -37,7 +37,15 @@ class TestSteam:
     def test_ids_are_split_and_deduplicated(self) -> None:
         assert parse_steam_ids(f" {ADA},\n{GRACE} {ADA}\n") == [ADA, GRACE]
 
-    @parameterized.expand([("gabe",), ("7656119796028793",), (f"{ADA}, https://steamcommunity.com/id/gabe",), ("",)])
+    @parameterized.expand(
+        [
+            ("gabe",),
+            ("7656119796028793",),
+            ("７６５６１１９７９６０２８７９３０",),
+            (f"{ADA}, https://steamcommunity.com/id/gabe",),
+            ("",),
+        ]
+    )
     def test_anything_but_17_digit_ids_is_rejected(self, raw: str) -> None:
         with pytest.raises(ValueError):
             parse_steam_ids(raw)
@@ -75,6 +83,7 @@ class TestSteam:
     def test_a_rejected_key_fails_the_sync_with_a_non_retryable_error(self) -> None:
         response = _response(403)
         response.reason = "Forbidden"
+        response.url = "https://api.steampowered.com/?key=secret-key"
         session = MagicMock()
         session.get.return_value = response
 
@@ -82,6 +91,7 @@ class TestSteam:
             _rows("players", session, [ADA])
 
         assert any(pattern in str(error.value) for pattern in SteamSource().get_non_retryable_errors())
+        assert "secret-key" not in str(error.value)
 
     @parameterized.expand(
         [
