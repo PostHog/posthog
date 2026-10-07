@@ -100,6 +100,8 @@ class UpdateAppInputSerializer(DataclassSerializer):
 
 
 _MAX_TEXT_FILE_LENGTH = 1024 * 1024
+# Each edit scans and copies the whole text of its file, so the edit count bounds the work of one request.
+_MAX_SOURCE_EDITS = 100
 # Base64 length of MAX_ZIP_SIZE bytes: no single asset can be larger than the whole archive may be.
 _MAX_ASSET_BASE64_LENGTH = 4 * ((MAX_ZIP_SIZE + 2) // 3)
 
@@ -257,7 +259,11 @@ class SourceTextEditSerializer(DataclassSerializer):
 class SourceFileEditSerializer(DataclassSerializer):
     path = serializers.CharField(help_text="Path of an existing text file in the base version, for example 'app.py'.")
     edits = SourceTextEditSerializer(
-        many=True, help_text="Find-and-replace operations, applied in order to the file's text."
+        many=True,
+        help_text=(
+            "Find-and-replace operations, applied in order to the file's text. "
+            f"At most {_MAX_SOURCE_EDITS} edits per request across all files."
+        ),
     )
 
     def validate_edits(self, value: list[SourceTextEdit]) -> list[SourceTextEdit]:
@@ -302,6 +308,10 @@ class EditVersionSourceInputSerializer(DataclassSerializer):
     def validate(self, attrs: EditVersionSourceInput) -> EditVersionSourceInput:
         if not (attrs.file_edits or attrs.create_files or attrs.delete_files):
             raise serializers.ValidationError("Provide at least one of file_edits, create_files, or delete_files.")
+        if sum(len(file_edit.edits) for file_edit in attrs.file_edits) > _MAX_SOURCE_EDITS:
+            raise serializers.ValidationError(
+                f"Send at most {_MAX_SOURCE_EDITS} edits per request. Split larger changes across several requests."
+            )
         touched = [edit.path for edit in attrs.file_edits] + list(attrs.create_files) + list(attrs.delete_files)
         duplicates = sorted({path for path in touched if touched.count(path) > 1})
         if duplicates:

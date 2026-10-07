@@ -179,7 +179,7 @@ export interface SourceTextEditApi {
 export interface SourceFileEditApi {
     /** Path of an existing text file in the base version, for example 'app.py'. */
     path: string
-    /** Find-and-replace operations, applied in order to the file's text. */
+    /** Find-and-replace operations, applied in order to the file's text. At most 100 edits per request across all files. */
     edits: SourceTextEditApi[]
 }
 

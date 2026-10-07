@@ -157,7 +157,9 @@ export const StreamlitAppsEditSourceCreateBody = () => zod.object({
                             new: zod.string().describe('Replacement text.'),
                         })
                     )
-                    .describe("Find-and-replace operations, applied in order to the file's text."),
+                    .describe(
+                        "Find-and-replace operations, applied in order to the file's text. At most 100 edits per request across all files."
+                    ),
             })
         )
         .optional()

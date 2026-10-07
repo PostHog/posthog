@@ -72,7 +72,7 @@ tools:
                 description: >
                     Edits to existing text files. Each entry has a `path` and a list of `edits`, each with `old` (exact
                     text that must match exactly once in the file, including whitespace) and `new`. Edits to one file
-                    apply in order.
+                    apply in order. Send at most 100 edits in total per call.
             create_files:
                 description: >
                     New text files keyed by project-relative path, each value the file's full text. The path must not

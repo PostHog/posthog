@@ -900,6 +900,15 @@ class TestEditVersionSourceInputSerializer(SimpleTestCase):
             ("empty_edits", {"file_edits": [{"path": "app.py", "edits": []}]}),
             ("unsafe_create_path", {"create_files": {"../x.py": ""}}),
             ("same_path_twice", {"create_files": {"x.py": ""}, "delete_files": ["x.py"]}),
+            (
+                "too_many_edits_across_files",
+                {
+                    "file_edits": [
+                        {"path": "app.py", "edits": [{"old": "a", "new": "b"}] * 60},
+                        {"path": "utils.py", "edits": [{"old": "a", "new": "b"}] * 41},
+                    ]
+                },
+            ),
         ]
     )
     def test_rejects_invalid_input(self, _name, extra):
