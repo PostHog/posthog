@@ -25,6 +25,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 
 from .attribution_base import ConversionGoal
+from .conversion_goal_conditions import conversion_goal_match_expr
 from .marketing_analytics_config import MarketingAnalyticsConfig
 from .search_conversion_query_runner import SearchConversionQueryRunner
 
@@ -266,8 +267,18 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
         )
         goals = goal_runner._get_team_conversion_goals()
         event_goals: list[ConversionGoal] = [goal for goal in goals if goal.kind != "DataWarehouseNode"]
-        valid_goals, skipped_goals = goal_runner._filter_invalid_conversion_goals(event_goals)
+        filtered_goals, skipped_goals = goal_runner._filter_invalid_conversion_goals(event_goals)
         warnings = [goal.message for goal in skipped_goals]
+        # The attribution runner raises on a goal whose action was deleted, so skip it before the goal cap.
+        valid_goals: list[ConversionGoal] = []
+        for goal in filtered_goals:
+            if conversion_goal_match_expr(goal, self.team) is None:
+                warnings.append(
+                    f"Conversion goal '{goal.conversion_goal_name}' skipped: its action no longer exists. "
+                    "Update the goal in Marketing analytics settings."
+                )
+            else:
+                valid_goals.append(goal)
         if len(valid_goals) > MAX_POSTHOG_CONVERSION_GOALS:
             warnings.append(
                 f"Search performance shows the first {MAX_POSTHOG_CONVERSION_GOALS} supported PostHog goals. "

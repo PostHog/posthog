@@ -15,6 +15,7 @@ from posthog.schema import (
     Breakdown1,
     CompareFilter,
     ConversionGoalFilter1,
+    ConversionGoalFilter2,
     DateRange,
     EventPropertyFilter,
     HogQLQueryResponse,
@@ -484,7 +485,7 @@ class TestMarketingSearchConversionBudget(BaseTest):
     @parameterized.expand([(3, 3), (6, 5)])
     def test_bounds_goal_queries_and_reports_excluded_goals(self, goal_count: int, expected_count: int) -> None:
         config = self.team.marketing_analytics_config
-        config.conversion_goals = [
+        goals = [
             ConversionGoalFilter1(
                 kind="EventsNode",
                 event=None if index == 0 else "purchase",
@@ -495,6 +496,18 @@ class TestMarketingSearchConversionBudget(BaseTest):
             ).model_dump()
             for index in range(goal_count + 1)
         ]
+        goals.insert(
+            1,
+            ConversionGoalFilter2(
+                kind="ActionsNode",
+                id=999999,
+                name="Deleted action",
+                conversion_goal_id="deleted-action",
+                conversion_goal_name="Deleted action",
+                schema_map={},
+            ).model_dump(),
+        )
+        config.conversion_goals = goals
         config.save()
         metrics = MarketingAnalyticsSearchMetrics(clicks=1, impressions=10).model_dump()
         warehouse_row = {
@@ -537,6 +550,7 @@ class TestMarketingSearchConversionBudget(BaseTest):
         assert all(goal.conversions == 0 and goal.previousConversions == 0 for goal in conversions)
         assert result.posthogConversionsWarning is not None
         assert "'All Events' cannot be used" in result.posthogConversionsWarning
+        assert "'Deleted action' skipped: its action no longer exists" in result.posthogConversionsWarning
         assert ("first 5 supported PostHog goals" in result.posthogConversionsWarning) == (goal_count > expected_count)
 
 
