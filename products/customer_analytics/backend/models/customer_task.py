@@ -2,7 +2,7 @@ from django.db import models
 from django.db.models import Q
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDModel
 
 
 class CustomerTaskStatus(models.TextChoices):
@@ -19,7 +19,7 @@ class CustomerTaskActivityType(models.TextChoices):
     RESTORED = "restored", "Restored"
 
 
-class CustomerTask(TeamScopedRootMixin, UUIDModel):
+class CustomerTask(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     account = models.ForeignKey(
         "customer_analytics.Account",
@@ -52,17 +52,6 @@ class CustomerTask(TeamScopedRootMixin, UUIDModel):
         db_constraint=False,
         db_index=False,
     )
-    # nosemgrep: created-by-uses-created-meta-mixin -- db_index=False, and the mixin would add an index
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="+",
-        db_constraint=False,
-        db_index=False,
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     archived_at = models.DateTimeField(null=True, blank=True)
 
