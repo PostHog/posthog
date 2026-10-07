@@ -13682,6 +13682,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly champion_realized_auc: number | null;
+      /**
+         * Lift in the top 10% of scores for the current champion model, from its latest validated prediction date. 2.0 means the top 10% converts at twice the average rate.
+         * @nullable
+         */
+      readonly champion_lift_at_10: number | null;
+      /**
+         * True while the current champion model has no realized AUC yet. Null when the pipeline has no champion.
+         * @nullable
+         */
+      readonly champion_is_preliminary: boolean | null;
     }
 
     /**
