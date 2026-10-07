@@ -64,9 +64,10 @@ export function QuillSceneTitleSection({
     const hasCollapsibleSection = hasDescription || Boolean(collapsibleContent)
     const descriptionShown =
         hasDescription && (descriptionAlwaysVisible || (showDescription && !titleInPhoneHeader) || forceEdit)
-    // The phone header has no toggle, so the content stays visible there instead of becoming unreachable.
+    // Without the title row there is no toggle, so the content stays visible instead of becoming unreachable.
     const collapsibleContentShown =
-        !!collapsibleContent && (descriptionAlwaysVisible || showDescription || titleInPhoneHeader || forceEdit)
+        !!collapsibleContent &&
+        (descriptionAlwaysVisible || showDescription || titleInPhoneHeader || name === null || forceEdit)
 
     return (
         <>

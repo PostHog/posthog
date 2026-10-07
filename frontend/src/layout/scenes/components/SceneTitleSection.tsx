@@ -345,7 +345,8 @@ function LemonSceneTitleSection({
                 {/* Border is handled by the outer container's border-b */}
             </div>
             {descriptionBlock}
-            {collapsibleContent && collapsibleSectionShown && (
+            {/* The toggle lives in the name row, so without a name the content stays visible. */}
+            {collapsibleContent && (collapsibleSectionShown || name === null) && (
                 <div className="flex flex-col gap-y-4">{collapsibleContent}</div>
             )}
         </>
