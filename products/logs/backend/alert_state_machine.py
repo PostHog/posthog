@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from products.alerts_platform.backend.facade.contracts import IncidentAction
 from products.alerts_platform.backend.facade.lifecycle import (
     FIRING_STATES,
     LOGS_ALERT_POLICY,
@@ -39,6 +40,7 @@ from products.alerts_platform.backend.facade.lifecycle import (
     apply_threshold_change,
     apply_unsnooze,
     apply_user_reset,
+    decide_incident_action,
     evaluate_alert_check as shared_evaluate_alert_check,
 )
 
@@ -106,18 +108,11 @@ class IncidentCloseReason(StrEnum):
 
 
 def incident_edge(state_before: str, new_state: str) -> IncidentEdge | None:
-    """Whether a transition starts or ends a firing.
-
-    Read from the states, not from the notification, because cooldown can suppress a notification
-    while the state still moves. An incident manager needs a resolve for every trigger it received.
-    """
-    was_firing = state_before in FIRING_STATES
-    is_firing = new_state in FIRING_STATES
-    if is_firing and not was_firing:
-        return IncidentEdge.OPENED
-    if was_firing and not is_firing:
-        return IncidentEdge.CLOSED
-    return None
+    """Whether a transition starts or ends a firing, by the shared rule the alerts platform uses."""
+    action = decide_incident_action(AlertState(state_before), AlertState(new_state), policy=LOGS_ALERT_POLICY)
+    if action is None:
+        return None
+    return IncidentEdge.OPENED if action == IncidentAction.TRIGGER else IncidentEdge.CLOSED
 
 
 def evaluate_alert_check(

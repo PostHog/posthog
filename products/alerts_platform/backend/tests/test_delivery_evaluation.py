@@ -65,7 +65,7 @@ class HeldTransport(RecordingTransport):
         raise ThreadBusy("thread is being posted to by another send")
 
 
-def _request(team_id: int, *, announced: bool = True) -> AlertDeliveryRequest:
+def _request(team_id: int, *, sends_messages: bool = True) -> AlertDeliveryRequest:
     return AlertDeliveryRequest(
         source=SourceKind.LOGS,
         team_id=team_id,
@@ -73,7 +73,7 @@ def _request(team_id: int, *, announced: bool = True) -> AlertDeliveryRequest:
         evaluation_key="eval-1",
         destination_alert_id="legacy-1",
         event_ids_by_kind={"firing": FIRING_EVENT, "resolved": RESOLVED_EVENT},
-        announced=announced,
+        sends_messages=sends_messages,
     )
 
 
@@ -112,7 +112,7 @@ class TestDeliverEvaluation(APIBaseTest):
         by_event: dict[str, list[AlertDestinationGroup]],
         live: bool = True,
         transports: dict[DestinationType, type] | None = None,
-        request_announced: bool = True,
+        sends_messages: bool = True,
     ) -> Any:
         def groups(*, team_id: int, alert_id: str, allowed_event_ids: list[str]) -> list[AlertDestinationGroup]:
             return by_event.get(allowed_event_ids[0], [])
@@ -124,7 +124,7 @@ class TestDeliverEvaluation(APIBaseTest):
             patch(f"{_MODULE}.DatabaseThreadStore"),
             patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport, **(transports or {})}),
         ):
-            return deliver_evaluation(_request(self.team.id, announced=request_announced))
+            return deliver_evaluation(_request(self.team.id, sends_messages=sends_messages))
 
     def test_a_destination_hears_only_about_the_kinds_it_subscribed_to(self) -> None:
         # One group fires while another resolves. A destination that asked for firings must not
@@ -161,7 +161,7 @@ class TestDeliverEvaluation(APIBaseTest):
         outcome = self._run(
             _announcement(_transition(AlertEventKind.RESOLVED)),
             {RESOLVED_EVENT: [_group(SLACK)]},
-            request_announced=False,
+            sends_messages=False,
         )
 
         assert RecordingTransport.sends == []

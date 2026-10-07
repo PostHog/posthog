@@ -483,7 +483,15 @@ class TestFiringEpisode:
                 AlertState.FIRING,
                 episode(STARTED),
             ),
-            ("snoozed_at_rest", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.SNOOZED, None),
+            # Without clear_check_ends_snooze a snooze is an exit from firing, so it ends the firing.
+            (
+                "snoozed_at_rest",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                STARTED,
+                AlertState.SNOOZED,
+                episode(STARTED, ended=True),
+            ),
             ("snoozed_while_clear", SNOOZE_UNTIL_CLEAR, AlertState.NOT_FIRING, None, AlertState.SNOOZED, None),
             # PENDING_RESOLVE is inside the firing: the condition cleared and the resolution is
             # not announced yet, so neither leaving nor entering it starts a second firing.
@@ -549,18 +557,3 @@ class TestIncidentAction:
         expected: IncidentAction | None,
     ) -> None:
         assert decide_incident_action(state, new_state, policy=policy) == expected
-
-    def test_cooldown_holds_the_resolve_announcement_but_not_the_incident_close(self) -> None:
-        firing = snapshot(
-            state=AlertState.FIRING,
-            last_notified_at=NOW - timedelta(minutes=1),
-            cooldown=timedelta(minutes=30),
-            firing_started_at=STARTED,
-        )
-
-        result = evaluate_alert_check(firing, CLEAR, NOW, policy=PLATFORM_LOGS_ALERT_POLICY)
-
-        assert result.notification == NotificationAction.NONE
-        assert decide_incident_action(firing.state, result.new_state, policy=PLATFORM_LOGS_ALERT_POLICY) == (
-            IncidentAction.RESOLVE
-        )

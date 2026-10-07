@@ -350,14 +350,18 @@ resolve for every trigger. Cooldown and mute hold back announcements while the s
 destination cannot follow announcements.
 
 `decide_incident_action` in `facade/lifecycle.py` reads the state before and after a transition: entering a
-firing is a trigger, leaving it for any reason is a resolve. It uses the same firing rule as
-`decide_firing_episode`, so a policy that parks a firing alert in SNOOZED keeps its incident open there.
+firing is a trigger, leaving it for any reason is a resolve. It shares its firing rule with
+`decide_firing_episode`, so a policy that parks a firing alert in SNOOZED keeps its incident open there, and
+a snooze under any other policy ends the firing and resolves the incident.
+The legacy logs stack's `incident_edge` wraps the same rule.
 
 - The source decides the action under its own policy and puts it on `AlertDeliveryRequest.incident_actions`,
   keyed by grouping key, because the history row does not record the policy.
+- The source sets an action only when the alert has a destination subscribed to its incident events, so an
+  alert without a paging destination starts no extra delivery.
 - A source sends a delivery whenever a check announces or moves a firing. A delivery that exists only for its
-  incident actions has `announced=False`, and none of its rows reach a message destination.
-- `announcement()` returns a held CHECK row for a group that has an incident action, with the action attached.
+  incident actions has `sends_messages=False`, and none of its rows reach a message destination.
+- `announcement()` also returns the held CHECK row of a group in `incident_grouping_keys`.
 - A mute never holds an incident edge: a fire inside quiet hours or a snooze triggers the incident.
 
 A fire a mute swallowed is still owed an announcement.

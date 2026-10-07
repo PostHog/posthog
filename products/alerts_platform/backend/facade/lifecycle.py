@@ -243,11 +243,10 @@ def decide_firing_episode(
     two state strings cannot tell that state from a resolve.
     """
     was_firing = _inside_firing(snapshot.state, policy)
-    if outcome.new_state == AlertState.SNOOZED:
-        if not (policy.clear_check_ends_snooze and was_firing):
-            return None
+    is_firing = _firing_after(was_firing, outcome.new_state, policy)
+    if outcome.new_state == AlertState.SNOOZED and is_firing:
         return FiringEpisode(started_at=snapshot.firing_started_at, ended=False)
-    if outcome.new_state in FIRING_STATES:
+    if is_firing:
         # A firing that began before the platform recorded starts keeps an unknown one rather
         # than taking `now`, because a start later than `last_notified_at` would read as never
         # announced.
@@ -262,6 +261,11 @@ def _inside_firing(state: AlertState, policy: AlertPolicy) -> bool:
     return state in FIRING_STATES or (policy.clear_check_ends_snooze and state == AlertState.SNOOZED)
 
 
+def _firing_after(was_firing: bool, new_state: AlertState, policy: AlertPolicy) -> bool:
+    # A move into SNOOZED parks a firing only under clear_check_ends_snooze, and never starts one.
+    return _inside_firing(new_state, policy) and (new_state != AlertState.SNOOZED or was_firing)
+
+
 def decide_incident_action(
     previous_state: AlertState, new_state: AlertState, *, policy: AlertPolicy
 ) -> IncidentAction | None:
@@ -274,9 +278,7 @@ def decide_incident_action(
     open there.
     """
     was_firing = _inside_firing(previous_state, policy)
-    is_firing = new_state in FIRING_STATES or (
-        new_state == AlertState.SNOOZED and policy.clear_check_ends_snooze and was_firing
-    )
+    is_firing = _firing_after(was_firing, new_state, policy)
     if is_firing and not was_firing:
         return IncidentAction.TRIGGER
     if was_firing and not is_firing:

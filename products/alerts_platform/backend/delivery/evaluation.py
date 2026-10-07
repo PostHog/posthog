@@ -98,7 +98,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         request.team_id,
         request.configuration_id,
         request.evaluation_key,
-        incident_actions=request.incident_actions,
+        incident_grouping_keys=request.incident_actions.keys(),
     )
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
@@ -161,7 +161,7 @@ def _by_subscription(
     for it. Nor does anything on a delivery the source did not announce, which exists only for
     its incident actions.
     """
-    if not request.announced:
+    if not request.sends_messages:
         return {}
     grouped: dict[str, list[AnnouncedTransition]] = {}
     for transition in announced.transitions:

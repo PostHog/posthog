@@ -24,6 +24,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.lifecycle import AlertState
 from products.alerts_platform.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
 from products.logs.backend.alert_source_cycle import BATCH_QUERY_BUDGET_SECONDS, MAX_QUERY_SECONDS, evaluate_logs_batch
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
@@ -80,6 +81,23 @@ class TestLogsAlertEvaluation(APIBaseTest):
             slot = slot_of(configurations[0].next_check_at, now)
             return evaluate_logs_batch(self.team.id, slot, now), query
 
+    def _add_incident_destination(self, configuration: PlatformConfigurationSnapshot) -> None:
+        HogFunction.objects.create(
+            team=self.team,
+            type="internal_destination",
+            name="PagerDuty",
+            template_id="template-pagerduty",
+            hog="return event",
+            enabled=True,
+            filters={
+                "source": "internal-events",
+                "events": [{"id": "$logs_alert_incident_closed", "type": "events"}],
+                "properties": [
+                    {"key": "alert_id", "value": str(configuration.id), "operator": "exact", "type": "event"}
+                ],
+            },
+        )
+
     def _slot(self) -> str:
         return slot_of(self.cutoff - timedelta(minutes=1), self.cutoff)
 
@@ -91,15 +109,18 @@ class TestLogsAlertEvaluation(APIBaseTest):
         """
         record_outcomes(self.team.id, evaluation.outcomes, self.cutoff)
 
-    def test_a_breaching_configuration_fires_and_records_its_own_state(self) -> None:
+    @parameterized.expand([("without_a_paging_destination", False), ("with_a_paging_destination", True)])
+    def test_a_breaching_configuration_fires_and_records_its_own_state(self, _name: str, paged: bool) -> None:
         configuration = self._configuration()
+        if paged:
+            self._add_incident_destination(configuration)
 
         evaluation, _ = self._run(configuration)
         self._record(evaluation)
 
         assert [(o.kind, o.value) for o in evaluation.outcomes] == [(AlertEventKind.FIRING, 500.0)]
-        assert [(d.announced, d.incident_actions) for d in evaluation.deliveries] == [
-            (True, {"": IncidentAction.TRIGGER})
+        assert [(d.sends_messages, d.incident_actions) for d in evaluation.deliveries] == [
+            (True, {"": IncidentAction.TRIGGER} if paged else {})
         ]
         with team_scope(self.team.id):
             alert = platform_testing.alert_for(configuration.id)
@@ -178,13 +199,14 @@ class TestLogsAlertEvaluation(APIBaseTest):
         configuration = self._configuration(
             schedule_restriction={"blocked_windows": [{"start": "09:00", "end": "12:00"}]}
         )
+        self._add_incident_destination(configuration)
 
         evaluation, query = self._run(configuration)
         self._record(evaluation)
 
         query.assert_called_once()
         # Quiet hours hold the message, never the incident: the only delivery carries the trigger.
-        assert [(d.announced, d.incident_actions) for d in evaluation.deliveries] == [
+        assert [(d.sends_messages, d.incident_actions) for d in evaluation.deliveries] == [
             (False, {"": IncidentAction.TRIGGER})
         ]
         with team_scope(self.team.id):
@@ -207,6 +229,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
     def test_a_resolve_cooldown_holds_still_closes_the_incident(self) -> None:
         configuration = self._configuration(cooldown_minutes=60)
+        self._add_incident_destination(configuration)
         fired, _ = self._run(configuration)
         record_outcomes(self.team.id, fired.outcomes, self.cutoff)
         with team_scope(self.team.id):
@@ -216,7 +239,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         cleared, _ = self._run(configuration, now=later, count=0)
 
         assert [o.kind for o in cleared.outcomes] == [AlertEventKind.CHECK]
-        assert [(d.announced, d.incident_actions) for d in cleared.deliveries] == [
+        assert [(d.sends_messages, d.incident_actions) for d in cleared.deliveries] == [
             (False, {"": IncidentAction.RESOLVE})
         ]
 
