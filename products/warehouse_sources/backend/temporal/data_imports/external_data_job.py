@@ -160,6 +160,20 @@ FREE_IMPORT_HANDOFFS_PATCH_ID = "data-imports-free-handoffs-2026-10"
 
 IMPORT_NON_RETRYABLE_ERROR_TYPES = ["NonRetryableException", "BillingLimitsWillBeReachedException"]
 
+# The import activity returns a hand-off result when its worker shuts down, and the workflow runs
+# it again. The bound stops a run that no worker keeps long enough to finish. It is far above the
+# retry caps because a hand-off loses at most the batch in progress, where a failure can lose more.
+MAX_IMPORT_HANDOFFS = 200
+# A worker that got the shutdown signal takes no new activity, so each wait lets the rollout move
+# on and lowers the chance that the next worker also stops. The wait doubles while executions
+# keep ending early, and goes back to the first value after one that ran for a time.
+IMPORT_HANDOFF_FIRST_DELAY = dt.timedelta(seconds=5)
+IMPORT_HANDOFF_MAX_DELAY = dt.timedelta(seconds=60)
+IMPORT_HANDOFF_SETTLED_AFTER = dt.timedelta(minutes=5)
+FREE_IMPORT_HANDOFFS_PATCH_ID = "data-imports-free-handoffs-2026-10"
+
+IMPORT_NON_RETRYABLE_ERROR_TYPES = ["NonRetryableException", "BillingLimitsWillBeReachedException"]
+
 MISSING_INTEGRATION_MESSAGE = (
     "The connected account for this source is no longer available — it may have been disconnected. "
     "Please reconnect the source's account."

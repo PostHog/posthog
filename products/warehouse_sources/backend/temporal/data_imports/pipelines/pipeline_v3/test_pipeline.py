@@ -1,4 +1,6 @@
 import json
+import asyncio
+import threading
 from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
 from types import SimpleNamespace
@@ -12,6 +14,14 @@ from asgiref.sync import async_to_sync
 
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import (
+    PreemptionConfig,
+    ShutdownStopwatch,
+    SourcePreemptedError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.abandonable_iterate import (
+    SourceAbandonedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.handoff_checkpoint import (
     IncrementalBatchRangeReader,
@@ -1584,3 +1594,314 @@ class TestIncrementalHandoffCheckpoint:
         assert producer_cls.call_args.kwargs["is_resume"] is expected_is_resume
         assert pipeline._handoff_checkpoint is not None
         assert pipeline._handoff_checkpoint.resume_value == resumed_incremental_value
+
+
+class _ShutdownSwitch:
+    """Stands in for `ShutdownMonitor`. A source thread can start the shutdown at an exact point."""
+
+    def __init__(self) -> None:
+        self._loop = asyncio.get_running_loop()
+        self._flag = threading.Event()
+        self.seen_by_event_loop = asyncio.Event()
+        self._callbacks: list[Any] = []
+
+    def shut_down(self) -> None:
+        self._flag.set()
+        self._loop.call_soon_threadsafe(self._notify)
+
+    def _notify(self) -> None:
+        for callback in self._callbacks:
+            callback()
+        self.seen_by_event_loop.set()
+
+    def run_on_shutdown(self, callback: Any) -> None:
+        self._callbacks.append(callback)
+
+    def is_worker_shutdown(self) -> bool:
+        return self._flag.is_set()
+
+    async def wait_for_worker_shutdown(self) -> None:
+        await self.seen_by_event_loop.wait()
+
+    def raise_if_is_worker_shutdown(self) -> None:
+        if self._flag.is_set():
+            raise WorkerShuttingDownError("id", "type", "queue", 1, "workflow", "workflow_type")
+
+
+def _dict_redis() -> MagicMock:
+    store: dict[str, str] = {}
+    redis = MagicMock()
+    redis.set.side_effect = lambda key, value, ex=None: store.__setitem__(key, value)
+    redis.get.side_effect = store.get
+    redis.exists.side_effect = lambda key: int(key in store)
+    return redis
+
+
+def _with_preemption(
+    pipeline: PipelineV3, *, quiet_period_seconds: float = 0.0, carry_over: bool = True
+) -> _ShutdownSwitch:
+    switch = _ShutdownSwitch()
+    pipeline._shutdown_monitor = cast(Any, switch)
+    pipeline._shutdown_stopwatch = ShutdownStopwatch(cast(Any, switch))
+    pipeline._preemption = PreemptionConfig(
+        quiet_period_seconds=quiet_period_seconds, watermark_carry_over_enabled=carry_over
+    )
+    pipeline._source_resume_manager = pipeline._resumable_source_manager
+    return switch
+
+
+def _staged_ids(pipeline: PipelineV3) -> list[str]:
+    return [
+        row_id
+        for call in cast(AsyncMock, pipeline._process_batch).await_args_list
+        for row_id in call.kwargs["pa_table"].column("id").to_pylist()
+    ]
+
+
+class TestSourcePreemption:
+    @pytest.mark.parametrize("late_write", ["commit", "clear_state"])
+    @pytest.mark.asyncio
+    async def test_a_source_blocked_in_a_call_is_handed_off_and_cannot_store_state_afterwards(
+        self, late_write: str
+    ) -> None:
+        redis = MagicMock()
+        manager = _manager()
+        release = threading.Event()
+        source_ended = threading.Event()
+        seen: dict[str, Any] = {}
+
+        def items():
+            try:
+                manager.save_state(_Cursor("a"))
+                yield pa.table({"id": ["a"]})
+                # Staged for a row that the blocked call has not returned yet.
+                manager.save_state(_Cursor("b"))
+                seen["daemon"] = threading.current_thread().daemon
+                switch.shut_down()
+                release.wait()
+                try:
+                    getattr(manager, late_write)()
+                except BaseException as error:
+                    seen["late_write_error"] = error
+                    raise
+            finally:
+                source_ended.set()
+
+        pipeline = _runnable_pipeline(manager, items)
+        switch = _with_preemption(pipeline)
+
+        try:
+            await _run_expecting(pipeline, redis, SourcePreemptedError)
+            committed_at_handoff = [json.loads(call.args[1])["id"] for call in redis.set.call_args_list]
+        finally:
+            release.set()
+        with patch.object(ResumableSourceManager, "_get_redis", lambda self: nullcontext(redis)):
+            assert await asyncio.to_thread(source_ended.wait, 5)
+
+        assert committed_at_handoff == ["a"]
+        assert isinstance(seen["late_write_error"], SourceAbandonedError)
+        assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == ["a"]
+        redis.delete.assert_not_called()
+        # A thread that never returns must not keep the worker process alive.
+        assert seen["daemon"] is True
+
+    @pytest.mark.asyncio
+    async def test_a_source_that_reaches_a_safe_point_in_the_quiet_period_hands_off_with_its_cursor(self) -> None:
+        redis = MagicMock()
+        manager = _manager()
+
+        def items():
+            manager.save_state(_Cursor("a"))
+            yield pa.table({"id": ["a"]})
+            manager.save_state(_Cursor("b"))
+            switch.shut_down()
+            manager.safe_point()
+
+        pipeline = _runnable_pipeline(manager, items)
+        switch = _with_preemption(pipeline, quiet_period_seconds=3600.0)
+
+        await _run_expecting(pipeline, redis, WorkerShuttingDownError)
+
+        # A preemption leaves the staged cursor out, so the commit of `b` shows the usual hand-off.
+        assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == ["a", "b"]
+
+    @pytest.mark.parametrize(
+        "preemption_on,resumable,expected_error",
+        [
+            # The source is the kind a preemption covers, so only the setting keeps the run waiting.
+            pytest.param(False, True, WorkerShuttingDownError, id="setting_off"),
+            pytest.param(True, False, RuntimeError, id="full_refresh_that_cannot_resume"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_pipeline_waits_for_the_source_when_it_must_not_preempt(
+        self, preemption_on: bool, resumable: bool, expected_error: type[Exception]
+    ) -> None:
+        redis = MagicMock()
+        manager = _manager()
+        release = threading.Event()
+
+        def items():
+            yield pa.table({"id": ["a"]})
+            switch.shut_down()
+            release.wait()
+            yield pa.table({"id": ["b"]})
+            raise RuntimeError("end of the source")
+
+        pipeline = _runnable_pipeline(manager, items)
+        if not resumable:
+            pipeline._resumable_source_manager = None
+        switch = _with_preemption(pipeline)
+        if not preemption_on:
+            pipeline._preemption = None
+
+        run = asyncio.ensure_future(_run_expecting(pipeline, redis, expected_error))
+        try:
+            await switch.seen_by_event_loop.wait()
+            # A preemption needs no more than a few turns of the event loop from here.
+            for _ in range(20):
+                await asyncio.sleep(0)
+            assert not run.done()
+        finally:
+            release.set()
+        await run
+
+        assert _staged_ids(pipeline) == ["a", "b"]
+        if preemption_on:
+            not_preempted = [
+                call.kwargs["not_preempted_reason"]
+                for call in cast(AsyncMock, pipeline._logger.ainfo).await_args_list
+                if "not_preempted_reason" in call.kwargs
+            ]
+            assert not_preempted == ["non_resumable_full_refresh"]
+
+    @pytest.mark.parametrize(
+        "is_webhook,lanes,resumable,checkpoint,carry_over,young,expected",
+        [
+            pytest.param(False, False, True, None, False, False, (True, "resumable"), id="resumable"),
+            pytest.param(False, False, False, "live", True, False, (True, "watermark_carry_over"), id="carry_over"),
+            pytest.param(
+                False, False, False, None, False, True, (True, "young_first_attempt"), id="young_first_attempt"
+            ),
+            pytest.param(
+                False, False, False, "live", False, True, (True, "young_first_attempt"), id="young_without_carry_over"
+            ),
+            pytest.param(
+                False,
+                False,
+                False,
+                "live",
+                False,
+                False,
+                (False, "watermark_carry_over_disabled"),
+                id="carry_over_setting_off",
+            ),
+            # Rows arrived out of order, so the next attempt has no value to continue after.
+            pytest.param(
+                False, False, False, "void", True, False, (False, "no_watermark_carry_over"), id="void_checkpoint"
+            ),
+            pytest.param(
+                False, False, False, None, True, False, (False, "non_resumable_full_refresh"), id="old_full_refresh"
+            ),
+            pytest.param(True, False, True, None, True, True, (False, "webhook"), id="webhook"),
+            pytest.param(False, True, True, None, True, True, (False, "multiple_tables"), id="multiple_tables"),
+        ],
+    )
+    def test_only_a_run_that_another_worker_can_continue_is_preempted(
+        self,
+        is_webhook: bool,
+        lanes: bool,
+        resumable: bool,
+        checkpoint: str | None,
+        carry_over: bool,
+        young: bool,
+        expected: tuple[bool, str],
+    ) -> None:
+        pipeline = _make_pipeline()
+        pipeline._schema = MagicMock(is_webhook=is_webhook, should_use_incremental_field=checkpoint is not None)
+        pipeline._resource = MagicMock(lanes=[MagicMock()] if lanes else None)
+        pipeline._resumable_source_manager = MagicMock() if resumable else None
+        pipeline._preemption = PreemptionConfig(quiet_period_seconds=60.0, watermark_carry_over_enabled=carry_over)
+        if checkpoint is not None:
+            pipeline._handoff_checkpoint = IncrementalHandoffCheckpoint()
+            if checkpoint == "void":
+                pipeline._handoff_checkpoint.observe(None)
+
+        with patch(f"{_PIPELINE}.is_young_first_attempt", return_value=young):
+            decision = pipeline._preemption_decision()
+
+        assert (decision.eligible, decision.reason) == expected
+
+    @pytest.mark.parametrize("rows_reach_a_batch", [True, False], ids=["rows_staged", "rows_still_buffered"])
+    @pytest.mark.asyncio
+    async def test_a_preempted_resumable_run_and_its_next_attempt_stage_every_row_once(
+        self, rows_reach_a_batch: bool
+    ) -> None:
+        ids = ["a", "b", "c", "d", "e"]
+        redis = _dict_redis()
+        release = threading.Event()
+
+        def source(manager: ResumableSourceManager[_Cursor], block_before: str | None, shut_down: Any):
+            def items():
+                state = manager.load_state()
+                for row_id in ids[ids.index(state.id) + 1 if state else 0 :]:
+                    # The cursor is staged before the read of its row, so it is ahead of the yielded
+                    # rows for as long as that read takes.
+                    manager.save_state(_Cursor(row_id))
+                    if row_id == block_before:
+                        shut_down()
+                        release.wait()
+                    yield pa.table({"id": [row_id]}) if rows_reach_a_batch else [{"id": row_id}]
+                raise RuntimeError("end of the source")
+
+            return items
+
+        async def attempt(block_before: str | None, expected_error: type[Exception]) -> list[str]:
+            manager = _manager()
+            pipeline = _runnable_pipeline(manager, lambda: iter(()))
+            switch = _with_preemption(pipeline)
+            pipeline._resource = SourceResponse(
+                name="test_table", items=source(manager, block_before, switch.shut_down), primary_keys=["id"]
+            )
+            await _run_expecting(pipeline, redis, expected_error)
+            return _staged_ids(pipeline)
+
+        try:
+            interrupted = await attempt("c", SourcePreemptedError)
+            continued = await attempt(None, RuntimeError)
+            uninterrupted = ids
+        finally:
+            release.set()
+
+        assert interrupted + continued == uninterrupted
+
+    @pytest.mark.asyncio
+    async def test_a_preempted_incremental_run_stages_its_buffered_rows_and_loses_none(self) -> None:
+        events: list[Any] = []
+        release = threading.Event()
+        rows = [{"id": 1, "n": 10}, {"id": 2, "n": 11}, {"id": 3, "n": 12}, {"id": 4, "n": 13}]
+
+        def items():
+            yield rows[:2]
+            yield rows[2:3]
+            switch.shut_down()
+            release.wait()
+            yield rows[3:]
+
+        checkpoint_tests = TestIncrementalHandoffCheckpoint()
+        pipeline = checkpoint_tests._pipeline(items, events)
+        switch = _with_preemption(pipeline)
+
+        try:
+            await checkpoint_tests._run(pipeline, SourcePreemptedError)
+        finally:
+            release.set()
+
+        # The same order as a hand-off at an item: the queue row exists before the value that tells
+        # the next attempt to skip its rows.
+        assert events == [("staged_rows", [10, 11, 12]), "insert", ("resume_value", 11)]
+        # The next attempt reads the source above the recorded value. Its rows and the staged rows
+        # together are the rows of an uninterrupted run, and the loader merges the overlap by key.
+        staged, resume_value = events[0][1], events[-1][1]
+        next_attempt = [row["n"] for row in rows if row["n"] > resume_value]
+        assert sorted(set(staged) | set(next_attempt)) == [row["n"] for row in rows]

@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     report_heartbeat_timeout,
     trim_source_job_inputs,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
@@ -548,6 +549,15 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 attempt=attempt,
             )
 
+        # Preemption makes hand-offs frequent, so it applies only to a run whose hand-offs use no
+        # retry attempt.
+        preemption: PreemptionConfig | None = None
+        if settings.DATA_WAREHOUSE_IMPORT_PREEMPTION_ENABLED and inputs.handoffs_are_free:
+            preemption = PreemptionConfig(
+                quiet_period_seconds=settings.DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS,
+                watermark_carry_over_enabled=settings.DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED,
+            )
+
         if schema.should_use_incremental_field:
             await logger.adebug(f"Incremental last value being used is: {processed_incremental_last_value}")
 
@@ -712,6 +722,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 incremental_checkpoints_allowed=incremental_checkpoints_allowed,
                 resumed_incremental_run_uuid=resumed_incremental_run_uuid,
                 resumed_incremental_value=resumed_incremental_value,
+                preemption=preemption,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -1048,6 +1059,7 @@ async def _run(
     incremental_checkpoints_allowed: bool = False,
     resumed_incremental_run_uuid: str | None = None,
     resumed_incremental_value: Any = None,
+    preemption: PreemptionConfig | None = None,
 ) -> PipelineResult:
     try:
         reset_pipeline = reset_pipeline or source_response.destination_reset_required
@@ -1065,6 +1077,7 @@ async def _run(
             incremental_checkpoints_allowed=incremental_checkpoints_allowed,
             resumed_incremental_run_uuid=resumed_incremental_run_uuid,
             resumed_incremental_value=resumed_incremental_value,
+            preemption=preemption,
         )
 
         result = await pipeline.run()

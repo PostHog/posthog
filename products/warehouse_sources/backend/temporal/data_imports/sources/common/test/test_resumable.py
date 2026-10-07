@@ -1,4 +1,5 @@
 import typing
+import threading
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -7,6 +8,9 @@ import redis.exceptions as redis_exceptions
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.abandonable_iterate import (
+    SourceAbandonedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import (
@@ -229,3 +233,53 @@ class TestResumeCoversRun:
         # on its incremental field, so narrowing the default would cut their retry budgets.
         for incremental in (True, False):
             assert ResumableSource.resume_covers_run(MagicMock(), incremental_or_append=incremental) is True
+
+
+class TestRevokedWrites:
+    @pytest.mark.parametrize("write", ["commit", "clear_state", "sibling_commit"])
+    def test_a_revoked_manager_writes_nothing_to_redis(self, write: str):
+        manager = _manager()
+        sibling = manager.with_namespace("other")
+        redis = MagicMock()
+
+        with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
+            get_redis.return_value.__enter__.return_value = redis
+            manager.save_state(_SweepPosition(cursor="cus_1"))
+            sibling.save_state(_SweepPosition(cursor="cus_2"))
+
+            assert manager.revoke_writes(timeout_seconds=1) is True
+            with pytest.raises(SourceAbandonedError):
+                {"commit": manager.commit, "clear_state": manager.clear_state, "sibling_commit": sibling.commit}[
+                    write
+                ]()
+
+        redis.set.assert_not_called()
+        redis.delete.assert_not_called()
+
+    def test_a_write_in_progress_blocks_the_revoke_and_still_lands(self):
+        manager = _manager()
+        redis = MagicMock()
+        in_redis = threading.Event()
+        release = threading.Event()
+
+        def blocked_write(*args: typing.Any, **kwargs: typing.Any) -> None:
+            in_redis.set()
+            release.wait()
+
+        redis.set.side_effect = blocked_write
+
+        with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
+            get_redis.return_value.__enter__.return_value = redis
+            manager.save_state(_SweepPosition(cursor="cus_1"))
+            writer = threading.Thread(target=manager.commit, daemon=True)
+            writer.start()
+            assert in_redis.wait(5)
+
+            # A hand-off now would let this write land after the next attempt starts.
+            assert manager.revoke_writes(timeout_seconds=0.01) is False
+
+            release.set()
+            writer.join(5)
+            assert manager.revoke_writes(timeout_seconds=1) is True
+
+        assert redis.set.call_count == 1
