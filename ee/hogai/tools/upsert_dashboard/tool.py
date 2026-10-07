@@ -17,7 +17,7 @@ from posthog.utils import pluralize
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.exports.backend.subscription_query_access import check_can_add_insight_to_subscribed_dashboard
+from products.exports.backend.facade.api import check_can_add_insight_to_subscribed_dashboard
 from products.product_analytics.backend.facade.api import (
     get_or_create_saved_insight,
     insights_including_soft_deleted_for_team,
