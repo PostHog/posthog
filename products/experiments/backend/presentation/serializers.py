@@ -6,8 +6,9 @@ All serializer classes and custom field classes live here.
 ViewSet remains in experiments.py.
 """
 
+import logging
 from copy import deepcopy
-from typing import Annotated, Any, TypeGuard
+from typing import Annotated, Any, Final, TypeGuard
 
 from django.utils import timezone
 
@@ -39,11 +40,18 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH, TaggedItemSerializerMixin
 from posthog.models.team.team import Team
+from posthog.permissions import posthog_feature_flag_enabled
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.facade.contracts import CreateExperimentInput
+from products.experiments.backend.facade.api import get_experiment_health_findings
+from products.experiments.backend.facade.contracts import (
+    CreateExperimentInput,
+    ExperimentHealthFindingActionKind,
+    ExperimentHealthFindingCode,
+    ExperimentHealthFindingSeverity,
+)
 from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, resolve_saved_metric_definition
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
@@ -84,6 +92,9 @@ from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 tracer = trace.get_tracer(__name__)
+logger = logging.getLogger(__name__)
+
+EXPERIMENT_HEALTH_FINDINGS_FLAG: Final = "experiment-health-findings"
 
 
 class _ExperimentApiMetricsList(PydanticRootModel):
@@ -177,6 +188,66 @@ class ExperimentRunningTimeCalculationField(serializers.JSONField):
 @extend_schema_field(ExperimentMetric)  # type: ignore[arg-type]
 class ExperimentMetricDefinitionField(serializers.JSONField):
     pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": {"oneOf": [{"type": "string"}, {"type": "number"}], "nullable": True},
+    }
+)
+class ExperimentHealthEvidenceField(serializers.DictField):
+    pass
+
+
+class ExperimentHealthFindingSerializer(serializers.Serializer):
+    code = serializers.ChoiceField(
+        choices=ExperimentHealthFindingCode.choices,
+        help_text="Stable identifier of the problem. Each code has one meaning across every surface that reports it.",
+    )
+    subcode = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The case within the code, when a code covers several, for example "
+            "'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case."
+        ),
+    )
+    severity = serializers.ChoiceField(
+        choices=ExperimentHealthFindingSeverity.choices,
+        help_text="How much the problem affects the results: critical, warning, or info.",
+    )
+    title = serializers.CharField(help_text="One-line summary of the problem.")
+    detail = serializers.CharField(help_text="What is wrong, what it does to the experiment, and how to fix it.")
+    evidence = ExperimentHealthEvidenceField(
+        help_text=(
+            "The values behind the finding, such as the key of a shipped variant or the share of users "
+            "exposed to multiple variants. The keys depend on the code."
+        ),
+    )
+    actions = serializers.ListField(
+        child=serializers.ChoiceField(choices=ExperimentHealthFindingActionKind.choices),
+        help_text=(
+            "The actions that fix the problem, in order of preference, for example 'open_feature_flag' "
+            "or 'add_primary_metric'."
+        ),
+    )
+    diagnostic_ref = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A5'. "
+            "Null when the skill has none."
+        ),
+    )
+
+
+class ExperimentHealthSerializer(serializers.Serializer):
+    findings = ExperimentHealthFindingSerializer(
+        many=True,
+        help_text=(
+            "Problems that the health checks found in the experiment's configuration and its feature flag. "
+            "Empty when every check passed."
+        ),
+    )
 
 
 class ExperimentBaseSerializer(
@@ -501,6 +572,13 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "experiment would resolve to if launched now."
         ),
     )
+    health = serializers.SerializerMethodField(
+        help_text=(
+            "Health check diagnostics for this experiment: problems in its configuration and its feature "
+            "flag that keep it from producing trustworthy results, each with a fix. Read `findings` first "
+            "when you diagnose an experiment. Null where health checks are not enabled yet."
+        ),
+    )
     version = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -597,6 +675,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "is_legacy",
             "can_freeze_exposure",
             "resolved_exposure_event",
+            "health",
             "user_access_level",
             "tags",
         ]
@@ -612,6 +691,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "status",
             "can_freeze_exposure",
             "resolved_exposure_event",
+            "health",
             "user_access_level",
         ]
 
@@ -633,6 +713,34 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         # A draft has no start_date yet, so resolve against now: that's the event it would get if
         # launched today, which is what the setup UI needs to show.
         return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
+
+    @extend_schema_field(ExperimentHealthSerializer(allow_null=True))
+    def get_health(self, obj: Experiment) -> dict[str, Any] | None:
+        if not self._health_findings_enabled(obj.team):
+            return None
+        return ExperimentHealthSerializer(
+            {"findings": get_experiment_health_findings(team_id=obj.team_id, experiment_id=obj.id)}
+        ).data
+
+    def _health_findings_enabled(self, team: Team) -> bool:
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        distinct_id = getattr(user, "distinct_id", None)
+        email = getattr(user, "email", None)
+        try:
+            # Local evaluation keeps a network call off every experiment read. A flag that targets
+            # by email still matches, because the email goes in as a person property.
+            return posthog_feature_flag_enabled(
+                EXPERIMENT_HEALTH_FINDINGS_FLAG,
+                str(distinct_id or team.uuid),
+                organization_id=team.organization_id,
+                team_id=team.id,
+                person_properties={"email": email} if email else None,
+                only_evaluate_locally=True,
+            )
+        except Exception:
+            logger.warning("Failed to evaluate the experiment health findings flag", exc_info=True)
+            return False
 
     @staticmethod
     def _stored_saved_metric_queries(instance: Experiment) -> dict[int, dict[str, Any]]:

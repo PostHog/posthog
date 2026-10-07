@@ -33,10 +33,9 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 name="API errors",
                 source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
-                source_config={},
-                threshold_count=10,
-                threshold_operator="above",
-                window_minutes=5,
+                source_config={
+                    "condition": {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
+                },
                 check_interval_minutes=10,
                 next_check_at=self.cutoff - timedelta(minutes=1),
             )
@@ -148,10 +147,9 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                     name="Snoozed alert",
                     enabled=True,
                     source_kind=SourceKind.LOGS,
-                    source_config={},
-                    threshold_count=1,
-                    threshold_operator="above",
-                    window_minutes=5,
+                    source_config={
+                        "condition": {"threshold_count": 1, "threshold_operator": "above", "window_minutes": 5}
+                    },
                     check_interval_minutes=5,
                     evaluation_periods=1,
                     datapoints_to_alarm=1,
