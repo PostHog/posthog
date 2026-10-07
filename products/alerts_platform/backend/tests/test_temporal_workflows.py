@@ -553,7 +553,7 @@ class TestDemandDiscovery(APIBaseTest):
         self._configuration(minutes_ago=1, name="newer")
         self._configuration(minutes_ago=5, name="oldest")
 
-        bounded = demand.discover_demand(self.tick.isoformat(), limit_per_source=1)
+        bounded = demand.discover_demand(self.tick.isoformat(), limits_by_source={SourceKind.LOGS: 1})
 
         # Oldest first, so a key the bound leaves out grows more overdue and wins a later tick.
         assert bounded.batch_keys_by_source == {SourceKind.LOGS: [self._key(5)]}
@@ -580,7 +580,7 @@ class TestDemandDiscovery(APIBaseTest):
 
     def test_discovery_rejects_a_limit_below_one(self) -> None:
         with pytest.raises(ValueError):
-            demand.discover_demand(self.tick.isoformat(), limit_per_source=0)
+            demand.discover_demand(self.tick.isoformat(), limits_by_source={SourceKind.LOGS: 0})
 
 
 @pytest.mark.parametrize("scheduled", [False, True])
@@ -630,21 +630,25 @@ def test_the_dispatcher_is_registered_on_the_fleet_the_tick_starts_it_on() -> No
     assert AlertsPlatformSourceDispatchWorkflow in registered
 
 
-def test_every_source_evaluation_binding_names_a_registered_workflow() -> None:
+def test_every_source_evaluation_binding_names_a_workflow_registered_on_its_queue() -> None:
     import temporalio.workflow  # noqa: PLC0415 — read after the registry
 
     # The registry imports every product's workflows, so it stays off this module's import path.
     from posthog.management.commands.start_temporal_worker import WORKFLOWS_DICT  # noqa: PLC0415
 
     from products.alerts_platform.backend.temporal.sources import (  # noqa: PLC0415 — read after the registry
-        SOURCE_EVALUATION_WORKFLOWS,
+        SOURCE_BINDINGS,
     )
 
-    definitions = (
-        temporalio.workflow._Definition.from_class(registered_workflow)
-        for registered_workflow in WORKFLOWS_DICT[settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE]
-    )
-    registered = {definition.name for definition in definitions if definition is not None}
-    # A binding naming a workflow no evaluation worker registers leaves every dispatch for
+    def registered_on(task_queue: str) -> set[str | None]:
+        definitions = (temporalio.workflow._Definition.from_class(w) for w in WORKFLOWS_DICT[task_queue])
+        return {definition.name for definition in definitions if definition is not None}
+
+    # A binding naming a workflow its queue's worker does not register leaves every dispatch for
     # that source queued until it times out.
-    assert set(SOURCE_EVALUATION_WORKFLOWS.values()) <= registered
+    unregistered = {
+        source: binding.workflow
+        for source, binding in SOURCE_BINDINGS.items()
+        if binding.workflow not in registered_on(binding.task_queue)
+    }
+    assert unregistered == {}

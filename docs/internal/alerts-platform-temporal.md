@@ -131,7 +131,7 @@ The empty `--input '{}'` becomes an `OrchestrateInputs` with every field default
 Watch orchestration, its source dispatcher children, their evaluation children, and the delivery great-grandchildren in the Temporal UI at <http://localhost:8081>.
 
 Evaluation and delivery accept an empty `AlertsPlatformInputs` dataclass; orchestration accepts `OrchestrateInputs` with all fields defaulted.
-Orchestration pages source dispatchers, which start evaluation children with a 75-second execution timeout and one workflow attempt.
+Orchestration pages source dispatchers, which start evaluation children with one workflow attempt, on the queue and under the execution timeout of the source's binding.
 Evaluation child IDs carry the tick ID, source and page, so each tick starts distinct evaluations.
 Evaluation runs a Postgres connectivity probe; delivery runs an empty activity with no I/O.
 Evaluation and delivery activities each have a 10-second start-to-close timeout and a 30-second schedule-to-close timeout.
@@ -166,7 +166,10 @@ The hard stop is the run's own execution timeout when it has one, and the budget
 The orchestrator passes a dispatcher every remaining ID for its source. The dispatcher decides how much to take and returns the rest.
 Today it takes everything: no adapter has said yet how many alerts one evaluation can hold, so nothing remains and a tick is one page.
 The limit that will matter is the evaluation workflow's own history, which depends on the adapter's query shape; it arrives with the first real adapter.
-It starts one `alerts-platform-evaluate` child, ID `{dispatcher_id}-eval`, with `ParentClosePolicy.ABANDON`, a 75-second execution timeout (`SOURCE_EVALUATION_TIMEOUT`) and one attempt.
+It starts one evaluation child per key with `ParentClosePolicy.ABANDON` and one attempt.
+A source with an entry in `SOURCE_BINDINGS` (`temporal/sources.py`) starts the binding's workflow on the binding's `task_queue`, under its `evaluation_timeout`.
+A source with no binding starts `alerts-platform-evaluate` on the evaluation queue, under the 75-second `NOOP_EVALUATION_TIMEOUT`.
+A source with slow checks gets its own queue and its own timeout, so it neither shares the logs ceiling nor holds the logs worker's slots.
 The timeout has to hold every attempt a source's activities allow, because an attempt cut off here is a batch that decided something and recorded nothing.
 Evaluations are abandoned rather than awaited, so it does not have to fit inside the tick.
 It waits for the child to start, never for it to finish, then returns the dispatched count and the remaining IDs.
@@ -195,7 +198,8 @@ Scheduled runs use `TemporalScheduledStartTime`; manual runs use the workflow st
 Activity retries retain the same cutoff rather than reading the activity's clock.
 The activity returns an `AlertDemand` containing configuration IDs grouped by the shared `SourceKind` enum (`logs` and `insight`).
 Only nonempty groups are returned. Discovery does not reserve or claim IDs.
-Each source is bounded to `DISCOVERY_LIMIT_PER_SOURCE` IDs (1,000) so the manifest stays near 40 KB per source, under the repository's 256 KB rule for Temporal payload fields.
+Each source is bounded to its binding's `discovery_limit`, or to `DISCOVERY_LIMIT_PER_SOURCE` (1,000) without a binding, so the manifest stays near 40 KB per source, under the repository's 256 KB rule for Temporal payload fields.
+A source that admits fewer checks per tick sets a lower limit, because every key starts a workflow.
 `omitted_by_source` counts the due IDs left out. The tick adds that count to its `remaining` result, and the next tick discovers that work again.
 
 For now, `logic/demand.py` supplies deterministic synthetic configurations relative to that cutoff:
@@ -405,7 +409,7 @@ all come from the existing logs code, so a preview says what production would ha
 
 ### The query budget sits under the activity timeout
 
-Four bounds, largest first: `SOURCE_EVALUATION_TIMEOUT` (75s) over the source's `EVALUATION_BUDGET` (62s) over `EVALUATE_START_TO_CLOSE` (30s) over `BATCH_QUERY_BUDGET_SECONDS` (25s) over `MAX_QUERY_SECONDS` (20s).
+Four bounds, largest first: the logs binding's `evaluation_timeout` (75s) over the source's `EVALUATION_BUDGET` (62s) over `EVALUATE_START_TO_CLOSE` (30s) over `BATCH_QUERY_BUDGET_SECONDS` (25s) over `MAX_QUERY_SECONDS` (20s).
 Temporal bounds an attempt by whichever of start-to-close and schedule-to-close expires first, so schedule-to-close is derived as start-to-close plus a queue tolerance rather than written as a literal.
 A literal close to start-to-close lets queue time shorten the run below the query budget, which is the same inversion arriving by another route, on exactly the load that causes queueing.
 `test_the_evaluation_timeout_ladder_holds` asserts the whole ladder in one place.

@@ -23,7 +23,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.lifecycle import AlertState
-from products.alerts_platform.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
+from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
 from products.logs.backend.alert_source_cycle import BATCH_QUERY_BUDGET_SECONDS, MAX_QUERY_SECONDS, evaluate_logs_batch
@@ -383,4 +383,4 @@ class TestEvaluationTimeoutLadder(SimpleTestCase):
         assert EVALUATE_SCHEDULE_TO_CLOSE > EVALUATE_START_TO_CLOSE
         assert (EVALUATE_SCHEDULE_TO_CLOSE - EVALUATE_START_TO_CLOSE).total_seconds() >= BATCH_QUERY_BUDGET_SECONDS / 2
         # The platform's own timeout holds both activities and still leaves room for the deliveries.
-        assert SOURCE_EVALUATION_TIMEOUT > EVALUATION_BUDGET
+        assert source_evaluation_timeout(SourceKind.LOGS) > EVALUATION_BUDGET
