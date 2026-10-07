@@ -26,7 +26,8 @@ export function UtmTeamDefaultControls({ value, onSavedAsTeamDefault }: UtmTeamD
         </Link>
     )
 
-    if (matchesTeamUtmDefaults(value, defaults)) {
+    // Callers show this only for emails with tags on, so an email matches the default only when the default is on.
+    if (defaults.enabled && matchesTeamUtmDefaults(value, defaults)) {
         return <span className="text-xs text-secondary">Using your team's default values. {editDefaultsLink}</span>
     }
 
@@ -47,12 +48,8 @@ export function UtmTeamDefaultControls({ value, onSavedAsTeamDefault }: UtmTeamD
                     })
                     // A failed save still resolves, so check what was saved. teamLogic shows the error, and the
                     // email keeps its values as its own so a later bulk apply skips them.
-                    if (
-                        matchesTeamUtmDefaults(
-                            value,
-                            getTeamUtmDefaults(teamLogic.values.currentTeam?.workflows_config)
-                        )
-                    ) {
+                    const saved = getTeamUtmDefaults(teamLogic.values.currentTeam?.workflows_config)
+                    if (saved.enabled && matchesTeamUtmDefaults(value, saved)) {
                         onSavedAsTeamDefault()
                     }
                 }}
