@@ -40,6 +40,7 @@ class _ThreadedSource(Generic[T]):
         self._requests: queue.SimpleQueue[asyncio.Future[PulledItem[T]] | None] = queue.SimpleQueue()
         self._stopped = threading.Event()
         self._thread: threading.Thread | None = None
+        self._thread_stopped: asyncio.Future[None] = self._loop.create_future()
 
     def pull(self) -> "asyncio.Future[PulledItem[T]]":
         future: asyncio.Future[PulledItem[T]] = self._loop.create_future()
@@ -61,7 +62,7 @@ class _ThreadedSource(Generic[T]):
 
     async def wait_until_stopped(self) -> None:
         if self._thread is not None:
-            await asyncio.to_thread(self._thread.join)
+            await asyncio.shield(self._thread_stopped)
 
     def _serve(self) -> None:
         try:
@@ -79,6 +80,14 @@ class _ThreadedSource(Generic[T]):
                 self._deliver(future, result=result)
         finally:
             self._close_iterator()
+            try:
+                self._loop.call_soon_threadsafe(self._mark_thread_stopped)
+            except RuntimeError:
+                pass
+
+    def _mark_thread_stopped(self) -> None:
+        if not self._thread_stopped.done():
+            self._thread_stopped.set_result(None)
 
     def _deliver(
         self,
