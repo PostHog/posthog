@@ -471,8 +471,8 @@ export interface llmPromptLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isNewPrompt: (arg: any) => boolean
         isRenderingMarkdown: (
-            markdownRenderingOverride: any,
-            markdownRenderingPreference: any,
+            markdownRenderingOverride: boolean | null,
+            markdownRenderingPreference: boolean,
             mode: PromptMode,
             isNewPrompt: boolean
         ) => boolean
