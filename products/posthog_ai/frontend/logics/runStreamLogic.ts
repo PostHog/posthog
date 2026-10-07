@@ -447,11 +447,7 @@ export function userAttachment(content: unknown): ThreadAttachment | null {
     if (!name) {
         return null
     }
-    const fromPath = uri ? artifactRefFromUri(uri) : null
-    if (fromPath) {
-        return { name, ...fromPath }
-    }
-    return { name, ...(typeof content.artifactId === 'string' ? { artifactId: content.artifactId } : {}) }
+    return { name, ...(uri ? (artifactRefFromUri(uri) ?? {}) : {}) }
 }
 
 /**
@@ -2212,11 +2208,7 @@ export function foldLogFromCheckpoint(
                     }
                     const attachment = userAttachment(block)
                     if (attachment) {
-                        noteAttachment(
-                            attachment.artifactId && !attachment.runId && entryRunId
-                                ? { ...attachment, runId: entryRunId }
-                                : attachment
-                        )
+                        noteAttachment(attachment)
                     }
                 }
             }

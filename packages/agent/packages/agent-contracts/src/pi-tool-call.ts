@@ -22,7 +22,7 @@ export type PiToolName = keyof typeof PI_TOOL_KIND_BY_NAME;
  * The harness-neutral name of each Pi built-in, as carried on `_meta.posthog.toolName`. The Claude
  * adapter emits the same names for the same operations, so one renderer entry serves both harnesses.
  */
-export const PI_AGENT_TOOL_NAME_BY_NAME = {
+const PI_AGENT_TOOL_NAME_BY_NAME = {
   read: "Read",
   edit: "Edit",
   write: "Write",
