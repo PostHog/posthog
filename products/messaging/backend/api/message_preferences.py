@@ -7,7 +7,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -19,6 +19,7 @@ from posthog.api.streaming import streaming_response
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.user import User
 from posthog.permissions import get_authenticator_scopes, is_authenticated_via_project_secret_api_key
+from posthog.ph_client import feature_enabled_or_false
 from posthog.plugins import plugin_server_api
 from posthog.rate_limit import (
     BurstRateThrottle,
@@ -246,6 +247,17 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _require_resource_access(self, required_level: Literal["viewer", "editor"], message: str) -> None:
         if is_authenticated_via_project_secret_api_key(self.request):
+            if not feature_enabled_or_false(
+                "workflows-agent-message-preferences",
+                str(self.team.uuid),
+                groups={"organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+                group_properties={
+                    "organization": {"id": str(self.team.organization_id)},
+                    "project": {"id": str(self.team.uuid)},
+                },
+                send_feature_flag_events=False,
+            ):
+                raise NotFound()
             return
         # Resource-level check: `AccessControlPermission` only guarantees the caller has some
         # hog_flow object access. These endpoints act on team-wide data with no per-workflow

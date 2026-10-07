@@ -28,6 +28,7 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
         super().setUp()
         self.client.logout()
         self.category = MessageCategory.objects.create(team=self.team, key="newsletter", name="Newsletter")
+        self.feature_flags = self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
 
     def _create_project_secret_key(self, team: Team, scopes: list[str], label: str = "server") -> str:
         token = "phs_" + "a" * 35 + "".join(c for c in label if c.isalnum())
@@ -52,12 +53,15 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("add_opt_out", PreferenceStatus.OPTED_OUT),
-            ("remove_opt_out", PreferenceStatus.OPTED_IN),
+            ("add_opt_out", PreferenceStatus.OPTED_OUT, True),
+            ("remove_opt_out", PreferenceStatus.OPTED_IN, True),
+            ("add_opt_out", PreferenceStatus.OPTED_OUT, False),
+            ("remove_opt_out", PreferenceStatus.OPTED_IN, False),
         ]
     )
     @patch("products.messaging.backend.tasks.sync_preferences_to_customerio")
-    def test_sdk_request_writes_the_preference(self, endpoint, expected_status, mock_sync):
+    def test_sdk_request_writes_the_preference(self, endpoint, expected_status, flag_enabled, mock_sync):
+        self.feature_flags.return_value = flag_enabled
         token = self._create_project_secret_key(self.team, ["messaging_preference:write"])
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -67,7 +71,17 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
                 {"identifier": "user@example.com", "category_key": "newsletter"},
             )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED if flag_enabled else status.HTTP_404_NOT_FOUND,
+            response.content,
+        )
+        if not flag_enabled:
+            self.assertFalse(
+                MessageRecipientPreference.objects.filter(team=self.team, identifier="user@example.com").exists()
+            )
+            mock_sync.assert_not_called()
+            return
         preference = MessageRecipientPreference.objects.get(team=self.team, identifier="user@example.com")
         self.assertEqual(preference.get_preference(str(self.category.id)), expected_status)
         self.assertIsNone(preference.created_by)

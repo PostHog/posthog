@@ -44,6 +44,15 @@ describe('projectSecretAPIKeysLogic', () => {
         expect(presetValues).toContain('endpoint_execution')
     })
 
+    it.each([false, true])('gates messaging preference scopes and preset when the flag is %s', (flagEnabled) => {
+        const flag = 'workflows-agent-message-preferences'
+        featureFlagLogic.actions.setFeatureFlags(flagEnabled ? [flag] : [], flagEnabled ? { [flag]: true } : {})
+
+        expect(logic.values.filteredScopes.some(({ key }) => key === 'messaging_preference')).toBe(flagEnabled)
+        expect(logic.values.availablePresets.some(({ value }) => value === 'messaging_preferences')).toBe(flagEnabled)
+        expect(logic.values.filteredScopes.some(({ key }) => key === 'endpoint')).toBe(true)
+    })
+
     it('labels the llm_gateway scope as "AI gateway" and keeps it read-only when the flag is enabled', () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AI_GATEWAY], {
             [FEATURE_FLAGS.AI_GATEWAY]: true,

@@ -358,7 +358,11 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
             ): { key: string; label: string; disabledActions: APIScopeAction[] }[] => {
                 const allActions: APIScopeAction[] = ['read', 'write']
                 // llm_gateway:read is added only when the ai-gateway flag is on, mirroring the backend.
-                const allowedScopeActions: string[] = [...PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION]
+                const allowedScopeActions: string[] = PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION.filter(
+                    (scope) =>
+                        !scope.startsWith('messaging_preference:') ||
+                        featureFlags[FEATURE_FLAGS.WORKFLOWS_AGENT_MESSAGE_PREFERENCES]
+                )
                 if (featureFlags[FEATURE_FLAGS.AI_GATEWAY]) {
                     allowedScopeActions.push('llm_gateway:read')
                 }
@@ -382,7 +386,10 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): ProjectSecretAPIKeyScopePreset[] =>
                 PROJECT_SECRET_API_KEY_SCOPE_PRESETS.filter(
-                    ({ value }) => value !== 'llm_gateway' || featureFlags[FEATURE_FLAGS.AI_GATEWAY]
+                    ({ value }) =>
+                        (value !== 'llm_gateway' || featureFlags[FEATURE_FLAGS.AI_GATEWAY]) &&
+                        (value !== 'messaging_preferences' ||
+                            featureFlags[FEATURE_FLAGS.WORKFLOWS_AGENT_MESSAGE_PREFERENCES])
                 ),
         ],
     })),

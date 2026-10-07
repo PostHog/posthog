@@ -618,6 +618,7 @@ export const FEATURE_FLAGS = {
     WIZARD_UI_ENABLED: 'wizard-ui-enabled', // owner: @fercgomes #team-growth — gates the /wizard/runs interface
     WORKFLOW_AI_TASK_ACTION: 'workflow-ai-task-action', // owner: @mayteio #team-workflows
     WORKFLOW_RUN_SCOUT_ACTION: 'workflow-run-scout-action', // owner: #team-workflows
+    WORKFLOWS_AGENT_MESSAGE_PREFERENCES: 'workflows-agent-message-preferences', // owner: #team-workflows
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows
     WORKFLOWS_DELAY_UNTIL_DATE: 'workflows-delay-until-date', // owner: @dmarchuk #team-workflows
     WORKFLOWS_EMAIL_REPUTATION: 'workflows-email-reputation', // owner: #team-workflows
