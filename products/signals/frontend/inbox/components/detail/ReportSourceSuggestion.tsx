@@ -14,7 +14,7 @@ import {
     captureInboxReportSourceSuggestionShown,
 } from '../../inboxAnalytics'
 import type { SignalReport } from '../../types'
-import { SOURCE_SUGGESTION_TARGETS } from '../../utils/sourceSuggestion'
+import { sourceSuggestionTarget } from '../../utils/sourceSuggestion'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 
 /** A product the team doesn't use that would have given this report better evidence, shown after the evidence. */
@@ -24,12 +24,18 @@ export function ReportSourceSuggestion({
 }: {
     report: SignalReport
     suggestion: ReportSourceSuggestionApi
-}): JSX.Element {
-    const { url, actionLabel } = SOURCE_SUGGESTION_TARGETS[suggestion.product]
+}): JSX.Element | null {
+    const target = sourceSuggestionTarget(suggestion.product)
 
     useOnMountEffect(() => {
-        captureInboxReportSourceSuggestionShown({ report, product: suggestion.product })
+        if (target) {
+            captureInboxReportSourceSuggestionShown({ report, product: suggestion.product })
+        }
     })
+
+    if (!target) {
+        return null
+    }
 
     return (
         <LemonCard hoverEffect={false} className="p-3 shadow-none border-dashed">
@@ -49,12 +55,12 @@ export function ReportSourceSuggestion({
                 <LemonButton
                     type="secondary"
                     size="small"
-                    to={url()}
+                    to={target.url()}
                     sideIcon={<IconArrowRight />}
                     onClick={() => captureInboxReportSourceSuggestionClicked({ report, product: suggestion.product })}
                     data-attr="inbox-report-source-suggestion"
                 >
-                    {actionLabel}
+                    {target.actionLabel}
                 </LemonButton>
             </div>
         </LemonCard>
