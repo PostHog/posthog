@@ -6209,6 +6209,12 @@
                         }
                     ]
                 },
+                "topN": {
+                    "$ref": "#/definitions/BITopN"
+                },
+                "totals": {
+                    "$ref": "#/definitions/BITotals"
+                },
                 "values": {
                     "items": {
                         "$ref": "#/definitions/BIValue"
@@ -6330,6 +6336,62 @@
             "enum": ["asc", "desc"],
             "type": "string"
         },
+        "BITableCalculation": {
+            "additionalProperties": false,
+            "properties": {
+                "computeUsing": {
+                    "description": "Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions.",
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/BITableCalculationType"
+                },
+                "window": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "Number of points, including the current point, in a trailing moving average."
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "BITableCalculationType": {
+            "enum": ["percent_of_total", "running_total", "difference", "percent_change", "moving_average", "rank"],
+            "type": "string"
+        },
+        "BITopN": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "$ref": "#/definitions/positive_integer"
+                },
+                "fieldId": {
+                    "type": "string"
+                },
+                "includeOther": {
+                    "type": "boolean"
+                },
+                "measureIndex": {
+                    "$ref": "#/definitions/non_negative_integer"
+                }
+            },
+            "required": ["fieldId", "count", "measureIndex", "includeOther"],
+            "type": "object"
+        },
+        "BITotals": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "type": "boolean"
+                },
+                "rows": {
+                    "type": "boolean"
+                },
+                "subtotals": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "BIValue": {
             "additionalProperties": false,
             "properties": {
@@ -6339,11 +6401,20 @@
                 "customExpression": {
                     "type": "string"
                 },
+                "display": {
+                    "$ref": "#/definitions/ChartSettingsDisplay"
+                },
                 "field": {
                     "$ref": "#/definitions/BIField"
                 },
+                "formatting": {
+                    "$ref": "#/definitions/ChartSettingsFormatting"
+                },
                 "label": {
                     "type": "string"
+                },
+                "tableCalculation": {
+                    "$ref": "#/definitions/BITableCalculation"
                 }
             },
             "required": ["field", "aggregation"],
@@ -30982,6 +31053,7 @@
                 "customerio-webhook",
                 "customerio-track",
                 "apns",
+                "apple-ads",
                 "postgresql",
                 "aws-s3",
                 "aws-redshift",
@@ -50776,7 +50848,7 @@
                 },
                 "error_code": {
                     "default": null,
-                    "description": "Stable machine-readable code for the error (the DRF exception code), when known.",
+                    "description": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
                     "type": ["string", "null"]
                 },
                 "error_message": {

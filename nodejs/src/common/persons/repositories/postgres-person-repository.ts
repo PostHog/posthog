@@ -8,6 +8,7 @@ import {
     personCreateStrandedClaimCounter,
     personJsonFieldSizeHistogram,
     personPropertiesSizeViolationCounter,
+    personStrayDistinctIdTombstonedCounter,
 } from '~/common/persons/metrics'
 import { canTrimProperty } from '~/common/persons/person-property-utils'
 import { PersonUpdate, toInternalPerson } from '~/common/persons/person-update-batch'
@@ -580,6 +581,113 @@ export class PostgresPersonRepository
         return result
     }
 
+    /** A delete that races an attach can leave a live mapping on a tombstoned person, which no read resolves. */
+    private async reattachStrayDistinctIds(
+        person: InternalPerson,
+        distinctIds: { distinctId: string; version?: number }[],
+        operation: 'createPerson' | 'addDistinctId',
+        tx?: TransactionClient
+    ): Promise<{ id: string; team_id: number; person_id: string; distinct_id: string; version: number }[]> {
+        if (distinctIds.length === 0) {
+            return []
+        }
+        const names = distinctIds.map(({ distinctId }) => distinctId)
+        // Almost every conflict is a live person's mapping, so return those without the lock below.
+        const {
+            rows: [{ healthy }],
+        } = await this.postgres.query<{ healthy: number }>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `SELECT count(*)::int AS healthy FROM posthog_persondistinctid d
+             WHERE d.team_id = $1 AND d.distinct_id = ANY($2::text[]) AND d.is_deleted = false
+               AND ($3::bigint IS NULL OR d.person_id <> $3)
+               AND EXISTS (
+                   SELECT 1 FROM posthog_person p
+                   WHERE p.team_id = d.team_id AND p.id = d.person_id AND p.is_deleted = false
+               )`,
+            [person.team_id, names, operation === 'createPerson' ? person.id : null],
+            'countHealthyDistinctIdConflicts'
+        )
+        if (healthy === names.length) {
+            return []
+        }
+        if (!tx) {
+            return await this.inRawTransaction('reattachStrayDistinctIds', (newTx) =>
+                this.reattachStrayDistinctIds(person, distinctIds, operation, newTx)
+            )
+        }
+
+        // Lock first: after a lock wait, an UPDATE's person subquery still reads the pre-wait snapshot.
+        await this.postgres.query(
+            tx,
+            `SELECT id FROM posthog_persondistinctid
+             WHERE team_id = $1 AND distinct_id = ANY($2::text[]) AND is_deleted = false
+             ORDER BY id
+             FOR UPDATE`,
+            [person.team_id, names],
+            'lockStrayDistinctIds'
+        )
+        const { rowCount: tombstoned } = await this.postgres.query(
+            tx,
+            `UPDATE posthog_persondistinctid d
+             SET is_deleted = true, version = COALESCE(d.version, 0) + 1
+             WHERE d.team_id = $1 AND d.distinct_id = ANY($2::text[]) AND d.is_deleted = false
+               AND NOT EXISTS (
+                   SELECT 1 FROM posthog_person p
+                   WHERE p.team_id = d.team_id AND p.id = d.person_id AND p.is_deleted = false
+               )`,
+            [person.team_id, names],
+            'tombstoneStrayDistinctIds'
+        )
+        if (tombstoned) {
+            personStrayDistinctIdTombstonedCounter.labels({ operation }).inc(tombstoned)
+        }
+
+        // Retry all of them: a concurrent delete can tombstone a mapping during the lock wait.
+        const { rows } = await this.postgres.query<{
+            id: string
+            team_id: number
+            person_id: string
+            distinct_id: string
+            version: string
+        }>(
+            tx,
+            // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in createPerson and addDistinctId.
+            `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+             SELECT d.distinct_id, $1, $2, d.version
+             FROM unnest($3::text[], $4::bigint[]) AS d(distinct_id, version)
+             ON CONFLICT (team_id, distinct_id) DO UPDATE SET
+                 person_id = EXCLUDED.person_id,
+                 version = COALESCE(posthog_persondistinctid.version, 0) + 1,
+                 is_deleted = false
+             WHERE posthog_persondistinctid.is_deleted = true
+             RETURNING id::text AS id, team_id, person_id, distinct_id, version`,
+            [person.id, person.team_id, names, distinctIds.map(({ version }) => version ?? 0)],
+            'reattachStrayDistinctIds'
+        )
+        const reattached = new Set(rows.map((row) => row.distinct_id))
+        const unattached = names.filter((name) => !reattached.has(name))
+        // A create with the tombstoned owner's uuid revives that owner, so its mapping stays live and correct.
+        // addDistinctId reports a mapping that its own person already holds as a conflict.
+        if (operation === 'createPerson' && unattached.length > 0) {
+            const { rows: owned } = await this.postgres.query<{
+                id: string
+                team_id: number
+                person_id: string
+                distinct_id: string
+                version: string
+            }>(
+                tx,
+                `SELECT id::text AS id, team_id, person_id, distinct_id, version
+                 FROM posthog_persondistinctid
+                 WHERE team_id = $1 AND person_id = $2 AND distinct_id = ANY($3::text[]) AND is_deleted = false`,
+                [person.team_id, person.id, unattached],
+                'fetchOwnedStrayDistinctIds'
+            )
+            rows.push(...owned)
+        }
+        return rows.map((row) => ({ ...row, version: Number(row.version) }))
+    }
+
     async createPerson(
         createdAt: DateTime,
         properties: Properties,
@@ -773,6 +881,18 @@ export class PostgresPersonRepository
 
             const { distinct_id_rows: distinctIdRows, ...personRow } = rows[0]
             const person = this.toPerson(personRow)
+
+            if (distinctIdRows.length < distinctIds.length) {
+                const attached = new Set(distinctIdRows.map((row) => row.distinct_id))
+                distinctIdRows.push(
+                    ...(await this.reattachStrayDistinctIds(
+                        person,
+                        distinctIds.filter(({ distinctId }) => !attached.has(distinctId)),
+                        'createPerson',
+                        tx
+                    ))
+                )
+            }
 
             if (distinctIdRows.length < distinctIds.length) {
                 // A live mapping owns one of the distinct ids, so the create must not
@@ -1588,7 +1708,12 @@ export class PostgresPersonRepository
             'warn'
         )
 
-        if (insertResult.rows.length === 0) {
+        const insertedRows =
+            insertResult.rows.length > 0
+                ? insertResult.rows
+                : await this.reattachStrayDistinctIds(person, [{ distinctId, version }], 'addDistinctId', tx)
+
+        if (insertedRows.length === 0) {
             throw new DistinctIdConflictError(
                 'Distinct id is already owned by a live mapping',
                 person.team_id,
@@ -1601,7 +1726,7 @@ export class PostgresPersonRepository
             is_deleted,
             version: insertedVersion,
             ...personDistinctIdCreated
-        } = insertResult.rows[0] as PersonDistinctId & { is_deleted: boolean }
+        } = insertedRows[0] as PersonDistinctId & { is_deleted: boolean }
         return [
             {
                 output: PERSON_DISTINCT_IDS_OUTPUT,

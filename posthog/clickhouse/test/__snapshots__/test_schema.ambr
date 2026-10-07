@@ -2123,10 +2123,13 @@
       distinct_id,
       created_at,
       person_id,
-      -- Fall back to the Kafka message timestamp, which is stable across replays
-      -- (inserted_at checkpoints the sync_feature_flag_last_called task, and an
-      -- epoch-stamped row would stay invisible to it forever).
-      if(inserted_at = toDateTime64('1970-01-01 00:00:00', 6, 'UTC'), _timestamp, inserted_at) AS inserted_at,
+      -- inserted_at is the time this view processes the row, as in the native-JSON
+      -- events MV. The sync_feature_flag_last_called checkpoint and the deletion
+      -- sweeps need a row that ClickHouse consumes after their cutoff to fall after
+      -- it. The Kafka message time is earlier by the consumer lag. The Distributed
+      -- forward and the replication happen after this stamp, so those readers still
+      -- need a buffer.
+      now64() AS inserted_at,
       _timestamp,
       _offset,
       _partition
