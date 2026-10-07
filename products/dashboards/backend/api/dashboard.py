@@ -174,7 +174,7 @@ from products.notifications.backend.facade.api import (
     create_notification,
     has_been_dispatched,
 )
-from products.product_analytics.backend.facade.api import insight_variables_for_team
+from products.product_analytics.backend.facade.api import insight_variables_for_team, sync_insights_lineage
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import (
     INCLUDE_DASHBOARDS_PARAMETER,
@@ -2449,7 +2449,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 # Bulk update bypasses signals, so the FileSystemSyncMixin can't prune the
                 # corresponding FileSystem rows. Without this, stale entries linger in the
                 # Recents sidebar and clicking them lands on an "Insight not found" page.
-                DashboardSerializer._sync_filesystem_for_insights(insight_ids_to_delete, instance.team_id)
+                DashboardSerializer._sync_bulk_updated_insights(insight_ids_to_delete, instance.team_id)
 
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
@@ -2469,18 +2469,19 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if insights_to_undelete:
             Insight.objects_including_soft_deleted.bulk_update(insights_to_undelete, ["deleted"])
             # bulk_update also bypasses signals — re-sync FileSystem so restored insights reappear.
-            DashboardSerializer._sync_filesystem_for_insights(
+            DashboardSerializer._sync_bulk_updated_insights(
                 [insight.id for insight in insights_to_undelete], instance.team_id
             )
 
     @staticmethod
-    def _sync_filesystem_for_insights(insight_ids: list[int], team_id: int) -> None:
-        """Re-run FileSystem sync for insights whose ``deleted`` flag was changed via bulk update."""
+    def _sync_bulk_updated_insights(insight_ids: list[int], team_id: int) -> None:
+        """Bulk writes bypass the model's filesystem and lineage sync."""
         # The default Insight manager excludes deleted=True, so use the unfiltered manager —
         # this helper is invoked specifically after bulk deletes/undeletes and must see both.
         insights = Insight.objects_including_soft_deleted.filter(id__in=insight_ids, team_id=team_id).select_related(
             "team"
         )
+        sync_insights_lineage(insights)
         for insight in insights:
             fs_data = insight.get_file_system_representation()
             try:

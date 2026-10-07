@@ -1,5 +1,6 @@
+from collections import defaultdict
 from collections.abc import Collection, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from django.db import transaction
 
@@ -13,6 +14,8 @@ from products.data_modeling.backend.models.node import INSIGHT_SHORT_ID_KEY, Nod
 if TYPE_CHECKING:
     from posthog.models import Team
 
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
 
 def sync_insight_to_dag(
     team: "Team",
@@ -22,7 +25,7 @@ def sync_insight_to_dag(
     dependency_names: Sequence[str],
     database: Database | None = None,
 ) -> list[str]:
-    """Create or update the node for an insight and rebuild its incoming edges.
+    """Create or update the insight's reader nodes in each dependency's DAG.
 
     An insight is a leaf, like a metric: it reads tables and views and nothing reads it, so nothing
     schedulable changes and no reconcile follows. The caller passes only the warehouse tables and
@@ -36,8 +39,6 @@ def sync_insight_to_dag(
         delete_insight_nodes(team.pk, [insight_id])
         return []
 
-    dag = DAG.get_or_create_default(team)
-
     if database is None:
         database = Database.create_for(
             team=team,
@@ -45,38 +46,62 @@ def sync_insight_to_dag(
             allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
         )
 
+    dependencies_by_dag: dict[DAG, list[str]] = defaultdict(list)
+    placed_names: set[str] = set()
+    view_nodes = Node.objects.filter(
+        team=team, saved_query__name__in=dependency_names, saved_query__deleted=False
+    ).select_related("dag", "saved_query")
+    for view_node in view_nodes:
+        dependency_name = cast("DataWarehouseSavedQuery", view_node.saved_query).name
+        dependencies_by_dag[view_node.dag].append(dependency_name)
+        placed_names.add(dependency_name)
+    unplaced_names = set(dependency_names) - placed_names
+    if unplaced_names:
+        dependencies_by_dag[DAG.get_or_create_default(team)].extend(sorted(unplaced_names))
+
+    unresolved: list[str] = []
     # The node is created inside the transaction too, so a resolution failure leaves no edge-less
     # node behind.
     with transaction.atomic():
-        node, _ = Node.objects.get_or_create(
-            team=team,
-            dag=dag,
-            insight_id=insight_id,
-            defaults={"name": name, "type": NodeType.INSIGHT},
-        )
-        node.name = name
-        node.properties[INSIGHT_SHORT_ID_KEY] = short_id
-        unresolved = replace_incoming_edges(
-            node,
-            dependency_names,
-            team=team,
-            dag=dag,
-            database=database,
-            on_unresolved="skip",
-        )
+        # Edges cannot cross DAGs, so each view's DAG needs its own reader node.
+        for dag, names in sorted(dependencies_by_dag.items(), key=lambda entry: str(entry[0].id)):
+            node, _ = Node.objects.get_or_create(
+                team=team,
+                dag=dag,
+                insight_id=insight_id,
+                defaults={"name": name, "type": NodeType.INSIGHT},
+            )
+            node.name = name
+            node.properties[INSIGHT_SHORT_ID_KEY] = short_id
+            missing = replace_incoming_edges(
+                node,
+                names,
+                team=team,
+                dag=dag,
+                database=database,
+                on_unresolved="skip",
+            )
 
-        node.clear_lineage_markers()
-        if unresolved:
-            node.mark_lineage_unresolved(unresolved)
-        node.save(update_fields=["name", "properties"])
+            node.clear_lineage_markers()
+            if missing:
+                node.mark_lineage_unresolved(missing)
+            node.save(update_fields=["name", "properties"])
+            unresolved.extend(missing)
+        Node.objects.filter(team=team, insight_id=insight_id).exclude(
+            dag_id__in=[dag.id for dag in dependencies_by_dag]
+        ).delete()
 
-    return unresolved
+    return sorted(set(unresolved))
 
 
-def insight_node_ids(team_id: int) -> dict[int, str]:
+def insight_node_ids(team_id: int) -> dict[int, list[str]]:
     """The team's insight nodes, keyed by the insight each one stands for."""
     rows = Node.objects.filter(team_id=team_id, type=NodeType.INSIGHT).values_list("insight_id", "id")
-    return {insight_id: str(node_id) for insight_id, node_id in rows if insight_id is not None}
+    ids: dict[int, list[str]] = defaultdict(list)
+    for insight_id, node_id in rows:
+        if insight_id is not None:
+            ids[insight_id].append(str(node_id))
+    return dict(ids)
 
 
 def delete_insight_nodes(team_id: int, insight_ids: Collection[int]) -> int:

@@ -54,6 +54,8 @@ from products.dashboards.backend.api.dashboard import (
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
+from products.data_modeling.backend.facade.api import sync_saved_query_to_dag
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.presentation.insight import InsightSerializer
 
@@ -1327,11 +1329,26 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         from posthog.models.file_system.file_system import FileSystem
 
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
-        insight_id, _ = self.dashboard_api.create_insight({"name": "round-tripped", "dashboards": [dashboard_id]})
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders_view", query={"kind": "HogQLQuery", "query": "SELECT event FROM events"}
+        )
+        sync_saved_query_to_dag(view)
+        insight_id, _ = self.dashboard_api.create_insight(
+            {
+                "name": "round-tripped",
+                "dashboards": [dashboard_id],
+                "query": {
+                    "kind": "DataVisualizationNode",
+                    "source": {"kind": "HogQLQuery", "query": "SELECT * FROM orders_view"},
+                },
+            }
+        )
         insight = Insight.objects.get(id=insight_id)
+        self.assertTrue(Node.objects.filter(insight_id=insight_id).exists())
 
         self.dashboard_api.soft_delete(dashboard_id, "dashboards", {"delete_insights": True})
         assert not FileSystem.objects.filter(team=self.team, type="insight", ref=insight.short_id).exists()
+        self.assertFalse(Node.objects.filter(insight_id=insight_id).exists())
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/",
@@ -1343,6 +1360,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         insight.refresh_from_db()
         assert insight.deleted is False
         assert FileSystem.objects.filter(team=self.team, type="insight", ref=insight.short_id).exists()
+        node = Node.objects.get(insight_id=insight_id)
+        self.assertEqual(list(node.incoming_edges.values_list("source__saved_query_id", flat=True)), [view.id])
 
     def test_delete_dashboard_clears_primary_dashboard(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({})

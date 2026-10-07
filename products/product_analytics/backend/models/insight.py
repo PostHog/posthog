@@ -1,9 +1,10 @@
 import json
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
@@ -21,6 +22,8 @@ from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
 logger = structlog.get_logger(__name__)
+
+_LINEAGE_FIELDS = frozenset({"query", "name", "derived_name", "deleted", "short_id"})
 
 # Insight query kinds for which the rich query metadata is meaningful — mirrors the frontend
 # `sanitizeQuery` gate (isInsightVizNode || isInsightQueryNode).
@@ -160,8 +163,14 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._original_query = self.query
+        self._original_lineage = {field: deepcopy(self.__dict__.get(field)) for field in _LINEAGE_FIELDS}
 
     def save(self, *args, **kwargs) -> None:
+        was_adding = self._state.adding
+        written_lineage_fields = _LINEAGE_FIELDS.intersection(kwargs.get("update_fields") or _LINEAGE_FIELDS)
+        lineage_changed = was_adding or any(
+            self.__dict__.get(field) != self._original_lineage[field] for field in written_lineage_fields
+        )
         # generate query metadata if needed
         if self._state.adding or self.query != self._original_query or self.query_metadata is None:
             try:
@@ -178,7 +187,15 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
                     error=str(e),
                 )
                 capture_exception(e)
-        super().save(*args, **kwargs)
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if lineage_changed and (not was_adding or self.query):
+                # HogQL metadata must stay off the model import path used by django.setup().
+                from products.product_analytics.backend.insight_lineage import sync_insight_lineage  # noqa: PLC0415
+
+                sync_insight_lineage(self, reload=kwargs.get("update_fields") is not None)
+        for field in written_lineage_fields:
+            self._original_lineage[field] = deepcopy(self.__dict__.get(field))
 
     def get_analytics_query_kinds(self) -> dict[str, str]:
         """

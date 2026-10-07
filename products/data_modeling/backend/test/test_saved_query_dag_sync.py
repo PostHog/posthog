@@ -603,14 +603,23 @@ class TestDeleteNodeFromDag(BaseTest):
 
         self.assertIn("downstream_view (view)", describe_dependents(upstream.name, context.exception.dependents))
 
-    @parameterized.expand([("live_insight_blocks", False), ("deleted_insight_does_not_block", True)])
-    def test_delete_asks_the_insight_whether_it_still_reads_the_view(self, _name: str, insight_deleted: bool):
+    @parameterized.expand(
+        [
+            ("live_insight_blocks", False, False),
+            ("custom_dag_reader_blocks", False, True),
+            ("deleted_insight_does_not_block", True, False),
+        ]
+    )
+    def test_delete_asks_the_insight_whether_it_still_reads_the_view(
+        self, _name: str, insight_deleted: bool, custom_dag: bool
+    ):
         upstream = DataWarehouseSavedQuery.objects.create(
             name="upstream_view",
             team=self.team,
             query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
         )
-        upstream_node = sync_saved_query_to_dag(upstream)
+        dag = DAG.objects.create(team=self.team, name="custom") if custom_dag else DAG.get_or_create_default(self.team)
+        upstream_node = sync_saved_query_to_dag(upstream, dag=dag)
         assert upstream_node is not None
         insight = Insight.objects.create(team=self.team, name="Monthly revenue", deleted=insight_deleted)
         sync_insight_to_dag(self.team, insight.id, insight.short_id, "Monthly revenue", ["upstream_view"])

@@ -6,7 +6,7 @@ from uuid import UUID
 from django.db.models import OuterRef, QuerySet, Subquery
 from django.utils.timezone import now
 
-from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
+from products.product_analytics.backend.facade.contracts import InsightReference, InsightVariableDefinition
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -93,12 +93,16 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return list(Insight.objects_including_soft_deleted.filter(team_id=team_id, id__in=insight_ids))
 
 
-def live_insights(*, team_id: int, insight_ids: Collection[int]) -> QuerySet[Insight]:
-    return (
+def insight_references(*, team_id: int, insight_ids: Collection[int]) -> list[InsightReference]:
+    rows = (
         Insight.objects.filter(team_id=team_id, id__in=insight_ids)
-        .only("id", "short_id", "name", "derived_name", "created_by_id")
         .order_by("id")
+        .values_list("id", "short_id", "name", "derived_name", "created_by_id")
     )
+    return [
+        InsightReference(id=id, short_id=short_id, name=name or derived_name or short_id, created_by_id=created_by_id)
+        for id, short_id, name, derived_name, created_by_id in rows
+    ]
 
 
 def insight_display_name(insight: Insight) -> str:

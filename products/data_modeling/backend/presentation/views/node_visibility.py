@@ -37,7 +37,12 @@ class NodeVisibilityMixin:
             "insight", [(str(reference.id), reference.created_by_id) for reference in references]
         )
         readable = {int(insight_id) for insight_id, level in levels.items() if level is not None and level != "none"}
-        return frozenset(node_id for insight_id, node_id in node_id_by_insight.items() if insight_id not in readable)
+        return frozenset(
+            node_id
+            for insight_id, node_ids in node_id_by_insight.items()
+            if insight_id not in readable
+            for node_id in node_ids
+        )
 
     def _exclude_hidden_nodes(self, queryset: QuerySet) -> QuerySet:
         hidden_types = self._hidden_node_types()

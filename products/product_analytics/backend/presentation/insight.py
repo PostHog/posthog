@@ -172,7 +172,6 @@ from products.product_analytics.backend.facade.api import (
     record_insight_view,
     record_insight_views,
     remove_insight_lineage,
-    sync_insight_lineage,
     sync_insights_lineage,
     with_last_viewed_at,
 )
@@ -827,9 +826,6 @@ class InsightSerializer(InsightBasicSerializer):
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
 
-        if insight.query:
-            sync_insight_lineage(insight)
-
         log_and_report_insight_activity(
             activity="created",
             insight=insight,
@@ -916,13 +912,6 @@ class InsightSerializer(InsightBasicSerializer):
                     )
 
             updated_insight = super().update(instance, validated_data)
-        # The lineage node holds what the query reads, the name the graph shows, and whether the insight is live.
-        lineage_changed = before_update is None or any(
-            getattr(before_update, field) != getattr(updated_insight, field)
-            for field in ("query", "name", "derived_name", "deleted")
-        )
-        if lineage_changed:
-            sync_insight_lineage(updated_insight)
         # Delete linked alerts only when the insight can no longer carry any alert. A switch between
         # alertable kinds (e.g. trends -> SQL) is left alone: the config type no longer matches, but
         # the alert check cycle re-validates against the current query and auto-disables + notifies on
@@ -2653,6 +2642,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 # `query_metadata` is derived from the query's entities, which this toggle doesn't touch, so it
                 # stays valid even though bulk_update skips the regeneration in `Insight.save`.
                 Insight.objects.bulk_update(to_update, ["query", "last_modified_at", "last_modified_by"])
+                sync_insights_lineage(to_update)
                 bulk_log_activity(activity_log_entries)
 
         return counts

@@ -10,10 +10,9 @@ import structlog
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.metadata import get_table_names
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.query_runner import get_query_runner
 
 from products.data_modeling.backend.facade.api import delete_insight_nodes, sync_insight_to_dag
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
@@ -27,35 +26,36 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-_WRAPPER_KINDS = frozenset({"DataTableNode", "DataVisualizationNode", "BIVisualizationNode", "InsightVizNode"})
 
+def insight_table_names(query: object) -> set[str]:
+    """Read dependencies without compiling a runner, which can execute an all-time timestamp query.
 
-def _names_a_table(value: object) -> bool:
-    """Whether any node in a query carries a `table_name`, the field every data warehouse series uses."""
-    if isinstance(value, dict):
-        table_name = value.get("table_name")
-        if isinstance(table_name, str) and table_name:
-            return True
-        return any(_names_a_table(child) for child in value.values())
-    if isinstance(value, list):
-        return any(_names_a_table(child) for child in value)
-    return False
-
-
-def insight_table_names(team: "Team", query: dict[str, Any]) -> set[str]:
-    """Every table and view an insight's query reads, spelled the way the query spells it.
-
-    SQL is parsed and not resolved, because resolution replaces a view with its body and the view's
-    name is the dependency. Every other kind gets its HogQL from its runner's `to_query()`, which is
-    where a data warehouse series turns into a table name. A query with no `table_name` anywhere reads
-    only PostHog tables, so building its runner can find nothing the caller keeps.
+    Parse SQL without resolving it, because resolution replaces each view with its body and loses
+    the view name. Warehouse series name their tables directly. HogQL filters, aggregations and
+    breakdowns can also read views inside subqueries.
     """
-    source = query.get("source") if query.get("kind") in _WRAPPER_KINDS else query
-    if isinstance(source, dict) and source.get("kind") == "HogQLQuery":
-        return set(get_table_names(parse_select(source["query"])))
-    if not _names_a_table(query):
-        return set()
-    return set(get_table_names(get_query_runner(query, team).to_query()))
+    names: set[str] = set()
+    if isinstance(query, dict):
+        if query.get("kind") == "HogQLQuery":
+            names.update(get_table_names(parse_select(query["query"])))
+        table_name = query.get("table_name")
+        if isinstance(table_name, str) and table_name:
+            names.add(table_name)
+        expressions = [query.get("math_hogql")]
+        if query.get("type") == "hogql":
+            expressions.append(query.get("key"))
+            expressions.append(query.get("property"))
+        if query.get("breakdown_type") == "hogql":
+            expressions.append(query.get("breakdown"))
+        for expression in expressions:
+            if isinstance(expression, str) and expression:
+                names.update(get_table_names(parse_expr(expression)))
+        for child in query.values():
+            names.update(insight_table_names(child))
+    elif isinstance(query, list):
+        for child in query:
+            names.update(insight_table_names(child))
+    return names
 
 
 def warehouse_dependency_names(team: "Team", query: dict[str, Any]) -> list[str]:
@@ -64,9 +64,7 @@ def warehouse_dependency_names(team: "Team", query: dict[str, Any]) -> list[str]
     PostHog tables such as `events` and `persons` are left out. Nearly every insight reads them, so
     edges to them would join every insight to the same few nodes and the graph would show nothing.
     """
-    return sorted(
-        name for name in insight_table_names(team, query) if resolve_object_by_name(team.pk, name) is not None
-    )
+    return sorted(name for name in insight_table_names(query) if resolve_object_by_name(team.pk, name) is not None)
 
 
 def _lineage_database(team: "Team") -> Database:
@@ -76,7 +74,9 @@ def _lineage_database(team: "Team") -> Database:
     )
 
 
-def sync_insight_lineage(insight: Insight, databases: dict[int, Database] | None = None) -> bool:
+def sync_insight_lineage(
+    insight: Insight, databases: dict[int, Database] | None = None, *, reload: bool = False
+) -> bool:
     """Bring the insight's lineage node in line with the insight, best effort. Returns False on a failure.
 
     A lineage failure must never fail the insight save, so every error is caught and the node keeps
@@ -89,6 +89,10 @@ def sync_insight_lineage(insight: Insight, databases: dict[int, Database] | None
     """
     try:
         with transaction.atomic():
+            if reload:
+                insight = Insight.objects_including_soft_deleted.select_related("team").get(
+                    pk=insight.pk, team_id=insight.team_id
+                )
             if insight.deleted:
                 delete_insight_nodes(insight.team_id, [insight.pk])
                 return True

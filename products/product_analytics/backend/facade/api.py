@@ -133,28 +133,13 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
 
 def insight_references(*, team_id: int, insight_ids: Collection[int]) -> list[InsightReference]:
     """The live insights among these ids, named the way the insight list names them. Deleted ones are left out."""
-    return [
-        InsightReference(
-            id=insight.pk,
-            short_id=insight.short_id,
-            name=logic.insight_display_name(insight),
-            created_by_id=insight.created_by_id,
-        )
-        for insight in logic.live_insights(team_id=team_id, insight_ids=insight_ids)
-    ]
-
-
-def sync_insight_lineage(insight: Insight) -> None:
-    """Rebuild the insight's node in the data modeling lineage graph from what its query reads, best effort."""
-    # The lineage module imports posthog.hogql.metadata, which reaches posthog.hogql.variables, which imports this
-    # facade, so a module-level import would be circular.
-    from products.product_analytics.backend import insight_lineage  # noqa: PLC0415
-
-    insight_lineage.sync_insight_lineage(insight)
+    return logic.insight_references(team_id=team_id, insight_ids=insight_ids)
 
 
 def remove_insight_lineage(insights: Collection[Insight]) -> None:
     """Drop the lineage nodes of insights that were just deleted, best effort."""
+    # The lineage module imports posthog.hogql.metadata, which reaches posthog.hogql.variables, which imports this
+    # facade, so a module-level import would be circular.
     from products.product_analytics.backend import insight_lineage  # noqa: PLC0415
 
     insight_lineage.remove_insight_lineage(insights)
