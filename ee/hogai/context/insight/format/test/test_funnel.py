@@ -312,3 +312,34 @@ class TestFunnelResultsFormatter(BaseTest):
             FunnelResultsFormatter(query, results, self.team, datetime.now()).format(),
             "Date|$pageview (custom) -> $ai_trace au breakdown conversion|$pageview (custom) -> $ai_trace au breakdown drop-off|$pageview (custom) -> $ai_trace us breakdown conversion|$pageview (custom) -> $ai_trace us breakdown drop-off\n2025-01-08|10%|90%|5%|95%\n2025-01-09|15.5%|84.5%|25%|75%\n2025-01-10|0%|100%|50%|50%",
         )
+
+    def test_funnel_trends_with_breakdown_of_uneven_length(self):
+        results = [
+            {
+                "count": 31,
+                "data": [10, 15.5, 0],
+                "days": ["2025-01-08", "2025-01-09", "2025-01-10"],
+                "labels": ["8-Jan-2025", "9-Jan-2025", "10-Jan-2025"],
+                "breakdown_value": ["au"],
+            },
+            {
+                "count": 12,
+                "data": [25],
+                "days": ["2025-01-09"],
+                "labels": ["9-Jan-2025"],
+                "breakdown_value": ["us"],
+            },
+        ]
+        query = AssistantFunnelsQuery(
+            series=[
+                AssistantFunnelsEventsNode(event="$pageview", custom_name="custom"),
+                AssistantFunnelsEventsNode(event="$ai_trace"),
+            ],
+            dateRange=AssistantDateRange(date_from="2025-01-08", date_to="2025-01-10"),
+            funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TRENDS),
+        )
+
+        self.assertEqual(
+            FunnelResultsFormatter(query, results, self.team, datetime.now()).format(),
+            "Date|$pageview (custom) -> $ai_trace au breakdown conversion|$pageview (custom) -> $ai_trace au breakdown drop-off|$pageview (custom) -> $ai_trace us breakdown conversion|$pageview (custom) -> $ai_trace us breakdown drop-off\n2025-01-08|10%|90%||\n2025-01-09|15.5%|84.5%|25%|75%\n2025-01-10|0%|100%||",
+        )
