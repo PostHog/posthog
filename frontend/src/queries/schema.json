@@ -2373,7 +2373,7 @@
             "type": "object"
         },
         "AssistantDataVisualizationAxis": {
-            "additionalProperties": false,
+            "additionalProperties": {},
             "properties": {
                 "column": {
                     "description": "Name of a column returned by the SQL query to map onto this axis.",
@@ -2388,7 +2388,7 @@
             "type": "object"
         },
         "AssistantDataVisualizationAxisDisplaySettings": {
-            "additionalProperties": false,
+            "additionalProperties": {},
             "properties": {
                 "color": {
                     "description": "Custom color for this series as a hex string (e.g. `#1d4aff`).",
@@ -2416,7 +2416,7 @@
             "type": "object"
         },
         "AssistantDataVisualizationAxisFormatting": {
-            "additionalProperties": false,
+            "additionalProperties": {},
             "properties": {
                 "decimalPlaces": {
                     "description": "Number of decimal places to display.",
@@ -2439,7 +2439,7 @@
             "type": "object"
         },
         "AssistantDataVisualizationAxisSettings": {
-            "additionalProperties": false,
+            "additionalProperties": {},
             "properties": {
                 "display": {
                     "$ref": "#/definitions/AssistantDataVisualizationAxisDisplaySettings",
@@ -2453,7 +2453,7 @@
             "type": "object"
         },
         "AssistantDataVisualizationBoxPlotSettings": {
-            "additionalProperties": false,
+            "additionalProperties": {},
             "properties": {
                 "excludeOutliers": {
                     "description": "Clip whiskers to 1.5 times the interquartile range. Defaults to true.",
@@ -2496,7 +2496,7 @@
             "type": "object"
         },
         "AssistantDataVisualizationChartSettings": {
-            "additionalProperties": false,
+            "additionalProperties": {},
             "properties": {
                 "boxPlot": {
                     "$ref": "#/definitions/AssistantDataVisualizationBoxPlotSettings",
@@ -2576,7 +2576,7 @@
             "type": "string"
         },
         "AssistantDataVisualizationGoalLine": {
-            "additionalProperties": false,
+            "additionalProperties": {},
             "properties": {
                 "label": {
                     "description": "Label rendered next to the goal line.",
@@ -2591,7 +2591,7 @@
             "type": "object"
         },
         "AssistantDataVisualizationNode": {
-            "additionalProperties": false,
+            "additionalProperties": {},
             "description": "SQL-backed visualization. Use this when the analysis requires custom SQL that cannot be expressed as a standard product-analytics insight — cross-source joins with the data warehouse, window functions, or bespoke aggregations.\n\nPrefer `AssistantInsightVizNode` for standard product analytics (trends, funnels, retention, paths, stickiness, lifecycle). Only reach for this node when SQL is strictly necessary.",
             "properties": {
                 "chartSettings": {
@@ -2619,7 +2619,7 @@
             "type": "object"
         },
         "AssistantDataVisualizationTableSettings": {
-            "additionalProperties": false,
+            "additionalProperties": {},
             "properties": {
                 "columns": {
                     "description": "Columns to display and their order. Omit to show every column returned by the query.",
@@ -2643,7 +2643,7 @@
             "type": "object"
         },
         "AssistantDataVisualizationYAxisSettings": {
-            "additionalProperties": false,
+            "additionalProperties": {},
             "properties": {
                 "label": {
                     "description": "Label rendered beside this Y axis.",

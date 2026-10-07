@@ -1825,6 +1825,10 @@ export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ScatterPlot
     | ChartDisplayType.BoxPlot
 
+// The AssistantDataVisualization* types advertise a subset of the real ChartSettings and
+// TableSettings. Each one carries an index signature, so zod keeps the fields it does not declare.
+// An agent that reads an insight, changes one setting, and writes it back then keeps every other
+// setting. The endpoint still validates the saved query against the real DataVisualizationNode.
 export interface AssistantDataVisualizationAxisDisplaySettings {
     /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
     yAxisPosition?: 'left' | 'right'
@@ -1840,6 +1844,7 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
     label?: string
     /** Custom color for this series as a hex string (e.g. `#1d4aff`). */
     color?: string
+    [key: string]: unknown
 }
 
 export interface AssistantDataVisualizationAxisFormatting {
@@ -1857,6 +1862,7 @@ export interface AssistantDataVisualizationAxisFormatting {
     style?: 'none' | 'number' | 'short' | 'percent'
     /** Number of decimal places to display. */
     decimalPlaces?: number
+    [key: string]: unknown
 }
 
 export interface AssistantDataVisualizationAxisSettings {
@@ -1864,6 +1870,7 @@ export interface AssistantDataVisualizationAxisSettings {
     display?: AssistantDataVisualizationAxisDisplaySettings
     /** Number-formatting settings for the values on this axis or series. */
     formatting?: AssistantDataVisualizationAxisFormatting
+    [key: string]: unknown
 }
 
 export interface AssistantDataVisualizationAxis {
@@ -1871,6 +1878,7 @@ export interface AssistantDataVisualizationAxis {
     column: string
     /** Optional series settings. Only applies to Y-axis series. */
     settings?: AssistantDataVisualizationAxisSettings
+    [key: string]: unknown
 }
 
 export interface AssistantDataVisualizationGoalLine {
@@ -1878,6 +1886,7 @@ export interface AssistantDataVisualizationGoalLine {
     label: string
     /** Y-axis value at which the goal line is drawn. */
     value: number
+    [key: string]: unknown
 }
 
 export interface AssistantDataVisualizationYAxisSettings {
@@ -1891,6 +1900,7 @@ export interface AssistantDataVisualizationYAxisSettings {
     showTicks?: boolean
     /** Show grid lines for this Y axis. */
     showGridLines?: boolean
+    [key: string]: unknown
 }
 
 export interface AssistantDataVisualizationBoxPlotSettings {
@@ -1912,6 +1922,7 @@ export interface AssistantDataVisualizationBoxPlotSettings {
     maxColumn: string
     /** Clip whiskers to 1.5 times the interquartile range. Defaults to true. */
     excludeOutliers?: boolean
+    [key: string]: unknown
 }
 
 export interface AssistantDataVisualizationChartSettings {
@@ -1948,6 +1959,7 @@ export interface AssistantDataVisualizationChartSettings {
     showNullsAsZero?: boolean
     /** Show a total summing all Y series. Applies to line, bar, and area charts. */
     showTotalRow?: boolean
+    [key: string]: unknown
 }
 
 export interface AssistantDataVisualizationTableSettings {
@@ -1957,6 +1969,7 @@ export interface AssistantDataVisualizationTableSettings {
     pinnedColumns?: string[]
     /** Transpose rows and columns. */
     transpose?: boolean
+    [key: string]: unknown
 }
 
 /**
@@ -1989,6 +2002,7 @@ export interface AssistantDataVisualizationNode {
     chartSettings?: AssistantDataVisualizationChartSettings
     /** Table configuration. Only applies when `display` is `ActionsTable` or omitted. */
     tableSettings?: AssistantDataVisualizationTableSettings
+    [key: string]: unknown
 }
 
 // `MCPInsightSerializer.validate_query` wraps these two shapes server-side before it saves the
