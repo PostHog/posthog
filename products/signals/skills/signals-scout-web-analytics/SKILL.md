@@ -50,10 +50,11 @@ SELECT uniqIf(session_id, $start_timestamp >= now() - INTERVAL 7 DAY) AS session
 FROM sessions
 WHERE $start_timestamp >= now() - INTERVAL 30 DAY
   AND $start_timestamp <= now() + INTERVAL 1 DAY
+  AND ($pageview_count > 0 OR $screen_count > 0)
 ```
 
-- **Zero sessions in 30d** — no web traffic to watch. Write `not-in-use:web-analytics:team{team_id}` ("checked at {timestamp}, no sessions in 30d") and close out empty — same-key re-runs idempotently refresh it.
-- **Sessions exist but `pageviews_7d` ≈ 0** — a mobile/screen-first project; the web analytics surface isn't meaningful here. Note it once (`pattern:web-analytics:screen-only-team{team_id}`) and close out.
+- **Zero web sessions in 30d** — no web traffic to watch. A project with only backend or custom-event sessions lands here too. Write `not-in-use:web-analytics:team{team_id}` ("checked at {timestamp}, no web sessions in 30d") and close out empty — same-key re-runs idempotently refresh it.
+- **Web sessions exist but `pageviews_7d` ≈ 0** — a mobile/screen-first project; the web analytics surface isn't meaningful here. Note it once (`pattern:web-analytics:screen-only-team{team_id}`) and close out.
 - **Traffic flowing** — proceed to a full run.
 
 ## How a run works

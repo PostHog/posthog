@@ -381,10 +381,10 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
     })),
 
     selectors({
-        // The jev arm's tiles only come as a grid, so its view toggle is hidden and the saved choice is ignored.
+        // The jev arm's rows only come as a list, so its view toggle is hidden and the saved choice is ignored.
         displayView: [
             (s) => [s.view, s.feedRanker],
-            (view: WatchFeedView, feedRanker: WatchFeedRanker): WatchFeedView => (feedRanker === 'jev' ? 'grid' : view),
+            (view: WatchFeedView, feedRanker: WatchFeedRanker): WatchFeedView => (feedRanker === 'jev' ? 'list' : view),
         ],
         /** Null until both probes answer, so an empty screen is never drawn from unresolved data. */
         emptyReason: [
