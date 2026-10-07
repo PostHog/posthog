@@ -801,8 +801,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             },
         ],
         aggregationLoading: [false as boolean, abortResilientLoading('fetchAggregation')],
-        // Shown as a warning on the pane in place of a toast. Set only once the fast-failure retry
-        // has also failed, and cleared as soon as the next attempt starts.
         spansError: [
             null as string | null,
             {

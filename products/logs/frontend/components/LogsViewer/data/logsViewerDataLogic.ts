@@ -596,8 +596,6 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         ],
         logsLoading: [false as boolean, abortResilientLoading('fetchLogs', 'fetchNextLogsPage')],
         sparklineLoading: [false as boolean, abortResilientLoading('fetchSparkline')],
-        // Shown as a warning on the pane in place of a toast. Set only once the fast-failure retry
-        // has also failed, and cleared as soon as the next attempt starts.
         logsError: [
             null as string | null,
             {

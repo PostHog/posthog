@@ -258,7 +258,7 @@ function TracingSceneContents(): JSX.Element {
                 <TracingSparkline
                     sparklineData={sparklineData}
                     sparklineLoading={sparklineLoading || (isDurationMode && !showHeatmap && durationHistogramLoading)}
-                    // The duration histogram takes the sparkline's slot, so a sparkline failure isn't on screen then.
+                    // The duration histogram replaces the sparkline in this mode.
                     sparklineError={isDurationMode && !showHeatmap ? null : sparklineError}
                     onDateRangeChange={setDateRange}
                     displayTimezone={TRACING_DISPLAY_TIMEZONE}

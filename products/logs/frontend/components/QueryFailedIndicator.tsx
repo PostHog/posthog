@@ -2,7 +2,7 @@ import { IconWarning } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-/** Overlays a warning on a pane whose query failed. The parent must be `relative`. */
+/** The parent must be `relative`. */
 export function QueryFailedIndicator({ error, label }: { error: string | null; label: string }): JSX.Element | null {
     if (!error) {
         return null
