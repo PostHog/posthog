@@ -1,14 +1,14 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import {
-    FLAG_EVALUATIONS_SERIES_FIELDS,
-    FLAG_EVALUATIONS_TABLE,
-} from 'lib/components/TaxonomicFilter/utils/featureFlagCallsGroup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils/strings'
+import {
+    FLAG_EVALUATIONS_SERIES_FIELDS,
+    FLAG_EVALUATIONS_TABLE,
+} from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'

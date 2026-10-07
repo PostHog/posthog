@@ -36,7 +36,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterGroupValueMap,
 } from 'lib/components/TaxonomicFilter/types'
-import { hiddenEventExplanation, hiddenEventMatchingSearch } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
+import { hiddenEventMatchingSearch } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { dayjs } from 'lib/dayjs'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -795,7 +795,9 @@ function InfiniteListEmptyState(): JSX.Element {
                         <strong>{hiddenEventSearched}</strong> isn't available here
                     </span>
                     <span className="max-w-80 text-center text-secondary">
-                        {hiddenEventExplanation(taxonomicGroupTypes)}
+                        PostHog still collects this event, but you can't build a saved query on it. Its data is moving,
+                        so a saved query would stop returning results. To see how a flag is used, open the flag and
+                        check its Usage tab.
                     </span>
                 </div>
             ) : (

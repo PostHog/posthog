@@ -128,10 +128,9 @@ export function TrendsSeries(): JSX.Element | null {
                     ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
                     ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
                     TaxonomicFilterGroupType.AutocaptureEvents,
-                    ...(supportsDataWarehouse
-                        ? [TaxonomicFilterGroupType.FeatureFlagCalls, TaxonomicFilterGroupType.DataWarehouse]
-                        : []),
+                    ...(supportsDataWarehouse ? [TaxonomicFilterGroupType.DataWarehouse] : []),
                 ]}
+                flagCallsFromFlagEvaluations={supportsDataWarehouse}
                 hideDeleteBtn={series?.length === 1}
                 addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
                 dataWarehousePopoverFields={isLifecycle ? lifecycleDataWarehousePopoverFields : undefined}

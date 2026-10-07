@@ -56,7 +56,7 @@ import {
     urlContainsRowLabel,
 } from '../utils/collapsedContainsRow'
 import { floatToFront } from '../utils/floatToFront'
-import { hiddenEventExplanation, hiddenEventMatchingSearch } from '../utils/hiddenEvents'
+import { hiddenEventMatchingSearch } from '../utils/hiddenEvents'
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
 import { MatchedValueBadge } from './MatchedValueBadge'
@@ -754,7 +754,7 @@ export function MenuFilterCombobox({
             // is absent, and neither of them can bring back an excluded name.
             return {
                 title: `${hiddenEventSearched} isn't available here`,
-                body: hiddenEventExplanation(groups.map((g) => g.type)),
+                body: "PostHog still collects this event, but you can't build a saved query on it. Its data is moving, so a saved query would stop returning results. To see how a flag is used, open the flag and check its Usage tab.",
             }
         }
         const categoryLabel = singleGroup?.name ?? null

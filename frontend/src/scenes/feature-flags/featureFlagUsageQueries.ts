@@ -5,9 +5,9 @@
 // Titles differ on purpose: update_feature_flag_dashboard looks tiles up by name, so the Python
 // names are pinned, while these use sentence case. The interval here follows the user's date range
 // rather than the template's fixed "day".
-import { FLAG_EVALUATIONS_TABLE } from 'lib/components/TaxonomicFilter/utils/featureFlagCallsGroup'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
+import { FLAG_EVALUATIONS_TABLE } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { BREAKDOWN_NULL_DISPLAY } from 'scenes/insights/utils'
 
 import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'

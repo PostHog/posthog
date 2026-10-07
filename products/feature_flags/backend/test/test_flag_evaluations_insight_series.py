@@ -111,7 +111,6 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("total_calls", BaseMathType.TOTAL, {"test": 3, "control": 1}),
-            # The experiment docs build this insight to compare variant exposure per person.
             ("unique_users", BaseMathType.DAU, {"test": 1, "control": 1}),
         ]
     )

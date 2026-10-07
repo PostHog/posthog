@@ -16,7 +16,6 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import { featureFlagCallsGroups } from 'lib/components/TaxonomicFilter/utils/featureFlagCallsGroup'
 import { hiddenEventNames } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { withKeywordShortcuts } from 'lib/components/TaxonomicFilter/utils/keywordShortcuts'
 import {
@@ -903,7 +902,6 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             minSearchQueryLength: 3,
             searchDescription: 'element text seen on autocapture events',
         },
-        ...featureFlagCallsGroups(currentTeam?.flag_evaluations_mode, includeHiddenEvents),
         {
             name: 'Custom Events',
             searchPlaceholder: 'custom events',

@@ -361,7 +361,6 @@ describe('insightVizDataLogic', () => {
             update: { series: [{ ...warehouseSeries, kind: warehouseKind }] },
         })
 
-        // The backend rejects these settings for every insight with a data warehouse series.
         it.each([
             addsWarehouseSeries(NodeKind.TrendsQuery, NodeKind.DataWarehouseNode),
             addsWarehouseSeries(NodeKind.FunnelsQuery, NodeKind.FunnelsDataWarehouseNode),
@@ -398,6 +397,17 @@ describe('insightVizDataLogic', () => {
                 })
             }
         )
+
+        it('clears sampling when adding a data warehouse series to an insight with no other unsupported settings', () => {
+            builtInsightVizDataLogic.actions.updateQuerySource({ samplingFactor: 0.1 } as TrendsQuery)
+            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({ samplingFactor: 0.1 })
+
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                series: [{ ...warehouseSeries, kind: NodeKind.DataWarehouseNode }],
+            } as TrendsQuery)
+
+            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({ samplingFactor: undefined })
+        })
     })
 
     describe('updateDateRange', () => {

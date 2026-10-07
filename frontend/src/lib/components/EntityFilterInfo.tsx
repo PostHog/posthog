@@ -4,6 +4,11 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
 import { getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import {
+    FEATURE_FLAG_CALLED_EVENT,
+    FLAG_CALLS_SERIES_NAME,
+    FLAG_EVALUATIONS_TABLE,
+} from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
+import {
     SeriesNode,
     isActionsSeriesNode,
     isEventsSeriesNode,
@@ -25,6 +30,22 @@ export type DisplayableEntity = EntityFilter | ActionFilter | SeriesNode
 export type DisplayEntityFilter = (EntityFilter | ActionFilter) & { table_name?: string }
 
 export function toDisplayEntityFilter(filter: DisplayableEntity): DisplayEntityFilter {
+    const displayFilter = nodeToDisplayEntityFilter(filter)
+    // A flag calls series stands in for the event and displays as it. Query results describe a warehouse
+    // series as an events entity whose id is the table name, so the check reads only the id.
+    if (displayFilter.id === FLAG_EVALUATIONS_TABLE) {
+        return {
+            ...displayFilter,
+            type: EntityTypes.EVENTS,
+            id: FEATURE_FLAG_CALLED_EVENT,
+            name: FLAG_CALLS_SERIES_NAME,
+            table_name: undefined,
+        }
+    }
+    return displayFilter
+}
+
+function nodeToDisplayEntityFilter(filter: DisplayableEntity): DisplayEntityFilter {
     if (!('kind' in filter)) {
         return filter
     }

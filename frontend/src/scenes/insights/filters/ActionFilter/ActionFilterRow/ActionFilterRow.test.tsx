@@ -21,7 +21,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { searchAndSelect, setupInsightMocks } from '~/test/insight-testing'
+import { eventDefinitions, searchAndSelect, setupInsightMocks } from '~/test/insight-testing'
 import {
     AvailableFeature,
     EntityTypes,
@@ -860,15 +860,30 @@ describe('ActionFilterRow', () => {
     })
 
     describe('feature flag calls series', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }: { request: Request }) => {
+                        const search = new URL(request.url).searchParams.get('search') ?? ''
+                        const flagCalled = { ...eventDefinitions[0], id: 'flag-called', name: '$feature_flag_called' }
+                        const results = [...eventDefinitions, flagCalled].filter((d) => d.name.includes(search))
+                        return [200, { results, count: results.length }]
+                    },
+                },
+            })
+        })
+
         // entityFilterLogic copies only the warehouse fields named in its own popover fields. Each case
         // passes the editor's fields to the logic as well as to the row.
         it.each([
             {
-                insight: 'trends',
+                insight: 'trends on mode 1',
+                mode: FlagEvaluationsModeEnumApi.Number1,
                 mathAvailability: MathAvailability.None,
                 dataWarehousePopoverFields: undefined,
                 expected: {
                     kind: NodeKind.DataWarehouseNode,
+                    name: 'Feature flag called',
                     table_name: 'posthog.flag_evaluations',
                     timestamp_field: 'timestamp',
                     id_field: 'uuid',
@@ -876,7 +891,8 @@ describe('ActionFilterRow', () => {
                 },
             },
             {
-                insight: 'funnels',
+                insight: 'funnels on mode 2',
+                mode: FlagEvaluationsModeEnumApi.Number2,
                 mathAvailability: MathAvailability.FunnelsOnly,
                 dataWarehousePopoverFields: [
                     { key: 'id_field', label: 'Unique ID' },
@@ -890,29 +906,33 @@ describe('ActionFilterRow', () => {
                     aggregation_target_field: 'person_id',
                 },
             },
+            {
+                insight: 'trends on mode 0',
+                mode: FlagEvaluationsModeEnumApi.Number0,
+                mathAvailability: MathAvailability.None,
+                dataWarehousePopoverFields: undefined,
+                expected: { kind: NodeKind.EventsNode, event: '$feature_flag_called' },
+            },
         ])(
-            'selecting it after a search for the hidden event builds the series for $insight',
-            async ({ mathAvailability, dataWarehousePopoverFields, expected }) => {
-                teamLogic.actions.loadCurrentTeamSuccess({
-                    ...MOCK_DEFAULT_TEAM,
-                    flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number1,
-                })
+            'picking Feature flag called builds the right series for $insight',
+            async ({ mode, mathAvailability, dataWarehousePopoverFields, expected }) => {
+                teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
                 const { logic, onChange } = setup(undefined, { dataWarehousePopoverFields })
                 renderRow(logic, {
                     ...INLINE_CONTEXT,
                     mathAvailability,
                     dataWarehousePopoverFields,
+                    flagCallsFromFlagEvaluations: true,
                     actionsTaxonomicGroupTypes: [
                         TaxonomicFilterGroupType.Events,
                         TaxonomicFilterGroupType.Actions,
-                        TaxonomicFilterGroupType.FeatureFlagCalls,
                         TaxonomicFilterGroupType.DataWarehouse,
                     ],
                 })
 
                 await userEvent.click(screen.getByTestId('trend-element-subject-0'))
                 await userEvent.type(await screen.findByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
-                const [entry] = await screen.findAllByText('Feature flag calls')
+                const [entry] = await screen.findAllByText('Feature flag called')
                 await userEvent.click(entry)
 
                 await waitFor(() => {

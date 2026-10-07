@@ -80,6 +80,7 @@ export interface ActionFilterRowProps {
     inlineEventsDocLink?: string
     /** Allow adding non-captured events */
     allowNonCapturedEvents?: boolean
+    flagCallsFromFlagEvaluations?: boolean
     hogQLGlobals?: Record<string, any>
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     operatorAllowlist?: PropertyOperator[]

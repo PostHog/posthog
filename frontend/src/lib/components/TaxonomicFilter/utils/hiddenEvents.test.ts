@@ -1,6 +1,5 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
-    hiddenEventExplanation,
     hiddenEventMatchingSearch,
     hiddenEventNames,
     withHiddenEventsExcluded,
@@ -43,19 +42,6 @@ describe('events hidden from query builders', () => {
                 FlagEvaluationsModeEnumApi.Number0
             )
             expect(merged?.[TaxonomicFilterGroupType.Events]).toEqual([null])
-        })
-    })
-
-    describe('hiddenEventExplanation', () => {
-        it.each([
-            [
-                'offers Feature flag calls',
-                [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.FeatureFlagCalls],
-                'pick Feature flag calls',
-            ],
-            ['offers only events', [TaxonomicFilterGroupType.Events], 'check its Usage tab'],
-        ])('points to the next step when the picker %s', (_label, groupTypes, nextStep) => {
-            expect(hiddenEventExplanation(groupTypes)).toContain(nextStep)
         })
     })
 

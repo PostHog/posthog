@@ -3,10 +3,11 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ActionFilter, EntityFilter, EntityTypes } from '~/types'
 
-import { EntityFilterInfo } from './EntityFilterInfo'
+import { DisplayableEntity, EntityFilterInfo } from './EntityFilterInfo'
 
 describe('EntityFilterInfo', () => {
     beforeEach(() => {
@@ -62,11 +63,37 @@ describe('EntityFilterInfo', () => {
         // API-created series often carry no name at all — the raw id label is not a rename
         ['a name-less core event', { type: EntityTypes.EVENTS, id: '$pageview' }, '$pageview'],
         ['an all-events series', { type: EntityTypes.EVENTS, id: null, name: 'All events' }, 'All events'],
-    ] as [string, EntityFilter, string][])('shows a single label for an unrenamed series on %s', (_, filter, label) => {
-        const { container } = render(<EntityFilterInfo filter={filter} />)
-        expect(screen.getAllByText(label)).toHaveLength(1)
-        expect(container.querySelectorAll('.EntityFilterInfo')).toHaveLength(1)
-    })
+        [
+            'a flag calls series',
+            {
+                kind: NodeKind.DataWarehouseNode,
+                id: 'posthog.flag_evaluations',
+                table_name: 'posthog.flag_evaluations',
+                name: 'Feature flag called',
+                timestamp_field: 'timestamp',
+                id_field: 'uuid',
+                distinct_id_field: 'distinct_id',
+            },
+            'Feature flag called',
+        ],
+        [
+            'a flag calls series in query results',
+            {
+                type: EntityTypes.EVENTS,
+                id: 'posthog.flag_evaluations',
+                name: 'posthog.flag_evaluations',
+                custom_name: 'Feature flag called',
+            },
+            'Feature flag called',
+        ],
+    ] as [string, DisplayableEntity, string][])(
+        'shows a single label for an unrenamed series on %s',
+        (_, filter, label) => {
+            const { container } = render(<EntityFilterInfo filter={filter} />)
+            expect(screen.getAllByText(label)).toHaveLength(1)
+            expect(container.querySelectorAll('.EntityFilterInfo')).toHaveLength(1)
+        }
+    )
 
     it('keeps the underlying entity out of the inline label when showSingleName is set', () => {
         const { container } = render(

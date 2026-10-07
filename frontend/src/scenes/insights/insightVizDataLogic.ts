@@ -2983,16 +2983,6 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as LifecycleQuery).customAggregationTarget = undefined
     }
 
-    if (
-        maybeChangedSeries &&
-        isLifecycleQuery(currentState) &&
-        maybeChangedSeries.some((series) => isLifecycleDataWarehouseNode(series))
-    ) {
-        ;(mergedUpdate as LifecycleQuery).properties = undefined
-        ;(mergedUpdate as LifecycleQuery).filterTestAccounts = false
-        ;(mergedUpdate as LifecycleQuery).samplingFactor = undefined
-    }
-
     const nextRetentionFilter = isRetentionQuery(currentState)
         ? (maybeChangedInsightFilter as RetentionFilter | undefined)
         : undefined
@@ -3016,10 +3006,13 @@ const handleQuerySourceUpdateSideEffects = (
         !!maybeChangedSeries?.some(isAnyDataWarehouseNode) ||
         nextRetentionFilter?.targetEntity?.type === 'data_warehouse' ||
         nextRetentionFilter?.returningEntity?.type === 'data_warehouse'
-    if (addsDataWarehouseSeries && (currentState.filterTestAccounts || currentState.properties)) {
-        lemonToast.info(
-            'Filter groups and test accounts are not supported for Data Warehouse series and have been disabled.'
-        )
+    const hasFiltersOrTestAccounts = !!(currentState.filterTestAccounts || currentState.properties)
+    if (addsDataWarehouseSeries && (hasFiltersOrTestAccounts || (currentState as TrendsQuery).samplingFactor != null)) {
+        if (hasFiltersOrTestAccounts) {
+            lemonToast.info(
+                'Filter groups and test accounts are not supported for Data Warehouse series and have been disabled.'
+            )
+        }
 
         ;(mergedUpdate as TrendsQuery).properties = undefined
         ;(mergedUpdate as TrendsQuery).filterTestAccounts = false

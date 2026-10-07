@@ -21,11 +21,6 @@ import {
     isQuickFilterItem,
     quickFilterToPropertyFilters,
 } from 'lib/components/TaxonomicFilter/types'
-import {
-    FEATURE_FLAG_CALLS_LABEL,
-    FLAG_EVALUATIONS_SERIES_FIELDS,
-    FLAG_EVALUATIONS_TABLE,
-} from 'lib/components/TaxonomicFilter/utils/featureFlagCallsGroup'
 import { TaxonomicPopover, TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
@@ -33,6 +28,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEventNamesForAction } from 'lib/utils/events'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { readsFlagEvaluationsTable } from 'scenes/feature-flags/featureFlagUsageQueries'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -55,6 +51,12 @@ import {
     mathsLogic,
 } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
+import {
+    FEATURE_FLAG_CALLED_EVENT,
+    FLAG_CALLS_SERIES_NAME,
+    FLAG_EVALUATIONS_SERIES_FIELDS,
+    FLAG_EVALUATIONS_TABLE,
+} from '../flagCallsSeries'
 import {
     isActionsSeriesNode,
     isAllEventsSeriesNode,
@@ -137,6 +139,7 @@ export function ActionFilterRow({
     excludedProperties,
     includeHiddenEvents,
     allowNonCapturedEvents,
+    flagCallsFromFlagEvaluations,
     hogQLGlobals,
     inlineEventsDocLink,
     definitionPopoverRenderer,
@@ -148,7 +151,8 @@ export function ActionFilterRow({
         ...actionsTaxonomicGroupTypes,
     ]
 
-    const { currentTeamId } = useValues(teamLogic)
+    const { currentTeam, currentTeamId } = useValues(teamLogic)
+    const buildsFlagCallsSeries = !!flagCallsFromFlagEvaluations && readsFlagEvaluationsTable(currentTeam)
     const { entityFilterVisible } = useValues(logic)
     const {
         updateSeriesEntity,
@@ -270,11 +274,15 @@ export function ActionFilterRow({
                 ])
                 return
             }
-            if (taxonomicGroupType === TaxonomicFilterGroupType.FeatureFlagCalls) {
+            if (
+                buildsFlagCallsSeries &&
+                taxonomicGroupType === TaxonomicFilterGroupType.Events &&
+                changedValue === FEATURE_FLAG_CALLED_EVENT
+            ) {
                 updateSeriesEntity(index, {
                     kind: dataWarehouseNodeKind ?? NodeKind.DataWarehouseNode,
                     key: FLAG_EVALUATIONS_TABLE,
-                    name: FEATURE_FLAG_CALLS_LABEL,
+                    name: FLAG_CALLS_SERIES_NAME,
                     ...FLAG_EVALUATIONS_SERIES_FIELDS,
                 })
                 return
@@ -308,7 +316,14 @@ export function ActionFilterRow({
                 })
             }
         },
-        [updateSeriesEntity, updateSeriesProperties, index, dataWarehousePopoverFields, dataWarehouseNodeKind]
+        [
+            updateSeriesEntity,
+            updateSeriesProperties,
+            index,
+            dataWarehousePopoverFields,
+            dataWarehouseNodeKind,
+            buildsFlagCallsSeries,
+        ]
     )
 
     const onMathSelect = (_: unknown, selectedMath?: string): void => {
@@ -429,7 +444,8 @@ export function ActionFilterRow({
                 typeKey === 'plugin-filters' ? ([] as DataWarehousePopoverField[]) : dataWarehousePopoverFields
             }
             excludedProperties={excludedProperties}
-            includeHiddenEvents={includeHiddenEvents}
+            // The hidden flag-call event shows again, because picking it builds the flag_evaluations series.
+            includeHiddenEvents={includeHiddenEvents || flagCallsFromFlagEvaluations}
             allowNonCapturedEvents={allowNonCapturedEvents}
             definitionPopoverRenderer={definitionPopoverRenderer}
         />

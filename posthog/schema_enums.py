@@ -2997,7 +2997,6 @@ class TaxonomicFilterGroupType(StrEnum):
     SCREEN_EVENTS = "screen_events"
     EMAIL_ADDRESSES = "email_addresses"
     AUTOCAPTURE_EVENTS = "autocapture_events"
-    FEATURE_FLAG_CALLS = "feature_flag_calls"
     CUSTOM_EVENTS = "custom_events"
     WILDCARD = "wildcard"
     GROUPS = "groups"

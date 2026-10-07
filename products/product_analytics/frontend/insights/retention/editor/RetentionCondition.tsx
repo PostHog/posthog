@@ -30,7 +30,6 @@ const retentionDataWarehousePopoverFields: DataWarehousePopoverField[] = [
 const actionsTaxonomicGroupTypes = [
     TaxonomicFilterGroupType.Events,
     TaxonomicFilterGroupType.Actions,
-    TaxonomicFilterGroupType.FeatureFlagCalls,
     TaxonomicFilterGroupType.DataWarehouse,
 ]
 
@@ -189,6 +188,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                 typeKey={`${keyForInsightLogicProps('new')(insightProps)}-targetEntity`}
                 propertiesTaxonomicGroupTypes={getRetentionPropertyFilterGroupTypes()}
                 actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
+                flagCallsFromFlagEvaluations
                 dataWarehousePopoverFields={retentionDataWarehousePopoverFields}
             />
             <LemonSelect
@@ -227,6 +227,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                 typeKey={`${keyForInsightLogicProps('new')(insightProps)}-returningEntity`}
                 propertiesTaxonomicGroupTypes={getRetentionPropertyFilterGroupTypes()}
                 actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
+                flagCallsFromFlagEvaluations
                 dataWarehousePopoverFields={retentionDataWarehousePopoverFields}
             />
             <div className="flex items-center gap-2">
