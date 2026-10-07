@@ -20,6 +20,7 @@ import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { MessagingTabActions } from './MessagingTabActions'
 import { messagingNavTabs } from './messagingTabs'
+import { SendingLimitsBanner } from './SendingLimitsBanner'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
@@ -166,6 +167,9 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
+            <SendingLimitsBanner
+                sendingAllowanceUrl={currentTab === 'reputation' ? undefined : urls.workflows('reputation')}
+            />
             <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset data-attr="workflows-scene-tabs" />
             <NewWorkflowModal />
         </SceneContent>

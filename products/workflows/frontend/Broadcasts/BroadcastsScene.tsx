@@ -16,6 +16,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
 import { MessagingTabActions } from '../MessagingTabActions'
 import { MESSAGING_NAV_TAB_KEYS, MessagingNavTabKey, messagingNavTabs } from '../messagingTabs'
+import { SendingLimitsBanner } from '../SendingLimitsBanner'
 import { BroadcastsFeaturePreview } from './BroadcastsFeaturePreview'
 import { BroadcastsTable } from './BroadcastsTable'
 import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
@@ -61,6 +62,9 @@ export function BroadcastsScene(): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
+            <SendingLimitsBanner
+                sendingAllowanceUrl={currentTab === 'reputation' ? undefined : urls.broadcasts('reputation')}
+            />
             <LemonTabs
                 activeKey={currentTab}
                 tabs={[

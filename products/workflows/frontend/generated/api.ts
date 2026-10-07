@@ -66,6 +66,7 @@ import type {
     WorkflowProposalApproveRequestApi,
     WorkflowProposalCreateApi,
     WorkflowProposalOutcomeApi,
+    WorkflowSendingLimitsApi,
     WorkflowStatsRowApi,
 } from './api.schemas'
 
@@ -1287,6 +1288,27 @@ export const hogFlowsReputationRetrieve = async (
     options?: RequestInit
 ): Promise<TeamEmailReputationResponseApi> => {
     return apiMutator<TeamEmailReputationResponseApi>(getHogFlowsReputationRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsSendingLimitsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/sending_limits/`
+}
+
+/**
+ * Which project-wide limits currently block or delay sends, for the scene-wide notice.
+ *
+ * Everyone who can read workflows sees the quotas, like the suspension read: a quota stops
+ * everyone's sends, so hiding it would leave silent send failures unexplained. The daily cap
+ * shares `team_reputation`'s gate on the sending allowance, because it reveals project-wide usage.
+ */
+export const hogFlowsSendingLimitsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowSendingLimitsApi> => {
+    return apiMutator<WorkflowSendingLimitsApi>(getHogFlowsSendingLimitsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

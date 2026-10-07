@@ -217,6 +217,20 @@ class EmailSendingAllowance:
     emails_sent_last_day: int
     enforced: bool
 
+    @property
+    def daily_cap_reached(self) -> bool:
+        return self.enforced and self.emails_sent_last_day >= self.emails_per_day
+
+
+@frozen
+class SendingLimits:
+    """Which project-wide limits currently stop or delay workflow sends."""
+
+    email_quota_limited: bool
+    destination_quota_limited: bool
+    email_daily_cap_reached: bool
+    emails_per_day: int | None
+
 
 class StaffPausedError(Exception):
     """A customer tried to resume a pause only staff may clear."""
