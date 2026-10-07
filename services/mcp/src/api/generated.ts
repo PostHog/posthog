@@ -29283,6 +29283,11 @@ export namespace Schemas {
     export type DataWarehouseSavedQueryMinimalColumnsItem = { [key: string]: unknown };
 
     /**
+     * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+     */
+    export type DataWarehouseSavedQueryMinimalSuspended = {[key: string]: SavedQuerySuspension};
+
+    /**
      * Lightweight serializer for list views - excludes large query field to reduce memory usage.
      */
     export interface DataWarehouseSavedQueryMinimal {
@@ -29308,6 +29313,8 @@ export namespace Schemas {
       readonly folder_name: string | null;
       /** @nullable */
       readonly latest_error: string | null;
+      /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+      readonly suspended: DataWarehouseSavedQueryMinimalSuspended;
       /** @nullable */
       readonly is_materialized: boolean | null;
       /** Whether this view is set up to update incrementally. A run can still rebuild the whole table, for example on the first run or after the query changes. */
@@ -31035,6 +31042,12 @@ export namespace Schemas {
      * * `Supermetrics` - Supermetrics
      * * `SQLite` - SQLite
      * * `Modal` - Modal
+     * * `Vimeo` - Vimeo
+     * * `Scrunch` - Scrunch
+     * * `Loom` - Loom
+     * * `Arcade` - Arcade
+     * * `Neo4j` - Neo4j
+     * * `TestDino` - TestDino
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -32405,6 +32418,12 @@ export namespace Schemas {
       Supermetrics: 'Supermetrics',
       SQLite: 'SQLite',
       Modal: 'Modal',
+      Vimeo: 'Vimeo',
+      Scrunch: 'Scrunch',
+      Loom: 'Loom',
+      Arcade: 'Arcade',
+      Neo4j: 'Neo4j',
+      TestDino: 'TestDino',
     } as const;
 
     /**
@@ -33788,7 +33807,13 @@ export namespace Schemas {
        * * `Ledyer` - Ledyer
        * * `Supermetrics` - Supermetrics
        * * `SQLite` - SQLite
-       * * `Modal` - Modal */
+       * * `Modal` - Modal
+       * * `Vimeo` - Vimeo
+       * * `Scrunch` - Scrunch
+       * * `Loom` - Loom
+       * * `Arcade` - Arcade
+       * * `Neo4j` - Neo4j
+       * * `TestDino` - TestDino */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -36420,7 +36445,13 @@ export namespace Schemas {
        * * `Ledyer` - Ledyer
        * * `Supermetrics` - Supermetrics
        * * `SQLite` - SQLite
-       * * `Modal` - Modal */
+       * * `Modal` - Modal
+       * * `Vimeo` - Vimeo
+       * * `Scrunch` - Scrunch
+       * * `Loom` - Loom
+       * * `Arcade` - Arcade
+       * * `Neo4j` - Neo4j
+       * * `TestDino` - TestDino */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -47758,7 +47789,13 @@ export namespace Schemas {
        * * `Ledyer` - Ledyer
        * * `Supermetrics` - Supermetrics
        * * `SQLite` - SQLite
-       * * `Modal` - Modal */
+       * * `Modal` - Modal
+       * * `Vimeo` - Vimeo
+       * * `Scrunch` - Scrunch
+       * * `Loom` - Loom
+       * * `Arcade` - Arcade
+       * * `Neo4j` - Neo4j
+       * * `TestDino` - TestDino */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -49162,7 +49199,13 @@ export namespace Schemas {
        * * `Ledyer` - Ledyer
        * * `Supermetrics` - Supermetrics
        * * `SQLite` - SQLite
-       * * `Modal` - Modal */
+       * * `Modal` - Modal
+       * * `Vimeo` - Vimeo
+       * * `Scrunch` - Scrunch
+       * * `Loom` - Loom
+       * * `Arcade` - Arcade
+       * * `Neo4j` - Neo4j
+       * * `TestDino` - TestDino */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -100145,7 +100188,13 @@ export namespace Schemas {
        * * `Ledyer` - Ledyer
        * * `Supermetrics` - Supermetrics
        * * `SQLite` - SQLite
-       * * `Modal` - Modal */
+       * * `Modal` - Modal
+       * * `Vimeo` - Vimeo
+       * * `Scrunch` - Scrunch
+       * * `Loom` - Loom
+       * * `Arcade` - Arcade
+       * * `Neo4j` - Neo4j
+       * * `TestDino` - TestDino */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -101580,7 +101629,13 @@ export namespace Schemas {
        * * `Ledyer` - Ledyer
        * * `Supermetrics` - Supermetrics
        * * `SQLite` - SQLite
-       * * `Modal` - Modal */
+       * * `Modal` - Modal
+       * * `Vimeo` - Vimeo
+       * * `Scrunch` - Scrunch
+       * * `Loom` - Loom
+       * * `Arcade` - Arcade
+       * * `Neo4j` - Neo4j
+       * * `TestDino` - TestDino */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -102982,7 +103037,13 @@ export namespace Schemas {
        * * `Ledyer` - Ledyer
        * * `Supermetrics` - Supermetrics
        * * `SQLite` - SQLite
-       * * `Modal` - Modal */
+       * * `Modal` - Modal
+       * * `Vimeo` - Vimeo
+       * * `Scrunch` - Scrunch
+       * * `Loom` - Loom
+       * * `Arcade` - Arcade
+       * * `Neo4j` - Neo4j
+       * * `TestDino` - TestDino */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
