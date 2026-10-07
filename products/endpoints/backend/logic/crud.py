@@ -17,8 +17,11 @@ from rest_framework.request import Request
 
 from posthog.schema import EndpointRequest, HogQLQuery
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.tagged_item import cleanup_orphan_tags, set_tags_on_object
 from posthog.clickhouse.query_tagging import Product
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -93,6 +96,8 @@ class EndpointCrudService:
             # Column extraction hits ClickHouse — do it outside the transaction.
             try:
                 columns: list[dict] | None = EndpointVersion.extract_columns(query_dict, team_id=self.team.pk)
+            except (ExposedHogQLError, ExposedCHQueryError):
+                columns = None
             except Exception as e:
                 capture_exception(
                     e,

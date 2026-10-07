@@ -20,7 +20,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_ast_for_printing
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.variables import replace_variables
 
 from posthog.exceptions_capture import capture_exception
@@ -110,9 +110,8 @@ def _validate_query_access(
 
     context = HogQLContext(team_id=team.pk, user=user, enable_select_queries=True)
     try:
-        # Using prepare_ast_for_printing instead of prepare_and_print_ast
-        # because table/view access is enforced during resolution
-        prepare_ast_for_printing(node=resolvable_ast, context=context, dialect="clickhouse")
+        # Resolution enforces table/view access. Printing checks function arguments.
+        prepare_and_print_ast(node=resolvable_ast, context=context, dialect="clickhouse")
     except ExposedHogQLError as err:
         # Surfaces "You don't have access to table `X`." (QueryError) and other resolver errors.
         raise ValidationError({"query": f"Invalid HogQL query: {err}"}) from err

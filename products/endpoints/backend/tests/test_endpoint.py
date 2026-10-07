@@ -116,6 +116,34 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["type"], "validation_error")
 
+    def test_cannot_create_endpoint_with_wrong_function_arity(self):
+        data = {
+            "name": "test_query",
+            "query": {"kind": "HogQLQuery", "query": "WITH x AS (SELECT today(1) AS d) SELECT d FROM x"},
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertIn("today", response.json()["detail"])
+        self.assertFalse(Endpoint.objects.filter(team=self.team, name="test_query").exists())
+
+    def test_get_columns_does_not_cache_or_capture_user_query_errors(self):
+        endpoint = create_endpoint_with_version(
+            name="bad_query",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT today(1)"},
+            created_by=self.user,
+        )
+        version = endpoint.get_version()
+
+        with mock.patch("products.endpoints.backend.models.capture_exception") as capture:
+            self.assertEqual(version.get_columns(), [])
+
+        capture.assert_not_called()
+        version.refresh_from_db()
+        self.assertIsNone(version.columns)
+
     def test_cannot_create_endpoint_with_undefined_variable_placeholders(self):
         data = {
             "name": "test_query",
