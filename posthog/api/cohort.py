@@ -1665,7 +1665,7 @@ def _directly_referenced_cohort_ids(flags: list[FeatureFlag]) -> set[int]:
     """Cohort ids each flag references directly, the ones ``FeatureFlag.get_cohort_ids`` starts from.
 
     Used to bulk-load those cohorts so the expansion doesn't point-query them one at a time.
-    An id that is not an integer is left to the expansion, which rejects it in v1 and skips it in v2.
+    An id that is not an integer is left to the expansion, which skips it.
     """
     return {cohort_id for flag in flags for cohort_id in references(decode_config(flag.filters)).cohort_ids}
 
@@ -1698,6 +1698,8 @@ def _filter_flags_referencing_cohort(
         in flag.get_cohort_ids(
             seen_cohorts_cache=seen_cohorts_cache,
             stop_traversal_at_static=stop_traversal_at_static,
+            # A non-integer id cannot reach this cohort. Raising on it would fail the whole lookup.
+            skip_invalid_cohort_ids=True,
         )
     ]
 

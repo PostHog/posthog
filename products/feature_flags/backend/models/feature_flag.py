@@ -428,6 +428,7 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
         seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
         sort_by_topological_order=False,
         stop_traversal_at_static: bool = False,
+        skip_invalid_cohort_ids: bool = False,
     ) -> list[int]:
         from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 
@@ -435,9 +436,10 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
             seen_cohorts_cache = {}
 
         cohort_ids = set()
-        # Unreadable formats raise. A non-integer id raises in v1, as it always did; v2 skips it, as Rust does.
+        # Unreadable formats raise. A non-integer id raises in v1 unless the caller asks to skip it.
+        # v2 always skips it, as Rust does.
         config = decode_config(self.get_filters())
-        invalid_ids: InvalidIds = "raise" if isinstance(config, ConfigV1) else "skip"
+        invalid_ids: InvalidIds = "raise" if isinstance(config, ConfigV1) and not skip_invalid_cohort_ids else "skip"
         direct_ids = references(config, invalid_cohort_ids=invalid_ids).cohort_ids
         for cohort_id in direct_ids:
             try:
