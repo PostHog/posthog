@@ -299,9 +299,10 @@ def cody_source(
 
     return SourceResponse(
         name=endpoint,
-        # The CSV column names aren't published and can't be verified without an Enterprise
-        # token, so no primary keys are declared — every endpoint is full refresh (replace).
+        # Most reports' CSV column names aren't published and can't be verified without an
+        # Enterprise token, so only endpoints with documented columns declare primary keys.
+        # Every endpoint is full refresh (replace).
         items=get_rows,
-        primary_keys=None,
+        primary_keys=config.primary_keys,
         sort_mode="asc",
     )
