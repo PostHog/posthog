@@ -36,4 +36,26 @@ describe('featureFlagLogic', () => {
             expect(logic.values.receivedFeatureFlags).toBe(expected)
         })
     })
+
+    describe('receivedServerFeatureFlags', () => {
+        afterEach(() => {
+            delete (posthog as any).config
+        })
+
+        it.each([
+            ['the bootstrapped flags', undefined, false],
+            ['a /flags response', { errorsLoading: false }, true],
+            ['a failed /flags response', { errorsLoading: true }, true],
+        ])('after %s is %s', (_name, context, expected) => {
+            initKeaTests()
+            const logic = featureFlagLogic()
+            logic.mount()
+            const callback = jest.mocked(posthog.onFeatureFlags).mock.calls.at(-1)![0]
+
+            callback(['my-flag'], { 'my-flag': true }, context)
+
+            expect(logic.values.receivedFeatureFlags).toBe(true)
+            expect(logic.values.receivedServerFeatureFlags).toBe(expected)
+        })
+    })
 })

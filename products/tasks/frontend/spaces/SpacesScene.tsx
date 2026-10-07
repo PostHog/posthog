@@ -20,7 +20,7 @@ import {
 } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useResolvedFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -37,11 +37,18 @@ export const scene: SceneExport = {
 }
 
 export function SpacesScene(): JSX.Element {
-    const enabled = useFeatureFlag('TODAY_RAIL_NAV')
+    const enabled = useResolvedFeatureFlag('TODAY_RAIL_NAV')
     const { lists, search, spacesLoading, spacesUnavailable, sortedSpaces } = useValues(spacesSceneLogic)
     const { setSearch, loadSpaces } = useActions(spacesSceneLogic)
     const { openNewSpace } = useActions(newSpaceLogic)
 
+    if (enabled === null) {
+        return (
+            <SceneContent>
+                <SceneTitleSection name={null} isLoading resourceType={{ type: 'task' }} />
+            </SceneContent>
+        )
+    }
     if (!enabled) {
         return <NotFound object="page" />
     }

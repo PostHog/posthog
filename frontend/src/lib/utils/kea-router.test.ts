@@ -1,10 +1,12 @@
 import {
     addProjectIdIfMissing,
     ensureRoutablePathname,
+    getProjectSwitchTargetUrl,
     removeProjectIdIfPresent,
     stripTrailingSlash,
     stripTrailingSlashFromUrl,
 } from 'lib/utils/kea-router'
+import { isKnownRoute } from 'scenes/scenes'
 
 describe('router-utils', () => {
     it('does not redirect account URLs to a project URL', () => {
@@ -118,6 +120,19 @@ describe('router-utils', () => {
             ['/', '/'],
         ])('turns %s into %s', (input, expected) => {
             expect(stripTrailingSlashFromUrl(input)).toEqual(expected)
+        })
+    })
+
+    describe('getProjectSwitchTargetUrl', () => {
+        it.each([
+            ['a session profile', '/project/1/sessions/abc', '/project/2/sessions'],
+            ['a person, whose parent has no page', '/project/1/person/abc', '/project/2'],
+            ['an insight', '/project/1/insights/abc', '/project/2/insights'],
+            ['a hog function, whose parent has no page', '/project/1/functions/abc', '/project/2'],
+            ['a group, whose parent has no page', '/project/1/groups/0/abc', '/project/2'],
+        ])('sends %s in another project to a page that exists', (_name, currentPath, expected) => {
+            const target = getProjectSwitchTargetUrl(currentPath, 2, 10, 20, isKnownRoute)
+            expect(target).toEqual(expected)
         })
     })
 

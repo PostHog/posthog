@@ -12,6 +12,7 @@ import { Label } from 'lib/ui/Label/Label'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { isKnownRoute } from 'scenes/scenes'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -96,7 +97,8 @@ export function ProjectCombobox(): JSX.Element | null {
                             location.pathname,
                             team.id,
                             currentTeam?.project_id,
-                            team.project_id
+                            team.project_id,
+                            isKnownRoute
                         )
 
                         return (
