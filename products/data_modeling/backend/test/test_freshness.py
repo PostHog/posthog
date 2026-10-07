@@ -267,6 +267,11 @@ class TestMaxDataAge(TestCase):
     def test_takes_the_slowest_chain_of_syncs_and_refreshes(self, _name, edges, intervals, targets, expected):
         self.assertEqual(max_data_age("v", edges, intervals, targets), expected)
 
+    def test_deep_chain_does_not_overflow(self):
+        depth = 5000
+        edges = [(f"n{i}", f"n{i + 1}") for i in range(depth - 1)]
+        self.assertEqual(max_data_age(f"n{depth - 1}", edges, {"n0": H1}, {}), H1)
+
 
 class TestIntersectTargetBounds(TestCase):
     # the same saved query has a node in two DAGs: one bounded by a 6h source, the other by a

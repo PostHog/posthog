@@ -39,7 +39,6 @@ import dataclasses
 from collections import defaultdict, deque
 from collections.abc import Iterable, Mapping
 from datetime import timedelta
-from functools import cache
 from typing import Literal
 
 # A streamed source (e.g. the events table) is continuously fresh, so it imposes no
@@ -196,16 +195,20 @@ def max_data_age(
     declared_targets: dict[str, timedelta],
 ) -> timedelta:
     """The oldest data `node_id` can serve when read live: its slowest chain of upstream syncs and refreshes."""
-    parents: dict[str, list[str]] = defaultdict(list)
-    for upstream, downstream in edges:
-        parents[downstream].append(upstream)
-
-    @cache
-    def age_through(node: str) -> timedelta:
-        own_delay = source_intervals.get(node, declared_targets.get(node, STREAMING))
-        return own_delay + max((age_through(parent) for parent in parents[node]), default=STREAMING)
-
-    return max((age_through(parent) for parent in parents[node_id]), default=STREAMING)
+    adj = _adjacency(edges)
+    all_ids = set(source_intervals) | {node for edge in edges for node in edge}
+    in_degree = {node: len(adj.parents.get(node, [])) for node in all_ids}
+    queue = deque(node for node in all_ids if in_degree[node] == 0)
+    age: dict[str, timedelta] = {}
+    while queue:
+        node = queue.popleft()
+        upstream_age = max((age[parent] for parent in adj.parents.get(node, [])), default=STREAMING)
+        age[node] = upstream_age + source_intervals.get(node, declared_targets.get(node, STREAMING))
+        for child in adj.children.get(node, []):
+            in_degree[child] -= 1
+            if in_degree[child] == 0:
+                queue.append(child)
+    return max((age[parent] for parent in adj.parents.get(node_id, []) if parent in age), default=STREAMING)
 
 
 def ancestors_of(node_id: str, edges: list[tuple[str, str]]) -> set[str]:
