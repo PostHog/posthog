@@ -61,9 +61,6 @@ export interface autoresearchLogicActions {
         name: string
     }
     loadPipelines: (_: void) => void
-    modelCardOpened: (id: string) => {
-        id: string
-    }
     loadPipelinesFailure: (
         error: string,
         errorObject?: any
@@ -77,6 +74,9 @@ export interface autoresearchLogicActions {
     ) => {
         pipelines: AutoresearchPipelineApi[]
         payload?: void
+    }
+    modelCardOpened: (id: string) => {
+        id: string
     }
     pausePipeline: (pipeline: AutoresearchPipelineApi) => {
         pipeline: AutoresearchPipelineApi
