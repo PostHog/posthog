@@ -203,15 +203,10 @@ Escalating to the next rung is the last resort, not the default.
 - **No cross-test ordering.**
   Tests must pass in any order and in isolation; don't rely on state a previous test left behind.
 - **A test must not inherit the CI matrix mode.**
-  Backend CI runs the same test under several modes, and a local run uses one of them.
-  The `build_django_matrix` job in `.github/workflows/ci-backend.yml` defines the modes and the environment variables that select them.
-  If the code under test branches on a mode, set the mode in the test: pass `HogQLQueryModifiers(...)` or use `override_settings`.
-  When the behavior must hold in several modes, add one `@parameterized` case for each mode.
-  A test that reads the ambient mode fails on every run of the other shards, and no retry clears it.
-- **A test you added or edited that fails in CI blocks the merge, even when the job is green.**
-  Trunk can classify a repeated failure as flaky and quarantine it, and a quarantined failure does not fail the job.
-  Search the Django job logs of the head run for the test name.
-  A `FAILED` line there needs a fix in the PR, whatever its cause. Use `/fixing-flaky-tests` when the failure is intermittent.
+  Backend CI runs one test under several modes, such as persons-on-events on and off, and a local run uses one of them.
+  If the code under test branches on a mode, set the mode in the test, with one `@parameterized` case for each mode that matters.
+- **A test you added that fails in CI blocks the merge, even when the job is green.**
+  Trunk can quarantine a repeated failure, and a quarantined failure does not fail the job.
 - **No `@skip` / `xfail` / `.skip`** without a one-line reason and a linked issue.
   A permanently-skipped test is dead weight — delete it or fix it.
 - **Never commit `.only`** (`it.only` / `describe.only`).

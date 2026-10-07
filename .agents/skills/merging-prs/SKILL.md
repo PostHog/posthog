@@ -54,8 +54,6 @@ gh pr view <n> --json state,isDraft,mergeable,reviewDecision,statusCheckRollup,b
 
 - **Failing required checks** (`statusCheckRollup`) → the queue will just reject it. Report which checks are red and stop; fix them first. **Pending** checks are fine — the queue waits for them. To work out _why_ a check is red, use `/debugging-ci-failures`.
 
-- **A quarantined failure in a test the PR adds or edits** → report and stop. Green checks do not rule this out: Trunk can quarantine a test after a few failures, and a quarantined failure passes the job on the PR, in the queue, and on `master`. For each test the diff adds or edits, search the Django job logs of the head run for the test name (`gh run view --job <job-id> --log`, or `depot ci logs <job-id>` for a Depot run). A `FAILED` line means the fix belongs in the PR, not in a retry. `hogli ci:insights search "<test name>"` is a faster first look, but it covers two days and shows one branch for each row, so an empty result does not clear the test.
-
 - **Merge conflicts** (`mergeable == "CONFLICTING"`) → report and stop; merge `master` in first.
 - **Head is on a fork** (`isCrossRepository == true`) → backend CI ran on GitHub Actions, so the required check is on the head as usual. Depot's optional checks are absent; that is expected and needs no action.
 - **Missing approval** (`reviewDecision == "REVIEW_REQUIRED"`, or a stamphog approval was dismissed) → ask stamphog for a review. Stamphog is the automated review-and-approve flow ([the engine README](../../../products/stamphog/packages/pr-approval-agent/README.md)): on an `APPROVED` verdict the Stamphog app posts the approval that satisfies the required review. Use the MCP route first, and the label only when MCP is not available.
