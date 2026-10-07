@@ -622,6 +622,13 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 posthog.capture('autoresearch model advanced opened')
             }
         },
+        submitNewPipelineFailure: () => {
+            // A closed Advanced section unmounts its fields, so their errors stay hidden until it opens.
+            const { training_lookback_days, iteration_budget } = values.newPipelineValidationErrors
+            if (!values.advancedOpen && (training_lookback_days || iteration_budget)) {
+                actions.setAdvancedOpen(true)
+            }
+        },
     })),
     urlToAction(({ values }) => ({
         [urls.autoresearchNew()]: () => {

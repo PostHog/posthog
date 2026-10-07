@@ -176,6 +176,22 @@ describe('autoresearchNewLogic', () => {
         expect(logic.values.newPipeline).toMatchObject({ name: 'Sharing adoption', horizon_days: 30 })
     })
 
+    it.each([
+        ['experiment budget', { iteration_budget: NaN }],
+        ['training lookback', { training_lookback_days: 5 }],
+    ])('opens Advanced when an invalid %s blocks submit', async (_, advancedValues) => {
+        const logic = autoresearchNewLogic()
+        logic.mount()
+        logic.actions.setNewPipelineValues({ name: 'Model', target_event: '$pageview', ...advancedValues })
+        await settle(logic)
+        expect(logic.values.advancedOpen).toBe(false)
+
+        logic.actions.submitNewPipeline()
+        await settle(logic)
+        expect(logic.values.advancedOpen).toBe(true)
+        expect(mockCreate).not.toHaveBeenCalled()
+    })
+
     it('blocks creation until the template resolves for the current target', async () => {
         mockResolve.mockResolvedValue(resolved({}))
         mockCreate.mockResolvedValue({ id: 'pipeline-1', name: 'Likely active soon' })
