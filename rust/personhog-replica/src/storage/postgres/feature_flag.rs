@@ -4,11 +4,12 @@ use async_trait::async_trait;
 use sqlx::FromRow;
 
 use personhog_common::grpc::{current_client_name, current_method_name};
+use personhog_common::persons::COOKIELESS_SENTINEL_VALUE;
 
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::FeatureFlagStorage;
-use crate::storage::types::{HashKeyOverride, HashKeyOverrideContext, COOKIELESS_SENTINEL_VALUE};
+use crate::storage::types::{HashKeyOverride, HashKeyOverrideContext};
 
 // Kept as an intermediate struct because the rows are aggregated into
 // HashKeyOverrideContext via HashMap grouping logic. All field types already
