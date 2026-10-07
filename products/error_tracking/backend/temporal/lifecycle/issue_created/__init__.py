@@ -3,6 +3,7 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.activities
     emit_issue_created_internal_event_activity,
     emit_issue_created_signal_activity,
     generate_issue_created_embedding_activity,
+    infer_issue_created_severity_activity,
     merge_issue_created_fingerprint_activity,
     persist_issue_created_embedding_activity,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "emit_issue_created_internal_event_activity",
     "emit_issue_created_signal_activity",
     "generate_issue_created_embedding_activity",
+    "infer_issue_created_severity_activity",
     "merge_issue_created_fingerprint_activity",
     "persist_issue_created_embedding_activity",
 ]

@@ -97,6 +97,33 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         assert "'secret_field'" not in sql
         assert not any("secret_field" in str(v) for v in values.values())
 
+    @parameterized.expand(
+        [
+            ("field_access", "SELECT properties.`customer%2Essn` AS x FROM events"),
+            (
+                "json_extract_in_where",
+                "SELECT count() FROM events WHERE JSONExtractString(properties, 'customer%2Essn') = '1'",
+            ),
+        ]
+    )
+    def test_denied_dotted_property_is_stripped_under_its_encoded_name(self, _name: str, query: str) -> None:
+        # The native table stores the flat key `customer.ssn` under the path `customer%2Essn`.
+        dotted_prop = PropertyDefinition.objects.create(
+            team=self.team, name="customer.ssn", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=dotted_prop, access_level=PropertyAccessLevel.NONE.value
+        )
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            user=self.user,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(useNewEventsSchema=True),
+        )
+        sql, _ = prepare_and_print_ast(parse_select(query), context=context, dialect="clickhouse")
+        assert "getSubcolumn" not in sql
+
     def test_allowed_property_not_affected(self):
         PropertyAccessControl.objects.create(
             team=self.team,
@@ -223,6 +250,11 @@ class TestRestrictPropertiesInHogQL(BaseTest):
     def test_role_override_allows_access(self):
         from products.access_control.backend.models.role import Role, RoleMembership
 
+        self.organization.available_product_features = [
+            {"name": feature, "key": feature}
+            for feature in (AvailableFeature.PROPERTY_ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS)
+        ]
+        self.organization.save()
         role = Role.objects.create(name="Analyst", organization=self.organization)
         RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
 

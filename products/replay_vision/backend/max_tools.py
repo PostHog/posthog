@@ -302,7 +302,7 @@ class SummarizeReplayVisionSummariesTool(ReplayVisionGatesMixin, MaxTool):
             scanner, "viewer"
         ) or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner):
             return f"Scanner {scanner_id} not found.", {"error": "forbidden"}
-        if scanner.scanner_type != ScannerType.SUMMARIZER:
+        if scanner.scanner_type not in (ScannerType.SUMMARIZER, ScannerType.EXPERIMENT):
             # Never interpolate the user-editable scanner name into tool output — it's outside the data fence.
             return (
                 f"That scanner is a {scanner.scanner_type} scanner, not a summarizer.",
@@ -310,8 +310,12 @@ class SummarizeReplayVisionSummariesTool(ReplayVisionGatesMixin, MaxTool):
             )
 
         observations = (
-            ReplayObservation.objects.filter(
-                team_id=self._team.id, scanner_id=scanner_id, status=ObservationStatus.SUCCEEDED
+            accessible_observations(
+                self.user_access_control,
+                self._team.id,
+                ReplayObservation.objects.filter(
+                    team_id=self._team.id, scanner_id=scanner_id, status=ObservationStatus.SUCCEEDED
+                ),
             )
             .order_by("-created_at")
             .values_list("scanner_result", "created_at")[:MAX_SUMMARIES]
@@ -501,7 +505,7 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
         empty = (f"No recordings from {scope_label} matched that search yet.", {"result_count": 0})
 
         response = search_observations(
-            self._team, self.user_access_control, scanner_ids, query_vector, capped_limit, filters
+            self._team, self.user_access_control, scanner_ids, lambda: query_vector, capped_limit, filters
         )
 
         lines: list[str] = []
@@ -923,7 +927,7 @@ def _scanner_config_for(
         config["tags"] = tags
     if scanner_type == ScannerType.SCORER and (scale_min is not None or scale_max is not None):
         config["scale"] = {"min": scale_min, "max": scale_max}
-    if scanner_type == ScannerType.SUMMARIZER and length is not None:
+    if scanner_type in (ScannerType.SUMMARIZER, ScannerType.EXPERIMENT) and length is not None:
         config["length"] = length
     return config
 
@@ -1084,6 +1088,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             context={
                 "get_team": lambda: self._team,
                 "user": self._user,
+                "user_access_control": self.user_access_control,
                 "event_source": EventSource.POSTHOG_AI,
             },
         )
@@ -1244,7 +1249,14 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             scanner,
             data=data,
             partial=True,
-            context={"get_team": lambda: self._team, "user": self._user},
+            # No HTTP request here, so the serializer can't derive the access control from one; without
+            # it the experiment-scope write guard would treat the caller as unrestricted.
+            context={
+                "get_team": lambda: self._team,
+                "user": self._user,
+                "user_access_control": self.user_access_control,
+                "event_source": EventSource.POSTHOG_AI,
+            },
         )
         if not serializer.is_valid():
             return _first_error(serializer.errors), {"error": "invalid_config"}

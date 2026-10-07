@@ -21,8 +21,8 @@ from products.stamphog.backend.temporal import activities  # noqa: E402
 from products.stamphog.backend.temporal.activities import (  # noqa: E402
     _clone_pr,
     _effective_policy_files,
-    _inject_policy_files,
     _prefetch_review_blobs,
+    _review_payload_command,
 )
 from products.stamphog.backend.temporal.constants import (  # noqa: E402
     STAMPHOG_POLICY_ENTRYPOINT,
@@ -109,23 +109,16 @@ def test_repo_guidance_and_steering_pass_through() -> None:
     assert effective[STAMPHOG_STEERING_PATH] == "steer this way\n"
 
 
-def test_inject_policy_files_wipes_optional_paths_from_pr_head() -> None:
+def test_review_payload_command_wipes_optional_paths_from_pr_head() -> None:
     # steering.md is injected only when the repo's default branch has it — so the wipe must cover it
     # regardless, or a PR head could plant a steering.md the reviewer would trust as maintainer prose.
-    executed: list[str] = []
+    command = _review_payload_command()
 
-    class _RecordingSandbox:
-        def execute(self, command: str, timeout_seconds: int | None = None) -> None:
-            executed.append(command)
-
-        def write_file(self, path: str, payload: bytes) -> None:
-            return None
-
-    _inject_policy_files(_RecordingSandbox(), {})  # type: ignore[arg-type]
-
-    wipes = [cmd for cmd in executed if cmd.startswith("rm -f")]
-    assert any(".stamphog/steering.md" in cmd for cmd in wipes)
-    assert any(".stamphog/policy.yml" in cmd for cmd in wipes)
+    wipe, _, extract = command.partition("tar -xzf")
+    assert ".stamphog/steering.md" in wipe
+    assert ".stamphog/policy.yml" in wipe
+    assert "rm -rf tools/pr-approval-agent tools/owners" in wipe
+    assert extract
 
 
 def test_clone_and_prefetch_carry_the_credential_on_every_github_fetch() -> None:
@@ -138,7 +131,8 @@ def test_clone_and_prefetch_carry_the_credential_on_every_github_fetch() -> None
 
     deadline = time.monotonic() + 600
     sandbox = _RecordingSandbox()
-    _clone_pr(sandbox, "acme/widgets", "mergebase", "headsha", 7, "tok", deadline)  # type: ignore[arg-type]
+    for step in ("head", "checkout"):
+        _clone_pr(sandbox, "acme/widgets", "mergebase", "headsha", 7, "tok", deadline, step=step)  # type: ignore[arg-type]
     _prefetch_review_blobs(sandbox, "mergebase", "tok", deadline)  # type: ignore[arg-type]
 
     # A fetch without the header is anonymous, which a private repository refuses. The token rides
@@ -223,10 +217,11 @@ def test_shallow_clone_holds_every_object_the_pr_diff_reads(
     if head_moved:
         # The pull ref now names a newer commit than the one this run was queued for.
         with pytest.raises(RuntimeError, match="the PR head is now"):
-            _clone_pr(sandbox, "acme/widgets", merge_base, base_tip, 7, "tok", deadline)  # type: ignore[arg-type]
+            _clone_pr(sandbox, "acme/widgets", "", base_tip, 7, "tok", deadline, step="head")  # type: ignore[arg-type]
         return
 
-    _clone_pr(sandbox, "acme/widgets", merge_base, head, 7, "tok", deadline)  # type: ignore[arg-type]
+    for step in ("head", "checkout"):
+        _clone_pr(sandbox, "acme/widgets", merge_base, head, 7, "tok", deadline, step=step)  # type: ignore[arg-type]
     _prefetch_review_blobs(sandbox, merge_base, "tok", deadline)  # type: ignore[arg-type]
 
     assert _git(target, "rev-parse", "HEAD") == head

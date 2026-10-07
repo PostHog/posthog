@@ -118,6 +118,8 @@ from posthog.hogql.database.schema.marketing_costs_precomputed import MarketingC
 from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
 from posthog.hogql.database.schema.metrics import (
     MetricAttributesTable,
+    MetricNamesTable,
+    MetricSamplesTable,
     MetricSeriesTable,
     MetricsKafkaMetricsTable,
     MetricsTable,
@@ -320,6 +322,15 @@ logger = structlog.get_logger(__name__)
 
 def is_reserved_system_name(name: str) -> bool:
     return name == "system" or name.startswith("system.")
+
+
+MODELS_NAMESPACE_ROOT_ERROR = "The models namespace needs a model name, for example models.revenue."
+MODELS_NAMESPACE_QUERY_ERROR = "The models namespace is reserved for data models. Choose a different name."
+MODELS_NAMESPACE_TABLE_ERROR = "The models namespace is reserved for data models. Choose a different table name."
+
+
+def is_reserved_models_name(name: str) -> bool:
+    return name == "models" or name.startswith("models.")
 
 
 def _revenue_trigger_prefixes(handles: list[SourceHandle]) -> set[str]:
@@ -564,6 +575,8 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     ),
                     "billing_usage_records": TableNode(name="billing_usage_records", table=BillingUsageRecordsTable()),
                     "metrics": TableNode(name="metrics", table=MetricsTable()),
+                    "metric_samples": TableNode(name="metric_samples", table=MetricSamplesTable()),
+                    "metric_names": TableNode(name="metric_names", table=MetricNamesTable()),
                     "metric_series": TableNode(name="metric_series", table=MetricSeriesTable()),
                     "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
                     "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
@@ -3381,6 +3394,16 @@ def _settled_catalog_certifications(
         return {}, {}
 
 
+def _resolve_readable_join(join: LazyJoin, context: HogQLContext) -> Table | None:
+    """The join's target table, or None when the user cannot read it. The database keeps a join
+    to a denied table so that a query that uses the join raises the access error, but the schema
+    must not list what the user cannot read."""
+    try:
+        return join.resolve_table(context)
+    except TableAccessDeniedError:
+        return None
+
+
 def serialize_fields(
     field_input,
     context: HogQLContext,
@@ -3551,7 +3574,9 @@ def serialize_fields(
                     )
                 )
         elif isinstance(field, LazyJoin):
-            resolved_table = field.resolve_table(context)
+            resolved_table = _resolve_readable_join(field, context)
+            if resolved_table is None:
+                continue
 
             if isinstance(resolved_table, SavedQuery):
                 type = DatabaseSerializedFieldType.VIEW
@@ -3566,8 +3591,12 @@ def serialize_fields(
                     hogql_value=hogql_value,
                     type=type,
                     schema_valid=schema_valid,
-                    table=field.resolve_table(context).to_printed_hogql(),
-                    fields=list(field.resolve_table(context).fields.keys()),
+                    table=resolved_table.to_printed_hogql(),
+                    fields=[
+                        name
+                        for name, nested in resolved_table.fields.items()
+                        if not isinstance(nested, LazyJoin) or _resolve_readable_join(nested, context) is not None
+                    ],
                     id=id or field_key,
                 )
             )

@@ -298,6 +298,7 @@ class BatchExportsDebugger:
                 schema=self.batch_export.schema,
                 filters=self.batch_export.filters,
                 hogql_query=self.batch_export.hogql_query,
+                hogql_modifiers=self.batch_export.hogql_modifiers,
             ),
             integration_id=self.batch_export.destination.integration_id,
             **destination_config,
@@ -429,13 +430,6 @@ class BatchExportsDebugger:
         extra_query_parameters: dict[str, str] = {}
         filters = batch_export_run.parent.filters
 
-        if filters is not None and len(filters) > 0:
-            filters_str, extra_query_parameters = compose_filters_clause(
-                filters, team_id=team_id, values=extra_query_parameters
-            )
-        else:
-            filters_str, extra_query_parameters = "", extra_query_parameters
-
         is_backfill = batch_export_run.backfill is not None
 
         if batch_export_run.parent.model == BatchExport.Model.PERSONS:
@@ -488,7 +482,15 @@ class BatchExportsDebugger:
 
             query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-            if query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema(team_id):
+            native_source = query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema(team_id)
+
+            filters_str = ""
+            if filters is not None and len(filters) > 0:
+                filters_str, extra_query_parameters = compose_filters_clause(
+                    filters, team_id=team_id, values=extra_query_parameters
+                )
+
+            if native_source:
                 query = native_events_export_query(query_fields, filters_str)
             else:
                 if filters_str:

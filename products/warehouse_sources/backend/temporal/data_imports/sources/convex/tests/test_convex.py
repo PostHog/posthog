@@ -1,9 +1,12 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
+from django.test import override_settings
+
+import structlog
 from parameterized import parameterized
 from requests.exceptions import (
     ChunkedEncodingError,
@@ -13,20 +16,21 @@ from requests.exceptions import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex import (
     _CONVEX_RETRY,
+    ConvexDataSyncCursor,
     ConvexResumeConfig,
+    ConvexResyncRequiredError,
     InvalidDeployKeyError,
     InvalidDeployUrlError,
-    InvalidWindowError,
     StreamingExportNotEnabledError,
-    _convex_get,
-    convex_source,
-    document_deltas,
+    _convex_post,
     get_json_schemas,
     iter_component_tables,
-    list_snapshot,
     qualified_table_name,
     split_qualified_table_name,
     validate_credentials,
@@ -34,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.convex.con
     validate_deploy_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.convex.source import ConvexSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.convex import ConvexSourceConfig
 
 
 def _make_response(json_data: dict[str, Any], status_code: int = 200) -> Mock:
@@ -45,20 +50,10 @@ def _make_response(json_data: dict[str, Any], status_code: int = 200) -> Mock:
     return response
 
 
-def _make_manager(can_resume: bool = False, state: ConvexResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = can_resume
-    manager.load_state.return_value = state
-    # Endpoint scoping returns a sibling manager; resolve it back to this mock so call
-    # assertions still observe the same object.
-    manager.with_namespace.return_value = manager
-    return manager
-
-
 class TestValidateDeployUrl:
     @parameterized.expand(
         [
-            # valid — should normalize to clean https://host
+            # Valid URLs normalize to a clean https://host.
             ("simple", "https://swift-lemur-123.convex.cloud", "https://swift-lemur-123.convex.cloud"),
             ("trailing_slash", "https://swift-lemur-123.convex.cloud/", "https://swift-lemur-123.convex.cloud"),
             ("uppercase", "HTTPS://Swift-Lemur-123.CONVEX.CLOUD", "https://swift-lemur-123.convex.cloud"),
@@ -74,7 +69,7 @@ class TestValidateDeployUrl:
                 "https://clever-falcon-77.us-east-1.convex.cloud",
                 "https://clever-falcon-77.us-east-1.convex.cloud",
             ),
-            # missing scheme — normalized by prepending https://
+            # A missing scheme normalizes by prepending https://.
             ("no_scheme", "swift-lemur-123.convex.cloud", "https://swift-lemur-123.convex.cloud"),
             (
                 "no_scheme_regional",
@@ -82,7 +77,7 @@ class TestValidateDeployUrl:
                 "https://breezy-otter-42.eu-west-1.convex.cloud",
             ),
             ("no_scheme_trailing_slash", "swift-lemur-123.convex.cloud/", "https://swift-lemur-123.convex.cloud"),
-            # invalid — should raise
+            # Invalid URLs must be rejected.
             ("http", "http://swift-lemur-123.convex.cloud", None),
             ("ftp", "ftp://swift-lemur-123.convex.cloud", None),
             ("wrong_tld", "https://swift-lemur-123.convex.io", None),
@@ -157,6 +152,28 @@ class TestValidateDeployUrl:
         assert "convex.cloud" not in err
         assert "400" in err
 
+    @parameterized.expand(
+        [
+            ("same_deployment", "prod:swift-lemur-123|abc", "Convex rejected your deploy key."),
+            ("unnamed_key", "abc123", "Convex rejected your deploy key."),
+            ("dev_key_for_prod_url", "dev:quiet-otter-456|abc", "belongs to a different Convex deployment"),
+            ("key_for_other_project", "prod:quiet-otter-456|abc", "belongs to a different Convex deployment"),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_validate_credentials_explains_a_rejected_deploy_key(self, _name, deploy_key, expected, mock_get):
+        response = Mock()
+        response.raise_for_status.side_effect = HTTPError(response=Mock(status_code=401))
+        mock_get.return_value.get.return_value = response
+
+        ok, err = validate_credentials("https://swift-lemur-123.eu-west-1.convex.cloud", deploy_key)
+
+        assert not ok
+        assert err is not None
+        assert expected in err
+        assert "swift-lemur-123" not in err
+        assert "quiet-otter-456" not in err
+
 
 class TestValidateDeployKey:
     @parameterized.expand(
@@ -194,259 +211,6 @@ class TestValidateDeployKey:
         assert headers["Authorization"] == "Convex prod:swift-lemur-123|abc"
 
 
-class TestListSnapshotResumable:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_fresh_run_saves_state_after_each_page(self, mock_get: Mock) -> None:
-        manager = _make_manager(can_resume=False)
-        mock_get.return_value.get.side_effect = [
-            _make_response({"values": [{"_id": "a"}], "cursor": 100, "snapshot": 500, "hasMore": True}),
-            _make_response({"values": [{"_id": "b"}], "cursor": 200, "snapshot": 500, "hasMore": True}),
-            _make_response({"values": [{"_id": "c"}], "cursor": 300, "snapshot": 500, "hasMore": False}),
-        ]
-
-        gen = list_snapshot("https://x.convex.cloud", "key", "t", manager)
-        batches = list(gen)
-
-        assert batches == [[{"_id": "a"}], [{"_id": "b"}], [{"_id": "c"}]]
-        manager.can_resume.assert_called_once()
-        manager.load_state.assert_not_called()
-
-        # State saved after each non-terminal page points to the NEXT page's cursor/snapshot.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
-            ConvexResumeConfig(cursor=100, snapshot=500),
-            ConvexResumeConfig(cursor=200, snapshot=500),
-        ]
-
-        # First request has no cursor/snapshot params; subsequent requests use the saved values.
-        first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
-        assert "cursor" not in first_params
-        assert "snapshot" not in first_params
-        second_params = mock_get.return_value.get.call_args_list[1].kwargs["params"]
-        assert second_params["cursor"] == 100
-        assert second_params["snapshot"] == 500
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_resume_seeds_paginator_from_saved_state(self, mock_get: Mock) -> None:
-        saved = ConvexResumeConfig(cursor=200, snapshot=500)
-        manager = _make_manager(can_resume=True, state=saved)
-        mock_get.return_value.get.return_value = _make_response(
-            {"values": [{"_id": "b"}], "cursor": 300, "snapshot": 500, "hasMore": False}
-        )
-
-        batches = list(list_snapshot("https://x.convex.cloud", "key", "t", manager))
-
-        assert batches == [[{"_id": "b"}]]
-        manager.load_state.assert_called_once()
-        # Paginator must start from saved cursor/snapshot, not from scratch.
-        first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
-        assert first_params["cursor"] == 200
-        assert first_params["snapshot"] == 500
-        # Final page terminates the loop before any save_state.
-        manager.save_state.assert_not_called()
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_empty_final_page_does_not_save_state(self, mock_get: Mock) -> None:
-        manager = _make_manager(can_resume=False)
-        mock_get.return_value.get.return_value = _make_response({"values": [], "snapshot": 0, "hasMore": False})
-
-        batches = list(list_snapshot("https://x.convex.cloud", "key", "t", manager))
-
-        assert batches == []
-        manager.save_state.assert_not_called()
-
-
-class TestDocumentDeltasResumable:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_fresh_run_saves_state_after_each_page(self, mock_get: Mock) -> None:
-        manager = _make_manager(can_resume=False)
-        mock_get.return_value.get.side_effect = [
-            _make_response({"values": [{"_id": "a"}], "cursor": 20, "hasMore": True}),
-            _make_response({"values": [{"_id": "b"}], "cursor": 30, "hasMore": False}),
-        ]
-
-        batches = list(document_deltas("https://x.convex.cloud", "key", "t", 10, manager))
-
-        assert batches == [[{"_id": "a"}], [{"_id": "b"}]]
-        manager.can_resume.assert_called_once()
-        manager.load_state.assert_not_called()
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [ConvexResumeConfig(cursor=20)]
-
-        # First request starts from the provided db cursor.
-        first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
-        assert first_params["cursor"] == 10
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_session_uses_convex_retry_policy(self, mock_get: Mock) -> None:
-        manager = _make_manager(can_resume=False)
-        mock_get.return_value.get.return_value = _make_response({"values": [], "cursor": 10, "hasMore": False})
-
-        list(document_deltas("https://x.convex.cloud", "key", "t", 10, manager))
-
-        # The Cloudflare-aware retry policy must be wired into the HTTP session, otherwise a
-        # transient 520 is raised immediately instead of retried.
-        assert mock_get.call_args.kwargs["retry"] is _CONVEX_RETRY
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_resume_overrides_db_cursor(self, mock_get: Mock) -> None:
-        saved = ConvexResumeConfig(cursor=25)
-        manager = _make_manager(can_resume=True, state=saved)
-        mock_get.return_value.get.return_value = _make_response(
-            {"values": [{"_id": "b"}], "cursor": 30, "hasMore": False}
-        )
-
-        batches = list(document_deltas("https://x.convex.cloud", "key", "t", 10, manager))
-
-        assert batches == [[{"_id": "b"}]]
-        # Resume state wins over the db_incremental_field_last_value seed.
-        first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
-        assert first_params["cursor"] == 25
-        manager.save_state.assert_not_called()
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_non_integer_resume_cursor_is_ignored(self, mock_get: Mock) -> None:
-        # A list_snapshot resume cursor ({tablet, id}) leaking into document_deltas must not be
-        # replayed — document_deltas requires an integer _ts and Convex 400s on the malformed
-        # cursor. Fall back to the db watermark instead.
-        saved = ConvexResumeConfig(cursor='{"tablet":"-cxKinhlnLuQp","id":"v9769ybsnjbhc9"}')
-        manager = _make_manager(can_resume=True, state=saved)
-        mock_get.return_value.get.return_value = _make_response(
-            {"values": [{"_id": "b"}], "cursor": 30, "hasMore": False}
-        )
-
-        batches = list(document_deltas("https://x.convex.cloud", "key", "t", 10, manager))
-
-        assert batches == [[{"_id": "b"}]]
-        first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
-        assert first_params["cursor"] == 10
-        # Discarding a poisoned cursor must not persist new state off the back of it.
-        manager.save_state.assert_not_called()
-
-
-class TestConvexTransientErrorRetry:
-    @parameterized.expand(
-        [
-            (
-                "chunked_encoding",
-                ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"),
-            ),
-            ("read_timeout", ReadTimeout("Read timed out. (read timeout=60)")),
-            ("connection_error", RequestsConnectionError("Max retries exceeded with url: /api/document_deltas")),
-        ]
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_document_deltas_retries_on_transient_error(
-        self, _name: str, transient_error: Exception, mock_get: Mock
-    ) -> None:
-        # These surface after urllib3's own (much shorter) retry budget is exhausted — a
-        # ChunkedEncodingError happens after the response headers, past _CONVEX_RETRY's reach
-        # entirely (urllib3 only retries pre-response failures), while ReadTimeout/ConnectionError
-        # can still occur once _CONVEX_RETRY's total attempts run out. The reads are idempotent
-        # GETs, so a fresh request must re-fetch the page rather than fail the whole sync.
-        manager = _make_manager(can_resume=False)
-        mock_get.return_value.get.side_effect = [
-            transient_error,
-            _make_response({"values": [{"_id": "a"}], "cursor": 30, "hasMore": False}),
-        ]
-
-        # tenacity attaches the Retrying controller as `.retry`; stub its sleep so the backoff
-        # between attempts doesn't actually block the test.
-        with patch.object(_convex_get.retry, "sleep"):  # type: ignore[attr-defined]
-            batches = list(document_deltas("https://x.convex.cloud", "key", "t", 10, manager))
-
-        assert batches == [[{"_id": "a"}]]
-        assert mock_get.return_value.get.call_count == 2
-
-
-class TestConvexRetryPolicy:
-    @parameterized.expand(
-        [
-            # Cloudflare 52x family — Convex sits behind Cloudflare and emits these on transient
-            # edge/origin trouble. The 520 here is the exact code that fails syncs in production.
-            ("cf_520_unknown_error", 520, True),
-            ("cf_521_web_server_down", 521, True),
-            ("cf_522_connection_timed_out", 522, True),
-            ("cf_523_origin_unreachable", 523, True),
-            ("cf_524_timeout", 524, True),
-            ("cf_530_dns_error", 530, True),
-            # Standard transient codes inherited from DEFAULT_RETRY must still be retried.
-            ("rate_limited_429", 429, True),
-            ("internal_500", 500, True),
-            ("bad_gateway_502", 502, True),
-            ("service_unavailable_503", 503, True),
-            ("gateway_timeout_504", 504, True),
-            # Client errors are not transient — they must not be retried away.
-            ("bad_request_400", 400, False),
-            ("unauthorized_401", 401, False),
-            ("forbidden_403", 403, False),
-            ("not_found_404", 404, False),
-        ]
-    )
-    def test_retry_status_handling(self, _name: str, status_code: int, expected_retry: bool) -> None:
-        assert _CONVEX_RETRY.is_retry("GET", status_code) is expected_retry
-
-
-class TestConvexSource:
-    @parameterized.expand(
-        [
-            (
-                "full_refresh",
-                False,
-                None,
-                {"values": [{"_id": "a", "_creationTime": 1}], "cursor": 100, "snapshot": 500, "hasMore": False},
-                [[{"_id": "a", "_creationTime": 1}]],
-                "/api/list_snapshot",
-                {},
-            ),
-            (
-                "incremental",
-                True,
-                10,
-                {"values": [{"_id": "a"}], "cursor": 50, "hasMore": False},
-                [[{"_id": "a"}]],
-                "/api/document_deltas",
-                {"cursor": 10},
-            ),
-        ]
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_threads_manager(
-        self,
-        _name: str,
-        should_use_incremental_field: bool,
-        db_incremental_field_last_value: int | None,
-        response_json: dict[str, Any],
-        expected_batches: list[list[dict[str, Any]]],
-        expected_url_fragment: str,
-        expected_first_params: dict[str, Any],
-        mock_get: Mock,
-    ) -> None:
-        manager = _make_manager(can_resume=False)
-        mock_get.return_value.get.return_value = _make_response(response_json)
-
-        response = convex_source(
-            deploy_url="https://x.convex.cloud",
-            deploy_key="key",
-            table_name="t",
-            team_id=1,
-            job_id="job",
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            resumable_source_manager=manager,
-        )
-
-        batches = list(cast(Iterable[Any], response.items()))
-        assert batches == expected_batches
-        assert response.primary_keys == ["_id"]
-        manager.can_resume.assert_called_once()
-        called_url = mock_get.return_value.get.call_args_list[0].args[0]
-        assert expected_url_fragment in called_url
-        first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
-        for key, value in expected_first_params.items():
-            assert first_params[key] == value
-
-
 class TestComponentSupport:
     @parameterized.expand(
         [
@@ -467,7 +231,7 @@ class TestComponentSupport:
 
     @parameterized.expand(
         [
-            # byComponent shape: {component_path: {table: schema}} — root is the "" key.
+            # The byComponent shape uses the empty key for the root component.
             (
                 "grouped_by_component",
                 {
@@ -501,77 +265,44 @@ class TestComponentSupport:
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_get_json_schemas_requests_by_component(self, mock_get: Mock) -> None:
         # Without byComponent=true the API returns only root-component tables, so non-default
-        # components (e.g. betterAuth) become invisible — this guards against that regression.
+        # components (e.g. betterAuth) become invisible.
         mock_get.return_value.get.return_value = _make_response({})
 
         get_json_schemas("https://x.convex.cloud", "key")
 
         assert mock_get.return_value.get.call_args.kwargs["params"]["byComponent"] == "true"
 
+
+class TestConvexRetryPolicy:
     @parameterized.expand(
         [
-            # Root tables must not send a component param — the API defaults to the root component.
-            ("root", "users", "users", None),
-            # A component-qualified warehouse table name must read the bare table from its component.
-            ("component", "betterAuth.users", "users", "betterAuth"),
+            # Convex sits behind Cloudflare and emits the 52x family on transient
+            # edge/origin trouble. The 520 here is the exact code that fails syncs in production.
+            ("cf_520_unknown_error", 520, True),
+            ("cf_521_web_server_down", 521, True),
+            ("cf_522_connection_timed_out", 522, True),
+            ("cf_523_origin_unreachable", 523, True),
+            ("cf_524_timeout", 524, True),
+            ("cf_530_dns_error", 530, True),
+            # Standard transient codes inherited from DEFAULT_RETRY must still be retried.
+            ("rate_limited_429", 429, True),
+            ("internal_500", 500, True),
+            ("bad_gateway_502", 502, True),
+            ("service_unavailable_503", 503, True),
+            ("gateway_timeout_504", 504, True),
+            # Client errors are not transient, so they must not be retried away.
+            ("bad_request_400", 400, False),
+            ("unauthorized_401", 401, False),
+            ("forbidden_403", 403, False),
+            ("not_found_404", 404, False),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_convex_source_routes_to_component(
-        self,
-        _name: str,
-        warehouse_table_name: str,
-        expected_convex_table: str,
-        expected_component: str | None,
-        mock_get: Mock,
-    ) -> None:
-        manager = _make_manager(can_resume=False)
-        mock_get.return_value.get.return_value = _make_response(
-            {"values": [{"_id": "a", "_creationTime": 1}], "cursor": 1, "snapshot": 1, "hasMore": False}
-        )
-
-        response = convex_source(
-            deploy_url="https://x.convex.cloud",
-            deploy_key="key",
-            table_name=warehouse_table_name,
-            team_id=1,
-            job_id="job",
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            resumable_source_manager=manager,
-        )
-
-        # The storage name stays qualified so the Delta path is stable per warehouse table.
-        assert response.name == warehouse_table_name
-
-        list(cast(Iterable[Any], response.items()))
-        params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
-        assert params["tableName"] == expected_convex_table
-        assert params.get("component") == expected_component
+    def test_retry_status_handling(self, _name: str, status_code: int, expected_retry: bool) -> None:
+        for method in ("GET", "POST"):
+            assert _CONVEX_RETRY.is_retry(method, status_code) is expected_retry
 
 
 class TestConvexNonRetryableErrors:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_invalid_window_message_is_recognised_as_non_retryable(self, mock_get: Mock) -> None:
-        # The activity-level non-retryable check compares its keys against `str(exception)`, which is
-        # the message only — not the class name. Drive document_deltas to raise the real error and
-        # assert the produced message matches a configured non-retryable key.
-        manager = _make_manager(can_resume=False)
-        mock_get.return_value.get.return_value = _make_response(
-            {
-                "code": "InvalidWindowToReadDocuments",
-                "message": "Trying to synchronize from a timestamp older than the retention window.",
-            },
-            status_code=400,
-        )
-
-        with pytest.raises(InvalidWindowError) as exc_info:
-            list(document_deltas("https://x.convex.cloud", "key", "email_unsubscribes", 10, manager))
-
-        error_msg = str(exc_info.value)
-        non_retryable_errors = ConvexSource().get_non_retryable_errors()
-        assert any(key in error_msg for key in non_retryable_errors), error_msg
-
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_streaming_export_not_enabled_message_is_recognised_as_non_retryable(self, mock_get: Mock) -> None:
         # get_schemas (schema discovery) calls get_json_schemas directly, unlike
@@ -602,22 +333,15 @@ class TestConvexNonRetryableErrors:
 
     @parameterized.expand(
         [
-            ("401", "401 Client Error: Unauthorized for url: https://x.convex.cloud/api/document_deltas"),
-            ("403", "403 Client Error: Forbidden for url: https://x.convex.cloud/api/document_deltas"),
+            ("401", "401 Client Error: Unauthorized for url: https://x.convex.cloud/api/v1/data/sync"),
+            ("403", "403 Client Error: Forbidden for url: https://x.convex.cloud/api/v1/data/sync"),
             (
                 "missing_table_404",
-                "404 Client Error: Not Found for url: "
-                "https://x.convex.cloud/api/list_snapshot?tableName=verification&format=json&component=betterAuth",
+                "404 Client Error: Not Found for url: https://x.convex.cloud/api/v1/data/sync",
             ),
             (
                 "cursor_conflict_409",
-                "409 Client Error: Conflict for url: "
-                "https://x.convex.cloud/api/document_deltas?tableName=users&cursor=123&format=json",
-            ),
-            (
-                "invalid_window",
-                "Delta cursor for table 'events' is older than Convex's ~30 day retention window. "
-                "Please trigger a full resync of this source.",
+                "409 Client Error: Conflict for url: https://x.convex.cloud/api/v1/data/sync",
             ),
             (
                 "unsendable_deploy_key",
@@ -635,10 +359,7 @@ class TestConvexNonRetryableErrors:
         # not store the raw driver text (which carries the deployment host). Mirror the finalizer's
         # first-match selection (external_data_job.py), including its case-insensitive matching via
         # `error_message_matches`, so a reorder that shadowed it with an earlier None key would be caught.
-        error_msg = (
-            "404 Client Error: Not Found for url: "
-            "https://x.convex.cloud/api/list_snapshot?tableName=verification&format=json&component=betterAuth"
-        )
+        error_msg = "404 Client Error: Not Found for url: https://x.convex.cloud/api/v1/data/sync"
         matches = [
             friendly
             for key, friendly in ConvexSource().get_non_retryable_errors().items()
@@ -650,7 +371,7 @@ class TestConvexNonRetryableErrors:
 
     @parameterized.expand(
         [
-            ("server_error", "500 Server Error for url: https://x.convex.cloud/api/document_deltas"),
+            ("server_error", "500 Server Error for url: https://x.convex.cloud/api/v1/data/sync"),
             ("read_timeout", "HTTPSConnectionPool(host='x.convex.cloud', port=443): Read timed out."),
         ]
     )
@@ -664,14 +385,13 @@ class TestConvexRetryableErrors:
         [
             (
                 "500",
-                "500 Server Error: Internal Server Error for url: "
-                "https://x.convex.cloud/api/list_snapshot?tableName=events&format=json",
+                "500 Server Error: Internal Server Error for url: https://x.convex.cloud/api/v1/data/sync",
             ),
-            ("502", "502 Server Error: Bad Gateway for url: https://x.convex.cloud/api/document_deltas"),
-            ("503", "503 Server Error: Service Unavailable for url: https://x.convex.cloud/api/list_snapshot"),
-            ("504", "504 Server Error: Gateway Timeout for url: https://x.convex.cloud/api/document_deltas"),
-            ("cloudflare_520", "520 Server Error: Unknown Error for url: https://x.convex.cloud/api/list_snapshot"),
-            ("429", "429 Client Error: Too Many Requests for url: https://x.convex.cloud/api/list_snapshot"),
+            ("502", "502 Server Error: Bad Gateway for url: https://x.convex.cloud/api/v1/data/sync"),
+            ("503", "503 Server Error: Service Unavailable for url: https://x.convex.cloud/api/v1/data/sync"),
+            ("504", "504 Server Error: Gateway Timeout for url: https://x.convex.cloud/api/v1/data/sync"),
+            ("cloudflare_520", "520 Server Error: Unknown Error for url: https://x.convex.cloud/api/v1/data/sync"),
+            ("429", "429 Client Error: Too Many Requests for url: https://x.convex.cloud/api/v1/data/sync"),
         ]
     )
     def test_transient_errors_are_recognized_as_retryable(self, _name: str, observed_error: str) -> None:
@@ -680,16 +400,379 @@ class TestConvexRetryableErrors:
 
     @parameterized.expand(
         [
-            ("401", "401 Client Error: Unauthorized for url: https://x.convex.cloud/api/document_deltas"),
-            ("403", "403 Client Error: Forbidden for url: https://x.convex.cloud/api/document_deltas"),
-            ("409", "409 Client Error: Conflict for url: https://x.convex.cloud/api/document_deltas"),
-            (
-                "invalid_window",
-                "Delta cursor for table 'events' is older than Convex's ~30 day retention window. "
-                "Please trigger a full resync of this source.",
-            ),
+            ("401", "401 Client Error: Unauthorized for url: https://x.convex.cloud/api/v1/data/sync"),
+            ("403", "403 Client Error: Forbidden for url: https://x.convex.cloud/api/v1/data/sync"),
+            ("409", "409 Client Error: Conflict for url: https://x.convex.cloud/api/v1/data/sync"),
         ]
     )
     def test_non_retryable_errors_do_not_match(self, _name: str, observed_error: str) -> None:
         retryable_errors = ConvexSource().get_retryable_errors()
         assert not any(key in observed_error for key in retryable_errors), observed_error
+
+
+@pytest.fixture
+def redis_boundary() -> Iterator[Mock]:
+    values: dict[str, str] = {}
+    client = Mock()
+    client.exists.side_effect = lambda key: int(key in values)
+    client.get.side_effect = values.get
+    client.set.side_effect = lambda key, value, **kwargs: values.update({key: value})
+    client.delete.side_effect = lambda key: values.pop(key, None)
+    with (
+        override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT=6379),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable.get_client",
+            return_value=client,
+        ),
+    ):
+        yield client
+
+
+@pytest.fixture
+def http_boundary() -> Iterator[Mock]:
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session"
+    ) as factory:
+        yield factory.return_value
+
+
+def _inputs(
+    incremental: bool = True,
+    stored: str | None = None,
+    watermark: int | None = None,
+    table: str = "users",
+) -> SourceInputs:
+    source = ConvexSource()
+    return SourceInputs(
+        schema_name=table,
+        schema_id="schema-id",
+        source_id="source-id",
+        team_id=1,
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value=watermark,
+        db_incremental_field_earliest_value=None,
+        incremental_field="_ts" if incremental else None,
+        incremental_field_type=None,
+        job_id="job-id",
+        logger=structlog.get_logger(),
+        reset_pipeline=False,
+        source_cursor=SourceCursorManager(
+            ConvexDataSyncCursor,
+            ConvexDataSyncCursor(cursor=stored) if stored else None,
+            source,
+        ),
+    )
+
+
+def _resource(inputs: SourceInputs, manager: ResumableSourceManager[ConvexResumeConfig]) -> SourceResponse:
+    return ConvexSource().source_for_pipeline(
+        ConvexSourceConfig(deploy_url="https://x.convex.cloud", deploy_key="key"), manager, inputs
+    )
+
+
+def _items(resource: SourceResponse) -> Iterable[Any]:
+    return cast(Iterable[Any], resource.items())
+
+
+_convex_post_retry = cast(Any, _convex_post).retry
+
+
+def _page(
+    cursor: str,
+    status: str = "upToDate",
+    has_more: bool = True,
+    values: list[dict[str, Any]] | None = None,
+    truncates: list[dict[str, str]] | None = None,
+) -> Mock:
+    return _make_response(
+        {
+            "status": {"type": status},
+            "values": values or [],
+            "truncates": truncates or [],
+            "syncId": "sync-id",
+            "pagination": {"nextCursor": cursor, "hasMore": has_more},
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "table,component", [("users", ""), ("auth.users", "auth"), ("parent/child.users", "parent/child")]
+)
+def test_single_table_selection_and_legacy_rows(
+    table: str, component: str, redis_boundary: Mock, http_boundary: Mock
+) -> None:
+    inputs = _inputs(table=table)
+    manager = ConvexSource().get_resumable_source_manager(inputs)
+    http_boundary.post.return_value = _page(
+        "end",
+        values=[
+            {
+                "component": component,
+                "table": "users",
+                "ts": 100,
+                "deleted": False,
+                "value": {"_id": "a", "_creationTime": 1700000000000, "name": "Example"},
+            },
+            {"component": component, "table": "users", "ts": 101, "deleted": True, "value": {"_id": "b"}},
+        ],
+    )
+    resource = _resource(inputs, manager)
+    assert list(_items(resource)) == [
+        [
+            {"_id": "a", "_creationTime": 1700000000, "name": "Example", "_ts": 100, "_deleted": False},
+            {"_id": "b", "_ts": 101, "_deleted": True},
+        ]
+    ]
+    request = http_boundary.post.call_args
+    assert request.args[0] == "https://x.convex.cloud/api/v1/data/sync"
+    assert request.kwargs["json"] == {
+        "selection": {"_other": "excluded", component: {"_other": "excluded", "users": {"_other": "included"}}}
+    }
+    assert request.kwargs["headers"]["Authorization"] == "Convex key"
+    assert resource.name == table
+    assert resource.primary_keys == ["_id"]
+    assert (resource.partition_keys, resource.partition_format) == (["_creationTime"], "week")
+
+
+@pytest.mark.parametrize("stored", ["stored", None])
+@pytest.mark.parametrize("final_has_more", [False, True])
+def test_catches_up_and_stages_the_cursor(
+    stored: str | None, final_has_more: bool, redis_boundary: Mock, http_boundary: Mock
+) -> None:
+    inputs = _inputs(stored=stored, watermark=123 if stored else None)
+    manager = ConvexSource().get_resumable_source_manager(inputs)
+    http_boundary.post.side_effect = [
+        _page("snapshot", status="snapshotting", has_more=False),
+        _page("stale", status="stale", has_more=False),
+        _page("end", has_more=final_has_more),
+    ]
+    assert list(_items(_resource(inputs, manager))) == []
+    requests = [call.kwargs["json"] for call in http_boundary.post.call_args_list]
+    assert requests[0].get("cursor") == stored
+    assert [body["cursor"] for body in requests[1:]] == ["snapshot", "stale"]
+    assert inputs.source_cursor is not None
+    assert inputs.source_cursor.staged == ConvexDataSyncCursor(cursor="end")
+    manager.confirm()
+    manager.commit()
+    assert manager.with_namespace("data_sync").load_state() == ConvexResumeConfig(
+        cursor="end", started_from_cursor=stored is not None
+    )
+
+
+def test_full_refresh_reads_one_list_snapshot(redis_boundary: Mock, http_boundary: Mock) -> None:
+    inputs = _inputs(incremental=False, stored="ignored", table="auth.users")
+    manager = ConvexSource().get_resumable_source_manager(inputs)
+    http_boundary.get.side_effect = [
+        _make_response({"values": [{"_id": "a", "_ts": 1}], "cursor": "c1", "snapshot": 5, "hasMore": True}),
+        _make_response({"values": [{"_id": "b", "_ts": 2}], "cursor": "c2", "snapshot": 5, "hasMore": False}),
+    ]
+    assert list(_items(_resource(inputs, manager))) == [[{"_id": "a", "_ts": 1}], [{"_id": "b", "_ts": 2}]]
+    http_boundary.post.assert_not_called()
+    first, second = http_boundary.get.call_args_list
+    assert first.args[0] == "https://x.convex.cloud/api/list_snapshot"
+    assert first.kwargs["params"] == {"tableName": "users", "format": "json", "component": "auth"}
+    assert (second.kwargs["params"]["cursor"], second.kwargs["params"]["snapshot"]) == ("c1", 5)
+    assert inputs.source_cursor is not None
+    assert inputs.source_cursor.staged is None
+
+
+def test_page_keeps_only_the_latest_revision_of_each_document(redis_boundary: Mock, http_boundary: Mock) -> None:
+    inputs = _inputs()
+    manager = ConvexSource().get_resumable_source_manager(inputs)
+    http_boundary.post.return_value = _page(
+        "end",
+        values=[
+            {"component": "", "table": "users", "ts": 100, "deleted": False, "value": {"_id": "a", "name": "v1"}},
+            {"component": "", "table": "users", "ts": 101, "deleted": False, "value": {"_id": "b"}},
+            {"component": "", "table": "users", "ts": 102, "deleted": True, "value": {"_id": "a"}},
+        ],
+    )
+    assert list(_items(_resource(inputs, manager))) == [
+        [{"_id": "a", "_ts": 102, "_deleted": True}, {"_id": "b", "_ts": 101, "_deleted": False}]
+    ]
+
+
+def test_legacy_watermark_converts_once_and_retries_from_saved_cursor(
+    redis_boundary: Mock, http_boundary: Mock
+) -> None:
+    inputs = _inputs(watermark=123, table="auth.users")
+    manager = ConvexSource().get_resumable_source_manager(inputs)
+    http_boundary.post.side_effect = [
+        _make_response({"cursor": "converted"}),
+        ReadTimeout("interrupted"),
+    ]
+    with patch.object(_convex_post_retry, "stop", return_value=True), pytest.raises(ReadTimeout):
+        list(_items(_resource(inputs, manager)))
+    assert http_boundary.post.call_args_list[0].args[0].endswith("/api/data_sync_cursor_from_deltas")
+    assert http_boundary.post.call_args_list[0].kwargs["json"] == {
+        "cursor": 123,
+        "selection": {"_other": "excluded", "auth": {"_other": "excluded", "users": {"_other": "included"}}},
+    }
+    http_boundary.post.side_effect = None
+    http_boundary.post.return_value = _page("end")
+    list(_items(_resource(inputs, ConvexSource().get_resumable_source_manager(inputs))))
+    assert http_boundary.post.call_args.kwargs["json"]["cursor"] == "converted"
+    assert (
+        sum(call.args[0].endswith("/api/data_sync_cursor_from_deltas") for call in http_boundary.post.call_args_list)
+        == 1
+    )
+
+
+@pytest.mark.parametrize("failure", [404, 400, 403, "invalid_response"])
+def test_refused_legacy_conversion_requests_reset(
+    failure: int | str, redis_boundary: Mock, http_boundary: Mock
+) -> None:
+    inputs = _inputs(watermark=123)
+    manager = ConvexSource().get_resumable_source_manager(inputs)
+    if isinstance(failure, int):
+        response = _make_response({}, status_code=failure)
+        response.raise_for_status.side_effect = HTTPError(f"{failure} Client Error", response=response)
+        http_boundary.post.return_value = response
+    else:
+        http_boundary.post.return_value = _make_response({})
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.update_sync_type_config_keys"
+        ) as reset,
+        patch.object(_convex_post_retry, "stop", return_value=True),
+        pytest.raises(ConvexResyncRequiredError, match="legacy sync position") as error,
+    ):
+        list(_items(_resource(inputs, manager)))
+    reset.assert_called_once_with("schema-id", 1, updates={"reset_pipeline": True})
+    source = ConvexSource()
+    assert not error_message_matches(str(error.value), source.get_non_retryable_errors())
+    assert error_message_matches(str(error.value), source.get_retryable_errors())
+    assert http_boundary.post.call_count == 1
+
+
+@pytest.mark.parametrize("failure", [500, 429, "connection"])
+def test_transient_legacy_conversion_failure_retries_without_reset(
+    failure: int | str, redis_boundary: Mock, http_boundary: Mock
+) -> None:
+    inputs = _inputs(watermark=123)
+    manager = ConvexSource().get_resumable_source_manager(inputs)
+    if isinstance(failure, int):
+        response = _make_response({}, status_code=failure)
+        response.raise_for_status.side_effect = HTTPError(f"{failure} Error", response=response)
+        http_boundary.post.return_value = response
+        expected: type[Exception] = HTTPError
+    else:
+        http_boundary.post.side_effect = RequestsConnectionError("unavailable")
+        expected = RequestsConnectionError
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.update_sync_type_config_keys"
+        ) as reset,
+        patch.object(_convex_post_retry, "stop", return_value=True),
+        patch.object(_convex_post_retry, "sleep"),
+        pytest.raises(expected),
+    ):
+        list(_items(_resource(inputs, manager)))
+    reset.assert_not_called()
+
+
+@pytest.mark.parametrize("origin", ["stored", "converted", "in_run", "fresh", "fresh_in_run"])
+@pytest.mark.parametrize("event", ["truncate", "expired"])
+def test_truncates_and_expiry_reset_only_when_required(
+    origin: str, event: str, redis_boundary: Mock, http_boundary: Mock
+) -> None:
+    inputs = _inputs(
+        stored="stored" if origin == "stored" else None,
+        watermark=123 if origin == "converted" else None,
+        table="auth.users",
+    )
+    manager = ConvexSource().get_resumable_source_manager(inputs)
+    scoped = manager.with_namespace("data_sync")
+    if origin in ("in_run", "fresh_in_run"):
+        with scoped.committing():
+            scoped.save_state(ConvexResumeConfig(cursor="resumed", started_from_cursor=origin == "in_run"))
+    if event == "truncate":
+        page = _page(
+            "end",
+            values=[{"value": {"_id": "replacement"}, "ts": 999, "deleted": False}],
+            truncates=[{"component": "auth", "table": "users"}],
+        )
+    else:
+        page = _make_response({"code": "DataSyncCursorExpired"}, status_code=400)
+    http_boundary.post.side_effect = (
+        [_make_response({"cursor": "converted"}), page] if origin == "converted" else [page]
+    )
+    requires_reset = event == "expired" or origin in ("stored", "converted", "in_run")
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.update_sync_type_config_keys"
+    ) as reset:
+        if requires_reset:
+            with pytest.raises(ConvexResyncRequiredError) as error:
+                list(_items(_resource(inputs, manager)))
+            reset.assert_called_once_with("schema-id", 1, updates={"reset_pipeline": True})
+            assert not error_message_matches(str(error.value), ConvexSource().get_non_retryable_errors())
+            assert error_message_matches(str(error.value), ConvexSource().get_retryable_errors())
+            assert not scoped.can_resume()
+            assert inputs.source_cursor is not None and inputs.source_cursor.staged is None
+            inputs.source_cursor = SourceCursorManager(ConvexDataSyncCursor, None, ConvexSource())
+            inputs.db_incremental_field_last_value = None
+            inputs.reset_pipeline = True
+            http_boundary.post.side_effect = None
+            http_boundary.post.return_value = _page("rebuilt", truncates=[{"component": "auth", "table": "users"}])
+            list(_items(_resource(inputs, manager)))
+            assert "cursor" not in http_boundary.post.call_args.kwargs["json"]
+        else:
+            assert list(_items(_resource(inputs, manager))) == [[{"_id": "replacement", "_ts": 999, "_deleted": False}]]
+            reset.assert_not_called()
+
+
+def _pipeline_safe_point(manager: Any) -> Any:
+    def hook() -> None:
+        manager.confirm()
+        manager.commit()
+
+    return hook
+
+
+@pytest.mark.parametrize("rows", [[], [{"value": {"_id": "a"}, "ts": 100, "deleted": False}]])
+def test_each_page_saves_resume_state_after_rows_and_continues_on_retry(
+    rows: list[dict[str, Any]], redis_boundary: Mock, http_boundary: Mock
+) -> None:
+    inputs = _inputs(stored="stored")
+    manager = ConvexSource().get_resumable_source_manager(inputs)
+    scoped = manager.with_namespace("data_sync")
+    http_boundary.post.side_effect = [_page("checkpoint", status="stale", values=rows), RuntimeError("interrupted")]
+    with activate_safe_point(_pipeline_safe_point(manager), covers_framework_checkpoints=False):
+        iterator = iter(_items(_resource(inputs, manager)))
+        if rows:
+            assert next(iterator) == [{"_id": "a", "_ts": 100, "_deleted": False}]
+            assert not scoped.can_resume()
+        with pytest.raises(RuntimeError, match="interrupted"):
+            list(iterator)
+    assert scoped.load_state() == ConvexResumeConfig(cursor="checkpoint", started_from_cursor=True)
+    http_boundary.post.side_effect = None
+    http_boundary.post.return_value = _page("end")
+    retry_manager = ConvexSource().get_resumable_source_manager(inputs)
+    with activate_safe_point(_pipeline_safe_point(retry_manager), covers_framework_checkpoints=False):
+        list(_items(_resource(inputs, retry_manager)))
+    assert http_boundary.post.call_args.kwargs["json"]["cursor"] == "checkpoint"
+    assert scoped.load_state() == ConvexResumeConfig(cursor="end", started_from_cursor=True)
+    assert inputs.source_cursor is not None and inputs.source_cursor.staged == ConvexDataSyncCursor(cursor="end")
+
+
+@pytest.mark.parametrize(
+    "transient_error",
+    [ChunkedEncodingError("interrupted"), ReadTimeout("timeout"), RequestsConnectionError("connection")],
+)
+def test_data_sync_retries_transient_transport_errors(
+    transient_error: Exception, redis_boundary: Mock, http_boundary: Mock
+) -> None:
+    inputs = _inputs()
+    http_boundary.post.side_effect = [transient_error, _page("end")]
+    with patch.object(_convex_post_retry, "sleep"):
+        list(_items(_resource(inputs, ConvexSource().get_resumable_source_manager(inputs))))
+    assert http_boundary.post.call_count == 2
+
+
+def test_data_sync_plan_error_maps_to_professional_plan(redis_boundary: Mock, http_boundary: Mock) -> None:
+    inputs = _inputs()
+    http_boundary.post.return_value = _make_response({"code": "StreamingExportNotEnabled"}, status_code=400)
+    with pytest.raises(StreamingExportNotEnabledError) as error:
+        list(_items(_resource(inputs, ConvexSource().get_resumable_source_manager(inputs))))
+    matches = [message for key, message in ConvexSource().get_non_retryable_errors().items() if key in str(error.value)]
+    assert matches and matches[0] is not None and "requires the Convex Professional plan" in matches[0]

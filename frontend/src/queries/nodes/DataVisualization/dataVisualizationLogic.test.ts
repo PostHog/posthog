@@ -1,8 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { queryExportContext } from '~/queries/query'
+import { ConditionalFormattingRule, VisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
+
+import { buildBIQuery, DEFAULT_BI_CONFIG } from 'products/business_intelligence/frontend/biEditorTypes'
+import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import {
@@ -15,13 +19,23 @@ import {
 const testKey = 'test-auto-visualization'
 const dataNodeCollectionId = 'new-test-SQL'
 
-const defaultQuery: DataVisualizationNode = {
+const defaultQuery: VisualizationNode = {
     kind: NodeKind.DataVisualizationNode,
     source: {
         kind: NodeKind.HogQLQuery,
         query: 'select 1',
     },
     display: ChartDisplayType.Auto,
+}
+
+const equalsRule: ConditionalFormattingRule = {
+    id: 'equals',
+    templateId: 'equals',
+    columnName: 'value',
+    input: '1',
+    color: '#FFADAD',
+    colorMode: 'light',
+    bytecode: ['_H', 1, 32, 'input', 1, 1, 32, 'value', 1, 1, 11, 38],
 }
 
 describe('dataVisualizationLogic', () => {
@@ -40,6 +54,41 @@ describe('dataVisualizationLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    test.each([
+        [true, 0, false],
+        [true, 99, false],
+        [true, 100, false],
+        [true, 101, true],
+        [false, 101, false],
+    ])('caps BI=%s results with %i rows before building chart series', (bi, rowCount, hasMore) => {
+        logic.unmount()
+        const config = { ...DEFAULT_BI_CONFIG, source: { table: 'events' }, limit: 100 as const }
+        const source = buildBIQuery(config)!.node.source
+        const query: VisualizationNode = bi
+            ? { kind: NodeKind.BIVisualizationNode, config, source, display: ChartDisplayType.ActionsBar }
+            : { ...defaultQuery, source, display: ChartDisplayType.ActionsBar }
+        const response = {
+            columns: ['label', 'value'],
+            types: [
+                ['label', 'String'],
+                ['value', 'Int64'],
+            ],
+            results: Array.from({ length: rowCount }, (_, index) => [`row-${index}`, index]),
+        }
+        logic = dataVisualizationLogic({ key: testKey, query, dataNodeCollectionId, cachedResults: response })
+        logic.mount()
+
+        const expectedRows = bi ? Math.min(rowCount, 100) : rowCount
+        expect(logic.values.response).toMatchObject({ results: response.results.slice(0, expectedRows) })
+        expect(logic.values.xData?.data).toHaveLength(expectedRows)
+        expect(logic.values.yData?.[0].data).toHaveLength(expectedRows)
+        expect(logic.values.hasMoreData).toBe(hasMore)
+        expect(getBIVisualizationSource(query).query).toMatch(new RegExp(`LIMIT ${bi ? 101 : 100}$`))
+        expect(query.source.query).toMatch(/LIMIT 100$/)
+        expect(queryExportContext(query)).toMatchObject({ source: { query: source.query } })
+        expect(response.results).toHaveLength(rowCount)
     })
 
     test.each([
@@ -659,8 +708,67 @@ describe('dataVisualizationLogic', () => {
         await expectLogic(logic).toMatchValues({ hasSortedTable: true })
     })
 
+    test.each([
+        {
+            name: 'loads the Hog VM for a table with formatting rules',
+            display: ChartDisplayType.ActionsTable,
+            rules: [equalsRule],
+            hogVm: expect.anything(),
+        },
+        {
+            name: 'does not load the Hog VM for a table without formatting rules',
+            display: ChartDisplayType.ActionsTable,
+            rules: [],
+            hogVm: null,
+        },
+        {
+            name: 'does not load the Hog VM for an auto visualization before its data arrives',
+            display: ChartDisplayType.Auto,
+            rules: [equalsRule],
+            hogVm: null,
+        },
+        {
+            name: 'does not load the Hog VM for a chart that kept table formatting rules',
+            display: ChartDisplayType.ActionsLineGraph,
+            rules: [equalsRule],
+            hogVm: null,
+        },
+    ])('$name', async ({ display, rules, hogVm }) => {
+        const tableLogic = dataVisualizationLogic({
+            key: 'hog-vm-loading',
+            query: { ...defaultQuery, display, tableSettings: { conditionalFormatting: rules } },
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        tableLogic.mount()
+
+        await expectLogic(tableLogic).toFinishAllListeners().toMatchValues({ hogVm })
+        tableLogic.unmount()
+    })
+
+    test.each([
+        { name: 'shows a Hog VM load failure while the table needs the VM', rules: [equalsRule], failed: true },
+        { name: 'hides a Hog VM load failure once the table has no rules', rules: [], failed: false },
+    ])('$name', async ({ rules, failed }) => {
+        const tableLogic = dataVisualizationLogic({
+            key: 'hog-vm-load-failure',
+            query: {
+                ...defaultQuery,
+                display: ChartDisplayType.ActionsTable,
+                tableSettings: { conditionalFormatting: rules },
+            },
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        tableLogic.mount()
+        await expectLogic(tableLogic).toFinishAllListeners()
+
+        tableLogic.actions.setHogVmLoadError(new Error('chunk failed'))
+
+        await expectLogic(tableLogic).toMatchValues({ hogVmLoadFailed: failed })
+        tableLogic.unmount()
+    })
+
     it('does not mutate the original query when updating y-axis formatting', async () => {
-        const queryWithAxisSettings: DataVisualizationNode = {
+        const queryWithAxisSettings: VisualizationNode = {
             ...defaultQuery,
             chartSettings: {
                 yAxis: [
@@ -771,6 +879,13 @@ describe('dataVisualizationLogic', () => {
     })
 
     it.each<[string, number, AxisSeriesSettings | undefined, string]>([
+        [
+            'pads currency decimal places',
+            12.5,
+            { formatting: { style: 'number', prefix: '$', decimalPlaces: 2 } },
+            '$12.50',
+        ],
+        ['pads percentage decimal places', 25, { formatting: { style: 'percent', decimalPlaces: 1 } }, '25.0%'],
         [
             'formats zero decimal places under the none style',
             42.195,

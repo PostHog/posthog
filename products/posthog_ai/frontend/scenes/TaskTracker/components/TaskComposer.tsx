@@ -1,15 +1,17 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
+import { Composer } from 'products/posthog_ai/frontend/api/composer'
 import {
-    Composer,
     DEFAULT_SUGGESTIONS_DATA,
     type SuggestionItem,
     Suggestions,
+    useThreadSkin,
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
@@ -26,17 +28,45 @@ import {
 } from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
-import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
+import { AttachedContextChips } from '../../../components/composer/AttachedContextChips'
+import { ComposerAttachmentChips } from '../../../components/composer/ComposerAttachmentChips'
+import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
+import { ComposerCodexBillingPickers } from '../../../components/composer/ComposerCodexBillingPickers'
+import {
+    ComposerModelEffortPickers,
+    type ComposerModelEffortPickersProps,
+} from '../../../components/composer/ComposerModelEffortPickers'
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { OnboardingReplayButton } from '../../../components/onboarding/OnboardingReplayButton'
+import { QuillAttachedContextPicker } from '../../../components/quill/QuillAttachedContextPicker'
+import { QuillComposerAttachButton } from '../../../components/quill/QuillComposerAttachButton'
+import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayout'
+import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
+import { QuillOnboardingReplayButton } from '../../../components/quill/QuillOnboardingReplayButton'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 
-export function TaskComposer(): JSX.Element {
-    const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion, clearConsentBlock } =
-        useActions(taskTrackerSceneLogic)
+export interface TaskComposerProps {
+    /** `inline` drops the welcome header and the full-height centering, for a composer placed inside a host page. */
+    variant?: 'page' | 'inline'
+    /** A host bumps this number to move focus to the input, for example when the user asks for a new session. */
+    focusRequest?: number
+    /** Focus the input on mount. A host page that is not mainly a composer turns it off and uses `focusRequest`. */
+    autoFocus?: boolean
+}
+
+export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = true }: TaskComposerProps): JSX.Element {
+    const inline = variant === 'inline'
+    const {
+        submitNewTask,
+        setNewTaskData,
+        pickPermissionMode,
+        setActiveSuggestionGroup,
+        applySuggestion,
+        clearConsentBlock,
+    } = useActions(taskTrackerSceneLogic)
     const {
         newTaskData,
         isSubmittingTask,
@@ -59,6 +89,10 @@ export function TaskComposer(): JSX.Element {
     // The bound instance's key — 'scene' on `/ai` and `/tasks`, the panel key when embedded. The onboarding
     // takeover is keyed the same way, so a starter prompt chosen on replay reaches this composer.
     const panelId = useMountedLogic(taskTrackerSceneLogic).props.panelId
+    // Matches the key `taskTrackerSceneLogic` connects the attachments logic under, so the files this
+    // composer stages are the ones its submit uploads.
+    const attachmentsKey = panelId ?? 'scene'
+    const onPaste = useComposerAttachmentPaste(attachmentsKey)
 
     // Buffer the description locally and debounce the write to kea so each keystroke is a cheap, isolated
     // re-render instead of a store dispatch. `Composer.Root` already blocks send on an empty `draft.value`
@@ -66,6 +100,17 @@ export function TaskComposer(): JSX.Element {
     const draft = useDebouncedDraft(newTaskData.description, (value) => setNewTaskData({ description: value }))
 
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
+    // The whole input frame is the drop target, so a file dropped anywhere on it attaches.
+    const frameRef = useRef<HTMLLabelElement>(null)
+    const groupRef = useRef<HTMLDivElement>(null)
+    const skin = useThreadSkin()
+    const showSuggestions = skin === 'lemon' && !composerOverride?.hideSuggestions
+
+    useEffect(() => {
+        if (focusRequest > 0) {
+            textAreaRef.current?.focus()
+        }
+    }, [focusRequest])
 
     const handleSelectSuggestion = (item: SuggestionItem): void => {
         applySuggestion(item)
@@ -74,14 +119,83 @@ export function TaskComposer(): JSX.Element {
         }
     }
 
+    const field = (
+        <Composer.Field>
+            <Composer.Placeholder>
+                {composerOverride?.placeholder ?? 'Describe the task in detail…'}
+            </Composer.Placeholder>
+            <Composer.Textarea autoFocus={autoFocus} onPaste={onPaste} data-attr="task-composer-input" />
+        </Composer.Field>
+    )
+    const modePicker = (
+        <ComposerModePicker
+            modes={getModesForRuntimeAdapter(composerAdapter)}
+            selectedMode={newTaskData.permissionMode}
+            onModeChange={pickPermissionMode}
+        />
+    )
+    const codexBillingEnabled = useFeatureFlag('POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD')
+    const modelPickerProps: ComposerModelEffortPickersProps = {
+        models: offeredModels,
+        selectedModel: displayModel,
+        defaultModel,
+        isDefaultModelLoading: myConfigLoading,
+        selectedEffort: displayEffort,
+        isDefaultSelection,
+        onModelChange: (model) =>
+            setNewTaskData({
+                model,
+                reasoningEffort: resolveEffortForModel(catalogue, newTaskData.reasoningEffort, model),
+                // Clamp the mode too, not just the effort: leaving a Claude-only mode selected against a Codex
+                // model would show one permission ceiling and send a broader one.
+                permissionMode: resolveModeForRuntimeAdapter(
+                    getRuntimeAdapterForModel(catalogue, model),
+                    newTaskData.permissionMode
+                ),
+            }),
+        onEffortChange: (reasoningEffort) => setNewTaskData({ reasoningEffort }),
+        // Clearing both pins is what hands the choice back to the resolved default — submit then omits the
+        // triple entirely.
+        onResetToDefault: () => setNewTaskData({ model: null, reasoningEffort: null }),
+        onOpenDefaultSettings: () =>
+            router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference')),
+    }
+    const modelPicker = codexBillingEnabled ? (
+        <ComposerCodexBillingPickers {...modelPickerProps} />
+    ) : (
+        <ComposerModelEffortPickers {...modelPickerProps} />
+    )
+    const withConsent = (sendButton: JSX.Element): JSX.Element => (
+        <AIConsentPopoverWrapper
+            placement="bottom-end"
+            showArrow
+            ignoreDismissal
+            hidden={!consentBlocked}
+            onApprove={() => submitNewTask()}
+            onDismiss={() => clearConsentBlock()}
+        >
+            {sendButton}
+        </AIConsentPopoverWrapper>
+    )
+
     return (
-        <div className="flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4">
-            <div className="w-full max-w-2xl flex flex-col items-center gap-4">
-                <Welcome headline={displayHeadline} subheadline={composerOverride?.subheadline}>
-                    {/* Temporary migration affordance — delete with the rest of the onboarding takeover
-                        once everyone is on the new PostHog AI. */}
-                    {!composerOverride?.hideOnboardingReplay && <OnboardingReplayButton panelId={panelId} />}
-                </Welcome>
+        <div
+            className={
+                inline
+                    ? 'flex flex-col'
+                    : '@container/task-composer flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4'
+            }
+        >
+            <div
+                className={inline ? 'w-full flex flex-col gap-4' : 'w-full max-w-2xl flex flex-col items-center gap-4'}
+            >
+                {!inline && skin === 'lemon' && (
+                    <Welcome headline={displayHeadline} subheadline={composerOverride?.subheadline}>
+                        {/* Temporary migration affordance — delete with the rest of the onboarding takeover
+                            once everyone is on the new PostHog AI. */}
+                        {!composerOverride?.hideOnboardingReplay && <OnboardingReplayButton panelId={panelId} />}
+                    </Welcome>
+                )}
 
                 <Suggestions.Root
                     activeGroup={activeSuggestionGroup}
@@ -98,11 +212,7 @@ export function TaskComposer(): JSX.Element {
                             />
                         )}
                         <ComposerModeShortcut
-                            onCycle={() =>
-                                setNewTaskData({
-                                    permissionMode: cycleMode(composerAdapter, newTaskData.permissionMode),
-                                })
-                            }
+                            onCycle={() => pickPermissionMode(cycleMode(composerAdapter, newTaskData.permissionMode))}
                         />
                         <Composer.Root
                             value={draft.value}
@@ -111,74 +221,59 @@ export function TaskComposer(): JSX.Element {
                             loading={isSubmittingTask}
                             textAreaRef={textAreaRef}
                         >
-                            <Composer.Frame>
-                                <Composer.Header>
-                                    <AttachedContextBar />
-                                </Composer.Header>
-                                <Composer.Field>
-                                    <Composer.Placeholder>
-                                        {composerOverride?.placeholder ?? 'Describe the task in detail…'}
-                                    </Composer.Placeholder>
-                                    <Composer.Textarea autoFocus data-attr="task-composer-input" />
-                                </Composer.Field>
-                                <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
-                                    <ComposerModePicker
-                                        modes={getModesForRuntimeAdapter(composerAdapter)}
-                                        selectedMode={newTaskData.permissionMode}
-                                        onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
-                                    />
-                                    <ComposerModelEffortPickers
-                                        models={offeredModels}
-                                        selectedModel={displayModel}
-                                        defaultModel={defaultModel}
-                                        isDefaultModelLoading={myConfigLoading}
-                                        selectedEffort={displayEffort}
-                                        isDefaultSelection={isDefaultSelection}
-                                        onModelChange={(model) =>
-                                            setNewTaskData({
-                                                model,
-                                                reasoningEffort: resolveEffortForModel(
-                                                    catalogue,
-                                                    newTaskData.reasoningEffort,
-                                                    model
-                                                ),
-                                                // Clamp the mode too, not just the effort: leaving a
-                                                // Claude-only mode selected against a Codex model would
-                                                // show one permission ceiling and send a broader one.
-                                                permissionMode: resolveModeForRuntimeAdapter(
-                                                    getRuntimeAdapterForModel(catalogue, model),
-                                                    newTaskData.permissionMode
-                                                ),
-                                            })
-                                        }
-                                        onEffortChange={(reasoningEffort) => setNewTaskData({ reasoningEffort })}
-                                        // Clearing both pins is what hands the choice back to the resolved
-                                        // default — submit then omits the triple entirely.
-                                        onResetToDefault={() => setNewTaskData({ model: null, reasoningEffort: null })}
-                                        onOpenDefaultSettings={() =>
-                                            router.actions.push(
-                                                urls.settings('environment-task-agents', 'task-agent-my-preference')
-                                            )
-                                        }
-                                    />
-                                </Composer.Footer>
-                            </Composer.Frame>
+                            {skin === 'quill' ? (
+                                <QuillComposerLayout
+                                    groupRef={groupRef}
+                                    textAreaRef={textAreaRef}
+                                    chips={
+                                        <>
+                                            <AttachedContextChips />
+                                            <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
+                                        </>
+                                    }
+                                    field={field}
+                                    send={withConsent(<QuillComposerSendButton data-attr="task-composer-send" />)}
+                                    controls={
+                                        <>
+                                            <QuillComposerAttachButton
+                                                attachmentsKey={attachmentsKey}
+                                                dropTargetRef={groupRef}
+                                            />
+                                            <QuillAttachedContextPicker />
+                                            {modelPicker}
+                                            {modePicker}
+                                        </>
+                                    }
+                                    meta={
+                                        !inline &&
+                                        !composerOverride?.hideOnboardingReplay && (
+                                            <QuillOnboardingReplayButton
+                                                panelId={panelId}
+                                                className="hidden @4xl/task-composer:inline-flex"
+                                            />
+                                        )
+                                    }
+                                />
+                            ) : (
+                                <Composer.Frame ref={frameRef}>
+                                    <Composer.Header className="flex flex-wrap items-center gap-1">
+                                        <AttachedContextBar />
+                                        <ComposerAttachments attachmentsKey={attachmentsKey} dropTargetRef={frameRef} />
+                                    </Composer.Header>
+                                    {field}
+                                    <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
+                                        {modePicker}
+                                        {modelPicker}
+                                    </Composer.Footer>
+                                </Composer.Frame>
+                            )}
                             {/* Open-group state is shared with the side panel; a group left open there would list generic prompts here. */}
-                            {!composerOverride?.hideSuggestions && <Suggestions.Dropdown />}
-                            <AIConsentPopoverWrapper
-                                placement="bottom-end"
-                                showArrow
-                                ignoreDismissal
-                                hidden={!consentBlocked}
-                                onApprove={() => submitNewTask()}
-                                onDismiss={() => clearConsentBlock()}
-                            >
-                                <Composer.Submit data-attr="task-composer-send" />
-                            </AIConsentPopoverWrapper>
+                            {showSuggestions && <Suggestions.Dropdown />}
+                            {skin === 'lemon' && withConsent(<Composer.Submit data-attr="task-composer-send" />)}
                         </Composer.Root>
                     </div>
 
-                    {!composerOverride?.hideSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}
+                    {showSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}
                 </Suggestions.Root>
             </div>
         </div>

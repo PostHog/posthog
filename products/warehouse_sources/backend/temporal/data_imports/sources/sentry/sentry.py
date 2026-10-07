@@ -795,21 +795,47 @@ def _iter_issue_tag_values_rows(
 # Sentry answers a request for a product surface the organization doesn't have with a
 # 400, so an unavailable trace item dataset is indistinguishable from a rejected param.
 _UNAVAILABLE_DATASET_STATUSES = (400, 403, 404)
+# trace_item_attributes/trace_item_stats hit the trace-items API once per dataset/item type.
+# Sentry occasionally returns a persistent 5xx for a single one of those after
+# _request_with_retry's budget is exhausted — the same failure mode as project_stats (see
+# _PROJECT_STATS_UNAVAILABLE_STATUSES) — so treat it as that slice being unavailable rather
+# than failing the whole schema.
+_TRACE_ITEM_UNAVAILABLE_STATUSES = (
+    *_UNAVAILABLE_DATASET_STATUSES,
+    500,
+    502,
+    503,
+    504,
+    *CLOUDFLARE_TRANSIENT_STATUSES,
+)
 # Per-project surfaces only ever go missing through permissions or an absent config.
 _MISSING_PROJECT_RESOURCE_STATUSES = (403, 404)
+# project_stats hits Sentry's per-project stats endpoint once per (project, stat) pair. Sentry
+# occasionally returns a persistent 5xx for a single one of those after _request_with_retry's
+# budget is exhausted — the same failure mode as the issue tags/tag-values endpoints (see
+# _skip_issue_on_tags_server_error) — so treat it as that slice being unavailable rather than
+# failing the whole schema.
+_PROJECT_STATS_UNAVAILABLE_STATUSES = (
+    *_MISSING_PROJECT_RESOURCE_STATUSES,
+    500,
+    502,
+    503,
+    504,
+    *CLOUDFLARE_TRANSIENT_STATUSES,
+)
 # Sentry's stats-summary endpoint 400s with this detail when the token's user has no
 # project membership in the org, even though the token itself is otherwise valid.
 _NO_PROJECTS_AVAILABLE_DETAIL = "No projects available"
 
 # Any other 400 from the stats-summary endpoint is a deterministic rejection of the request we
-# build (most often the requested window falling outside the org's plan retention), so retrying
-# replays it identically. Surface a credential-safe message the source classifies as non-retryable
-# (see `SentrySource.get_non_retryable_errors`) instead of burning retries on the raw HTTPError,
-# whose URL embeds the org slug. The wording never interpolates the org, URL, or response body.
+# build, so retrying replays it identically. Surface a credential-safe message the source
+# classifies as non-retryable (see `SentrySource.get_non_retryable_errors`) instead of burning
+# retries on the raw HTTPError, whose URL embeds the org slug. The wording never interpolates the
+# org, URL, or response body, and it names no cause: the reason Sentry gives is logged at the
+# raise site instead, because a guess here reads to a support engineer as a finding.
 STATS_SUMMARY_REJECTED_MESSAGE = (
     "Sentry rejected PostHog's request for your per-project usage stats (the "
-    "organization_stats_summary table) with an HTTP 400. This usually means the requested date "
-    "range is outside your Sentry plan's data retention. Remove that table from this source's "
+    "organization_stats_summary table) with an HTTP 400. Remove that table from this source's "
     "selected tables, then re-enable the sync."
 )
 
@@ -993,7 +1019,11 @@ def _iter_organization_stats_summary_rows(
             base_api_url,
             _endpoint_path("organization_stats_summary", organization_slug=organization_slug),
             headers,
-            {"field": "sum(quantity)", "start": window.start, "end": window.end},
+            # `interval` defaults to 1h on this endpoint. Only `totals` is read below, so an
+            # hourly resolution over the retention window buys nothing and asks Sentry for about
+            # two thousand buckets per project. The sibling `organization_stats` request already
+            # sends a daily interval, so send the same one here.
+            {"field": "sum(quantity)", "interval": "1d", "start": window.start, "end": window.end},
         )
     except HTTPError as exc:
         response = exc.response
@@ -1011,6 +1041,14 @@ def _iter_organization_stats_summary_rows(
                     organization_slug=organization_slug,
                 )
                 return
+            # Sentry's own reason is the one thing that identifies a rejection, and the curated
+            # message above deliberately drops it. Log it so the next rejection is diagnosed
+            # rather than guessed at. `detail` carries no credential and no org slug.
+            logger.warning(
+                "sentry_source.organization_stats_summary_rejected",
+                organization_slug=organization_slug,
+                detail=detail,
+            )
             raise SentryStatsSummaryRejectedError(STATS_SUMMARY_REJECTED_MESSAGE) from exc
         raise
 
@@ -1048,7 +1086,7 @@ def _iter_trace_item_attributes_rows(
             max_pages=_MAX_PAGES_PER_PARENT,
         )
         for row in _iter_rows_tolerating_unavailable(
-            rows, "trace_item_attributes", _UNAVAILABLE_DATASET_STATUSES, dataset=dataset
+            rows, "trace_item_attributes", _TRACE_ITEM_UNAVAILABLE_STATUSES, dataset=dataset
         ):
             row["dataset"] = dataset
             yield row
@@ -1081,7 +1119,7 @@ def _iter_trace_item_stats_rows(
 
     for item_type in TRACE_ITEM_STATS_TYPES:
         yield from _iter_rows_tolerating_unavailable(
-            _distributions(item_type), "trace_item_stats", _UNAVAILABLE_DATASET_STATUSES, item_type=item_type
+            _distributions(item_type), "trace_item_stats", _TRACE_ITEM_UNAVAILABLE_STATUSES, item_type=item_type
         )
 
 
@@ -1178,7 +1216,7 @@ def _iter_project_stats_rows(
             for row in _iter_rows_tolerating_unavailable(
                 _points(project_slug, stat),
                 "project_stats",
-                _MISSING_PROJECT_RESOURCE_STATUSES,
+                _PROJECT_STATS_UNAVAILABLE_STATUSES,
                 project_slug=project_slug,
                 stat=stat,
             ):

@@ -22,9 +22,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import User
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
 from products.notifications.backend.cache import get_unread_count, invalidate_unread_count, set_unread_count
-from products.notifications.backend.facade.enums import AC_RESOURCE_TYPES
 from products.notifications.backend.models import NotificationArchiveState, NotificationEvent, NotificationReadState
 from products.notifications.backend.presentation.serializers import NotificationEventSerializer
 
@@ -111,7 +110,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             .distinct()
         )
 
-        ac_types_to_check = resource_types_in_set & AC_RESOURCE_TYPES
+        ac_types_to_check = resource_types_in_set.intersection(ACCESS_CONTROL_RESOURCES)
         if not ac_types_to_check:
             return queryset
 

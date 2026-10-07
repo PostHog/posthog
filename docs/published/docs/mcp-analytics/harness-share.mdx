@@ -2,12 +2,28 @@
 title: Share of calls by harness
 ---
 
-The MCP Analytics dashboard shows tool calls by harness as horizontal bars, ranked from most to fewest calls.
-Each row shows the harness name and logo, its call count, and its percentage of all calls in the selected filters and date range.
+The **Share of calls by harness** card on the MCP analytics dashboard compares tool call volume across harnesses.
+A harness is the client that made the call, such as Claude Code, Cursor, or ChatGPT.
 
-Colors stay consistent when rankings change. Claude harnesses use terracotta shades, OpenAI harnesses use green shades, and VS Code uses blue.
-Monochrome brands such as Cursor and Grok use a neutral color that adapts to light and dark themes. Other harnesses use brand colors or stable palette colors.
-The existing **Other** category stays gray and includes calls whose client identity does not match a recognized harness.
-
-Scroll within the card to see every harness. Percentages include all returned harnesses, including rows below the visible area and Other.
+Horizontal bars rank harnesses by call count.
+Each bar shows its percentage of all tool calls in the selected date range and filters, and its call count.
 Hover over a bar to see the full harness name, calls, share, sessions, and error rate.
+
+The card counts `$mcp_tool_call` events.
+Each tool call counts once, toward one harness.
+The card does not count sessions or users.
+
+- The six harnesses with the most calls get their own bars.
+- **Other harnesses** combines every other harness and calls from clients that PostHog does not recognize. Its gray bar stays in the percentage denominator, so the bars add up to 100%.
+- The line above the bars shows the total call count and the share of calls in **Other harnesses**.
+- Select **Show all harnesses** to see every harness in a table.
+
+Colors stay consistent when rankings change.
+Claude harnesses use terracotta shades, OpenAI harnesses use green shades, and VS Code uses blue.
+Monochrome brands such as Cursor and Grok use a neutral color that adapts to light and dark themes.
+Remaining named harnesses use brand colors or stable palette colors.
+
+## How PostHog identifies the harness
+
+PostHog assigns each call a harness from the client identity captured with it: the vendor header, the User-Agent, and the client name.
+[How the harness label is resolved](/docs/mcp-analytics/events#how-the-harness-label-is-resolved) lists the order PostHog checks them in, and what to check if most calls land in **Other harnesses**.

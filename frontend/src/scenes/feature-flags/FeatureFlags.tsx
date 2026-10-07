@@ -27,7 +27,7 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { pluralize } from 'lib/utils/strings'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { toParams } from 'lib/utils/url'
 import { PendingApprovalsBanner } from 'scenes/approvals/PendingApprovalsBanner'
@@ -38,6 +38,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -50,12 +51,22 @@ import {
     ActivityScope,
     AnyPropertyFilter,
     BaseMathType,
+    FeatureFlagConfig,
     FeatureFlagEvaluationRuntime,
-    FeatureFlagFilters,
     FeatureFlagType,
 } from '~/types'
 
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
+import {
+    ARCHIVE_UNAVAILABLE_DISABLED_REASON,
+    UNSUPPORTED_CONFIG_DISABLED_REASON,
+    canArchiveFeatureFlag,
+    featureFlagConfigFormat,
+    featureFlagConfigFormatLabel,
+    isRulesV2FeatureFlagConfig,
+    isV1FeatureFlagConfig,
+    rulesV2CreateDisabledReason,
+} from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { FeatureFlagRequestUsage } from 'products/feature_flags/frontend/requestUsage/FeatureFlagRequestUsage'
 import { MAX_STALE_FLAG_NOTIFICATIONS_PER_DAY, STALE_FLAG_DEFINITION } from 'products/feature_flags/frontend/staleFlags'
 
@@ -159,6 +170,8 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
 
     const isUpdating = featureFlag.id ? featureFlagsUpdating[featureFlag.id] : false
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
+    const configFormat = featureFlagConfigFormat(featureFlag.filters)
+    const isV1Config = configFormat === 'v1'
 
     const tryInInsightsUrl = (featureFlag: FeatureFlagType): string => {
         const query: InsightVizNode = {
@@ -202,7 +215,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             Copy key
                         </LemonButton>
 
-                        {featureFlag.id && (
+                        {featureFlag.id && isV1Config && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.FeatureFlag}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -222,13 +235,15 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             </AccessControlAction>
                         )}
 
-                        <LemonButton
-                            to={urls.featureFlagNew({ sourceId: featureFlag.id })}
-                            data-attr="feature-flag-duplicate"
-                            fullWidth
-                        >
-                            Duplicate
-                        </LemonButton>
+                        {isV1Config && (
+                            <LemonButton
+                                to={urls.featureFlagNew({ sourceId: featureFlag.id })}
+                                data-attr="feature-flag-duplicate"
+                                fullWidth
+                            >
+                                Duplicate
+                            </LemonButton>
+                        )}
 
                         <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth targetBlank>
                             Try out in Insights
@@ -262,7 +277,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                         ? 'Updating…'
                                         : featureFlag.archived
                                           ? 'Unarchive this flag before enabling it.'
-                                          : undefined
+                                          : configFormat === 'unsupported'
+                                            ? UNSUPPORTED_CONFIG_DISABLED_REASON
+                                            : undefined
                                 }
                             >
                                 {featureFlag.active ? 'Disable' : 'Enable'}
@@ -294,14 +311,20 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     }}
                                     fullWidth
                                     loading={isUpdating}
-                                    disabledReason={isUpdating ? 'Updating…' : undefined}
+                                    disabledReason={
+                                        isUpdating
+                                            ? 'Updating…'
+                                            : !canArchiveFeatureFlag(featureFlag.filters)
+                                              ? ARCHIVE_UNAVAILABLE_DISABLED_REASON
+                                              : undefined
+                                    }
                                 >
                                     {featureFlag.archived ? 'Unarchive' : 'Archive'}
                                 </LemonButton>
                             </AccessControlAction>
                         )}
 
-                        {featureFlag.id && (
+                        {featureFlag.id && isV1Config && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.FeatureFlag}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -313,7 +336,8 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                         openFeatureFlagDeleteDialog(featureFlag, () => {
                                             void deleteWithUndo({
                                                 endpoint: `projects/${currentProjectId}/feature_flags`,
-                                                object: { name: featureFlag.key, id: featureFlag.id },
+                                                object: { id: featureFlag.id },
+                                                label: featureFlag.key,
                                                 callback: () => loadFeatureFlags(),
                                             }).catch((e) => {
                                                 lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
@@ -432,6 +456,13 @@ export function OverviewTab({
             title: 'Type',
             width: 120,
             render: function RenderType(_, featureFlag: FeatureFlagType) {
+                if (!isV1FeatureFlagConfig(featureFlag.filters)) {
+                    return (
+                        <LemonTag type="highlight" className="whitespace-nowrap" data-attr="feature-flag-config-format">
+                            {featureFlagConfigFormatLabel(featureFlag.filters)}
+                        </LemonTag>
+                    )
+                }
                 const labels: string[] = []
                 if (flagMatchesType(featureFlag, 'remote_config')) {
                     labels.push('Remote config')
@@ -622,9 +653,11 @@ export function OverviewTab({
                     isRowSelectable: (flag: FeatureFlagType) =>
                         flag.id === null
                             ? false
-                            : flag.can_edit
-                              ? true
-                              : { disabledReason: "You don't have permission to edit this feature flag." },
+                            : !isV1FeatureFlagConfig(flag.filters)
+                              ? { disabledReason: 'Bulk actions are not available for this flag yet.' }
+                              : flag.can_edit
+                                ? true
+                                : { disabledReason: "You don't have permission to edit this feature flag." },
                     rowAriaLabel: (flag: FeatureFlagType) => `Select feature flag ${flag.key}`,
                     headerAriaLabel: 'Select all feature flags on this page',
                     noun: ['flag', 'flags'],
@@ -655,6 +688,7 @@ export function OverviewTab({
                                             setMatchingFlagIdsLoading(true)
                                             try {
                                                 const { limit, offset, ...filters } = paramsFromFilters
+                                                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. featureFlagsMatchingIdsRetrieve() from 'products/feature_flags/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                                                 const response = (await api.get(
                                                     `api/projects/${currentProjectId}/feature_flags/matching_ids/?${toParams(filters)}`
                                                 )) as { ids: number[]; total: number }
@@ -781,6 +815,8 @@ export function FeatureFlags(): JSX.Element {
     const newFeatureFlagUrl = urls.featureFlagTemplates()
     const showNotificationsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]
     const showRequestUsageTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]
+    const showRulesV2Editor = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR]
+    const { currentTeam } = useValues(teamLogic)
 
     return (
         <SceneContent className="feature_flags">
@@ -796,6 +832,22 @@ export function FeatureFlags(): JSX.Element {
                             surveyId={FEATURE_FLAGS_FEEDBACK_SURVEY_ID}
                             data-attr="feature-flags-feedback-button"
                         />
+                        {showRulesV2Editor && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.FeatureFlag}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    to={urls.featureFlagNew({ format: 'rules_v2' })}
+                                    disabledReason={rulesV2CreateDisabledReason(currentTeam, enabledFeatureFlags)}
+                                    data-attr="new-rules-v2-feature-flag"
+                                >
+                                    New rules v2 flag
+                                </LemonButton>
+                            </AccessControlAction>
+                        )}
                         <AccessControlAction
                             resourceType={AccessControlResourceType.FeatureFlag}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -883,20 +935,25 @@ export function FeatureFlags(): JSX.Element {
 }
 
 export function groupFilters(
-    filters: FeatureFlagFilters,
+    filters: FeatureFlagConfig,
     stringOnly?: true,
     aggregationLabel?: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
 ): string
 export function groupFilters(
-    filters: FeatureFlagFilters,
+    filters: FeatureFlagConfig,
     stringOnly?: false,
     aggregationLabel?: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
 ): JSX.Element | string
 export function groupFilters(
-    filters: FeatureFlagFilters,
+    filters: FeatureFlagConfig,
     stringOnly?: boolean,
     aggregationLabel?: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
 ): JSX.Element | string {
+    if (!isV1FeatureFlagConfig(filters)) {
+        return isRulesV2FeatureFlagConfig(filters)
+            ? `${capitalizeFirstLetter(filters.return_type)} · ${pluralize(filters.rules.length, 'rule')}`
+            : 'Unsupported configuration'
+    }
     const aggregationTargetName =
         aggregationLabel && filters.aggregation_group_type_index != null
             ? aggregationLabel(filters.aggregation_group_type_index).plural

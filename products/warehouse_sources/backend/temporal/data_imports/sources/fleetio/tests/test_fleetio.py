@@ -288,3 +288,173 @@ class TestValidateCredentials:
     def test_network_error_is_not_valid(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("k", "a", FLEETIO_VERSION_2025_05_05) is False
+
+
+class TestServiceEntryLineItemsFanout:
+    """The only fan-out endpoint: line items are listed per service entry, never account-wide."""
+
+    def _wire_fanout(self, session: mock.MagicMock, responses: list[Response]) -> list[str]:
+        session.headers = {}
+        urls: list[str] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            url = request.url
+            for key, value in (request.params or {}).items():
+                url = url.replace("{" + key + "}", str(value))
+            urls.append(url)
+            prepared = mock.MagicMock()
+            prepared.url = url
+            return prepared
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = responses
+        return urls
+
+    def _line_items(self, manager: mock.MagicMock, **kwargs: Any):
+        return fleetio_source(
+            api_key="k",
+            account_token="a",
+            endpoint="service_entry_line_items",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=manager,
+            **kwargs,
+        )
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_per_service_entry_and_stamps_the_parent_id(self, MockSession) -> None:
+        # Without the parent id the composite primary key has a null column, so every line item
+        # collides on merge. The API's own `service_entry_id` is optional, hence taking the
+        # parent's.
+        session = MockSession.return_value
+        urls = self._wire_fanout(
+            session,
+            [
+                _response([{"id": 11}, {"id": 22}], None),
+                _response([{"id": 101, "description": "Oil"}], None),
+                _response([{"id": 201}], "CUR2"),
+                _response([{"id": 202}], None),
+            ],
+        )
+
+        rows = _rows(self._line_items(_make_manager()))
+
+        assert [(row["service_entry_id"], row["id"]) for row in rows] == [(11, 101), (22, 201), (22, 202)]
+        assert urls[0].endswith("/api/service_entries")
+        assert urls[1] == "https://secure.fleetio.com/api/service_entries/11/service_entry_line_items"
+        assert urls[2] == "https://secure.fleetio.com/api/service_entries/22/service_entry_line_items"
+
+    @parameterized.expand(
+        [
+            # Fleetio removed `/v1/service_entries` when it moved the resource to v2, so a legacy
+            # pin that assumes one shared generation segment cannot list the fan-out's parents.
+            (FLEETIO_LEGACY_VERSION, "/api/v2/service_entries", "/api/v2/service_entries/11/service_entry_line_items"),
+            (FLEETIO_VERSION_2025_05_05, "/api/service_entries", "/api/service_entries/11/service_entry_line_items"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_parent_and_child_carry_their_own_version_segment(
+        self, api_version: str, parent_path: str, child_path: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        urls = self._wire_fanout(session, [_response([{"id": 11}], None), _response([{"id": 101}], None)])
+
+        _rows(self._line_items(_make_manager(), api_version=api_version))
+
+        assert urls[0] == f"https://secure.fleetio.com{parent_path}"
+        assert urls[1] == f"https://secure.fleetio.com{child_path}"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoints_by_parent_and_resumes_past_completed_parents(self, MockSession) -> None:
+        # Fan-out resume state is keyed by parent path, not by the top-level cursor — a checkpoint
+        # written in the top-level shape would silently restart the whole fan-out on retry.
+        session = MockSession.return_value
+        self._wire_fanout(session, [_response([{"id": 11}, {"id": 22}], None), _response([{"id": 201}], None)])
+
+        # The framework keys fan-out checkpoints by the child's endpoint path, not the full URL.
+        completed = "/service_entries/11/service_entry_line_items"
+        manager = _make_manager(FleetioResumeConfig(completed=[completed], current=None, child_state=None))
+        rows = _rows(self._line_items(manager))
+
+        assert [row["service_entry_id"] for row in rows] == [22]
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert any(state.completed is not None and completed in state.completed for state in saved)
+
+
+class TestPurchaseOrderLineItemsFanout:
+    """Line items are listed per purchase order, and the path binds the order's number, not its id."""
+
+    def _wire_fanout(self, session: mock.MagicMock, responses: list[Response]) -> list[str]:
+        session.headers = {}
+        urls: list[str] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            url = request.url
+            for key, value in (request.params or {}).items():
+                url = url.replace("{" + key + "}", str(value))
+            urls.append(url)
+            prepared = mock.MagicMock()
+            prepared.url = url
+            return prepared
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = responses
+        return urls
+
+    def _line_items(self, manager: mock.MagicMock, **kwargs: Any):
+        return fleetio_source(
+            api_key="k",
+            account_token="a",
+            endpoint="purchase_order_line_items",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=manager,
+            **kwargs,
+        )
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_binds_the_parent_number_not_its_id(self, MockSession) -> None:
+        # Fleetio keys this path on the order number. Binding the id instead reads another order's
+        # line items (or 404s), and the rows would still look plausible.
+        session = MockSession.return_value
+        urls = self._wire_fanout(
+            session,
+            [
+                _response([{"id": 11, "number": 4001}, {"id": 22, "number": 4002}], None),
+                _response([{"id": 101, "part_id": 7}], None),
+                _response([{"id": 201}], "CUR2"),
+                _response([{"id": 202}], None),
+            ],
+        )
+
+        rows = _rows(self._line_items(_make_manager()))
+
+        assert urls[0].endswith("/api/purchase_orders")
+        assert urls[1] == "https://secure.fleetio.com/api/purchase_orders/4001/purchase_order_line_items"
+        assert urls[2] == "https://secure.fleetio.com/api/purchase_orders/4002/purchase_order_line_items"
+        # Neither identifier is on the line item itself, so both come from the parent row — the id
+        # populates the composite primary key that keeps line items from colliding on merge.
+        assert [(row["purchase_order_id"], row["purchase_order_number"], row["id"]) for row in rows] == [
+            (11, 4001, 101),
+            (22, 4002, 201),
+            (22, 4002, 202),
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoints_by_parent_and_resumes_past_completed_parents(self, MockSession) -> None:
+        session = MockSession.return_value
+        self._wire_fanout(
+            session,
+            [
+                _response([{"id": 11, "number": 4001}, {"id": 22, "number": 4002}], None),
+                _response([{"id": 201}], None),
+            ],
+        )
+
+        completed = "/purchase_orders/4001/purchase_order_line_items"
+        manager = _make_manager(FleetioResumeConfig(completed=[completed], current=None, child_state=None))
+        rows = _rows(self._line_items(manager))
+
+        assert [row["purchase_order_number"] for row in rows] == [4002]
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert any(state.completed is not None and completed in state.completed for state in saved)

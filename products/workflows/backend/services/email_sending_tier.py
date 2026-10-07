@@ -11,6 +11,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 
+from products.workflows.backend.facade.contracts import TierDecision
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.utils.email_sending_tiers import (
     MIN_EMAIL_SENDING_TIER,
@@ -75,18 +76,6 @@ class TeamSendingHistory:
             and self.sent >= settings.WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS
         )
         return not (complaints_are_dirty or bounces_are_dirty)
-
-
-@frozen
-class TierDecision:
-    team_id: int
-    previous_tier: int
-    new_tier: int
-    reason: str
-
-    @property
-    def changed(self) -> bool:
-        return self.previous_tier != self.new_tier
 
 
 @frozen

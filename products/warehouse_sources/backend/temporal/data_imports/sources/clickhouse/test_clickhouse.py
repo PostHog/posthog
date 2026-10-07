@@ -1,8 +1,9 @@
 import os
+import uuid
 import array
 import socket
 import threading
-from collections.abc import AsyncIterable, Iterator
+from collections.abc import AsyncIterable, Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
@@ -11,7 +12,10 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
+from django.conf import settings
+
 import pyarrow as pa
+import clickhouse_connect
 from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError
 from parameterized import parameterized
 
@@ -675,10 +679,23 @@ class TestClickHouseSourceNonRetryableErrors:
             "Received ClickHouse exception, code: 243 (for url https://host:8443)\n Code: 243. "
             "DB::Exception: Failed to reserve 1048576 bytes for temporary file: reason cannot evict "
             "enough space: While executing BufferingToFileSink. (NOT_ENOUGH_SPACE)",
+            # TOO_MANY_ROWS_OR_BYTES (code 396) — the source server's own result-size
+            # limit rejected the extraction query. Some ClickHouse-compatible endpoints
+            # (e.g. Tinybird) wrap this without the usual "Code: NNN. DB::Exception:"
+            # native wording, so the match must not depend on that shape.
+            "Received ClickHouse exception, code: 396, server response: [Error] Limit for result "
+            "exceeded, max bytes: 500.00 MiB, current bytes: 501.03 MiB. (TOO_MANY_ROWS_OR_BYTES) "
+            "(query_id=abc123) (for url https://host:8443)",
             # Source table no longer exists at sync time — dropped/renamed, or a materialized
             # view's `.inner_id.<uuid>` inner table whose UUID changed when the view was recreated.
             "Table soax_stage..inner_id.8c612ff0-b72c-4b20-8ea5-405ed002c2f6 not found or has no columns",
             "Table default.some_dropped_table not found or has no columns",
+            # UNKNOWN_IDENTIFIER (code 47) — a column that resolved during discovery no longer
+            # exists at query time, e.g. a View whose underlying table had a column renamed.
+            "Received ClickHouse exception, code: 47, server response: Code: 47. DB::Exception: "
+            "Unknown expression identifier `foo` in scope SELECT `foo`, bar FROM "
+            "(SELECT * FROM some_db.some_view). Maybe you meant: ['bar']. (UNKNOWN_IDENTIFIER) "
+            "(for url http://host:8123)",
             # UNKNOWN_TYPE (code 50) — a column type ClickHouse can't serialize to Arrow,
             # e.g. an AggregateFunction state column on an aggregating materialized view.
             "Received ClickHouse exception, code: 50 (for url https://host:8443)\n Code: 50. "
@@ -793,6 +810,11 @@ class TestIsTransientConnectDrop:
             "Error HTTPSConnectionPool(host='h', port=8443): Max retries exceeded with url: /? "
             "(Caused by ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))) "
             "executing HTTP request attempt 1",
+            # The exact wrapped message that reached error tracking: the egress proxy accepted
+            # the TCP connection but hung up before answering the CONNECT request.
+            "Error HTTPSConnectionPool(host='h', port=8443): Max retries exceeded with url: /? "
+            "(Caused by ProxyError('Cannot connect to proxy.', RemoteDisconnected('Remote end "
+            "closed connection without response'))) executing HTTP request attempt 2",
         ],
     )
     def test_matches_transient_drops(self, message):
@@ -1005,8 +1027,14 @@ class TestGetClientSessionSettings:
 
 
 class TestTranslateError:
-    def test_matches_substring_inside_long_error(self):
-        msg = "Code: 516. DB::Exception: Authentication failed for user 'default'"
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            "Code: 516. DB::Exception: Authentication failed for user 'default'",
+            "Code: 192. DB::Exception: There is no user `analytics` in user directories. (UNKNOWN_USER)",
+        ],
+    )
+    def test_rejected_login_maps_to_invalid_credentials(self, msg):
         translated = ClickHouseSource._translate_error(msg)
         assert translated is not None
         assert "rejected the username or password" in translated
@@ -1297,10 +1325,9 @@ class TestHasDuplicatePrimaryKeys:
         client.query.side_effect = ClickHouseError(error_msg)
 
         with patch.object(ch_module, "capture_exception") as mock_capture:
-            # Still assumes duplicates (safe append mode), but the probe hitting
-            # its own memory/time budget is the designed fallback — not error
-            # tracking noise.
-            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
+            # The probe hitting its own memory/time budget compared no rows, so it
+            # proves nothing about the key and must not read as duplicates.
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is None
 
         mock_capture.assert_not_called()
 
@@ -1344,8 +1371,8 @@ class TestHasDuplicatePrimaryKeys:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse.capture_exception"
         ) as mock_capture:
-            # Still fails safe to True (force append mode), just without noise.
-            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
+            # An environment limit is not evidence about the key, so it stays unverified.
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is None
 
         mock_capture.assert_not_called()
 
@@ -1359,6 +1386,105 @@ class TestHasDuplicatePrimaryKeys:
             assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
 
         mock_capture.assert_called_once()
+
+
+class TestDuplicateProbeTargetsMergeKey:
+    _MEMORY_LIMIT = ClickHouseError("Code: 241. DB::Exception: Query memory limit exceeded. (MEMORY_LIMIT_EXCEEDED)")
+
+    def _run(self, *, stored_primary_keys, sorting_key, probe_outcome):
+        probe_queries: list[str] = []
+
+        def fake_query(query, **_kwargs):
+            result = MagicMock()
+            if "is_in_sorting_key" in query:
+                result.result_rows = [(name,) for name in sorting_key]
+            elif "HAVING count() > 1" in query:
+                probe_queries.append(query)
+                if isinstance(probe_outcome, Exception):
+                    raise probe_outcome
+                result.result_rows = probe_outcome
+            else:
+                result.result_rows = []
+            return result
+
+        client = MagicMock()
+        client.query.side_effect = fake_query
+
+        mock_table = MagicMock()
+        mock_table.columns = [
+            ClickHouseColumn(name=n, data_type="String", nullable=False) for n in ("region", "created_at", "id")
+        ]
+        mock_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.string())])
+
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 8443)
+
+        with (
+            patch.object(ch_module, "_get_client", return_value=client),
+            patch.object(ch_module, "_get_table", return_value=mock_table),
+            patch.object(ch_module, "_get_partition_settings", return_value=None),
+            patch.object(ch_module, "get_clickhouse_row_count", return_value={}),
+        ):
+            response = ch_module.clickhouse_source(
+                tunnel=fake_tunnel,
+                user="u",
+                password="p",
+                database="db",
+                secure=True,
+                verify=True,
+                table_names=["events"],
+                should_use_incremental_field=True,
+                incremental_field="created_at",
+                incremental_field_type=IncrementalFieldType.Timestamp,
+                logger=MagicMock(),
+                db_incremental_field_last_value=None,
+                stored_primary_keys=stored_primary_keys,
+            )
+        return response, probe_queries
+
+    @pytest.mark.parametrize(
+        "stored_primary_keys,sorting_key,probe_outcome,expected_group_by,expected_blocked",
+        [
+            (["id"], ["created_at", "id", "region"], [], "GROUP BY `id` HAVING", False),
+            (None, ["region", "id"], [], "GROUP BY `region`, `id` HAVING", False),
+            (["id"], ["region", "id"], [(1,)], "GROUP BY `id` HAVING", True),
+            (["id"], ["region", "id"], _MEMORY_LIMIT, "GROUP BY `id` HAVING", False),
+        ],
+        ids=[
+            "stored_key_wins",
+            "sorting_key_when_nothing_stored",
+            "duplicates_block",
+            "exhausted_budget_does_not_block",
+        ],
+    )
+    def test_probe_checks_the_merge_key(
+        self, stored_primary_keys, sorting_key, probe_outcome, expected_group_by, expected_blocked
+    ):
+        response, probe_queries = self._run(
+            stored_primary_keys=stored_primary_keys, sorting_key=sorting_key, probe_outcome=probe_outcome
+        )
+
+        assert len(probe_queries) == 1
+        assert expected_group_by in probe_queries[0]
+        assert response.has_duplicate_primary_keys is expected_blocked
+
+    def test_source_for_pipeline_passes_the_schema_key_to_the_probe(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
+
+        source = ClickHouseSource()
+        inputs = MagicMock()
+        inputs.primary_keys = ["id"]
+
+        with (
+            patch.object(ExternalDataSchema, "objects"),
+            patch.object(source, "make_ssh_tunnel_func"),
+            patch.object(source, "_bypass_env_proxy", return_value=None),
+            patch.object(source_module, "clickhouse_source") as mock_clickhouse_source,
+        ):
+            source.source_for_pipeline(MagicMock(), inputs)
+
+        assert mock_clickhouse_source.call_args.kwargs["stored_primary_keys"] == ["id"]
 
 
 class TestGetIncrementalRowCount:
@@ -1597,6 +1723,216 @@ class TestGetRowsBatching:
             self._run_get_rows([], stream_client=stream_client)
 
         stream_client.query_column_block_stream.assert_not_called()
+
+    def test_limit_error_after_rows_were_read_does_not_fall_back_to_pages(self):
+        def blocks_then_limit_error():
+            yield self._block(10)
+            raise ClickHouseError("Code: 396. DB::Exception: Limit for result exceeded. (TOO_MANY_ROWS_OR_BYTES)")
+
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.return_value = self._stream_context(blocks_then_limit_error())
+
+        with pytest.raises(ClickHouseError, match="TOO_MANY_ROWS_OR_BYTES"):
+            self._run_get_rows([], stream_client=stream_client, columns=[ClickHouseColumn("id", "UInt64", False)])
+
+        stream_client.query_arrow_stream.assert_called_once()
+        stream_client.query.assert_not_called()
+
+
+class TestPagedReadFallback:
+    _HOST_LIMITS = {"max_result_rows": 10, "result_overflow_mode": "throw", "http_wait_end_of_query": 1}
+    _BASE_NANOS = 1_767_225_600_000_000_000
+
+    @pytest.fixture
+    def make_table(self) -> Iterator[Callable[[str], str]]:
+        admin = clickhouse_connect.get_client(
+            host=settings.CLICKHOUSE_HOST,
+            port=8123,
+            username=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+        )
+        admin.command(f"CREATE DATABASE IF NOT EXISTS {settings.CLICKHOUSE_DATABASE}")
+        created: list[str] = []
+
+        def make(order_by: str) -> str:
+            name = f"paged_read_{uuid.uuid4().hex}"
+            qualified = f"{settings.CLICKHOUSE_DATABASE}.{name}"
+            created.append(qualified)
+            admin.command(f"""
+                CREATE TABLE {qualified} (id UInt64, grp String, ts DateTime64(9, 'UTC'))
+                ENGINE = MergeTree ORDER BY {order_by}
+            """)
+            admin.command(f"""
+                INSERT INTO {qualified}
+                SELECT number, if(number % 2 = 0, 'a', 'b'), fromUnixTimestamp64Nano(toInt64({self._BASE_NANOS} + intDiv(number, 3) * 500), 'UTC')
+                FROM numbers(30)
+            """)
+            return name
+
+        yield make
+        for qualified in created:
+            admin.command(f"DROP TABLE IF EXISTS {qualified}")
+        admin.close()
+
+    def _read(self, table: str, host_limits: dict, **source_kwargs) -> pa.Table:
+        @contextmanager
+        def tunnel():
+            yield (settings.CLICKHOUSE_HOST, 8123)
+
+        real_query_settings = ch_module._query_settings
+        with (
+            patch.object(
+                ch_module, "_query_settings", lambda chunk_size: {**real_query_settings(chunk_size), **host_limits}
+            ),
+            patch.object(ch_module, "PAGED_READ_INITIAL_ROWS", 16),
+            patch.object(ch_module, "PAGED_READ_MIN_ROWS", 4),
+        ):
+            response = ch_module.clickhouse_source(
+                tunnel=tunnel,
+                user=settings.CLICKHOUSE_USER,
+                password=settings.CLICKHOUSE_PASSWORD,
+                database=settings.CLICKHOUSE_DATABASE,
+                secure=False,
+                verify=False,
+                table_names=[table],
+                logger=MagicMock(),
+                **source_kwargs,
+            )
+            items = response.items()
+            assert not isinstance(items, AsyncIterable)
+            return pa.concat_tables(list(items))
+
+    @pytest.mark.parametrize(
+        "last_value, expected_ids",
+        [
+            pytest.param(None, list(range(30)), id="first_sync"),
+            pytest.param(datetime.fromtimestamp(_BASE_NANOS // 10**9, tz=UTC), list(range(3, 30)), id="resume"),
+        ],
+    )
+    def test_incremental_sync_pages_through_a_result_cap_in_cursor_order(self, make_table, last_value, expected_ids):
+        rows = self._read(
+            make_table("id"),
+            self._HOST_LIMITS,
+            should_use_incremental_field=True,
+            incremental_field="ts",
+            incremental_field_type=IncrementalFieldType.Timestamp,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert rows.column("ts").equals(rows.sort_by("ts").column("ts"))
+        assert rows.sort_by("id").column("id").to_pylist() == expected_ids
+
+    @pytest.mark.parametrize(
+        "order_by",
+        [pytest.param("(grp, ts)", id="string_and_datetime_key"), pytest.param("id", id="numeric_key")],
+    )
+    def test_full_refresh_pages_through_a_result_cap_on_the_sorting_key(self, make_table, order_by):
+        rows = self._read(
+            make_table(order_by),
+            self._HOST_LIMITS,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+
+        assert rows.sort_by("id").column("id").to_pylist() == list(range(30))
+
+    @pytest.mark.parametrize(
+        "host_limits, order_by, should_use_incremental_field",
+        [
+            pytest.param({**_HOST_LIMITS, "max_result_rows": 2}, "id", True, id="cursor_ties_above_cap_at_min_page"),
+            pytest.param(_HOST_LIMITS, "tuple()", False, id="full_refresh_without_sorting_key"),
+        ],
+    )
+    def test_raises_the_limit_error_when_paging_cannot_fit_under_it(
+        self, make_table, host_limits, order_by, should_use_incremental_field
+    ):
+        with pytest.raises(ClickHouseError, match="TOO_MANY_ROWS_OR_BYTES"):
+            self._read(
+                make_table(order_by),
+                host_limits,
+                should_use_incremental_field=should_use_incremental_field,
+                incremental_field="ts" if should_use_incremental_field else None,
+                incremental_field_type=IncrementalFieldType.Timestamp if should_use_incremental_field else None,
+                db_incremental_field_last_value=None,
+            )
+
+
+class TestIncrementalResumeAgainstServer:
+    @pytest.fixture
+    def make_table(self) -> Iterator[Callable[[str], str]]:
+        admin = clickhouse_connect.get_client(
+            host=settings.CLICKHOUSE_HOST,
+            port=8123,
+            username=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+        )
+        admin.command(f"CREATE DATABASE IF NOT EXISTS {settings.CLICKHOUSE_DATABASE}")
+        created: list[str] = []
+
+        def make(ts_type: str) -> str:
+            name = f"cursor_resume_{uuid.uuid4().hex}"
+            qualified = f"{settings.CLICKHOUSE_DATABASE}.{name}"
+            created.append(qualified)
+            admin.command(f"CREATE TABLE {qualified} (id UInt64, ts {ts_type}) ENGINE = MergeTree ORDER BY id")
+            admin.command(f"""
+                INSERT INTO {qualified}
+                SELECT number, fromUnixTimestamp64Nano(toInt64(1767225600000000000 + intDiv(number, 3) * 500), 'UTC')
+                FROM numbers(30)
+            """)
+            return name
+
+        yield make
+        for qualified in created:
+            admin.command(f"DROP TABLE IF EXISTS {qualified}")
+        admin.close()
+
+    @pytest.mark.parametrize(
+        "ts_type, last_value, expected_ids",
+        [
+            pytest.param(
+                "DateTime64(9, 'UTC')", datetime(2026, 1, 1, 0, 0, 0, 4, tzinfo=UTC), [27, 28, 29], id="sub_second"
+            ),
+            pytest.param(
+                "DateTime64(9, 'America/New_York')",
+                datetime(2026, 1, 1, 0, 0, 0, 4, tzinfo=UTC),
+                [27, 28, 29],
+                id="column_timezone",
+            ),
+            pytest.param("DateTime64(9)", datetime(2026, 1, 1, 0, 0, 0, 4), [27, 28, 29], id="naive_cursor"),
+            pytest.param(
+                "DateTime('America/New_York')",
+                datetime(2025, 12, 31, 23, 59, 59, tzinfo=UTC),
+                list(range(30)),
+                id="datetime_column_timezone",
+            ),
+            pytest.param("DateTime64(9, 'UTC')", 1767225600, list(range(3, 30)), id="epoch_seconds_cursor"),
+        ],
+    )
+    def test_incremental_resume_reads_only_rows_after_the_cursor(self, make_table, ts_type, last_value, expected_ids):
+        @contextmanager
+        def tunnel():
+            yield (settings.CLICKHOUSE_HOST, 8123)
+
+        response = ch_module.clickhouse_source(
+            tunnel=tunnel,
+            user=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+            database=settings.CLICKHOUSE_DATABASE,
+            secure=False,
+            verify=False,
+            table_names=[make_table(ts_type)],
+            should_use_incremental_field=True,
+            incremental_field="ts",
+            incremental_field_type=IncrementalFieldType.Timestamp,
+            db_incremental_field_last_value=last_value,
+            logger=MagicMock(),
+        )
+        items = response.items()
+        assert not isinstance(items, AsyncIterable)
+        rows = pa.concat_tables(list(items))
+
+        assert rows.sort_by("id").column("id").to_pylist() == expected_ids
+        assert response.rows_to_sync == len(expected_ids)
 
 
 class TestClickHouseReconcileSchemaMetadata(BaseTest):

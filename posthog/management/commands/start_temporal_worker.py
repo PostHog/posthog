@@ -1,9 +1,9 @@
 import os
+import time
 import signal
 import typing
 import asyncio
 import datetime as dt
-import functools
 import threading
 import faulthandler
 import collections.abc
@@ -50,7 +50,9 @@ from posthog.temporal.common.health_server import HealthCheckServer
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
+from posthog.temporal.common.shutdown import ShutdownSignalListener
 from posthog.temporal.common.worker import ManagedWorker, create_worker
+from posthog.temporal.common.zombie_exit import ZombieActivityExit
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
     SEMANTIC_ENRICHMENT_ACTIVITIES,
@@ -131,10 +133,6 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep import (
     SURFACING_SCORING_SWEEP_WORKFLOWS,
 )
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_ACTIVITIES, SYNC_EVENTS_RETENTION_WORKFLOWS
-from posthog.temporal.sync_person_distinct_ids import (
-    ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
-    WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
-)
 from posthog.temporal.tests.utils.workflow import (
     ACTIVITIES as TEST_ACTIVITIES,
     WORKFLOWS as TEST_WORKFLOWS,
@@ -152,7 +150,7 @@ from posthog.temporal.weekly_digest import (
     WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
 )
 
-from products.alerts.backend.facade.temporal import (
+from products.alerts_platform.backend.facade.temporal import (
     DELIVERY_ACTIVITIES as ALERTS_PLATFORM_DELIVERY_ACTIVITIES,
     DELIVERY_WORKFLOWS as ALERTS_PLATFORM_DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES as ALERTS_PLATFORM_EVALUATION_ACTIVITIES,
@@ -160,7 +158,11 @@ from products.alerts.backend.facade.temporal import (
     SHARED_ORCHESTRATION_ACTIVITIES as ALERTS_PLATFORM_SHARED_ORCHESTRATION_ACTIVITIES,
     SHARED_ORCHESTRATION_WORKFLOWS as ALERTS_PLATFORM_SHARED_ORCHESTRATION_WORKFLOWS,
 )
-from products.batch_exports.backend.temporal import (
+from products.autoresearch.backend.facade.temporal import (
+    ACTIVITIES as AUTORESEARCH_ACTIVITIES,
+    WORKFLOWS as AUTORESEARCH_WORKFLOWS,
+)
+from products.batch_exports.backend.facade.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
@@ -172,7 +174,7 @@ from products.business_knowledge.backend.temporal import (
     ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
     WORKFLOWS as BUSINESS_KNOWLEDGE_WORKFLOWS,
 )
-from products.canvas.backend.temporal.registry import (
+from products.canvas.backend.facade.temporal import (
     ACTIVITIES as CANVAS_BUILD_ACTIVITIES,
     WORKFLOWS as CANVAS_BUILD_WORKFLOWS,
 )
@@ -189,6 +191,10 @@ from products.customer_analytics.backend.facade.temporal import (
     ACCOUNT_PROPERTY_SYNC_WORKFLOWS,
     ACTIVITIES as CUSTOMER_ANALYTICS_ACTIVITIES,
     WORKFLOWS as CUSTOMER_ANALYTICS_WORKFLOWS,
+)
+from products.data_catalog.backend.facade.temporal import (
+    ACTIVITIES as DATA_CATALOG_DIGEST_ACTIVITIES,
+    WORKFLOWS as DATA_CATALOG_DIGEST_WORKFLOWS,
 )
 from products.data_quality.backend.facade.temporal import (
     ACTIVITIES as DATA_QUALITY_ACTIVITIES,
@@ -212,6 +218,8 @@ from products.experiments.backend.temporal import (
     EXPERIMENT_CANARY_WORKFLOWS,
     EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
     EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
+    EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
+    EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
 )
 from products.exports.backend.temporal.subscriptions import (
@@ -273,6 +281,8 @@ from products.signals.backend.emission.temporal_settings import (
 )
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
+    SELF_DRIVING_ACTIVITIES,
+    SELF_DRIVING_WORKFLOWS,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
 )
 from products.stamphog.backend.facade.temporal import (
@@ -282,6 +292,10 @@ from products.stamphog.backend.facade.temporal import (
 from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
+)
+from products.today.backend.facade.temporal import (
+    ACTIVITIES as TODAY_ACTIVITIES,
+    WORKFLOWS as TODAY_WORKFLOWS,
 )
 from products.warehouse_sources.backend.facade.temporal import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
@@ -303,8 +317,8 @@ from products.wizard.backend.facade.temporal import (
     WORKFLOWS as WIZARD_WORKFLOWS,
 )
 
-# When adding modules to a queue, also update the corresponding CI trigger
-# in .github/workflows/container-images-cd.yml (check_changes_*_temporal_worker)
+# When adding modules to a queue, also add their paths to that fleet's filter in the
+# check_temporal_worker_changes step of .github/workflows/container-images-cd.yml
 _task_queue_specs = [
     (
         settings.SYNC_BATCH_EXPORTS_TASK_QUEUE,
@@ -353,10 +367,10 @@ _task_queue_specs = [
         + PRODUCT_ANALYTICS_WORKFLOWS
         + LLM_ANALYTICS_WORKFLOWS
         + DLQ_REPLAY_WORKFLOWS
-        + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
         + EXPERIMENTS_WORKFLOWS
         + EXPERIMENT_CANARY_WORKFLOWS
         + EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS
+        + EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
         + [BackfillMaterializedPropertiesBatchWorkflow]
         + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
@@ -370,7 +384,8 @@ _task_queue_specs = [
         + GROWTH_WORKFLOWS
         + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
         + CONTEXT_LAYER_WORKFLOWS
-        + SECURITY_WORKFLOWS,
+        + SECURITY_WORKFLOWS
+        + TODAY_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -379,10 +394,10 @@ _task_queue_specs = [
         + PRODUCT_ANALYTICS_ACTIVITIES
         + LLM_ANALYTICS_ACTIVITIES
         + DLQ_REPLAY_ACTIVITIES
-        + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
         + EXPERIMENTS_ACTIVITIES
         + EXPERIMENT_CANARY_ACTIVITIES
         + EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES
+        + EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
         + BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES
         + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
@@ -396,7 +411,8 @@ _task_queue_specs = [
         + NOTEBOOKS_ACTIVITIES
         + GROWTH_ACTIVITIES
         + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES
-        + SECURITY_ACTIVITIES,
+        + SECURITY_ACTIVITIES
+        + TODAY_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
     # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a
@@ -512,8 +528,8 @@ _task_queue_specs = [
     # workflows left, so a dedicated fleet for them isn't worth its reserved capacity.
     (
         settings.WEEKLY_DIGEST_TASK_QUEUE,
-        WEEKLY_DIGEST_WORKFLOWS + WA_DIGEST_WORKFLOWS,
-        WEEKLY_DIGEST_ACTIVITIES + WA_DIGEST_ACTIVITIES,
+        WEEKLY_DIGEST_WORKFLOWS + WA_DIGEST_WORKFLOWS + DATA_CATALOG_DIGEST_WORKFLOWS,
+        WEEKLY_DIGEST_ACTIVITIES + WA_DIGEST_ACTIVITIES + DATA_CATALOG_DIGEST_ACTIVITIES,
     ),
     (
         settings.LLMA_EVALS_TASK_QUEUE,
@@ -560,6 +576,16 @@ _task_queue_specs = [
         settings.LOGS_VOLUME_TICK_TASK_QUEUE,
         LOGS_VOLUME_TICK_WORKFLOWS,
         LOGS_VOLUME_TICK_ACTIVITIES,
+    ),
+    (
+        settings.AUTORESEARCH_TASK_QUEUE,
+        AUTORESEARCH_WORKFLOWS,
+        AUTORESEARCH_ACTIVITIES,
+    ),
+    (
+        settings.SELF_DRIVING_TASK_QUEUE,
+        SELF_DRIVING_WORKFLOWS,
+        SELF_DRIVING_ACTIVITIES,
     ),
     (
         settings.STAMPHOG_TASK_QUEUE,
@@ -694,6 +720,12 @@ class Command(BaseCommand):
             help="Fraction of available CPU to use",
         )
         parser.add_argument(
+            "--activity-ramp-throttle-ms",
+            type=int,
+            default=settings.TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS,
+            help="Minimum milliseconds between two activity slot issues when the resource-based tuner is on",
+        )
+        parser.add_argument(
             "--health-port",
             type=int,
             default=settings.TEMPORAL_HEALTH_PORT,
@@ -726,6 +758,7 @@ class Command(BaseCommand):
         use_pydantic_converter = options["use_pydantic_converter"]
         target_memory_usage = options.get("target_memory_usage", None)
         target_cpu_usage = options.get("target_cpu_usage", None)
+        activity_ramp_throttle_ms = options.get("activity_ramp_throttle_ms", None)
         health_port = options.get("health_port", None)
         health_max_idle_seconds = options.get("health_max_idle_seconds", None)
         disable_combined_metrics_server = options.get("disable_combined_metrics_server", False)
@@ -788,12 +821,40 @@ class Command(BaseCommand):
 
             logger.info("Initiating shutdown")
 
+            # Each activity that runs now holds this pod until it returns or the graceful shutdown
+            # timeout ends, so this list shows what a slow shutdown waits on.
+            running_activities = get_liveness_tracker().get_running_activities()
+            now = time.time()
+            logger.info("Activities running at shutdown", count=len(running_activities))
+            for running in running_activities:
+                logger.info(
+                    "Activity running at shutdown",
+                    activity_type=running.activity_type,
+                    workflow_type=running.workflow_type,
+                    workflow_id=running.workflow_id,
+                    attempt=running.attempt,
+                    running_seconds=round(now - running.started_at),
+                )
+
             # Shutdown health server first so k8s stops sending traffic
             if health_srv:
                 await health_srv.stop()
 
+            zombie_exit: ZombieActivityExit | None = None
+            if settings.TEMPORAL_WORKER_ZOMBIE_EXIT_ENABLED:
+                zombie_exit = ZombieActivityExit(
+                    tracker=get_liveness_tracker(),
+                    grace_seconds=settings.TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS,
+                    task_queue=task_queue,
+                )
+                zombie_exit.start()
+
             # Then shutdown the worker
-            await worker.shutdown()
+            try:
+                await worker.shutdown()
+            finally:
+                if zombie_exit is not None:
+                    zombie_exit.stop()
 
         def shutdown_on_signal(
             worker: ManagedWorker,
@@ -822,9 +883,12 @@ class Command(BaseCommand):
                 max_concurrent_activities=max_concurrent_activities,
                 target_memory_usage=target_memory_usage,
                 target_cpu_usage=target_cpu_usage,
+                activity_ramp_throttle_ms=activity_ramp_throttle_ms,
                 health_port=health_port,
                 health_max_idle_seconds=health_max_idle_seconds,
                 combined_metrics_server_enabled=not disable_combined_metrics_server,
+                zombie_exit_enabled=settings.TEMPORAL_WORKER_ZOMBIE_EXIT_ENABLED,
+                zombie_exit_grace_seconds=settings.TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS,
             )
             logger.info("Starting Temporal Worker")
 
@@ -860,6 +924,11 @@ class Command(BaseCommand):
                     use_pydantic_converter=use_pydantic_converter,
                     target_memory_usage=target_memory_usage,
                     target_cpu_usage=target_cpu_usage,
+                    activity_ramp_throttle=(
+                        dt.timedelta(milliseconds=activity_ramp_throttle_ms)
+                        if activity_ramp_throttle_ms is not None
+                        else None
+                    ),
                     enable_combined_metrics_server=not disable_combined_metrics_server,
                     enable_open_telemetry_plugin=enable_otel,
                 )
@@ -892,13 +961,21 @@ class Command(BaseCommand):
                     f"No healthcheck server due to health_port={health_port} and health_max_idle_seconds={health_max_idle_seconds}"
                 )
 
-            for sig in (signal.SIGTERM, signal.SIGINT):
-                loop.add_signal_handler(
-                    sig,
-                    functools.partial(shutdown_on_signal, worker=worker, health_srv=health_server, sig=sig, loop=loop),
-                )
+            signal_listener = ShutdownSignalListener()
+            signal_listener.install()
 
-            runner.run(worker.run())
+            async def run_until_worker_stops() -> None:
+                async def shut_down_on_first_signal() -> None:
+                    sig = await signal_listener.wait()
+                    shutdown_on_signal(worker=worker, health_srv=health_server, sig=sig, loop=loop)
+
+                signal_watcher = asyncio.create_task(shut_down_on_first_signal())
+                try:
+                    await worker.run()
+                finally:
+                    _ = signal_watcher.cancel()
+
+            runner.run(run_until_worker_stops())
 
             if shutdown_task:
                 logger.info("Waiting on shutdown_task")

@@ -1,7 +1,7 @@
 import { Theme } from "@radix-ui/themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // quill-charts is canvas-backed and does not load in the test environment;
 // the tag-to-card dispatch around it is what these tests exercise.
@@ -27,7 +27,10 @@ vi.mock("../../../hooks/useAuthenticatedQuery", () => ({
   }),
 }));
 
+import { ANONYMOUS_AUTH_STATE, useAuthStore } from "../../auth/store";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+
+const PROJECT = "https://us.posthog.com/project/2";
 
 const queryClient = new QueryClient();
 
@@ -169,6 +172,98 @@ describe("object tags in agent markdown", () => {
     expect(screen.getAllByTestId("report-chart")).toHaveLength(10);
     // The two overflow tags fall back to the inline chip's default label.
     expect(screen.getAllByText("SQL query")).toHaveLength(2);
+  });
+});
+
+describe("PostHog object links in agent markdown", () => {
+  beforeEach(() => {
+    useAuthStore.setState({
+      authState: {
+        ...ANONYMOUS_AUTH_STATE,
+        cloudRegion: "us",
+        currentProjectId: 2,
+      },
+    });
+  });
+
+  afterEach(() => {
+    useAuthStore.setState({ authState: ANONYMOUS_AUTH_STATE });
+  });
+
+  it("renders an inline object link as a reference chip", () => {
+    renderMarkdown(`The [checkout funnel](${PROJECT}/insights/9pQx3) dropped.`);
+    expect(screen.getByText("checkout funnel").closest("a")?.href).toBe(
+      `${PROJECT}/insights/9pQx3`,
+    );
+    expect(screen.queryByLabelText("external link icon")).toBeNull();
+  });
+
+  it.each([
+    [
+      "an insight",
+      `Here it is:\n\n[Checkout funnel, last 30 days](${PROJECT}/insights/9pQx3)\n`,
+      "Checkout funnel, last 30 days",
+    ],
+    [
+      "a SQL query",
+      `[DAU, last 7 days](${PROJECT}/sql?open_query=SELECT%201 "Excludes bots")\n`,
+      "DAU, last 7 days",
+    ],
+    [
+      "a tool result query",
+      `[DAU](${PROJECT}/insights/new#q=${encodeURIComponent(JSON.stringify({ kind: "DataTableNode", source: { kind: "HogQLQuery", query: "SELECT 1" } }))})\n`,
+      "DAU",
+    ],
+  ])(
+    "renders a link to %s alone in its paragraph as a chart card",
+    (_what, content, title) => {
+      renderMarkdown(content);
+      expect(screen.getByTestId("report-chart")).toBeDefined();
+      expect(screen.getByText(title)).toBeDefined();
+    },
+  );
+
+  it("renders a replay link alone in its paragraph as a watchable card", () => {
+    renderMarkdown(
+      `Watch it:\n\n[The failed checkout](${PROJECT}/replay/s_01HQ4K)\n`,
+    );
+    expect(screen.getByTestId("replay-card")).toBeDefined();
+  });
+
+  it.each([
+    ["a list", `- [DAU](${PROJECT}/sql?open_query=SELECT%201)\n`],
+    ["a sentence", `See [DAU](${PROJECT}/sql?open_query=SELECT%201) now.\n`],
+  ])("keeps a chart link inside %s as an inline chip", (_where, content) => {
+    renderMarkdown(content);
+    expect(screen.queryByTestId("report-chart")).toBeNull();
+    expect(screen.getByText("DAU")).toBeDefined();
+    expect(screen.queryByLabelText("external link icon")).toBeNull();
+  });
+
+  it.each([
+    ["another project", "https://us.posthog.com/project/3/insights/9pQx3"],
+    ["another region", "https://eu.posthog.com/project/2/insights/9pQx3"],
+    ["a page that is not an object", `${PROJECT}/settings/project`],
+  ])("leaves a link to %s as a plain link", (_what, url) => {
+    renderMarkdown(`[the page](${url})\n`);
+    expect(screen.queryByTestId("report-chart")).toBeNull();
+    expect(screen.getByLabelText("external link icon")).toBeDefined();
+  });
+
+  it("does not turn a half-streamed link into a live query", () => {
+    renderMarkdown(`[DAU](${PROJECT}/sql?open_query=SELECT%20count(`);
+    expect(screen.queryByTestId("report-chart")).toBeNull();
+  });
+
+  it("does not run an object link in untrusted content", () => {
+    renderUntrustedMarkdown(`[DAU](${PROJECT}/sql?open_query=SELECT%201)\n`);
+    expect(screen.queryByTestId("report-chart")).toBeNull();
+    expect(screen.getByLabelText("external link icon")).toBeDefined();
+  });
+
+  it("labels a bare object URL with its kind", () => {
+    renderMarkdown(`Gated by ${PROJECT}/feature_flags/42 since Jan 3.`);
+    expect(screen.getByText("Feature flag 42")).toBeDefined();
   });
 });
 

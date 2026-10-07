@@ -124,6 +124,25 @@ type PostHogEvent struct {
 	BotName         string
 }
 
+type incomingMessage struct {
+	value      []byte
+	token      string
+	distinctID string
+}
+
+func newIncomingMessage(msg *kafka.Message) incomingMessage {
+	in := incomingMessage{value: msg.Value}
+	for _, h := range msg.Headers {
+		switch h.Key {
+		case "token":
+			in.token = string(h.Value)
+		case "distinct_id":
+			in.distinctID = string(h.Value)
+		}
+	}
+	return in
+}
+
 type KafkaConsumerInterface interface {
 	SubscribeTopics(topics []string, rebalanceCb kafka.RebalanceCb) error
 	ReadMessage(timeout time.Duration) (*kafka.Message, error)
@@ -135,7 +154,7 @@ type PostHogKafkaConsumer struct {
 	topic          string
 	geolocator     geo.GeoLocator
 	botClassifier  *bot.Classifier
-	incoming       chan []byte
+	incoming       chan incomingMessage
 	outgoingChan   chan PostHogEvent
 	statsChan      chan CountEvent
 	parallel       int
@@ -173,7 +192,7 @@ func NewPostHogKafkaConsumer(
 		topic:         consumerConfig.Topic,
 		geolocator:    geolocator,
 		botClassifier: bot.NewClassifier(),
-		incoming:      make(chan []byte, (1+parallel)*100),
+		incoming:      make(chan incomingMessage, (1+parallel)*100),
 		outgoingChan:  outgoingChan,
 		statsChan:     statsChan,
 		parallel:      parallel,
@@ -226,17 +245,27 @@ func (c *PostHogKafkaConsumer) Consume(ctx context.Context) {
 			log.Printf("Events message #%d: partition=%d, offset=%d",
 				msgCount, msg.TopicPartition.Partition, msg.TopicPartition.Offset)
 		}
-		c.incoming <- msg.Value
+		observeEventLag(msg.Timestamp)
+		c.incoming <- newIncomingMessage(msg)
 	}
 }
 
 func (c *PostHogKafkaConsumer) runParsing(ctx context.Context) {
 	for {
-		value, ok := <-c.incoming
+		in, ok := <-c.incoming
 		if !ok {
 			return
 		}
-		phEvent := parse(c.geolocator, c.botClassifier, value)
+		if in.token != "" && in.distinctID != "" && c.Broker != nil && !c.Broker.ShouldPublish(in.token) {
+			select {
+			case c.statsChan <- CountEvent{Token: in.token, DistinctID: in.distinctID}:
+			case <-ctx.Done():
+				return
+			}
+			metrics.RedisPublishSkippedTotal.Inc()
+			continue
+		}
+		phEvent := parse(c.geolocator, c.botClassifier, in.value)
 		if phEvent.Token == "" {
 			metrics.EventsDroppedNoToken.Inc()
 			n := c.droppedNoToken.Add(1)
@@ -271,14 +300,6 @@ func parse(geolocator geo.GeoLocator, classifier *bot.Classifier, kafkaMessage [
 	var wrapperMessage PostHogEventWrapper
 	if err := json.Unmarshal(kafkaMessage, &wrapperMessage); err != nil {
 		log.Printf("Error decoding JSON %s: %v", err, string(kafkaMessage))
-	}
-
-	if wrapperMessage.Timestamp != "" {
-		if eventTime, err := time.Parse(time.RFC3339Nano, wrapperMessage.Timestamp); err == nil {
-			if lag := time.Since(eventTime).Seconds(); lag >= 0 {
-				metrics.EventLagHistogram.Observe(lag)
-			}
-		}
 	}
 
 	phEvent := PostHogEvent{
@@ -387,9 +408,21 @@ func (c *PostHogKafkaConsumer) IncomingRatio() float64 {
 	return float64(len(c.incoming)) / float64(cap(c.incoming))
 }
 
+func observeEventLag(produced time.Time) {
+	if produced.IsZero() {
+		return
+	}
+	if lag := time.Since(produced).Seconds(); lag >= 0 {
+		metrics.EventLagHistogram.Observe(lag)
+	}
+}
+
 func applyKafkaConfigOverrides(config *kafka.ConfigMap, consumerConfig configs.ConsumerConfig) {
 	if consumerConfig.ClientID != "" {
 		_ = config.SetKey("client.id", consumerConfig.ClientID)
+	}
+	if consumerConfig.ClientRack != "" {
+		_ = config.SetKey("client.rack", consumerConfig.ClientRack)
 	}
 	if consumerConfig.SessionTimeoutMs > 0 {
 		_ = config.SetKey("session.timeout.ms", consumerConfig.SessionTimeoutMs)

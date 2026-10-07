@@ -270,14 +270,20 @@ class TestValidateCredentials:
         else:
             assert error is not None
 
-    def test_bad_request_points_at_the_project_id(self) -> None:
-        # A 400 used to fall through and surface the raw status code, which is not actionable.
+    @parameterized.expand(
+        [
+            ("bad_request", 400, "project ID"),
+            ("payment_required", 402, "plan"),
+        ]
+    )
+    def test_rejections_explain_the_fix_without_the_status_code(self, _name: str, status: int, hint: str) -> None:
         session = MagicMock()
-        session.post.return_value = FakeResponse(status_code=400)
+        session.post.return_value = FakeResponse(status_code=status)
         with patch.object(mp, "make_tracked_session", return_value=session):
             ok, error = validate_credentials("us", "user", "secret", "123")
         assert ok is False
-        assert error is not None and "project ID" in error
+        assert error is not None and hint in error
+        assert str(status) not in error
 
     def test_network_error_returns_failure(self) -> None:
         session = MagicMock()
@@ -286,16 +292,6 @@ class TestValidateCredentials:
             ok, error = validate_credentials("eu", "user", "secret", "123")
         assert ok is False
         assert error is not None
-
-    def test_payment_required_gets_actionable_message(self) -> None:
-        session = MagicMock()
-        session.post.return_value = FakeResponse(status_code=402)
-        with patch.object(mp, "make_tracked_session", return_value=session):
-            ok, error = validate_credentials("us", "user", "secret", "123")
-        assert ok is False
-        assert error is not None
-        assert "402" in error
-        assert "plan" in error.lower()
 
 
 class TestExportIterator:

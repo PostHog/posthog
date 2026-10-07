@@ -1,3 +1,4 @@
+import re
 import json
 import dataclasses
 from datetime import UTC, date, datetime
@@ -17,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse
     GREENHOUSE_ENDPOINTS,
     GREENHOUSE_TOKEN_URL,
     PAGE_SIZE,
+    V3_ONLY_ENDPOINT_ERROR,
     GreenhouseResumeConfig,
     _build_auth,
     _build_initial_params,
@@ -60,10 +62,13 @@ def _make_manager(resume_state: GreenhouseResumeConfig | None = None) -> MagicMo
 def _source(endpoint: str, **kwargs: Any) -> Any:
     # Transport tests run on v1: its HTTP Basic auth needs no token exchange, so the only network
     # boundary is the patched rest_client session. Version-specific request shape is covered by the
-    # param/auth/url tests below.
+    # param/auth/url tests below. v3-only endpoints build on v3; the token is minted lazily on the
+    # first request, so building the response needs no network.
     kwargs.setdefault("resumable_source_manager", _make_manager())
-    kwargs.setdefault("api_version", GREENHOUSE_V1)
-    return greenhouse_source(endpoint, team_id=1, job_id="j", api_key="key", **kwargs)
+    kwargs.setdefault("api_version", GREENHOUSE_V3 if GREENHOUSE_ENDPOINTS[endpoint].v3_only else GREENHOUSE_V1)
+    return greenhouse_source(
+        endpoint, team_id=1, job_id="j", api_key="key", client_id="cid", client_secret="csecret", **kwargs
+    )
 
 
 class TestFormatDatetime:
@@ -252,6 +257,11 @@ class TestGreenhouseSourceResponse:
     def test_partition_key_is_never_updated_at(self, endpoint: str) -> None:
         assert GREENHOUSE_ENDPOINTS[endpoint].partition_key not in ("updated_at", "last_activity_at")
 
+    @pytest.mark.parametrize("endpoint", [name for name, config in GREENHOUSE_ENDPOINTS.items() if config.v3_only])
+    def test_v3_only_endpoint_refuses_to_sync_on_v1(self, endpoint: str) -> None:
+        with pytest.raises(ValueError, match=re.escape(V3_ONLY_ENDPOINT_ERROR)):
+            _source(endpoint, api_version=GREENHOUSE_V1)
+
     def test_sort_mode_is_ascending(self) -> None:
         response = _source("candidates")
         assert response.sort_mode == "asc"
@@ -266,6 +276,7 @@ class TestRequestUrlPerVersion:
             # v3 renamed this collection; the schema (and warehouse table) keeps the v1 name.
             ("scheduled_interviews", GREENHOUSE_V1, "https://harvest.greenhouse.io/v1/scheduled_interviews"),
             ("scheduled_interviews", GREENHOUSE_V3, "https://harvest.greenhouse.io/v3/interviews"),
+            ("job_interview_stages", GREENHOUSE_V3, "https://harvest.greenhouse.io/v3/job_interview_stages"),
         ],
     )
     @mock.patch(f"{OAUTH_MODULE}.OAuth2Auth._obtain_token")

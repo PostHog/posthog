@@ -1,4 +1,11 @@
-import { HogFunctionSubTemplateIdType } from '~/types'
+import { SAMPLE_GLOBALS_CONTEXTS } from 'scenes/hog-functions/configuration/sampleGlobalsContexts'
+
+import {
+    CyclotronJobInvocationGlobals,
+    HogFunctionSubTemplateIdType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { HOG_FUNCTION_SUB_TEMPLATES, eventToHogFunctionContextId } from './sub-templates'
 
@@ -60,5 +67,48 @@ describe('sub-templates', () => {
         for (const key of inputKeys) {
             expect(DESTINATION_TEMPLATE_INPUT_KEYS[templateId]).toContain(key)
         }
+    })
+
+    // A placeholder the sample event leaves empty renders an empty Slack block. Slack then rejects
+    // the whole test message.
+    it.each(['health-check-firing', 'health-check-resolved'] as const)(
+        'gives the %s templates a sample value for every event property they read',
+        async (subTemplateId) => {
+            const sample = await SAMPLE_GLOBALS_CONTEXTS['health-alerts']!({
+                event: { properties: {} },
+            } as CyclotronJobInvocationGlobals)
+            const inputs = JSON.stringify(HOG_FUNCTION_SUB_TEMPLATES[subTemplateId].map((template) => template.inputs))
+            const readProperties = new Set([...inputs.matchAll(/event\.properties\.(\w+)/g)].map((match) => match[1]))
+
+            expect(readProperties.size).toBeGreaterThan(0)
+            for (const property of readProperties) {
+                expect([property, sample.event.properties[property] ?? '']).not.toEqual([property, ''])
+            }
+        }
+    )
+
+    // An alert scoped to some kinds skips a sample event of any other kind, so its test sends nothing.
+    it.each([
+        ['the first kind of an exact kind filter', PropertyOperator.Exact, 'external_data_failure'],
+        ['a placeholder kind for a filter that excludes kinds', PropertyOperator.IsNot, 'test'],
+        ['a placeholder kind with no kind filter', null, 'test'],
+    ])('gives the health sample event %s', async (_, operator, expected) => {
+        const sample = await SAMPLE_GLOBALS_CONTEXTS['health-alerts']!(
+            { event: { properties: {} } } as CyclotronJobInvocationGlobals,
+            {
+                events: [{ id: '$health_check_issue_firing', type: 'events' }],
+                properties: operator
+                    ? [
+                          {
+                              key: 'kind',
+                              value: ['external_data_failure', 'sdk_outdated'],
+                              operator,
+                              type: PropertyFilterType.Event,
+                          },
+                      ]
+                    : [],
+            }
+        )
+        expect(sample.event.properties.kind).toBe(expected)
     })
 })

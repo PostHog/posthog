@@ -5,7 +5,7 @@ import time
 import random
 import datetime
 from typing import Any, TypedDict, cast
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin
 from uuid import uuid4
 
 from django.conf import settings
@@ -34,13 +34,17 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session, restore_original_login
-from rest_framework import mixins, permissions, serializers, status, viewsets
+from requests import RequestException
+from rest_framework import exceptions, mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from social_core.backends.base import BaseAuth
+from social_core.backends.github import GithubOAuth2
 from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter
+from social_django.models import UserSocialAuth
 from social_django.strategy import DjangoStrategy
 from social_django.views import auth
 from two_factor.utils import default_device
@@ -50,6 +54,7 @@ from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
 from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
+from posthog.auth import ACCOUNT_BLOCKED_DETAIL
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.email import is_email_available
@@ -58,7 +63,12 @@ from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.helpers.email_utils import EmailLookupHandler
-from posthog.helpers.sso import is_sso_reauth_begin, sso_failure_redirect_url
+from posthog.helpers.sso import (
+    GITHUB_EMAIL_LOOKUP_ERROR,
+    UNVERIFIED_SOCIAL_EMAIL_ERROR,
+    is_sso_reauth_begin,
+    sso_failure_redirect_url,
+)
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
     LOGIN_CODE_VERIFICATION_COUNTER,
@@ -96,7 +106,10 @@ from posthog.utils import (
 )
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import (
+    REFUSAL_CODE as SECURITY_REFUSAL_CODE,
+    access_refused as security_access_refused,
+)
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 
@@ -124,6 +137,10 @@ def sso_enforcement_for_login_address(email: str, user: User | None) -> str | No
     return OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
 
 
+# Reasons a logout can pass to the login page, which holds the copy for each one.
+_LOGOUT_REASONS = frozenset({SECURITY_REFUSAL_CODE})
+
+
 @require_http_methods(["POST"])
 def logout(request):
     clear_two_factor_session_flags(request)
@@ -136,6 +153,10 @@ def logout(request):
         return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
 
     auth_logout(request)
+
+    reason = request.POST.get("reason", "")
+    if reason in _LOGOUT_REASONS:
+        return redirect(f"{settings.LOGIN_URL}?{urlencode({'error_code': reason})}")
 
     next_url = request.POST.get("next")
     if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
@@ -382,13 +403,16 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         try:
-            security_shadow_check(
+            refused = security_access_refused(
                 SecuritySubject(email=user.email, user_uuid=str(user.uuid), ip=get_trusted_client_ip(axes_request)),
                 SecuritySurface.APP,
                 call_site="login",
             )
         except Exception:
-            logger.exception("security_shadow_check_site_failed", call_site="login")
+            logger.exception("security_access_check_site_failed", call_site="login")
+            refused = False
+        if refused:
+            raise exceptions.PermissionDenied(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
 
         if not is_email_verified_for_login(user):
             # A fresh code was just emailed; hand the frontend the uuid so it can route to
@@ -1343,6 +1367,17 @@ def _sso_reauth_request(strategy: DjangoStrategy) -> HttpRequest | None:
     return request
 
 
+def _is_signed_in_github_account_link(strategy: DjangoStrategy, backend: BaseAuth) -> bool:
+    request = strategy.request
+    return (
+        bool(request)
+        and request.user.is_authenticated
+        and getattr(backend, "name", "") == "github"
+        and (strategy.session_get("next") or "").startswith("/account-connected/github-login")
+        and _sso_reauth_request(strategy) is None
+    )
+
+
 def social_identity_matches_session(
     strategy: DjangoStrategy,
     backend: Any,
@@ -1355,10 +1390,7 @@ def social_identity_matches_session(
     if not request or not request.user.is_authenticated or social is not None:
         return
 
-    is_github_account_link = getattr(backend, "name", "") == "github" and (
-        strategy.session_get("next") or ""
-    ).startswith("/account-connected/github-login")
-    if is_github_account_link:
+    if _is_signed_in_github_account_link(strategy, backend):
         return
 
     identity_email = ((details or {}).get("email") or "").lower()
@@ -1369,6 +1401,54 @@ def social_identity_matches_session(
             session_user_id=request.user.pk,
         )
         raise AuthFailed(backend, "reauth_user_mismatch")
+
+
+def _github_email_is_verified(backend: GithubOAuth2, access_token: str, email: str) -> bool:
+    try:
+        emails: object = backend.get_json(
+            urljoin(backend.api_url(), "user/emails"), headers={"Authorization": f"token {access_token}"}
+        )
+    except (RequestException, AuthConnectionError, ValueError) as error:
+        logger.warning("github_email_verification_lookup_failed", exc_info=True)
+        raise AuthFailed(backend, GITHUB_EMAIL_LOOKUP_ERROR) from error
+    if not isinstance(emails, list):
+        logger.warning("github_email_verification_lookup_unexpected_response")
+        raise AuthFailed(backend, GITHUB_EMAIL_LOOKUP_ERROR)
+    return any(
+        isinstance(entry, dict)
+        and entry.get("verified") is True
+        and str(entry.get("email", "")).lower() == email.lower()
+        for entry in emails
+    )
+
+
+def social_email_verified_by_provider(
+    strategy: DjangoStrategy,
+    backend: BaseAuth,
+    details: dict[str, Any] | None = None,
+    response: dict[str, Any] | None = None,
+    social: UserSocialAuth | None = None,
+    **kwargs: Any,
+) -> None:
+    # A linked identity resolves by its provider uid, and a signed-in account connect is keyed to the
+    # session. Every other flow, re-authentication included, trusts the email address.
+    if social is not None or _is_signed_in_github_account_link(strategy, backend):
+        return
+
+    response = response or {}
+    email = (details or {}).get("email") or ""
+    if isinstance(backend, GithubOAuth2):
+        # The GitHub backend picks the primary address from /user/emails without its `verified` flag,
+        # and GitHub lets an unverified address be primary.
+        is_verified = not email or _github_email_is_verified(backend, response.get("access_token", ""), email)
+    elif backend.name == "google-oauth2":
+        is_verified = response.get("email_verified") is True
+    else:
+        is_verified = response.get("email_verified") is not False
+
+    if not is_verified:
+        logger.warning("social_login_unverified_provider_email", backend=backend.name)
+        raise AuthFailed(backend, UNVERIFIED_SOCIAL_EMAIL_ERROR)
 
 
 def social_reauth(
@@ -1403,6 +1483,27 @@ def social_reauth(
             session_user_id=request.user.pk,
         )
         raise AuthFailed(backend, "reauth_user_mismatch")
+
+
+def social_access_rules_allow(
+    strategy: DjangoStrategy, backend: BaseAuth, user: User | None = None, **kwargs: Any
+) -> None:
+    """Refuse an SSO login for an account that an enforced access rule blocks, before a session starts."""
+    if user is None:
+        # A new account is checked where it is created: the signup serializer, or the SSO invite
+        # and verified-domain joins in posthog/api/signup.py.
+        return
+    try:
+        refused = security_access_refused(
+            SecuritySubject(email=user.email, user_uuid=str(user.uuid), ip=get_trusted_client_ip(strategy.request)),
+            SecuritySurface.APP,
+            call_site="sso_login",
+        )
+    except Exception:
+        logger.exception("security_access_check_site_failed", call_site="sso_login")
+        refused = False
+    if refused:
+        raise AuthFailed(backend, SECURITY_REFUSAL_CODE)
 
 
 def social_reauth_complete(strategy: DjangoStrategy, backend, user: User | None = None, **kwargs) -> None:

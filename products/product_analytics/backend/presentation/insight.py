@@ -6,7 +6,7 @@ from typing import Any, Union, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Exists, F, Max, OuterRef, QuerySet
+from django.db.models import Count, Exists, F, Max, QuerySet
 from django.db.models.query_utils import Q
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
@@ -32,7 +32,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import ProductKey, QueryStatus
+from posthog.schema import AccessControlFilterWarning, DataWarehouseSyncWarning, ProductKey, QueryStatus
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -58,8 +58,9 @@ from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import INSIGHT, AvailableFeature
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -462,13 +463,18 @@ class _InsightQuerySchema(RootModel):
     """The query definition for this insight. The `kind` field determines the query type:
     - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
     - `DataVisualizationNode` — SQL insights using HogQL
+    - `BIVisualizationNode` — business intelligence worksheets with a HogQL source
     - `DataTableNode` — raw data tables
     - `HogQuery` — Hog language queries
     """
 
-    root: schema.InsightVizNode | schema.DataTableNode | schema.DataVisualizationNode | schema.HogQuery = PydanticField(
-        discriminator="kind"
-    )
+    root: (
+        schema.InsightVizNode
+        | schema.DataTableNode
+        | schema.DataVisualizationNode
+        | schema.BIVisualizationNode
+        | schema.HogQuery
+    ) = PydanticField(discriminator="kind")
 
 
 @extend_schema_field(_InsightQuerySchema)  # type: ignore[arg-type]
@@ -517,6 +523,12 @@ class InsightFilterOverrideContext(BaseModel):
     overridden_dashboard: schema.DashboardFilter | None = PydanticField(
         default=None, description="Dashboard filters replaced by the tile filters."
     )
+
+
+class _InsightResultWarnings(RootModel):
+    """Warnings attached to the query response that produced an insight's results."""
+
+    root: list[DataWarehouseSyncWarning | AccessControlFilterWarning]
 
 
 @extend_schema_serializer(deprecate_fields=["dashboards"])
@@ -577,6 +589,15 @@ class InsightSerializer(InsightBasicSerializer):
         read_only=True,
         help_text="What ClickHouse read for this insight's last slow run, with the findings of its query scan.",
     )
+    warnings = serializers.SerializerMethodField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Warnings from the run that produced these results. A `warehouse_sync` warning means the query"
+            " read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be"
+            " out of date. Reflects the sync state when the results were computed. Null for shared insights."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
     filter_override_context = serializers.SerializerMethodField(
@@ -623,6 +644,7 @@ class InsightSerializer(InsightBasicSerializer):
             "types",
             "resolved_date_range",
             "query_scan",
+            "warnings",
             "_create_in_folder",
             "alerts",
             "filter_override_context",
@@ -1068,7 +1090,7 @@ class InsightSerializer(InsightBasicSerializer):
         if (
             query
             and isinstance(query, dict)
-            and query.get("kind") == "DataVisualizationNode"
+            and query.get("kind") in ("DataVisualizationNode", "BIVisualizationNode")
             and query.get("source", {}).get("variables")
         ):
             query["source"]["variables"] = map_stale_to_latest(
@@ -1116,6 +1138,14 @@ class InsightSerializer(InsightBasicSerializer):
             return None
         return hydrate_scan_summary(self.context["get_team"](), summary, cache_key)
 
+    @extend_schema_field(_InsightResultWarnings)  # type: ignore[arg-type]
+    def get_warnings(self, insight: Insight) -> list[dict] | None:
+        # Sync warnings name warehouse tables and sources, which a shared viewer outside the
+        # project must not see.
+        if self.context.get("is_shared"):
+            return None
+        return self.insight_result(insight).warnings
+
     @extend_schema_field(serializers.ListField())
     def get_alerts(self, insight: Insight):
         if insight.alertable_query_kind is None:
@@ -1154,11 +1184,13 @@ class InsightSerializer(InsightBasicSerializer):
         resolved_layers = resolve_filter_layers_by_priority(dashboard_filters, tile_filters_override)
         return {key: value or None for key, value in resolved_layers.items()}
 
+    @extend_schema_field(serializers.ChoiceField(choices=RestrictionLevel.choices))
     def get_effective_restriction_level(self, insight: Insight) -> RestrictionLevel:
         if self.context.get("is_shared"):
             return RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         return self.user_permissions.insight(insight).effective_restriction_level
 
+    @extend_schema_field(serializers.ChoiceField(choices=PrivilegeLevel.choices))
     def get_effective_privilege_level(self, insight: Insight) -> PrivilegeLevel:
         if self.context.get("is_shared"):
             return PrivilegeLevel.CAN_VIEW
@@ -1299,6 +1331,7 @@ class InsightSerializer(InsightBasicSerializer):
                     hogql=cached_response.get("hogql"),
                     types=cached_response.get("types"),
                     query_scan=cached_response.get("query_scan"),
+                    warnings=cached_response.get("warnings"),
                 )
             else:
                 EXPORT_QUERY_CACHE_MISS.inc()
@@ -1395,28 +1428,33 @@ class InsightSerializer(InsightBasicSerializer):
                     error_code=getattr(e, "code_name", None),
                     last_refresh=None,
                 )
-            except ConcurrencyLimitExceeded as e:
-                logger.warn(
-                    "concurrency_limit_exceeded_api", exception=e, insight_id=insight.id, team_id=insight.team_id
-                )
-                return self._degraded_insight_result(
-                    insight,
-                    dashboard,
-                    error=e,
-                    error_message="concurrency_limit_exceeded",
-                    error_code="concurrency_limit_exceeded",
-                    last_refresh=now(),
-                )
             except Exception as e:
-                # Capture unexpected crashes so the API list doesn't fail
-                logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
+                is_rate_limited = classify_query_error(e) == QueryErrorCategory.RATE_LIMITED
+                error_message = str(e)
+                if is_rate_limited:
+                    # Older dashboard clients retry on this marker. Other capacity messages can
+                    # contain internal Redis keys, task IDs or raw ClickHouse details.
+                    error_message = (
+                        "concurrency_limit_exceeded"
+                        if isinstance(e, ConcurrencyLimitExceeded)
+                        else ClickHouseAtCapacity.default_detail
+                    )
+                    logger.warn(
+                        "insight_calculation_rate_limited",
+                        exception=e,
+                        insight_id=insight.id,
+                        team_id=insight.team_id,
+                    )
+                else:
+                    # Capture unexpected crashes so the API list doesn't fail
+                    logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
                 return self._degraded_insight_result(
                     insight,
                     dashboard,
                     error=e,
-                    error_message=str(e),
-                    error_code=None,
-                    last_refresh=None,
+                    error_message=error_message,
+                    error_code=QueryErrorCategory.RATE_LIMITED if is_rate_limited else None,
+                    last_refresh=now() if is_rate_limited else None,
                 )
 
     def _degraded_insight_result(
@@ -1501,11 +1539,11 @@ class MCPInsightSerializer(InsightSerializer):
             pass
 
         # Already-wrapped node → use as-is
-        for wrapped_cls in (schema.DataVisualizationNode, schema.InsightVizNode):
+        for wrapped_cls in (schema.DataVisualizationNode, schema.BIVisualizationNode, schema.InsightVizNode):
             try:
                 wrapped_node = wrapped_cls.model_validate(value)
                 normalized_query = wrapped_node.model_dump(exclude_none=True, mode="json")
-                if isinstance(wrapped_node, schema.DataVisualizationNode):
+                if isinstance(wrapped_node, (schema.DataVisualizationNode, schema.BIVisualizationNode)):
                     box_plot = wrapped_node.chartSettings.boxPlot if wrapped_node.chartSettings else None
                     if box_plot is not None:
                         normalized_box_plot = normalized_query.setdefault("chartSettings", {}).setdefault("boxPlot", {})
@@ -1688,8 +1726,29 @@ Background calculation can be tracked using the `query_status` response field.""
             ),
             OpenApiParameter(
                 name="insight",
-                enum=["TRENDS", "FUNNELS", "RETENTION", "PATHS", "JOURNEYS", "STICKINESS", "LIFECYCLE", "JSON", "SQL"],
-                description="Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.",
+                enum=[
+                    "TRENDS",
+                    "FUNNELS",
+                    "RETENTION",
+                    "PATHS",
+                    "JOURNEYS",
+                    "STICKINESS",
+                    "LIFECYCLE",
+                    "JSON",
+                    "SQL",
+                    "BI",
+                ],
+                description="Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries; `BI` matches editable worksheets.",
+            ),
+            OpenApiParameter(
+                name="exclude_bi",
+                type=OpenApiTypes.BOOL,
+                description="Exclude Business intelligence worksheets from the insight list.",
+            ),
+            OpenApiParameter(
+                name="order",
+                type=OpenApiTypes.STR,
+                description="Sort by an insight field, with a leading minus for descending order. Supports last_modified_at and last_viewed_at.",
             ),
             OpenApiParameter(
                 name="date_from",
@@ -2046,6 +2105,9 @@ class InsightViewSet(
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
                 queryset = queryset.filter(Q(favorited=True))
+            elif key == "exclude_bi":
+                if str_to_bool(request.GET["exclude_bi"]):
+                    queryset = queryset.exclude(query__kind="BIVisualizationNode")
             elif key == "hide_feature_flag_insights":
                 if str_to_bool(request.GET["hide_feature_flag_insights"]):
                     from posthog.helpers.dashboard_templates import feature_flag_generated_insight_q
@@ -2071,7 +2133,9 @@ class InsightViewSet(
                     "STICKINESS": schema.NodeKind.STICKINESS_QUERY,
                     "LIFECYCLE": schema.NodeKind.LIFECYCLE_QUERY,
                 }
-                if insight == "JSON":
+                if insight == "BI":
+                    queryset = queryset.filter(query__kind="BIVisualizationNode")
+                elif insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)
                     queryset = queryset.exclude(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
                     queryset = queryset.exclude(
@@ -2108,7 +2172,7 @@ class InsightViewSet(
                     if tags_list:
                         # A semi-join returns one row per insight, so the list needs no
                         # `.distinct()` sort over the wide insight JSON columns.
-                        matching_tags = TaggedItem.objects.filter(insight_id=OuterRef("pk"), tag__name__in=tags_list)
+                        matching_tags = TaggedItem.objects.matching_outer(Insight).filter(tag__name__in=tags_list)
                         queryset = queryset.filter(Exists(matching_tags))
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]

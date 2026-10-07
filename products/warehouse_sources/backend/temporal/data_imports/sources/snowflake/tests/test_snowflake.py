@@ -646,6 +646,9 @@ class TestGetPrimaryKeysForTable:
                 "Table 'DB.PUBLIC.T' does not exist or not authorized.",
                 False,
             ),
+            # Snowflake's backend was briefly unavailable — a self-recovering blip already
+            # classified as retryable elsewhere; not worth reporting as a bug.
+            ("290503: 290503: HTTP 503: Service Unavailable", False),
             # Anything else is unexpected and should still be surfaced.
             ("some other driver failure", True),
         ],
@@ -798,6 +801,7 @@ class TestResumableStreaming:
                 next(iterator)
         # The final batch's checkpoint is never saved, so a post-extraction retry re-reads only it.
         assert manager.save_state.call_count == 2
+        assert response.supports_resume is True
 
     def test_resume_bounds_the_scan_and_skips_the_count(self, impl):
         metadata_cursor = self._metadata_cursor()
@@ -853,6 +857,7 @@ class TestResumableStreaming:
         assert "ORDER BY" not in query
         assert streaming_cursor.execute.call_args.args[1] == ("DB.PUBLIC.messages",)
         manager.save_state.assert_not_called()
+        assert response.supports_resume is False
 
 
 def test_snowflake_source_is_resumable():
@@ -908,6 +913,21 @@ class TestSnowflakeSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"MFA-enrollment error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "MFA with TOTP is required",
+            # The real shape from production: codes + host vary, but the TOTP substring is stable.
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Failed to authenticate: MFA with TOTP is required. To authenticate, provide both your "
+            "password and a current TOTP passcode.",
+        ],
+    )
+    def test_mfa_totp_required_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"MFA-TOTP-required error should be non-retryable: {error_msg}"
 
     def test_mfa_required_maps_to_a_message_instead_of_the_raw_snowflake_text(self, source):
         # The raw text carries the account host and vendor codes, so the entry must supply its own
@@ -1172,6 +1192,25 @@ class TestSnowflakeSourceRetryableErrors:
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Mid-stream connection-reset error should be classified retryable: {error_msg}"
 
+    def test_service_unavailable_is_retryable(self, source):
+        # The real shape from production: the connector re-raised after exhausting its own
+        # internal `RetryRequest` budget against a briefly-unavailable Snowflake backend.
+        error_msg = "290503: 290503: HTTP 503: Service Unavailable"
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Backend service-unavailable error should be classified retryable: {error_msg}"
+
+    def test_client_query_timeout_cancellation_is_retryable(self, source):
+        # The real shape from production: a metadata-listing query (column discovery) ran past the
+        # connector's client-side `network_timeout` timebomb and was cancelled. The query id is volatile.
+        error_msg = (
+            "000604 (57014): 01c77269-0209-c610-0090-351520cb5b97: SQL execution was cancelled by the "
+            "client due to a timeout. Error message received from the server: SQL execution canceled"
+        )
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Client-side query-timeout cancellation should be classified retryable: {error_msg}"
+
 
 class TestSnowflakeValidateCredentials:
     @pytest.fixture
@@ -1282,6 +1321,9 @@ class TestSnowflakeValidateCredentials:
             "Duo Security authentication is denied.",
             "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
             "MFA authentication is required.",
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Failed to authenticate: MFA with TOTP is required. To authenticate, provide both your "
+            "password and a current TOTP passcode.",
         ],
     )
     def test_mfa_enforced_login_returns_friendly_message_without_capture(self, source, raw_message):

@@ -123,13 +123,19 @@ jobs:
                         - 'frontend/src/queries/schema.json'
                         # Products changes need to trigger Python CI to validate the json usage is still valid
                         - 'frontend/src/products.json'
-                        # A hand-edit to either generated taxonomy output must reach the drift check
+                        # A hand-edit to a projection output must reach the drift check. Lists
+                        # every output in hogli_commands/projections.py, not a *.generated.* glob,
+                        # so unrelated generated files skip mypy and ty.
+                        # test_generated_files_are_registered.py keeps the two in step.
                         - 'frontend/src/taxonomy/core-filter-definitions-by-group.json'
                         - 'services/mcp/src/lib/trace-property-allowlist.generated.ts'
-                        # Same for the generated object-tag registries
-                        - 'frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts'
                         - 'products/desktop/packages/core/src/inbox/objectKinds.generated.ts'
-                        - 'products/desktop/packages/shared/src/objectTagKinds.generated.ts'
+                        - 'packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts'
+                        - 'frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts'
+                        - 'products/tasks/frontend/modelCatalog.generated.ts'
+                        - 'packages/agent/packages/agent-contracts/src/model-catalog.generated.ts'
+                        - 'services/mcp/src/lib/oauth-scopes.generated.ts'
+                        - 'frontend/src/lib/oauthScopes.generated.ts'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
@@ -239,7 +245,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
@@ -319,19 +325,19 @@ jobs:
               run: |
                   npm run schema:build:python && git diff --exit-code
 
-            # Calls the generator directly because this job installs neither pnpm nor
-            # node_modules. Keep the step after "Install Python dependencies": importing
-            # posthog.taxonomy.taxonomy pulls in Django via posthog/__init__.py, so the
-            # generator needs the full synced dependency set, not just stdlib.
-            - name: Check if the taxonomy JSON is up to date
+            # Every projection renderer is Python, so this job needs neither pnpm nor
+            # node_modules. Keep the step after "Install Python dependencies": the taxonomy
+            # and object-tag renderers import posthog/__init__.py, which pulls in Django,
+            # so they need the full synced dependency set, not just stdlib.
+            # Skip on unrebased branches: the build:projections command may not exist yet.
+            - name: Check if the generated projections are up to date
               shell: bash
               run: |
-                  python3 bin/build-taxonomy-json.py --check
-
-            - name: Check if the generated object-tag registries are up to date
-              shell: bash
-              run: |
-                  python3 bin/build-object-tags-registry.py --check
+                  if [ ! -f tools/hogli-commands/hogli_commands/projections.py ]; then
+                      echo "hogli build:projections not present on this branch yet — skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  ./bin/hogli build:projections --check
 
             # Warn-only while the pre-existing violation backlog settles: findings annotate
             # the diff and land in the shared CI report comment, never a job failure.
