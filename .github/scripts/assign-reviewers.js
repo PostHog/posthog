@@ -332,12 +332,23 @@ function isSubstantive(footprint, config = CONFIG) {
     return footprint.lines >= config.substantiveLines || footprint.fileCount >= config.substantiveFiles
 }
 
-const byFootprintDesc = (a, b) => b.lines - a.lines || b.fileCount - a.fileCount
+// Split matched owners into those we formally request review from vs those we
+// only mention in the comment. Rules:
+//  - a single matched owner is always requested (never go from 1 owner to 0)
+//  - otherwise only owners with a substantive footprint are requested
+//  - at least one owner (the largest footprint) is always requested
+//  - teams are capped at maxTeamsRequested; the smallest overflow is demoted
+function classifyOwners(footprints, config = CONFIG) {
+    if (footprints.length === 0) {
+        return { requested: [], demoted: [] }
+    }
 
-// Request only owners with a substantive footprint, and cap teams at maxTeamsRequested:
-// the smallest overflow is demoted. Users are explicit, rare, and intentional, so
-// they're never capped.
-function classifyOwnersBySize(footprints, config = CONFIG) {
+    const byFootprintDesc = (a, b) => b.lines - a.lines || b.fileCount - a.fileCount
+
+    if (footprints.length === 1) {
+        return { requested: [...footprints], demoted: [] }
+    }
+
     const requested = []
     const demoted = []
     for (const footprint of footprints) {
@@ -348,6 +359,15 @@ function classifyOwnersBySize(footprints, config = CONFIG) {
         }
     }
 
+    // Guarantee at least one reviewer: promote the largest demoted owner.
+    if (requested.length === 0) {
+        demoted.sort(byFootprintDesc)
+        const { reason, ...promoted } = demoted.shift()
+        requested.push(promoted)
+    }
+
+    // Cap teams: keep the largest, demote the rest. Users are explicit, rare,
+    // and intentional, so they're never capped.
     const requestedTeams = requested.filter((f) => f.type === 'team').sort(byFootprintDesc)
     if (requestedTeams.length > config.maxTeamsRequested) {
         const overflow = requestedTeams.slice(config.maxTeamsRequested)
@@ -364,23 +384,6 @@ function classifyOwnersBySize(footprints, config = CONFIG) {
     return { requested, demoted }
 }
 
-// Split matched owners into those we formally request review from vs those we
-// only mention in the comment. Rules:
-//  - a single matched owner is always requested (never go from 1 owner to 0)
-//  - otherwise the size rules of classifyOwnersBySize apply
-//  - at least one owner (the largest footprint) is always requested
-function classifyOwners(footprints, config = CONFIG) {
-    if (footprints.length <= 1) {
-        return { requested: [...footprints], demoted: [] }
-    }
-    const { requested, demoted } = classifyOwnersBySize(footprints, config)
-    if (requested.length === 0) {
-        const { reason, ...promoted } = demoted.shift()
-        requested.push(promoted)
-    }
-    return { requested, demoted }
-}
-
 // Owners of additions decide whether a new directory belongs where the PR puts it, and
 // owners of a sensitive path must see every change to it, whatever the size of the change.
 // So these pinned owners are always requested, and the footprint rules and the team cap
@@ -393,10 +396,12 @@ function classifyOwnersWithPinned(footprints, pinnedOwners, config = CONFIG) {
             pinned.set(entry.owner, entry)
         }
     }
-    const others = footprints.filter((footprint) => !pinned.has(footprint.owner))
-    // A pinned owner already guarantees a review, so the other owners only face the size rules.
-    const { requested, demoted } =
-        pinned.size > 0 ? classifyOwnersBySize(others, config) : classifyOwners(others, config)
+    // The other owners keep their review guarantees. A pinned owner can be the author's own
+    // team, or a stale slug that GitHub rejects, so it does not replace an owner of the code.
+    const { requested, demoted } = classifyOwners(
+        footprints.filter((footprint) => !pinned.has(footprint.owner)),
+        config
+    )
     return { requested: [...requested, ...pinned.values()], demoted }
 }
 

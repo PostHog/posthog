@@ -357,7 +357,7 @@ test('computeSensitiveOwners: collects owners of sensitive paths, including gene
 
 test('sensitiveOwnersToExplain: names only the owners that the assignment without sensitivity leaves out', () => {
     const sensitiveOwners = [{ owner: '@PostHog/team-guard', paths: ['guard/list.txt'] }]
-    const additionOwners = [{ owner: '@PostHog/team-arch', type: 'team', name: 'team-arch', paths: ['products/new'] }]
+    const additionOwners = [{ owner: '@PostHog/team-guard', type: 'team', name: 'team-guard', paths: ['products/new'] }]
     const cases = [
         // The size rules request a substantive owner anyway.
         [[fp('@PostHog/team-guard', CONFIG.substantiveLines)], [], []],
@@ -365,8 +365,8 @@ test('sensitiveOwnersToExplain: names only the owners that the assignment withou
         [[fp('@PostHog/team-guard', 1), fp('@PostHog/team-big', 50)], [], ['@PostHog/team-guard']],
         // Alone, a minor owner is requested anyway.
         [[fp('@PostHog/team-guard', 1)], [], []],
-        // Next to an owner of additions, the same minor owner is demoted.
-        [[fp('@PostHog/team-guard', 1)], additionOwners, ['@PostHog/team-guard']],
+        // An owner of additions is in the sidebar anyway.
+        [[fp('@PostHog/team-guard', 1), fp('@PostHog/team-big', 50)], additionOwners, []],
     ]
 
     for (const [footprints, pinned, expected] of cases) {
@@ -377,7 +377,7 @@ test('sensitiveOwnersToExplain: names only the owners that the assignment withou
     }
 })
 
-test('classifyOwnersWithPinned: a pinned owner leaves a lone minor owner demoted', () => {
+test('classifyOwnersWithPinned: a pinned owner keeps the review guarantee of the changed code', () => {
     const sensitiveOwners = computeSensitiveOwners(
         { 'ci/allowlist.txt': { ...resolved(['team-devex'], 'owners.yaml'), sensitive: true } },
         [file('ci/allowlist.txt', 1)]
@@ -390,12 +390,9 @@ test('classifyOwnersWithPinned: a pinned owner leaves a lone minor owner demoted
 
     assert.deepEqual(
         requested.map((f) => f.owner),
-        ['@PostHog/team-devex']
+        ['@PostHog/team-foo', '@PostHog/team-devex']
     )
-    assert.deepEqual(
-        demoted.map((f) => f.owner),
-        ['@PostHog/team-foo']
-    )
+    assert.deepEqual(demoted, [])
 })
 
 test('classifyOwnersWithPinned: requests owners of additions and of sensitive paths on top of a full team cap', () => {
