@@ -248,7 +248,7 @@ class ScoutTrialComparisons:
                     config=self.config,
                     user=self.user,
                     launch_id=launch_id,
-                    context_id=context.id,
+                    saved_context=context,
                     model=variant.model,
                     reasoning_effort=variant.reasoning_effort,
                     skill_body=variant.skill_body,

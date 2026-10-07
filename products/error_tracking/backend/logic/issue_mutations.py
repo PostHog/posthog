@@ -196,10 +196,15 @@ def merge_issues(
     issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
     # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
     ids = [x for x in source_ids if x != str(issue.id)]
-    result, merged_issue_ids = issue.merge(issue_ids=ids)
+    # One transaction around the merge and everything it reports: the activity entries and the
+    # lifecycle events must be registered in the same commit that moves the fingerprints, since
+    # a retry finds the sources gone, sees no transition and emits nothing.
+    with transaction.atomic():
+        outcome = issue.merge(issue_ids=ids)
+        if outcome.result != ErrorTrackingIssueMergeResult.MERGED:
+            return IssueMergeOutcome(result=outcome.result, merged_issue_count=len(outcome.merged_issue_ids))
 
-    if result == ErrorTrackingIssueMergeResult.MERGED:
-        merged_id_strings = [str(merged_issue_id) for merged_issue_id in merged_issue_ids]
+        merged_id_strings = [str(merged_issue_id) for merged_issue_id in outcome.merged_issue_ids]
         log_activity(
             organization_id=issue.team.organization_id,
             team_id=team_id,
@@ -224,7 +229,36 @@ def merge_issues(
             extra_properties={"merged_issue_ids": merged_id_strings},
         )
 
-    return IssueMergeOutcome(result=result, merged_issue_count=len(merged_issue_ids))
+        if outcome.reopened and outcome.previous_status is not None:
+            log_activity(
+                organization_id=issue.team.organization_id,
+                team_id=team_id,
+                user=user,
+                was_impersonated=was_impersonated,
+                item_id=str(issue.id),
+                scope="ErrorTrackingIssue",
+                activity="updated",
+                detail=Detail(
+                    name=issue.name,
+                    changes=[
+                        Change(
+                            type="ErrorTrackingIssue",
+                            field="status",
+                            before=outcome.previous_status,
+                            after=issue.status,
+                            action="changed",
+                        )
+                    ],
+                ),
+            )
+            produce_issue_lifecycle_event_on_commit(
+                event=STATUS_CHANGE_EVENTS[issue.status],
+                issue=issue,
+                user=user,
+                extra_properties={"previous_status": status_label(outcome.previous_status)},
+            )
+
+    return IssueMergeOutcome(result=outcome.result, merged_issue_count=len(outcome.merged_issue_ids))
 
 
 def split_issue(
