@@ -8,8 +8,8 @@
  * existing set at its own index when the two share a property key. A moved set that shares a key
  * with the set now at its index therefore keeps that set as its source. Otherwise a set takes the
  * existing set that shares the most keys with it, when exactly one set does. A set that shares
- * the most keys with two existing sets equally gets no source. A set with no key match falls back
- * to elimination, and then to position.
+ * the most keys with two existing sets equally gets no source, unless those sets aggregate on the
+ * same group type. A set with no key match falls back to elimination, and then to position.
  *
  * A set's aggregation then decides its property types, in both directions. A group-aggregated
  * set types its untyped properties as `group` against the set's own group type index. A
@@ -147,8 +147,9 @@ function attributeSourceSets(
     const incoming = incomingGroups.map((group) => (isRecord(group) ? indexProperties(group.properties) : undefined))
     const sources: (ExistingSet | undefined)[] = incomingGroups.map(() => undefined)
     const claimed = new Set<number>()
-    // A tied set shares keys with two existing sets equally. The elimination and position passes
-    // skip it, because they would pair it with a set that shares none of its keys.
+    // A tied set shares keys equally with two existing sets that do not aggregate on one group
+    // type. The elimination and position passes skip it, because they would pair it with a set
+    // that shares none of its keys.
     const tied = new Set<number>()
 
     const claim = (index: number, existingIndex: number): void => {
@@ -168,31 +169,38 @@ function attributeSourceSets(
         }
     }
 
-    // A tie is not evidence of where the set came from.
-    const uniqueBestMatch = (
+    const bestMatches = (
         propsByKey: Map<string, FlagProperty[]>,
         { skipClaimed }: { skipClaimed: boolean }
-    ): number | 'tie' | undefined => {
-        let bestIndex: number | undefined
+    ): number[] => {
+        let best: number[] = []
         let bestShared = 0
-        let isTie = false
         for (const [existingIndex, candidate] of existingSets.entries()) {
             if (!candidate || (skipClaimed && claimed.has(existingIndex))) {
                 continue
             }
             const shared = sharedKeyCount(propsByKey, candidate.propsByKey)
-            if (shared === 0) {
+            if (shared === 0 || shared < bestShared) {
                 continue
             }
             if (shared > bestShared) {
-                bestIndex = existingIndex
+                best = []
                 bestShared = shared
-                isTie = false
-            } else if (shared === bestShared) {
-                isTie = true
             }
+            best.push(existingIndex)
         }
-        return isTie ? 'tie' : bestIndex
+        return best
+    }
+
+    // A tie is not evidence of where the set came from. When every tied set aggregates on the same
+    // group type, the tie still decides the aggregation. The choice among the tied sets then does
+    // not change a group-aggregated result, because that set types each untyped property from its
+    // own index and not from the source's properties.
+    const sameGroupTypeMatch = (matches: number[]): number | undefined => {
+        const indexes = matches.map((existingIndex) => existingSets[existingIndex]?.group.aggregation_group_type_index)
+        return isPresentGroupIndex(indexes[0]) && indexes.every((index) => index === indexes[0])
+            ? matches[0]
+            : undefined
     }
 
     claimSamePosition({ requireSharedKey: true })
@@ -201,17 +209,18 @@ function attributeSourceSets(
         if (!propsByKey || sources[index]) {
             continue
         }
-        const unclaimedMatch = uniqueBestMatch(propsByKey, { skipClaimed: true })
-        if (typeof unclaimedMatch === 'number') {
+        const unclaimedMatch = soleItem(bestMatches(propsByKey, { skipClaimed: true }))
+        if (unclaimedMatch !== undefined) {
             claim(index, unclaimedMatch)
             continue
         }
         // A set split off another set reads that set without claiming it. The split-off set then
         // has a source, and the elimination below does not pair it with an unrelated leftover set.
-        const anyMatch = uniqueBestMatch(propsByKey, { skipClaimed: false })
-        if (typeof anyMatch === 'number') {
-            sources[index] = existingSets[anyMatch]
-        } else if (anyMatch === 'tie') {
+        const anyMatches = bestMatches(propsByKey, { skipClaimed: false })
+        const readOnlyMatch = soleItem(anyMatches) ?? sameGroupTypeMatch(anyMatches)
+        if (readOnlyMatch !== undefined) {
+            sources[index] = existingSets[readOnlyMatch]
+        } else if (anyMatches.length > 1) {
             tied.add(index)
         }
     }

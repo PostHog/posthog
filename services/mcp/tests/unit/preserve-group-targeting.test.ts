@@ -842,6 +842,48 @@ describe('preserveGroupTargetingFilters', () => {
         expect(aggregationViolations(existing, merged)).toEqual([])
     })
 
+    // The API rejects a property with no type. Both tied sets aggregate on group type 0, so the tie
+    // still decides the appended set's aggregation.
+    it('restores group targeting for an appended set when the tied sets share a group type', () => {
+        const existing = {
+            aggregation_group_type_index: null,
+            groups: [
+                {
+                    aggregation_group_type_index: 0,
+                    properties: [
+                        { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
+                    ],
+                    rollout_percentage: 100,
+                },
+                {
+                    aggregation_group_type_index: 0,
+                    properties: [{ key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'pro' }],
+                    rollout_percentage: 50,
+                },
+                {
+                    aggregation_group_type_index: 1,
+                    properties: [{ key: 'region', type: 'group', group_type_index: 1, operator: 'exact', value: 'eu' }],
+                    rollout_percentage: 100,
+                },
+            ],
+        }
+
+        const merged = preserveGroupTargetingFilters(existing, {
+            groups: [
+                { properties: [{ key: 'plan', operator: 'exact', value: 'enterprise' }], rollout_percentage: 100 },
+                { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 50 },
+                { properties: [{ key: 'region', operator: 'exact', value: 'eu' }], rollout_percentage: 100 },
+                { properties: [{ key: 'plan', operator: 'exact', value: 'free' }], rollout_percentage: 10 },
+            ],
+        })
+
+        expect(merged?.groups?.[3]).toEqual({
+            aggregation_group_type_index: 0,
+            properties: [{ key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'free' }],
+            rollout_percentage: 10,
+        })
+    })
+
     // The claimed source set holds only one of the two keys. The merge can type the other
     // property only from the set that still holds it.
     it('restores a property type from another set when two sets collapse into one', () => {
