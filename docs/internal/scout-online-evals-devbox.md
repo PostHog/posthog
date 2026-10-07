@@ -55,7 +55,9 @@ Variants and retries share a saved copy of the project's scout memory, notes and
 
 Each completed scout run gets its own judge sandbox. The judge reads the saved rubric and searches attached copies of the complete rubric reference, run log, reports, summary, candidate instructions and starting context. These files live in private object storage; Temporal receives only their identifiers. Evidence larger than 128 MiB is refused explicitly instead of being silently shortened.
 
-Signals checks the operator's access, source run and saved evidence before attaching files and dispatching the judge through the existing internal Tasks path used by rubric generation. The worker does not read evaluation documents or recheck source access. Judges use ordinary Tasks permissions and logging rather than the scout runs' private credentials and capture suppression.
+Signals checks the operator's access, source run and saved evidence before attaching files and dispatching the judge through the existing internal Tasks path used by rubric generation. Queued judges do not repeat Signals-specific staff, skill or source-run checks at sandbox startup. Ordinary account and project permissions still apply when downloading evidence, and Signals checks operator access again before publishing the report.
+
+Judges use ordinary Tasks permissions and logging rather than the scout runs' private credentials and capture suppression. Other sandboxes acting as the same operator in the same project can read judge prompts and attached evidence through the Tasks API.
 
 The judge has no live project tools, external MCP connections or repository credentials. A retry to correct its JSON response uses the same sandbox and keeps tool connections disabled. It returns one verdict per rubric check, with quotes checked against the original saved files. Missing evidence gives an unknown verdict. A judge failure is shown separately from a failed rubric check, and incomplete results cannot win. Judging has a 15-minute runtime limit per run; saved results never rerun the judge when viewed.
 
