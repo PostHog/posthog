@@ -712,21 +712,19 @@ def _plan_chunk(team_id: int, person_uuids: Sequence[str], *, only_distinct_id: 
         if live
         else {}
     )
-    too_many = {
-        person_id
-        for person_id, dids in distinct_ids_by_person.items()
-        if len(dids) > _MAX_REPAIR_DISTINCT_IDS_PER_PERSON
-    }
-    if only_distinct_id is not None:
-        distinct_ids_by_person = {
-            person_id: [d for d in dids if d.id == only_distinct_id]
-            for person_id, dids in distinct_ids_by_person.items()
-        }
-        # The capped read can miss the requested id, which must then be reported rather than dropped.
-        too_many = {person_id for person_id in too_many if not distinct_ids_by_person[person_id]}
-    all_distinct_ids = [
-        d.id for person_id, dids in distinct_ids_by_person.items() if person_id not in too_many for d in dids
-    ]
+    too_many: set[int] = set()
+    all_distinct_ids: list[str] = []
+    for person_id, dids in list(distinct_ids_by_person.items()):
+        over_cap = len(dids) > _MAX_REPAIR_DISTINCT_IDS_PER_PERSON
+        if only_distinct_id is not None:
+            dids = [d for d in dids if d.id == only_distinct_id]
+            distinct_ids_by_person[person_id] = dids
+            # The capped read can miss the requested id, which must then be reported rather than dropped.
+            over_cap = over_cap and not dids
+        if over_cap:
+            too_many.add(person_id)
+        else:
+            all_distinct_ids.extend(d.id for d in dids)
     mapping_states = _ch_mapping_states(team_id, all_distinct_ids) if all_distinct_ids else {}
 
     plans: list[_PersonPlan] = []
