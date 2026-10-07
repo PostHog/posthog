@@ -277,3 +277,45 @@ Raw per-case agent logs land on local disk (`<case>.jsonl`, `<case>.artifacts.js
 `SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service; local logs are still written.
 PostHog result uploads follow `no_send_logs` independently of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients.
 See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-reporting.md) for capture settings and scope.
+
+### Workflow email model comparison
+
+`workflows/eval_email_drafting::eval_email_drafting` is a one-shot copywriting benchmark.
+It supplies invented lifecycle briefs and the checked-in workflow/email skills to one generation call.
+It does not exercise tool discovery, workflow creation, or the frontend composer.
+The structure scorer accepts HTML or native Unlayer designs and checks subject length, plain text, and each step's CTA.
+The shared OpenAI judge grades clarity, warmth, concision, product specificity, one CTA, and AI tells without seeing the model name.
+
+Set `BRAINTRUST_API_KEY`, `LLM_GATEWAY_ANTHROPIC_API_KEY`, and `OPENAI_API_KEY` in your local environment.
+The suite fixes generation effort to high. Compare models with at least three trials per case:
+
+```bash
+hogli evals eval_email_drafting --agent-model claude-sonnet-5 --trials 3
+hogli evals eval_email_drafting --agent-model claude-sonnet-5-5 --trials 3
+hogli evals eval_email_drafting --agent-model claude-opus-5-5 --trials 3
+```
+
+Sonnet 5.5 and Opus 5.5 are registered in the Tasks catalog and Python gateway's allowlist.
+Sonnet 5.5 is the current Claude runtime default; Sonnet 5 is included as the earlier baseline.
+Verify that the generation provider serves it before comparing results; an unavailable model is a setup gap, not a poor draft.
+Each case's local JSON log includes token usage, generation latency, and estimated generation cost from the Tasks catalog.
+Unknown model rates produce a null cost; do not substitute another model's rate.
+Costs exclude the judge and infrastructure. Latency excludes judging and harness setup.
+Compare prose separately from structural pass rates, inspect the drafts and judge explanations, and report variation across trials.
+These private evals retain local logs without uploading experiment results.
+
+When API keys are unavailable but Claude and Codex CLI logins are configured, run the same briefs and rubric locally:
+
+```bash
+python -m products.workflows.evals.compare_email_models --trials 3
+```
+
+This standalone comparison needs neither Braintrust nor the harness database/stack.
+It runs Claude with no tools, high effort, and the same drafting instructions for each candidate.
+A model-blind GPT-6.1 Sol judge grades shuffled subject/plain-text drafts with the same prose rubric.
+The CLI path records the actual reported model and refuses a substituted model or truncated generation.
+Malformed drafts retain their measurements and receive failed scores. The judge runs without user configuration or tools.
+Its costs are Claude's list-price estimates, including cache usage and CLI context; they are not subscription charges or gateway billing measurements.
+Its latency is the CLI's reported API duration, excluding judge work and local startup.
+Results, judge explanations, and the summary remain under the gitignored harness log directory.
+Do not combine CLI measurements with direct-API experiments in one score table.
