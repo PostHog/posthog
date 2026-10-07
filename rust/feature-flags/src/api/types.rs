@@ -841,7 +841,8 @@ impl FlagDetails {
                         // flag, so serializing its raw value would leak it. `matched` reflects the
                         // tested flag's own condition outcome, which the caller may already see.
                         let expected = property.value.clone().unwrap_or(Value::Null);
-                        // A failed dependency has no result, which matching reports as unsatisfied.
+                        // A failed dependency has no entry in `results`.
+                        // `match_flag_value_to_flag_filter` returns false for a missing entry.
                         let dependency_failed = failed_flag_ids
                             .and_then(|failed| failed_flag_dependency(property, results, failed))
                             .is_some();
