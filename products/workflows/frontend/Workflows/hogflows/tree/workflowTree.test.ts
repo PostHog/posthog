@@ -7,6 +7,7 @@ import {
 } from './workflowTree'
 import {
     findWorkflowTreePath,
+    getWorkflowTreeStepRefs,
     getWorkflowTreeBranchSummary,
     getWorkflowTreeContinuationPath,
     getWorkflowTreeStepId,
@@ -176,6 +177,55 @@ describe('buildWorkflowTree', () => {
                 edge('deleted-branch', 'guided', 'branch', 0),
             ])
         ).toEqual([])
+    })
+
+    it('lists steps nested inside a path with the element id that scrolls to them', () => {
+        const tree = buildWorkflowTree(
+            workflow(
+                [
+                    action('trigger', 'trigger'),
+                    action('outer', 'conditional_branch'),
+                    action('trial'),
+                    action('paid'),
+                    action('inner', 'conditional_branch'),
+                    action('guided'),
+                    action('self-serve'),
+                    action('followup'),
+                    action('shared'),
+                    action('exit', 'exit'),
+                ],
+                [
+                    edge('trigger', 'outer'),
+                    edge('outer', 'trial', 'branch', 0),
+                    edge('outer', 'paid'),
+                    edge('trial', 'inner'),
+                    edge('inner', 'guided', 'branch', 0),
+                    edge('inner', 'self-serve'),
+                    edge('guided', 'followup'),
+                    edge('self-serve', 'followup'),
+                    edge('followup', 'shared'),
+                    edge('paid', 'shared'),
+                    edge('shared', 'exit'),
+                ]
+            )
+        )
+
+        const refs = getWorkflowTreeStepRefs(tree)
+        expect(refs.map((ref) => ref.actionId)).toEqual([
+            'trigger',
+            'outer',
+            'trial',
+            'inner',
+            'guided',
+            'self-serve',
+            'followup',
+            'paid',
+            'shared',
+            'exit',
+        ])
+        expect(refs.find((ref) => ref.actionId === 'guided')?.elementId).toBe(
+            getWorkflowTreeStepId('guided', [edge('outer', 'trial', 'branch', 0), edge('inner', 'guided', 'branch', 0)])
+        )
     })
 
     it('keeps a nested join inside the focused path and the outer join outside it', () => {

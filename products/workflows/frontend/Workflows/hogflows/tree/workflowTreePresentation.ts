@@ -89,3 +89,29 @@ export function getWorkflowTreeBranchSummary(node: WorkflowTreeNode, branch: Wor
     const destination = node.joinAction ? `Continue to: ${node.joinAction.name}` : getPathDestination(branch.sequence)
     return `${count} ${count === 1 ? 'step' : 'steps'} · ${destination}`
 }
+
+export interface WorkflowTreeStepRef {
+    actionId: string
+    name: string
+    elementId: string
+}
+
+function collectStepRefs(sequence: WorkflowTreeSequence, path: HogFlowEdge[], refs: WorkflowTreeStepRef[]): void {
+    for (const node of sequence.nodes) {
+        refs.push({
+            actionId: node.action.id,
+            name: node.action.name,
+            elementId: getWorkflowTreeStepId(node.action.id, path),
+        })
+        for (const branch of node.branches) {
+            collectStepRefs(branch.sequence, [...path, branch.edge], refs)
+        }
+    }
+}
+
+/** Every step in the order the tree renders it, with the element id that scrolls to it. */
+export function getWorkflowTreeStepRefs(sequence: WorkflowTreeSequence): WorkflowTreeStepRef[] {
+    const refs: WorkflowTreeStepRef[] = []
+    collectStepRefs(sequence, [], refs)
+    return refs
+}

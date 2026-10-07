@@ -13,6 +13,7 @@ import { HogFlowTreeDropzone } from './HogFlowTreeDropzone'
 import { HogFlowTreeFeaturePreview } from './HogFlowTreeFeaturePreview'
 import { HogFlowTreeFocusHeader } from './HogFlowTreeFocusHeader'
 import { HogFlowTreeNode } from './HogFlowTreeNode'
+import { HogFlowTreeValidationBanner } from './HogFlowTreeValidationBanner'
 import { buildWorkflowTree } from './workflowTree'
 import {
     findWorkflowTreePath,
@@ -231,6 +232,7 @@ export function HogFlowTreeEditor(): JSX.Element {
                     onDragOver={onTreeDragOver}
                     onDropCapture={onTreeDropCapture}
                 >
+                    {!focused && <HogFlowTreeValidationBanner tree={tree} />}
                     {focused && (
                         <HogFlowTreeFocusHeader focusedPath={focusedPath} onReturnToWorkflow={returnToWorkflow} />
                     )}
