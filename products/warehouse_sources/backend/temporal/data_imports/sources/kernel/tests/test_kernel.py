@@ -4,15 +4,20 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+import time_machine
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.kernel import (
+    AUDIT_LOG_MAX_WINDOW,
     PAGE_SIZE,
     KernelRetryableError,
     KernelUnexpectedResponseError,
     _extract_items,
     _next_page,
     _redact_sensitive_fields,
+    get_audit_log_rows,
     get_rows,
     kernel_source,
     validate_credentials,
@@ -190,15 +195,53 @@ class TestGetRows:
         url = mock_session.return_value.get.call_args.args[0]
         assert "status=all" in url
 
+    @pytest.mark.parametrize(
+        "endpoint, item, expected",
+        [
+            (
+                "browsers",
+                {"id": "b1", "browser_live_view_url": "https://token@example", "region": "us"},
+                {"id": "b1", "region": "us"},
+            ),
+            (
+                "proxies",
+                {
+                    "id": "p1",
+                    "type": "custom",
+                    "config": {"host": "proxy.example.com", "port": 8080, "username": "user", "password": "x"},
+                },
+                # The batcher stores nested objects as JSON strings.
+                {"id": "p1", "type": "custom", "config": '{"host":"proxy.example.com","port":8080}'},
+            ),
+        ],
+    )
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_sensitive_fields_are_stripped_from_rows(self, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = _response(
-            [{"id": "b1", "browser_live_view_url": "https://token@example", "region": "us"}], has_more=False
-        )
+    def test_sensitive_fields_are_stripped_from_rows(
+        self, mock_session: Any, endpoint: str, item: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
+        mock_session.return_value.get.return_value = _response([item], has_more=False)
 
-        rows = self._collect("browsers")
+        rows = self._collect(endpoint)
 
-        assert rows == [{"id": "b1", "region": "us"}]
+        assert rows == [expected]
+
+    @pytest.mark.parametrize(
+        "error_code, expect_error",
+        [("projects_disabled", False), ("not_found", True)],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_projects_404_is_empty_only_when_projects_are_disabled(
+        self, mock_session: Any, error_code: str, expect_error: bool
+    ) -> None:
+        response = _response({"code": error_code, "message": "nope"}, status_code=404)
+        response.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=response)
+        mock_session.return_value.get.return_value = response
+
+        if expect_error:
+            with pytest.raises(requests.HTTPError):
+                self._collect("projects")
+        else:
+            assert self._collect("projects") == []
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_unexpected_response_shape_raises(self, mock_session: Any) -> None:
@@ -354,6 +397,113 @@ class TestKernelSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == "asc"
-        # Partitioning is left to the pipeline's auto-detection for this alpha release.
-        assert response.partition_mode is None
-        assert response.partition_keys is None
+        if endpoint == "audit_logs":
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == ["timestamp"]
+        else:
+            # Partitioning is left to the pipeline's auto-detection for this alpha release.
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
+
+_NOW = datetime(2026, 6, 1, tzinfo=UTC)
+
+
+def _audit_record(at: datetime, path: str = "/browsers") -> dict[str, Any]:
+    return {
+        "timestamp": at.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        "auth_strategy": "api_key",
+        "user_id": "user_1",
+        "email": "user@example.com",
+        "method": "GET",
+        "path": path,
+        "route": path,
+        "status": 200,
+        "domain": "api.example.com",
+        "duration_ms": 12,
+        "client_ip": "192.0.2.1",
+        "user_agent": "test-agent",
+    }
+
+
+def _fake_audit_log_api(records: list[dict[str, Any]], requested_windows: list[timedelta]) -> Any:
+    def get(url: str, headers: dict[str, str], timeout: int) -> mock.MagicMock:
+        query = parse_qs(urlparse(url).query)
+        start = datetime.fromisoformat(query["start"][0])
+        end = datetime.fromisoformat(query["end"][0])
+        requested_windows.append(end - start)
+        in_window = sorted(
+            (r for r in records if start <= datetime.fromisoformat(r["timestamp"]) < end),
+            key=lambda r: r["timestamp"],
+            reverse=True,
+        )
+        offset = int(query.get("page_token", ["0"])[0])
+        page = [dict(r) for r in in_window[offset : offset + PAGE_SIZE]]
+        has_more = offset + PAGE_SIZE < len(in_window)
+        response = _response(page, has_more=has_more)
+        if has_more:
+            response.headers["X-Next-Page-Token"] = str(offset + PAGE_SIZE)
+        return response
+
+    return get
+
+
+class TestAuditLogRows:
+    def _collect(self, last_value: Any = None) -> list[dict]:
+        rows: list[dict] = []
+        for table in get_audit_log_rows("sk_test", mock.MagicMock(), db_incremental_field_last_value=last_value):
+            rows.extend(table.to_pylist())
+        return rows
+
+    @time_machine.travel(_NOW, tick=False)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_returns_every_record_once_oldest_first(self, mock_session: Any) -> None:
+        busy_hour = _NOW - timedelta(days=3)
+        records = [
+            _audit_record(_NOW - timedelta(days=300)),
+            _audit_record(_NOW - timedelta(days=40)),
+            *(_audit_record(busy_hour + timedelta(seconds=i)) for i in range(PAGE_SIZE + 50)),
+            # Two indistinguishable requests in the same instant must stay two rows.
+            _audit_record(_NOW - timedelta(hours=2), path="/apps"),
+            _audit_record(_NOW - timedelta(hours=2), path="/apps"),
+        ]
+        requested_windows: list[timedelta] = []
+        mock_session.return_value.get.side_effect = _fake_audit_log_api(records, requested_windows)
+
+        rows = self._collect()
+
+        assert len(rows) == len(records)
+        timestamps = [datetime.fromisoformat(r["timestamp"]) for r in rows]
+        assert timestamps == sorted(timestamps)
+        assert len({r["id"] for r in rows}) == len(records)
+        assert max(requested_windows) <= AUDIT_LOG_MAX_WINDOW
+
+        # A later incremental sync re-reads records at the watermark; they must keep their ids
+        # so merge dedupes them.
+        mock_session.return_value.get.side_effect = _fake_audit_log_api(records, [])
+        rerun = self._collect(last_value=_NOW - timedelta(hours=2))
+        assert {r["id"] for r in rerun} == {r["id"] for r in rows[-2:]}
+
+    @pytest.mark.parametrize(
+        "last_value, expected_start",
+        [
+            (None, _NOW - timedelta(days=365)),
+            (_NOW - timedelta(days=2), _NOW - timedelta(days=2)),
+            ("2026-05-30T00:00:00Z", datetime(2026, 5, 30, tzinfo=UTC)),
+            # Kernel keeps one year of audit logs, so an older watermark starts at the retention edge.
+            (_NOW - timedelta(days=500), _NOW - timedelta(days=365)),
+        ],
+    )
+    @time_machine.travel(_NOW, tick=False)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_search_starts_at_watermark_or_retention_edge(
+        self, mock_session: Any, last_value: Any, expected_start: datetime
+    ) -> None:
+        mock_session.return_value.get.return_value = _response([], has_more=False)
+
+        self._collect(last_value=last_value)
+
+        first_query = parse_qs(urlparse(mock_session.return_value.get.call_args_list[0].args[0]).query)
+        assert datetime.fromisoformat(first_query["start"][0]) == expected_start
+        last_query = parse_qs(urlparse(mock_session.return_value.get.call_args_list[-1].args[0]).query)
+        assert datetime.fromisoformat(last_query["end"][0]) == _NOW
