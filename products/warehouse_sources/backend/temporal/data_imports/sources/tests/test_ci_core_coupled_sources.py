@@ -1,6 +1,8 @@
 import re
 import ast
+import glob
 import json
+import functools
 from pathlib import Path
 
 # Guards the backend:contract-check isolation of warehouse_sources.
@@ -199,10 +201,21 @@ def test_core_facade_coupled_sources_are_covered_by_contract_check():
     )
 
 
+@functools.cache
+def _glob_matcher(globs: tuple[str, ...]) -> re.Pattern[str]:
+    # One compiled pattern per input list: the core inputs are matched against every backend file.
+    return re.compile("|".join(glob.translate(pattern, recursive=True, include_hidden=True) for pattern in globs))
+
+
 def _is_watched(rel: Path, inputs: list[str]) -> bool:
-    included = any(rel.full_match(glob) for glob in inputs if not glob.startswith("!"))
-    excluded = any(rel.full_match(glob.removeprefix("!")) for glob in inputs if glob.startswith("!"))
-    return included and not excluded
+    included = tuple(pattern for pattern in inputs if not pattern.startswith("!"))
+    excluded = tuple(pattern.removeprefix("!") for pattern in inputs if pattern.startswith("!"))
+    path = rel.as_posix()
+    return (
+        bool(included)
+        and _glob_matcher(included).match(path) is not None
+        and not (excluded and _glob_matcher(excluded).match(path))
+    )
 
 
 def _referenced_generated_configs(tree: ast.AST, config_modules: set[str]) -> set[str]:
@@ -345,6 +358,8 @@ def _leaf_files_referenced(
     package = ".".join(("products", "warehouse_sources", *rel.parent.parts))
     referenced: set[str] = set()
     for dotted in _dotted_references(tree, package):
+        if "sources" not in dotted:
+            continue
         vendor = _vendor_from_target(dotted)
         if vendor in vendors:
             referenced.add(f"{_INPUTS_PREFIX}{vendor}/source.py")
@@ -366,17 +381,16 @@ def test_core_test_inputs_cover_every_file_outside_a_leaf_source() -> None:
     if inputs is None:
         return
 
-    leaf_roots = [
-        *(sources_dir / vendor for vendor in _source_vendors(sources_dir)),
-        product_dir / _GENERATED_CONFIGS_DIR,
-        sources_dir / "tests",
-        sources_dir / "_load_all.py",
-    ]
+    # The entries of sources/ that hold leaf files: each source, its generated config, the
+    # catalog-wide tests, and the module that imports every source.
+    leaf_entries = {*_source_vendors(sources_dir), "generated_configs", "tests", "_load_all.py"}
+    sources_parts = Path(_INPUTS_PREFIX).parts
     backend_files = [file.relative_to(product_dir) for file in (product_dir / "backend").rglob("*.py")]
     unwatched = sorted(
         str(rel)
         for rel in backend_files
-        if not _is_watched(rel, inputs) and not any((product_dir / rel).is_relative_to(leaf) for leaf in leaf_roots)
+        if not _is_watched(rel, inputs)
+        and not (rel.parts[: len(sources_parts)] == sources_parts and rel.parts[len(sources_parts)] in leaf_entries)
     )
     assert not unwatched, (
         f"{unwatched[:10]} are outside every source directory and are not {_CORE_TASK} inputs in "
@@ -395,7 +409,9 @@ def test_core_test_inputs_cover_every_file_outside_a_leaf_source() -> None:
 
     # The root turbo.json has full-line comments, which json.loads rejects.
     root_turbo = json.loads(re.sub(r"^\s*//.*$", "", (root / "turbo.json").read_text(), flags=re.MULTILINE))
-    outside_product = {glob for glob in root_turbo["tasks"]["backend:test"]["inputs"] if glob.startswith("../")}
+    outside_product = {
+        pattern for pattern in root_turbo["tasks"]["backend:test"]["inputs"] if pattern.startswith("../")
+    }
     assert outside_product <= set(inputs), (
         f"{sorted(outside_product - set(inputs))} are backend:test inputs outside the product and are not "
         f"{_CORE_TASK} inputs. A change to them marks the product changed and must run the whole suite."
