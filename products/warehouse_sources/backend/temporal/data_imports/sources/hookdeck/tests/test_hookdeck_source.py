@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from unittest import mock
 
@@ -168,3 +170,17 @@ class TestHookdeckSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_hookdeck_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+
+class TestHookdeckVersionDeprecation:
+    def setup_method(self) -> None:
+        self.source = HookdeckSource()
+
+    def test_2025_07_01_is_deprecated_with_sunset_date(self) -> None:
+        deprecation = self.source.get_version_deprecation("2025-07-01")
+        assert deprecation is not None
+        assert deprecation.sunset_at == date(2026, 7, 1)
+
+    @pytest.mark.parametrize("version", ["2026-09-01", None])
+    def test_current_version_is_not_deprecated(self, version: str | None) -> None:
+        assert self.source.get_version_deprecation(version) is None
