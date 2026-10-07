@@ -77,6 +77,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     runs_in_order,
     set_violation,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.append_rollback import (
+    UnfinishedAppendRuns,
+    clear_append_run_marker,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.batch_steps import (
     BatchStepTimer,
 )
@@ -541,6 +545,15 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
             # Failed) after the final batch passed should_process_batch, the staged incremental
             # cursor must not advance past data that was never fully loaded.
             _promote_staged_cursor(export_signal)
+            if export_signal.sync_type == "append":
+                # In the same transaction as the cursor, so a later run never finds the marker of
+                # a run whose watermark already covers its rows.
+                clear_append_run_marker(
+                    export_signal.schema_id,
+                    export_signal.team_id,
+                    export_signal.job_id,
+                    export_signal.run_uuid,
+                )
 
     if job_completed:
         async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
@@ -1122,6 +1135,23 @@ def _process_message_reported(
             _process_external_destinations_only(export_signal, verify_ownership)
             return
 
+        append_runs = (
+            UnfinishedAppendRuns(schema, delta_table_ref)
+            if export_signal.sync_type == "append" and export_signal.cdc_write_mode is None
+            else None
+        )
+        if append_runs is not None and any(append_runs.is_replaced_attempt(run_uuid) for run_uuid, _ in members):
+            if constituents is not None:
+                raise CoalescingDeclined("a batch belongs to an attempt that a later attempt replaced")
+            logger.info(
+                "append_batch_of_replaced_attempt_skipped",
+                team_id=export_signal.team_id,
+                external_data_schema_id=export_signal.schema_id,
+                run_uuid=export_signal.run_uuid,
+                batch_index=export_signal.batch_index,
+            )
+            return
+
         with timer.step("idempotency_check"):
             if constituents is not None:
                 # A set is all-or-nothing: a member that already landed means the others must be checked
@@ -1185,6 +1215,12 @@ def _process_message_reported(
                     verify_ownership()
                 _complete_run(export_signal, post_load_result)
             return
+
+        if append_runs is not None:
+            # Before the table is read, so the batch is fitted to the schema that the restore leaves.
+            if verify_ownership is not None:
+                verify_ownership()
+            append_runs.start_run(export_signal)
 
         logger.debug(
             "message_received",
