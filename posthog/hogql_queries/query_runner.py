@@ -1797,6 +1797,7 @@ R = TypeVar("R", bound=BaseModel)
 # CR (for CachedResponse) must be R extended with CachedQueryResponseMixin
 # Unfortunately inheritance is also not a thing here, because we lose this info in the schema.ts->.json->.py journey
 CR = TypeVar("CR", bound=GenericCachedQueryResponse)
+ChildRunner = TypeVar("ChildRunner", bound="QueryRunner")
 
 
 def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None:
@@ -1908,7 +1909,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         they were saved, such as a subscription delivery, and never for a client-supplied query.
         """
         self._bypass_warehouse_access_control = True
-        self._on_user_changed()
+        # Dropped directly, not through _on_user_changed: a subclass hook may return early when
+        # the user is unchanged, and a database built before this call must not be reused.
+        self._shared_database = None
+
+    def _with_own_bypass(self, child: ChildRunner) -> ChildRunner:
+        """Give a runner this one builds for part of its result the same warehouse access bypass,
+        so a trusted run stays trusted in the queries it delegates."""
+        if self._bypass_warehouse_access_control:
+            child.bypass_warehouse_access_control()
+        return child
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
@@ -3707,7 +3717,6 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
 
     def bypass_warehouse_access_control(self) -> None:
         super().bypass_warehouse_access_control()
-        # The user did not change, so _on_user_changed kept the context; rebuild it for the bypass.
         self._build_hogql_context_for_user(self.user)
 
     @property

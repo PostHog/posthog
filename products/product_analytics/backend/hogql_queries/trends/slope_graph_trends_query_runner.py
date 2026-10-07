@@ -75,13 +75,15 @@ class SlopeGraphTrendsQueryRunner(TrendsQueryRunner):
             else:
                 series_query.properties = [*(existing or []), end_buckets_filter]
 
-        response = TrendsQueryRunner(
-            query=series_query,
-            team=self.team,
-            timings=self.timings,
-            limit_context=self.limit_context,
-            modifiers=self.modifiers,
-            user=self.user,
+        response = self._with_own_bypass(
+            TrendsQueryRunner(
+                query=series_query,
+                team=self.team,
+                timings=self.timings,
+                limit_context=self.limit_context,
+                modifiers=self.modifiers,
+                user=self.user,
+            )
         ).calculate()
 
         # Whether the last bucket is the current, still-accumulating period — computed once here so

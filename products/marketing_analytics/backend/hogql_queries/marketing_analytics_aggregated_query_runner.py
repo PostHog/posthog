@@ -221,13 +221,15 @@ class MarketingAnalyticsAggregatedQueryRunner(
         )
 
         # user= is required: a user-less previous runner loses warehouse access (empties the cost) and runs RBAC user-less.
-        previous_runner = MarketingAnalyticsAggregatedQueryRunner(
-            query=previous_query,
-            team=self.team,
-            timings=self.timings,
-            modifiers=self.modifiers,
-            limit_context=self.limit_context,
-            user=self.user,
+        previous_runner = self._with_own_bypass(
+            MarketingAnalyticsAggregatedQueryRunner(
+                query=previous_query,
+                team=self.team,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+                user=self.user,
+            )
         )
         previous_runner.__dict__["_shared_hogql_database"] = self._shared_hogql_database
 

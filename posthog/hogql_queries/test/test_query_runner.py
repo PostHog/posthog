@@ -1979,6 +1979,33 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         return ac
 
     @parameterized.expand(RUNNER_BASES)
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_bypass_rebuilds_the_database_and_changes_the_cache_key(self, _name, base, _flag):
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="denied_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+        )
+        self._ac(resource="warehouse_view", resource_id=str(view.id), organization_member=self.organization_membership)
+        runner = self._runner(self.user, base, queried_resources=set())
+        runner.query = HogQLQuery(query="SELECT id FROM denied_view")
+        # Built before the bypass, so a stale copy would be the one reused.
+        assert "denied_view" in runner.shared_database._denied_tables
+        denied_cache_key = runner.get_cache_key()
+
+        runner.bypass_warehouse_access_control()
+
+        # A bypass result must never be served from the denied user's cache entry, or the other way round.
+        assert "denied_view" not in runner.shared_database._denied_tables
+        assert runner.get_cache_key() != denied_cache_key
+        if base is QueryRunnerWithHogQLContext:
+            assert "denied_view" not in runner.database._denied_tables
+        # A runner built for part of the result stays trusted too.
+        child = runner._with_own_bypass(self._runner(self.user, base, queried_resources=set()))
+        assert "denied_view" not in child.shared_database._denied_tables
+
+    @parameterized.expand(RUNNER_BASES)
     def test_resource_grant_changes_cache_key(self, _name, base):
         self._ac(resource="notebook", access_level="none")
         key_denied = self._runner(self.user, base).get_cache_key()
