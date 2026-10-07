@@ -36,6 +36,10 @@ from products.tasks.backend.logic.services.connection_token import (
     create_sandbox_event_ingest_token,
 )
 from products.tasks.backend.logic.services.launch_preparation_metrics import launch_preparation_metric_context
+from products.tasks.backend.logic.services.mcp_tool_names import (
+    mcp_allowed_tools_from_state,
+    mcp_exclude_tools_from_state,
+)
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import (
     REPO_READY_FILE,
@@ -71,7 +75,6 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_user_mcp_server_configs,
     loop_mcp_installation_allowlist,
     mark_sandbox_mcp_session,
-    mcp_exclude_tools_from_state,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -516,6 +519,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
             task_id=str(ctx.task_id),
             origin_product=task.origin_product,
             exclude_tools=mcp_exclude_tools_from_state(ctx.state),
+            allowed_tools=mcp_allowed_tools_from_state(ctx.state),
         )
     )
     include_personal = _include_personal_mcp_for_task(task)

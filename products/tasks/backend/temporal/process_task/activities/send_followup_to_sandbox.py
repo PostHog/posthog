@@ -26,6 +26,10 @@ from products.tasks.backend.logic.services.agent_command import (
     user_facing_agent_error,
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.services.mcp_tool_names import (
+    mcp_allowed_tools_from_state,
+    mcp_exclude_tools_from_state,
+)
 from products.tasks.backend.logic.services.peer_messages import mark_peer_message_outcome, peer_message_id_from_context
 from products.tasks.backend.logic.services.run_actor import slack_actor_state_updates, user_has_current_team_access
 from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
@@ -54,7 +58,6 @@ from products.tasks.backend.temporal.process_task.utils import (
     loop_mcp_installation_allowlist,
     mark_sandbox_github_identity,
     mark_sandbox_mcp_session,
-    mcp_exclude_tools_from_state,
     record_message_actor,
     sandbox_identity_scope,
     upgrade_run_to_user_authorship,
@@ -781,6 +784,7 @@ def _refresh_sandbox_mcp(
         task_id=str(task_run.task_id),
         origin_product=task_run.task.origin_product,
         exclude_tools=mcp_exclude_tools_from_state(state),
+        allowed_tools=mcp_allowed_tools_from_state(state),
     )
     user_mcp_configs = get_user_mcp_server_configs(
         token=access_token,

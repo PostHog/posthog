@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -46,6 +45,7 @@ from products.tasks.backend.logic.services.gateway_model_pin import (
 )
 from products.tasks.backend.logic.services.gateway_usage import record_gateway_routing
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
+from products.tasks.backend.logic.services.mcp_tool_names import sanitize_mcp_tool_names
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
 # Re-exported so existing activity/workflow imports keep working after the move to
@@ -785,32 +785,6 @@ POSTHOG_MCP_DESCRIPTION = (
     "LLM analytics, and the data warehouse."
 )
 
-_MCP_EXCLUDE_TOOL_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-_MAX_MCP_EXCLUDE_TOOLS = 32
-
-
-def sanitize_mcp_exclude_tools(names: Sequence[str] | None) -> list[str]:
-    if not names:
-        return []
-    seen: set[str] = set()
-    cleaned: list[str] = []
-    for name in names:
-        token = name.strip().lower()
-        if not _MCP_EXCLUDE_TOOL_NAME.fullmatch(token) or token in seen:
-            continue
-        seen.add(token)
-        cleaned.append(token)
-        if len(cleaned) >= _MAX_MCP_EXCLUDE_TOOLS:
-            break
-    return cleaned
-
-
-def mcp_exclude_tools_from_state(state: dict[str, Any] | None) -> list[str]:
-    raw = (state or {}).get("mcp_exclude_tools")
-    if not isinstance(raw, list):
-        return []
-    return sanitize_mcp_exclude_tools([name for name in raw if isinstance(name, str)])
-
 
 def get_sandbox_ph_mcp_configs(
     token: str,
@@ -822,6 +796,7 @@ def get_sandbox_ph_mcp_configs(
     task_id: str | None = None,
     origin_product: str | None = None,
     exclude_tools: Sequence[str] | None = None,
+    allowed_tools: Sequence[str] | None = None,
 ) -> list[McpServerConfig]:
     """Return PostHog MCP server configurations for sandbox agents.
 
@@ -860,9 +835,12 @@ def get_sandbox_ph_mcp_configs(
         headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})
     if origin_product:
         headers.append({"name": "X-PostHog-Task-Origin", "value": origin_product})
-    excluded = sanitize_mcp_exclude_tools(exclude_tools)
+    excluded = sanitize_mcp_tool_names(exclude_tools)
     if excluded:
         headers.append({"name": "x-posthog-exclude-tools", "value": ",".join(excluded)})
+    allowed = sanitize_mcp_tool_names(allowed_tools)
+    if allowed:
+        headers.append({"name": "x-posthog-tools", "value": ",".join(allowed)})
     return [
         McpServerConfig(
             type="http",
