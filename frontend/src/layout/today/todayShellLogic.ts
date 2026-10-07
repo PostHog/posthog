@@ -118,6 +118,7 @@ export function railPaneForPath(pathname: string, warehouseEnabled: boolean): To
 export interface todayShellLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     mobileLayout: boolean // navigationLogic
+    sceneTabsMounted: boolean // todaySceneTabsLogic
     activePane: TodayRailPane
     activePaneHasSidebar: boolean
     leftNavWidth: number
@@ -131,7 +132,6 @@ export interface todayShellLogicValues {
     pickedPane: TodayRailPane | null
     routePane: TodayRailPane | null
     sceneTabsInSidebar: boolean
-    sceneTabsMounted: boolean // todaySceneTabsLogic
     sidebarOpen: boolean
     sidebarVisible: boolean
     sidebarWidth: number
@@ -192,7 +192,11 @@ export interface todayShellLogicActions {
 export interface todayShellLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         routePane: (
-            location: { hash: string; pathname: string; search: string },
+            location: {
+                hash: string
+                pathname: string
+                search: string
+            },
             todayWarehouseEnabled: boolean
         ) => TodayRailPane | null
         activePane: (

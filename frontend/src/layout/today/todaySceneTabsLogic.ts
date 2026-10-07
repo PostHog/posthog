@@ -13,11 +13,11 @@ export interface todaySceneTabsLogicActions {
     addSceneTabs: () => {
         value: true
     }
-    releaseSceneTabs: () => {
-        value: true
-    }
     registerTabsElement: (element: HTMLElement | null) => {
         element: HTMLElement | null
+    }
+    releaseSceneTabs: () => {
+        value: true
     }
     removeSceneTabs: () => {
         value: true
