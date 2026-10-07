@@ -1155,15 +1155,20 @@ def test_cli_lint_warns_on_an_unknown_field_without_failing(tmp_path: Path, root
     assert f"⚠ owners.yaml: {warning}" in result.output
 
 
-def test_cli_lint_warns_on_a_sensitive_path_without_owners(tmp_path: Path) -> None:
-    _write(tmp_path, "owners.yaml", "version: 1\nowners: []\nrules:\n  - match: '/guard/'\n    sensitive: true\n")
+@pytest.mark.parametrize("guard_owners", ["[]", "null"], ids=["unowned", "unowned-by-design"])
+def test_cli_lint_warns_on_a_sensitive_path_without_owners(tmp_path: Path, guard_owners: str) -> None:
+    _write(
+        tmp_path,
+        "owners.yaml",
+        f"version: 1\nowners: []\nrules:\n  - match: '/guard/'\n    owners: {guard_owners}\n    sensitive: true\n",
+    )
     _write(tmp_path, "guard/baseline.txt", "")
     _write(tmp_path, "web/app.ts", "")
 
     result = CliRunner().invoke(main, ["lint", "--repo-root", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
-    assert "⚠ guard/baseline.txt: sensitive but unowned" in result.output
+    assert "⚠ guard/baseline.txt: sensitive but has no owners" in result.output
     assert "web/app.ts: sensitive" not in result.output
 
 

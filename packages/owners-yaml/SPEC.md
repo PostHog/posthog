@@ -149,7 +149,7 @@ For example, a review assigner can request the owners of a sensitive path for ea
 1. The value MUST be a boolean. Any other value is an error. The file or the rule then does not set `sensitive`, and its other fields still apply.
 2. The nearest value wins, as for `status`. `false` turns off a `true` from an ancestor file or from an earlier rule.
 3. `sensitive` belongs to the paths, not to their owners. A nearer file that changes the owners keeps the value of its ancestors.
-4. `sensitive` does not change `owners`. A sensitive path with no owners is still unowned. A linter SHOULD report a sensitive path that is unowned.
+4. `sensitive` does not change `owners`. A sensitive path with no owners is still unowned. A linter SHOULD report a sensitive path that has no owners, unowned by design or not.
 5. `sensitive` does not make a review required and does not block a change. Required reviews stay with the code host, for example its CODEOWNERS file and branch protection.
 6. A consumer that does not request reviews for `status: generated` (section 3.2) SHOULD still treat a sensitive path as a path to review.
 7. An alias file MAY set `sensitive` (section 6).
