@@ -373,7 +373,8 @@ class BillingManagedByPartnerSerializer(serializers.Serializer):
 BILLING_MANAGED_BY_PARTNER_HELP_TEXT = (
     "Set when a provisioning partner pays for this organization. While it is set, self-serve subscription, "
     "payment, and billing limit changes are refused, and reads of spend, invoices, and credit balances are "
-    "refused. Coupon claims and reads are refused too, as are billing alert creation, checks, and event reads. "
+    "refused. Coupon claims and reads are refused too, as are billing alert creation, manual 'check now' requests, "
+    "and event reads. "
     "Amounts, prices, and dollar limits in billing responses are null. Usage counted in credits is "
     "null or left out, because one credit is one cent. Other usage, and usage limits in units, stay readable. "
     "Null when no partner pays."
