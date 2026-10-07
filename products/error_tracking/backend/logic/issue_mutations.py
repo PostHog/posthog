@@ -262,10 +262,10 @@ def merge_issues(
             return IssueMergeOutcome(result=outcome.result, merged_issue_count=len(outcome.merged_issue_ids))
         # The merge holds the target's row lock, so this reads the state the snapshot must show.
         _refresh_under_lock(issue)
-        record_issue_changes(
-            operation,
-            [IssueChange(issue=issue, data=Merged(merged_issue_ids=tuple(outcome.merged_issue_ids)))],
-        )
+        issue_changes = [IssueChange(issue=issue, data=Merged(merged_issue_ids=tuple(outcome.merged_issue_ids)))]
+        if outcome.reopened and outcome.previous_status is not None:
+            issue_changes.append(IssueChange(issue=issue, data=StatusChanged(previous=Status(outcome.previous_status))))
+        record_issue_changes(operation, issue_changes)
 
         merged_id_strings = [str(merged_issue_id) for merged_issue_id in outcome.merged_issue_ids]
         log_activity(

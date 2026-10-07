@@ -96,19 +96,20 @@ class TestIssueChangeRecording(BaseTest):
         assert [change.data["previous"] for change in changes] == ["active", "active"]
         assert [change.snapshot["status"] for change in changes] == ["suppressed", "suppressed"]
 
-    def test_merge_records_one_row_on_the_target_with_the_earliest_first_seen(self, _flag) -> None:
-        target = self._create_issue({"target_fp": LATE})
+    def test_merge_records_the_merge_and_reopened_status_with_the_earliest_first_seen(self, _flag) -> None:
+        target = self._create_issue({"target_fp": LATE}, status=ErrorTrackingIssue.Status.RESOLVED)
         source = self._create_issue({"source_fp": EARLY})
 
         merge_issues(self.team.id, target.id, [str(source.id)], user=self.user, was_impersonated=False)
 
-        [change] = self._changes()
-        assert (change.issue_id, change.kind, change.data) == (
-            target.id,
-            "merged",
-            {"merged_issue_ids": [str(source.id)]},
-        )
-        assert change.snapshot["first_seen"] == EARLY.isoformat()
+        changes = self._changes()
+        assert [(change.issue_id, change.kind, change.data) for change in changes] == [
+            (target.id, "merged", {"merged_issue_ids": [str(source.id)]}),
+            (target.id, "status_changed", {"previous": "resolved"}),
+        ]
+        assert {change.operation_id for change in changes} == {changes[0].operation_id}
+        assert all(change.snapshot["status"] == "active" for change in changes)
+        assert all(change.snapshot["first_seen"] == EARLY.isoformat() for change in changes)
 
     def test_split_records_the_split_and_a_created_row_per_new_issue(self, _flag) -> None:
         issue = self._create_issue({"fp_one": EARLY, "fp_two": LATE})
