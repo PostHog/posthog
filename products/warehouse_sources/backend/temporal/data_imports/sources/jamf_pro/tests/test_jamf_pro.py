@@ -545,6 +545,28 @@ class TestGetRows:
         assert len(rows) == 201
         assert rows[-1] == {"deviceId": "d1", "statusEnum": "COMPLETE", "patchPolicyId": "200"}
 
+    def test_fan_out_refuses_an_unbounded_parent_list(self):
+        manager = self._manager()
+        endless_parents = _response(json_data={"totalCount": 10**9, "results": [{"id": "1"}, {"id": "2"}]})
+        session = _session(post_responses=[_response(json_data=TOKEN_JSON)], get_responses=[endless_parents] * 3)
+        with (
+            mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session),
+            mock.patch.object(jamf_pro_module, "MAX_PARENT_IDS", 3),
+        ):
+            with pytest.raises(JamfProPaginationLimitError):
+                list(
+                    get_rows(
+                        host="example.jamfcloud.com",
+                        credentials=CLIENT_CREDENTIALS,
+                        endpoint="patch_policy_logs",
+                        logger=mock.MagicMock(),
+                        resumable_source_manager=manager,
+                        team_id=1,
+                    )
+                )
+
+        assert all("/logs" not in call.args[0] for call in session.get.call_args_list)
+
     @pytest.mark.parametrize(
         "endpoint, expected_parent_ids",
         [
