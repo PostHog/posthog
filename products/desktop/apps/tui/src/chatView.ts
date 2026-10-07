@@ -340,6 +340,8 @@ function componentFor(line: TranscriptLine): Component {
   }
 }
 
+const JUMP_LABEL = " Jump to bottom (click) ↓ ";
+
 // One pane's chat: pi's message components inside pi's ScrollView, clipped to the pane by us.
 export class ChatView {
   private items: { id: string; component: Component }[] = [];
@@ -362,6 +364,8 @@ export class ChatView {
   private content: string[] = [];
   private size = { width: 0, height: 0 };
   private selection: { anchor: Cell; head: Cell } | null = null;
+  // Where the last render drew the way back to the latest message, while scrolled up.
+  private jump: { row: number; start: number; end: number } | null = null;
 
   // Drops what the messages cached, so they draw again in the theme's current colours.
   invalidate(): void {
@@ -469,8 +473,35 @@ export class ChatView {
       .map((line, index) => this.highlight(line, top + index))
       // Ink gives an empty string no height, so blank lines carry a space.
       .map((line) => line || " ");
-    this.shown = visible;
-    return [...visible, ...Array<string>(height - visible.length).fill(" ")];
+    const lines = [
+      ...visible,
+      ...Array<string>(height - visible.length).fill(" "),
+    ];
+    this.jump = null;
+    // Scrolled up, the chat's bottom row offers a way back to the latest message.
+    const size = visibleWidth(JUMP_LABEL);
+    if (
+      !this.scroll.isFollowingEnd &&
+      content.length > height &&
+      height > 1 &&
+      size <= contentWidth
+    ) {
+      const start = Math.floor((contentWidth - size) / 2);
+      lines[height - 1] =
+        `${" ".repeat(start)}${userMessageBackground()}${JUMP_LABEL}\u001b[49m`;
+      this.jump = { row: height - 1, start, end: start + size };
+    }
+    this.shown = lines;
+    return lines;
+  }
+
+  // A click on the way back to the latest message, by cell within the chat, scrolls there; false otherwise.
+  jumpAt(row: number, column: number): boolean {
+    const jump = this.jump;
+    if (!jump || row !== jump.row || column < jump.start || column >= jump.end)
+      return false;
+    this.scroll.scrollToEnd();
+    return true;
   }
 
   private groupAt(row: number | null): string | null {

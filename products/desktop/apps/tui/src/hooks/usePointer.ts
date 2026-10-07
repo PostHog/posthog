@@ -139,6 +139,10 @@ export function usePointer({
         return;
       }
       if (!box || !hitTest(click, [["chat", box]])) return;
+      if (chat.jumpAt(click.row - box.top, click.column - box.left)) {
+        repaint();
+        return;
+      }
       const link = chat.linkAt(click.row - box.top, click.column - box.left);
       const image = chat.imageAt(click.row - box.top);
       if (link) openUrl(link);
