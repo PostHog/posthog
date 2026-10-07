@@ -18,11 +18,13 @@ const TOP_LABEL_MIN_GAP = 40
 /** How far the second lane sits above the first. Tuned against the 9px label size. */
 const TOP_LABEL_LANE_OFFSET = 10
 /**
- * Half the widest step label from stepLabel, "still 100% (needs approval)", plus headroom for a wider
- * fallback font. That label measures about 120 viewBox units at the 9px size. Inside this distance
- * from an edge, a centered label leaves the plot.
+ * Half the widest label either builder can produce, plus headroom for a wider fallback font. Both
+ * builders top out at 27 characters: "still 100% (needs approval)" from stepLabel, and "3 variants
+ * (needs approval)" from markerLabel. That measures about 120 viewBox units at the 9px size. Inside
+ * this distance from an edge, a centered label leaves the plot. Lengthen either builder's longest
+ * string and this has to grow with it.
  */
-const STEP_LABEL_EDGE_PAD = 65
+const LABEL_EDGE_PAD = 65
 const LABEL_FONT_SIZE = 9
 /** Average width of one label character at the 9px size, taken from the 120-unit measure above. */
 const LABEL_CHAR_WIDTH = 4.5
@@ -111,12 +113,15 @@ function stepLabel(occurrence: ScheduleOccurrence, rollout: number): string {
     return occurrence.needsApproval ? `${level} (needs approval)` : level
 }
 
-/** Near an edge a label ends or starts at its mark, because the SVG clips what leaves the viewBox. */
-function stepLabelAnchor(x: number): LabelAnchor {
-    if (x > MARGIN.left + PLOT_WIDTH - STEP_LABEL_EDGE_PAD) {
+/**
+ * Near an edge a label ends or starts at its mark, because the SVG clips what leaves the viewBox.
+ * Both step labels and marker labels anchor through here.
+ */
+function labelAnchor(x: number): LabelAnchor {
+    if (x > MARGIN.left + PLOT_WIDTH - LABEL_EDGE_PAD) {
         return 'end'
     }
-    if (x < MARGIN.left + STEP_LABEL_EDGE_PAD) {
+    if (x < MARGIN.left + LABEL_EDGE_PAD) {
         return 'start'
     }
     return 'middle'
@@ -210,7 +215,7 @@ export function ScheduleTimeline({
         if (occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition && rollout !== null) {
             stepY = yForRollout(rollout)
             const text = stepLabel(occurrence, rollout)
-            const anchor = stepLabelAnchor(x)
+            const anchor = labelAnchor(x)
             const label = { text, y: stepY - 7, anchor, ...labelExtent(x, anchor, text) }
             const collides = shownStepLabels.some(
                 (shown) =>
@@ -392,7 +397,7 @@ export function ScheduleTimeline({
                                         <text
                                             x={x}
                                             y={topLabelY}
-                                            textAnchor={stepLabelAnchor(x)}
+                                            textAnchor={labelAnchor(x)}
                                             fontSize={LABEL_FONT_SIZE}
                                             fill="var(--color-text-secondary)"
                                         >
