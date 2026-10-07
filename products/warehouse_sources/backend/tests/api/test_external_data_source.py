@@ -9776,7 +9776,6 @@ class TestCreateWebhook(APIBaseTest):
         # that a partial update which omits one required field is accepted while still
         # preserving the existing value on the HogFunction.
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-        from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 
         original_source = SourceRegistry.get_source(ExternalDataSourceType("Stripe"))
         original_config = original_source.get_source_config
@@ -10169,94 +10168,6 @@ class TestSensitiveFieldClassification(APIBaseTest):
 
         assert result["temporary-dataset"]["temporary_dataset_id"] == "declared"
         assert "temporary_dataset" not in result
-
-    def test_all_registered_sources_have_valid_classification(self):
-        for source in SourceRegistry.get_all_sources().values():
-            config = source.get_source_config
-            split = get_nonsensitive_and_sensitive_field_names(config.fields)
-
-            # No field should appear in both sets
-            overlap = split.nonsensitive & split.sensitive
-            assert not overlap, f"{config.name}: fields in both sets: {overlap}"
-
-    def test_password_typed_fields_must_be_marked_secret(self):
-        """A field rendered as type=PASSWORD that is not also `secret=True` is a misconfiguration:
-        it would obscure on screen but still be returned in plain text from the API.
-        """
-
-        def collect_password_fields_without_secret(fields: list[FieldType]) -> list[str]:
-            offenders: list[str] = []
-            for field in fields:
-                if isinstance(field, SourceFieldInputConfig):
-                    if field.type == SourceFieldInputConfigType.PASSWORD and not field.secret:
-                        offenders.append(field.name)
-                elif isinstance(field, SourceFieldSwitchGroupConfig):
-                    offenders.extend(collect_password_fields_without_secret(field.fields))
-                elif isinstance(field, SourceFieldSelectConfig):
-                    for option in field.options:
-                        if option.fields:
-                            offenders.extend(collect_password_fields_without_secret(option.fields))
-            return offenders
-
-        all_offenders: dict[str, list[str]] = {}
-        for source in SourceRegistry.get_all_sources().values():
-            config = source.get_source_config
-            offenders = collect_password_fields_without_secret(config.fields)
-            if offenders:
-                all_offenders[config.name] = offenders
-
-        assert not all_offenders, (
-            f"PASSWORD-typed fields must also set secret=True to be redacted from API responses. "
-            f"Offending fields: {all_offenders}"
-        )
-
-    def test_dynamic_classification_covers_old_hardcoded_allowlist(self):
-        """Regression: all fields from the old hardcoded allowlist should be in the dynamic nonsensitive set."""
-
-        old_allowed = {
-            "stripe_account_id",
-            "database",
-            "host",
-            "port",
-            "user",
-            "schema",
-            "ssh_tunnel",
-            "using_ssl",
-            "region",
-            "site_name",
-            "subdomain",
-            "email_address",
-            "hubspot_integration_id",
-            "custom_properties",
-            "account_id",
-            "warehouse",
-            "role",
-            "dataset_id",
-            "temporary-dataset",
-            "dataset_project",
-            "customer_id",
-            "google_ads_integration_id",
-            "is_mcc_account",
-            "spreadsheet_url",
-            "linkedin_ads_integration_id",
-            "meta_ads_integration_id",
-            "sync_lookback_days",
-            "reddit_integration_id",
-            "salesforce_integration_id",
-            "repository",
-            "shopify_store_id",
-            "namespace",
-        }
-
-        # Collect all nonsensitive field names across all sources
-        all_nonsensitive: set[str] = set()
-        for source in SourceRegistry.get_all_sources().values():
-            config = source.get_source_config
-            split = get_nonsensitive_and_sensitive_field_names(config.fields)
-            all_nonsensitive.update(split.nonsensitive)
-
-        missing = old_allowed - all_nonsensitive
-        assert not missing, f"Old allowlist fields not covered by dynamic classification: {missing}"
 
 
 class TestWebhookInfo(APIBaseTest):

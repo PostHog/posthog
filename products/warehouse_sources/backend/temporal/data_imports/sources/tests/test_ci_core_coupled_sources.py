@@ -4,6 +4,7 @@ import glob
 import json
 import functools
 from pathlib import Path
+from typing import NamedTuple
 
 # Guards the backend:contract-check isolation of warehouse_sources.
 # When only isolated-product internals change, turbo-discover.js skips the Django suite
@@ -38,6 +39,7 @@ _FACADE_MODULES = frozenset({_SOURCE_MGMT, _SOURCES})
 # the Temporal segment, which always runs alongside the product's own temporal job.
 _SCAN_ROOTS = ("posthog", "ee", "products/product_analytics")
 
+_CONTRACT_TASK = "backend:contract-check"
 _INPUTS_PREFIX = "backend/temporal/data_imports/sources/"
 _GENERATED_CONFIGS_DIR = f"{_INPUTS_PREFIX}generated_configs/"
 _GENERATED_CONFIG_REFERENCE = re.compile(r"(?:[\w.]+\.)?sources\.generated_configs(?:\.(\w+))?(?:\.[\w.]+)?")
@@ -147,13 +149,9 @@ def _task_inputs(root: Path, task: str) -> list[str] | None:
     return turbo.get("tasks", {}).get(task, {}).get("inputs") or None
 
 
-def _contract_check_inputs(root: Path) -> list[str] | None:
-    return _task_inputs(root, "backend:contract-check")
-
-
 def _contract_covered_sources(root: Path) -> set[str] | None:
     """Vendor dirs the contract-check inputs watch, or None when every vendor is covered."""
-    inputs = _contract_check_inputs(root)
+    inputs = _task_inputs(root, _CONTRACT_TASK)
     if inputs is None:
         return None
     covered = {
@@ -201,20 +199,24 @@ def test_core_facade_coupled_sources_are_covered_by_contract_check():
 
 
 @functools.cache
-def _glob_matcher(globs: tuple[str, ...]) -> re.Pattern[str]:
-    # One compiled pattern per input list: the core inputs are matched against every backend file.
-    return re.compile("|".join(glob.translate(pattern, recursive=True, include_hidden=True) for pattern in globs))
+def _input_patterns(inputs: tuple[str, ...]) -> tuple[re.Pattern[str] | None, re.Pattern[str] | None]:
+    """The include and exclude globs of an input list, each compiled to one pattern."""
+
+    def compiled(globs: list[str]) -> re.Pattern[str] | None:
+        if not globs:
+            return None
+        return re.compile("|".join(glob.translate(pattern, recursive=True, include_hidden=True) for pattern in globs))
+
+    return (
+        compiled([pattern for pattern in inputs if not pattern.startswith("!")]),
+        compiled([pattern.removeprefix("!") for pattern in inputs if pattern.startswith("!")]),
+    )
 
 
 def _is_watched(rel: Path, inputs: list[str]) -> bool:
-    included = tuple(pattern for pattern in inputs if not pattern.startswith("!"))
-    excluded = tuple(pattern.removeprefix("!") for pattern in inputs if pattern.startswith("!"))
+    included, excluded = _input_patterns(tuple(inputs))
     path = rel.as_posix()
-    return (
-        bool(included)
-        and _glob_matcher(included).match(path) is not None
-        and not (excluded and _glob_matcher(excluded).match(path))
-    )
+    return included is not None and included.match(path) is not None and not (excluded and excluded.match(path))
 
 
 def _referenced_generated_configs(tree: ast.AST, config_modules: set[str]) -> set[str]:
@@ -239,7 +241,7 @@ def test_contract_check_watches_exactly_the_generated_configs_it_refers_to() -> 
     root = _repo_root()
     product_dir = root / "products" / "warehouse_sources"
     configs_dir = product_dir / _GENERATED_CONFIGS_DIR
-    inputs = _contract_check_inputs(root)
+    inputs = _task_inputs(root, _CONTRACT_TASK)
     if inputs is None or f"{_GENERATED_CONFIGS_DIR}**" in inputs:
         return
 
@@ -259,38 +261,46 @@ def test_contract_check_watches_exactly_the_generated_configs_it_refers_to() -> 
 # Guards the backend:test-core-check split of the warehouse_sources suite.
 # When a diff changes the product and leaves every core-check input untouched,
 # turbo-discover.js runs the suite with the test files among those inputs ignored. That is
-# sound only if no core file can execute a file outside the inputs, so the two tests below
-# hold the inputs closed: every backend file is a core input or belongs to a leaf source, and
-# no core file refers to a leaf source.
+# sound only if no core file can execute a file outside the inputs, so the tests below hold
+# the inputs closed: every backend file is a core input, a test, or part of a leaf source,
+# no core file refers to a leaf source, and no core test iterates the whole catalog.
 #
-# A core test that iterates every registered source reaches all of them and is not visible
-# here. The catalog-wide tests in sources/tests/ are leaf files for that reason: they run on
-# every change to a source.
+# A test file that is not an input runs on every change to the product. That is where a
+# catalog-wide test belongs: sources/tests/, or a core test file the inputs exclude.
+#
+# Limitation: a core test can reach every source through production code that iterates the
+# registry, such as the source wizard endpoint. That is not visible here, and those tests
+# do not run on a leaf change.
 
 _CORE_TASK = "backend:test-core-check"
 _TYPES_MODULE = "products/warehouse_sources/backend/facade/types.py"
 _TEST_DIR_NAMES = frozenset({"test", "tests"})
+_CATALOG_WIDE_CALLS = frozenset({"get_all_sources", "get_registered_types", "load_all_sources"})
 
 
-def _source_vendors(sources_dir: Path) -> set[str]:
-    return {source.parent.name for source in sources_dir.glob("*/source.py")}
+class _Catalog(NamedTuple):
+    vendors: frozenset[str]
+    # ExternalDataSourceType member name, member value, and source class name, each mapped
+    # to the source directory it selects.
+    by_member: dict[str, str]
+    by_value: dict[str, str]
+    by_class: dict[str, str]
 
 
-def _is_test_file(rel: Path) -> bool:
-    name = rel.name
-    return (
-        name.startswith("test_")
-        or name.endswith("_test.py")
-        or name == "conftest.py"
-        or bool(_TEST_DIR_NAMES.intersection(rel.parts))
-    )
+@functools.cache
+def _parsed(file: Path) -> ast.Module:
+    return ast.parse(file.read_text(), filename=str(file))
 
 
-def _vendors_by_source_type(root: Path, vendors: set[str]) -> dict[str, str]:
-    """Map each ExternalDataSourceType member name and value to its source directory."""
+@functools.cache
+def _catalog(root: Path) -> _Catalog:
+    sources_dir = root / "products" / "warehouse_sources" / _INPUTS_PREFIX
+    vendors = frozenset(source.parent.name for source in sources_dir.glob("*/source.py"))
     by_squashed_name = {vendor.replace("_", ""): vendor for vendor in vendors}
-    names: dict[str, str] = {}
-    for node in ast.walk(ast.parse((root / _TYPES_MODULE).read_text())):
+
+    by_member: dict[str, str] = {}
+    by_value: dict[str, str] = {}
+    for node in ast.walk(_parsed(root / _TYPES_MODULE)):
         if not (isinstance(node, ast.ClassDef) and node.name == "ExternalDataSourceType"):
             continue
         for statement in node.body:
@@ -298,10 +308,39 @@ def _vendors_by_source_type(root: Path, vendors: set[str]) -> dict[str, str]:
                 case ast.Assign(
                     targets=[ast.Name(id=member)], value=ast.Tuple(elts=[ast.Constant(value=str(value)), *_])
                 ) if vendor := by_squashed_name.get(member.lower()):
-                    names[member] = vendor
-                    names[value] = vendor
-    assert names, "parsed no ExternalDataSourceType members"
-    return names
+                    by_member[member] = vendor
+                    by_value[value] = vendor
+    assert by_member, "parsed no ExternalDataSourceType members"
+
+    # sources/__init__.py re-exports every class that _load_all imports, so a core file can
+    # import a source by class name without naming its directory.
+    by_class = {
+        alias.asname or alias.name: node.module.split(".")[0]
+        for node in ast.walk(_parsed(sources_dir / "_load_all.py"))
+        if isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] in vendors
+        for alias in node.names
+    }
+    return _Catalog(vendors, by_member, by_value, by_class)
+
+
+def _is_test_module(rel: Path) -> bool:
+    return rel.name.startswith("test_") or rel.name.endswith("_test.py")
+
+
+def _is_test_code(rel: Path) -> bool:
+    return _is_test_module(rel) or rel.name == "conftest.py" or bool(_TEST_DIR_NAMES.intersection(rel.parts))
+
+
+@functools.cache
+def _backend_files(root: Path) -> tuple[Path, ...]:
+    product_dir = root / "products" / "warehouse_sources"
+    return tuple(file.relative_to(product_dir) for file in (product_dir / "backend").rglob("*.py"))
+
+
+def _core_files(root: Path, inputs: list[str]) -> list[Path]:
+    core = [rel for rel in _backend_files(root) if _is_watched(rel, inputs)]
+    assert core, f"{_CORE_TASK} inputs match no file"
+    return core
 
 
 def _dotted_references(tree: ast.AST, package: str) -> set[str]:
@@ -336,59 +375,62 @@ def _dotted_references(tree: ast.AST, package: str) -> set[str]:
     return dotted
 
 
-def _source_type_names(tree: ast.AST, vendors_by_name: dict[str, str]) -> set[str]:
+def _sources_named_by_type(tree: ast.AST, catalog: _Catalog) -> set[str]:
     """Sources a file selects by ExternalDataSourceType member or by the member's value."""
     named: set[str] = set()
     for node in ast.walk(tree):
         match node:
-            case ast.Attribute(attr=member) if member in vendors_by_name:
-                named.add(vendors_by_name[member])
-            case ast.Constant(value=str(value)) if value in vendors_by_name:
-                named.add(vendors_by_name[value])
+            case ast.Attribute(
+                value=ast.Name(id="ExternalDataSourceType") | ast.Attribute(attr="ExternalDataSourceType"),
+                attr=member,
+            ) if member in catalog.by_member:
+                named.add(catalog.by_member[member])
+            case ast.Constant(value=str(value)) if value in catalog.by_value:
+                named.add(catalog.by_value[value])
     return named
 
 
-def _leaf_files_referenced(
-    file: Path, product_dir: Path, vendors: set[str], vendors_by_name: dict[str, str]
-) -> set[str]:
-    """Product-relative paths of the source files and generated configs a core file can execute."""
-    rel = file.relative_to(product_dir)
-    tree = ast.parse(file.read_text(), filename=str(file))
+def _leaf_files_referenced(rel: Path, root: Path) -> set[str]:
+    """Product-relative paths of the files outside the core a core file can execute."""
+    product_dir = root / "products" / "warehouse_sources"
+    catalog = _catalog(root)
+    tree = _parsed(product_dir / rel)
     package = ".".join(("products", "warehouse_sources", *rel.parent.parts))
     referenced: set[str] = set()
     for dotted in _dotted_references(tree, package):
         if "sources" not in dotted:
             continue
-        vendor = _vendor_from_target(dotted)
-        if vendor in vendors:
+        target = _vendor_from_target(dotted)
+        vendor = target if target in catalog.vendors else catalog.by_class.get(target or "")
+        if vendor:
             referenced.add(f"{_INPUTS_PREFIX}{vendor}/source.py")
+        elif target == "_load_all" and rel != Path(_INPUTS_PREFIX, "__init__.py"):
+            referenced.add(f"{_INPUTS_PREFIX}_load_all.py")
         elif match := _GENERATED_CONFIG_REFERENCE.fullmatch(dotted):
             if match[1] and (product_dir / _GENERATED_CONFIGS_DIR / f"{match[1]}.py").exists():
                 referenced.add(f"{_GENERATED_CONFIGS_DIR}{match[1]}.py")
     # Production code compares source types without running the source. A test that names
     # one usually asks the registry for it.
-    if _is_test_file(rel):
-        referenced |= {f"{_INPUTS_PREFIX}{vendor}/source.py" for vendor in _source_type_names(tree, vendors_by_name)}
+    if _is_test_code(rel):
+        referenced |= {f"{_INPUTS_PREFIX}{vendor}/source.py" for vendor in _sources_named_by_type(tree, catalog)}
     return referenced
 
 
 def test_core_test_inputs_cover_every_file_outside_a_leaf_source() -> None:
     root = _repo_root()
-    product_dir = root / "products" / "warehouse_sources"
-    sources_dir = product_dir / _INPUTS_PREFIX
     inputs = _task_inputs(root, _CORE_TASK)
     if inputs is None:
         return
 
-    # The entries of sources/ that hold leaf files: each source, its generated config, the
-    # catalog-wide tests, and the module that imports every source.
-    leaf_entries = {*_source_vendors(sources_dir), "generated_configs", "tests", "_load_all.py"}
+    # The entries of sources/ that hold leaf files: each source, its generated config, and
+    # the module that imports every source.
+    leaf_entries = {*_catalog(root).vendors, "generated_configs", "_load_all.py"}
     sources_parts = Path(_INPUTS_PREFIX).parts
-    backend_files = [file.relative_to(product_dir) for file in (product_dir / "backend").rglob("*.py")]
     unwatched = sorted(
         str(rel)
-        for rel in backend_files
+        for rel in _backend_files(root)
         if not _is_watched(rel, inputs)
+        and not _is_test_module(rel)
         and not (rel.parts[: len(sources_parts)] == sources_parts and rel.parts[len(sources_parts)] in leaf_entries)
     )
     assert not unwatched, (
@@ -397,12 +439,12 @@ def test_core_test_inputs_cover_every_file_outside_a_leaf_source() -> None:
         "Add them to the inputs."
     )
 
-    contract_inputs = _contract_check_inputs(root) or []
+    contract_inputs = _task_inputs(root, _CONTRACT_TASK) or []
     contract_only = sorted(
-        str(rel) for rel in backend_files if _is_watched(rel, contract_inputs) and not _is_watched(rel, inputs)
+        str(rel) for rel in _backend_files(root) if _is_watched(rel, contract_inputs) and not _is_watched(rel, inputs)
     )
     assert not contract_only, (
-        f"{contract_only[:10]} are backend:contract-check inputs and are not {_CORE_TASK} inputs. "
+        f"{contract_only[:10]} are {_CONTRACT_TASK} inputs and are not {_CORE_TASK} inputs. "
         "A contract change must run the whole suite."
     )
 
@@ -419,25 +461,41 @@ def test_core_test_inputs_cover_every_file_outside_a_leaf_source() -> None:
 
 def test_core_test_inputs_never_reach_a_leaf_source() -> None:
     root = _repo_root()
+    inputs = _task_inputs(root, _CORE_TASK)
+    if inputs is None:
+        return
+
+    unwatched: dict[str, str] = {}
+    for rel in _core_files(root, inputs):
+        for leaf in _leaf_files_referenced(rel, root):
+            if not _is_watched(Path(leaf), inputs):
+                unwatched.setdefault(leaf, str(rel))
+    assert not unwatched, (
+        f"Core files refer to files that are not {_CORE_TASK} inputs in products/warehouse_sources/turbo.json: "
+        f"{dict(sorted(unwatched.items())[:10])}. A change to those files would skip the core tests that "
+        "exercise them. Add each source directory and its generated config to the inputs."
+    )
+
+
+def test_core_tests_do_not_iterate_every_source() -> None:
+    root = _repo_root()
     product_dir = root / "products" / "warehouse_sources"
     inputs = _task_inputs(root, _CORE_TASK)
     if inputs is None:
         return
 
-    vendors = _source_vendors(product_dir / _INPUTS_PREFIX)
-    vendors_by_name = _vendors_by_source_type(root, vendors)
-    core_files = [
-        file for file in (product_dir / "backend").rglob("*.py") if _is_watched(file.relative_to(product_dir), inputs)
-    ]
-    assert core_files, f"{_CORE_TASK} inputs match no file"
-
-    unwatched: dict[str, str] = {}
-    for file in core_files:
-        for leaf in _leaf_files_referenced(file, product_dir, vendors, vendors_by_name):
-            if not _is_watched(Path(leaf), inputs):
-                unwatched.setdefault(leaf, str(file.relative_to(product_dir)))
-    assert not unwatched, (
-        f"Core files refer to sources that are not {_CORE_TASK} inputs in products/warehouse_sources/turbo.json: "
-        f"{dict(sorted(unwatched.items())[:10])}. A change to those sources would skip the core tests that "
-        "exercise them. Add each source directory and its generated config to the inputs."
+    catalog_wide = sorted(
+        str(rel)
+        for rel in _core_files(root, inputs)
+        if _is_test_module(rel)
+        and any(
+            (isinstance(node, ast.Attribute) and node.attr in _CATALOG_WIDE_CALLS)
+            or (isinstance(node, ast.Name) and node.id in _CATALOG_WIDE_CALLS)
+            for node in ast.walk(_parsed(product_dir / rel))
+        )
+    )
+    assert not catalog_wide, (
+        f"{catalog_wide} iterate every registered source and are {_CORE_TASK} inputs, so they do not run "
+        "when a pull request changes only a leaf source. Move the catalog-wide test to "
+        f"{_INPUTS_PREFIX}tests/, or exclude the file from the inputs."
     )

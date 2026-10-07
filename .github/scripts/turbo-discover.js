@@ -807,17 +807,28 @@ function resolveCoreScopes(coreTasks, affectedCoreTasks, candidates) {
     return scopes
 }
 
+// Whether a scope ignores a repo-relative test file, or a test id inside one. Sizing reads
+// both forms: file paths from disk and test ids from the durations map.
+function ignoredByScope(product, scope) {
+    if (!scope) {
+        return () => false
+    }
+    const ignored = scope.ignores.map((ignoredPath) => `${productPrefix(product)}${ignoredPath}`)
+    return (test) =>
+        ignored.some(
+            (ignoredPath) =>
+                test === ignoredPath || test.startsWith(`${ignoredPath}/`) || test.startsWith(`${ignoredPath}::`)
+        )
+}
+
 // The durations map without the tests a scope ignores, so a scoped product is sized by
 // what it runs.
 function scopedDurations(durations, product, scope) {
     if (!durations || !scope) {
         return durations
     }
-    const prefix = productPrefix(product)
-    const ignored = scope.ignores.map((ignoredPath) => `${prefix}${ignoredPath}`)
-    const isIgnored = (test) =>
-        ignored.some((ignoredPath) => test.startsWith(`${ignoredPath}/`) || test.startsWith(`${ignoredPath}::`))
-    return Object.fromEntries(Object.entries(durations).filter(([test]) => !test.startsWith(prefix) || !isIgnored(test)))
+    const isIgnored = ignoredByScope(product, scope)
+    return Object.fromEntries(Object.entries(durations).filter(([test]) => !isIgnored(test)))
 }
 
 // --- Lib package consumers (import scan) ---
@@ -923,11 +934,12 @@ function coreFilesImportingModule(module, dirs = CORE_SCAN_DIRS) {
 
 // Check if .test_durations is stale for a product by comparing on-disk test
 // file coverage vs recorded entries. Returns { stale, fileCount, coveredCount, coverage }.
-function checkProductStaleness(product, durations) {
+function checkProductStaleness(product, durations, scope = null) {
     if (!durations) {return { stale: true, fileCount: 0, coveredCount: 0, coverage: 0 }}
     const dirName = productToModule(product)
     const productDir = path.join('products', dirName)
-    const testFiles = collectTestFiles(productDir)
+    const isIgnored = ignoredByScope(product, scope)
+    const testFiles = collectTestFiles(productDir).filter((file) => !isIgnored(file.split(path.sep).join('/')))
     if (testFiles.length === 0) {return { stale: false, fileCount: 0, coveredCount: 0, coverage: 0 }}
 
     const prefix = productPrefix(product)
@@ -1014,12 +1026,15 @@ function getProductShape(product, durations) {
 // applies: with poor coverage, guess work from file counts to avoid
 // under-sharding. `staleUnionWork` is non-null exactly when the guess replaced
 // the recorded sum, so the caller can log it once.
-function resolveProductSizing(product, durations, productsScaled = false) {
+//   scope  the product's core scope when it runs without its core tests, so the estimate
+//          and the staleness check both count only what the run collects
+function resolveProductSizing(product, allDurations, productsScaled = false, scope = null) {
+    const durations = scopedDurations(allDurations, product, scope)
     const shape = getProductShape(product, durations)
     if (productsScaled && shape.work > 0) {
         return { ...shape, staleUnionWork: null, staleness: null }
     }
-    const staleness = checkProductStaleness(product, durations)
+    const staleness = checkProductStaleness(product, durations, scope)
     if (staleness.stale && staleness.fileCount > 0) {
         const fallbackWork = staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE
         if (fallbackWork > shape.work) {
@@ -1527,10 +1542,10 @@ function buildMatrix(products, durations, productsScaled = false, scopes = new M
     // suite several-fold, and sizing an unscaled sum under-shards it.
     for (const product of products) {
         const scope = scopes.get(product)
-        const sizing = resolveProductSizing(product, scopedDurations(durations, product, scope), productsScaled)
+        const sizing = resolveProductSizing(product, durations, productsScaled, scope)
         const { work, maxTest, staleUnionWork, staleness } = sizing
-        // A scoped product never shares a leg: the ignores are its own, and a packed leg
-        // passes one argument list to every product it holds.
+        // A scoped product keeps a leg of its own: the ignores are its own, and a packed leg
+        // passes one argument list to every product it holds. The job can still take other legs.
         const label = scope ? `${product} (leaf tests)` : product
         const scopeArgs = scope ? scope.ignores.map((ignored) => ` --ignore=${ignored}`).join('') : ''
         if (scope) {
@@ -1583,9 +1598,14 @@ function buildMatrix(products, durations, productsScaled = false, scopes = new M
                 }
             }
         } else if (scope) {
-            console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → one job of its own`)
-            const leg = { filters: `--filter=@posthog/products-${product}`, pytest_args: `--${scopeArgs}` }
-            matrix.push(matrixEntry(label, [leg]))
+            console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → one leg of its own`)
+            fillableJobs.push({
+                label,
+                legs: [{ filters: `--filter=@posthog/products-${product}`, pytest_args: `--${scopeArgs}` }],
+                products: [],
+                cost: work * PRODUCT_BUCKET_SAFETY_FACTOR,
+                baseOverhead: PRODUCT_JOB_OVERHEAD_SECONDS,
+            })
         } else if (DEDICATED_BUCKET_PRODUCTS.has(product)) {
             console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → dedicated job (never shared)`)
             matrix.push(matrixEntry(product, [{ filters: `--filter=@posthog/products-${product}`, pytest_args: '' }]))
@@ -1648,9 +1668,7 @@ module.exports = {
     productsImportingModule,
     coreFilesImportingModule,
     ignorePathsFor,
-    coreScope,
     resolveCoreScopes,
-    scopedDurations,
 }
 
 // --- Main ---
