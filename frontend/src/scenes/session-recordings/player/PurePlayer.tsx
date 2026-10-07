@@ -367,8 +367,9 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                             <p className="max-w-120">
                                                 The snapshot of the screen taken when this recording started never
                                                 reached PostHog, so there is nothing to play back. This usually happens
-                                                when the browser is closed or goes offline before the recording finishes
-                                                uploading.{' '}
+                                                when the app or browser closes, or the device goes offline, before the
+                                                recording finishes uploading. It can also happen when the SDK can't take
+                                                a snapshot of the screen.{' '}
                                                 <Link to="https://posthog.com/docs/session-replay/troubleshooting">
                                                     Learn more
                                                 </Link>
