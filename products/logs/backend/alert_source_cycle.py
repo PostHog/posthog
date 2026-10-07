@@ -330,10 +330,11 @@ def _request(
     announcement, because a paging destination needs one resolve for every trigger. An alert
     with no such destination gets no incident action, so its edges start no delivery.
     """
+    destination_alert_id = str(check.legacy_configuration_id or check.id)
     incident_action = decide_incident_action(
         AlertState(check.state), outcome.new_state, policy=PLATFORM_LOGS_ALERT_POLICY
     )
-    if incident_action is not None and not _has_incident_destination(check):
+    if incident_action is not None and not _has_incident_destination(check.team_id, destination_alert_id):
         incident_action = None
     if not sends_messages and incident_action is None:
         return None
@@ -344,20 +345,20 @@ def _request(
         # The recorded key unchanged, so a delivery can address the row the check wrote. The
         # workflow id that has to be unique across alerts joins this to the configuration itself.
         evaluation_key=recorded.evaluation_key,
-        destination_alert_id=str(check.legacy_configuration_id or check.id),
+        destination_alert_id=destination_alert_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
         # Logs does not group, so its one row has the empty grouping key.
-        incident_actions={"": incident_action} if incident_action else {},
+        incident_actions={"": incident_action} if incident_action is not None else {},
         sends_messages=sends_messages,
     )
 
 
-def _has_incident_destination(check: PlatformAlertCheckInput) -> bool:
+def _has_incident_destination(team_id: int, destination_alert_id: str) -> bool:
     """Whether a destination of this alert follows the incident events. Read only on a firing edge."""
     return bool(
         configured_destination_template_ids(
-            team_id=check.team_id,
-            alert_id=str(check.legacy_configuration_id or check.id),
+            team_id=team_id,
+            alert_id=destination_alert_id,
             allowed_event_ids=(LOGS_ALERT_INCIDENT_OPENED_EVENT, LOGS_ALERT_INCIDENT_CLOSED_EVENT),
         )
     )
