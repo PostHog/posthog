@@ -479,7 +479,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
     @parameterized.expand(
         [
             (
-                "unknown_identifier",
+                "UNKNOWN_IDENTIFIER",
                 None,
                 "A column in this query doesn't exist in the data. Check the column names. "
                 "If the query uses a view, check that the view still matches its source table. "

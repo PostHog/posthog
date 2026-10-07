@@ -11074,6 +11074,7 @@ class BIConfig(BaseModel):
     )
     chartType: ChartDisplayType
     columns: list[BIField]
+    compareFilter: CompareFilter | None = None
     dateField: BIField | None = Field(
         default=None,
         description="Column that receives the worksheet and dashboard date range.",
@@ -27960,6 +27961,10 @@ class HogQLFilters(BaseModel):
         description=(
             "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
         ),
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=("Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}."),
     )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None

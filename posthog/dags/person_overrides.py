@@ -8,6 +8,7 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog import settings
+from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ClickhouseCluster, MutationWaiter, wait_for_mutations_on_shards
 from posthog.dags.common import JobOwners
 from posthog.dags.common.overrides_manager import OverridesSnapshotDictionary, OverridesSnapshotTable
@@ -97,6 +98,7 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
         # A host that cannot see the snapshot table reads the staged object instead, which is a
         # query rather than a table name.
         source = "QUERY %(query)s" if query else "TABLE %(table)s"
+        creds = get_clickhouse_creds(ClickHouseUser.DAGSTER_DICT_READER)
         client.execute(
             f"""
             CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
@@ -115,8 +117,8 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
                 "database": settings.CLICKHOUSE_DATABASE,
                 "table": self.source.name,
                 "query": query,
-                "user": settings.CLICKHOUSE_USER,
-                "password": settings.CLICKHOUSE_PASSWORD,
+                "user": creds.user,
+                "password": creds.password,
             },
         )
 
