@@ -39,6 +39,13 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     # down" above, just raised by the pooler in front of Postgres rather than Postgres itself.
     # A connect failure through a pooler, so no SQLSTATE — falls through to this message match.
     "pooler is shutting down",
+    # psycopg's own message when a connection already marked BAD (by an earlier dropped-connection
+    # event on the same connection object) is used again: _check_connection_ok raises this straight
+    # off local state, with no new network round trip. Same dead-connection condition as "server
+    # closed the connection unexpectedly" above, just discovered on a later reuse of the connection
+    # instead of on the read/write that first found it dead. close_old_connections() at the top of
+    # the next activity attempt discards the broken connection, so a retry self-heals.
+    "the connection is closed",
 )
 
 # SQLSTATE class 57P (operator intervention): the server is shutting down or restarting and

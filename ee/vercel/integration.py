@@ -15,13 +15,17 @@ from django.utils.text import slugify
 
 import structlog
 from rest_framework import exceptions
+from two_factor.utils import default_device
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.helpers.two_factor_session import has_passkeys
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
@@ -894,6 +898,24 @@ class VercelIntegration:
         return claims.user_email_verified is True and (claims.user_email or "").lower() == email.lower()
 
     @staticmethod
+    def _sso_login_block_reason(
+        user: User, claims: VercelUserClaims, installation: OrganizationIntegration
+    ) -> str | None:
+        if not user.is_active:
+            return "inactive_user"
+        if claims.user_email_verified is not True:
+            return "email_unverified"
+        if not VercelIntegration._claims_prove_email(claims, user.email):
+            return "email_mismatch"
+        if default_device(user) or (user.passkeys_enabled_for_2fa and has_passkeys(user)):
+            return "two_factor_required"
+        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
+            return "sso_enforced"
+        if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, installation.organization):
+            return "domain_blocked"
+        return None
+
+    @staticmethod
     def _authenticate_and_login_user(request, claims: VercelUserClaims, resource_id: str | None) -> User:
         user = VercelIntegration._find_sso_user(claims)
         if user.is_email_verified is not True and VercelIntegration._claims_prove_email(claims, user.email):
@@ -928,6 +950,8 @@ class VercelIntegration:
                     integration_id=claims.installation_id,
                 )
                 mapped_user_pk = VercelIntegration._get_user_mapping(installation, claims.user_id)
+                if mapped_user_pk is not None and not User.objects.filter(pk=mapped_user_pk).exists():
+                    mapped_user_pk = None
                 if mapped_user_pk is None:
                     can_link = VercelIntegration._claims_prove_email(claims, request.user.email)
                 else:
@@ -1135,32 +1159,35 @@ class VercelIntegration:
         return user
 
     @staticmethod
+    @transaction.atomic
     def _find_sso_user(claims: VercelUserClaims) -> User:
         if not claims.user_email:
             raise ValueError("Email is required for user creation")
 
-        installation = VercelIntegration._get_installation(claims.installation_id)
+        installation = OrganizationIntegration.objects.select_for_update().get(
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id=claims.installation_id,
+        )
 
         # Try to find already mapped user
         user_pk = VercelIntegration._get_user_mapping(installation, claims.user_id)
         if user_pk:
-            user = User.objects.filter(pk=user_pk, is_active=True).first()
+            user = User.objects.filter(pk=user_pk).first()
             if user:
                 # Validate that the user still has access to the organization associated with the installation
-                if not user.organization_memberships.filter(
-                    organization=installation.organization, level__gte=OrganizationMembership.Level.MEMBER
-                ).exists():
-                    # User no longer has access to this organization, remove stale mapping
-                    user_mappings = installation.config.get("user_mappings", {})
-                    if claims.user_id in user_mappings:
-                        del user_mappings[claims.user_id]
-                        installation.save(update_fields=["config"])
+                if (
+                    user.is_active
+                    and not user.organization_memberships.filter(
+                        organization=installation.organization, level__gte=OrganizationMembership.Level.MEMBER
+                    ).exists()
+                ):
                     raise exceptions.PermissionDenied("User no longer has access to this organization")
-                if VercelIntegration._claims_prove_email(claims, user.email):
+                reason = VercelIntegration._sso_login_block_reason(user, claims, installation)
+                if reason is None:
                     return user
                 logger.info(
                     "Vercel SSO mapping needs a PostHog login",
-                    reason="email_unverified" if claims.user_email_verified is not True else "email_mismatch",
+                    reason=reason,
                     email_verified=claims.user_email_verified,
                     installation_id=claims.installation_id,
                     integration="vercel",
@@ -1179,20 +1206,25 @@ class VercelIntegration:
                 del user_mappings[claims.user_id]
                 installation.save(update_fields=["config"])
 
-        existing_user = User.objects.filter(email=claims.user_email).first()
+        existing_user = EmailLookupHandler.get_user_by_email(claims.user_email, is_active=None)
         if existing_user:
-            raise RequiresExistingUserLogin(
-                email=claims.user_email, vercel_user_id=claims.user_id, installation_id=claims.installation_id
+            if VercelIntegration._sso_login_block_reason(existing_user, claims, installation) is not None:
+                raise RequiresExistingUserLogin(
+                    email=claims.user_email, vercel_user_id=claims.user_id, installation_id=claims.installation_id
+                )
+            user = existing_user
+            intended_level = VercelIntegration._determine_membership_level(user.email, installation)
+            VercelIntegration._add_user_to_organization(user, installation.organization, intended_level)
+            user.current_organization = installation.organization
+            user.save(update_fields=["current_organization"])
+        else:
+            intended_level = VercelIntegration._determine_membership_level(claims.user_email, installation)
+            user = VercelIntegration._create_user_for_email(
+                email=claims.user_email,
+                name=claims.user_name,
+                organization=installation.organization,
+                level=intended_level,
             )
-
-        intended_level = VercelIntegration._determine_membership_level(claims.user_email, installation)
-
-        user = VercelIntegration._create_user_for_email(
-            email=claims.user_email,
-            name=claims.user_name,
-            organization=installation.organization,
-            level=intended_level,
-        )
 
         VercelIntegration._set_user_mapping(installation, claims.user_id, user.pk)
         return user

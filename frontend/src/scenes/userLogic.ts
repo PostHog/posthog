@@ -764,7 +764,8 @@ export const userLogic = kea<userLogicType>([
                     !values.credentialReviewDismissedInSession &&
                     !router.values.location.pathname.startsWith('/account/credential-review')
                 ) {
-                    router.actions.push(urls.credentialReview())
+                    const { pathname, search, hash } = router.values.location
+                    router.actions.push(urls.credentialReview(`${pathname}${search}${hash}`))
                 }
             }
         },

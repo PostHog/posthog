@@ -17,7 +17,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
@@ -39,6 +38,7 @@ from ee.api.agentic_provisioning.wizard import (
     create_wizard_run,
     link_github_grant_to_team,
 )
+from ee.billing.billing_manager import get_billing_lock_partner
 
 
 def partner_label(partner: OAuthApplication | None) -> str:

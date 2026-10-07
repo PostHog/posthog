@@ -8,7 +8,6 @@ from parameterized import parameterized
 
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthApplication
-from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 
@@ -19,6 +18,7 @@ from ee.api.agentic_provisioning.test.base import (
     ProvisioningTestBase,
     provisioning_config,
 )
+from ee.billing.billing_manager import get_billing_lock_partner
 
 PARTNER_CALLBACK = "https://partner.example.com/callback"
 

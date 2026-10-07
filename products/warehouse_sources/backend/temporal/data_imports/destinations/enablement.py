@@ -29,8 +29,8 @@ WAREHOUSE_MULTI_DESTINATION_FLAG = "warehouse-multi-destination"
 def is_multi_destination_enabled(team_id: int, source_type: str) -> bool:
     """Whether this team's syncs of this source type deliver to configured destinations.
 
-    Evaluated in an activity and carried into the workflow as recorded history, the same way
-    the v3 rollout flag is — a workflow must never read a flag directly.
+    Evaluated in an activity and carried into the workflow as recorded history — a workflow must
+    never read a flag directly.
     """
     try:
         team = Team.objects.only("uuid", "organization_id").get(id=team_id)

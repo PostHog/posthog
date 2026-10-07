@@ -16,14 +16,6 @@ pub struct DistinctIdWithVersion {
     pub id: i64,
 }
 
-/// How DeletePersons removes rows. A caller that publishes ClickHouse tombstones
-/// asks for `Tombstone` and reads the versions back; everything else hard-deletes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeletePersonsMode {
-    Hard,
-    Tombstone,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TombstonedDistinctId {
     pub distinct_id: String,
@@ -69,6 +61,32 @@ pub struct TombstonedDeleteOutcome {
     pub pending_uuids: Vec<Uuid>,
     /// Dependent rows deleted by this call.
     pub rows_deleted: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionFloorOutcome {
+    TombstoneInserted,
+    TombstoneRaised,
+    TombstoneAtFloor,
+    Live,
+}
+
+impl VersionFloorOutcome {
+    /// Classify a row that existed before the call, from its state then.
+    pub fn for_existing(is_deleted: bool, version: i64, min_version: i64) -> Self {
+        match (is_deleted, version < min_version) {
+            (false, _) => Self::Live,
+            (true, true) => Self::TombstoneRaised,
+            (true, false) => Self::TombstoneAtFloor,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersonVersionFloorResult {
+    pub uuid: Uuid,
+    pub outcome: VersionFloorOutcome,
+    pub version: i64,
 }
 
 #[derive(Debug, Clone)]

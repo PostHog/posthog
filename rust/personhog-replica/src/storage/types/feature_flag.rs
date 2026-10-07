@@ -1,3 +1,7 @@
+/// Every cookieless visitor shares this hash key, so a stored override with it is no override.
+/// Mirrors `COOKIELESS_SENTINEL_VALUE` in `common-cookieless`, which pulls in redis and moka.
+pub const COOKIELESS_SENTINEL_VALUE: &str = "$posthog_cookieless";
+
 #[derive(Debug, Clone)]
 pub struct HashKeyOverride {
     pub feature_flag_key: String,

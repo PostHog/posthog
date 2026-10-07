@@ -1,4 +1,5 @@
-from django.db import transaction
+from django.db import connection, transaction
+from django.db.migrations.loader import MigrationLoader
 from django.db.utils import IntegrityError
 from django.test import TestCase
 
@@ -7,7 +8,8 @@ from parameterized import parameterized
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization
-from posthog.models.organization_provisioning import get_billing_lock_partner
+
+from ee.billing.billing_manager import get_billing_lock_partner
 
 
 class TestOrganizationProvisioningFields(TestCase):
@@ -85,3 +87,17 @@ class TestOrganizationProvisioningFields(TestCase):
         self.organization.save(update_fields=["provisioning_source", "provisioning_application", "customer_id"])
 
         assert get_billing_lock_partner(self.organization) == (self.application if expected else None)
+
+    def test_previous_billing_reader_can_query_during_deployment(self) -> None:
+        historical_apps = (
+            MigrationLoader(connection).project_state([("posthog", "1394_backfill_secret_tokens_to_psak")]).apps
+        )
+        previous_application = historical_apps.get_model("posthog", "OAuthApplication")
+
+        assert (
+            previous_application.objects.filter(
+                provisioned_organizations__organization_id=self.organization.pk,
+                _provisioning_config__pays_for_customers=True,
+            ).first()
+            is None
+        )

@@ -188,10 +188,10 @@ message UpdatePersonPropertiesResponse {
 
 // How DeletePersons removes the rows.
 enum DeletePersonsMode {
-  // Same as HARD.
+  // Same as TOMBSTONE.
   DELETE_PERSONS_MODE_UNSPECIFIED = 0;
-  // Remove the rows, tombstoned ones included. For callers that publish no
-  // ClickHouse tombstones and want nothing left behind, such as a purge.
+  // Rejected with INVALID_ARGUMENT, because a hard delete leaves the live ClickHouse rows above a
+  // re-created person's version 0. A deleted team's persons go through DeletePersonsBatchForTeam.
   DELETE_PERSONS_MODE_HARD = 1;
   // Keep the rows as tombstones and report the versions written. The caller
   // owns the prerequisite: ingestion must revive tombstones for the team.
@@ -221,14 +221,13 @@ message TombstonedPerson {
 
 message DeletePersonsResponse {
   int64 deleted_count = 1;
-  // True when the rows were tombstoned rather than removed.
+  // True when the rows were tombstoned rather than removed, which is every successful call.
   bool tombstoned = 2;
   // One entry per requested person that is tombstoned after the call, with the
   // versions its rows hold, so the caller can publish its ClickHouse tombstones
   // at exactly those versions. Persons tombstoned before the call are included
   // too, so a retry after a lost response gets the same versions again;
-  // deleted_count counts only the rows this call tombstoned. Empty on a hard
-  // delete.
+  // deleted_count counts only the rows this call tombstoned.
   repeated TombstonedPerson tombstones = 3;
 }
 
@@ -385,6 +384,46 @@ message SetPersonVersionFloorRequest {
 message SetPersonVersionFloorResponse {
   // True if a row was updated (the stored version was below min_version).
   bool updated = 1;
+}
+
+// What EnsurePersonVersionFloors found and did for one person.
+enum VersionFloorOutcome {
+  VERSION_FLOOR_OUTCOME_UNSPECIFIED = 0;
+  // No row existed. The call inserted a tombstone at min_version.
+  VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED = 1;
+  // A tombstone below min_version. The call raised it to min_version.
+  VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED = 2;
+  // A tombstone at or above min_version. Nothing changed.
+  VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR = 3;
+  // A live row. Nothing changed: the call never raises a live row.
+  VERSION_FLOOR_OUTCOME_LIVE = 4;
+}
+
+message PersonVersionFloor {
+  string person_uuid = 1;
+  int64 min_version = 2;
+}
+
+// EnsurePersonVersionFloorsRequest raises each person tombstone to at least min_version in one transaction,
+// inserting a tombstone for a missing person and leaving a live person unchanged. Publish a ClickHouse tombstone
+// at the returned version for every non-LIVE result, because the Postgres cleanup drain removes only tombstones
+// the ClickHouse deletion sweep finds.
+message EnsurePersonVersionFloorsRequest {
+  int64 team_id = 1;
+  // Max 250 per request. Duplicate person_uuids are rejected.
+  repeated PersonVersionFloor floors = 2;
+}
+
+message PersonVersionFloorResult {
+  string person_uuid = 1;
+  VersionFloorOutcome outcome = 2;
+  // The stored version after the call.
+  int64 version = 3;
+}
+
+message EnsurePersonVersionFloorsResponse {
+  // Same order as the request.
+  repeated PersonVersionFloorResult results = 1;
 }
 
 // FencePersonRequest freezes a person for a lifecycle operation (see
