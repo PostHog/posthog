@@ -60,14 +60,16 @@ class TestPollQueryPerformance(SimpleTestCase):
 
 
 class TestPollQueryPerformanceTask(SimpleTestCase):
+    @patch("posthog.tasks.tasks.logger.info")
     @patch("posthog.tasks.tasks.logger.error")
     def test_poll_query_performance_does_not_run_if_last_update_does_not_match(
-        self, mock_logger_error: MagicMock
+        self, mock_logger_error: MagicMock, mock_logger_info: MagicMock
     ) -> None:
         redis_client = get_client()
         redis_client.set(Polling._SINGLETON_REDIS_KEY, "NOT RIGHT")
         posthog.tasks.tasks.poll_query_performance("DIFFERENT TIME")
-        mock_logger_error.assert_called_once_with("Poll query performance task terminating: another poller is running")
+        mock_logger_error.assert_not_called()
+        mock_logger_info.assert_called_once_with("Poll query performance task terminating: another poller is running")
 
     # Mock the inner ClickHouse-querying function: these tests exercise the task wrapper's
     # timing/scheduling logic, not the query. Without this the wrapper runs a real query against a
