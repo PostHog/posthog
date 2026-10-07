@@ -158,6 +158,7 @@ def _fake_activities(rec: _Recorder) -> list:
         event_text: str,
         thread_messages: list[SlackThreadMessage],
         inputs: PostHogCodeSlackMentionWorkflowInputs | None = None,
+        thread_ts: str | None = None,
     ) -> bool:
         rec.needs_repo_calls.append(event_text)
         return True

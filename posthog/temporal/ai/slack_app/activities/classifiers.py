@@ -6,7 +6,7 @@ from openai.types.shared_params import ResponseFormatJSONSchema
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
-from posthog.llm.gateway_client import build_anthropic_client, build_openai_client
+from posthog.llm.gateway_client import build_anthropic_client, build_openai_client, trace_id_from_seed
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
@@ -43,6 +43,17 @@ CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 # carries this property to say which one of them made the call. An online evaluation scopes
 # itself with it; without it a judge would grade all four.
 CLASSIFIER_PROPERTY = "slack_app_classifier"
+
+
+def _thread_trace_id(slack_team_id: str | None, thread_ts: str | None) -> str | None:
+    """Group one Slack thread's routing calls into a single trace.
+
+    These classifiers run before a task exists, so there is no run id to attach to and
+    the thread is the narrowest identity available to them.
+    """
+    if not slack_team_id or not thread_ts:
+        return None
+    return trace_id_from_seed(f"slack-thread-{slack_team_id}-{thread_ts}")
 
 
 # The model-override and agent-directed classifiers both run on a reasoning model, which
@@ -98,6 +109,7 @@ def classify_task_needs_repo(
     event_text: str,
     thread_messages: list[SlackThreadMessage],
     routing_rules: list[str] | None = None,
+    trace_id: str | None = None,
 ) -> bool:
     """Classify whether a Slack conversation requires code repository access.
 
@@ -199,6 +211,7 @@ def classify_task_needs_repo(
         client = build_anthropic_client(
             product="slack_app_routing",
             ai_product="slack_app_routing",
+            trace_id=trace_id,
             properties={CLASSIFIER_PROPERTY: "task_needs_repo"},
         )
         response = client.messages.create(
@@ -227,13 +240,15 @@ def classify_posthog_code_task_needs_repo_activity(
     event_text: str,
     thread_messages: list[SlackThreadMessage],
     inputs: PostHogCodeSlackMentionWorkflowInputs | None = None,
+    thread_ts: str | None = None,
 ) -> bool:
     """Classify with the team's routing rules loaded from ``inputs``.
 
-    ``inputs`` sits last and optional for payload compatibility: activity tasks queued
-    by pre-deploy workflow code carry only the first two payloads, and a required
-    leading parameter would make them unbindable on a new worker. Such tasks classify
-    without routing rules, which is the pre-deploy behavior.
+    ``inputs`` and ``thread_ts`` sit last and optional for payload compatibility: activity
+    tasks queued by pre-deploy workflow code carry only the payloads that existed when they
+    were queued, and a required leading parameter would make them unbindable on a new
+    worker. Such tasks classify without routing rules and without a trace id, which is the
+    pre-deploy behavior.
     """
     # Circular import: products.slack_app.backend.api imports this package at module scope.
     from products.slack_app.backend.api import _get_full_repo_names  # noqa: PLC0415
@@ -252,7 +267,12 @@ def classify_posthog_code_task_needs_repo_activity(
     # every rule.
     connected = {repo.lower() for repo in _get_full_repo_names(integration, user_id=inputs.user_id)}
     routing_rules = team_routing_rule_lines(integration.team_id, candidate_repos=connected or None)
-    return classify_task_needs_repo(event_text, thread_messages, routing_rules=routing_rules)
+    return classify_task_needs_repo(
+        event_text,
+        thread_messages,
+        routing_rules=routing_rules,
+        trace_id=_thread_trace_id(inputs.slack_team_id, thread_ts),
+    )
 
 
 def _agent_directed_response_format() -> ResponseFormatJSONSchema:
@@ -280,6 +300,7 @@ def classify_message_is_agent_directed(
     event_text: str,
     task_title: str,
     thread_history: list[SlackThreadMessage],
+    trace_id: str | None = None,
 ) -> bool:
     """Classify whether an untagged Slack thread reply is an instruction to the running
     PostHog Slack App, or people talking to each other.
@@ -316,6 +337,7 @@ def classify_message_is_agent_directed(
         client = build_openai_client(
             product="slack_app_routing",
             ai_product="slack_app_routing",
+            trace_id=trace_id,
             properties={CLASSIFIER_PROPERTY: "agent_directed"},
         ).with_options(timeout=AGENT_DIRECTED_TIMEOUT_SECONDS, max_retries=AGENT_DIRECTED_MAX_RETRIES)
         response = client.chat.completions.create(
@@ -399,7 +421,12 @@ def classify_untagged_followup_activity(
         thread_history = []
 
     task_title = mapping.task.title if mapping.task and mapping.task.title else ""
-    if classify_message_is_agent_directed(event_text, task_title, thread_history):
+    if classify_message_is_agent_directed(
+        event_text,
+        task_title,
+        thread_history,
+        trace_id=_thread_trace_id(inputs.slack_team_id, thread_ts),
+    ):
         return True
 
     logger.info(
@@ -455,6 +482,7 @@ def _render_model_catalogue(choices: tuple[ModelChoice, ...]) -> str:
 def classify_slack_app_model_override(
     event_text: str,
     choices: tuple[ModelChoice, ...],
+    trace_id: str | None = None,
 ) -> SlackAppModelOverride | None:
     """Read a per-task model or reasoning-effort request out of a Slack mention.
 
@@ -486,6 +514,7 @@ def classify_slack_app_model_override(
         client = build_openai_client(
             product="slack_app_routing",
             ai_product="slack_app_routing",
+            trace_id=trace_id,
             properties={CLASSIFIER_PROPERTY: "model_override"},
         ).with_options(timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES)
         response = client.chat.completions.create(
@@ -555,7 +584,11 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
         logger.info("slack_app_model_override_empty_catalogue", integration_id=integration.id)
         return None
 
-    override = classify_slack_app_model_override(input.event_text, choices)
+    override = classify_slack_app_model_override(
+        input.event_text,
+        choices,
+        trace_id=_thread_trace_id(input.slack_team_id, input.thread_ts),
+    )
     if override is None:
         return None
 
@@ -597,7 +630,10 @@ class _ProjectRouteReply(BaseModel):
 
 
 def classify_slack_app_project_route(
-    event_text: str, projects: list[Integration], default: Integration | None = None
+    event_text: str,
+    projects: list[Integration],
+    default: Integration | None = None,
+    trace_id: str | None = None,
 ) -> Integration | None:
     """Read the project a mention asked to be answered from, out of its text.
 
@@ -633,6 +669,7 @@ def classify_slack_app_project_route(
         client = build_openai_client(
             product="slack_app_routing",
             ai_product="slack_app_routing",
+            trace_id=trace_id,
             properties={CLASSIFIER_PROPERTY: "project_route"},
         ).with_options(timeout=PROJECT_ROUTE_TIMEOUT_SECONDS, max_retries=PROJECT_ROUTE_MAX_RETRIES)
         response = client.chat.completions.create(
@@ -693,7 +730,12 @@ def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) 
         return None
 
     try:
-        chosen = classify_slack_app_project_route(input.event_text, projects, default=integration)
+        chosen = classify_slack_app_project_route(
+            input.event_text,
+            projects,
+            default=integration,
+            trace_id=_thread_trace_id(input.slack_team_id, input.thread_ts),
+        )
     except Exception:
         # The fallback boundary: a mention we cannot classify stays on the project
         # routing already resolved, which is what it would have done anyway.
