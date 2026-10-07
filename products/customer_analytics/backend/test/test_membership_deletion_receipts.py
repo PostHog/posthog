@@ -196,12 +196,13 @@ class TestMembershipDeletionReceipts(TestCase):
         receipt_id = record_person_membership_deletion(self.team_id, "synthetic-person", _tombstone())
         other_id = record_person_membership_deletion(self.other_team_id, "synthetic-person", _tombstone())
         other_rows = list_membership_deletion_identities(self.other_team_id, other_id).identities
-        for operation in [
+        operations: list[Callable[[int, UUID], object]] = [
             get_membership_deletion,
             confirm_membership_deletion,
             complete_membership_deletion,
             list_membership_deletion_identities,
-        ]:
+        ]
+        for operation in operations:
             with self.assertRaises(LookupError):
                 operation(self.other_team_id, receipt_id)
         complete_membership_deletion(self.team_id, receipt_id)

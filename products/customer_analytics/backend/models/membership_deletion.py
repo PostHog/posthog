@@ -11,7 +11,7 @@ from products.customer_analytics.backend.facade.membership_deletion_contracts im
 class MembershipDeletionTeam(TeamScopedRootMixin, UUIDModel):
     team_id = models.BigIntegerField(unique=True)
 
-    objects: EnvironmentScopedManager["MembershipDeletionTeam"] = EnvironmentScopedManager()
+    objects = EnvironmentScopedManager()  # type: ignore[assignment, misc] # Deleted teams require literal IDs.
     all_teams = models.Manager()
 
     class Meta:
@@ -32,7 +32,7 @@ class MembershipDeletionReceipt(TeamScopedRootMixin, UUIDModel):
     # Retries must detect changed identities even after completion erases the identity rows.
     identity_digest = models.CharField(max_length=64, null=True, blank=True)
 
-    objects: EnvironmentScopedManager["MembershipDeletionReceipt"] = EnvironmentScopedManager()
+    objects = EnvironmentScopedManager()  # type: ignore[assignment, misc] # Deleted teams require literal IDs.
     all_teams = models.Manager()
 
     class Meta:
@@ -72,7 +72,7 @@ class MembershipDeletionIdentity(TeamScopedRootMixin):
     distinct_id = models.CharField(max_length=400)
     version = models.BigIntegerField()
 
-    objects: EnvironmentScopedManager["MembershipDeletionIdentity"] = EnvironmentScopedManager()
+    objects = EnvironmentScopedManager()  # type: ignore[assignment, misc] # Deleted teams require literal IDs.
     all_teams = models.Manager()
 
     class Meta:

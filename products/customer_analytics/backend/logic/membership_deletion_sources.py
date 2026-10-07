@@ -114,6 +114,8 @@ class MembershipDeletionSources:
             identities: list[MembershipDeletionIdentity] = []
             changed: list[MembershipDeletionReceipt] = []
             for receipt in rows:
+                if receipt.person_uuid is None:
+                    raise ValueError("Person deletion receipt has no person UUID")
                 tombstone = keyed.get((receipt.source_key, receipt.person_uuid))
                 if tombstone is None:
                     continue
