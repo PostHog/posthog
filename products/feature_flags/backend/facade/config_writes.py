@@ -6,9 +6,10 @@ Four things a v2 write needs that the pure validator deliberately does not do:
   internal feature flags evaluated for the project, both off by default. Nothing else grants
   admission. Disabling and soft-deleting an existing v2 row need neither, which the serializer
   decides; the operation matrix is in ``docs/internal/feature-flags/api-writes.md``.
-- **Identity.** Rule ids and assignment seeds are server-owned and identify rules, not
-  list positions. ``resolve_identity`` echoes back existing identity, allocates it for
-  genuinely new rules, and rejects a client that tries to choose it.
+- **Identity.** Rule ids, assignment seeds and rule-local holdout seeds are server-owned
+  and identify rules, not list positions. ``resolve_identity`` echoes back existing
+  identity, allocates it for genuinely new rules, and rejects a client that tries to
+  choose it.
 - **Comparison.** ``review_update`` validates both documents' shape and semantics, so
   warnings describe the real before/proposed pair and unsupported stored families are
   rejected. Byte limits apply only to the candidate so oversized rows can be reduced.
@@ -38,6 +39,7 @@ from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false
 
 from products.feature_flags.backend.facade.config_validation import (
+    RANDOMIZED_RULE_TYPES,
     ConfigError,
     ConfigValidationError,
     ValidatedConfig,
@@ -48,8 +50,6 @@ from products.feature_flags.backend.facade.rule_warnings import review_config
 from products.feature_flags.backend.facade.warnings import ManagementWarning
 
 logger = structlog.get_logger(__name__)
-
-_SEEDED_RULE_TYPE = "percentage_rollout"
 
 # Internal feature flags, targeted at the ``project`` group by id. Both off means closed.
 V2_WRITES_FLAG = "feature-flag-rules-v2-writes"
@@ -188,28 +188,39 @@ def _resolve_rule(
         claimed.add(rule["id"])
         current = stored_rules[rule["id"]]
 
-    if rule.get("rule_type") != _SEEDED_RULE_TYPE:
-        # A rule that is not randomized carries no seed; changing type away from a rollout
-        # drops it, and changing type towards one allocates a fresh one below.
+    if rule.get("rule_type") not in RANDOMIZED_RULE_TYPES:
+        # A rule that is not randomized carries no seed; changing type away from a randomized
+        # type drops it, and changing type towards one allocates a fresh one below.
         return resolved
-    stored_seed = current.get("seed") if current is not None and current.get("rule_type") == _SEEDED_RULE_TYPE else None
+    # A rule keeps its seed while it stays randomized, so a rollout that becomes an experiment rule keeps who is enrolled.
+    stored = current if current is not None and current.get("rule_type") in RANDOMIZED_RULE_TYPES else {}
+    resolved["seed"] = _resolve_seed(rule, stored.get("seed"), path, errors)
+    holdout = rule.get("holdout")
+    if isinstance(holdout, Mapping) and holdout.get("id") is None:
+        stored_holdout = stored.get("holdout")
+        stored_seed = stored_holdout.get("seed") if isinstance(stored_holdout, Mapping) else None
+        resolved["holdout"] = {**holdout, "seed": _resolve_seed(holdout, stored_seed, f"{path}.holdout", errors)}
+    return resolved
+
+
+def _resolve_seed(submitted: Mapping[str, Any], stored_seed: object, path: str, errors: list[ConfigError]) -> object:
+    """The stored seed when the client omits or echoes it, a fresh one when nothing is stored."""
     if not isinstance(stored_seed, str):
-        if "seed" in rule:
+        if "seed" in submitted:
             errors.append(
                 ConfigError(code="invalid", detail="Assignment seeds are server-assigned.", attr=f"{path}.seed")
             )
-        resolved["seed"] = str(uuid4())
-    elif "seed" not in rule or rule["seed"] == stored_seed:
-        resolved["seed"] = stored_seed
-    else:
-        errors.append(
-            ConfigError(
-                code="invalid",
-                detail="Cannot be changed; resetting assignment is a separate operation.",
-                attr=f"{path}.seed",
-            )
+        return str(uuid4())
+    if "seed" not in submitted or submitted["seed"] == stored_seed:
+        return stored_seed
+    errors.append(
+        ConfigError(
+            code="invalid",
+            detail="Cannot be changed; resetting assignment is a separate operation.",
+            attr=f"{path}.seed",
         )
-    return resolved
+    )
+    return submitted["seed"]
 
 
 def review_update(
@@ -289,6 +300,11 @@ def _reserved_string_values(document: Mapping[str, Any], _stored: Mapping[str, A
     for index, rule in enumerate(document["rules"]):
         if rule.get("value") in FEATURE_FLAG_VARIANT_SENTINELS:
             yield ConfigError(code="invalid", detail=f"{detail}.", attr=f"filters.rules[{index}].value")
+        for variant_index, variant in enumerate(rule.get("variants") or ()):
+            if variant["value"] in FEATURE_FLAG_VARIANT_SENTINELS:
+                yield ConfigError(
+                    code="invalid", detail=f"{detail}.", attr=f"filters.rules[{index}].variants[{variant_index}].value"
+                )
 
 
 def _compilable_patterns(document: Mapping[str, Any], stored: Mapping[str, Any]) -> Iterator[ConfigError]:

@@ -13,7 +13,9 @@ from products.feature_flags.backend.facade.config_validation import (
     Predicate,
     RolloutMissPolicy,
     ValidatedConfig,
+    ValidatedHoldout,
     ValidatedRule,
+    ValidatedVariant,
     canonical_value,
 )
 from products.feature_flags.backend.facade.rule_warnings import (
@@ -67,6 +69,37 @@ def rollout(
         rollout_percentage=Decimal(str(percentage)),
         on_rollout_miss=miss,
         seed=seed,
+    )
+
+
+def split(
+    rule_id: str,
+    percentage: int | float | str = 100,
+    *predicates: Predicate,
+    values: tuple[Any, ...] = ("blue", "green"),
+    seed: str = SEED,
+    miss: RolloutMissPolicy = "continue",
+    paused: bool = False,
+    holdout: int | None = None,
+) -> ValidatedRule:
+    """An experiment rule without an experiment, splitting its enrolled share evenly across ``values``."""
+    weight = Decimal(100) / len(values)
+    return ValidatedRule(
+        id=rule_id,
+        rule_type="experiment",
+        predicates=frozenset(predicates),
+        value=None,
+        rollout_percentage=Decimal(str(percentage)),
+        on_rollout_miss=miss,
+        seed=seed,
+        paused=paused,
+        variants=tuple(
+            ValidatedVariant(key=f"arm_{index}", weight=weight, value=canonical_value(value))
+            for index, value in enumerate(values)
+        ),
+        holdout=None
+        if holdout is None
+        else ValidatedHoldout(exclusion_percentage=Decimal(holdout), seed=f"{seed}-holdout"),
     )
 
 
@@ -281,6 +314,56 @@ class TestConfigWarnings:
     )
     def test_ordinary_composition_produces_no_warning(self, _name: str, config: ValidatedConfig) -> None:
         assert config_warnings(config) == ()
+
+
+class TestExperimentRuleWarnings:
+    @parameterized.expand(
+        [
+            ("full_split_blocks_lower", cfg(split(A), targeted(B, "red")), [(UNREACHABLE, "filters.rules[1]")]),
+            (
+                "paused_split_is_terminal",
+                cfg(split(A, 30, paused=True), targeted(B, "red")),
+                [(UNREACHABLE, "filters.rules[1]")],
+            ),
+            (
+                "holdout_is_terminal",
+                cfg(split(A, holdout=10), targeted(B, "red")),
+                [(UNREACHABLE, "filters.rules[1]")],
+            ),
+            (
+                "return_default_miss_is_terminal",
+                cfg(split(A, 30, miss="return_default"), targeted(B, "red")),
+                [(UNREACHABLE, "filters.rules[1]")],
+            ),
+            ("partial_split_continues_to_a_different_value", cfg(split(A, 30), targeted(B, "red")), []),
+            (
+                "partial_split_continues_to_a_variant_value",
+                cfg(split(A, 30), targeted(B, "green")),
+                [(EXTENDS, "filters.rules[1]")],
+            ),
+            ("paused_split_has_no_rollout_to_extend", cfg(split(A, 30, PRO, paused=True), targeted(B, "green")), []),
+            ("narrower_split_is_inconclusive", cfg(split(A, 100, PRO), targeted(B, "red")), []),
+            (
+                # The rollout above takes the same hash share, so the split enrolls nobody new.
+                "same_seed_rollout_above_leaves_the_split_nobody",
+                cfg(rollout(A, 40, "red"), split(B, 40), targeted(C, "red")),
+                [(EXTENDS, "filters.rules[2]")],
+            ),
+        ]
+    )
+    def test_experiment_rules_take_part_in_the_walk(
+        self, _name: str, config: ValidatedConfig, expected: list[tuple[str, str]]
+    ) -> None:
+        assert codes(config_warnings(config)) == expected
+
+    def test_variant_values_are_compared_like_rule_values(self) -> None:
+        current = cfg(split(A, values=("red", "red")), targeted(B, "green"))
+        proposed = cfg(targeted(B, "green"), split(A, values=("red", "red")))
+        assert codes(reorder_warnings(current, proposed)) == [(REORDER, "filters.rules[0]")]
+        # Equal-valued arms serve one value, so swapping them with an equal targeted rule changes nothing.
+        current = cfg(split(A, values=("red", "red")), targeted(B, "red"))
+        proposed = cfg(targeted(B, "red"), split(A, values=("red", "red")))
+        assert reorder_warnings(current, proposed) == ()
 
 
 class TestReorderWarnings:

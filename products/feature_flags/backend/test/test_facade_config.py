@@ -149,6 +149,7 @@ class TestParseV2Config:
                     rule_type="experiment",
                     experiment_id=42,
                     value=None,
+                    variant_values=(True, True),
                 ),
             ),
             aggregation_group_type_index=None,

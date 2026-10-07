@@ -10,10 +10,11 @@
         "properties": []
       },
       "experiment_id": null,
+      "paused": false,
       "rollout_percentage": 100,
       "on_rollout_miss": "continue",
       "assignment_algorithm": "sha1_60_v1",
-      "seed": "null-experiment-id",
+      "seed": "standalone-split",
       "variants": [
         {
           "key": "control",
@@ -26,7 +27,11 @@
           "value": true
         }
       ],
-      "paused": false
+      "holdout": {
+        "id": 7,
+        "seed": "holdout-",
+        "exclusion_percentage": 5
+      }
     }
   ]
 }

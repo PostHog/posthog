@@ -238,6 +238,34 @@
       "expect": "unsupported"
     },
     {
+      "key": "v2-standalone-experiment-active",
+      "active": true,
+      "filters": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "standard",
+        "rules": [
+          {
+            "id": "f6f6f6f6-f6f6-4f6f-8f6f-f6f6f6f6f6f6",
+            "rule_type": "experiment",
+            "targeting": { "properties": [] },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 50,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "layout-split",
+            "variants": [
+              { "key": "control", "weight": 50, "value": "standard" },
+              { "key": "test", "weight": 50, "value": "compact" }
+            ],
+            "holdout": { "id": null, "seed": "layout-split-holdout", "exclusion_percentage": 10 }
+          }
+        ]
+      },
+      "expect": "kept"
+    },
+    {
       "key": "v2-valid-inactive",
       "active": false,
       "filters": { "version": 2, "return_type": "boolean", "default_value": false, "rules": [] },

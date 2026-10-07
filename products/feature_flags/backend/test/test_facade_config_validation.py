@@ -17,16 +17,21 @@ from products.feature_flags.backend.api.feature_flag import calculate_filter_siz
 from products.feature_flags.backend.facade import config_validation
 from products.feature_flags.backend.facade.config_validation import (
     _COMMON_RULE_FIELDS,
+    _EXPERIMENT_ONLY_FIELDS,
+    _HOLDOUT_FIELDS,
     _PROPERTY_FIELDS,
     _ROLLOUT_RULE_FIELDS,
     _ROOT_FIELDS,
     _UUID as UUID_PATTERN,
+    _VARIANT_FIELDS,
     ASSIGNMENT_ALGORITHM,
     MAX_OBJECT_DEPTH,
     MAX_PREDICATES_PER_RULE,
     MAX_RULES,
     MAX_SAFE_INTEGER,
     MAX_SEED_LENGTH,
+    MAX_VARIANTS,
+    MIN_VARIANTS,
     PERSON_ASSIGNMENT,
     PROPERTY_OPERATORS,
     PROPERTY_TYPES,
@@ -36,7 +41,9 @@ from products.feature_flags.backend.facade.config_validation import (
     ConfigValidationError,
     Predicate,
     ValidatedConfig,
+    ValidatedHoldout,
     ValidatedRule,
+    ValidatedVariant,
     ValidationLimits,
     _encoded_size as config_size_bytes,
     canonical_value,
@@ -44,12 +51,14 @@ from products.feature_flags.backend.facade.config_validation import (
 )
 
 # Vendored from the released harness contract; SOURCE.json records the revision and digests.
-CONTRACT_DIR = Path(__file__).parent / "fixtures" / "rules_v2_contract" / "2.0.0"
+CONTRACT_DIR = Path(__file__).parent / "fixtures" / "rules_v2_contract" / "3.0.0"
 LIMITS = ValidationLimits(max_config_bytes=64 * 1024, max_metadata_bytes=1024)
 
 TARGETED_ID = "11111111-1111-4111-8111-111111111111"
 ROLLOUT_ID = "22222222-2222-4222-8222-222222222222"
+EXPERIMENT_ID = "33333333-3333-4333-8333-333333333333"
 SEED = "release-preview"
+HOLDOUT_SEED = "release-preview-holdout"
 
 
 def targeted(**overrides: Any) -> dict[str, Any]:
@@ -74,6 +83,32 @@ def rollout(**overrides: Any) -> dict[str, Any]:
         "seed": SEED,
         **overrides,
     }
+
+
+def variants(*values: Any, weights: tuple[float, ...] = (50, 50)) -> list[dict[str, Any]]:
+    keys = ("control", "test", "third")
+    return [{"key": key, "weight": weight, "value": value} for key, weight, value in zip(keys, weights, values)]
+
+
+def experiment(**overrides: Any) -> dict[str, Any]:
+    """An experiment rule without an experiment: a weighted variant split."""
+    return {
+        "id": EXPERIMENT_ID,
+        "rule_type": "experiment",
+        "targeting": {"properties": []},
+        "experiment_id": None,
+        "paused": False,
+        "rollout_percentage": 100,
+        "on_rollout_miss": "continue",
+        "assignment_algorithm": ASSIGNMENT_ALGORITHM,
+        "seed": SEED,
+        "variants": variants(False, True),
+        **overrides,
+    }
+
+
+def holdout(**overrides: Any) -> dict[str, Any]:
+    return {"id": None, "seed": HOLDOUT_SEED, "exclusion_percentage": 10, **overrides}
 
 
 def person(**overrides: Any) -> dict[str, Any]:
@@ -200,6 +235,41 @@ VALID_DOCUMENTS: list[tuple[str, dict[str, Any]]] = [
     ),
     ("object_max_depth", config(targeted(value=nested(MAX_OBJECT_DEPTH)), return_type="object", default_value=None)),
     ("max_rules", config(*[targeted(id=f"00000000-0000-4000-8000-{index:012d}") for index in range(MAX_RULES)])),
+    ("experiment_split", config(experiment())),
+    ("experiment_paused_with_holdout", config(experiment(paused=True, holdout=holdout()))),
+    (
+        "experiment_partial_rollout_return_default",
+        config(experiment(rollout_percentage=33.33, on_rollout_miss="return_default", assign_by=PERSON_ASSIGNMENT)),
+    ),
+    ("experiment_equal_values", config(experiment(variants=variants(True, True)))),
+    (
+        "experiment_two_decimal_weights",
+        config(experiment(variants=variants(False, True, True, weights=(33.33, 33.33, 33.34)))),
+    ),
+    ("experiment_zero_weight", config(experiment(variants=variants(False, True, weights=(0, 100))))),
+    (
+        "experiment_max_variants",
+        config(
+            experiment(variants=[{"key": f"arm_{i}", "weight": 5, "value": i % 2 == 0} for i in range(MAX_VARIANTS)])
+        ),
+    ),
+    ("experiment_holdout_bounds", config(experiment(holdout=holdout(exclusion_percentage=0.01)))),
+    (
+        "experiment_string_values",
+        config(experiment(variants=variants("compact", "wide")), return_type="string", default_value=None),
+    ),
+    (
+        "experiment_number_values",
+        config(experiment(variants=variants(0, 12.5)), return_type="number", default_value=-1),
+    ),
+    (
+        "experiment_object_values",
+        config(experiment(variants=variants({}, {"columns": 2})), return_type="object", default_value=None),
+    ),
+    (
+        "experiment_beside_other_rules",
+        config(targeted(targeting={"properties": [person()]}), rollout(), experiment(holdout=holdout())),
+    ),
     (
         "max_predicates",
         config(targeted(targeting={"properties": [person(key=f"k{i}") for i in range(MAX_PREDICATES_PER_RULE)]})),
@@ -331,7 +401,139 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
     ("removed_rule_type", config(targeted(rule_type="variant_rollout")), [("invalid", "filters.rules[0].rule_type")]),
     ("rule_type_null", config(targeted(rule_type=None)), [("invalid", "filters.rules[0].rule_type")]),
     ("rule_type_list", config(targeted(rule_type=["targeted_release"])), [("invalid", "filters.rules[0].rule_type")]),
-    ("experiment_rule", config(targeted(rule_type="experiment")), [("unsupported", "filters.rules[0].rule_type")]),
+    (
+        "experiment_rule_with_targeted_fields",
+        config(targeted(rule_type="experiment")),
+        [
+            ("unknown_field", "filters.rules[0].value"),
+            ("required", "filters.rules[0].rollout_percentage"),
+            ("required", "filters.rules[0].on_rollout_miss"),
+            ("required", "filters.rules[0].assignment_algorithm"),
+            ("required", "filters.rules[0].seed"),
+            ("required", "filters.rules[0].experiment_id"),
+            ("required", "filters.rules[0].paused"),
+            ("required", "filters.rules[0].variants"),
+        ],
+    ),
+    (
+        "linked_experiment",
+        config(experiment(experiment_id=42, holdout=holdout(id=7))),
+        [("unsupported", "filters.rules[0].experiment_id")],
+    ),
+    ("experiment_id_string", config(experiment(experiment_id="42")), [("invalid", "filters.rules[0].experiment_id")]),
+    ("experiment_id_bool", config(experiment(experiment_id=True)), [("invalid", "filters.rules[0].experiment_id")]),
+    (
+        "missing_experiment_id",
+        config(without(experiment(), "experiment_id")),
+        [("required", "filters.rules[0].experiment_id")],
+    ),
+    ("missing_paused", config(without(experiment(), "paused")), [("required", "filters.rules[0].paused")]),
+    ("paused_null", config(experiment(paused=None)), [("invalid", "filters.rules[0].paused")]),
+    (
+        "experiment_missing_seed",
+        config(without(experiment(), "seed")),
+        [("required", "filters.rules[0].seed")],
+    ),
+    ("experiment_group_assign_by", config(experiment(assign_by="group")), [("invalid", "filters.rules[0].assign_by")]),
+    ("missing_variants", config(without(experiment(), "variants")), [("required", "filters.rules[0].variants")]),
+    ("variants_object", config(experiment(variants={})), [("invalid", "filters.rules[0].variants")]),
+    (
+        "one_variant",
+        config(experiment(variants=variants(True, weights=(100,)))),
+        [("invalid", "filters.rules[0].variants")],
+    ),
+    (
+        "too_many_variants",
+        config(experiment(variants=[{"key": f"arm_{i}", "weight": 5, "value": True} for i in range(MAX_VARIANTS + 1)])),
+        [("limit_exceeded", "filters.rules[0].variants")],
+    ),
+    (
+        "variant_not_object",
+        config(experiment(variants=[1, 2])),
+        [("invalid", "filters.rules[0].variants[0]"), ("invalid", "filters.rules[0].variants[1]")],
+    ),
+    (
+        "duplicate_variant_keys",
+        config(experiment(variants=[{**variant, "key": "control"} for variant in variants(False, True)])),
+        [("not_unique", "filters.rules[0].variants[1].key")],
+    ),
+    (
+        "variant_key_characters",
+        config(experiment(variants=[variants(False, True)[0], {**variants(False, True)[1], "key": "test.v2"}])),
+        [("invalid", "filters.rules[0].variants[1].key")],
+    ),
+    (
+        "variant_unknown_field",
+        config(experiment(variants=[variants(False, True)[0], {**variants(False, True)[1], "name": "Test"}])),
+        [("unknown_field", "filters.rules[0].variants[1].name")],
+    ),
+    (
+        "variant_value_type",
+        config(experiment(variants=variants(False, "true"))),
+        [("invalid", "filters.rules[0].variants[1].value")],
+    ),
+    (
+        "variant_null_value",
+        config(experiment(variants=variants(False, None))),
+        [("invalid", "filters.rules[0].variants[1].value")],
+    ),
+    (
+        "variant_missing_weight",
+        config(experiment(variants=[variants(False, True)[0], without(variants(False, True)[1], "weight")])),
+        [("required", "filters.rules[0].variants[1].weight")],
+    ),
+    (
+        "variant_weight_three_decimals",
+        config(experiment(variants=variants(False, True, weights=(33.333, 66.667)))),
+        [("invalid", "filters.rules[0].variants[0].weight"), ("invalid", "filters.rules[0].variants[1].weight")],
+    ),
+    (
+        "variant_weights_below_100",
+        config(experiment(variants=variants(False, True, True, weights=(33.33, 33.33, 33.33)))),
+        [("invalid", "filters.rules[0].variants")],
+    ),
+    (
+        "variant_weights_above_100",
+        config(experiment(variants=variants(False, True, weights=(50.01, 50)))),
+        [("invalid", "filters.rules[0].variants")],
+    ),
+    ("experiment_with_value", config(experiment(value=True)), [("unknown_field", "filters.rules[0].value")]),
+    (
+        "shared_holdout",
+        config(experiment(holdout=holdout(id=7))),
+        [("invalid", "filters.rules[0].holdout.id")],
+    ),
+    ("holdout_list", config(experiment(holdout=[])), [("invalid", "filters.rules[0].holdout")]),
+    (
+        "holdout_missing_id",
+        config(experiment(holdout=without(holdout(), "id"))),
+        [("required", "filters.rules[0].holdout.id")],
+    ),
+    (
+        "holdout_missing_seed",
+        config(experiment(holdout=without(holdout(), "seed"))),
+        [("required", "filters.rules[0].holdout.seed")],
+    ),
+    (
+        "holdout_unknown_field",
+        config(experiment(holdout=holdout(name="x"))),
+        [("unknown_field", "filters.rules[0].holdout.name")],
+    ),
+    (
+        "holdout_three_decimals",
+        config(experiment(holdout=holdout(exclusion_percentage=5.555))),
+        [("invalid", "filters.rules[0].holdout.exclusion_percentage")],
+    ),
+    (
+        "holdout_above_maximum",
+        config(experiment(holdout=holdout(exclusion_percentage=100.5))),
+        [("invalid", "filters.rules[0].holdout.exclusion_percentage")],
+    ),
+    (
+        "rollout_with_experiment_fields",
+        config(rollout(paused=False, variants=[])),
+        [("unknown_field", "filters.rules[0].paused"), ("unknown_field", "filters.rules[0].variants")],
+    ),
     (
         "unknown_rule_field",
         config(targeted(implicit_default=False)),
@@ -872,6 +1074,35 @@ class TestValidateConfig:
         assert validated.rules[1].rollout_percentage == Decimal("33.33")
         assert SEED not in repr(validated)
 
+    def test_validated_experiment_rule_carries_its_split_without_seeds(self) -> None:
+        document = config(
+            experiment(
+                paused=True,
+                rollout_percentage=80.5,
+                variants=variants("compact", "compact", weights=(33.33, 66.67)),
+                holdout=holdout(exclusion_percentage=12.5),
+            ),
+            return_type="string",
+            default_value=None,
+        )
+        (rule,) = validate_config(document, limits=LIMITS).rules
+        assert rule == ValidatedRule(
+            id=EXPERIMENT_ID,
+            rule_type="experiment",
+            predicates=frozenset(),
+            value=None,
+            rollout_percentage=Decimal("80.5"),
+            on_rollout_miss="continue",
+            seed=SEED,
+            paused=True,
+            variants=(
+                ValidatedVariant(key="control", weight=Decimal("33.33"), value='"compact"'),
+                ValidatedVariant(key="test", weight=Decimal("66.67"), value='"compact"'),
+            ),
+            holdout=ValidatedHoldout(exclusion_percentage=Decimal("12.5"), seed=HOLDOUT_SEED),
+        )
+        assert SEED not in repr(rule) and HOLDOUT_SEED not in repr(rule)
+
     @parameterized.expand([("explicit", {"negation": True}), ("omitted", {})])
     def test_predicates_are_canonical_across_equivalent_spellings(self, _name: str, extra: dict[str, Any]) -> None:
         plain = validate_config(config(targeted(targeting={"properties": [person(**extra)]})), limits=LIMITS)
@@ -891,6 +1122,13 @@ def _contract_path(instance_path: str, expected: dict[str, Any]) -> str:
     return attr
 
 
+def _linked_experiment(rule: dict[str, Any]) -> bool:
+    experiment_id = rule.get("experiment_id")
+    return (
+        rule.get("rule_type") == "experiment" and isinstance(experiment_id, int) and not isinstance(experiment_id, bool)
+    )
+
+
 def _admitted_family(document: dict[str, Any]) -> bool:
     raw_rules = document.get("rules")
     rules: list[dict[str, Any]] = (
@@ -905,7 +1143,7 @@ def _admitted_family(document: dict[str, Any]) -> bool:
     ]
     return (
         "aggregation_group_type_index" not in document
-        and all(rule.get("rule_type") != "experiment" for rule in rules)
+        and not any(_linked_experiment(rule) for rule in rules)
         and all(prop.get("type") == "person" for prop in properties)
     )
 
@@ -956,6 +1194,13 @@ class TestReleasedContract:
         assert _ROOT_FIELDS == set(CONFIG_SCHEMA["properties"])
         assert _COMMON_RULE_FIELDS == set(defs["targetedReleaseRule"]["properties"])
         assert _COMMON_RULE_FIELDS | _ROLLOUT_RULE_FIELDS == set(defs["percentageRolloutRule"]["properties"])
+        assert (_COMMON_RULE_FIELDS - {"value"}) | _ROLLOUT_RULE_FIELDS | _EXPERIMENT_ONLY_FIELDS == set(
+            defs["experimentRule"]["properties"]
+        )
+        assert _VARIANT_FIELDS == set(defs["variant"]["properties"])
+        assert _HOLDOUT_FIELDS == set(defs["holdout"]["properties"])
+        variant_list = defs["experimentRule"]["properties"]["variants"]
+        assert (MIN_VARIANTS, MAX_VARIANTS) == (variant_list["minItems"], variant_list["maxItems"])
         assert _PROPERTY_FIELDS == set(defs["propertyFilter"]["properties"])
 
     def test_operator_tables_match_the_v1_cross_field_tier(self) -> None:
