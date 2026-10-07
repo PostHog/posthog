@@ -396,9 +396,9 @@ describe('query', () => {
             ['a 502 bad gateway', badGateway, 600],
             ['a capacity 503 asked for a short wait', shortCapacityWait, 5000],
             [
-                'a capacity 503 at the automatic wait limit',
-                () => new ApiError('', 503, new Headers({ 'Retry-After': '10' })),
-                10000,
+                'a capacity 503 at the total retry budget',
+                () => new ApiError('', 503, new Headers({ 'Retry-After': '20' })),
+                20000,
             ],
         ])(
             'submits the same run again once the wait ends after %s, and returns what the retry gets',
@@ -444,6 +444,12 @@ describe('query', () => {
         it.each([
             ['the gateway refuses every attempt', badGateway, 1800, 502],
             ['every attempt gets a short capacity wait', shortCapacityWait, 10000, 503],
+            [
+                'both capacity waits fit the total budget exactly',
+                () => new ApiError('', 503, new Headers({ 'Retry-After': '10' })),
+                20000,
+                503,
+            ],
         ])('reports the failure once %s', async (_name, makeError, elapsedMs, status) => {
             jest.useFakeTimers()
             const querySpy = jest.spyOn(api, 'query').mockRejectedValue(makeError())
@@ -458,8 +464,56 @@ describe('query', () => {
         })
 
         it.each([
+            ['the two hints exceed the budget', 15, 10, 0],
+            ['the failed retry uses the remaining budget', 5, 10, 6000],
+        ])('surfaces the full next cooldown when %s', async (_name, firstWait, nextWait, requestTimeMs) => {
+            jest.useFakeTimers()
+            let lastError: ApiError | undefined
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockRejectedValueOnce(new ApiError('', 503, new Headers({ 'Retry-After': String(firstWait) })))
+                .mockImplementationOnce(async () => {
+                    await new Promise((resolve) => setTimeout(resolve, requestTimeMs))
+                    lastError = new ApiError('', 503, new Headers({ 'Retry-After': String(nextWait) }))
+                    throw lastError
+                })
+                .mockResolvedValue({ results: ['ok'] } as any)
+
+            let receivedError: unknown
+            const outcome = performQuery(query, undefined, 'blocking').catch((error) => {
+                receivedError = error
+            })
+            await jest.advanceTimersByTimeAsync(firstWait * 1000 + requestTimeMs + 1)
+
+            expect(receivedError).toBeInstanceOf(ApiError)
+            expect(receivedError).toBe(lastError)
+            expect(lastError?.retryAfterSeconds).toBe(nextWait)
+            await jest.advanceTimersByTimeAsync(60_000)
+            await outcome
+            expect(querySpy).toHaveBeenCalledTimes(2)
+        })
+
+        it('does not submit a retry after a delayed timer misses the deadline', async () => {
+            jest.useFakeTimers()
+            const clock = jest.spyOn(performance, 'now').mockReturnValue(0)
+            const error = shortCapacityWait()
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockRejectedValueOnce(error)
+                .mockResolvedValue({ results: ['ok'] } as any)
+
+            const outcome = Promise.allSettled([performQuery(query, undefined, 'blocking')])
+            await jest.advanceTimersByTimeAsync(0)
+            clock.mockReturnValue(21_000)
+            await jest.advanceTimersByTimeAsync(5000)
+
+            await expect(outcome).resolves.toEqual([{ status: 'rejected', reason: error }])
+            expect(querySpy).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([
             ['a 503 without Retry-After', refused()],
-            ['a 503 above the automatic wait limit', new ApiError('', 503, new Headers({ 'Retry-After': '11' }), {})],
+            ['a 503 above the total retry budget', new ApiError('', 503, new Headers({ 'Retry-After': '21' }), {})],
             ['a 503 with an invalid Retry-After', new ApiError('', 503, new Headers({ 'Retry-After': '1.5' }), {})],
             [
                 'a 503 with a date-form Retry-After',

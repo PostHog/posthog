@@ -72,21 +72,21 @@ const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavail
 
 const TRANSIENT_SUBMIT_ATTEMPTS = 3
 const TRANSIENT_SUBMIT_DELAY_MS = 600
-const CAPACITY_RETRY_MAX_WAIT_SECONDS = 10
+const TRANSIENT_SUBMIT_RETRY_BUDGET_MS = 20_000
 
-function shortCapacityWaitMs(error: unknown): number | undefined {
+function capacityWaitMs(error: unknown): number | undefined {
     if (!(error instanceof ApiError) || error.status !== 503) {
         return undefined
     }
     const seconds = error.retryAfterSeconds
-    return seconds !== null && seconds <= CAPACITY_RETRY_MAX_WAIT_SECONDS ? seconds * 1000 : undefined
+    return seconds !== null ? seconds * 1000 : undefined
 }
 
 /**
  * Treat eligible 502/503 responses as potentially transient and retry within a bounded budget.
  * A 502 does not establish whether the original query started (RFC 9110, section 15.6.3).
- * Only retry a 503 with a numeric `Retry-After` of at most CAPACITY_RETRY_MAX_WAIT_SECONDS.
- * Without a short numeric hint the error goes to the caller at once, because an early
+ * Only retry a 503 with a numeric `Retry-After` that fits the total retry-start budget.
+ * Without a fitting numeric hint the error goes to the caller at once, because an early
  * resubmit only adds load. A 504 means the gateway stopped waiting while the backend can still be
  * running the query, so a resubmit can compute it a second time.
  */
@@ -97,7 +97,7 @@ function isRetryableSubmitFailure(error: unknown): boolean {
     if (error.status === 502) {
         return !error.headers?.has('Retry-After')
     }
-    return shortCapacityWaitMs(error) !== undefined
+    return capacityWaitMs(error) !== undefined
 }
 
 /**
@@ -241,7 +241,8 @@ async function executeQuery<N extends DataNode>(
                 backoffMultiplier: 2,
                 signal: methodOptions?.signal,
                 shouldRetry: isRetryableSubmitFailure,
-                getDelayMs: shortCapacityWaitMs,
+                getDelayMs: capacityWaitMs,
+                maxRetryTimeMs: TRANSIENT_SUBMIT_RETRY_BUDGET_MS,
             }
         )
 

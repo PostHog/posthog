@@ -52,6 +52,8 @@ export interface RetryOptions {
      * Use it when the server says how long to wait, for example in a `Retry-After` header.
      */
     getDelayMs?: (error: unknown) => number | undefined
+    /** Retry-start budget from the first retryable failure. Does not cancel an in-flight attempt. */
+    maxRetryTimeMs?: number
 }
 
 /**
@@ -71,7 +73,15 @@ export interface RetryOptions {
  * // Delays: 1000ms after 1st failure, 1500ms after 2nd failure
  */
 export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
-    const { maxAttempts = 3, initialDelayMs = 1000, backoffMultiplier = 1.5, signal, shouldRetry, getDelayMs } = options
+    const {
+        maxAttempts = 3,
+        initialDelayMs = 1000,
+        backoffMultiplier = 1.5,
+        signal,
+        shouldRetry,
+        getDelayMs,
+        maxRetryTimeMs,
+    } = options
 
     if (signal?.aborted) {
         throw new DOMException('Aborted', 'AbortError')
@@ -80,6 +90,7 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
     const attempts = Math.max(maxAttempts, 1)
 
     let lastError: unknown
+    let retryDeadline: number | undefined
     for (let attempt = 0; attempt < attempts; attempt++) {
         try {
             return await fn()
@@ -94,7 +105,16 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
                 throw e
             }
             const delayMs = getDelayMs?.(e) ?? initialDelayMs * Math.pow(backoffMultiplier, attempt)
+            const now = performance.now()
+            retryDeadline ??= now + (maxRetryTimeMs ?? Infinity)
+            if (now + delayMs > retryDeadline) {
+                throw e
+            }
             await delay(delayMs, signal)
+            // Suspended tabs can resume after the deadline even when the requested delay fitted.
+            if (performance.now() > retryDeadline) {
+                throw e
+            }
         }
     }
     throw lastError
