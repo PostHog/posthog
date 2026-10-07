@@ -22,6 +22,9 @@ The prefix only controls whether the coordinator auto-registers a config for a s
 
 ## Frontmatter
 
+This template is for a report-producing scout.
+A scout with a product-specific output omits both report tools and avoids the `signals-scout-` prefix; see [Scouts with a product-specific output](report-contract.md#scouts-with-a-product-specific-output) for how to create it.
+
 ```yaml
 ---
 name: signals-scout-<scope>
