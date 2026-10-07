@@ -1,3 +1,4 @@
+import time
 from copy import deepcopy
 from uuid import uuid4
 
@@ -6,7 +7,13 @@ import pytest
 from django.conf import settings
 from django.test import override_settings
 
-from posthog.test.isolated_databases import IsolatedRunConflict, configure_product_test_databases, isolated_run
+from posthog.test.isolated_databases import (
+    IsolatedRunConflict,
+    SharedDatabaseBusy,
+    _clone_database,
+    configure_product_test_databases,
+    isolated_run,
+)
 
 
 @pytest.mark.parametrize(
@@ -36,3 +43,17 @@ def test_isolated_run_refuses_a_second_run_and_releases_its_lock() -> None:
                     pytest.fail("A second run acquired the same databases")
         with isolated_run() as connection:
             assert connection.execute("SELECT 1").fetchone() == (1,)
+
+
+def test_clone_stops_when_the_shared_database_stays_in_use() -> None:
+    name = uuid4().hex[:16]
+    database = f"test_posthog_iso_{name}"
+    databases = deepcopy(settings.DATABASES)
+    databases["default"]["TEST"]["NAME"] = database
+
+    with override_settings(DATABASES=databases, TEST_ISOLATION_NAME=name), isolated_run() as connection:
+        # The run's own connection keeps the postgres database in use, so the template never frees up.
+        with pytest.raises(SharedDatabaseBusy):
+            _clone_database(connection, database, "postgres", time.monotonic(), lambda _: None)
+        created = connection.execute("SELECT 1 FROM pg_database WHERE datname = %s", (database,)).fetchone()
+        assert created is None

@@ -515,10 +515,11 @@ else:
 
 TEST_ISOLATION_REDIS_DB: int | None = None
 if TEST_ISOLATION_NAME is not None:
-    # The dev stack and shared test runs use database 0, so isolated runs spread over 1-15. Two names can share a
-    # database, which matters little: posthog.redis hands tests an in-process fakeredis and the test caches are
-    # LocMem, so only a test that opens its own Redis connection reaches this database.
-    TEST_ISOLATION_REDIS_DB = 1 + (zlib.crc32(TEST_ISOLATION_NAME.encode()) + (PYTEST_XDIST_WORKER_NUM or 0)) % 15
+    # The dev stack uses database 0, its feature flags service database 1 and shared test runs database 0, so
+    # isolated runs spread over 2-15. Two names can share a database, which matters little: posthog.redis hands
+    # tests an in-process fakeredis and the test caches are LocMem, so only a test that opens its own Redis
+    # connection reaches this database.
+    TEST_ISOLATION_REDIS_DB = 2 + (zlib.crc32(TEST_ISOLATION_NAME.encode()) + (PYTEST_XDIST_WORKER_NUM or 0)) % 14
     _redis_url = urlsplit(REDIS_URL)
     REDIS_URL = f"{_redis_url.scheme}://{_redis_url.netloc}/{TEST_ISOLATION_REDIS_DB}" + (
         f"?{_redis_url.query}" if _redis_url.query else ""

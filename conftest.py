@@ -7,16 +7,20 @@ import contextlib
 from collections.abc import Generator, Iterable, Iterator
 from functools import update_wrapper
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import time_machine
 
 from django.conf import settings
 
+from syrupy.extensions.amber import AmberSnapshotExtension
+
+from posthog.settings.data_stores import SUFFIX
 from posthog.test.events_schema_prune import EventsSchemaPruner
 from posthog.test.isolated_databases import (
     IsolatedRunConflict,
+    SharedDatabaseBusy,
     clone_test_databases,
     configure_product_test_databases,
     isolated_run,
@@ -25,6 +29,8 @@ from posthog.test.junit import set_junit_report_location
 
 if TYPE_CHECKING:
     import psycopg
+    from syrupy.assertion import SnapshotAssertion
+    from syrupy.types import SerializableData
 
 # The default MIXED mode reads naive strings as local time, so a non-UTC machine would
 # freeze at a different instant than CI does.
@@ -347,7 +353,22 @@ def django_db_modify_db_settings(
         with capture.global_and_fixture_disabled() if capture else contextlib.nullcontext():
             sys.stderr.write(f"[isolated test run] {message}\n")
 
-    clone_test_databases(_isolated_test_run, announce)
+    try:
+        clone_test_databases(_isolated_test_run, announce)
+    except SharedDatabaseBusy as error:
+        pytest.exit(reason=str(error), returncode=pytest.ExitCode.USAGE_ERROR)
+
+
+class _SharedNamesSnapshotExtension(AmberSnapshotExtension):
+    def serialize(self, data: SerializableData, **kwargs: Any) -> str:
+        # Isolated and xdist runs suffix the ClickHouse database and Kafka topic names, and the committed
+        # snapshots hold the plain "_test" names, so every snapshot is compared with the shared names.
+        return super().serialize(data, **kwargs).replace(SUFFIX, "_test")
+
+
+@pytest.fixture
+def snapshot(snapshot: SnapshotAssertion) -> SnapshotAssertion:
+    return snapshot.use_extension(_SharedNamesSnapshotExtension)
 
 
 @pytest.fixture(autouse=True)

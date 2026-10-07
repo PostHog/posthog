@@ -371,13 +371,13 @@ To choose the name, write `hogli test <path> --isolated <name>`. Plain `pytest` 
 The first run copies `test_posthog` and `test_posthog_persons` with `CREATE DATABASE ... TEMPLATE`, which takes seconds, and then applies only the migrations the copy is missing.
 It also creates the ClickHouse database `posthog_test_iso_<name>`. Later runs reuse all of them.
 Postgres copies a database only while nothing is connected to it, so the first run waits up to five minutes for test runs on the shared database to finish.
-If the shared database is still in use after that, the run builds its database by running every migration, and prints a message saying so.
+If the shared database is still in use after that, the run stops with a message instead of building its database by running every migration. Run it again later, or add `--create-db` to migrate anyway.
 
 Two runs with the same name at the same time are not safe, so the second one stops with an error.
-The run holds its lock even for ClickHouse-only tests, and cleanup checks the locks of xdist workers before dropping their databases.
-The isolated set also gets Kafka topic names and a Temporal task queue.
-Redis uses database numbers 1 through 15, so two names can share a Redis database. Most tests use in-process fakeredis instead.
-Object storage and the `test_dagster` database stay shared, so two runs can overwrite each other's files when a test writes to a path that only contains a team ID.
+The isolated set also gets its own Kafka topic names and Temporal task queue.
+Redis uses database numbers 2 through 15, so two names can share a Redis database. Most tests use in-process fakeredis instead.
+Object storage and the `test_dagster` database stay shared. Two isolated sets are copies of the same database, so they hand out the same team IDs, and two runs can overwrite each other's files when a test writes to a path that only contains a team ID.
+Dictionary reads use the `dict_reader` ClickHouse user, whose grant in `docker/clickhouse/users-dev.xml` covers every `posthog_test*` database. The ClickHouse container reads that file from the checkout that started the stack, so restart the container once that checkout has the wider grant, for example with `docker compose -f docker-compose.dev.yml restart clickhouse`. Until then, a test that reads a dictionary in an isolated run fails with ClickHouse error code 497.
 
 The databases stay after the run, which is what makes the next run fast.
 List them with `hogli test:isolated:clean`, and drop them with `hogli test:isolated:clean <name>` or `hogli test:isolated:clean --all`.

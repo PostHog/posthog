@@ -17,8 +17,8 @@ from psycopg import sql
 
 from posthog.product_db_config import load_product_db_routes
 
-# How long to wait for other sessions to leave a shared test database before giving up on the clone.
-# Running every migration instead takes far longer, so the wait is generous.
+# How long to wait for other sessions to leave a shared test database before the run stops. A stopped run
+# costs a retry, while building the databases by migrating is what isolation exists to avoid, so the wait is generous.
 TEMPLATE_WAIT_SECONDS = 300.0
 # The check is a cheap pg_stat_activity read, so poll often enough to catch the gap between two runs of another agent.
 TEMPLATE_POLL_SECONDS = 1.0
@@ -28,6 +28,10 @@ APPLICATION_NAME_PREFIX = "posthog-test-isolation:"
 
 
 class IsolatedRunConflict(Exception):
+    pass
+
+
+class SharedDatabaseBusy(Exception):
     pass
 
 
@@ -100,11 +104,11 @@ def _clone_database(
                 announce(f"Cloned {template} into {database} in {time.monotonic() - started:.1f} s")
                 return
         if time.monotonic() + TEMPLATE_POLL_SECONDS > deadline:
-            announce(
-                f"{template} stayed in use for {time.monotonic() - started:.0f} s, so {database} is built by running every "
-                f"migration instead of cloning it. Let the other test run on {template} finish to clone next time."
+            raise SharedDatabaseBusy(
+                f"{template} stayed in use for {time.monotonic() - started:.0f} s, so it cannot be cloned into {database}. "
+                f"Let the test run on {template} finish and run this again, or pass --create-db to build {database} "
+                "by running every migration."
             )
-            return
         if not announced_wait:
             announce(f"Waiting for other sessions to leave {template} so it can be cloned into {database}")
             announced_wait = True

@@ -91,7 +91,7 @@ def isolation_lock_keys(group: IsolatedDatabases) -> set[str]:
     help=(
         "List or drop the test databases that `hogli test --isolated` keeps between runs.\n\n"
         "With no arguments, list them. Pass names to drop those, or --all to drop every isolated set. "
-        "Databases of a run in progress are never dropped. The shared test databases never match."
+        "Databases of a run in progress are never dropped. The shared test databases are never touched."
     ),
 )
 @click.argument("names", nargs=-1)
