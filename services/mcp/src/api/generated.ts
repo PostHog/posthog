@@ -44937,6 +44937,15 @@ export namespace Schemas {
       session_duration_s?: number | null;
     }
 
+    export type PromptValenceEnum = typeof PromptValenceEnum[keyof typeof PromptValenceEnum];
+
+
+    export const PromptValenceEnum = {
+      Good: 'good',
+      Bad: 'bad',
+      Neutral: 'neutral',
+    } as const;
+
     /**
      * * `schedule` - Schedule
      * * `on_demand` - On demand
@@ -45042,6 +45051,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly prompt_question: string | null;
+      /** For a monitor or scorer: `good` when a yes or a high score is good news for the team, `bad` when it is a problem, `neutral` when neither. Judged by AI from the prompt. Null for other scanner types, when not judged, or when the prompt has changed since this observation was scanned. */
+      readonly prompt_valence: PromptValenceEnum | null;
       /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
        *
        * * `schedule` - Schedule
@@ -63103,6 +63114,8 @@ export namespace Schemas {
       success: boolean;
       /** Failure category for MCP analytics. */
       error_type?: MCPToolResponseErrorType;
+      /** Machine-readable name of the leaf failure for MCP analytics, such as a ClickHouse error name. */
+      error_code?: string | null;
     }
 
     /**

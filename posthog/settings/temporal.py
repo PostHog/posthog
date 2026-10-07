@@ -264,6 +264,17 @@ DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE = _set_temporal_task_queue("data-warehous
 # Post-sync table metadata (semantic enrichment + column statistics) runs on its own worker so this
 # best-effort work can't starve the import pipeline.
 DATA_WAREHOUSE_METADATA_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-metadata-task-queue")
+# A data import that leaves a worker which is shutting down runs again without using a retry
+# attempt. Turn this on only when every worker on the queue has the code that reads the hand-off
+# fields of the import activity: an older worker ignores them and reuses the first attempt's run id.
+DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED", False, type_cast=str_to_bool
+)
+# An incremental import that was interrupted continues after the last batch it queued, instead of
+# after the watermark the job started with.
+DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED", False, type_cast=str_to_bool
+)
 MAX_AI_TASK_QUEUE = _set_temporal_task_queue("max-ai-task-queue")
 BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("batch-exports-task-queue")
 DATA_MODELING_TASK_QUEUE = _set_temporal_task_queue("data-modeling-task-queue")
