@@ -29283,6 +29283,11 @@ export namespace Schemas {
     export type DataWarehouseSavedQueryMinimalColumnsItem = { [key: string]: unknown };
 
     /**
+     * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+     */
+    export type DataWarehouseSavedQueryMinimalSuspended = {[key: string]: SavedQuerySuspension};
+
+    /**
      * Lightweight serializer for list views - excludes large query field to reduce memory usage.
      */
     export interface DataWarehouseSavedQueryMinimal {
@@ -29308,6 +29313,8 @@ export namespace Schemas {
       readonly folder_name: string | null;
       /** @nullable */
       readonly latest_error: string | null;
+      /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+      readonly suspended: DataWarehouseSavedQueryMinimalSuspended;
       /** @nullable */
       readonly is_materialized: boolean | null;
       /** Whether this view is set up to update incrementally. A run can still rebuild the whole table, for example on the first run or after the query changes. */

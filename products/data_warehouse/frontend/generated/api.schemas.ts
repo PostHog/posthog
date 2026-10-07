@@ -1365,6 +1365,15 @@ export const DataWarehouseSavedQueryStatusEnumApi = {
     Skipped: 'Skipped',
 } as const
 
+export interface SavedQuerySuspensionApi {
+    /** When materialization was suspended. */
+    at: string
+    /** Error from the materialization run that tripped suspension. */
+    reason: string
+    /** Materialization job that tripped suspension. */
+    job_id: string
+}
+
 /**
  * * `data_warehouse` - Data Warehouse
  * * `endpoint` - Endpoint
@@ -1380,6 +1389,11 @@ export const DataWarehouseSavedQueryOriginEnumApi = {
 } as const
 
 export type DataWarehouseSavedQueryMinimalApiColumnsItem = { [key: string]: unknown }
+
+/**
+ * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+ */
+export type DataWarehouseSavedQueryMinimalApiSuspended = { [key: string]: SavedQuerySuspensionApi }
 
 /**
  * Lightweight serializer for list views - excludes large query field to reduce memory usage.
@@ -1407,6 +1421,8 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly folder_name: string | null
     /** @nullable */
     readonly latest_error: string | null
+    /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+    readonly suspended: DataWarehouseSavedQueryMinimalApiSuspended
     /** @nullable */
     readonly is_materialized: boolean | null
     /** Whether this view is set up to update incrementally. A run can still rebuild the whole table, for example on the first run or after the query changes. */
@@ -1456,15 +1472,6 @@ export type DataWarehouseSavedQueryApiQuery = {
 }
 
 export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
-
-export interface SavedQuerySuspensionApi {
-    /** When materialization was suspended. */
-    at: string
-    /** Error from the materialization run that tripped suspension. */
-    reason: string
-    /** Materialization job that tripped suspension. */
-    job_id: string
-}
 
 /**
  * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
