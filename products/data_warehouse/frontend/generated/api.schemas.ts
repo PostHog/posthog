@@ -2651,12 +2651,12 @@ export interface CredentialApi {
  * * `SonarCloud` - SonarCloud
  * * `SparkPost` - SparkPost
  * * `SplitIo` - SplitIo
- * * `Spotify` - Spotify
  * * `SpotifyAds` - SpotifyAds
  * * `SpotlerCRM` - SpotlerCRM
  * * `Squarespace` - Squarespace
  * * `Statsig` - Statsig
  * * `Statuspage` - Statuspage
+ * * `Steam` - Steam
  * * `Stigg` - Stigg
  * * `Strava` - Strava
  * * `SurveySparrow` - SurveySparrow
@@ -4020,12 +4020,12 @@ export const ExternalDataSourceTypeEnumApi = {
     SonarCloud: 'SonarCloud',
     SparkPost: 'SparkPost',
     SplitIo: 'SplitIo',
-    Spotify: 'Spotify',
     SpotifyAds: 'SpotifyAds',
     SpotlerCRM: 'SpotlerCRM',
     Squarespace: 'Squarespace',
     Statsig: 'Statsig',
     Statuspage: 'Statuspage',
+    Steam: 'Steam',
     Stigg: 'Stigg',
     Strava: 'Strava',
     SurveySparrow: 'SurveySparrow',

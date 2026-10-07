@@ -188,11 +188,10 @@ Set `memberIntegrationKind` on the `SourceConfig` to the integration kind, and l
 The source's Configuration tab then lists the connected accounts and gives every member a button to connect their own.
 Each connected account is one `Integration` row of that kind, created by the member who connected it.
 
-In `source_for_pipeline`, read every integration of that kind in the project and loop over them.
+In `source_for_pipeline`, read every integration of that kind in the project and loop over them. `common/member_accounts.py` has the helpers.
 Put the account id in every row and in every primary key, because one table holds rows from all accounts.
 Add the kind to `Integration.CREATOR_MANAGED_KINDS`, so that a member can reconnect or remove the account they connected.
-The `spotify` source is the reference.
-Spotify rejects `localhost` redirect URIs, so set `NGROK_URL` to an https tunnel to test its connect flow locally.
+The `google_calendar` source is the reference.
 
 ## Testing Your Source Locally
 

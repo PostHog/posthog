@@ -381,6 +381,7 @@ the row lists both.
 | gong                             | HTTP                        | requests                                                        | ✅                          |
 | google_ads                       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_analytics                 | HTTP                        | requests (`AuthorizedSession` + `TrackedHTTPAdapter`)           | ✅                          |
+| google_calendar                  | HTTP                        | requests via `posthog/egress/google_workspace`                  | ✅                          |
 | google_pagespeed_insights        | HTTP                        | requests                                                        | ✅                          |
 | google_play_console              | HTTP                        | requests                                                        | ✅                          |
 | google_sheets                    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
@@ -771,7 +772,6 @@ the row lists both.
 | speedcurve                       | HTTP                        | requests                                                        | ✅                          |
 | split_io                         | HTTP                        | requests                                                        | ✅                          |
 | spot_io                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| spotify                          | HTTP                        | requests                                                        | ✅                          |
 | spotlercrm                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sprig                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | squadcast                        | HTTP                        | requests                                                        | ✅                          |
@@ -780,6 +780,7 @@ the row lists both.
 | stack_overflow_for_teams         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | statuscake                       | HTTP                        | requests                                                        | ✅                          |
 | statuspage                       | HTTP                        | requests                                                        | ✅                          |
+| steam                            | HTTP                        | requests                                                        | ✅                          |
 | stigg                            | HTTP                        | requests                                                        | ✅                          |
 | stockdata                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | streamelements                   | HTTP                        | requests                                                        | ✅                          |
@@ -1174,7 +1175,6 @@ doesn't conflict with concurrent PRs.
 - google_adsense
 - google_analytics
 - google_business_profile
-- google_calendar
 - google_chat
 - google_classroom
 - google_cloud_storage

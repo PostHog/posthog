@@ -4364,7 +4364,6 @@ export const IntegrationKindApi = {
     Snowflake: 'snowflake',
     YoutubeAnalytics: 'youtube-analytics',
     TwitterAds: 'twitter-ads',
-    Spotify: 'spotify',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {

@@ -1143,7 +1143,6 @@ from .speedcurve.source import SpeedcurveSource
 from .split_io.source import SplitIoSource
 from .splunk_observability_cloud.source import SplunkObservabilityCloudSource
 from .spot_io.source import SpotIoSource
-from .spotify.source import SpotifySource
 from .spotify_ads.source import SpotifyAdsSource
 from .spotlercrm.source import SpotlerCRMSource
 from .sprig.source import SprigSource
@@ -1158,6 +1157,7 @@ from .starburst.source import StarburstSource
 from .statsig.source import StatsigSource
 from .statuscake.source import StatuscakeSource
 from .statuspage.source import StatuspageSource
+from .steam.source import SteamSource
 from .stigg.source import StiggSource
 from .stockdata.source import StockDataSource
 from .stockx.source import StockxSource

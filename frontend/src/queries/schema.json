@@ -30988,8 +30988,7 @@
                 "s3-compatible",
                 "snowflake",
                 "youtube-analytics",
-                "twitter-ads",
-                "spotify"
+                "twitter-ads"
             ],
             "type": "string"
         },

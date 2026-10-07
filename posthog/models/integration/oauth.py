@@ -276,7 +276,6 @@ class OauthIntegration:
         "stripe",
         "resend",
         "youtube-analytics",
-        "spotify",
     ]
     integration: model.Integration
 
@@ -786,22 +785,6 @@ class OauthIntegration:
                 id_path="resend_account_id",
                 name_path="resend_account_name",
             )
-        elif kind == "spotify":
-            if not settings.SPOTIFY_APP_CLIENT_ID or not settings.SPOTIFY_APP_CLIENT_SECRET:
-                raise NotImplementedError("Spotify app not configured")
-
-            return OauthConfig(
-                authorize_url="https://accounts.spotify.com/authorize",
-                token_url="https://accounts.spotify.com/api/token",
-                token_info_url="https://api.spotify.com/v1/me",
-                token_info_config_fields=["account_id", "id", "display_name"],
-                client_id=settings.SPOTIFY_APP_CLIENT_ID,
-                client_secret=settings.SPOTIFY_APP_CLIENT_SECRET,
-                scope="user-read-recently-played",
-                # Spotify can change a user's `id`. It documents `account_id` as the immutable one.
-                id_path="account_id",
-                name_path="display_name",
-            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -917,8 +900,8 @@ class OauthIntegration:
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
                 timeout=10,
             )
-        # Pinterest and Spotify use HTTP Basic Auth for token exchange (base64-encoded client_id:client_secret)
-        elif kind in ("pinterest-ads", "spotify"):
+        # Pinterest uses HTTP Basic Auth for token exchange (base64-encoded client_id:client_secret)
+        elif kind == "pinterest-ads":
             res = requests.post(
                 oauth_config.token_url,
                 auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
@@ -1211,15 +1194,6 @@ class OauthIntegration:
                 "advertiser account, then reconnect."
             )
 
-        # A Spotify app in development mode grants a token to any account, then answers 403 on every
-        # API call for an account that is not on the app's user list. The profile lookup fails, so
-        # no id is available.
-        if kind == "spotify" and not integration_id:
-            raise ValidationError(
-                "Couldn't read your Spotify profile. A Spotify app in development mode only works for "
-                "accounts on its user list. Ask the app owner to add your Spotify account, then connect again."
-            )
-
         if isinstance(integration_id, int):
             integration_id = str(integration_id)
         elif isinstance(integration_id, list) and len(integration_id) > 0:
@@ -1404,8 +1378,8 @@ class OauthIntegration:
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
                 timeout=10,
             )
-        # Pinterest and Spotify use HTTP Basic Auth for token refresh
-        elif kind in ("pinterest-ads", "spotify"):
+        # Pinterest uses HTTP Basic Auth for token refresh
+        elif kind == "pinterest-ads":
             return requests.post(
                 oauth_config.token_url,
                 auth=HTTPBasicAuth(client_id, client_secret),

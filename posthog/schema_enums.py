@@ -1819,7 +1819,6 @@ class IntegrationKind(StrEnum):
     SNOWFLAKE = "snowflake"
     YOUTUBE_ANALYTICS = "youtube-analytics"
     TWITTER_ADS = "twitter-ads"
-    SPOTIFY = "spotify"
 
 
 class IntervalType(StrEnum):

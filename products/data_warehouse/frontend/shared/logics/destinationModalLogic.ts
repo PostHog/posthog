@@ -154,7 +154,6 @@ export interface destinationModalLogicActions {
             | 'slack'
             | 'snapchat'
             | 'snowflake'
-            | 'spotify'
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'

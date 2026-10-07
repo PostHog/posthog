@@ -5,24 +5,24 @@ import externalDataSourceResponseMock from '~/mocks/fixtures/api/projects/team_i
 
 import { ConfigurationTab } from './ConfigurationTab'
 
-const spotifySourceMock = {
+const calendarSourceMock = {
     ...externalDataSourceResponseMock,
-    source_type: 'Spotify',
+    source_type: 'GoogleCalendar',
     prefix: '',
-    description: 'Team listening history',
+    description: 'Team meeting load',
     job_inputs: {},
     schemas: [],
     user_access_level: 'editor',
 }
 
 const availableSourcesMock = {
-    Spotify: {
-        name: 'Spotify',
-        label: 'Spotify',
+    GoogleCalendar: {
+        name: 'GoogleCalendar',
+        label: 'Google Calendar',
         category: 'Productivity',
-        iconPath: '/static/services/spotify.png',
+        iconPath: '/static/services/google_calendar.png',
         fields: [],
-        memberIntegrationKind: 'spotify',
+        memberIntegrationKind: 'google-calendar',
         supportsColumnSelection: false,
         versions: ['v1'],
         defaultVersion: 'v1',
@@ -41,7 +41,7 @@ const teammate = (id: number, firstName: string, lastName: string): Record<strin
 
 const account = (id: number, displayName: string, createdBy: Record<string, unknown>): unknown => ({
     id,
-    kind: 'spotify',
+    kind: 'google-calendar',
     display_name: displayName,
     config: { display_name: displayName },
     created_at: '2026-10-05T09:30:00Z',
@@ -73,14 +73,14 @@ export const MemberAccountsSource: Story = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/external_data_sources/wizard': availableSourcesMock,
-                '/api/environments/:team_id/external_data_sources/:id': spotifySourceMock,
+                '/api/environments/:team_id/external_data_sources/:id': calendarSourceMock,
                 '/api/projects/:team_id/integrations/': {
                     count: 2,
                     next: null,
                     previous: null,
                     results: [
-                        account(2, 'ada_listens', teammate(2, 'Ada', 'Okafor')),
-                        account(3, 'grace.plays', teammate(3, 'Grace', 'Lindqvist')),
+                        account(2, 'ada@example.com', teammate(2, 'Ada', 'Okafor')),
+                        account(3, 'grace@example.com', teammate(3, 'Grace', 'Lindqvist')),
                     ],
                 },
             },

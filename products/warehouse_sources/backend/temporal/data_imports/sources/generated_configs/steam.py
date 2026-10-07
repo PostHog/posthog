@@ -5,5 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 @config.config
-class SpotifySourceConfig(config.Config):
-    pass
+class SteamSourceConfig(config.Config):
+    api_key: str
+    steam_ids: str

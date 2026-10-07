@@ -1125,12 +1125,12 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `SonarCloud` - SonarCloud
  * * `SparkPost` - SparkPost
  * * `SplitIo` - SplitIo
- * * `Spotify` - Spotify
  * * `SpotifyAds` - SpotifyAds
  * * `SpotlerCRM` - SpotlerCRM
  * * `Squarespace` - Squarespace
  * * `Statsig` - Statsig
  * * `Statuspage` - Statuspage
+ * * `Steam` - Steam
  * * `Stigg` - Stigg
  * * `Strava` - Strava
  * * `SurveySparrow` - SurveySparrow
@@ -2494,12 +2494,12 @@ export const ExternalDataSourceTypeEnumApi = {
     SonarCloud: 'SonarCloud',
     SparkPost: 'SparkPost',
     SplitIo: 'SplitIo',
-    Spotify: 'Spotify',
     SpotifyAds: 'SpotifyAds',
     SpotlerCRM: 'SpotlerCRM',
     Squarespace: 'Squarespace',
     Statsig: 'Statsig',
     Statuspage: 'Statuspage',
+    Steam: 'Steam',
     Stigg: 'Stigg',
     Strava: 'Strava',
     SurveySparrow: 'SurveySparrow',
@@ -4010,12 +4010,12 @@ export interface ExternalDataSourceCreateApi {
      * * `SonarCloud` - SonarCloud
      * * `SparkPost` - SparkPost
      * * `SplitIo` - SplitIo
-     * * `Spotify` - Spotify
      * * `SpotifyAds` - SpotifyAds
      * * `SpotlerCRM` - SpotlerCRM
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -5890,12 +5890,12 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `SonarCloud` - SonarCloud
      * * `SparkPost` - SparkPost
      * * `SplitIo` - SplitIo
-     * * `Spotify` - Spotify
      * * `SpotifyAds` - SpotifyAds
      * * `SpotlerCRM` - SpotlerCRM
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -7339,12 +7339,12 @@ export interface DatabaseSchemaRequestApi {
      * * `SonarCloud` - SonarCloud
      * * `SparkPost` - SparkPost
      * * `SplitIo` - SplitIo
-     * * `Spotify` - Spotify
      * * `SpotifyAds` - SpotifyAds
      * * `SpotlerCRM` - SpotlerCRM
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -8712,12 +8712,12 @@ export interface DirectConnectionSourceOptionApi {
      * * `SonarCloud` - SonarCloud
      * * `SparkPost` - SparkPost
      * * `SplitIo` - SplitIo
-     * * `Spotify` - Spotify
      * * `SpotifyAds` - SpotifyAds
      * * `SpotlerCRM` - SpotlerCRM
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -10139,12 +10139,12 @@ export interface SourcePreviewRequestApi {
      * * `SonarCloud` - SonarCloud
      * * `SparkPost` - SparkPost
      * * `SplitIo` - SplitIo
-     * * `Spotify` - Spotify
      * * `SpotifyAds` - SpotifyAds
      * * `SpotlerCRM` - SpotlerCRM
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -11547,12 +11547,12 @@ export interface SourceSetupApi {
      * * `SonarCloud` - SonarCloud
      * * `SparkPost` - SparkPost
      * * `SplitIo` - SplitIo
-     * * `Spotify` - Spotify
      * * `SpotifyAds` - SpotifyAds
      * * `SpotlerCRM` - SpotlerCRM
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -12962,12 +12962,12 @@ export interface SourceCredentialCreateApi {
      * * `SonarCloud` - SonarCloud
      * * `SparkPost` - SparkPost
      * * `SplitIo` - SplitIo
-     * * `Spotify` - Spotify
      * * `SpotifyAds` - SpotifyAds
      * * `SpotlerCRM` - SpotlerCRM
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow

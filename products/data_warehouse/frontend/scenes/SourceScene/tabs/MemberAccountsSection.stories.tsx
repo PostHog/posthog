@@ -18,7 +18,7 @@ const teammate = (id: number, firstName: string, lastName: string): Record<strin
 
 const account = (id: number, displayName: string, createdBy: Record<string, unknown>, errors = ''): unknown => ({
     id,
-    kind: 'spotify',
+    kind: 'google-calendar',
     display_name: displayName,
     config: { display_name: displayName },
     created_at: '2026-10-05T09:30:00Z',
@@ -33,12 +33,15 @@ const integrationsMock = (results: unknown[]): Mocks => ({
 })
 
 const TEAMMATE_ACCOUNTS = [
-    account(2, 'ada_listens', teammate(2, 'Ada', 'Okafor')),
-    account(3, 'grace.plays', teammate(3, 'Grace', 'Lindqvist'), 'TOKEN_REFRESH_FAILED'),
+    account(2, 'ada@example.com', teammate(2, 'Ada', 'Okafor')),
+    account(3, 'grace@example.com', teammate(3, 'Grace', 'Lindqvist'), 'TOKEN_REFRESH_FAILED'),
 ]
 
 const ALL_ACCOUNTS = [
-    account(1, 'john.d', { ...teammate(MOCK_DEFAULT_USER.id, 'John', 'Doe'), email: MOCK_DEFAULT_USER.email }),
+    account(1, 'john@example.com', {
+        ...teammate(MOCK_DEFAULT_USER.id, 'John', 'Doe'),
+        email: MOCK_DEFAULT_USER.email,
+    }),
     ...TEAMMATE_ACCOUNTS,
 ]
 
@@ -47,8 +50,8 @@ const meta: Meta<MemberAccountsSectionProps> = {
     title: 'Scenes-App/Data Warehouse/Settings/Member accounts',
     component: MemberAccountsSection,
     args: {
-        integrationKind: 'spotify',
-        sourceLabel: 'Spotify',
+        integrationKind: 'google-calendar',
+        sourceLabel: 'Google Calendar',
     },
     parameters: {
         mockDate: '2026-10-06',

@@ -172,7 +172,6 @@ class Integration(models.Model):
         SLACK_POSTHOG_CODE = "slack-posthog-code"
         SNAPCHAT = "snapchat"
         SNOWFLAKE = "snowflake"
-        SPOTIFY = "spotify"
         STRIPE = "stripe"
         TIKTOK_ADS = "tiktok-ads"
         TWILIO = "twilio"
@@ -181,7 +180,7 @@ class Integration(models.Model):
 
     # Each project member connects their own personal account of these kinds, so the member who
     # connected an account can reconnect or remove it without project admin access.
-    CREATOR_MANAGED_KINDS = frozenset({IntegrationKind.GOOGLE_CALENDAR, IntegrationKind.SPOTIFY})
+    CREATOR_MANAGED_KINDS = frozenset({IntegrationKind.GOOGLE_CALENDAR})
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -228,9 +227,6 @@ class Integration(models.Model):
         if self.kind == "tiktok-ads":
             # The OAuth id is a list of advertiser ids, so prefer whoever authorized the connection.
             return self.config.get("user_email") or self.config.get("user_display_name") or self.integration_id
-        if self.kind == "spotify":
-            # Spotify returns a null `display_name` for an account without a profile name.
-            return self.config.get("display_name") or self.config.get("id") or self.integration_id
         # Deferred: every provider module imports `model` for the `Integration` type, so a
         # module-level import here would cycle back through them.
         from . import google_cloud, oauth  # noqa: PLC0415 — breaks a circular import
