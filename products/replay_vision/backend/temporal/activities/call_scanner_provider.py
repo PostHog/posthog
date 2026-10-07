@@ -80,6 +80,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     SignalFinding,
     SignalsResponse,
     TextSegment,
+    render_signals_instruction,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
 from products.replay_vision.backend.temporal.scanners.experiment import ExperimentScanner
@@ -656,7 +657,9 @@ async def _run_mission(
             )
         elif step.name == STEP_SIGNALS:
             step = replace(
-                step, validate=functools.partial(_validate_signal_timestamps, duration_seconds=signal_duration_s)
+                step,
+                instruction=render_signals_instruction(_last_video_second(signal_duration_s)),
+                validate=functools.partial(_validate_signal_timestamps, duration_seconds=signal_duration_s),
             )
         steps.append(step)
 
@@ -686,6 +689,13 @@ async def _run_mission(
         key_moment_video_s=getattr(step_outputs.get(STEP_CORE), "key_moment_t", None),
         core_response=step_outputs.get(STEP_CORE),
     )
+
+
+def _last_video_second(duration_seconds: float | None) -> int | None:
+    """The largest whole second `_validate_signal_timestamps` accepts, or None when it accepts none."""
+    if duration_seconds is None or not math.isfinite(duration_seconds) or duration_seconds <= 0:
+        return None
+    return math.floor(duration_seconds)
 
 
 def _validate_signal_timestamps(output: BaseModel, *, duration_seconds: float | None) -> str | None:

@@ -1,3 +1,4 @@
+import math
 from collections.abc import Callable, Sequence
 from typing import Any, cast
 
@@ -350,6 +351,10 @@ async def test_signal_timestamps_use_recording_duration(
     assert outcome.thumbnail_video_s == 7
     assert outcome.key_moment_video_s == 5
     assert len(client.models.calls) == 2 + len(end_times)
+    signals_instruction = client.models.calls[2]["contents"][-1].text
+    positive = duration_seconds is not None and math.isfinite(duration_seconds) and duration_seconds > 0
+    limit = math.floor(duration_seconds) if positive and duration_seconds is not None else None
+    assert (f"The video ends at second {limit}," in signals_instruction) is (limit is not None)
 
 
 # The render cut 10s-40s of the session, so video second 15 shows session second 45.
