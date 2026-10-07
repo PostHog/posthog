@@ -33,6 +33,8 @@ import {
 import { AggregatedSpanRow, SpanTreeNode } from '~/queries/schema/schema-general'
 import { PropertyGroupFilter } from '~/types'
 
+import { retryOnFastFailure } from 'products/logs/frontend/retryOnFastFailure'
+
 import type { DateRange } from '../../../frontend/src/queries/schema/schema-general'
 import type { UniversalFiltersGroup } from '../../../frontend/src/types'
 import { TRACING_DATE_FORMAT } from './dateFormats'
@@ -172,9 +174,11 @@ export interface tracingDataLogicValues {
     spanTreeLoading: boolean
     spans: Span[]
     spansAbortController: AbortController | null
+    spansError: string | null
     spansLoading: boolean
     sparklineAbortController: AbortController | null
     sparklineData: TracingSparklineData
+    sparklineError: string | null
     sparklineLoading: boolean
     totalMatchingFilters: number
     traceLoadContext: {
@@ -797,6 +801,24 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             },
         ],
         aggregationLoading: [false as boolean, abortResilientLoading('fetchAggregation')],
+        // Shown as a warning on the pane in place of a toast. Set only once the fast-failure retry
+        // has also failed, and cleared as soon as the next attempt starts.
+        spansError: [
+            null as string | null,
+            {
+                fetchSpans: () => null,
+                fetchSpansSuccess: () => null,
+                fetchSpansFailure: (state, { error }) => (isUserInitiatedError(error) ? state : error),
+            },
+        ],
+        sparklineError: [
+            null as string | null,
+            {
+                fetchSparkline: () => null,
+                fetchSparklineSuccess: () => null,
+                fetchSparklineFailure: (state, { error }) => (isUserInitiatedError(error) ? state : error),
+            },
+        ],
         spanTreeLoading: [
             false as boolean,
             {
@@ -877,22 +899,21 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSpans(controller)
 
-                    const response = await api.tracing.listSpans(
-                        {
-                            dateRange: values.utcDateRange,
-                            orderBy: values.filters.orderBy,
-                            orderDirection: values.filters.orderDirection,
-                            serviceNames:
-                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                            prefetchSpans: PREFETCH_SPANS,
-                            flatSpans: values.filters.viewMode === 'spans',
-                            // The API defaults to root-only trace selection, which drops traces whose root never arrived.
-                            rootSpans: false,
-                            limit: DEFAULT_PAGE_SIZE,
-                        },
-                        controller.signal
-                    )
+                    const query: Parameters<typeof api.tracing.listSpans>[0] = {
+                        dateRange: values.utcDateRange,
+                        orderBy: values.filters.orderBy,
+                        orderDirection: values.filters.orderDirection,
+                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                        filterGroup: values.queryFilterGroup as PropertyGroupFilter,
+                        prefetchSpans: PREFETCH_SPANS,
+                        flatSpans: values.filters.viewMode === 'spans',
+                        // The API defaults to root-only trace selection, which drops traces whose root never arrived.
+                        rootSpans: false,
+                        limit: DEFAULT_PAGE_SIZE,
+                    }
+                    const response = await retryOnFastFailure(() => api.tracing.listSpans(query, controller.signal), {
+                        signal: controller.signal,
+                    })
 
                     actions.setSpansAbortController(null)
                     actions.setHasMoreToLoad(!!response.hasMore)
@@ -1114,16 +1135,15 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSparkline(controller)
 
-                    const response = await api.tracing.sparkline(
-                        {
-                            dateRange: values.utcDateRange,
-                            serviceNames:
-                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                            rootSpans: values.filters.viewMode === 'traces',
-                        },
-                        controller.signal
-                    )
+                    const query: Parameters<typeof api.tracing.sparkline>[0] = {
+                        dateRange: values.utcDateRange,
+                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                        filterGroup: values.queryFilterGroup as PropertyGroupFilter,
+                        rootSpans: values.filters.viewMode === 'traces',
+                    }
+                    const response = await retryOnFastFailure(() => api.tracing.sparkline(query, controller.signal), {
+                        signal: controller.signal,
+                    })
 
                     actions.setSparklineAbortController(null)
                     // Record the scope only after a successful fetch, so a failed/aborted request retries.
@@ -1530,8 +1550,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         },
         fetchSpansFailure: ({ error }) => {
             if (!isUserInitiatedError(error)) {
-                lemonToast.error(`Failed to load traces: ${error}`)
                 posthog.capture('tracing query failed', { query_type: 'spans', error_message: String(error) })
+            }
+        },
+        fetchSparklineFailure: ({ error }) => {
+            if (!isUserInitiatedError(error)) {
+                posthog.capture('tracing query failed', { query_type: 'sparkline', error_message: String(error) })
             }
         },
         fetchMatchingCountsFailure: ({ error }) => {

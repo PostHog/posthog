@@ -86,8 +86,10 @@ export interface tracingSceneLogicValues {
     } // tracingDataLogic
     spanTreeLoading: boolean // tracingDataLogic
     spans: Span[] // tracingDataLogic
+    spansError: string | null // tracingDataLogic
     spansLoading: boolean // tracingDataLogic
     sparklineData: TracingSparklineData // tracingDataLogic
+    sparklineError: string | null // tracingDataLogic
     sparklineLoading: boolean // tracingDataLogic
     totalMatchingFilters: number // tracingDataLogic
     traceSpans: Span[] // tracingDataLogic
@@ -316,9 +318,11 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             [
                 'spans',
                 'spansLoading',
+                'spansError',
                 'listRows',
                 'sparklineData',
                 'sparklineLoading',
+                'sparklineError',
                 'hasMoreToLoad',
                 'hasRunQuery',
                 'totalMatchingFilters',

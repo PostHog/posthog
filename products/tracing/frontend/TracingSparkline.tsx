@@ -25,6 +25,8 @@ import { shortTimeZone } from 'lib/utils/timezones'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
+import { QueryFailedIndicator } from 'products/logs/frontend/components/QueryFailedIndicator'
+
 import { TRACING_DATE_TIME_FORMAT } from './dateFormats'
 import {
     type TracingDurationHistogramData,
@@ -49,6 +51,7 @@ interface CompareConfig {
 interface TracingSparklineProps {
     sparklineData: TracingSparklineData
     sparklineLoading: boolean
+    sparklineError?: string | null
     onDateRangeChange: (dateRange: DateRange, source: TracingDateRangeSource) => void
     displayTimezone: string
     /** End of the queried window, used as `date_to` when the selection runs to the last bucket
@@ -80,6 +83,7 @@ interface TracingSparklineProps {
 export function TracingSparkline({
     sparklineData,
     sparklineLoading,
+    sparklineError = null,
     onDateRangeChange,
     displayTimezone,
     currentDateTo,
@@ -304,6 +308,7 @@ export function TracingSparkline({
                         />
                     )}
                     {sparklineLoading && <SpinnerOverlay />}
+                    <QueryFailedIndicator error={sparklineError} label="trace volume" />
                 </div>
             )}
         </div>

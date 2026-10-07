@@ -15,6 +15,7 @@ import { shortTimeZone } from 'lib/utils/timezones'
 import { DateRange } from '~/queries/schema/schema-general'
 
 import type { VisibleLogsTimeRange } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
+import { QueryFailedIndicator } from 'products/logs/frontend/components/QueryFailedIndicator'
 
 import { highlightedBucketRange, selectedDateRange } from './bucketRanges'
 
@@ -30,6 +31,7 @@ export interface LogsSparklineData {
 export interface LogsViewerSparklineProps {
     sparklineData: LogsSparklineData
     sparklineLoading: boolean
+    sparklineError?: string | null
     onDateRangeChange: (dateRange: DateRange) => void
     displayTimezone: string // IANA timezone string (e.g. "UTC", "America/New_York", "Europe/London")
     collapsed?: boolean
@@ -41,6 +43,7 @@ export interface LogsViewerSparklineProps {
 export function LogsSparkline({
     sparklineData,
     sparklineLoading,
+    sparklineError = null,
     onDateRangeChange,
     displayTimezone,
     collapsed = false,
@@ -184,6 +187,7 @@ export function LogsSparkline({
                         </div>
                     ) : null}
                     {sparklineLoading && <SpinnerOverlay />}
+                    <QueryFailedIndicator error={sparklineError} label="log volume" />
                 </div>
             )}
         </div>
