@@ -100,6 +100,7 @@ the row lists both.
 | astronomer                       | HTTP                        | requests                                                        | ✅                          |
 | attentive                        | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| auth0                            | HTTP                        | requests                                                        | ✅                          |
 | automox                          | HTTP                        | requests                                                        | ✅                          |
 | autumn                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | avalara                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -983,7 +984,6 @@ doesn't conflict with concurrent PRs.
 - athenahealth
 - atlan
 - audiogo
-- auth0
 - autodesk_construction_cloud
 - automox
 - aws_athena
