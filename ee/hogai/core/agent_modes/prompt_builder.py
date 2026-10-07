@@ -5,8 +5,12 @@ from typing import Generic
 from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
+from posthoganalytics import capture_exception
 
 from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
+
+from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.mixins import AssistantContextMixin
@@ -41,6 +45,24 @@ ROOT_BILLING_CONTEXT_ERROR_PROMPT = """
 If the user asks about billing, their subscription, their usage, or their spending, suggest them to talk to PostHog support.
 </billing_context>
 """.strip()
+
+
+ROOT_GOVERNED_METRICS_PROMPT = """
+<governed_metrics>
+This project defines approved metrics in its data catalog. An approved metric is the canonical definition of a business measure. It outranks core memory, saved insights, and any query you write yourself.
+Approved metrics: {{{metric_names}}}.
+
+- A request for a measure is any count, sum, rate, percentage, average, or conversion of something the product records, or a breakdown or comparison of one. Examples: "how many X", "X per week", "conversion from A to B".
+- Before you query data for a measure, use the `read_data` tool with the `data_catalog_metrics` kind to find a matching metric. Do this even when the user does not mention the catalog, and even when core memory or an insight describes the measure differently.
+- When an approved metric that is not drifted answers the request, run it with the `read_data` tool with the `data_catalog_metric` kind. Report its result. Do not write your own query for the same number.
+- Never present the result of a proposed or drifted metric as the canonical answer. If you calculate a number yourself, say that it is not the catalog's canonical number.
+- When different metrics can each answer the request, ask the user one clarifying question.
+- If no metric matches, say that you checked the data catalog. Label any number you calculate as not canonical.
+</governed_metrics>
+""".strip()
+
+# Caps the prompt size for large catalogs. The agent lists the full catalog with `read_data`.
+ROOT_GOVERNED_METRICS_MAX_NAMES = 50
 
 
 class PromptBuilder(ABC, Generic[StateType]):
@@ -80,7 +102,26 @@ class BillingPromptMixin:
         return prompt
 
 
-class AgentPromptBuilderBase(AgentPromptBuilder, AssistantContextMixin, BillingPromptMixin):
+class GovernedMetricsPromptMixin:
+    _team: Team
+    _user: User
+
+    async def _get_governed_metrics_prompt(self) -> str:
+        try:
+            names = await database_sync_to_async(approved_metric_names_for_team)(self._team, self._user)
+        except Exception as e:
+            # The catalog is optional context; a failed read must not block the conversation.
+            capture_exception(e)
+            return ""
+        if not names:
+            return ""
+        shown = ", ".join(names[:ROOT_GOVERNED_METRICS_MAX_NAMES])
+        if len(names) > ROOT_GOVERNED_METRICS_MAX_NAMES:
+            shown += f", and {len(names) - ROOT_GOVERNED_METRICS_MAX_NAMES} more"
+        return format_prompt_string(ROOT_GOVERNED_METRICS_PROMPT, metric_names=shown)
+
+
+class AgentPromptBuilderBase(AgentPromptBuilder, AssistantContextMixin, BillingPromptMixin, GovernedMetricsPromptMixin):
     """Base class for agent prompt builders with shared logic for gathering context."""
 
     @abstractmethod
@@ -93,21 +134,24 @@ class AgentPromptBuilderBase(AgentPromptBuilder, AssistantContextMixin, BillingP
         return CORE_MEMORY_PROMPT
 
     async def get_prompts(self, state: AssistantState, config: RunnableConfig) -> list[BaseMessage]:
-        billing_prompt, core_memory, groups = await asyncio.gather(
+        billing_prompt, core_memory, groups, governed_metrics = await asyncio.gather(
             self._get_billing_prompt(),
             self._aget_core_memory_text(),
             self._context_manager.get_group_names(),
+            self._get_governed_metrics_prompt(),
         )
 
         format_args = {
             "groups_prompt": f" {format_prompt_string(ROOT_GROUPS_PROMPT, groups=', '.join(groups))}" if groups else "",
             "core_memory": core_memory,
             "billing_context": billing_prompt,
+            "governed_metrics": governed_metrics,
         }
 
         return ChatPromptTemplate.from_messages(
             [
                 ("system", self._get_system_prompt()),
+                *([("system", "{{{governed_metrics}}}")] if governed_metrics else []),
                 ("system", self._get_core_memory_prompt()),
             ],
             template_format="mustache",

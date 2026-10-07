@@ -34,6 +34,7 @@ from products.ai_observability.backend.summarization.llm.schema import (
 )
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.data_catalog.backend.facade.models import Metric
 from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
@@ -2246,3 +2247,55 @@ class TestReadDataTool(BaseTest):
                         "radius": 5,
                     }
                 )
+
+    @parameterized.expand([(True,), (False,)])
+    async def test_create_tool_class_offers_data_catalog_kinds_only_when_metrics_exist(self, has_metric):
+        if has_metric:
+            await Metric.objects.unscoped().acreate(team=self.team, name="pro_users", description="d")
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[], root_tool_call_id=str(uuid4())),
+            context_manager=self._context_manager_without_extras(),
+        )
+
+        assert ("# Data catalog metrics" in tool.description) is has_metric
+
+    @parameterized.expand(
+        [
+            ("approved", False),
+            ("proposed", True),
+        ]
+    )
+    async def test_run_data_catalog_metric(self, status, labeled_not_canonical):
+        await Metric.objects.unscoped().acreate(
+            team=self.team,
+            name="pro_users",
+            description="d",
+            status=status,
+            definition={"kind": "HogQLQuery", "query": "SELECT 10 AS pro_users"},
+        )
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[], root_tool_call_id=str(uuid4())),
+            context_manager=self._context_manager_without_extras(),
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_catalog_metric", "name": "pro_users"})
+
+        assert '"results": [[10]]' in result
+        assert ("This result is not canonical" in result) is labeled_not_canonical
+
+    async def test_run_unknown_data_catalog_metric_is_retryable(self):
+        await Metric.objects.unscoped().acreate(team=self.team, name="pro_users", description="d")
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[], root_tool_call_id=str(uuid4())),
+            context_manager=self._context_manager_without_extras(),
+        )
+
+        with pytest.raises(MaxToolRetryableError):
+            await tool._arun_impl({"kind": "data_catalog_metric", "name": "paying_users"})

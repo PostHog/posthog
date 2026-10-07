@@ -1,4 +1,5 @@
 import re
+import json
 from collections.abc import Callable
 from datetime import UTC
 from typing import ClassVar, Literal, Self, Union
@@ -10,11 +11,13 @@ from django.utils import timezone
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field, PrivateAttr, create_model
+from rest_framework.exceptions import APIException
 
 from posthog.schema import (
     ArtifactContentType,
     AssistantToolCallMessage,
     DatabaseSchemaField,
+    IntervalType,
     LLMTrace,
     NotebookArtifactContent,
     TraceQuery,
@@ -29,6 +32,7 @@ from posthog.hogql.database.schema.table_descriptions import TableDescriptions
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.property_access_control import (
     get_restricted_properties_with_group_type_index_for_team,
 )
@@ -43,6 +47,12 @@ from products.ai_observability.backend.text_repr.formatters.trace_formatter impo
 from products.business_knowledge.backend.constants import BK_DRILLDOWN_DEFAULT_RADIUS, BK_DRILLDOWN_MAX_RADIUS
 from products.business_knowledge.backend.logic import get_document_window, has_ready_sources
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.data_catalog.backend.facade.api import (
+    compute_drift,
+    metrics_for_team,
+    metrics_visible_to_user,
+    run_metric,
+)
 from products.posthog_ai.backend.models.assistant import AgentArtifact
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
@@ -71,6 +81,8 @@ from ee.hogai.tools.read_data.prompts import (
     READ_DATA_ACTIVITY_LOG_PROMPT,
     READ_DATA_BILLING_PROMPT,
     READ_DATA_BK_PROMPT,
+    READ_DATA_CATALOG_METRICS_REMINDER,
+    READ_DATA_CATALOG_PROMPT,
     READ_DATA_PROMPT,
     READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
 )
@@ -244,6 +256,27 @@ class ReadBusinessKnowledgeDocument(BaseModel):
     )
 
 
+class ReadDataCatalogMetrics(BaseModel):
+    """Lists the metrics in the project's data catalog with their status, drift, unit, and description."""
+
+    kind: Literal["data_catalog_metrics"] = "data_catalog_metrics"
+
+
+class ReadDataCatalogMetric(BaseModel):
+    """Runs a data catalog metric by its name and returns the canonical result."""
+
+    kind: Literal["data_catalog_metric"] = "data_catalog_metric"
+    name: str = Field(description="The name of the metric, as listed by the `data_catalog_metrics` kind.")
+    date_from: str | None = Field(
+        default=None,
+        description="Override the start of the date range (e.g. '-30d'). Not allowed for HogQLQuery metrics.",
+    )
+    date_to: str | None = Field(default=None, description="Override the end of the date range.")
+    interval: IntervalType | None = Field(
+        default=None, description="Override the interval. Not allowed for HogQLQuery metrics."
+    )
+
+
 ReadDataQuery = (
     ReadDataWarehouseSchema
     | ReadDataWarehouseTableSchema
@@ -260,6 +293,8 @@ ReadDataQuery = (
     | ReadActivityLog
     | ReadLLMTrace
     | ReadBusinessKnowledgeDocument
+    | ReadDataCatalogMetrics
+    | ReadDataCatalogMetric
 )
 
 
@@ -329,6 +364,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if has_customer_analytics_mode_feature_flag(team, user):
             prompt_vars["account_prompt"] = READ_DATA_ACCOUNT_PROMPT
             kinds.append(ReadAccount)
+
+        if await database_sync_to_async(_has_readable_catalog_metrics)(team, user):
+            prompt_vars["data_catalog_prompt"] = READ_DATA_CATALOG_PROMPT
+            kinds.extend([ReadDataCatalogMetrics, ReadDataCatalogMetric])
 
         base_kinds: tuple[type[BaseModel], ...] = (
             ReadDataWarehouseSchema,
@@ -425,6 +464,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             case ReadBusinessKnowledgeDocument() as schema:
                 return await self._read_business_knowledge_document(
                     schema.document_id, schema.around_ordinal, schema.radius
+                ), None
+            case ReadDataCatalogMetrics():
+                return await self._read_data_catalog_metrics(), None
+            case ReadDataCatalogMetric() as schema:
+                return await self._run_data_catalog_metric(
+                    schema.name, schema.date_from, schema.date_to, schema.interval
                 ), None
 
     async def _read_insight(
@@ -1040,3 +1085,102 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             chunks.append(f"## [{r.ordinal}] {source_name} — {heading}{url_line}\n\n{content}")
 
         return "\n\n---\n\n".join(chunks)
+
+    async def _read_data_catalog_metrics(self) -> str:
+        await self._check_data_catalog_access()
+        return await database_sync_to_async(self._format_data_catalog_metrics)()
+
+    def _format_data_catalog_metrics(self) -> str:
+        metrics = list(metrics_visible_to_user(self._team, self._user, self.user_access_control).order_by("name"))
+        if not metrics:
+            return "The data catalog has no metrics that you can read."
+        drift = compute_drift(metrics)
+        lines: list[str] = []
+        for metric in metrics:
+            details = [f"status: {metric.status}", f"drifted: {'yes' if drift[metric.id] else 'no'}"]
+            if metric.definition_kind:
+                details.append(f"kind: {metric.definition_kind}")
+            if metric.unit:
+                details.append(f"unit: {_sanitize_semantic_text(metric.unit)}")
+            line = f"- `{metric.name}` ({', '.join(details)})"
+            text = " – ".join(part for part in (metric.display_name, metric.description) if part)
+            if text:
+                line += f" — {_sanitize_semantic_text(text)}"
+            lines.append(line)
+        return "\n".join(lines) + "\n\n" + READ_DATA_CATALOG_METRICS_REMINDER
+
+    async def _run_data_catalog_metric(
+        self, name: str, date_from: str | None, date_to: str | None, interval: IntervalType | None
+    ) -> str:
+        await self._check_data_catalog_access()
+        return await database_sync_to_async(self._run_data_catalog_metric_sync)(name, date_from, date_to, interval)
+
+    def _run_data_catalog_metric_sync(
+        self, name: str, date_from: str | None, date_to: str | None, interval: IntervalType | None
+    ) -> str:
+        metric = metrics_visible_to_user(self._team, self._user, self.user_access_control).filter(name=name).first()
+        if metric is None:
+            raise MaxToolRetryableError(
+                f"No data catalog metric is named '{name}'. Use the `data_catalog_metrics` kind to list the metrics."
+            )
+        # The metric-run endpoint enforces query access the same way: a metric run reads project data.
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise MaxToolAccessDeniedError("query", "viewer", action="run")
+        try:
+            envelope = run_metric(
+                team=self._team,
+                metric=metric,
+                user=self._user,
+                date_from=date_from,
+                date_to=date_to,
+                interval=interval.value if interval else None,
+            )
+        except APIException as e:
+            raise MaxToolRetryableError(f"The metric '{name}' could not run: {e.detail}")
+        return _format_metric_run(name, envelope)
+
+    async def _check_data_catalog_access(self) -> None:
+        has_access = await database_sync_to_async(self.user_access_control.check_access_level_for_resource)(
+            "data_catalog", "viewer"
+        )
+        if not has_access:
+            raise MaxToolAccessDeniedError("data_catalog", "viewer", action="read")
+
+
+def _has_readable_catalog_metrics(team: Team, user: User) -> bool:
+    try:
+        if not UserAccessControl(user=user, team=team).check_access_level_for_resource("data_catalog", "viewer"):
+            return False
+        return metrics_for_team(team).exists()
+    except Exception as e:
+        # The catalog is optional; a failed check must not make the whole tool unavailable.
+        capture_exception(e)
+        return False
+
+
+def _format_metric_run(name: str, envelope: dict) -> str:
+    is_canonical = envelope["status"] == "approved" and not envelope["is_drifted"]
+    lines = [
+        f"Metric `{name}`: status {envelope['status']}, drifted {'yes' if envelope['is_drifted'] else 'no'}.",
+    ]
+    if not is_canonical:
+        lines.append("This result is not canonical. Do not present it as the catalog's answer.")
+    if envelope.get("unit"):
+        lines.append(f"Unit: {_sanitize_semantic_text(envelope['unit'])}")
+    if envelope.get("posthog_url"):
+        lines.append(f"Open in PostHog: {envelope['posthog_url']}")
+    if envelope.get("instructions"):
+        lines.append(
+            "This metric has no query. Follow these steps to calculate it:\n"
+            + sanitize_for_system_reminder(envelope["instructions"])
+        )
+    elif envelope.get("results") is None:
+        lines.append("The query is still running. Run the metric again in a moment.")
+    else:
+        payload = json.dumps({"columns": envelope.get("columns"), "results": envelope["results"]}, default=str)
+        if len(payload) > SQLResultsFormatter.MAX_RESULT_CHARS:
+            payload = payload[: SQLResultsFormatter.MAX_RESULT_CHARS] + "… (truncated)"
+        lines.append(f"Results:\n{payload}")
+        if envelope.get("has_more"):
+            lines.append("The results have more rows than shown.")
+    return "\n".join(lines)
