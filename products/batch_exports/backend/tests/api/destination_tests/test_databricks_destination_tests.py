@@ -7,8 +7,8 @@ from unittest.mock import patch
 from databricks import sql
 from databricks.sdk.core import Config, oauth_service_principal
 
-from products.batch_exports.backend.api.destination_tests.base import Status
-from products.batch_exports.backend.api.destination_tests.databricks import (
+from products.batch_exports.backend.presentation.views.destination_tests.base import Status
+from products.batch_exports.backend.presentation.views.destination_tests.databricks import (
     DatabricksCatalogTestStep,
     DatabricksEstablishConnectionTestStep,
     DatabricksSchemaTestStep,
@@ -28,11 +28,8 @@ REQUIRED_ENV_VARS = (
 
 
 pytestmark = [
+    pytest.mark.requires_vendor_credentials(*REQUIRED_ENV_VARS),
     pytest.mark.django_db,
-    pytest.mark.skipif(
-        not all(env_var in os.environ for env_var in REQUIRED_ENV_VARS),
-        reason=f"Databricks required env vars are not set: {', '.join(REQUIRED_ENV_VARS)}",
-    ),
 ]
 
 
@@ -250,7 +247,7 @@ class TestDatabricksVolumeTestStep:
         and one where it doesn't.
         """
         with patch(
-            "products.batch_exports.backend.api.destination_tests.databricks.DatabricksClient.acreate_volume",
+            "products.batch_exports.backend.presentation.views.destination_tests.databricks.DatabricksClient.acreate_volume",
             side_effect=DatabricksInsufficientPermissionsError("CREATE VOLUME", "Insufficient permissions"),
         ):
             test_step = DatabricksVolumeTestStep(

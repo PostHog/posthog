@@ -560,6 +560,22 @@ export interface EnsembleDetectorConfigApi {
     type: EnsembleDetectorConfigApiType
 }
 
+export type LLMDetectorConfigApiType = (typeof LLMDetectorConfigApiType)[keyof typeof LLMDetectorConfigApiType]
+
+export const LLMDetectorConfigApiType = {
+    Llm: 'llm',
+} as const
+
+export interface LLMDetectorConfigApi {
+    /** What counts as unusual or interesting for this metric, in your own words. Optional. */
+    instructions?: string | null
+    /** Minimum confidence [0-1] the model must report before the alert fires (default: 0.7) */
+    threshold?: number | null
+    type: LLMDetectorConfigApiType
+    /** How many recent points the model is shown (default: 90) */
+    window?: number | null
+}
+
 /**
  * Detector configuration types
  */
@@ -577,6 +593,7 @@ export type DetectorConfigApi =
     | LOFDetectorConfigApi
     | OCSVMDetectorConfigApi
     | PCADetectorConfigApi
+    | LLMDetectorConfigApi
 
 /**
  * * `real_time` - real_time
@@ -639,6 +656,11 @@ export interface AlertApi {
     /** Display name of the insight monitored by this alert. */
     readonly insight_display_name: string
     /**
+     * Whether this alert can use the AI detector, judged for the person who created it, since scheduled checks run as the creator. Only computed when retrieving a single alert; null elsewhere.
+     * @nullable
+     */
+    readonly llm_detector_available: boolean | null
+    /**
      * Human-readable name for the alert.
      * @maxLength 255
      */
@@ -658,7 +680,7 @@ export interface AlertApi {
     /** @nullable */
     readonly last_checked_at: string | null
     /**
-     * Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.
+     * Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.
      * @nullable
      */
     schedule_start_time?: string | null
@@ -674,6 +696,12 @@ export interface AlertApi {
     /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
     config?: AlertConfigUnionApi | null
     detector_config?: DetectorConfigApi | null
+    /**
+     * Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.
+     * @minimum 0
+     * @maximum 100
+     */
+    evaluation_delay_intervals?: number
     /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
      *
      * * `real_time` - real_time
@@ -733,6 +761,11 @@ export interface PatchedAlertApi {
     /** Display name of the insight monitored by this alert. */
     readonly insight_display_name?: string
     /**
+     * Whether this alert can use the AI detector, judged for the person who created it, since scheduled checks run as the creator. Only computed when retrieving a single alert; null elsewhere.
+     * @nullable
+     */
+    readonly llm_detector_available?: boolean | null
+    /**
      * Human-readable name for the alert.
      * @maxLength 255
      */
@@ -752,7 +785,7 @@ export interface PatchedAlertApi {
     /** @nullable */
     readonly last_checked_at?: string | null
     /**
-     * Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.
+     * Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.
      * @nullable
      */
     schedule_start_time?: string | null
@@ -768,6 +801,12 @@ export interface PatchedAlertApi {
     /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
     config?: AlertConfigUnionApi | null
     detector_config?: DetectorConfigApi | null
+    /**
+     * Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.
+     * @minimum 0
+     * @maximum 100
+     */
+    evaluation_delay_intervals?: number
     /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
      *
      * * `real_time` - real_time
@@ -865,6 +904,12 @@ export interface AlertTestDeliveryResponseApi {
 }
 
 export interface AlertSimulateApi {
+    /**
+     * Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.
+     * @minimum 0
+     * @maximum 100
+     */
+    evaluation_delay_intervals?: number
     /** Numeric insight ID or saved insight short ID to simulate the detector on. */
     insight: number | string
     /** Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing). */
@@ -906,11 +951,19 @@ export interface BreakdownSimulationResultApi {
 }
 
 export interface AlertSimulateResponseApi {
+    /** Completed intervals skipped. */
+    evaluation_delay_intervals?: number
+    /** Start of the latest eligible interval. */
+    evaluated_interval_start?: string
+    /** Exclusive end of the latest eligible interval. */
+    evaluated_interval_end?: string
+    /** Project timezone of the interval. */
+    evaluated_interval_timezone?: string
     /** Data values for each point. */
     data: number[]
     /** Date labels for each point. */
     dates: string[]
-    /** Anomaly score for each point (null if insufficient data). */
+    /** Score for each point. Null can mean insufficient data or a valid unscored point. AI previews report model confidence only for points flagged by an anomaly verdict; all other points are null, including every point in a normal verdict. */
     scores: (number | null)[]
     /** Indices of points flagged as anomalies. */
     triggered_indices: number[]

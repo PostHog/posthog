@@ -6,6 +6,7 @@ use sqlx::{Acquire, PgConnection};
 use tracing::debug;
 use uuid::Uuid;
 
+use crate::core::types::notification::SeveritySource;
 use crate::{
     app_context::AppContext,
     error::UnhandledError,
@@ -285,6 +286,17 @@ async fn resolve_issue(
     // back the transaction if the override insert fails (since that indicates someone else
     // beat us to creating this new issue). Then, possibly reopen the issue.
 
+    let proposed_severity = event_properties.proposed_issue_severity();
+    let heuristic_severity = infer_issue_severity(
+        event_properties.exception_level(),
+        event_properties.exception_handled(),
+    );
+    let mut severity_source = if proposed_severity.is_some() {
+        Some(SeveritySource::Event)
+    } else {
+        heuristic_severity.map(|_| SeveritySource::Heuristic)
+    };
+
     // Start a transaction, so we can roll it back on override insert failure
     let mut txn = conn.begin().await?;
     // Insert a new issue
@@ -292,19 +304,14 @@ async fn resolve_issue(
         team_id,
         name.to_string(),
         description.to_string(),
-        event_properties.proposed_issue_severity().or_else(|| {
-            infer_issue_severity(
-                event_properties.exception_level(),
-                event_properties.exception_handled(),
-            )
-        }),
+        proposed_severity.or(heuristic_severity),
         &mut *txn,
     )
     .await?;
 
     // Insert the fingerprint override
     let issue_override = IssueFingerprintOverride::create_or_load(
-        &mut *txn,
+        &mut txn,
         team_id,
         &fingerprint,
         &issue,
@@ -363,18 +370,26 @@ async fn resolve_issue(
         }
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
-        process_event_severity(
+        if process_event_severity(
             &mut txn,
             &context.team_manager,
             &mut issue,
             event_properties,
         )
-        .await?;
+        .await?
+        {
+            severity_source = Some(SeveritySource::Rule);
+        }
         let assignment =
             process_event_assignment(&mut txn, &context.team_manager, &issue, event_properties)
                 .await?;
 
         let processed_properties = event_properties.processed_properties(&issue);
+        // Produce before the commit on purpose. A failure here rolls the transaction back, so the
+        // retry re-runs this whole slow path and produces again. Committing first would leave a
+        // new issue whose fingerprint state never reached ClickHouse: the retry takes the fast
+        // path, finds the issue already active, and `maybe_reopen` returns false, so nothing
+        // re-sends it. Moving this after the commit needs a durable outbox first.
         send_fingerprint_issue_state(
             context,
             &issue,
@@ -394,6 +409,7 @@ async fn resolve_issue(
             processed_properties,
             event_properties.uuid(),
             &event_timestamp,
+            severity_source,
         )
         .await?;
     };
@@ -401,24 +417,26 @@ async fn resolve_issue(
     Ok(issue)
 }
 
+/// Returns whether a severity rule set the issue severity.
 async fn process_event_severity(
     connection: &mut PgConnection,
     team_manager: &TeamManager,
     issue: &mut Issue,
     exception_properties: &ExceptionEvent<Fingerprinted>,
-) -> Result<(), UnhandledError> {
+) -> Result<bool, UnhandledError> {
     if exception_properties.proposed_issue_severity().is_some() {
-        return Ok(());
+        return Ok(false);
     }
     let processed_properties = exception_properties.processed_properties(issue);
-    if let Some(severity) =
+    let Some(severity) =
         try_severity_rules(connection, team_manager, issue, &processed_properties).await?
-    {
-        issue
-            .apply_initial_severity(severity.to_string(), connection)
-            .await?;
-    }
-    Ok(())
+    else {
+        return Ok(false);
+    };
+    issue
+        .apply_initial_severity(severity.to_string(), connection)
+        .await?;
+    Ok(true)
 }
 
 async fn process_event_assignment(

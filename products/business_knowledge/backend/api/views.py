@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import QuerySet
 
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -19,6 +20,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import groups
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
@@ -32,7 +34,8 @@ from ..constants import (
     BK_SEARCH_MAX_LIMIT,
 )
 from ..file_parse import FileParseError
-from ..models import GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
+from ..llm_telemetry import RetrievalTrace
+from ..models import AddedBy, GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
 from ..models.constants import CrawlMode
 from ..temporal.coordinator import IngestSourceInputs, RefreshSourceInputs
 from .serializers import (
@@ -47,6 +50,7 @@ from .serializers import (
     KnowledgeDocumentWindowSerializer,
     KnowledgeGapSuggestionSerializer,
     KnowledgeSearchResultSerializer,
+    KnowledgeSourceDocumentSerializer,
     KnowledgeSourceSerializer,
     UpdateTextSourceSerializer,
     UpdateUrlSourceSerializer,
@@ -81,9 +85,47 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id)
 
-    @extend_schema(responses={200: KnowledgeSourceSerializer(many=True)})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive substring match against the source name and URL.",
+            ),
+            OpenApiParameter(
+                "source_type",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=[choice.value for choice in SourceType],
+                description="Filter to a single source type (text, url, or file).",
+            ),
+            OpenApiParameter(
+                "added_by",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=[choice.value for choice in AddedBy],
+                description="Filter by who added the source: human (you added it) or learned (from a resolved support ticket).",
+            ),
+        ],
+        responses={200: KnowledgeSourceSerializer(many=True)},
+    )
     def list(self, request: Request, **kwargs) -> Response:
-        sources = logic.list_for_team(self.team_id)
+        source_type = request.query_params.get("source_type") or None
+        if source_type is not None and source_type not in SourceType.values:
+            raise exceptions.ValidationError({"source_type": "Must be one of: text, url, file."})
+        added_by = request.query_params.get("added_by") or None
+        if added_by is not None and added_by not in AddedBy.values:
+            raise exceptions.ValidationError({"added_by": "Must be one of: human, learned."})
+        sources = logic.list_for_team(
+            self.team_id,
+            search=request.query_params.get("search") or None,
+            source_type=source_type,
+            added_by=added_by,
+        )
         page = self.paginate_queryset(sources)
         if page is not None:
             return self.get_paginated_response(KnowledgeSourceSerializer(instance=page, many=True).data)
@@ -247,7 +289,10 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except KnowledgeSource.DoesNotExist:
             raise exceptions.NotFound()
 
-        _ensure_user_managed_source(source)
+        if source.is_generated:
+            if source.source_type != SourceType.TEXT:
+                _ensure_user_managed_source(source)
+            return self._update_text_or_file_source(source, request)
         if source.source_type == SourceType.URL.value:
             return self._update_url_source(source, request)
         if source.source_type == SourceType.FILE.value:
@@ -291,6 +336,10 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except logic.TextTooLargeError:
             raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."})
+        except logic.GeneratedSourceHasMultipleDocuments:
+            raise exceptions.ValidationError(logic.GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE)
+        except logic.InvalidGeneratedKnowledgeDocument:
+            raise exceptions.ValidationError("Couldn't save this learned source. Refresh the page and try again.")
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
         except logic.GeneratedSourceReadOnlyError:
@@ -327,6 +376,30 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.NotFound()
         return Response(KnowledgeSourceSerializer(instance=updated).data)
 
+    @extend_schema(responses={200: KnowledgeSourceDocumentSerializer(many=True)})
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="documents",
+        required_scopes=["business_knowledge:read"],
+    )
+    def documents(self, request: Request, pk: str, **kwargs) -> Response:
+        try:
+            source_id = UUID(pk)
+        except (ValueError, DjangoValidationError):
+            raise exceptions.NotFound()
+        documents = logic.list_live_documents_for_source(source_id, self.team_id)
+        if documents is None:
+            raise exceptions.NotFound()
+        page = self.paginate_queryset(documents)
+        serializer = KnowledgeSourceDocumentSerializer(
+            instance=page if page is not None else documents,
+            many=True,
+        )
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
     @extend_schema(responses={200: {"type": "object", "properties": {"text": {"type": "string"}}}})
     @action(detail=True, methods=["get"], url_path="text")
     def text(self, request: Request, pk: str, **kwargs) -> Response:
@@ -336,6 +409,10 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.NotFound()
         try:
             content = logic.get_source_text_for_team(source_id, self.team_id)
+        except logic.GeneratedSourceHasMultipleDocuments:
+            raise exceptions.ValidationError(logic.GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE)
+        except logic.InvalidGeneratedKnowledgeDocument:
+            raise exceptions.ValidationError("Couldn't load this learned source. Refresh the page and try again.")
         except logic.GeneratedSourceReadOnlyError:
             raise exceptions.PermissionDenied(detail="Generated sources must be read through document windows.")
         if content is None:
@@ -513,12 +590,22 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = max(1, min(limit, BK_SEARCH_MAX_LIMIT))
         rerank = self._parse_bool_param(request, "rerank", default=False)
         search_limit = limit * 2 if rerank else limit
-        results = logic.search_knowledge_for_team(self.team, query.strip(), limit=search_limit)
+        trace = RetrievalTrace(surface="api")
+        results = logic.search_knowledge_for_team(self.team, query.strip(), limit=search_limit, trace=trace)
         if rerank:
-            results = logic.rerank_chunks(self.team, query.strip(), results, top_k=limit)
+            results = logic.rerank_chunks(self.team, query.strip(), results, top_k=limit, trace=trace)
         # `search_knowledge` expands each anchor with its ordinal neighbours, so it
         # can return up to ~3x the anchor limit. Trim to honor the requested bound.
         results = results[:limit]
+        try:
+            posthoganalytics.capture(
+                distinct_id=str(self.team.uuid),
+                event="business knowledge searched",
+                properties={"result_count": len(results), "surface": "api"},
+                groups=groups(team=self.team),
+            )
+        except Exception:
+            logger.warning("business_knowledge_search_capture_failed", team_id=self.team_id, exc_info=True)
         return Response(KnowledgeSearchResultSerializer(instance=results, many=True).data)
 
     def _parse_bool_param(self, request: Request, name: str, *, default: bool) -> bool:

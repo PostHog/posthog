@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.apollo import (
     ApolloResumeConfig,
     apollo_source,
@@ -60,7 +58,7 @@ class ApolloSource(ResumableSource[ApolloSourceConfig, ApolloResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APOLLO,
+            name=ExternalDataSourceType.APOLLO,
             category=DataWarehouseSourceCategory.CRM,
             label="Apollo",
             caption="""Enter your Apollo API key to pull your saved contacts, accounts, and deals into the PostHog Data warehouse, along with your sequences, outreach emails, calls, and tasks, and the users and pipeline stages they reference.
@@ -68,7 +66,7 @@ class ApolloSource(ResumableSource[ApolloSourceConfig, ApolloResumeConfig]):
 You can create an API key in Apollo under Settings > Integrations > API. API access requires a paid Apollo plan. Note that Apollo search results are capped at 50,000 records per stream.""",
             iconPath="/static/services/apollo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/apollo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

@@ -13,10 +13,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { EventDetails } from 'scenes/activity/explore/EventDetails'
-import { ViewLinkButton } from 'scenes/data-warehouse/ViewLinkModal'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
-import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -93,10 +90,14 @@ import { CampaignMappingCellActions } from '~/scenes/web-analytics/tabs/marketin
 import { getMappableColumn } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/CampaignMapping/mappingUtils'
 import { EventType, InsightLogicProps } from '~/types'
 
+import { ViewLinkButton } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
+import { PersonDeleteModal } from 'products/persons/frontend/components/PersonDeleteModal'
+
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
 import { DataTableViewReplays } from './DataTableViewReplays'
+import { ExpandedEventRow } from './ExpandedEventRow'
 import { TableViewSupportedQueryType } from './TableView/tableViewLogic'
 
 export enum ColumnFeature {
@@ -756,12 +757,16 @@ export function DataTable({
                         onRowExpand: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
                         onRowCollapse: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
                         expandedRowRender: function renderExpand({ result }: DataTableRow) {
-                            if (isEventsQuery(query.source) && Array.isArray(result)) {
-                                return <EventDetails event={result[columnsInResponse.indexOf('*')] ?? {}} />
+                            const event =
+                                isEventsQuery(query.source) && Array.isArray(result)
+                                    ? (result[columnsInResponse.indexOf('*')] ?? {})
+                                    : result && !Array.isArray(result)
+                                      ? (result as EventType)
+                                      : null
+                            if (!event) {
+                                return undefined
                             }
-                            if (result && !Array.isArray(result)) {
-                                return <EventDetails event={result as EventType} />
-                            }
+                            return <ExpandedEventRow event={event} />
                         },
                         rowExpandable: ({ result }: DataTableRow) => !!result,
                         noIndent: true,
@@ -965,6 +970,7 @@ export function DataTable({
                 setQuery={setQuery}
                 fileNameForExport={context?.fileNameForExport}
                 excludedColumns={context?.dataTableExportExcludedColumns}
+                downloadQuery={context?.dataTableExportQuery}
             />
         ) : null,
         showExport && showOpenEditorButton ? (
@@ -1070,6 +1076,7 @@ export function DataTable({
                                 data-attr={dataAttr}
                                 className="DataTable"
                                 allowContentScroll={context?.dataTableAllowContentScroll}
+                                stickyHeader={context?.dataTableStickyHeader}
                                 loading={responseLoading && !nextDataLoading && !newDataLoading}
                                 columns={lemonColumns}
                                 tableLayout={context?.tableLayout}

@@ -31,6 +31,9 @@ const safeStorage = vi.hoisted(() => ({
 }));
 
 vi.mock("electron", () => ({ safeStorage }));
+vi.mock("node-machine-id", () => ({
+  machineIdSync: () => "test-machine-id",
+}));
 
 beforeAll(() => {
   vi.spyOn(crypto, "scryptSync").mockReturnValue(Buffer.alloc(32));

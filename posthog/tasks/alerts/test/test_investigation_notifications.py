@@ -14,8 +14,8 @@ from posthog.tasks.alerts.investigation_notifications import (
     run_investigation_notification_safety_net,
 )
 
-from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
+from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.product_analytics.backend.facade.models import Insight
 
 NOW = datetime(2026, 5, 4, 12, 0, 0, tzinfo=UTC)
@@ -47,6 +47,7 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
         notification_suppressed_by_agent: bool = False,
         targets_notified: dict | None = None,
         state: str = AlertState.FIRING,
+        triggered_metadata: dict | None = None,
     ) -> AlertCheck:
         check = AlertCheck.objects.create(
             alert_configuration=self.alert,
@@ -56,6 +57,7 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
             notification_sent_at=notification_sent_at,
             notification_suppressed_by_agent=notification_suppressed_by_agent,
             targets_notified=targets_notified or {},
+            triggered_metadata=triggered_metadata,
         )
         # `created_at` is auto_now_add — bypass with an UPDATE so the parametrized
         # ages drive the safety-net's cutoff predicate.
@@ -173,6 +175,17 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
             age_minutes=INVESTIGATION_RUNNING_GRACE_MINUTES + 60,
             investigation_status=None,
             targets_notified={"users": ["legacy@posthog.com"]},
+        )
+        notified = run_investigation_notification_safety_net()
+        assert notified == 0
+        mock_dispatch.assert_not_called()  # type: ignore[attr-defined]
+
+    @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
+    def test_skips_evaluation_skipped_check(self, mock_dispatch: object) -> None:
+        self._make_check(
+            age_minutes=INVESTIGATION_RUNNING_GRACE_MINUTES + 60,
+            investigation_status=None,
+            triggered_metadata={"skipped_reason": "Not enough completed intervals after the evaluation delay."},
         )
         notified = run_investigation_notification_safety_net()
         assert notified == 0

@@ -137,10 +137,19 @@ export const sourcesDataLogic = kea<sourcesDataLogicType>([
                     try {
                         const res = await api.externalDataSources.list(methodOptions)
                         breakpoint()
-
+                        const results = [...res.results]
+                        let next = res.next
+                        while (next) {
+                            // nosemgrep: prefer-codegen-api -- Follows the pagination URL the server returns.
+                            const page = await api.get<PaginatedResponse<ExternalDataSource>>(next, methodOptions)
+                            breakpoint()
+                            results.push(...page.results)
+                            next = page.next
+                        }
                         cache.abortController = null
 
-                        return res
+                        const response: PaginatedResponse<ExternalDataSource> = { ...res, results, next: null }
+                        return response
                     } catch (error: any) {
                         // Transient failures shouldn't surface as exceptions:
                         //   - 403: the user has no access to the endpoint

@@ -22,27 +22,34 @@ from posthog.schema import LogsAlertFilters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.exceptions import as_drf_validation_error
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils import relative_date_parse
 
-from products.alerts.backend.facade.api import (
-    DESTINATION_SPECS,
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    AlertScheduleRestriction,
-    DestinationType,
+from products.alerts.backend.facade.destinations import (
     build_alert_destination_config,
+    configured_destination_template_ids,
     create_alert_destination_hog_functions,
+    destination_handles_event_kind,
+    destination_template_id,
     list_alert_destination_groups,
-    owned_alert_destinations_qs,
+    redact_destination_data,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
-    validate_and_normalize_schedule_restriction,
     validate_destination_data,
 )
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
+    PagerDutyRegion,
+    PagerDutySeverity,
+)
+from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
+from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
@@ -55,6 +62,7 @@ from products.logs.backend.alert_state_machine import (
     AlertSnapshot,
     AlertState,
     CheckResult,
+    IncidentCloseReason,
     InvalidTransition,
     NotificationAction,
     apply_disable,
@@ -66,7 +74,11 @@ from products.logs.backend.alert_state_machine import (
     apply_user_reset,
     evaluate_alert_check,
 )
-from products.logs.backend.facade.api import next_allowed_check_at
+from products.logs.backend.facade.api import (
+    close_incident_before_delete,
+    close_incident_on_commit,
+    next_allowed_check_at,
+)
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
 ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
@@ -156,11 +168,6 @@ class LogsAlertFiltersField(serializers.JSONField):
         return value
 
 
-@extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
-class ScheduleRestrictionField(serializers.JSONField):
-    pass
-
-
 class LogsAlertDestinationResponseSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(child=serializers.UUIDField())
 
@@ -179,6 +186,20 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
     webhook_url = serializers.CharField(
         required=False,
         help_text="Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret.",
+    )
+    pagerduty_routing_key = serializers.CharField(
+        required=False,
+        help_text="PagerDuty integration key reduced to its last four characters.",
+    )
+    pagerduty_severity = serializers.ChoiceField(
+        choices=[choice.value for choice in PagerDutySeverity],
+        required=False,
+        help_text="Severity of the PagerDuty incident.",
+    )
+    pagerduty_region = serializers.ChoiceField(
+        choices=[choice.value for choice in PagerDutyRegion],
+        required=False,
+        help_text="PagerDuty service region the events go to.",
     )
 
 
@@ -399,22 +420,16 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES)))
     def get_destination_types(self, obj: LogsAlertConfiguration) -> list[str]:
-        # Only template_id is read. Reading the whole destination would pull its stored
-        # inputs, several KB per row, for every alert on the page.
         # N+1 is acceptable: max 20 alerts per team, each query a fast indexed lookup.
-        configured_template_ids = set(
-            owned_alert_destinations_qs(
-                team_id=obj.team_id,
-                alert_ids=[str(obj.id)],
-                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-            )
-            .values_list("template_id", flat=True)
-            .distinct()
+        configured_template_ids = configured_destination_template_ids(
+            team_id=obj.team_id,
+            alert_id=str(obj.id),
+            allowed_event_ids=LOGS_ALERT_EVENT_IDS,
         )
         return sorted(
             destination_type.value
             for destination_type in LOGS_DESTINATION_TYPES
-            if DESTINATION_SPECS[destination_type].template_id in configured_template_ids
+            if destination_template_id(destination_type) in configured_template_ids
         )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -553,6 +568,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             # state at all. All transitions return an Outcome; apply_outcome is the single
             # place that actually writes to `state`/`consecutive_failures`.
             snapshot = instance.to_snapshot()
+            state_before = instance.state
+            close_reason: IncidentCloseReason | None = None
             if enabled_change is True:
                 if instance.first_enabled_at is None:
                     instance.first_enabled_at = timezone.now()
@@ -561,13 +578,25 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 apply_outcome(instance, apply_enable(snapshot), kind=LogsAlertEvent.Kind.ENABLE)
             elif enabled_change is False:
                 apply_outcome(instance, apply_disable(snapshot), kind=LogsAlertEvent.Kind.DISABLE)
+                close_reason = IncidentCloseReason.DISABLED
             elif snooze_data is not _SENTINEL:
                 if snooze_data is None:
                     apply_outcome(instance, apply_unsnooze(snapshot), kind=LogsAlertEvent.Kind.UNSNOOZE)
                 else:
                     apply_outcome(instance, apply_snooze(snapshot), kind=LogsAlertEvent.Kind.SNOOZE)
+                    close_reason = IncidentCloseReason.SNOOZED
             elif threshold_changed:
                 apply_outcome(instance, apply_threshold_change(snapshot), kind=LogsAlertEvent.Kind.THRESHOLD_CHANGE)
+                close_reason = IncidentCloseReason.CONFIG_CHANGED
+            # The edge check inside decides whether a close goes out, so a new branch above that forgets
+            # its reason still closes the incident.
+            close_incident_on_commit(
+                team_id=instance.team_id,
+                alert_id=str(instance.id),
+                state_before=state_before,
+                state_after=instance.state,
+                reason=close_reason or IncidentCloseReason.CONFIG_CHANGED,
+            )
 
             # snooze_until is a timestamp column, not a state — carry it alongside the state
             # transition so the serializer's single save persists both.
@@ -665,7 +694,7 @@ class LogsAlertConfigurationDetailSerializer(LogsAlertConfigurationSerializer):
             {
                 "hog_function_ids": list(group.hog_function_ids),
                 "enabled": group.fully_enabled,
-                **DESTINATION_SPECS[DestinationType(group.data["type"])].redact(group.data),
+                **redact_destination_data(group.data),
             }
             for group in groups
         ]
@@ -789,6 +818,23 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
     webhook_url = serializers.URLField(
         required=False,
         help_text="HTTPS endpoint to post to. Required for webhook and teams.",
+    )
+    pagerduty_routing_key = serializers.CharField(
+        required=False,
+        trim_whitespace=True,
+        help_text="Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty.",
+    )
+    pagerduty_severity = serializers.ChoiceField(
+        choices=[choice.value for choice in PagerDutySeverity],
+        required=False,
+        default=PagerDutySeverity.CRITICAL.value,
+        help_text="Severity PagerDuty records on the incident. Used when type=pagerduty.",
+    )
+    pagerduty_region = serializers.ChoiceField(
+        choices=[choice.value for choice in PagerDutyRegion],
+        required=False,
+        default=PagerDutyRegion.US.value,
+        help_text="PagerDuty service region of the account. Used when type=pagerduty.",
     )
 
     def validate(self, attrs: dict) -> dict:
@@ -1002,41 +1048,52 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         request=LogsAlertCreateDestinationSerializer,
         responses={201: LogsAlertDestinationResponseSerializer},
-        description="Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.",
+        description=(
+            "Create a notification destination for this alert. One HogFunction is created per alert event kind "
+            "(firing, resolved, ...) atomically. A PagerDuty destination gets the incident opened and incident closed "
+            "kinds instead. They follow every start and end of a firing, cooldown included, so each incident it "
+            "opens is resolved."
+        ),
     )
     @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["logs:write"])
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = LogsAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = cast(AlertDestinationData, serializer.validated_data)
+        event_kinds = [
+            kind for kind in EVENT_KINDS if destination_handles_event_kind(data["type"], EVENT_KIND_CONFIG[kind])
+        ]
 
         with transaction.atomic():
             alert = self._get_locked_alert()
             configs = [
                 build_alert_destination_config(
-                    team=alert.team,
                     spec=EVENT_KIND_CONFIG[kind],
                     alert_id=str(alert.id),
                     alert_name=alert.name,
                     data=data,
                     slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
                 )
-                for kind in EVENT_KINDS
+                for kind in event_kinds
             ]
-            hog_functions = create_alert_destination_hog_functions(
-                configs,
-                request=self.request,
-                alert_id=str(alert.id),
-                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-            )
+            try:
+                hog_function_ids = create_alert_destination_hog_functions(
+                    configs,
+                    team_id=alert.team_id,
+                    created_by_id=cast(User, request.user).id,
+                    alert_id=str(alert.id),
+                    allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+                )
+            except AlertDestinationValidationError as error:
+                raise as_drf_validation_error(error)
 
         report_user_action(
             request.user,
             "logs alert destination created",
-            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": list(EVENT_KINDS)},
+            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": event_kinds},
             request=request,
         )
-        response = LogsAlertDestinationResponseSerializer({"hog_function_ids": [hf.id for hf in hog_functions]})
+        response = LogsAlertDestinationResponseSerializer({"hog_function_ids": list(hog_function_ids)})
         return Response(response.data, status=201)
 
     @extend_schema(
@@ -1060,12 +1117,15 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             largest_server_group = max((len(group.hog_function_ids) for group in groups), default=0)
             if len(hog_function_ids) > max(MAX_DESTINATION_IDS_PER_DELETE_REQUEST, largest_server_group):
                 raise ValidationError({"hog_function_ids": "Too many destination IDs."})
-            soft_delete_alert_destinations(
-                team_id=self.team_id,
-                alert_id=str(alert.id),
-                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-                hog_function_ids=hog_function_ids,
-            )
+            try:
+                soft_delete_alert_destinations(
+                    team_id=self.team_id,
+                    alert_id=str(alert.id),
+                    allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+                    hog_function_ids=hog_function_ids,
+                )
+            except AlertDestinationValidationError as error:
+                raise as_drf_validation_error(error)
 
         report_user_action(
             request.user,
@@ -1332,6 +1392,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._track("updated", serializer.save())
 
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
+        close_incident_before_delete(team_id=instance.team_id, alert_id=str(instance.id), state=instance.state)
         with transaction.atomic():
             locked_instance = (
                 LogsAlertConfiguration.objects.select_for_update()

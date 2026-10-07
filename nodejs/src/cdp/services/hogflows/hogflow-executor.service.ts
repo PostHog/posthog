@@ -13,6 +13,7 @@ import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
+    InvocationBuildFailure,
     LogEntry,
     LogEntryLevel,
     MessageAssetRow,
@@ -87,6 +88,7 @@ export function createHogFlowInvocation(
         state: {
             event: globals.event,
             actionStepCount: 0,
+            customerTaskIdempotencyVersion: 1,
             variables: mergedVariables,
             // Seeded at run start and persisted with the state, because the flow itself isn't: the
             // job is re-loaded by functionId on every resume, so by the time a conversion lands the
@@ -139,6 +141,14 @@ export class HogFlowExecutorService {
             'email',
             usageReporter
         )
+        const hogFunctionSmsHandler = new HogFunctionHandler(
+            hogFlowFunctionsService,
+            recipientPreferencesService,
+            emailValidationService,
+            'sms',
+            usageReporter,
+            options
+        )
         const hogFunctionPushHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
             recipientPreferencesService,
@@ -155,7 +165,7 @@ export class HogFlowExecutorService {
             wait_until_time_window: new WaitUntilTimeWindowHandler(),
             random_cohort_branch: new RandomCohortBranchHandler(),
             function: hogFunctionHandler,
-            function_sms: hogFunctionHandler,
+            function_sms: hogFunctionSmsHandler,
             function_push: hogFunctionPushHandler,
             function_email: hogFunctionEmailHandler,
             exit: new ExitHandler(),
@@ -174,10 +184,12 @@ export class HogFlowExecutorService {
         invocations: CyclotronJobInvocationHogFlow[]
         metrics: MinimalAppMetric[]
         logs: LogEntry[]
+        buildFailures: InvocationBuildFailure[]
     }> {
         const metrics: MinimalAppMetric[] = []
         const logs: LogEntry[] = []
         const invocations: CyclotronJobInvocationHogFlow[] = []
+        const buildFailures: InvocationBuildFailure[] = []
 
         // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
         const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
@@ -198,6 +210,7 @@ export class HogFlowExecutorService {
                 fn: hogFlow,
                 filters: trigger.filters,
                 filterGlobals,
+                caller: 'build_hogflow_invocations',
             })
 
             // Add any generated metrics and logs to our collections. These are queued straight by the
@@ -212,6 +225,17 @@ export class HogFlowExecutorService {
             )
             logs.push(...filterResults.logs)
 
+            // Checked against undefined, not for truthiness: a thrown error whose message is empty is
+            // still a failure, and treating it as success drops the event with no record of it.
+            if (filterResults.error !== undefined) {
+                buildFailures.push({
+                    sourceId: hogFlow.id,
+                    sourceKind: 'hog_flow',
+                    step: 'filter',
+                    error: String(filterResults.error),
+                })
+            }
+
             if (!filterResults.match) {
                 continue
             }
@@ -224,6 +248,7 @@ export class HogFlowExecutorService {
             invocations,
             metrics,
             logs,
+            buildFailures,
         }
     }
 
@@ -333,6 +358,7 @@ export class HogFlowExecutorService {
             fn: hogFlow,
             filters: { bytecode: hogFlow.conversion.bytecode, properties: hogFlow.conversion.filters },
             filterGlobals: invocation.filterGlobals,
+            caller: 'hogflow_conversion',
         })
         if (!filterResult.match) {
             return null
@@ -451,12 +477,14 @@ export class HogFlowExecutorService {
                 fn: hogFlow,
                 filters: hogFlow.trigger.filters,
                 filterGlobals: invocation.filterGlobals,
+                caller: 'hogflow_exit_condition',
             })
             triggerMatch = filterResult.match
         }
         if (hogFlow.conversion?.filters?.length && person) {
             if (hogFlow.conversion.bytecode?.length) {
                 const filterResult = await filterFunctionInstrumented({
+                    caller: 'hogflow_exit_condition',
                     fn: hogFlow,
                     filters: {
                         bytecode: hogFlow.conversion.bytecode || [],
@@ -595,13 +623,14 @@ export class HogFlowExecutorService {
                     hogExecutorOptions: options?.hogExecutorOptions,
                 })
 
-                if (handlerResult.error) {
-                    throw handlerResult.error instanceof Error ? handlerResult.error : new Error(handlerResult.error)
-                }
-
+                // Stored before the error so `on_error: continue` still sees what the step returned.
                 if (handlerResult.result) {
                     this.trackActionResult(result, currentAction, handlerResult.result)
                     result.execResult = handlerResult.result
+                }
+
+                if (handlerResult.error) {
+                    throw handlerResult.error instanceof Error ? handlerResult.error : new Error(handlerResult.error)
                 }
 
                 if (handlerResult.finished) {
@@ -771,7 +800,8 @@ export class HogFlowExecutorService {
     }
 
     /**
-     * If the action has on_error set to 'continue' then we continue to the next action instead of failing the flow
+     * Unless the action has on_error set to 'abort' we continue to the next action instead of failing the flow.
+     * An action without on_error gets the default, which is to continue.
      */
     private maybeContinueToNextActionOnError(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
@@ -785,9 +815,10 @@ export class HogFlowExecutorService {
             if (invocation.state.currentAction?.delayUntilUnresolved) {
                 return
             }
-            // If current action's on_error is set to 'continue', we move to the next action instead of failing the flow
+            // Unless the current action's on_error is set to 'abort', we move to the next action instead of
+            // failing the flow. 'continue' is the default, so an action that never had on_error set gets it too.
             const currentAction = ensureCurrentAction(invocation)
-            if (currentAction?.on_error === 'continue') {
+            if (currentAction?.on_error !== 'abort') {
                 const nextAction = findContinueAction(invocation)
                 if (nextAction) {
                     this.logAction(

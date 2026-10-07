@@ -11,6 +11,7 @@ from axes.exceptions import AxesBackendPermissionDenied
 from axes.handlers.proxy import AxesProxyHandler
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from rest_framework.response import Response
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json
@@ -18,8 +19,9 @@ from webauthn.helpers.decode_credential_public_key import decode_credential_publ
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
 from posthog.api.authentication import EmailVerificationPending, axes_locked_out, is_email_verified_for_login
-from posthog.auth import SessionAuthentication, WebAuthnAuthenticationResponse, WebauthnBackend
+from posthog.auth import SessionAuthentication, WebAuthnAuthenticationResponse, WebauthnBackend, refuse_blocked_account
 from posthog.event_usage import report_user_logged_in
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.models import User
@@ -32,6 +34,7 @@ from posthog.passkey import (
     verify_passkey_authentication_response,
     verify_passkey_registration_response,
 )
+from posthog.permissions import TimeSensitiveActionPermission
 from posthog.rate_limit import WebAuthnSignupRegistrationThrottle
 from posthog.session.activity import revoke_other_sessions_for_request
 from posthog.tasks.email import send_passkey_added_email, send_passkey_removed_email
@@ -81,7 +84,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
     4. POST /verify_complete - Verify assertion, mark credential as verified
     """
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, TimeSensitiveActionPermission]
     authentication_classes = [SessionAuthentication]
 
     @action(detail=False, methods=["POST"], url_path="begin")
@@ -280,6 +283,8 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             if policy_response := self._enforce_login_policy(request, verified_user):
                 return policy_response
 
+            refuse_blocked_account(request, verified_user, call_site="passkey_login", impersonated=False)
+
             # Login the user with the WebauthnBackend
             login(request, verified_user, backend="posthog.auth.WebauthnBackend")
 
@@ -298,6 +303,8 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         except EmailVerificationPending:
             # The DRF handler formats this as a 401 with the user uuid, the same
             # response as the password login path.
+            raise
+        except AuthenticationFailed:
             raise
         except Exception as e:
             logger.exception("webauthn_login_error", error=str(e))
@@ -489,7 +496,7 @@ class WebAuthnSignupRegistrationViewSet(viewsets.ViewSet):
             )
 
         # Check if email is already registered
-        if User.objects.filter(email__iexact=email).exists():
+        if EmailLookupHandler.users_matching_email(email).exists():
             return Response(
                 {"error": "An account with this email already exists."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -628,7 +635,7 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
     Allows users to list, rename, and delete their passkeys.
     """
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, TimeSensitiveActionPermission]
     authentication_classes = [SessionAuthentication]
 
     def list(self, request: Request) -> Response:

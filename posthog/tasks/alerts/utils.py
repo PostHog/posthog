@@ -18,17 +18,16 @@ from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.alerts.backend.delivery_slo import alert_delivery_slo
-from products.alerts.backend.destinations import (
+from products.alerts.backend.facade.api import LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
+from products.alerts.backend.facade.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
-    AlertDelivery,
     alert_internal_event_delivered,
     flush_alert_internal_events,
     list_active_alert_destinations,
     produce_alert_internal_event,
     serialize_deliveries,
 )
-from products.alerts.backend.facade.api import send_alert_email
+from products.alerts.backend.facade.email import send_alert_email
 from products.alerts.backend.insight_alert_state_machine import (
     apply_invalid_configuration,
     apply_outcome,
@@ -36,7 +35,9 @@ from products.alerts.backend.insight_alert_state_machine import (
     should_notify,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
-from products.alerts.backend.scheduling import (
+from products.alerts_platform.backend.facade.contracts import AlertDelivery
+from products.alerts_platform.backend.facade.delivery_slo import alert_delivery_slo
+from products.alerts_platform.backend.facade.scheduling import (
     EVERY_15_MINUTES_CADENCE_MINUTES as EVERY_15_MINUTES_CADENCE_MINUTES,
     REAL_TIME_CADENCE_MINUTES as REAL_TIME_CADENCE_MINUTES,
     is_weekend,
@@ -68,9 +69,15 @@ class AlertEvaluationResult:
     triggered_dates: list[str] | None = None
     interval: str | None = None
     triggered_metadata: dict | None = None
+    skipped_reason: str | None = None
 
 
-WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
+WRAPPER_NODE_KINDS = [
+    NodeKind.DATA_TABLE_NODE,
+    NodeKind.DATA_VISUALIZATION_NODE,
+    NodeKind.BI_VISUALIZATION_NODE,
+    NodeKind.INSIGHT_VIZ_NODE,
+]
 
 NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.BOLD_NUMBER,
@@ -122,18 +129,21 @@ def _next_check_time_core(alert: AlertConfiguration) -> datetime:
         now=datetime.now(pytz.UTC),
         tz_name=alert.team.timezone,
         next_check_at=alert.next_check_at,
+        alert_id=alert.id,
         schedule_start_time=alert.schedule_start_time,
     )
 
 
 def next_check_time(alert: AlertConfiguration) -> datetime:
     """
-    Rule by calculation interval
+    Rule by calculation interval. Each alert keeps a stable offset after the interval boundary
+    (alert_check_offset), so alerts that share an interval do not all run at its start.
 
-    hourly alerts -> want them to run at the same min every hour (same min comes from creation time so that they're spread out and don't all run at the start of the hour)
-    daily alerts -> want them to run at the start of the day (around 1am) by the timezone of the team
-    weekly alerts -> want them to run at the start of the week (Mon around 3am) by the timezone of the team
-    monthly alerts -> want them to run at the start of the month (first day of the month around 4am) by the timezone of the team
+    every 15 minutes alerts -> 1 to 3 minutes after each quarter hour
+    hourly alerts -> 2 to 13 minutes after each hour
+    daily alerts -> in the 1am hour of the team's timezone
+    weekly alerts -> in the 3am hour on Monday, in the team's timezone
+    monthly alerts -> in the 4am hour on the first day of the month, in the team's timezone
     """
     candidate = _next_check_time_core(alert)
     return snap_candidate_utc_to_schedule_restriction(alert, candidate)
@@ -319,6 +329,9 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
             "insight_url": insight_url,
             "insight_name": alert.insight.name,
             "next_check_at": alert.next_check_at,
+            # The template drops its "review the alert settings" advice for this code, because
+            # a check the AI detector could not complete is not something the owner can fix.
+            "detector_unavailable": error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
         },
     )
     accepted_at = datetime.now(UTC).isoformat()
@@ -426,6 +439,18 @@ def prepare_alert_insight_chart_url(
         return None
 
 
+def detector_verdict_event_fields(alert_check: AlertCheck) -> dict[str, str]:
+    """The model's verdict, as its own `$insight_alert_firing` properties.
+
+    The rationale is already inside the breach text, but a destination that wants to place
+    it on its own, in its own Slack block or its own webhook field, cannot split it back
+    out of a sentence. Absent for every detector type that reports no verdict.
+    """
+    metadata = alert_check.triggered_metadata or {}
+    fields = {"anomaly_rationale": metadata.get("rationale"), "anomaly_kind": metadata.get("kind")}
+    return {key: str(value) for key, value in fields.items() if value}
+
+
 def dispatch_alert_notification(
     alert: AlertConfiguration,
     alert_check: AlertCheck,
@@ -487,6 +512,13 @@ def dispatch_alert_notification(
                         alert_check_id=alert_check.id,
                     )
                     return None
+                if alert_check.error.get("code") == "invalid_configuration":
+                    targets = alert.get_subscribed_users_emails()
+                    if not targets:
+                        return []
+                    return send_notifications_for_disabled(
+                        alert, alert_check.error["message"], targets, idempotency_key=key
+                    )
                 return send_notifications_for_errors(alert, alert_check.error, idempotency_key=key)
             case AlertState.FIRING:
                 if not breaches:
@@ -495,7 +527,7 @@ def dispatch_alert_notification(
                         "caller must pass the breaches list from AlertEvaluationResult"
                     )
                 logger.info("Sending alert firing notifications", alert_id=alert.id)
-                properties = dict(extra_properties) if extra_properties else {}
+                properties = {**detector_verdict_event_fields(alert_check), **(extra_properties or {})}
                 # Attach the chart for any firing alert whose caller did not already supply
                 # one, so ordinary threshold and anomaly alerts get the chart too, not just
                 # the anomaly investigation path (which renders it early and passes it in).
@@ -585,6 +617,19 @@ def add_alert_check(
     """
     # Evaluation never ran (query error): record an all-empty result so the check row still lands.
     result = evaluation_result if evaluation_result is not None else AlertEvaluationResult(value=None, breaches=None)
+    if result.skipped_reason is not None:
+        alert.last_checked_at = datetime.now(UTC)
+        alert.next_check_at = next_check_time(alert)
+        alert_check = AlertCheck.objects.create(
+            alert_configuration=alert,
+            calculated_value=None,
+            condition=alert.condition,
+            state=alert.state,
+            targets_notified={},
+            triggered_metadata={**(result.triggered_metadata or {}), "skipped_reason": result.skipped_reason},
+        )
+        alert.save(update_fields=["last_checked_at", "next_check_at"])
+        return alert_check, False
     error_message = error.get("message") if error else None
     outcome = evaluate_alert_check(
         alert,
@@ -631,6 +676,16 @@ def disable_invalid_alert(
     as an exception. Returns the recorded ERRORED AlertCheck so callers can reference it.
     """
     logger.warning("check_alert.auto_disabling", alert_id=alert.id, reason=reason)
+    ph_background_capture()(
+        distinct_id=str(alert.id),
+        event="alert auto disabled",
+        properties={
+            "team_id": alert.team_id,
+            "alert_id": str(alert.id),
+            "error_code": error_code,
+            "reason": reason,
+        },
+    )
     state_fields = apply_invalid_configuration(alert)
     alert.last_checked_at = datetime.now(UTC)
     alert.save(update_fields=[*state_fields, "last_checked_at"])
@@ -653,11 +708,13 @@ def disable_invalid_alert(
     return alert_check
 
 
-def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targets: list[str]) -> list[AlertDelivery]:
+def send_notifications_for_disabled(
+    alert: AlertConfiguration, reason: str, targets: list[str], *, idempotency_key: str | None = None
+) -> list[AlertDelivery]:
     logger.info("Sending alert disabled notification", alert_id=alert.id, reason=reason)
 
     subject = f"PostHog alert {alert.name} for {alert.team.name} has been disabled"
-    campaign_key = f"alert-disabled-notification-{alert.id}-{timezone.now().timestamp()}"
+    campaign_key = f"alert-disabled-notification-{alert.id}-{idempotency_key or timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}?alert_id={alert.id}"
     send_alert_email(

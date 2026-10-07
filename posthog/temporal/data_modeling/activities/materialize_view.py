@@ -4,6 +4,7 @@ import asyncio
 import dataclasses
 
 from django.conf import settings
+from django.db import transaction
 
 import pyarrow as pa
 import deltalake
@@ -14,16 +15,21 @@ from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ParsingError
+from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.visitor import CloningVisitor
 
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.client.execute import ClickHouseExternalTable
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
@@ -34,6 +40,8 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseError,
     get_client as get_clickhouse_client,
 )
+from posthog.temporal.common.db_errors import is_transient_db_error
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.incremental_write import (
@@ -56,6 +64,7 @@ from products.data_modeling.backend.facade.api import (
     get_incremental_config,
     get_incremental_state,
     inject_incremental_filter,
+    record_incremental_history,
     set_incremental_state,
     window_start,
 )
@@ -64,7 +73,7 @@ from products.data_modeling.backend.facade.models import DataModelingJob, DataWa
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_quality.backend.facade import api as data_quality_facade
 from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, QualityAuditMode
-from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
+from products.data_warehouse.backend.facade.api import delta_proxy_storage_options, ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding
 from products.warehouse_sources.backend.facade.pipelines import CDPProducer
@@ -112,22 +121,77 @@ def _print_untouched(
     return print_prepared_ast(prepared_query, context=context, dialect="clickhouse", settings=settings, stack=[])
 
 
+@frozen
+class _DescribedColumn:
+    name: str
+    ch_type: str
+
+
+def _plan_prompt_jev(
+    query_node: ast.SelectQuery | ast.SelectSetQuery,
+    team: Team,
+    context: HogQLContext,
+    resolver_factory: ResolverFactory,
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Run the model's jev calls up front, so the query that materializes reads their results
+    from external tables registered on ``context``. The printer refuses a jev call it meets.
+
+    Planning types the query before any model call, so it resolves the view tree too and needs
+    the same cycle, depth and deadline bounds the printing pass gets."""
+    planned, tables = HogQLQueryExecutor(
+        query=query_node,
+        team=team,
+        context=context,
+        modifiers=context.modifiers,
+        limit_context=LimitContext.SAVED_QUERY,
+        resolver_factory=resolver_factory,
+    ).plan_prompt_jev()
+    for table in tables:
+        table.register(context)
+    return planned
+
+
 async def _describe_columns(
-    printed: str, query_parameters: dict[str, typing.Any], query_settings: dict[str, str] | None
-) -> dict[str, str]:
+    printed: str,
+    query_parameters: dict[str, typing.Any],
+    query_settings: dict[str, str] | None,
+    external_tables: list[ClickHouseExternalTable],
+) -> list[_DescribedColumn]:
+    """A select list is ordered and may repeat a name, so the probe returns a list, not a mapping.
+    `_reject_duplicate_output_columns` is what turns a repeat into a readable error."""
     async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
         async with client.apost_query(
             query=f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw",
             query_parameters=query_parameters,
             query_id=str(uuid.uuid4()),
             settings=query_settings,
+            external_tables=external_tables,
         ) as ch_response:
             table_describe_response = await ch_response.content.read()
-    columns: dict[str, str] = {}
+    columns: list[_DescribedColumn] = []
     for line in table_describe_response.decode("utf-8").splitlines():
         column_name, ch_type = line.strip().split("\t")
-        columns[column_name] = ch_type
+        columns.append(_DescribedColumn(name=column_name, ch_type=ch_type))
     return columns
+
+
+def _reject_duplicate_output_columns(columns: list[_DescribedColumn]) -> None:
+    # Folded because Delta compares field names without case, so `userId` beside `userid` is as
+    # unwritable as a literal repeat. Left to the write, that pair costs a full scan first.
+    first_spelling: dict[str, str] = {}
+    duplicates: list[str] = []
+    seen_duplicates: set[str] = set()
+    for column in columns:
+        folded = column.name.lower()
+        if folded in first_spelling:
+            for spelling in (first_spelling[folded], column.name):
+                if spelling not in seen_duplicates:
+                    seen_duplicates.add(spelling)
+                    duplicates.append(spelling)
+        else:
+            first_spelling[folded] = column.name
+    if duplicates:
+        raise DuplicateOutputColumnError(duplicates)
 
 
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
@@ -155,6 +219,32 @@ _clickhouse_query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CLICKHOUSE_QUERIE
 class EmptyHogQLResponseColumnsError(Exception):
     def __init__(self):
         super().__init__("After running a HogQL query, no columns were returned")
+
+
+class UnstorableIntegerError(NonReportableError):
+    """A column holds a whole number too large for the signed integer types Delta Lake has."""
+
+    def __init__(self, column: str) -> None:
+        super().__init__(
+            f'Column "{column}" has whole numbers larger than {2**63 - 1}, which is the largest a '
+            f"materialized table can store. Wrap the column in toString() to store it as text."
+        )
+        self.column = column
+
+
+class DuplicateOutputColumnError(NonReportableError):
+    """Both consumers of the probe address a column by name: the type wrapper rebuilds the select
+    list from it, and the arrow transform looks it up on the batch. Neither can say which of two
+    same-named columns is meant, so the repeat is refused rather than resolved arbitrarily."""
+
+    def __init__(self, duplicates: list[str]) -> None:
+        names = ", ".join(f'"{name}"' for name in duplicates)
+        super().__init__(
+            f"The query returns more than one column named {names}. "
+            "Names that differ only by case count as duplicates. "
+            "Give each output column a unique name, for example with an alias."
+        )
+        self.duplicates = duplicates
 
 
 def _incremental_enabled(team_id: int) -> bool:
@@ -274,7 +364,7 @@ class _CDPRowSink:
             # A missing write grant on the cdp_producer/ prefix is the same anticipated
             # provisioning gap `_list_files_to_produce` already tolerates quietly for reads (see its
             # `except PermissionError` branch) — not a bug worth paging on.
-            if not _is_s3_permission_denied(e):
+            if not _is_s3_permission_denied(e) and not isinstance(e, NonReportableError):
                 capture_exception(e)
             await self._logger.awarning(f"Failed to stage rows for CDP; discarding this run's staged rows: {e}")
             self.enabled = False
@@ -360,6 +450,7 @@ def get_aws_storage_options() -> dict[str, str]:
         }
 
     return {
+        **delta_proxy_storage_options(),
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
 
@@ -499,6 +590,53 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
+_SIGNED_EQUIVALENT_BY_BIT_WIDTH = {8: pa.int16(), 16: pa.int32(), 32: pa.int64(), 64: pa.int64()}
+
+
+def _signed_equivalent(arrow_type: pa.DataType) -> pa.DataType:
+    """The type Delta Lake stores this as. Unchanged unless an unsigned integer is in it."""
+    if pa.types.is_unsigned_integer(arrow_type):
+        return _SIGNED_EQUIVALENT_BY_BIT_WIDTH[arrow_type.bit_width]
+
+    if pa.types.is_large_list(arrow_type):
+        return pa.large_list(_signed_equivalent_field(arrow_type.value_field))
+
+    if pa.types.is_list(arrow_type):
+        return pa.list_(_signed_equivalent_field(arrow_type.value_field))
+
+    if pa.types.is_struct(arrow_type):
+        return pa.struct([_signed_equivalent_field(field) for field in arrow_type])
+
+    if pa.types.is_map(arrow_type):
+        return pa.map_(_signed_equivalent(arrow_type.key_type), _signed_equivalent(arrow_type.item_type))
+
+    return arrow_type
+
+
+def _signed_equivalent_field(field: pa.Field) -> pa.Field:
+    return field.with_type(_signed_equivalent(field.type))
+
+
+def _transform_unsigned_integers(batch: pa.RecordBatch) -> pa.RecordBatch:
+    """Cast unsigned integer columns to the signed types Delta Lake stores them as."""
+    signed_fields = [_signed_equivalent_field(field) for field in batch.schema]
+    if all(signed.type.equals(field.type) for signed, field in zip(signed_fields, batch.schema)):
+        return batch
+
+    columns: list[pa.Array] = []
+    for field in signed_fields:
+        try:
+            columns.append(pc.cast(batch.column(field.name), field.type))
+        except pa.ArrowInvalid as err:
+            raise UnstorableIntegerError(field.name) from err
+
+    signed_schema = pa.schema(
+        signed_fields,
+        metadata=typing.cast("dict[bytes | str, bytes | str] | None", batch.schema.metadata),
+    )
+    return pa.RecordBatch.from_arrays(columns, schema=signed_schema)
+
+
 async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, logger: FilteringBoundLogger) -> str:
     """Write a single empty parquet file under ``table_uri`` so a zero-row materialization
     is still queryable.
@@ -560,6 +698,13 @@ async def hogql_table(
         allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
     )
 
+    if PromptJevFinder.contains(query_node):
+        # A factory of its own: the deadline is wall clock, and the jev calls between the two
+        # passes would otherwise spend the printing pass's budget.
+        query_node = await database_sync_to_async_pool(_plan_prompt_jev)(
+            query_node, team, context, bounded_resolver_factory_for_view(view_name)
+        )
+
     factory = bounded_resolver_factory_for_view(view_name)
     prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
         query_node,
@@ -599,7 +744,9 @@ async def hogql_table(
     )
 
     try:
-        described_columns = await _describe_columns(printed, context.values, DESCRIBE_QUERY_SETTINGS)
+        described_columns = await _describe_columns(
+            printed, context.values, DESCRIBE_QUERY_SETTINGS, list(context.external_tables.values())
+        )
     except ClickHouseError as error:
         # ClickHouse cannot plan some shapes once GLOBAL is gone, such as an IN subquery inside an
         # aggregate function. The untouched query is the one that runs, so it always describes.
@@ -607,14 +754,18 @@ async def hogql_table(
             "DESCRIBE with local subqueries failed, retrying with the untouched query", error=str(error)
         )
         untouched = await database_sync_to_async_pool(_print_untouched)(prepared_hogql_query, context, settings)
-        described_columns = await _describe_columns(untouched, context.values, None)
+        described_columns = await _describe_columns(
+            untouched, context.values, None, list(context.external_tables.values())
+        )
+
+    _reject_duplicate_output_columns(described_columns)
 
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
-    for column_name, ch_type in described_columns.items():
-        if _needs_conversion(ch_type):
-            query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
+    for column in described_columns:
+        if _needs_conversion(column.ch_type):
+            query_typings.append((column.name, column.ch_type, get_call_tuple(column.ch_type)))
         else:
-            query_typings.append((column_name, ch_type, None))
+            query_typings.append((column.name, column.ch_type, None))
 
     has_type_to_convert = any(call_tuple is not None for _, _, call_tuple in query_typings)
     if has_type_to_convert:
@@ -674,20 +825,24 @@ async def hogql_table(
             nonlocal arrow_schema
             arrow_schema = schema
 
-        async for batch in client.astream_query_as_arrow(
-            arrow_printed,
-            query_parameters=context.values,
-            on_schema=capture_arrow_schema,
-        ):
-            batches_size = batches_size + batch.nbytes
-            batches.append(batch)
+        with tags_context(**context.read_tags()):
+            async for batch in client.astream_query_as_arrow(
+                arrow_printed,
+                query_parameters=context.values,
+                on_schema=capture_arrow_schema,
+                external_tables=list(context.external_tables.values()),
+            ):
+                batches_size = batches_size + batch.nbytes
+                batches.append(batch)
 
-            if batches_size >= MB_100_IN_BYTES:
-                await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
-                yield (_combine_batches(batches), ch_typings_pairs)
-                yielded_results = True
-                batches_size = 0
-                batches = []
+                if batches_size >= MB_100_IN_BYTES:
+                    await logger.adebug(
+                        f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
+                    )
+                    yield (_combine_batches(batches), ch_typings_pairs)
+                    yielded_results = True
+                    batches_size = 0
+                    batches = []
 
         if len(batches) > 0:
             await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
@@ -767,7 +922,8 @@ async def _build_person_property_sink(
         return sink if await sink.should_run() else None
     except Exception as e:
         await logger.awarning(f"Could not resolve person-property staging for this view: {e}")
-        capture_exception(e)
+        if not is_transient_db_error(e):
+            capture_exception(e)
         return None
 
 
@@ -784,7 +940,8 @@ async def _account_property_sync_enabled(
         return await sink.should_run()
     except Exception as error:
         await logger.awarning(f"Could not resolve account-property staging for this view: {error}")
-        capture_exception(error)
+        if not is_transient_db_error(error):
+            capture_exception(error)
         return False
 
 
@@ -794,7 +951,8 @@ async def _clear_person_property_staging(sink: PersonPropertyRowSink, logger: Fi
         await sink.clear()
     except Exception as e:
         await logger.awarning(f"Could not clear stale person-property staging: {e}")
-        capture_exception(e)
+        if not isinstance(e, NonReportableError):
+            capture_exception(e)
 
 
 async def _stage_person_property_batch(
@@ -821,7 +979,39 @@ async def _stage_person_property_batch(
         await sink.logger.awarning(f"Failed to stage person-property batch {batch_index}: {e}")
         if fatal:
             raise
-        capture_exception(e)
+        if not isinstance(e, NonReportableError):
+            capture_exception(e)
+
+
+FAILED_UPDATE_REASON_PREFIX = "incremental update failed: "
+
+
+def _failed_update_reason(error: Exception) -> str:
+    """Why a rebuild is happening, short enough for ``DataModelingJob.full_refresh_reason``."""
+    limit = DataModelingJob._meta.get_field("full_refresh_reason").max_length
+    assert limit is not None
+    return f"{FAILED_UPDATE_REASON_PREFIX}{error}"[:limit]
+
+
+@database_sync_to_async_pool
+def _drop_watermark_and_say_why(saved_query: DataWarehouseSavedQuery, job: DataModelingJob, reason: str) -> None:
+    """Clear the watermark and record the reason together, so a retry cannot find one without it."""
+    with transaction.atomic():
+        clear_incremental_state(saved_query)
+        job.full_refresh_reason = reason
+        job.save()
+
+
+def _reason_to_record(job: DataModelingJob, plan: WritePlan) -> str | None:
+    """The reason this run rebuilt, keeping the one a failed attempt of the same job wrote."""
+    if plan.incremental:
+        return None
+
+    recorded = job.full_refresh_reason
+    if recorded is not None and recorded.startswith(FAILED_UPDATE_REASON_PREFIX):
+        return recorded
+
+    return plan.reason
 
 
 async def _materialize_fully(
@@ -867,6 +1057,7 @@ async def _materialize_fully(
     async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
         batch = _transform_unsupported_decimals(batch)
         batch = _transform_date_and_datetimes(batch, ch_types)
+        batch = _transform_unsigned_integers(batch)
         batch = _force_nullable(batch)
         if tracker is not None:
             await asyncio.to_thread(tracker.check, batch)
@@ -962,6 +1153,7 @@ async def _materialize_incrementally(
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
+            batch = _transform_unsigned_integers(batch)
             batch = _force_nullable(batch)
 
             if batch.num_rows == 0:
@@ -994,7 +1186,7 @@ async def _materialize_incrementally(
         # Every one of these means the table and the query have diverged in a way an upsert can't
         # reconcile. Dropping the watermark makes the retry rebuild instead of writing rows that
         # would be wrong, so the failure costs a full refresh rather than silent corruption.
-        await database_sync_to_async_pool(clear_incremental_state)(objects.saved_query)
+        await _drop_watermark_and_say_why(objects.saved_query, objects.job, _failed_update_reason(err))
         if isinstance(err, SchemaDriftError):
             await logger.awarning(f"Rebuilding after schema drift: {err}")
         raise
@@ -1081,6 +1273,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
 
     objects = await _get_matview_input_objects(inputs)
     bind_data_modeling_log_context(inputs.team_id, objects.saved_query.id)
+    tag_queries(materialized_saved_query_id=str(objects.saved_query.id))
     await logger.ainfo(f"Starting materialization for node {objects.node.name}")
 
     table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.normalized_name)
@@ -1093,12 +1286,16 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         plan = dataclasses.replace(plan, incremental=False, reason="table missing")
     await logger.ainfo(f"Materializing node {objects.node.name}: {plan.reason}")
 
+    # Record this before writing any rows. A failed first seed still belongs in mode history.
+    if plan.config is not None:
+        await database_sync_to_async_pool(record_incremental_history)(objects.saved_query)
+
     # Recorded on the job so the runs UI can tell a rebuild's row count (the whole table) apart
     # from an incremental run's (only the rows synced in its window).
     objects.job.run_mode = (
         DataModelingJob.RunMode.INCREMENTAL if plan.incremental else DataModelingJob.RunMode.FULL_REFRESH
     )
-    objects.job.full_refresh_reason = None if plan.incremental else plan.reason
+    objects.job.full_refresh_reason = _reason_to_record(objects.job, plan)
     await database_sync_to_async_pool(objects.job.save)()
 
     person_property_sink = await _build_person_property_sink(

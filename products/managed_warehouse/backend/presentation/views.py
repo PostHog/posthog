@@ -11,7 +11,9 @@ per organization (not per team).
 """
 
 import re
+from collections.abc import Callable
 from datetime import date
+from functools import partial
 from typing import Literal, TypedDict
 from uuid import UUID
 
@@ -26,6 +28,7 @@ from rest_framework.response import Response
 from posthog.security.outbound_proxy import internal_requests
 
 from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG
+from products.managed_warehouse.backend.presentation import hogtower
 
 logger = structlog.get_logger(__name__)
 
@@ -135,7 +138,11 @@ def _request(
     timeout: int = 30,
     require_enabled: bool = True,
 ) -> Response:
-    """Proxy a request to the duckgres provisioning API, gated on the org's feature flag.
+    """Proxy a request to the managed-warehouse control plane, gated on the org's feature flag.
+
+    The control plane is duckgres (`DUCKGRES_API_URL`, /api/v1) unless `HOGTOWER_API_URL`
+    is set, in which case the same call is served by hogtower's /api/v2 through
+    `products.managed_warehouse.backend.presentation.hogtower`, which returns the duckgres v1 body.
 
     An empty path targets the org resource itself (`/api/v1/orgs/{org}`, e.g. to delete it);
     paths starting with "/" are org-scoped (`/api/v1/orgs/{org}{path}`); others are global
@@ -150,30 +157,40 @@ def _request(
     if require_enabled and not is_enabled(organization_id):
         return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
 
-    base_url = getattr(settings, "DUCKGRES_API_URL", None)
-    token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
     org_id = str(organization_id)
+    send: Callable[[], http_requests.Response | hogtower.TranslatedResponse]
+    if hogtower.is_configured():
+        # hogtower serves the same calls from its /api/v2 routes, translated back to the
+        # duckgres v1 bodies below.
+        send = partial(hogtower.request, method, org_id, path, json_body=json_body, params=params, timeout=timeout)
+    else:
+        base_url = getattr(settings, "DUCKGRES_API_URL", None)
+        token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
 
-    if not base_url:
-        logger.warning("Provisioning request rejected: DUCKGRES_API_URL not configured", organization_id=org_id)
-        return Response(
-            {"error": "Managed warehouse provisioning is not configured"},
-            status=status.HTTP_501_NOT_IMPLEMENTED,
+        if not base_url:
+            logger.warning("Provisioning request rejected: DUCKGRES_API_URL not configured", organization_id=org_id)
+            return Response(
+                {"error": "Managed warehouse provisioning is not configured"},
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
+
+        if path == "":
+            url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}"
+        elif path.startswith("/"):
+            url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
+        else:
+            url = f"{base_url.rstrip('/')}/api/v1/{path}"
+
+        headers = {}
+        if token:
+            headers["X-Duckgres-Internal-Secret"] = token
+
+        send = partial(
+            internal_requests.request, method, url, json=json_body, params=params, headers=headers, timeout=timeout
         )
 
-    if path == "":
-        url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}"
-    elif path.startswith("/"):
-        url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
-    else:
-        url = f"{base_url.rstrip('/')}/api/v1/{path}"
-
-    headers = {}
-    if token:
-        headers["X-Duckgres-Internal-Secret"] = token
-
     try:
-        resp = internal_requests.request(method, url, json=json_body, params=params, headers=headers, timeout=timeout)
+        resp = send()
     except http_requests.Timeout:
         logger.warning("Provisioning API timeout", method=method, path=path, organization_id=org_id)
         return Response({"error": "Provisioning service timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
@@ -254,6 +271,8 @@ def provision(
     team_id: int,
     schema_name: str | None,
     require_enabled: bool = True,
+    *,
+    triggered_by: str,
 ) -> Response:
     pending_deletion = _block_if_pending_deletion(organization_id)
     if pending_deletion is not None:
@@ -293,6 +312,16 @@ def provision(
         },
         require_enabled=require_enabled,
     )
+    if status.is_success(resp.status_code):
+        logger.info(
+            "managed_warehouse_action",
+            action="provision",
+            triggered_by=triggered_by,
+            organization_id=str(organization_id),
+            team_id=team_id,
+            database_name=database_name,
+            schema_name=schema_name,
+        )
     if status.is_success(resp.status_code) and isinstance(resp.data, dict):
         activated_generation = _activate_managed_source_lifecycle(
             organization_id,
@@ -643,7 +672,12 @@ def _invalidate_team_state_cache(organization_id: UUID | str) -> None:
 
 
 def onboard_team(
-    organization_id: UUID | str, team_id: int, schema_name: str | None, require_enabled: bool = True
+    organization_id: UUID | str,
+    team_id: int,
+    schema_name: str | None,
+    require_enabled: bool = True,
+    *,
+    triggered_by: str,
 ) -> Response:
     """Onboard a team onto the org's existing managed warehouse with its own schema.
 
@@ -722,6 +756,15 @@ def onboard_team(
         if not status.is_success(resp.status_code):
             return resp
 
+    logger.info(
+        "managed_warehouse_action",
+        action="onboard_team",
+        triggered_by=triggered_by,
+        organization_id=str(organization_id),
+        team_id=team_id,
+        schema_name=schema_name,
+        created=existing is None,
+    )
     _ensure_direct_source(team_id, organization_id, source_generation)
     _schedule_earliest_event_date_sync(team_id)
     return Response({"onboarded": True, "schema_name": schema_name}, status=status.HTTP_200_OK)
@@ -845,7 +888,7 @@ def block_team_deletion(team_id: int, organization_id: UUID | str) -> str | None
     return None
 
 
-def deprovision(organization_id: UUID | str, require_enabled: bool = True) -> Response:
+def deprovision(organization_id: UUID | str, require_enabled: bool = True, *, triggered_by: str) -> Response:
     expected_generation = _active_managed_source_generation(organization_id)
     inactive_cleanup_generation = _managed_source_generation(organization_id) if expected_generation is None else None
     resp = _request("POST", organization_id, "/deprovision", require_enabled=require_enabled)
@@ -870,6 +913,13 @@ def deprovision(organization_id: UUID | str, require_enabled: bool = True) -> Re
         resp
         if status.is_success(resp.status_code)
         else Response({"status": "deprovisioning started"}, status=status.HTTP_202_ACCEPTED)
+    )
+    logger.info(
+        "managed_warehouse_action",
+        action="deprovision",
+        triggered_by=triggered_by,
+        organization_id=str(organization_id),
+        status_code=resp.status_code,
     )
     _invalidate_team_state_cache(organization_id)
     cleanup_generation = inactive_cleanup_generation
@@ -936,12 +986,8 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
 
     # Backend caller: bypass the user-facing feature flag so the deletion never depends on
     # flag evaluation on the Temporal worker.
-    resp = deprovision(organization_id, require_enabled=False)
+    resp = deprovision(organization_id, require_enabled=False, triggered_by="system:organization-deletion")
     if status.is_success(resp.status_code):
-        logger.info(
-            "Managed warehouse deprovisioning started for organization deletion",
-            organization_id=org_id,
-        )
         return
     if resp.status_code == status.HTTP_404_NOT_FOUND:
         logger.info(
@@ -951,8 +997,8 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
         )
         return
     if resp.status_code == status.HTTP_501_NOT_IMPLEMENTED:
-        # DUCKGRES_API_URL is not configured (e.g. a dev/env-var-backed DuckgresServer
-        # row): there is no control plane to deprovision against.
+        # Neither HOGTOWER_API_URL nor DUCKGRES_API_URL is configured (e.g. a
+        # dev/env-var-backed DuckgresServer row): there is no control plane to deprovision against.
         logger.warning(
             "Managed warehouse deprovisioning skipped: provisioning API not configured",
             organization_id=org_id,
@@ -1009,7 +1055,7 @@ def ensure_direct_connection_tables(team_id: int, organization_id: UUID | str) -
         )
 
 
-def delete_org(organization_id: UUID | str, require_enabled: bool = True) -> Response:
+def delete_org(organization_id: UUID | str, require_enabled: bool = True, *, triggered_by: str) -> Response:
     """Delete the org's provisioning record once teardown has finished, freeing its warehouse name.
 
     `deprovision` tears the warehouse down (status goes deleting → deleted); this removes the
@@ -1017,7 +1063,15 @@ def delete_org(organization_id: UUID | str, require_enabled: bool = True) -> Res
     teardown has no terminal failed state (the provisioner retries indefinitely), so callers
     should only issue this once the warehouse status reports `deleted`.
     """
-    return _request("DELETE", organization_id, "", require_enabled=require_enabled)
+    resp = _request("DELETE", organization_id, "", require_enabled=require_enabled)
+    if status.is_success(resp.status_code):
+        logger.info(
+            "managed_warehouse_action",
+            action="delete_org",
+            triggered_by=triggered_by,
+            organization_id=str(organization_id),
+        )
+    return resp
 
 
 def status_for(organization_id: UUID | str) -> Response:
@@ -1139,8 +1193,15 @@ def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> No
         )
 
 
-def reset_password(organization_id: UUID | str) -> Response:
+def reset_password(organization_id: UUID | str, *, triggered_by: str) -> Response:
     resp = _request("POST", organization_id, "/reset-password")
+    if status.is_success(resp.status_code):
+        logger.info(
+            "managed_warehouse_action",
+            action="reset_password",
+            triggered_by=triggered_by,
+            organization_id=str(organization_id),
+        )
     if status.is_success(resp.status_code) and isinstance(resp.data, dict) and resp.data.get("password"):
         try:
             _update_direct_connection_password(organization_id, resp.data["password"])

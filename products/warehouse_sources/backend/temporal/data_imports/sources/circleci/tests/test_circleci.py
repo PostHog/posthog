@@ -4,10 +4,15 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.circleci import (
+    CIRCLECI_V2,
+    CIRCLECI_V3,
+    COMPONENTS_PAGE_SIZE,
     MAX_PIPELINE_PAGES,
+    V3_PROJECTS_PAGE_LIMIT,
     CircleCIResumeConfig,
     CircleCIRetryableError,
     _build_url,
@@ -46,8 +51,11 @@ def _page(items: list[dict[str, Any]], next_token: str | None) -> dict[str, Any]
     return {"items": items, "next_page_token": next_token}
 
 
-def _route_session(mock_session: mock.MagicMock, routes: dict[str, list[dict[str, Any]] | dict[str, Any]]) -> None:
-    """Route GET calls by path; values are either a body dict or a list of bodies consumed in order."""
+def _route_session(mock_session: mock.MagicMock, routes: dict[str, Any]) -> None:
+    """Route GET calls by path; values are either a body or a list of bodies consumed in order.
+
+    A body that is itself a JSON array therefore has to be wrapped in a one-element list.
+    """
     state: dict[str, int] = {}
 
     def get(url: str, **kwargs: Any) -> mock.MagicMock:
@@ -116,7 +124,7 @@ class TestValidateCredentials:
             responses.append(_response(_page([], None), status_code=pipeline_status))
         mock_session.return_value.get.side_effect = responses
 
-        is_valid, error = validate_credentials("token", "gh/posthog")
+        is_valid, error = validate_credentials("token", "gh/posthog", CIRCLECI_V2)
 
         assert is_valid is expected
         assert (error is None) is expected
@@ -125,7 +133,7 @@ class TestValidateCredentials:
     def test_skips_org_probe_without_org_slug(self, mock_session):
         mock_session.return_value.get.return_value = _response({}, status_code=200)
 
-        is_valid, error = validate_credentials("token", None)
+        is_valid, error = validate_credentials("token", None, CIRCLECI_V2)
 
         assert is_valid is True
         assert error is None
@@ -138,7 +146,7 @@ class TestValidateCredentials:
             _response({}, status_code=404),
         ]
 
-        is_valid, error = validate_credentials("token", "gh/nope")
+        is_valid, error = validate_credentials("token", "gh/nope", CIRCLECI_V2)
 
         assert is_valid is False
         assert error is not None
@@ -148,7 +156,7 @@ class TestValidateCredentials:
     def test_swallows_connection_errors(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
 
-        is_valid, error = validate_credentials("token", "gh/posthog")
+        is_valid, error = validate_credentials("token", "gh/posthog", CIRCLECI_V2)
 
         assert is_valid is False
         assert error is not None
@@ -157,10 +165,34 @@ class TestValidateCredentials:
     def test_sends_circle_token_header(self, mock_session):
         mock_session.return_value.get.return_value = _response({}, status_code=200)
 
-        validate_credentials("token", None)
+        validate_credentials("token", None, CIRCLECI_V2)
 
         headers = mock_session.return_value.get.call_args.kwargs["headers"]
         assert headers["Circle-Token"] == "token"
+
+    @parameterized.expand(
+        [
+            ("valid", [{"id": "org-uuid", "slug": "gh/posthog"}], 200, True),
+            ("org not visible to the token", [{"id": "other-uuid", "slug": "gh/other"}], None, False),
+            ("v3 rejects the token", [{"id": "org-uuid", "slug": "gh/posthog"}], 401, False),
+        ]
+    )
+    @mock.patch(PATCH_SESSION)
+    def test_v3_probes_org_projects_with_bearer_token(self, _name, collaborations, v3_status, expected, mock_session):
+        responses = [_response({}), _response(collaborations)]
+        if v3_status is not None:
+            responses.append(_response({"data": [], "page": {"next": None}}, status_code=v3_status))
+        mock_session.return_value.get.side_effect = responses
+
+        is_valid, error = validate_credentials("token", "gh/posthog", CIRCLECI_V3)
+
+        assert is_valid is expected
+        assert (error is None) is expected
+        if v3_status is not None:
+            v3_call = mock_session.return_value.get.call_args_list[-1]
+            assert urlparse(v3_call.args[0]).path == "/api/v3/projects"
+            assert parse_qs(urlparse(v3_call.args[0]).query)["filter[org_id]"] == ["org-uuid"]
+            assert v3_call.kwargs["headers"]["Authorization"] == "Bearer token"
 
 
 class TestPipelinesRows:
@@ -177,7 +209,7 @@ class TestPipelinesRows:
         )
 
         manager = _make_manager()
-        batches = list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager))
+        batches = list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager, CIRCLECI_V2))
 
         assert [item["id"] for batch in batches for item in batch] == ["p1", "p2", "p3"]
         urls = _requested_urls(mock_session)
@@ -192,7 +224,7 @@ class TestPipelinesRows:
         _route_session(mock_session, {"/api/v2/pipeline": [_page([{"id": "p9"}], None)]})
 
         manager = _make_manager(CircleCIResumeConfig(next_page_token="resume-token"))
-        list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager))
+        list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager, CIRCLECI_V2))
 
         first_url = _requested_urls(mock_session)[0]
         assert parse_qs(urlparse(first_url).query)["page-token"] == ["resume-token"]
@@ -210,7 +242,7 @@ class TestPipelinesRows:
         )
 
         manager = _make_manager()
-        rows = get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager)
+        rows = get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager, CIRCLECI_V2)
 
         next(rows)
         manager.save_state.assert_not_called()
@@ -223,30 +255,40 @@ class TestPipelinesRows:
     )
     @mock.patch(PATCH_SESSION)
     def test_page_cap_stops_pagination_and_logs(self, mock_session):
-        _route_session(mock_session, {"/api/v2/pipeline": _page([{"id": "p"}], "always-more")})
+        _route_session(
+            mock_session,
+            {
+                "/api/v2/pipeline": [
+                    _page([{"id": "p1"}], "t2"),
+                    _page([{"id": "p2"}], "t3"),
+                    _page([{"id": "p3"}], "t4"),
+                ]
+            },
+        )
         logger = mock.MagicMock()
 
         manager = _make_manager()
-        batches = list(get_rows("token", "gh/posthog", "pipelines", logger, manager))
+        batches = list(get_rows("token", "gh/posthog", "pipelines", logger, manager, CIRCLECI_V2))
 
         assert len(batches) == 2
         assert mock_session.return_value.get.call_count == 2
         logger.warning.assert_called_once()
         assert "page cap" in logger.warning.call_args.args[0]
+        assert "pipelines" in logger.warning.call_args.args[0]
 
     @mock.patch(PATCH_SESSION)
     def test_empty_response_yields_nothing(self, mock_session):
         _route_session(mock_session, {"/api/v2/pipeline": _page([], None)})
 
         manager = _make_manager()
-        batches = list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager))
+        batches = list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager, CIRCLECI_V2))
 
         assert batches == []
         manager.save_state.assert_not_called()
 
     def test_unknown_endpoint_raises(self):
         with pytest.raises(ValueError, match="Unknown CircleCI endpoint"):
-            list(get_rows("token", "gh/posthog", "nope", mock.MagicMock(), _make_manager()))
+            list(get_rows("token", "gh/posthog", "nope", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
 
 
 class TestRetryBehavior:
@@ -261,7 +303,7 @@ class TestRetryBehavior:
         ]
 
         manager = _make_manager()
-        batches = list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager))
+        batches = list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager, CIRCLECI_V2))
 
         assert [item["id"] for batch in batches for item in batch] == ["p1"]
         mock_sleep.assert_called_once_with(7)
@@ -274,7 +316,7 @@ class TestRetryBehavior:
         ]
 
         manager = _make_manager()
-        batches = list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager))
+        batches = list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager, CIRCLECI_V2))
 
         assert [item["id"] for batch in batches for item in batch] == ["p1"]
         assert mock_session.return_value.get.call_count == 2
@@ -285,7 +327,7 @@ class TestRetryBehavior:
         mock_session.return_value.get.return_value = _response({}, status_code=500)
 
         with pytest.raises(CircleCIRetryableError):
-            list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), _make_manager()))
+            list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
 
     @mock.patch(PATCH_SESSION)
     def test_4xx_raises_immediately(self, mock_session):
@@ -294,7 +336,7 @@ class TestRetryBehavior:
         mock_session.return_value.get.return_value = response
 
         with pytest.raises(Exception, match="401 Client Error"):
-            list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), _make_manager()))
+            list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
 
         assert mock_session.return_value.get.call_count == 1
 
@@ -315,7 +357,7 @@ class TestWorkflowsFanOut:
             },
         )
 
-        batches = list(get_rows("token", "gh/posthog", "workflows", mock.MagicMock(), _make_manager()))
+        batches = list(get_rows("token", "gh/posthog", "workflows", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
         rows = [row for batch in batches for row in batch]
 
         assert [row["id"] for row in rows] == ["w1", "w2"]
@@ -335,7 +377,7 @@ class TestWorkflowsFanOut:
             },
         )
 
-        batches = list(get_rows("token", "gh/posthog", "workflows", mock.MagicMock(), _make_manager()))
+        batches = list(get_rows("token", "gh/posthog", "workflows", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
 
         assert [row["id"] for batch in batches for row in batch] == ["w1", "w2"]
         workflow_urls = [url for url in _requested_urls(mock_session) if "/workflow" in url]
@@ -351,15 +393,20 @@ class TestWorkflowsFanOut:
             mock_session,
             {
                 "/api/v2/pipeline": _page([{"id": "p1"}], None),
-                "/api/v2/pipeline/p1/workflow": _page([{"id": "w", "pipeline_id": "p1"}], "always-more"),
+                "/api/v2/pipeline/p1/workflow": [
+                    _page([{"id": "wa", "pipeline_id": "p1"}], "t2"),
+                    _page([{"id": "wb", "pipeline_id": "p1"}], "t3"),
+                    _page([{"id": "wc", "pipeline_id": "p1"}], "t4"),
+                ],
             },
         )
         logger = mock.MagicMock()
 
-        batches = list(get_rows("token", "gh/posthog", "workflows", logger, _make_manager()))
+        batches = list(get_rows("token", "gh/posthog", "workflows", logger, _make_manager(), CIRCLECI_V2))
 
         assert len([row for batch in batches for row in batch]) == 2
         logger.warning.assert_called_once()
+        assert "page cap" in logger.warning.call_args.args[0]
         assert "p1" in logger.warning.call_args.args[0]
 
     @mock.patch(PATCH_SESSION)
@@ -376,7 +423,7 @@ class TestWorkflowsFanOut:
         )
 
         manager = _make_manager()
-        list(get_rows("token", "gh/posthog", "workflows", mock.MagicMock(), manager))
+        list(get_rows("token", "gh/posthog", "workflows", mock.MagicMock(), manager, CIRCLECI_V2))
 
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0].next_page_token == "pipeline-token-2"
@@ -402,7 +449,7 @@ class TestJobsFanOut:
             },
         )
 
-        batches = list(get_rows("token", "gh/posthog", "jobs", mock.MagicMock(), _make_manager()))
+        batches = list(get_rows("token", "gh/posthog", "jobs", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
         rows = [row for batch in batches for row in batch]
 
         assert [row["id"] for row in rows] == ["j1", "j2"]
@@ -427,7 +474,7 @@ class TestJobsFanOut:
             },
         )
 
-        batches = list(get_rows("token", "gh/posthog", "jobs", mock.MagicMock(), _make_manager()))
+        batches = list(get_rows("token", "gh/posthog", "jobs", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
         rows = [row for batch in batches for row in batch]
 
         assert [(row["id"], row["pipeline_id"], row["workflow_id"]) for row in rows] == [
@@ -447,15 +494,20 @@ class TestJobsFanOut:
             {
                 "/api/v2/pipeline": _page([{"id": "p1"}], None),
                 "/api/v2/pipeline/p1/workflow": _page([{"id": "w1"}], None),
-                "/api/v2/workflow/w1/job": _page([{"id": "j"}], "always-more"),
+                "/api/v2/workflow/w1/job": [
+                    _page([{"id": "ja"}], "t2"),
+                    _page([{"id": "jb"}], "t3"),
+                    _page([{"id": "jc"}], "t4"),
+                ],
             },
         )
         logger = mock.MagicMock()
 
-        batches = list(get_rows("token", "gh/posthog", "jobs", logger, _make_manager()))
+        batches = list(get_rows("token", "gh/posthog", "jobs", logger, _make_manager(), CIRCLECI_V2))
 
         assert len([row for batch in batches for row in batch]) == 2
         logger.warning.assert_called_once()
+        assert "page cap" in logger.warning.call_args.args[0]
         assert "w1" in logger.warning.call_args.args[0]
 
 
@@ -479,7 +531,7 @@ class TestProjectsRows:
             },
         )
 
-        batches = list(get_rows("token", "gh/posthog", "projects", mock.MagicMock(), _make_manager()))
+        batches = list(get_rows("token", "gh/posthog", "projects", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
         rows = [row for batch in batches for row in batch]
 
         assert [row["id"] for row in rows] == ["proj-1", "proj-2"]
@@ -487,14 +539,308 @@ class TestProjectsRows:
         assert len(project_urls) == 2
 
 
+COLLABORATIONS_PATH = "/api/v2/me/collaborations"
+COLLABORATIONS = [[{"id": "org-uuid", "slug": "gh/posthog", "name": "PostHog"}]]
+
+
+class TestComponentsRows:
+    # v3 deploy component listings are experimental, so a v3 pin keeps reading them from v2.
+    @parameterized.expand([(CIRCLECI_V2,), (CIRCLECI_V3,)])
+    @mock.patch(PATCH_SESSION)
+    def test_org_slug_resolved_to_org_id_and_paginated(self, api_version, mock_session):
+        _route_session(
+            mock_session,
+            {
+                COLLABORATIONS_PATH: COLLABORATIONS,
+                "/api/v2/deploy/components": [
+                    _page([{"id": "c1"}], "components-token-2"),
+                    _page([{"id": "c2"}], None),
+                ],
+            },
+        )
+
+        manager = _make_manager()
+        batches = list(get_rows("token", "gh/posthog", "components", mock.MagicMock(), manager, api_version))
+
+        assert [row["id"] for batch in batches for row in batch] == ["c1", "c2"]
+        component_urls = [url for url in _requested_urls(mock_session) if "/deploy/components" in url]
+        assert parse_qs(urlparse(component_urls[0]).query) == {
+            "org-id": ["org-uuid"],
+            "page-size": [str(COMPONENTS_PAGE_SIZE)],
+        }
+        # The required page size is repeated on every page, not just the first.
+        assert parse_qs(urlparse(component_urls[1]).query) == {
+            "org-id": ["org-uuid"],
+            "page-size": [str(COMPONENTS_PAGE_SIZE)],
+            "page-token": ["components-token-2"],
+        }
+        assert manager.save_state.call_args.args[0].next_page_token == "components-token-2"
+
+    @mock.patch(PATCH_SESSION)
+    def test_resumes_from_saved_component_page_token(self, mock_session):
+        _route_session(
+            mock_session,
+            {
+                COLLABORATIONS_PATH: COLLABORATIONS,
+                "/api/v2/deploy/components": [_page([{"id": "c9"}], None)],
+            },
+        )
+
+        manager = _make_manager(CircleCIResumeConfig(next_page_token="resume-token"))
+        list(get_rows("token", "gh/posthog", "components", mock.MagicMock(), manager, CIRCLECI_V2))
+
+        component_url = next(url for url in _requested_urls(mock_session) if "/deploy/components" in url)
+        assert parse_qs(urlparse(component_url).query)["page-token"] == ["resume-token"]
+
+    @parameterized.expand(
+        [
+            ("slug not visible to the token", [[{"id": "other-uuid", "slug": "gh/other"}]]),
+            ("collaboration without an id", [[{"id": None, "slug": "gh/posthog"}]]),
+        ]
+    )
+    @mock.patch(PATCH_SESSION)
+    def test_unresolvable_org_raises_with_slug(self, _name, collaborations, mock_session):
+        _route_session(mock_session, {COLLABORATIONS_PATH: collaborations})
+
+        with pytest.raises(ValueError, match="gh/posthog"):
+            list(get_rows("token", "gh/posthog", "components", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
+
+
+class TestComponentVersionsFanOut:
+    @mock.patch(PATCH_SESSION)
+    def test_versions_carry_component_id_and_never_null_merge_keys(self, mock_session):
+        _route_session(
+            mock_session,
+            {
+                COLLABORATIONS_PATH: COLLABORATIONS,
+                "/api/v2/deploy/components": _page([{"id": "c1"}, {"id": "c2"}], None),
+                "/api/v2/deploy/components/c1/versions": _page(
+                    [
+                        {
+                            "name": "1.0.0",
+                            "environment_id": "env-1",
+                            "namespace": "default",
+                            "is_live": True,
+                            "last_deployed_at": "2026-01-01T00:00:00Z",
+                        },
+                        {"name": "1.0.1", "environment_id": None},
+                    ],
+                    None,
+                ),
+                "/api/v2/deploy/components/c2/versions": _page([{"name": "2.0.0", "environment_id": "env-2"}], None),
+            },
+        )
+
+        batches = list(
+            get_rows("token", "gh/posthog", "component_versions", mock.MagicMock(), _make_manager(), CIRCLECI_V2)
+        )
+        rows = [row for batch in batches for row in batch]
+
+        assert [(row["component_id"], row["name"]) for row in rows] == [
+            ("c1", "1.0.0"),
+            ("c1", "1.0.1"),
+            ("c2", "2.0.0"),
+        ]
+        # Native fields survive the injection.
+        assert rows[0]["is_live"] is True
+        assert rows[0]["namespace"] == "default"
+        # A missing part of the composite key becomes "" so merges match instead of re-inserting.
+        assert rows[1]["environment_id"] == ""
+        assert rows[1]["namespace"] == ""
+
+    @mock.patch(PATCH_SESSION)
+    def test_repeated_page_token_fails_the_run(self, mock_session):
+        # The versions endpoint documents no page-token param; if it ignores ours it hands
+        # back the same token forever. Truncating there would publish a partial table.
+        _route_session(
+            mock_session,
+            {
+                COLLABORATIONS_PATH: COLLABORATIONS,
+                "/api/v2/deploy/components": _page([{"id": "c1"}], None),
+                "/api/v2/deploy/components/c1/versions": _page([{"name": "1.0.0"}], "same-token"),
+            },
+        )
+
+        with pytest.raises(ValueError, match="same page token twice"):
+            list(get_rows("token", "gh/posthog", "component_versions", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
+
+
+class TestUsersRows:
+    @mock.patch(PATCH_SESSION)
+    def test_distinct_actor_ids_resolved_once(self, mock_session):
+        _route_session(
+            mock_session,
+            {
+                "/api/v2/pipeline": _page([{"id": "p1"}], None),
+                "/api/v2/pipeline/p1/workflow": _page(
+                    [
+                        {"id": "w1", "started_by": "u1", "canceled_by": "u2"},
+                        {"id": "w2", "started_by": "u1", "errored_by": "u3"},
+                        {"id": "w3", "started_by": None},
+                    ],
+                    None,
+                ),
+                "/api/v2/user/u1": {"id": "u1", "login": "one"},
+                "/api/v2/user/u2": {"id": "u2", "login": "two"},
+                "/api/v2/user/u3": {"id": "u3", "login": "three"},
+            },
+        )
+
+        batches = list(get_rows("token", "gh/posthog", "users", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
+
+        assert [row["id"] for batch in batches for row in batch] == ["u1", "u2", "u3"]
+        assert len([url for url in _requested_urls(mock_session) if "/user/" in url]) == 3
+
+    @mock.patch(PATCH_SESSION)
+    def test_deleted_actor_is_skipped(self, mock_session):
+        missing = _response({}, status_code=404)
+        missing.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=missing)
+        bodies = {
+            "/api/v2/pipeline": _page([{"id": "p1"}], None),
+            "/api/v2/pipeline/p1/workflow": _page([{"id": "w1", "started_by": "gone", "canceled_by": "u2"}], None),
+            "/api/v2/user/u2": {"id": "u2", "login": "two"},
+        }
+
+        def get(url: str, **kwargs: Any) -> mock.MagicMock:
+            path = urlparse(url).path
+            return missing if path == "/api/v2/user/gone" else _response(bodies[path])
+
+        mock_session.return_value.get.side_effect = get
+
+        batches = list(get_rows("token", "gh/posthog", "users", mock.MagicMock(), _make_manager(), CIRCLECI_V2))
+
+        assert [row["id"] for batch in batches for row in batch] == ["u2"]
+
+
+def _v3_page(items: list[dict[str, Any]], next_cursor: str | None = None) -> dict[str, Any]:
+    return {"data": items, "page": {"next": next_cursor, "prev": None}}
+
+
+class TestV3Rows:
+    @mock.patch(PATCH_SESSION)
+    def test_pipelines_walk_org_projects_into_runs(self, mock_session):
+        _route_session(
+            mock_session,
+            {
+                COLLABORATIONS_PATH: COLLABORATIONS,
+                "/api/v3/projects": [
+                    _v3_page([{"id": "proj-1", "attributes": {"name": "posthog"}}], "projects-cursor-2"),
+                    _v3_page([{"id": "proj-2", "attributes": {"name": "other"}}]),
+                ],
+                "/api/v3/runs": [
+                    _v3_page(
+                        [
+                            {
+                                "id": "run-1",
+                                "attributes": {"number": 7, "created_at": "2026-01-01T00:00:00Z", "phase": "ended"},
+                                "references": {"project": {"id": "proj-1"}},
+                            }
+                        ],
+                        "runs-cursor-2",
+                    ),
+                    _v3_page([{"id": "run-2", "attributes": {"number": 8, "created_at": "2026-01-02T00:00:00Z"}}]),
+                    _v3_page([{"id": "run-3", "attributes": {"number": 1, "created_at": "2026-01-03T00:00:00Z"}}]),
+                ],
+            },
+        )
+
+        manager = _make_manager()
+        batches = []
+        saves_seen_at_yield = []
+        for batch in get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager, CIRCLECI_V3):
+            batches.append(batch)
+            saves_seen_at_yield.append(manager.save_state.call_count)
+        rows = [row for batch in batches for row in batch]
+
+        # The next projects cursor is staged before the first page's last batch, so the pipeline
+        # commits it together with that batch.
+        assert saves_seen_at_yield == [0, 1, 1]
+
+        assert [row["id"] for row in rows] == ["run-1", "run-2", "run-3"]
+        # Attributes are lifted to top-level columns so the created_at partition key resolves.
+        assert rows[0]["created_at"] == "2026-01-01T00:00:00Z"
+        assert rows[0]["number"] == 7
+        assert rows[0]["references"] == {"project": {"id": "proj-1"}}
+
+        calls = mock_session.return_value.get.call_args_list
+        v3_calls = [call for call in calls if "/api/v3/" in call.args[0]]
+        assert all(call.kwargs["headers"]["Authorization"] == "Bearer token" for call in v3_calls)
+        queries = [(urlparse(call.args[0]).path, parse_qs(urlparse(call.args[0]).query)) for call in v3_calls]
+        assert queries == [
+            ("/api/v3/projects", {"filter[org_id]": ["org-uuid"], "page[limit]": [str(V3_PROJECTS_PAGE_LIMIT)]}),
+            ("/api/v3/runs", {"filter[project_id]": ["proj-1"]}),
+            ("/api/v3/runs", {"filter[project_id]": ["proj-1"], "page[cursor]": ["runs-cursor-2"]}),
+            (
+                "/api/v3/projects",
+                {
+                    "filter[org_id]": ["org-uuid"],
+                    "page[limit]": [str(V3_PROJECTS_PAGE_LIMIT)],
+                    "page[cursor]": ["projects-cursor-2"],
+                },
+            ),
+            ("/api/v3/runs", {"filter[project_id]": ["proj-2"]}),
+        ]
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0].page_cursor == "projects-cursor-2"
+
+    @mock.patch(PATCH_SESSION)
+    def test_resumes_projects_scan_from_saved_cursor(self, mock_session):
+        _route_session(
+            mock_session,
+            {COLLABORATIONS_PATH: COLLABORATIONS, "/api/v3/projects": _v3_page([{"id": "proj-9", "attributes": {}}])},
+        )
+
+        manager = _make_manager(CircleCIResumeConfig(page_cursor="resume-cursor"))
+        batches = list(get_rows("token", "gh/posthog", "projects", mock.MagicMock(), manager, CIRCLECI_V3))
+
+        assert [row["id"] for batch in batches for row in batch] == ["proj-9"]
+        projects_url = next(url for url in _requested_urls(mock_session) if "/api/v3/projects" in url)
+        assert parse_qs(urlparse(projects_url).query)["page[cursor]"] == ["resume-cursor"]
+
+    @mock.patch(PATCH_SESSION)
+    def test_job_rows_carry_parent_identifiers(self, mock_session):
+        _route_session(
+            mock_session,
+            {
+                COLLABORATIONS_PATH: COLLABORATIONS,
+                "/api/v3/projects": _v3_page([{"id": "proj-1", "attributes": {}}]),
+                "/api/v3/runs": _v3_page([{"id": "run-1", "attributes": {}}]),
+                "/api/v3/workflows": _v3_page(
+                    [{"id": "wf-1", "attributes": {"name": "build", "created_at": "2026-01-01T00:00:00Z"}}]
+                ),
+                # The v3 jobs collection is not paginated, so it carries no page member.
+                "/api/v3/jobs": {
+                    "data": [
+                        {
+                            "id": "job-1",
+                            "attributes": {"name": "test", "number": 42, "phase": "ended", "type": "build"},
+                            "references": {"workflow": {"id": "wf-1"}, "project": {"id": "proj-1"}},
+                        }
+                    ]
+                },
+            },
+        )
+
+        batches = list(get_rows("token", "gh/posthog", "jobs", mock.MagicMock(), _make_manager(), CIRCLECI_V3))
+        rows = [row for batch in batches for row in batch]
+
+        assert len(rows) == 1
+        assert rows[0]["id"] == "job-1"
+        assert rows[0]["number"] == 42
+        assert rows[0]["run_id"] == "run-1"
+        assert rows[0]["workflow_id"] == "wf-1"
+        assert rows[0]["workflow_created_at"] == "2026-01-01T00:00:00Z"
+        assert parse_qs(urlparse(_requested_urls(mock_session)[-1]).query) == {"filter[workflow_id]": ["wf-1"]}
+
+
 class TestCircleCISourceResponse:
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_response_metadata_per_endpoint(self, endpoint):
         config = CIRCLECI_ENDPOINTS[endpoint]
-        response = circleci_source("token", "gh/posthog", endpoint, mock.MagicMock(), _make_manager())
+        response = circleci_source("token", "gh/posthog", endpoint, mock.MagicMock(), _make_manager(), CIRCLECI_V2)
 
         assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
+        assert response.primary_keys == list(config.primary_keys)
         assert response.sort_mode == "desc"
         if config.partition_key:
             assert response.partition_mode == "datetime"

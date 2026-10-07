@@ -27,11 +27,11 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
+from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES
 from posthog.cdp.internal_events import is_managed_alert_internal_event, is_reserved_internal_event
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
-    DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
@@ -51,10 +51,12 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
 
+from products.batch_exports.backend.facade import api as batch_exports_api
+from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import (
@@ -200,18 +202,20 @@ def _without(value: Any, keys: tuple[str, ...]) -> Any:
 def _inputs_without_derived(inputs: Any) -> Any:
     if not isinstance(inputs, dict):
         return inputs
-    return {key: _without(value, ("bytecode", "transpiled", "order")) for key, value in inputs.items()}
+    return {
+        key: _without(value, ("bytecode", "bytecode_contract", "transpiled", "order")) for key, value in inputs.items()
+    }
 
 
 def comparable_content(content: dict) -> dict:
     """A config snapshot with the values validation derives from it dropped: filter and input
-    bytecode, transpiled JS, input ordering.
+    bytecode, the runtime stamp beside it, transpiled JS, input ordering.
 
     A background re-save can change those on its own without the config changing at all — most often
     `refresh_affected_hog_functions` recompiling filter bytecode after an action or cohort edit — so
     comparing them would version a plain rename.
     """
-    filter_derived = ("bytecode", "bytecode_error", "transpiled")
+    filter_derived = ("bytecode", "bytecode_error", "bytecode_contract", "transpiled")
     mappings = content.get("mappings")
     return {
         **content,
@@ -790,8 +794,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         return {**draft, "inputs": inputs}
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
-        request = self.context["request"]
-        validated_data["created_by"] = request.user
+        # An in-process caller has no request to take the acting user from, so it passes
+        # `created_by` to `save()` instead.
+        validated_data["created_by"] = validated_data.get("created_by") or self.context["request"].user
 
         template_id = validated_data.get("template_id")
         if template_id:
@@ -1795,8 +1800,6 @@ class HogFunctionViewSet(
 
     @action(detail=True, methods=["POST"])
     def enable_backfills(self, request: Request, *args, **kwargs):
-        from products.batch_exports.backend.api.batch_export import BatchExportSerializer
-
         hog_function = self.get_object()
 
         # Check if backfill is already enabled
@@ -1832,27 +1835,16 @@ class HogFunctionViewSet(
         ):
             raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
 
-        # Prepare batch export data matching the frontend's structure
-        batch_export_data = {
-            "name": hog_function.name,
-            "paused": True,
-            "interval": "hour",
-            "model": "events",
-            "filters": hog_function.filters.get("events", []) if hog_function.filters else [],
-            "destination": {
-                "type": "Workflows",
-                "config": {"hog_function_id": str(hog_function.id)},
-            },
-        }
-
-        batch_export_serializer = BatchExportSerializer(
-            data=batch_export_data, context={"team_id": self.team_id, "request": request}
-        )
-
-        if not batch_export_serializer.is_valid():
-            return Response(batch_export_serializer.errors, status=400)
-
-        batch_export = batch_export_serializer.save()
+        try:
+            batch_export = batch_exports_api.create_workflows_backfill_export(
+                self.team_id,
+                hog_function_id=hog_function.id,
+                name=hog_function.name or "",
+                event_filters=hog_function.filters.get("events", []) if hog_function.filters else [],
+                last_modified_by_id=cast(User, request.user).id,
+            )
+        except InvalidBatchExportFilters as e:
+            return Response({"error": str(e)}, status=400)
 
         hog_function.batch_export_id = batch_export.id
         hog_function.save(update_fields=["batch_export_id"])

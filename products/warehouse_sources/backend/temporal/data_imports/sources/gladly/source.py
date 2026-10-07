@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -31,8 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gla
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    INCREMENTAL_LOOKBACK_SECONDS,
     REPORT_ENDPOINTS,
-    REPORT_INCREMENTAL_LOOKBACK_SECONDS,
     SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -77,6 +75,12 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
                 "account. Ask Gladly support to check the report is available for your account. If "
                 "Gladly confirms it is, contact PostHog support."
             ),
+            "Gladly report unavailable for this account": (
+                "Gladly returned an error every time PostHog asked for the report this table syncs "
+                "from, and the table has never synced. Ask Gladly support to make the report "
+                "available for your account, then re-enable this table. If Gladly confirms it is "
+                "available, contact PostHog support."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -106,12 +110,12 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GLADLY,
+            name=ExternalDataSourceType.GLADLY,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Gladly",
             caption="""Connect your Gladly account to pull your customer service data into the PostHog Data warehouse.
 
-Your organization is the part of your Gladly URL before `.gladly.com`. For `myorg.gladly.com` enter `myorg`, and for `myorg.us-1.gladly.com` enter `myorg.us-1`. The API token must belong to an agent with the API User permission (Settings > API Tokens). Leave the domain on Production unless you are connecting a Gladly sandbox, which is served on `gladly.qa`. Data comes from Gladly's scheduled export jobs, which retain files for 14 days. History older than that requires asking Gladly support to regenerate exports. The conversations table is built from Gladly's Conversation Export report instead, so it is not limited to the 14-day export window, and the conversation and contact timestamps tables come from Gladly's reports as well, reaching back 90 days on their first sync.""",
+Your organization is the part of your Gladly URL before `.gladly.com`. For `myorg.gladly.com` enter `myorg`, and for `myorg.us-1.gladly.com` enter `myorg.us-1`. The API token must belong to an agent with the API User permission (Settings > API Tokens). Leave the domain on Production unless you are connecting a Gladly sandbox, which is served on `gladly.qa`. Data comes from Gladly's scheduled export jobs, which retain files for 14 days. History older than that requires asking Gladly support to regenerate exports. The conversations table is built from Gladly's Conversation Export report instead, so it is not limited to the 14-day export window. The conversation timestamps, contact timestamps, and work session events tables also come from Gladly's reports and reach back 90 days on their first sync. The teams and inboxes tables are read in full on every sync.""",
             iconPath="/static/services/gladly.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gladly",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -175,11 +179,11 @@ Your organization is the part of your Gladly URL before `.gladly.com`. For `myor
             merge_only=REPORT_ENDPOINTS,
             should_sync_default=SHOULD_SYNC_DEFAULT,
         )
-        # Conversation-report rows restate in place as records change, so its
-        # incremental runs re-read a trailing window to catch the restatements.
+        # Conversation and work-session report rows restate in place as records
+        # change, so their incremental runs re-read a trailing window to catch
+        # the restatements.
         for schema in schemas:
-            if schema.name == "conversations":
-                schema.default_incremental_lookback_seconds = REPORT_INCREMENTAL_LOOKBACK_SECONDS
+            schema.default_incremental_lookback_seconds = INCREMENTAL_LOOKBACK_SECONDS.get(schema.name)
         return schemas
 
     def validate_credentials(
@@ -212,4 +216,5 @@ Your organization is the part of your Gladly URL before `.gladly.com`. For `myor
             if inputs.should_use_incremental_field
             else None,
             domain=config.domain,
+            schema_has_ever_synced=inputs.schema_has_ever_synced,
         )

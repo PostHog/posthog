@@ -1,19 +1,27 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api, { ApiConfig, CountedPaginatedResponse } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { derivePrState } from 'lib/signals/prState'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
 
+import {
+    signalsReportsRefreshMetricsCreate,
+    signalsReportsSourceMetadataCreate,
+} from 'products/signals/frontend/generated/api'
+import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/generated/api.schemas'
+
+import { createdAfterForWindow } from '../filterOptions'
 import { captureInboxReportAction, type InboxReportActionSurface } from '../inboxAnalytics'
 import {
-    ACTIONABLE_ACTIONABILITY_VALUES,
     INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY,
     INBOX_PRIMARY_REPORT_SECTION_KEY,
     INBOX_SCOPE_ENTIRE_PROJECT,
@@ -27,20 +35,45 @@ import {
 import type { SignalReportPriority } from '../types'
 import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
 import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
+import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
+import { reportPullRequests, primaryReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { buildSignalReportListOrdering, inboxFiltersLogic } from './inboxFiltersLogic'
-import type { InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
+import type { InboxCreatedWindow, InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
 import { prCiStatusLogic } from './prCiStatusLogic'
 
 const PAGE_SIZE = 50
+// The refresh endpoint's own id cap per call.
+const METRIC_REFRESH_PAGE_SIZE = 20
+
+/** The row fields the list leaves empty (`include_source_metadata=false`) and `source_metadata` fills in. */
+export type ReportSourceMeta = Pick<SignalReport, 'source_products' | 'scout_name'>
 
 /** Fixed, section-defining server filter (e.g. `{ has_implementation_pr: 'true' }`). */
 export type ReportListParams = Record<string, string>
 
+/** Display context of the query that produced a response, for telemetry. */
+export interface ReportListRequestContext {
+    scope: InboxScope
+    hasActiveFilters: boolean
+    sortField: InboxSortField
+    sortDirection: InboxSortDirection
+    createdWindow: InboxCreatedWindow | null
+}
+
 /** A list response stamped with the query params and display context that produced it (see the loader). */
 export type ReportListResponse = CountedPaginatedResponse<SignalReport> & {
     requestParams?: Record<string, unknown>
-    requestContext?: { scope: InboxScope; hasActiveFilters: boolean }
+    requestContext?: ReportListRequestContext
+}
+
+/**
+ * The list request for the API. `created_window` stays a preset key in `listApiParams`, so the
+ * query key does not change every second, and turns into a `created_after` bound here, when the
+ * request goes out.
+ */
+function listRequestParams({ created_window, ...params }: Record<string, any>): Record<string, any> {
+    return { ...params, created_after: createdAfterForWindow(created_window ?? null) }
 }
 
 export interface ReportListLogicProps {
@@ -56,12 +89,7 @@ export interface ReportListLogicProps {
 export const INBOX_REPORT_SECTION_LIST_PARAMS: Record<InboxReportSectionKey, ReportListParams> = {
     // An implementation PR is open, waiting to be reviewed and merged.
     monitoring: { has_implementation_pr: 'true', status: 'ready' },
-    // Researched and actionable, but no PR has been opened for it yet.
-    'needs-decision': {
-        has_implementation_pr: 'false',
-        status: 'ready,pending_input',
-        actionability: ACTIONABLE_ACTIONABILITY_VALUES.join(','),
-    },
+    'needs-decision': { view: 'needs_decision' },
     // Fixed by a merged implementation PR, or resolved by a person. Terminal, not restorable.
     resolved: { status: 'resolved' },
     // Dismissed by a person, or suppressed because its PR closed without merging. Restorable.
@@ -100,14 +128,21 @@ function requestContextFromValues(values: {
     sourceProductFilter: string[]
     scoutFilter: string[]
     priorityFilter: SignalReportPriority[]
-}): { scope: InboxScope; hasActiveFilters: boolean } {
+    activeSortField: InboxSortField
+    activeSortDirection: InboxSortDirection
+    activeCreatedWindow: InboxCreatedWindow | null
+}): ReportListRequestContext {
     return {
         scope: values.scope,
         hasActiveFilters:
             values.searchQuery.trim().length > 0 ||
             values.sourceProductFilter.length > 0 ||
             values.scoutFilter.length > 0 ||
-            values.priorityFilter.length > 0,
+            values.priorityFilter.length > 0 ||
+            values.activeCreatedWindow !== null,
+        sortField: values.activeSortField,
+        sortDirection: values.activeSortDirection,
+        createdWindow: values.activeCreatedWindow,
     }
 }
 
@@ -138,14 +173,16 @@ export function shouldDefaultToEntireProject(input: {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface reportListLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    activeCreatedWindow: InboxCreatedWindow | null // inboxFiltersLogic
+    activeSortDirection: InboxSortDirection // inboxFiltersLogic
+    activeSortField: InboxSortField // inboxFiltersLogic
     hasUserChosenScope: boolean // inboxFiltersLogic
     priorityFilter: SignalReportPriority[] // inboxFiltersLogic
     scope: InboxScope // inboxFiltersLogic
     scoutFilter: string[] // inboxFiltersLogic
     searchQuery: string // inboxFiltersLogic
-    sortDirection: InboxSortDirection // inboxFiltersLogic
-    sortField: InboxSortField // inboxFiltersLogic
     sourceProductFilter: string[] // inboxFiltersLogic
+    currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     count: number | null
     countLoading: boolean
@@ -153,27 +190,33 @@ export interface reportListLogicValues {
     isLoaded: boolean
     listApiParams: any
     livePrReportIds: string[]
-    loadedContext: {
-        hasActiveFilters: boolean
-        scope: InboxScope
-    } | null
+    loadedContext: ReportListRequestContext | null
     loadedQueryKey: string | null
     pageLoadFailed: boolean
     primarySectionKey: InboxReportSectionKey
+    reportSourceMeta: Record<string, ReportSourceMeta>
     reports: SignalReport[]
     reportsLoadFailed: boolean
     reportsResponse: ReportListResponse | null
     reportsResponseLoading: boolean
+    scopeReviewerUuid: string | undefined
+    staleMetricReportIds: string[]
     totalCount: number | null
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface reportListLogicActions {
+    applyDefaultCreatedWindow: (createdWindow: InboxCreatedWindow) => {
+        createdWindow: InboxCreatedWindow
+    } // inboxFiltersLogic
     applyDefaultScope: (scope: InboxScope) => {
         scope: InboxScope
     } // inboxFiltersLogic
     clearFilters: () => {
         value: true
+    } // inboxFiltersLogic
+    setCreatedWindow: (createdWindow: InboxCreatedWindow | null) => {
+        createdWindow: InboxCreatedWindow | null
     } // inboxFiltersLogic
     setFilters: (filters: InboxFilterState) => {
         filters: InboxFilterState
@@ -210,6 +253,12 @@ export interface reportListLogicActions {
         reportIds: string[]
         source: string
     } // prCiStatusLogic
+    applyReportMetricSnapshots: (snapshots: SignalReportMetricSnapshotsApi[]) => {
+        snapshots: SignalReportMetricSnapshotsApi[]
+    }
+    applyReportSourceMeta: (meta: Record<string, ReportSourceMeta>) => {
+        meta: Record<string, ReportSourceMeta>
+    }
     dismissReport: (
         reportId: string,
         dismissal: DismissalFeedback
@@ -253,6 +302,9 @@ export interface reportListLogicActions {
         reportsResponse: ReportListResponse
         payload?: any
     }
+    loadReportSourceMeta: (reportIds: string[]) => {
+        reportIds: string[]
+    }
     loadReports: () => any
     loadReportsFailure: (
         error: string,
@@ -270,6 +322,9 @@ export interface reportListLogicActions {
     }
     refresh: () => {
         value: true
+    }
+    refreshReportMetrics: (reportIds: string[]) => {
+        reportIds: string[]
     }
     removeReport: (reportId: string) => {
         reportId: string
@@ -297,27 +352,29 @@ export interface reportListLogicMeta {
     key: 'dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
     __keaTypeGenInternalSelectorTypes: {
         primarySectionKey: (featureFlags: FeatureFlagsSet) => InboxReportSectionKey
+        scopeReviewerUuid: (scope: InboxScope, user: UserType | null) => string | undefined
         listApiParams: (
             searchQuery: string,
-            sortField: InboxSortField,
-            sortDirection: InboxSortDirection,
+            activeSortField: InboxSortField,
+            activeSortDirection: InboxSortDirection,
             sourceProductFilter: string[],
             scoutFilter: string[],
             priorityFilter: SignalReportPriority[],
-            scope: InboxScope,
-            user: UserType | null,
+            scopeReviewerUuid: string | undefined,
+            activeCreatedWindow: InboxCreatedWindow | null,
             arg: any
         ) => any
-        reports: (reportsResponse: ReportListResponse | null) => SignalReport[]
+        reports: (
+            reportsResponse: ReportListResponse | null,
+            reportSourceMeta: Record<string, ReportSourceMeta>
+        ) => SignalReport[]
+        staleMetricReportIds: (reports: SignalReport[]) => string[]
         hasMore: (reportsResponse: ReportListResponse | null) => boolean
         isLoaded: (reportsResponse: ReportListResponse | null) => boolean
         livePrReportIds: (reports: SignalReport[]) => string[]
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
         loadedQueryKey: (reportsResponse: ReportListResponse | null) => string | null
-        loadedContext: (reportsResponse: ReportListResponse | null) => {
-            hasActiveFilters: boolean
-            scope: InboxScope
-        } | null
+        loadedContext: (reportsResponse: ReportListResponse | null) => ReportListRequestContext | null
     }
 }
 
@@ -351,16 +408,19 @@ export const reportListLogic = kea<reportListLogicType>([
                 'scope',
                 'hasUserChosenScope',
                 'searchQuery',
-                'sortField',
-                'sortDirection',
+                'activeSortField',
+                'activeSortDirection',
                 'sourceProductFilter',
                 'scoutFilter',
                 'priorityFilter',
+                'activeCreatedWindow',
             ],
             userLogic,
             ['user'],
             featureFlagLogic,
             ['featureFlags'],
+            teamLogic,
+            ['currentTeamId'],
         ],
         actions: [
             inboxFiltersLogic,
@@ -375,6 +435,8 @@ export const reportListLogic = kea<reportListLogicType>([
                 'applyDefaultScope',
                 'setFilters',
                 'clearFilters',
+                'setCreatedWindow',
+                'applyDefaultCreatedWindow',
             ],
             prCiStatusLogic,
             ['trackReports'],
@@ -389,9 +451,17 @@ export const reportListLogic = kea<reportListLogicType>([
         restoreReport: (reportId: string, surface: InboxReportActionSurface) => ({ reportId, surface }),
         removeReport: (reportId: string) => ({ reportId }),
         refresh: true,
+        // Ask the server for the newest snapshot of the metrics these rows show. Best effort: a
+        // failure leaves the rows on their saved snapshot.
+        refreshReportMetrics: (reportIds: string[]) => ({ reportIds }),
+        applyReportMetricSnapshots: (snapshots: SignalReportMetricSnapshotsApi[]) => ({ snapshots }),
+        // Source products and scout come from ClickHouse, so the rows load without them and this
+        // fills them in once the page is on screen. Best effort: a failure leaves the source line empty.
+        loadReportSourceMeta: (reportIds: string[]) => ({ reportIds }),
+        applyReportSourceMeta: (meta: Record<string, ReportSourceMeta>) => ({ meta }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         // Cheap count-only request – populates the state's count before its rows load. `count_only`
         // lets the backend answer with one `COUNT(*)`, skipping ordering, row serialization, and
         // the per-row metadata lookups.
@@ -399,8 +469,9 @@ export const reportListLogic = kea<reportListLogicType>([
             null as number | null,
             {
                 loadCount: async () => {
+                    // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
                     const response = await api.signalReports.list({
-                        ...values.listApiParams,
+                        ...listRequestParams(values.listApiParams),
                         limit: 1,
                         count_only: 'true',
                     })
@@ -417,21 +488,31 @@ export const reportListLogic = kea<reportListLogicType>([
                 loadReports: async (): Promise<ReportListResponse> => {
                     const params = values.listApiParams
                     const requestContext = requestContextFromValues(values)
-                    const response = await api.signalReports.list({ ...params, offset: 0, limit: PAGE_SIZE })
+                    // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
+                    const response = await api.signalReports.list({
+                        ...listRequestParams(params),
+                        offset: 0,
+                        limit: PAGE_SIZE,
+                    })
                     return { ...response, requestParams: params, requestContext }
                 },
                 loadMoreReports: async (): Promise<ReportListResponse> => {
                     const params = values.listApiParams
                     const requestContext = requestContextFromValues(values)
                     const current = values.reportsResponse?.results ?? []
+                    // `removeReport` records ids here while the request is in flight. `current` predates
+                    // those removals, so filter them out or a removed report comes back when the page lands.
+                    const removedWhilePending = new Set<string>()
+                    cache.removedWhilePageLoads = removedWhilePending
+                    // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
                     const response = await api.signalReports.list({
-                        ...params,
+                        ...listRequestParams(params),
                         offset: current.length,
                         limit: PAGE_SIZE,
                     })
                     return {
                         ...response,
-                        results: [...current, ...response.results],
+                        results: [...current.filter((r) => !removedWhilePending.has(r.id)), ...response.results],
                         requestParams: params,
                         requestContext,
                     }
@@ -441,7 +522,20 @@ export const reportListLogic = kea<reportListLogicType>([
     })),
 
     reducers({
+        // Kept apart from `reportsResponse` so a refresh that replaces the rows does not blank the
+        // source line while the lookup runs again.
+        reportSourceMeta: [
+            {} as Record<string, ReportSourceMeta>,
+            {
+                applyReportSourceMeta: (state, { meta }) => ({ ...state, ...meta }),
+            },
+        ],
         reportsResponse: {
+            // Only the numbers change: the row keeps its title, summary, and query as loaded.
+            applyReportMetricSnapshots: (state, { snapshots }) =>
+                state
+                    ? { ...state, results: state.results.map((r) => mergeReportMetricSnapshots(r, snapshots)) }
+                    : state,
             // Optimistic removal on archive – keeps the list snappy; count refreshes in the background.
             removeReport: (state, { reportId }) =>
                 state
@@ -495,17 +589,23 @@ export const reportListLogic = kea<reportListLogicType>([
                     ? INBOX_PRIMARY_REPORT_SECTION_KEY
                     : INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY,
         ],
+        // The PostHog user the reviewer scope narrows the list to. Undefined for Entire project.
+        scopeReviewerUuid: [
+            (s) => [s.scope, s.user],
+            (scope: InboxScope, user: UserType | null): string | undefined =>
+                scope === INBOX_SCOPE_FOR_YOU ? (user?.uuid ?? undefined) : teammateUuidFromScope(scope),
+        ],
         // The section's fixed filter merged with the user-driven chrome + reviewer scope (server-side).
         listApiParams: [
             (s) => [
                 s.searchQuery,
-                s.sortField,
-                s.sortDirection,
+                s.activeSortField,
+                s.activeSortDirection,
                 s.sourceProductFilter,
                 s.scoutFilter,
                 s.priorityFilter,
-                s.scope,
-                s.user,
+                s.scopeReviewerUuid,
+                s.activeCreatedWindow,
                 (_, p) => p.listParams,
             ],
             (
@@ -515,12 +615,10 @@ export const reportListLogic = kea<reportListLogicType>([
                 sourceProductFilter: string[],
                 scoutFilter: string[],
                 priorityFilter: import('../types').SignalReportPriority[],
-                scope: InboxScope,
-                user: null | import('~/types').UserType,
+                suggestedReviewer: string | undefined,
+                activeCreatedWindow: InboxCreatedWindow | null,
                 listParams
             ) => {
-                const suggestedReviewer =
-                    scope === INBOX_SCOPE_FOR_YOU ? (user?.uuid ?? undefined) : teammateUuidFromScope(scope)
                 return {
                     ...listParams,
                     search: searchQuery.trim() || undefined,
@@ -529,12 +627,28 @@ export const reportListLogic = kea<reportListLogicType>([
                     scout: scoutFilter.length > 0 ? scoutFilter.join(',') : undefined,
                     priority: priorityFilter.length > 0 ? priorityFilter.join(',') : undefined,
                     suggested_reviewers: suggestedReviewer,
+                    created_window: activeCreatedWindow ?? undefined,
+                    // Rows render from Postgres alone; `loadReportSourceMeta` fills the source line after.
+                    include_source_metadata: 'false',
                 }
             },
         ],
         reports: [
-            (s) => [s.reportsResponse],
-            (reportsResponse: ReportListResponse | null): SignalReport[] => reportsResponse?.results ?? [],
+            (s) => [s.reportsResponse, s.reportSourceMeta],
+            (
+                reportsResponse: ReportListResponse | null,
+                reportSourceMeta: Record<string, ReportSourceMeta>
+            ): SignalReport[] =>
+                (reportsResponse?.results ?? []).map((report) =>
+                    reportSourceMeta[report.id] ? { ...report, ...reportSourceMeta[report.id] } : report
+                ),
+        ],
+        // Rows whose metric snapshot is missing or older than the server's freshness window. Rows
+        // refreshed on an earlier page are fresh, so a next-page load only sends the new ones.
+        staleMetricReportIds: [
+            (s) => [s.reports],
+            (reports: SignalReport[]): string[] =>
+                reports.filter((report) => reportNeedsMetricRefresh(report, Date.now())).map((report) => report.id),
         ],
         hasMore: [
             (s) => [s.reportsResponse],
@@ -553,13 +667,13 @@ export const reportListLogic = kea<reportListLogicType>([
             (reports: SignalReport[]): string[] =>
                 reports
                     .filter((report) => {
-                        if (!report.implementation_pr_url) {
+                        if (reportPullRequests(report).length === 0) {
                             return false
                         }
                         const prState = derivePrState(
                             report.status,
-                            report.implementation_pr_merged === true,
-                            report.implementation_pr_state
+                            primaryReportPullRequest(report).merged === true,
+                            primaryReportPullRequest(report).state
                         )
                         return prState === 'open' || prState === 'draft'
                     })
@@ -584,17 +698,79 @@ export const reportListLogic = kea<reportListLogicType>([
         // user switched to after the request went out.
         loadedContext: [
             (s) => [s.reportsResponse],
-            (reportsResponse: ReportListResponse | null): { scope: InboxScope; hasActiveFilters: boolean } | null =>
+            (reportsResponse: ReportListResponse | null): ReportListRequestContext | null =>
                 reportsResponse?.requestContext ?? null,
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         // Announce this section's open pull requests so their CI state is resolved in one batch. Both
         // loaders report: the first page and each appended page bring rows that need painting. An
         // empty announcement matters too, because it retires the rows a narrowed filter dropped.
-        loadReportsSuccess: () => actions.trackReports(props.sectionKey, values.livePrReportIds),
-        loadMoreReportsSuccess: () => actions.trackReports(props.sectionKey, values.livePrReportIds),
+        loadReportsSuccess: () => {
+            actions.trackReports(props.sectionKey, values.livePrReportIds)
+            actions.refreshReportMetrics(values.staleMetricReportIds)
+            // A first page or a refresh asks again for every row, because a report gains sources as
+            // new signals land. The rows keep their previous values until the answer arrives.
+            actions.loadReportSourceMeta(values.reports.map((report) => report.id))
+        },
+        loadMoreReportsSuccess: () => {
+            actions.trackReports(props.sectionKey, values.livePrReportIds)
+            actions.refreshReportMetrics(values.staleMetricReportIds)
+            actions.loadReportSourceMeta(
+                values.reports.map((report) => report.id).filter((id) => !(id in values.reportSourceMeta))
+            )
+        },
+        // Skips the ids a request already in flight covers, so overlapping page loads do not repeat
+        // the ClickHouse query.
+        loadReportSourceMeta: async ({ reportIds }) => {
+            const inFlight: Set<string> = (cache.sourceMetaInFlight ??= new Set<string>())
+            const requested = reportIds.filter((id) => !inFlight.has(id))
+            if (requested.length === 0) {
+                return
+            }
+            requested.forEach((id) => inFlight.add(id))
+            try {
+                const response = await signalsReportsSourceMetadataCreate(String(ApiConfig.getCurrentProjectId()), {
+                    report_ids: requested,
+                })
+                actions.applyReportSourceMeta(
+                    Object.fromEntries(
+                        response.reports.map(({ id, source_products, scout_name }) => [
+                            id,
+                            { source_products: [...source_products], scout_name },
+                        ])
+                    )
+                )
+            } catch (error) {
+                posthog.captureException(error)
+            } finally {
+                requested.forEach((id) => inFlight.delete(id))
+            }
+        },
+        removeReport: ({ reportId }) => {
+            cache.removedWhilePageLoads?.add(reportId)
+        },
+        // One page of ids per request, sent one after the other so a page open never fans out into
+        // parallel query bursts. A newer page load supersedes an in-flight refresh at the breakpoint.
+        refreshReportMetrics: async ({ reportIds }, breakpoint) => {
+            if (!isReportMetricsEnabled(values.featureFlags)) {
+                return
+            }
+            for (let offset = 0; offset < reportIds.length; offset += METRIC_REFRESH_PAGE_SIZE) {
+                const page = reportIds.slice(offset, offset + METRIC_REFRESH_PAGE_SIZE)
+                let response: Awaited<ReturnType<typeof signalsReportsRefreshMetricsCreate>>
+                try {
+                    response = await signalsReportsRefreshMetricsCreate(String(values.currentTeamId), {
+                        report_ids: page,
+                    })
+                } catch {
+                    return
+                }
+                breakpoint()
+                actions.applyReportMetricSnapshots([...response.reports])
+            }
+        },
         // First For-you count for the primary section: if the user has no reports suggested to
         // them, default to Entire project so they don't land on an empty inbox. Only when they haven't
         // picked a scope themselves, and only once the user's uuid has resolved (so the count is
@@ -635,6 +811,8 @@ export const reportListLogic = kea<reportListLogicType>([
             actions.refresh()
         },
         setSort: () => actions.refresh(),
+        setCreatedWindow: () => actions.refresh(),
+        applyDefaultCreatedWindow: () => actions.refresh(),
         toggleSourceProduct: () => actions.refresh(),
         toggleScout: () => actions.refresh(),
         togglePriority: () => actions.refresh(),
@@ -711,6 +889,14 @@ export const reportListLogic = kea<reportListLogicType>([
         // this section against the server so the report leaves its section and joins Resolved or
         // Dismissed, counts included.
         [inboxBulkActionsLogic.actionTypes.reportStateChanged]: () => actions.refresh(),
+        // A reviewer edit can take a report out of this list's reviewer scope. Drop the row in place
+        // rather than refetch: a refetch reloads only the first page, which loses the scroll position.
+        [inboxBulkActionsLogic.actionTypes.reportReviewersChanged]: ({ reportId, reviewerUuids }) => {
+            const scopeUuid = values.scopeReviewerUuid
+            if (scopeUuid && !reviewerUuids.includes(scopeUuid) && values.reports.some((r) => r.id === reportId)) {
+                actions.removeReport(reportId)
+            }
+        },
     })),
 
     events(({ actions }) => ({

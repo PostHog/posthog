@@ -3,7 +3,7 @@ name = "llm-gateway"
 version = "0.1.0"
 description = "LLM Gateway"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 authors = [
     { name = "PostHog", email = "hey@posthog.com" },
 ]
@@ -15,13 +15,13 @@ dependencies = [
     "pydantic-settings>=2.1.0",
     "asyncpg>=0.30.0",
     "redis==5.3.1",
-    "litellm==1.92.0",
+    "litellm==1.93.2",
     "orjson>=3.10.0",
     "prometheus-client>=0.21.0",
     "prometheus-fastapi-instrumentator>=7.0.0",
     "structlog>=24.4.0",
     "httpx>=0.28.0",
-    "posthoganalytics>=7.51.2",
+    "posthoganalytics>=7.64.1",
     "cachetools>=5.5.0",
     "python-multipart>=0.0.9",
     "boto3>=1.42.65",
@@ -61,6 +61,8 @@ exclude = [
 ]
 
 [tool.ruff]
+# Pinned apart from requires-python, like the root: py314 makes ruff format drop the
+# parentheses in `except (A, B):` (PEP 758).
 target-version = "py313"
 line-length = 120
 indent-width = 4
@@ -102,7 +104,7 @@ pythonpath = ["src"]
 addopts = ["--junitxml=junit.xml", "-o", "junit_family=xunit1"]
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.14"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
@@ -111,3 +113,6 @@ warn_unused_ignores = true
 managed = true
 exclude-newer = "7 days"
 exclude-newer-package = { posthoganalytics = false }
+# The SDK release bot resets the posthoganalytics spec to a floor on every release, so
+# this constraint is what keeps a new major out until its migration PR.
+constraint-dependencies = ["posthoganalytics<8"]

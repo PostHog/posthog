@@ -65,12 +65,14 @@ from posthog.session_recordings.data_retention import retention_period_in_days
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.utils import get_safe_cache, safe_cache_set
 
+from products.access_control.backend.facade.property_access import sort_restricted_properties
 from products.access_control.backend.property_access_control import (
     get_restricted_properties_with_group_type_index_for_team,
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_test_accounts_filter,
     normalize_to_exposure_criteria,
+    resolve_filter_test_accounts,
 )
 from products.experiments.backend.metric_events import (
     MetricEventSource,
@@ -268,7 +270,7 @@ def get_experiment_session_bucket(
 
     run_end = experiment.end_date or timezone.now()
     criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
-    filter_test_accounts = bool(criteria.filterTestAccounts) if criteria else False
+    filter_test_accounts = resolve_filter_test_accounts(criteria)
     limit = min(limit, MAX_SESSION_BUCKET_LIMIT)
 
     requested = _resolve_requested_metrics(experiment, metric_uuids)
@@ -380,13 +382,8 @@ def _restriction_signature(team: Team, user: User) -> str:
                 "property_type": restriction.property_type,
                 "group_type_index": restriction.group_type_index,
             }
-            for restriction in sorted(
-                get_restricted_properties_with_group_type_index_for_team(user=user, team=team),
-                key=lambda restriction: (
-                    restriction.name,
-                    restriction.property_type,
-                    restriction.group_type_index if restriction.group_type_index is not None else -1,
-                ),
+            for restriction in sort_restricted_properties(
+                get_restricted_properties_with_group_type_index_for_team(user=user, team=team)
             )
         ]
     )
@@ -427,7 +424,7 @@ def _cache_key(
         ]
     )
     digest = hashlib.sha256(spec.encode()).hexdigest()[:16]
-    return f"experiment_session_bucket_v5_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
+    return f"experiment_session_bucket_v6_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
 
 
 def _anchor_cache_key(
@@ -458,7 +455,7 @@ def _anchor_cache_key(
         ]
     )
     digest = hashlib.sha256(spec.encode()).hexdigest()[:16]
-    return f"experiment_session_bucket_anchor_v1_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
+    return f"experiment_session_bucket_anchor_v2_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
 
 
 @dataclass(frozen=True)

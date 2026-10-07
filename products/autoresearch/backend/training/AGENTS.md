@@ -7,13 +7,19 @@ This is the expensive half of the product. A real run costs roughly a dollar in 
 
 The other half is `../inference/`, which consumes what this package produces and must never re-fit.
 
-This package landed ahead of its callers. `../presentation/`, `../temporal/`, `../management/`, and `../evaluation/` arrive in later pieces of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the references to them below describe where they will sit.
-
 ## What lives here
 
 - `runner.py`
   The real path. `run_training()` creates the `AutoresearchTrainingRun` (status `RUNNING`) and fires `Task.create_and_run()` with `internal=True` and no repository, so the run shows up as an internal Task rather than in the normal Tasks list.
+  The brief carries user-authored text, so the sandbox token holds only `TRAINING_MCP_SCOPES` (the `execute-sql` reads, the autoresearch scopes, and `user:read`, which the PostHog MCP server needs to start a session), and an empty connector allowlist keeps the team's shared MCP connectors out of the sandbox.
   `build_agent_description()` assembles the agent's brief — the target, the horizon, the population, and the contract for the bundle it must author.
+  When the `autoresearch-report-notebook` flag is on for the launching user, the token also holds `REPORT_NOTEBOOK_MCP_SCOPES` and the brief adds a Finalize step: the agent builds one report notebook from the `system.autoresearch_*` tables and passes its `short_id` to complete. `report.md` stays required either way.
+  The brief's worked `features.sql` reads events through a pre-filtered subquery (the event names the features use, the anchor persons, and the anchors' widest window) before it joins, because ClickHouse builds the hash table from the right side of a join and a direct events join reads the whole team's events.
+  The brief also states the inference cutoff: the start of the prediction date in UTC (`ScoringWindow` in `../inference/scoring.py`), not `now()`.
+  The brief's cost guidance is advice only. Cost does not enter champion selection, so the brief does not tell the agent to trade AUC for a cheaper query.
+  For a person column that events do not carry, the brief recommends `raw_persons` in a subquery filtered with `id IN (SELECT person_id FROM {anchors})`, never `LEFT JOIN persons`, because the persons table dedupes every person of the team before any filter applies.
+  `feature_sql_hints()` in `recipe_validation.py` returns a non-blocking hint when a query reads `persons` or `raw_persons` in a SELECT whose `WHERE` does not refer to `{anchors}`. The `materialize-features` response carries the hints, with the `elapsed_s` and `rows_read` of the materialization.
+  Step 0 of the brief carries the realized results that `realized_context.py` computes, wrapped as untrusted data, with guidance on how to read the gap between holdout and realized AUC. The brief presents realized AUC as evidence for a direction, never as a target: the next run's holdout covers the same recent dates, so tuning against realized results tunes against the holdout. A pipeline with no validated dates gets one line instead of tables. `report.md` asks for one line on how the run used these results.
   The agent drives the rest _itself_ through the `autoresearch-*` MCP tools: it records each iteration, uploads the bundle, and calls complete. Nothing polls it.
 - `stub.py`
   `run_stub_training()` — a hand-authored champion recipe with universal engagement features (event counts, distinct event types, days since first seen) that apply to any team and any target.
@@ -21,14 +27,34 @@ This package landed ahead of its callers. `../presentation/`, `../temporal/`, `.
 - `ingestion.py`
   The safety net. `handle_task_run_completed()` is called from the `TaskRun` `post_save` signal registered in `../apps.py`, and runs synchronously in the Temporal worker thread.
   If the agent recorded iterations but never called complete, this finalizes through the same promotion path. If it recorded nothing, the run is marked failed — which is what produces `"Agent recorded no iterations before the run ended."`
-  The `autoresearch_training_run_id` marker in `TaskRun.state` is client-writable, so it names a run rather than proving ownership of it. A `TaskRun` may only finalize the run whose server-stamped `task_run_id` is its own id.
+  `run_training()` writes the `autoresearch_training_run_id` marker into `TaskRun.state` when it creates the task, and tasks refuses a patch to it. The marker names a run; ownership is proved by the run's server-stamped `task_run_id`, so a `TaskRun` may only finalize the run whose `task_run_id` is its own id.
 - `promotion.py`
   Champion selection. `complete_training_run()` is the single entry point, used both by the training-run `complete` API action and by `ingestion.py`.
   A challenger must beat the incumbent by `CHAMPION_PROMOTION_MARGIN` (0.005 holdout AUC) to be promoted — near-ties keep the incumbent rather than churning the champion on noise.
   `_detect_uploaded_bundle()` decides whether the new model gets an `artifact_prefix` (bundle path) or only a recorded recipe (legacy path).
   The bundle is written once per run, so a losing iteration can overwrite it: the uploaded `features.sql` must match the `feature_sql` recorded by the selected iteration, whitespace aside, or promotion raises rather than publishing a champion whose recipe and score describe other code.
   `complete_training_run()` reads the bundle and enters the run's `team_scope()` before it opens the transaction, because the `TaskRun` safety net calls it from a worker thread with no request scope, and object-storage calls must not run under the row lock.
-  Only a promoted model is fitted. A challenger's `model.pkl` would never be read, because inference serves the champion and no path promotes a challenger row later.
+  The agent's `report_notebook_short_id` goes into the run summary only if that notebook exists in the run's team. A bad id or a failed check stores an empty value and never fails completion.
+  A promoted bundle-backed model is fitted. A bundle-backed challenger is fitted only when it enters the shadow set (see `shadow_set.py`). The fit runs after commit and never changes the completion result.
+  A successful challenger fit sets `metrics.model_fitted`, and a failed one only logs. A challenger without `model_fitted` stays out of the shadow set.
+  After a champion fit, `check_scorability()` runs the bundle's `features.sql` against today's inference anchors under `BATCH_QUERY`. A passing check records `scorability_elapsed_s` and `scorability_rows_read` in the model metrics and sets `model_fitted`.
+  A failed fit, a failed check, or a check above `SCORABILITY_TIME_BUDGET_S` (half the batch query limit) rolls the promotion back under the pipeline lock: the candidate becomes a challenger with `not_promoted_reason` in its metrics, and the champion it archived comes back. A first champion that rolls back puts the pipeline back in the status it had before promotion. The rolled-back candidate has no `model_fitted`, so it never enters the shadow set.
+  The rollback changes nothing when the candidate is no longer the champion. A scoring run that started with the candidate fails in `_require_still_champion()` before it emits.
+  A recipe-only champion is not checked.
+  A champion whose scheduled scoring runs failed with a repeatable `failure_kind` on the last two prediction dates, with no success after the first of them, is unscorable (`find_unscorable_champion()` in `../inference/failures.py`). Any candidate replaces it whatever the margin, with `promotion_reason` `replaced_unscorable` in the model metrics, and the fit and the scorability check still roll back a candidate that cannot score either. The brief tells the agent the failure kind and the onset date.
+  A champion whose metrics lack `anchor_alignment: "utc_day"` was trained on T0s at any second (see `../dataset/AGENTS.md`), so its holdout score is inflated and is no bar. Any candidate replaces it whatever the margin, with `promotion_reason` `replaced_anchor_change`. Every new model records `anchor_alignment`.
+- `explanation.py`
+  The `model_explanation` contract: `top_features` (at most `MAX_TOP_FEATURES`, each a `name`, a non-negative `importance` and a `direction` of `positive` or `negative`), plus an optional `method` and `note`. The `complete` serializer enforces it and sorts the features strongest first, and the brief states it.
+  Champions written before the contract stored other shapes (`features` or `feature_importances` lists, a `feature` key, `auc_drop_when_shuffled` or `gain` for the importance, prose directions such as `higher -> less likely`). The rows are not backfilled. `normalize_model_explanation()` maps them on read in the facade and drops entries it cannot read, so the API always returns the typed shape.
+- `shadow_set.py`
+  `shadow_set(pipeline)` computes the models worth scoring side by side. Nothing stores the set.
+  It holds the champion, the previous champion (the newest archived bundle-backed row with `promoted_at` set), and up to `SHADOW_CHALLENGER_LIMIT` (3) fitted bundle-backed challengers. No two members share a `recipe_hash`.
+  A challenger younger than `horizon_days + SHADOW_MIN_MATURED_DATES` days keeps its place, so a new challenger cannot displace it. Past that age, a newer challenger displaces it. A challenger that does not enter at completion is never fitted, so it cannot enter later.
+  The models API exposes membership as `in_shadow_set`. Every live scoring cadence scores the set (see `../inference/AGENTS.md`). Nothing promotes from the set yet.
+- `realized_context.py`
+  `build_realized_context(pipeline)` reads the validation history through `latest_validation_runs()` in `../evaluation/history.py`, the same read as the `online_performance` API.
+  For each shadow-set member (champion, previous champion, shadow challengers) it keeps at most `REALIZED_DATES_PER_MODEL` (14) dates: realized AUC with its interval, positives, mean score against base rate, and the gap to holdout.
+  It also picks at most `RELATED_PIPELINES_LIMIT` (5) pipelines of the same team with a realized result: the same target at another horizon first, then the same training population with another target, nearest horizon first. For those the brief shows only the gap and calibration of the model that served each date, because AUCs at another horizon or for another target do not compare. A population that `ever_performed_target` or `active_not_performed_target` defines resolves against each pipeline's own target, so it never counts as the same population.
 - `artifacts.py`
   Object storage for the bundle: `features.sql`, `train.py`, `predict.py`, plus the fitted `model.pkl` written at completion.
   Keys are prefixed by team / pipeline / training-run (`bundle_prefix()`), so history is preserved naturally and bundles can never collide across tenants.
@@ -60,7 +86,7 @@ Two things routinely surprise people:
 
 - **Launched by** — the `train` API action in `../presentation/views/views.py`, the `autoresearch_train` management command, and `activity_kickoff_training` in `../temporal/workflows.py`.
 - **Finalized by** — the `complete` action on the training-run viewset, or `ingestion.py` via the `TaskRun` `post_save` signal wired in `../apps.py`.
-- **Consumed by** — `../inference/`, which reads the champion's `artifact_prefix` and runs its bundle. `fit_champion_model()` in `../inference/sandbox.py` is what actually fits and persists `model.pkl` at completion time.
+- **Consumed by** — `../inference/`, which reads the champion's `artifact_prefix` and runs its bundle. `fit_champion_model()` in `../inference/sandbox.py` is what actually fits and persists `model.pkl` at completion time, for the champion and for a challenger that enters the shadow set. Shadow scoring loads that `model.pkl` the same way the champion's scoring does.
 - **Agent-facing surface** — the `autoresearch-training-runs-*` MCP tools in `../../mcp/tools.yaml`, backed by the viewsets in `../presentation/views/views.py`. The sandbox agent has no other way to write.
 - **Labels and features** — `../dataset/labeling.py` builds the training population the bundle is fitted against.
 

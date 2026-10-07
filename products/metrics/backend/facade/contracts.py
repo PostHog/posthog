@@ -27,6 +27,7 @@ from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
+MAX_SPARKLINE_BATCH_SIZE = 20
 
 # Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
 # must check the same flag, or one of them becomes a bypass.
@@ -35,12 +36,6 @@ METRICS_FEATURE_FLAG = "metrics"
 # Extra gate for the error-spike overlay PoC, layered on top of METRICS_FEATURE_FLAG.
 # Staff-only while it is a proof of concept.
 METRICS_ERROR_OVERLAYS_FEATURE_FLAG = "metrics-error-overlays"
-
-# Fundamentals recomputes a chart point from its raw samples so the viewer's own
-# reductions can be checked. That makes it a tool for the people who build the
-# viewer, not a feature for the teams on the alpha, so it needs a gate of its own
-# on top of METRICS_FEATURE_FLAG.
-METRICS_FUNDAMENTALS_FEATURE_FLAG = "metrics-fundamentals"
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +132,9 @@ class MetricSeries:
     points: tuple[MetricPoint, ...]
     metric_name: str | None = None
     clause: str | None = None
+    # UCUM unit of the metric as ingested (e.g. "By", "ms"). Empty when the SDK
+    # did not set one. Set by `run_metric_query`, not by callers.
+    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -366,61 +364,3 @@ class MetricsOverview:
     series: int
     lookback_seconds: int
     services: tuple[MetricsServiceOverview, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class MetricSampleView:
-    """One raw reading, as it sits in storage before any reduction."""
-
-    time: str
-    value: float
-
-
-@dataclass(frozen=True, slots=True)
-class MetricSeriesBreakdown:
-    """One physical series inside a bucket, and the value it contributed.
-
-    `samples` is trimmed for display; `sample_count` always reports how many
-    the series really sent, so a trimmed list can't be mistaken for a quiet one.
-    """
-
-    service_name: str
-    labels: dict[str, str]
-    resource_labels: dict[str, str]
-    samples: tuple[MetricSampleView, ...]
-    sample_count: int
-    samples_truncated: bool
-    # None when the aggregation has no per-series step, as percentiles do not:
-    # they read the pooled readings, so no single number is this series'
-    # contribution.
-    value: float | None
-
-
-@dataclass(frozen=True, slots=True)
-class MetricBucketDecomposition:
-    """One chart point taken apart into the series and samples behind it.
-
-    `reference_value` is recomputed from the raw samples independently of the
-    query builders; `actual_value` is what the product would plot. `agrees`
-    compares them, and is the part worth reading first — a mismatch means one
-    of the two reductions is wrong, and the breakdown shows where they parted.
-    """
-
-    metric_name: str
-    metric_type: str
-    temporality: str
-    aggregation: str
-    bucket_start: str
-    interval: str
-    temporal_reducer: str
-    spatial_reducer: str
-    series: tuple[MetricSeriesBreakdown, ...]
-    series_count: int
-    sample_count: int
-    series_truncated: bool
-    rows_truncated: bool
-    reference_value: float | None
-    actual_value: float | None
-    # None when the raw read was truncated: the reference then covers only part
-    # of the bucket, so comparing it to the chart proves nothing either way.
-    agrees: bool | None

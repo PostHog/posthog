@@ -1,28 +1,38 @@
+import datetime as dt
+
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import ListingProof
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
 _SCHEMA_MODEL = "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema"
 _JOB_MODEL = "products.warehouse_sources.backend.models.external_data_job.ExternalDataJob"
 _MANAGER = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager"
+_COMPANIONS = "products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs"
+_SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source"
+_SNAPSHOT_LANE = "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane"
 
 
-def _schema(ingest_mode: str = "buffered", **overrides) -> MagicMock:
+def _schema(**overrides) -> MagicMock:
     schema = MagicMock()
     schema.name = "users"
     schema.is_cdc = overrides.get("is_cdc", True)
     schema.cdc_mode = overrides.get("cdc_mode", "streaming")
     schema.cdc_table_mode = overrides.get("cdc_table_mode", "consolidated")
     schema.initial_sync_complete = overrides.get("initial_sync_complete", True)
+    # Explicit: an unset MagicMock attribute is truthy, which would send the snapshot path into the
+    # xmin cursor branch and fail on the missing cursor manager.
+    schema.is_xmin = overrides.get("is_xmin", False)
     schema.sync_type_config = {}
     schema.schema_metadata = {}
     schema.resolved_s3_folder_name = None
     schema.primary_key_columns = ["id"]
-    schema.source.job_inputs = {"cdc_enabled": True, "cdc_ingest_mode": ingest_mode}
+    schema.last_synced_at = None
+    schema.source.job_inputs = {"cdc_enabled": True}
     return schema
 
 
@@ -43,59 +53,150 @@ def _inputs(reset_pipeline: bool = False) -> SourceInputs:
     )
 
 
+def _proof_days_ago(days: int | None) -> ListingProof | None:
+    if days is None:
+        return None
+    return ListingProof(listed_at=dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=days), tail={})
+
+
+def _delta_ref() -> MagicMock:
+    ref = MagicMock()
+    ref.return_value.get_delta_table = AsyncMock(return_value=MagicMock())
+    return ref
+
+
 def _dispatch(
     schema: MagicMock,
     inputs: SourceInputs,
-    backlog: bool = False,
+    in_flight: bool = False,
     job_version: str | None = ExternalDataJob.PipelineVersion.V3,
+    clear_listing: MagicMock | None = None,
+    retire_orphans: MagicMock | None = None,
+    proof: ListingProof | None = None,
+    hand_reset: MagicMock | None = None,
+    expired: AsyncMock | None = None,
 ):
     job = None if job_version is None else MagicMock(pipeline_version=job_version)
     with (
         patch(f"{_SCHEMA_MODEL}.objects") as objects,
         patch(f"{_JOB_MODEL}.objects") as job_objects,
-        patch(f"{_MANAGER}.has_pending_legacy_backlog", return_value=backlog),
+        patch(f"{_MANAGER}.clear_listing", clear_listing or MagicMock()),
+        patch(f"{_COMPANIONS}.retire_orphaned_companions", retire_orphans or MagicMock(return_value=[])),
+        patch(f"{_MANAGER}.has_batches_in_flight", return_value=in_flight),
+        patch(f"{_MANAGER}.DeltaTableRef", _delta_ref()),
+        patch(f"{_MANAGER}.read_lane_position", AsyncMock(return_value=LanePosition(position=None, applied={}))),
+        patch(f"{_MANAGER}.ensure_position_stats", AsyncMock()),
+        patch(f"{_MANAGER}.completed_listing_proof", AsyncMock(return_value=proof)),
+        patch(f"{_MANAGER}.buffer_expired_unread", expired or AsyncMock(return_value=False)),
+        patch(f"{_SNAPSHOT_LANE}.hand_reset_to_capture", hand_reset or MagicMock()),
         patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=MagicMock()),
     ):
         objects.select_related.return_value.get.return_value = schema
         job_objects.filter.return_value.first.return_value = job
-        return PostgresSource().source_for_pipeline(MagicMock(), inputs)
+        return PostgresSource().source_for_pipeline(MagicMock(), MagicMock(), inputs)
 
 
 class TestBufferedDispatch:
-    def test_a_flipped_schema_is_consumed_here_instead_of_by_the_extraction_workflow(self):
+    def test_a_streaming_schema_is_consumed_from_the_buffer(self):
         response = _dispatch(_schema(), _inputs())
 
         assert response.name == "users"
         assert response.cdc_write_mode == "incremental_merge"
 
-    @pytest.mark.parametrize(
-        "overrides,ingest_mode",
-        [
-            ({}, "legacy"),
-            ({"cdc_table_mode": "cdc_only"}, "buffered"),
-            ({"initial_sync_complete": False}, "buffered"),
-        ],
-    )
-    def test_a_schema_the_buffer_does_not_serve_stays_with_the_extraction_workflow(self, overrides, ingest_mode):
-        with pytest.raises(CDCHandledExternally):
-            _dispatch(_schema(ingest_mode, **overrides), _inputs())
+    def test_an_unrecognized_table_mode_fails_the_run(self):
+        with pytest.raises(ValueError, match="cdc_table_mode"):
+            _dispatch(_schema(cdc_table_mode="something_new"), _inputs())
 
-    def test_a_v2_run_reaching_the_buffered_lane_fails_loudly(self):
-        # The forcing keeps this unreachable; if a race or deploy skew gets past it, the run must
-        # fail rather than consume without recording a load position.
-        with pytest.raises(ValueError, match="requires v3"):
-            _dispatch(_schema(), _inputs(), job_version="v2-non-dlt")
+    def test_a_streaming_schema_whose_data_was_deleted_runs_a_snapshot(self):
+        with (
+            patch(f"{_SOURCE}.source_requires_ssl", return_value=False),
+            patch(f"{_SOURCE}.postgres_source") as snapshot,
+        ):
+            _dispatch(_schema(initial_sync_complete=False), _inputs())
 
-    def test_a_missing_job_row_does_not_block_buffered_consumption(self):
-        response = _dispatch(_schema(), _inputs(), job_version=None)
+        snapshot.assert_called_once()
 
-        assert response.name == "users"
+    def test_a_cdc_only_schema_is_consumed_into_its_companion_table(self):
+        response = _dispatch(_schema(cdc_table_mode="cdc_only"), _inputs())
 
-    def test_a_pending_legacy_backlog_yields_an_empty_run_rather_than_pausing_the_schedule(self):
-        response = _dispatch(_schema(), _inputs(), backlog=True)
+        assert response.name == "users_cdc"
+        assert response.cdc_write_mode == "scd2_append"
+
+    def test_both_writes_each_table_on_every_run(self):
+        response = _dispatch(_schema(cdc_table_mode="both"), _inputs())
+
+        assert [lane.name for lane in response.lanes or []] == ["users", "users_cdc"]
+
+    def test_each_table_carries_the_write_mode_its_loader_needs(self):
+        response = _dispatch(_schema(cdc_table_mode="both"), _inputs())
+
+        modes = [lane.cdc_write_mode for lane in response.lanes or []]
+        assert modes == ["incremental_merge", "scd2_append"]
+
+    def test_a_missing_job_row_fails_the_run(self):
+        # Every lane reads its resume point off its own Delta table, which needs the job row.
+        with pytest.raises(ValueError, match="no job row"):
+            _dispatch(_schema(), _inputs(), job_version=None)
+
+    def test_a_delivery_still_in_flight_no_ops_the_tick(self):
+        response = _dispatch(_schema(cdc_table_mode="both"), _inputs(), in_flight=True)
 
         assert list(response.items()) == []
+        assert response.lanes is None
+
+    def test_a_no_op_tick_takes_an_earlier_attempts_listing_off_the_job(self):
+        # Attempt 1 of this same job listed and stamped, then died with batches staged. This
+        # attempt hands back an empty response and the workflow completes the job on it. If a
+        # staged batch later fails in the loader, the job stays Completed — and a stamp still on
+        # it would prove a listing nothing drained.
+        clear, retire = MagicMock(), MagicMock()
+        inputs = _inputs()
+
+        _dispatch(_schema(cdc_table_mode="both"), inputs, in_flight=True, clear_listing=clear, retire_orphans=retire)
+
+        clear.assert_called_once_with(inputs.job_id, inputs.team_id)
+        retire.assert_not_called()
+
+    def test_a_run_retires_companions_no_run_owns_before_it_reads(self):
+        # Once nothing is in flight, a companion still Running belongs to a run that died without
+        # its `finally`. Nothing else ever closes it, and one such row blocks every flip.
+        retire = MagicMock(return_value=["orphan"])
+        inputs = _inputs()
+
+        _dispatch(_schema(cdc_table_mode="both"), inputs, retire_orphans=retire)
+
+        retire.assert_called_once()
 
     def test_a_reset_on_a_streaming_buffered_schema_is_refused(self):
         with pytest.raises(ValueError, match="cdc_mode='snapshot'"):
             _dispatch(_schema(), _inputs(reset_pipeline=True))
+
+    @pytest.mark.parametrize(
+        "proof_days_ago, expired, reset",
+        [(None, True, True), (None, False, False), (1, True, False)],
+    )
+    def test_a_table_that_consumed_nothing_for_longer_than_the_buffer_keeps_files_is_reset(
+        self, proof_days_ago: int | None, expired: bool, reset: bool
+    ) -> None:
+        hand_reset = MagicMock()
+        expired_check = AsyncMock(return_value=expired)
+        schema = _schema(cdc_table_mode="both")
+
+        response = _dispatch(
+            schema, _inputs(), proof=_proof_days_ago(proof_days_ago), hand_reset=hand_reset, expired=expired_check
+        )
+
+        assert hand_reset.call_args_list == ([call(schema, ANY, start_capture=False)] if reset else [])
+        assert (response.lanes is None) is reset
+        assert expired_check.called is (proof_days_ago is None)
+
+    def test_an_expired_buffer_takes_an_earlier_attempts_listing_off_the_job(self) -> None:
+        # The workflow completes the job on the empty response this stand-down hands back, just as
+        # it does for the in-flight one, so a stamp from an earlier attempt must not survive it.
+        clear = MagicMock()
+        schema = _schema(cdc_table_mode="both")
+        inputs = _inputs()
+
+        _dispatch(schema, inputs, clear_listing=clear, hand_reset=MagicMock(), expired=AsyncMock(return_value=True))
+
+        clear.assert_called_once_with(inputs.job_id, inputs.team_id)

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -33,7 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GoldcastSource(SimpleSource[GoldcastSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    api_docs_url = "https://customapi.goldcast.io/swagger-ui/"
+    api_docs_url = "https://apidocs.goldcast.io/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -42,7 +40,7 @@ class GoldcastSource(SimpleSource[GoldcastSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GOLDCAST,
+            name=ExternalDataSourceType.GOLDCAST,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Goldcast",
             releaseStatus=ReleaseStatus.ALPHA,

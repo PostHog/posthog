@@ -17,15 +17,19 @@ from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.property import GroupTypeIndex
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, RootTeamQuerySet
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.experiments.backend.models.experiment import live_experiment_exists
+from products.feature_flags.backend.facade.config import ConfigFormatError, ConfigV1, decode_config, require_v1_config
+from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.variant_rollout import format_variant_rollout_sum, variant_rollout_sum_is_100
 
 if TYPE_CHECKING:
     from django.db.models.fields.related_descriptors import RelatedManager
 
+    from posthog.models.activity_logging.activity_log import Trigger
     from posthog.models.team import Team
 
     from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
@@ -49,6 +53,10 @@ def build_scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[st
     Callers decide what ``None`` means: the gate declines to gate an uninterpretable change; the
     dispatcher raises. Apply-time-only validation (variant rollout sums, payload-key matching)
     stays in the dispatcher.
+
+    Raises ``ConfigFormatError`` when any operation other than ``update_status`` targets a flag
+    whose ``filters`` is not config version 1. ``update_status`` never reads ``filters``, so it
+    never raises.
     """
     operation = payload.get("operation")
     if operation is None or "value" not in payload:
@@ -59,6 +67,8 @@ def build_scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[st
         return {"active": value}
 
     current_filters = flag.get_filters()
+    # The merges below are v1 merges; a target in another format fails closed here.
+    require_v1_config(current_filters)
 
     if operation == "add_release_condition":
         new_groups = value.get("groups", []) if isinstance(value, dict) else []
@@ -135,10 +145,15 @@ class FeatureFlagManager(RootTeamManager):
         return FeatureFlagQuerySet(self.model, using=self._db).exclude(deleted=True)
 
 
-class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     # Reverse relation from FeatureFlagEvaluationContext.feature_flag (related_name="flag_evaluation_contexts").
     if TYPE_CHECKING:
         flag_evaluation_contexts: RelatedManager[FeatureFlagEvaluationContext]
+
+    # Never persisted. A caller that rewrites the flag as a side effect of another action
+    # (for example the experiment exposure freeze) sets this before the gated write; the
+    # activity-log receiver reads it so the entry does not render as a manual edit.
+    _activity_trigger: "Trigger | None" = None
 
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key = models.CharField(max_length=400)
@@ -296,6 +311,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         )
 
     def get_analytics_metadata(self) -> dict:
+        try:
+            self._v1_filters()
+        except ConfigFormatError as exc:
+            return {"created_at": self.created_at, "config_format": exc.config_format.kind}
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
         variants_count = len(self.variants)
         payload_count = len(self._payloads)
@@ -312,22 +331,34 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             "payload_count": payload_count,
         }
 
+    def _v1_filters(self) -> dict:
+        """The stored document when it is config version 1; any other format raises ``ConfigFormatError``.
+
+        The accessors below read v1 keys. A document in another format must never reach
+        them and be read as a flag with no conditions and no variants; callers that can
+        meet such a row catch the error. ``get_filters()`` stays raw for readers that
+        classify the document themselves.
+        """
+        filters = self.get_filters()
+        require_v1_config(filters)
+        return filters
+
     @property
     def conditions(self):
         "Each feature flag can have multiple conditions to match, they are OR-ed together."
-        return self.get_filters().get("groups", []) or []
+        return self._v1_filters().get("groups", []) or []
 
     @property
     def has_feature_enrollment(self) -> bool:
-        return bool(self.get_filters().get("feature_enrollment", False))
+        return bool(self._v1_filters().get("feature_enrollment", False))
 
     @property
     def holdout(self):
-        return self.get_filters().get("holdout", None)
+        return self._v1_filters().get("holdout", None)
 
     @property
     def _payloads(self):
-        return self.get_filters().get("payloads", {}) or {}
+        return self._v1_filters().get("payloads", {}) or {}
 
     def get_payload(self, match_val: str) -> Optional[object]:
         return self._payloads.get(match_val, None)
@@ -335,12 +366,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     @property
     def aggregation_group_type_index(self) -> Optional[GroupTypeIndex]:
         "If None, aggregating this feature flag by persons, otherwise by groups of given group_type_index"
-        return self.get_filters().get("aggregation_group_type_index", None)
+        return self._v1_filters().get("aggregation_group_type_index", None)
 
     @property
     def variants(self):
         # :TRICKY: .get("multivariate", {}) returns "None" if the key is explicitly set to "null" inside json filters
-        multivariate = self.get_filters().get("multivariate", None)
+        multivariate = self._v1_filters().get("multivariate", None)
         if isinstance(multivariate, dict):
             variants = multivariate.get("variants", None)
             if isinstance(variants, list):
@@ -349,7 +380,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
     @property
     def is_eligible_for_experiment(self) -> bool:
-        return experiment_eligibility_error(self.variants) is None
+        try:
+            variants = self.variants
+        except ConfigFormatError:
+            # Only a v1 document carries the variants an experiment reads.
+            return False
+        return experiment_eligibility_error(variants) is None
 
     @property
     def usage_dashboard_has_enriched_insights(self) -> bool:
@@ -399,39 +435,39 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             seen_cohorts_cache = {}
 
         cohort_ids = set()
-        for condition in self.conditions:
-            props = condition.get("properties", [])
-            for prop in props:
-                if prop.get("type") == "cohort":
-                    cohort_id = int(prop.get("value"))
-                    try:
-                        if cohort_id in seen_cohorts_cache:
-                            cohort: CohortOrEmpty = seen_cohorts_cache[cohort_id]
-                            if not cohort:
-                                continue
-                        else:
-                            cohort = Cohort.objects.db_manager(using_database).get(
-                                pk=cohort_id,
-                                team__project_id=self.team.project_id,
-                                deleted=False,
-                            )
-                            seen_cohorts_cache[cohort_id] = cohort
-
-                        cohort_ids.add(cohort.pk)
-                        cohort_ids.update(
-                            [
-                                dependency_cohort.pk
-                                for dependency_cohort in get_all_cohort_dependencies(
-                                    cohort,
-                                    using_database=using_database,
-                                    seen_cohorts_cache=seen_cohorts_cache,
-                                    stop_traversal_at_static=stop_traversal_at_static,
-                                )
-                            ]
-                        )
-                    except Cohort.DoesNotExist:
-                        seen_cohorts_cache[cohort_id] = ""
+        # Unreadable formats raise. A non-integer id raises in v1, as it always did; v2 skips it, as Rust does.
+        config = decode_config(self.get_filters())
+        invalid_ids: InvalidIds = "raise" if isinstance(config, ConfigV1) else "skip"
+        direct_ids = references(config, invalid_cohort_ids=invalid_ids).cohort_ids
+        for cohort_id in direct_ids:
+            try:
+                if cohort_id in seen_cohorts_cache:
+                    cohort: CohortOrEmpty = seen_cohorts_cache[cohort_id]
+                    if not cohort:
                         continue
+                else:
+                    cohort = Cohort.objects.db_manager(using_database).get(
+                        pk=cohort_id,
+                        team__project_id=self.team.project_id,
+                        deleted=False,
+                    )
+                    seen_cohorts_cache[cohort_id] = cohort
+
+                cohort_ids.add(cohort.pk)
+                cohort_ids.update(
+                    [
+                        dependency_cohort.pk
+                        for dependency_cohort in get_all_cohort_dependencies(
+                            cohort,
+                            using_database=using_database,
+                            seen_cohorts_cache=seen_cohorts_cache,
+                            stop_traversal_at_static=stop_traversal_at_static,
+                        )
+                    ]
+                )
+            except Cohort.DoesNotExist:
+                seen_cohorts_cache[cohort_id] = ""
+                continue
         if sort_by_topological_order:
             return sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
 
@@ -443,7 +479,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         user: Optional[AbstractBaseUser] = None,
         scheduled_change_id: Optional[int] = None,
     ):
-        from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+        from products.feature_flags.backend.facade.api import update_flag
 
         if "operation" not in payload or "value" not in payload:
             raise Exception("Invalid payload")
@@ -457,11 +493,6 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         # It's not the correct type, but it matches enough to get the job done
         http_request.user = user or self.created_by  # type: ignore
         http_request.method = "PATCH"  # This is a partial update, not a new creation
-        context = {
-            "request": http_request,
-            "team_id": self.team_id,
-            "project_id": self.team.project_id,
-        }
 
         # Apply-time-only validation for variant changes, before shaping the payload. The gate skips
         # these because an invalid change can't be approved into applying anyway; here they surface
@@ -494,9 +525,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         if serializer_data is None:
             raise Exception(f"Unrecognized operation: {payload['operation']}")
 
-        serializer = FeatureFlagSerializer(self, data=serializer_data, context=context, partial=True)
-        if serializer.is_valid(raise_exception=True):
-            serializer.save()
+        update_flag(self, serializer_data, team=self.team, user=http_request.user, request=http_request)
 
     @property
     def uses_cohorts(self) -> bool:

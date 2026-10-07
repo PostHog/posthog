@@ -1,8 +1,7 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.greenhouse import (
     GreenhouseSourceConfig,
 )
@@ -126,6 +125,27 @@ class TestGreenhouseSource:
 
         assert mock_validate.call_args.args[0] == expected_version
         assert mock_validate.call_args.kwargs["path"] == expected_path
+
+    @pytest.mark.parametrize("pinned_version, lists_v3_only", [(None, True), ("v3", True), ("v1", False)])
+    def test_get_schemas_lists_v3_only_tables_only_on_v3(self, pinned_version: str | None, lists_v3_only: bool) -> None:
+        names = {
+            schema.name for schema in self.source.get_schemas(self.config, self.team_id, api_version=pinned_version)
+        }
+
+        assert "candidates" in names
+        assert ("openings" in names) is lists_v3_only
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source.validate_greenhouse_credentials"
+    )
+    def test_validate_credentials_rejects_v3_only_schema_on_v1(self, mock_validate: mock.MagicMock) -> None:
+        is_valid, error = self.source.validate_credentials(
+            self.config, self.team_id, schema_name="openings", api_version="v1"
+        )
+
+        assert is_valid is False
+        assert error is not None and "Harvest v3" in error
+        mock_validate.assert_not_called()
 
     @pytest.mark.parametrize("pinned_version, expected_version", [(None, "v3"), ("v3", "v3"), ("v1", "v1")])
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source.greenhouse_source")

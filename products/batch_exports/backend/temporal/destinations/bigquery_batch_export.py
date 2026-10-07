@@ -20,6 +20,7 @@ import google.auth.transport.requests
 import google.auth.impersonated_credentials
 from google.api_core.exceptions import (
     BadRequest,
+    DeadlineExceeded,
     Forbidden,
     GatewayTimeout,
     GoogleAPICallError,
@@ -37,6 +38,7 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
+from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -81,6 +83,8 @@ from products.batch_exports.backend.temporal.utils import (
 NON_RETRYABLE_ERROR_TYPES = (
     # Raised on missing permissions.
     "Forbidden",
+    # The stored key file names a token endpoint that is not Google's; only a re-upload fixes it.
+    "InvalidGoogleTokenUriError",
     # Invalid token.
     "RefreshError",
     # Usually means the dataset or project_id doesn't exist.
@@ -477,12 +481,16 @@ async def get_service_account_description(
     client = iam_admin_v1.IAMAsyncClient(credentials=our_credentials)
 
     retryable_get_service_account = make_retryable_with_exponential_backoff(
-        client.get_service_account, retryable_exceptions=(InternalServerError,), max_attempts=max_attempts
+        client.get_service_account,
+        retryable_exceptions=(InternalServerError, DeadlineExceeded, ServiceUnavailable),
+        max_attempts=max_attempts,
     )
 
     try:
         sa = await retryable_get_service_account(
-            request=iam_admin_v1.GetServiceAccountRequest(name=f"projects/-/serviceAccounts/{service_account_email}")
+            request=iam_admin_v1.GetServiceAccountRequest(name=f"projects/-/serviceAccounts/{service_account_email}"),
+            # Retries are handled by our wrapper, have the client just raise
+            retry=None,
         )
     except PermissionDenied:
         EXTERNAL_LOGGER.exception(
@@ -635,6 +643,7 @@ class BigQueryClient:
     def from_service_account_inputs(
         cls, private_key: str, private_key_id: str, token_uri: str, client_email: str, project_id: str
     ) -> typing.Self:
+        token_uri = require_google_token_uri(token_uri)
         credentials = service_account.Credentials.from_service_account_info(
             {
                 "private_key": private_key,
@@ -1383,6 +1392,7 @@ def _get_merge_settings(
 class BigQueryInsertInputs(BatchExportInsertInputs):
     """Inputs for BigQuery."""
 
+    data_interval_end: str
     dataset_id: str
     table_id: str
     project_id: str | None = None
@@ -1521,6 +1531,8 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                 await ensure_our_google_cloud_credentials_are_valid()
             try:
                 bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
+            except InvalidGoogleTokenUriError:
+                raise
             except Exception:
                 LOGGER.exception("Initialize client from service account failed")
                 # TODO: Migrate everyone and remove this

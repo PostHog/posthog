@@ -622,65 +622,45 @@ async fn test_invalid_event_name_custom_event_returns_400() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
+/// The endpoint accepts any `$ai_*` name and refuses the rest with a message
+/// naming the prefix rule. `$ai_model` is still required either way.
 #[tokio::test]
-async fn test_all_allowed_ai_event_types_accepted() {
+async fn accepts_any_ai_prefixed_name_on_the_ai_endpoint() {
     let router = setup_ai_test_router();
     let test_client = TestClient::new(router);
+    let token = Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3");
 
-    let allowed_events = vec![
+    for event_name in [
         "$ai_generation",
         "$ai_trace",
         "$ai_span",
         "$ai_embedding",
         "$ai_metric",
         "$ai_feedback",
-    ];
-
-    for event_name in allowed_events {
-        let properties = json!({
-            "$ai_model": "test-model"
-        });
-
-        let form = create_ai_event_form(event_name, "test_user", properties);
-
-        let response = send_multipart_request(
-            &test_client,
-            form,
-            Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
-        )
-        .await;
+        "$ai_unknown",
+        "$ai_custom",
+    ] {
+        let form = create_ai_event_form(event_name, "test_user", json!({"$ai_model": "m"}));
+        let response = send_multipart_request(&test_client, form, token).await;
         assert_eq!(
             response.status(),
             StatusCode::OK,
             "Event type {event_name} should be accepted"
         );
     }
-}
 
-#[tokio::test]
-async fn test_invalid_ai_event_type_returns_400() {
-    let router = setup_ai_test_router();
-    let test_client = TestClient::new(router);
-
-    let invalid_events = vec!["$ai_unknown", "$ai_custom", "$ai_"];
-
-    for event_name in invalid_events {
-        let properties = json!({
-            "$ai_model": "test-model"
-        });
-
-        let form = create_ai_event_form(event_name, "test_user", properties);
-
-        let response = send_multipart_request(
-            &test_client,
-            form,
-            Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
-        )
-        .await;
+    for event_name in ["$pageview", "ai_generation", "$aigeneration"] {
+        let form = create_ai_event_form(event_name, "test_user", json!({"$ai_model": "m"}));
+        let response = send_multipart_request(&test_client, form, token).await;
         assert_eq!(
             response.status(),
             StatusCode::BAD_REQUEST,
             "Event type {event_name} should be rejected"
+        );
+        let body = response.text().await;
+        assert!(
+            body.contains("must start with '$ai_'"),
+            "rejection must name the prefix rule, got: {body}"
         );
     }
 }

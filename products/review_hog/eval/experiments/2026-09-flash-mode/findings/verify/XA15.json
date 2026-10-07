@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA15",
+    "cluster": null,
+    "is_real": true,
+    "severity": "consider",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "consider",
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/api/settings.py:72-81 calls stamphog facade/api.py:120-124 without writer pinning. posthog/product_db_router.py:27-34 routes that read to the product reader outside tests; sync writes connecting_user at stamphog/presentation/views.py:461-464 and returns success at 467-470. With an enabled config whose sync/enable update has not reached the replica, the settings response can say disconnected despite committed readiness. That response is not merely decorative: review_hog/frontend/CodeReviewScene.tsx:1063-1068 disables opting in and tells the user to connect. reviewHogSettingsLogic.ts:443-452 stores the returned settings, and 801-811,954-956 only loads them on loadAll/mount or an update failure; replica catch-up alone does not clear the disabled state. A reload/remount or another settings update is needed.",
+            "refutation": "I first checked whether this blocks actual reviews or opt-out, and whether successful sync necessarily implies an enabled config. It does neither: new sync rows are deliberately disabled (views.py:311-315), existing opted-in users can still switch off (CodeReviewScene.tsx:1064-1066), and actual review creation reads the writer (tasks.py:1138-1146). However, for a repo that is enabled and synced on the writer, a stale false UI result is cached without automatic recovery, so the attempted informational-only refutation fails at the frontend disabledReason. This is a real but minor replica-timing setup snag with an easy refresh workaround, hence consider rather than should_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "consider",
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/api/settings.py:78 calls the unpinned exists query in Stamphog facade/api.py:120-124. ProductDBRouter.db_for_read at /tmp/frozen-75215/posthog/product_db_router.py:27-34 chooses stamphog_db_reader, while writes choose the writer at :37-40; separate reader URLs are supported by settings/data_stores.py:217-218 and Stamphog/AGENTS.md:61 records that the product DB has replicas. After the first connected config is enabled on the writer but before it is replicated, the settings response reports false. CodeReviewScene.tsx:1063-1068 disables an off toggle on that value. reviewHogSettingsLogic.ts:446,801-807,954-955 loads settings on mount, with no replication-catchup refresh, so the disabled state remains until a later settings load.",
+            "refutation": "First checked whether sync itself guarantees readiness, whether opt-out is trapped, and whether the UI retries this read. New sync rows are intentionally disabled (Stamphog presentation/views.py:307-315; tests/test_api.py:293-296), so merely connecting correctly returns false; the actual affected transition is completing setup by enabling the first synced repo. An already-on toggle remains operable at CodeReviewScene.tsx:1064-1066, and worker config resolution is writer-pinned at tasks/tasks.py:1138-1146, preventing unsafe reviews. Thus this is only temporary blocked opt-in after a lagged settings read, recoverable by refreshing, warranting consider rather than should_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "consider",
+            "evidence": "products/review_hog/backend/api/settings.py:72-81 delegates the UI readiness flag to stamphog/backend/facade/api.py:120-124, an unpinned read. products/db_routing.yaml:2-3 and posthog/product_db_router.py:27-40 route Stamphog production reads to stamphog_db_reader and writes to stamphog_db_writer. After an existing enabled config is newly bound/restamped (stamphog/backend/presentation/views.py:312-315,461-464), or a new config is enabled, the reader can temporarily lack the qualifying state. The frontend then disables the currently-off opt-in at review_hog/frontend/CodeReviewScene.tsx:1063-1068. Its settings value is retained until loadSettings or another settings response, with no recovery polling in reviewHogSettingsLogic.ts:443-451,801-811, so the stale flag can outlive the replication delay in the open page.",
+            "refutation": "I first checked whether initial sync alone should make the flag true. It should not: new repositories are intentionally disabled at stamphog/backend/presentation/views.py:312-315, so that simple case is not a bug. I also checked whether opt-out becomes blocked; the frontend explicitly exempts an already-on toggle at CodeReviewScene.tsx:1064-1066. The remaining reachable case is the post-enable/binding read before the replica catches up. The worker itself uses a writer-pinned eligibility query (tasks/tasks.py:1136-1146), so only a temporary UI opt-in obstruction remains, recoverable by reloading. That limited impact is consider."
+        }
+    ]
+}

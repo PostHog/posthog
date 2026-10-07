@@ -21,7 +21,7 @@ import type { LabelGroupType } from '~/types'
 
 import { dateOptionPlurals } from './constants'
 import { dateOptionToTimeIntervalMap } from './constants'
-import { MeanRetentionValue, retentionLogic } from './retentionLogic'
+import { MeanRetentionValue, OVERALL_MEAN_KEY, retentionLogic } from './retentionLogic'
 import { ProcessedRetentionPayload, RetentionTrendPayload } from './types'
 import { formatRetentionCohortLabel } from './utils'
 
@@ -58,6 +58,7 @@ export interface retentionGraphLogicValues {
     filteredTrendSeries: RetentionTrendPayload[]
     incompletenessOffsetFromEnd: number
     intervalViewSeries: RetentionTrendPayload[]
+    meanLineData: number[] | null
     shouldShowMeanPerBreakdown: boolean
     showTrendLines: boolean
     trendSeries: RetentionTrendPayload[]
@@ -103,6 +104,13 @@ export interface retentionGraphLogicMeta {
             hasValidBreakdown: boolean,
             selectedBreakdownValue: boolean | number | string | null
         ) => boolean
+        meanLineData: (
+            retentionFilter: RetentionFilter | null,
+            retentionMeans: Record<string, MeanRetentionValue>,
+            shouldShowMeanPerBreakdown: boolean,
+            isPropertyValueAggregation: boolean,
+            incompletenessOffsetFromEnd: number
+        ) => number[] | null
         filteredTrendSeries: (
             hasValidBreakdown: boolean,
             trendSeries: RetentionTrendPayload[],
@@ -315,6 +323,40 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
             },
         ],
 
+        meanLineData: [
+            (s) => [
+                s.retentionFilter,
+                s.retentionMeans,
+                s.shouldShowMeanPerBreakdown,
+                s.isPropertyValueAggregation,
+                s.incompletenessOffsetFromEnd,
+            ],
+            (
+                retentionFilter: RetentionFilter | null,
+                retentionMeans: Record<string, MeanRetentionValue>,
+                shouldShowMeanPerBreakdown: boolean,
+                isPropertyValueAggregation: boolean,
+                incompletenessOffsetFromEnd: number
+            ): number[] | null => {
+                // The overall mean is only keyed when there's no breakdown; the per-breakdown view
+                // already draws a line per breakdown mean.
+                if (!retentionFilter?.showMeanLine || shouldShowMeanPerBreakdown) {
+                    return null
+                }
+                if ((retentionFilter?.selectedInterval ?? null) !== null) {
+                    return null
+                }
+                const overall = retentionMeans[OVERALL_MEAN_KEY]
+                if (!overall) {
+                    return null
+                }
+                const data = isPropertyValueAggregation ? overall.meanValues : overall.meanPercentages
+                // The mean drops in-progress rows, so its tail averages fewer cohorts than the lines it overlays.
+                const complete = incompletenessOffsetFromEnd < 0 ? data.slice(0, incompletenessOffsetFromEnd) : data
+                return complete.length > 0 ? complete : null
+            },
+        ],
+
         filteredTrendSeries: [
             (s) => [
                 s.hasValidBreakdown,
@@ -428,7 +470,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                     }
                     return labels
                 }
-                return results?.[0]?.values.map((_, i) => `${period} ${i + offset}`)
+                return results?.[0]?.values.map((_, i) => `${period} ${i + offset}`) ?? []
             },
         ],
     }),

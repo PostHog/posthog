@@ -10,40 +10,83 @@ UPDATED_AT = "updated_at"
 CREATED_AT = "created_at"
 ID = "id"
 
+INTERVIEW_ID = "interview_id"
+INTERVIEW_CREATED_AT = "interview_created_at"
+INTERVIEW_UPDATED_AT = "interview_updated_at"
+EXTRACTION_ID = "extraction_id"
+EXTRACTION_CREATED_AT = "extraction_created_at"
+SENTENCE_INDEX = "sentence_index"
+TOPIC_ID = "topic_id"
+TAG_ID = "tag_id"
+TYPE_ID = "type_id"
+SPEAKER = "speaker"
+
+BUILDBETTER_API_VERSION_V1 = "v1"
+BUILDBETTER_API_VERSION_V3 = "v3"
+
 BUILDBETTER_API_URL = "https://api.buildbetter.app/v1/graphql"
 BUILDBETTER_DEFAULT_PAGE_SIZE = 1000
 
-INCREMENTAL_UPDATED_AT: list[IncrementalField] = [
-    {
-        "label": UPDATED_AT,
-        "type": IncrementalFieldType.DateTime,
-        "field": UPDATED_AT,
-        "field_type": IncrementalFieldType.DateTime,
-    },
-]
-
-INCREMENTAL_CREATED_AT: list[IncrementalField] = [
-    {
-        "label": CREATED_AT,
-        "type": IncrementalFieldType.DateTime,
-        "field": CREATED_AT,
-        "field_type": IncrementalFieldType.DateTime,
-    },
-]
+BUILDBETTER_REST_API_URL = "https://api.buildbetter.app/v3/rest"
+# The recordings list caps `limit` at 100
+BUILDBETTER_REST_PAGE_SIZE = 100
 
 
-@dataclass
+def _incremental_datetime_field(name: str) -> list[IncrementalField]:
+    return [
+        {
+            "label": name,
+            "type": IncrementalFieldType.DateTime,
+            "field": name,
+            "field_type": IncrementalFieldType.DateTime,
+        },
+    ]
+
+
+INCREMENTAL_UPDATED_AT = _incremental_datetime_field(UPDATED_AT)
+INCREMENTAL_CREATED_AT = _incremental_datetime_field(CREATED_AT)
+INCREMENTAL_INTERVIEW_UPDATED_AT = _incremental_datetime_field(INTERVIEW_UPDATED_AT)
+INCREMENTAL_EXTRACTION_CREATED_AT = _incremental_datetime_field(EXTRACTION_CREATED_AT)
+
+
+@dataclass(frozen=True)
+class BuildBetterNestedConfig:
+    """A table built from a nested relation of a parent query, one row per nested item.
+
+    BuildBetter exposes attendees, transcript sentences, tags and the topic and type lookups only
+    as relations of `interview` / `extraction`, so these tables page their parent query and
+    flatten the relation, carrying the parent's identifier and timestamps onto every row.
+    """
+
+    nested_field: str
+    parent_columns: dict[str, str]
+    unwrap_field: str | None = None
+    unwrap_prefix: str = ""
+    index_column: str | None = None
+    # An object relationship resolves to one record rather than a list, so the record's own
+    # fields become the row and `unwrap_prefix` applies to them directly.
+    single: bool = False
+
+
+@dataclass(frozen=True)
 class BuildBetterEndpointConfig:
     incremental_fields: list[IncrementalField]
     graphql_query_name: str | None = None
     page_size: int = BUILDBETTER_DEFAULT_PAGE_SIZE
-    primary_key: str = ID
+    primary_keys: list[str] = field(default_factory=lambda: [ID])
+    nested: BuildBetterNestedConfig | None = None
     partition_count: int = 1
     partition_size: int = 1
     partition_mode: PartitionMode | None = "datetime"
     partition_format: PartitionFormat | None = "week"
     partition_keys: list[str] | None = field(default_factory=lambda: [CREATED_AT])
 
+
+INTERVIEW_PARENT_COLUMNS = {
+    ID: INTERVIEW_ID,
+    CREATED_AT: INTERVIEW_CREATED_AT,
+    UPDATED_AT: INTERVIEW_UPDATED_AT,
+}
 
 BUILDBETTER_ENDPOINTS: dict[str, BuildBetterEndpointConfig] = {
     "interviews": BuildBetterEndpointConfig(
@@ -52,9 +95,92 @@ BUILDBETTER_ENDPOINTS: dict[str, BuildBetterEndpointConfig] = {
         page_size=100,
         partition_keys=[CREATED_AT],
     ),
+    "interview_attendees": BuildBetterEndpointConfig(
+        graphql_query_name="interview",
+        incremental_fields=INCREMENTAL_INTERVIEW_UPDATED_AT,
+        page_size=100,
+        primary_keys=[INTERVIEW_ID, ID],
+        nested=BuildBetterNestedConfig(
+            nested_field="attendees",
+            parent_columns=INTERVIEW_PARENT_COLUMNS,
+        ),
+        partition_keys=[INTERVIEW_CREATED_AT],
+    ),
+    "interview_sentences": BuildBetterEndpointConfig(
+        graphql_query_name="interview",
+        incremental_fields=INCREMENTAL_INTERVIEW_UPDATED_AT,
+        page_size=25,
+        # The API exposes no sentence identifier, so a sentence is keyed by its position in the
+        # transcript, which the query orders by start time.
+        primary_keys=[INTERVIEW_ID, SENTENCE_INDEX],
+        nested=BuildBetterNestedConfig(
+            nested_field="sentences",
+            parent_columns=INTERVIEW_PARENT_COLUMNS,
+            index_column=SENTENCE_INDEX,
+        ),
+        partition_keys=[INTERVIEW_CREATED_AT],
+    ),
+    "interview_tags": BuildBetterEndpointConfig(
+        graphql_query_name="interview",
+        incremental_fields=INCREMENTAL_INTERVIEW_UPDATED_AT,
+        page_size=500,
+        primary_keys=[INTERVIEW_ID, TAG_ID],
+        nested=BuildBetterNestedConfig(
+            nested_field="tags",
+            parent_columns=INTERVIEW_PARENT_COLUMNS,
+            unwrap_field="tag",
+            unwrap_prefix="tag_",
+        ),
+        partition_keys=[INTERVIEW_CREATED_AT],
+    ),
+    "interview_types": BuildBetterEndpointConfig(
+        graphql_query_name="interview",
+        incremental_fields=INCREMENTAL_INTERVIEW_UPDATED_AT,
+        page_size=500,
+        primary_keys=[INTERVIEW_ID, TYPE_ID],
+        nested=BuildBetterNestedConfig(
+            nested_field="type",
+            parent_columns=INTERVIEW_PARENT_COLUMNS,
+            unwrap_prefix="type_",
+            single=True,
+        ),
+        partition_keys=[INTERVIEW_CREATED_AT],
+    ),
     "extractions": BuildBetterEndpointConfig(
         graphql_query_name="extraction",
         incremental_fields=INCREMENTAL_CREATED_AT,
+        partition_keys=[CREATED_AT],
+    ),
+    "extraction_topics": BuildBetterEndpointConfig(
+        graphql_query_name="extraction",
+        incremental_fields=INCREMENTAL_EXTRACTION_CREATED_AT,
+        page_size=500,
+        primary_keys=[EXTRACTION_ID, TOPIC_ID],
+        nested=BuildBetterNestedConfig(
+            nested_field="topics",
+            parent_columns={ID: EXTRACTION_ID, CREATED_AT: EXTRACTION_CREATED_AT},
+            unwrap_field="topic",
+            unwrap_prefix="topic_",
+        ),
+        partition_keys=[EXTRACTION_CREATED_AT],
+    ),
+    "extraction_types": BuildBetterEndpointConfig(
+        graphql_query_name="extraction",
+        incremental_fields=INCREMENTAL_EXTRACTION_CREATED_AT,
+        page_size=500,
+        primary_keys=[EXTRACTION_ID, TYPE_ID],
+        nested=BuildBetterNestedConfig(
+            nested_field="types",
+            parent_columns={ID: EXTRACTION_ID, CREATED_AT: EXTRACTION_CREATED_AT},
+            unwrap_field="type",
+            unwrap_prefix="type_",
+        ),
+        partition_keys=[EXTRACTION_CREATED_AT],
+    ),
+    "documents": BuildBetterEndpointConfig(
+        graphql_query_name="document",
+        incremental_fields=INCREMENTAL_UPDATED_AT,
+        page_size=100,
         partition_keys=[CREATED_AT],
     ),
     "persons": BuildBetterEndpointConfig(
@@ -78,3 +204,24 @@ ENDPOINTS = tuple(BUILDBETTER_ENDPOINTS.keys())
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in BUILDBETTER_ENDPOINTS.items()
 }
+
+# Tables the v3 pin reads from the REST API, with their primary keys there. REST identifies a
+# recording by its public UUID and a participant by its speaker number. BuildBetter has no REST
+# endpoints for the other tables, so they stay on GraphQL under every version.
+BUILDBETTER_V3_REST_PRIMARY_KEYS: dict[str, list[str]] = {
+    "interviews": [ID],
+    "interview_attendees": [INTERVIEW_ID, SPEAKER],
+    "interview_sentences": [INTERVIEW_ID, SENTENCE_INDEX],
+}
+
+
+def uses_rest_api(endpoint_name: str, api_version: str) -> bool:
+    if api_version not in (BUILDBETTER_API_VERSION_V1, BUILDBETTER_API_VERSION_V3):
+        raise ValueError(f"Unsupported BuildBetter API version: {api_version}")
+    return api_version == BUILDBETTER_API_VERSION_V3 and endpoint_name in BUILDBETTER_V3_REST_PRIMARY_KEYS
+
+
+def incremental_fields_for_version(api_version: str) -> dict[str, list[IncrementalField]]:
+    # The REST recordings list filters only on `recorded_at`, which misses recordings imported or
+    # transcribed after the fact, so the REST tables are full refresh.
+    return {name: [] if uses_rest_api(name, api_version) else fields for name, fields in INCREMENTAL_FIELDS.items()}

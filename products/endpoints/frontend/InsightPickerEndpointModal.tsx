@@ -8,13 +8,13 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
-import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 import { SavedInsightsTable } from 'scenes/saved-insights/SavedInsightsTable'
 import { urls } from 'scenes/urls'
 
 import { EndpointQueryNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
-import { InsightType, QueryBasedInsightModel } from '~/types'
+import { InsightType, InsightModel } from '~/types'
 
 import { EndpointFromInsightModal } from './EndpointFromInsightModal'
 import { endpointLogic } from './endpointLogic'
@@ -36,7 +36,7 @@ const UNSUPPORTED_QUERY_KINDS = new Set([
     NodeKind.StickinessQuery,
 ])
 
-function isInsightSupported(insight: QueryBasedInsightModel): boolean {
+function isInsightSupported(insight: InsightModel): boolean {
     const query = insight.query
     if (!query) {
         return true
@@ -142,7 +142,7 @@ export function InsightPickerEndpointModal(): JSX.Element {
                                 Create an endpoint from an existing insight
                             </div>
                             <SavedInsightsTable
-                                onToggle={(insight: QueryBasedInsightModel) => {
+                                onToggle={(insight: InsightModel) => {
                                     selectInsight(insight)
                                     openCreateFromInsightModal()
                                 }}

@@ -23,6 +23,7 @@ from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy
 from products.metrics.backend.facade.enums import FilterOp, MetricType
+from products.metrics.backend.metrics4_samples import metric_name_expr, samples_points_query
 
 AttributeScope = Literal["resource", "attribute", "auto"]
 
@@ -117,6 +118,9 @@ _ALLOWED_AGGREGATIONS: frozenset[str] = frozenset(
     {"sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"}
 )
 
+# These aggregations also read the predecessor lookback before `date_from`.
+_LOOKBACK_AGGREGATIONS: frozenset[str] = frozenset({"rate", "increase", "histogram_quantile"})
+
 # Derive this from the contract enum to match ingestion values.
 _ALLOWED_METRIC_TYPES: frozenset[str] = frozenset(t.value for t in MetricType)
 
@@ -147,12 +151,17 @@ def _histogram_quantile(quantile: float, bounds: list[float], counts: list[float
 # Target about 60 chart buckets.
 _TARGET_BUCKET_COUNT = 60
 
+# Upper bound on buckets in one query. A finer interval is coarsened to stay under it.
+_MAX_BUCKET_COUNT = 10000
+
 # List intervals from finest to coarsest.
 _INTERVAL_LADDER: list[tuple[str, dt.timedelta, ast.Call]] = [
-    ("second", dt.timedelta(seconds=1), ast.Call(name="toIntervalSecond", args=[ast.Constant(value=1)])),
+    ("second_15", dt.timedelta(seconds=15), ast.Call(name="toIntervalSecond", args=[ast.Constant(value=15)])),
+    ("second_30", dt.timedelta(seconds=30), ast.Call(name="toIntervalSecond", args=[ast.Constant(value=30)])),
     ("minute", dt.timedelta(minutes=1), ast.Call(name="toIntervalMinute", args=[ast.Constant(value=1)])),
     ("minute_5", dt.timedelta(minutes=5), ast.Call(name="toIntervalMinute", args=[ast.Constant(value=5)])),
     ("minute_15", dt.timedelta(minutes=15), ast.Call(name="toIntervalMinute", args=[ast.Constant(value=15)])),
+    ("minute_30", dt.timedelta(minutes=30), ast.Call(name="toIntervalMinute", args=[ast.Constant(value=30)])),
     ("hour", dt.timedelta(hours=1), ast.Call(name="toIntervalHour", args=[ast.Constant(value=1)])),
     ("hour_6", dt.timedelta(hours=6), ast.Call(name="toIntervalHour", args=[ast.Constant(value=6)])),
     ("day", dt.timedelta(days=1), ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)])),
@@ -167,6 +176,19 @@ def _pick_interval(date_from: dt.datetime, date_to: dt.datetime) -> str:
         if span / step <= _TARGET_BUCKET_COUNT:
             return name
     return _INTERVAL_LADDER[-1][0]
+
+
+def _resolve_interval(date_from: dt.datetime, date_to: dt.datetime, interval: str | None) -> str:
+    """Return the requested interval (or the auto pick), raised to the finest step that keeps
+    the bucket count within `_MAX_BUCKET_COUNT`."""
+    names = [name for name, _, _ in _INTERVAL_LADDER]
+    if interval is not None and interval not in names:
+        raise ValueError(f"Unknown interval: {interval!r}")
+    index = names.index(interval or _pick_interval(date_from, date_to))
+    span = date_to - date_from
+    while index < len(names) - 1 and span / _INTERVAL_LADDER[index][1] > _MAX_BUCKET_COUNT:
+        index += 1
+    return names[index]
 
 
 def _interval_expr(name: str) -> ast.Call:
@@ -277,6 +299,46 @@ def _utc_hour(value: dt.datetime) -> dt.datetime:
     return value.astimezone(dt.UTC).replace(minute=0, second=0, microsecond=0)
 
 
+def points_query(
+    *,
+    from_samples: bool,
+    columns: Sequence[str],
+    metric_names: Sequence[str] | None,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    timezone: str,
+    row_filters: Sequence[ast.Expr] = (),
+    point_filters: Sequence[ast.Expr] = (),
+    samples_row_filters: Sequence[ast.Expr] = (),
+) -> ast.SelectQuery:
+    """Return one row per metric point in `[date_from, date_to)`.
+
+    `from_samples` reads `metric_samples`. Use it only when the range starts at
+    or after the metrics4 cut-over. Otherwise read the `metrics` view.
+    `row_filters` can use only columns that are constant in a series-hour.
+    `samples_row_filters` apply only to `metric_samples`, for example array lookups.
+    """
+    if from_samples:
+        return samples_points_query(
+            columns=columns,
+            metric_names=metric_names,
+            date_from=date_from,
+            date_to=date_to,
+            timezone=timezone,
+            row_filters=[*row_filters, *samples_row_filters],
+            point_filters=point_filters,
+        )
+    query = parse_select(
+        "SELECT 1 FROM posthog.metrics WHERE {name_filter} AND {time_range}",
+        placeholders={"name_filter": metric_name_expr(metric_names), "time_range": time_range_expr(date_from, date_to)},
+    )
+    assert isinstance(query, ast.SelectQuery) and query.where is not None
+    query.select = [ast.Field(chain=[column]) for column in columns]
+    if row_filters or point_filters:
+        query.where = ast.And(exprs=[query.where, *row_filters, *point_filters])
+    return query
+
+
 def type_filter_expr(metric_type: str | None) -> ast.Expr:
     """Limit rows to one metric type.
 
@@ -383,6 +445,10 @@ def series_group_labels_query(
 
 
 class MetricQueryRunner:
+    """Run the query on the `metrics` view, which also reads `metrics2` data before the cut-over."""
+
+    reads_samples: bool = False
+
     def __init__(
         self,
         team: Team,
@@ -404,15 +470,6 @@ class MetricQueryRunner:
             raise ValueError("date_to must be after date_from")
         if date_to - date_from > MAX_QUERY_SPAN:
             raise ValueError(f"date range too wide; the maximum span is {MAX_QUERY_SPAN.days} days")
-        if interval is not None and interval not in {name for name, _, _ in _INTERVAL_LADDER}:
-            raise ValueError(f"Unknown interval: {interval!r}")
-        if interval is not None:
-            step = _interval_step(interval)
-            if (date_to - date_from) / step > _ROW_LIMIT:
-                raise ValueError(
-                    f"interval {interval!r} produces more than {_ROW_LIMIT} buckets over this range; "
-                    "use a coarser interval or a narrower range"
-                )
         if aggregation == "histogram_quantile":
             if quantile is None or not 0.0 < quantile < 1.0:
                 raise ValueError("histogram_quantile requires a quantile in (0, 1)")
@@ -420,7 +477,7 @@ class MetricQueryRunner:
         self.team = team
         self.metric_name = metric_name
         self.aggregation = aggregation
-        self.interval = interval or _pick_interval(date_from, date_to)
+        self.interval = _resolve_interval(date_from, date_to, interval)
         # Start at the bucket boundary so the first bucket is complete.
         self.date_from = _align_to_interval(date_from, self.interval, tzinfo=team.timezone_info)
         self.date_to = date_to
@@ -429,8 +486,19 @@ class MetricQueryRunner:
         self.quantile = quantile
         self.metric_type = metric_type
 
+    @property
+    def scan_from(self) -> dt.datetime:
+        """The earliest point time that the query reads, including the predecessor lookback."""
+        if self.aggregation in _LOOKBACK_AGGREGATIONS:
+            return self.date_from - counter_lookback(self.interval)
+        return self.date_from
+
     def run(self) -> list[dict[str, Any]]:
-        """Return bucketed rows with time, value, and group labels."""
+        """Bucketed rows: `{"time", "value", "labels", "series_fingerprints"}`.
+        `labels` carries one entry per group_by key (always `{}` without
+        group_by). `series_fingerprints` lists the physical series the bucket
+        aggregated, so the facade can resolve per-series attributes (unit)
+        honestly even when the bucket merged several series."""
         if self.aggregation == "histogram_quantile":
             return self._run_histogram_quantile()
         if self.aggregation in ("rate", "increase"):
@@ -455,6 +523,7 @@ class MetricQueryRunner:
                     "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
                     "value": _finite_or_none(row[1 + group_count]),
                     "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
+                    "series_fingerprints": row[2 + group_count],
                 }
             )
         return rows
@@ -492,6 +561,7 @@ class MetricQueryRunner:
                     "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
                     "value": _finite_or_none(_histogram_quantile(self.quantile, bounds, counts)),
                     "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
+                    "series_fingerprints": row[4 + group_count],
                 }
             )
         return rows
@@ -535,6 +605,18 @@ class MetricQueryRunner:
     def _series_scope_expr(self) -> ast.Expr:
         return series_scope_expr(self.metric_name, self.filters, self.date_from)
 
+    def _points_query(self, columns: Sequence[str], point_filters: Sequence[ast.Expr] = ()) -> ast.SelectQuery:
+        return points_query(
+            from_samples=self.reads_samples,
+            columns=columns,
+            metric_names=(self.metric_name,),
+            date_from=self.scan_from,
+            date_to=self.date_to,
+            timezone=self.team.timezone,
+            row_filters=(self._series_scope_expr(), self._type_filter_expr()),
+            point_filters=point_filters,
+        )
+
     def _build_simple_query(self) -> ast.SelectQuery:
         """Build sum, average, count, and p95 queries.
 
@@ -546,17 +628,14 @@ class MetricQueryRunner:
             """
                 SELECT
                     time AS time,
-                    {aggregation} AS value
+                    {aggregation} AS value,
+                    groupUniqArray(s.series_fingerprint) AS series_fingerprints
                 FROM (
                     SELECT
                         toStartOfInterval(timestamp, {interval}) AS time,
                         series_fingerprint AS series_fingerprint,
                         argMax(value, timestamp) AS series_value
-                    FROM posthog.metrics
-                    WHERE metric_name = {metric_name}
-                      AND {time_range}
-                      AND {series_scope}
-                      AND {type_filter}
+                    FROM {points}
                     GROUP BY time, {series_key}
                 ) AS s
                 GROUP BY time
@@ -566,11 +645,8 @@ class MetricQueryRunner:
             placeholders={
                 "interval": _interval_expr(self.interval),
                 "aggregation": _aggregation_expr(self.aggregation, ast.Field(chain=["series_value"])),
-                "metric_name": ast.Constant(value=self.metric_name),
-                "time_range": time_range_expr(self.date_from, self.date_to),
-                "series_scope": self._series_scope_expr(),
+                "points": self._points_query(("timestamp", "series_fingerprint", "value")),
                 "series_key": _series_key_expr(),
-                "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )
@@ -591,7 +667,8 @@ class MetricQueryRunner:
             """
                 SELECT
                     toStartOfInterval(sample_timestamp, {interval}) AS time,
-                    sum(contribution) / {divisor} AS value
+                    sum(contribution) / {divisor} AS value,
+                    groupUniqArray(s.series_fingerprint) AS series_fingerprints
                 FROM (
                     SELECT
                         timestamp AS sample_timestamp,
@@ -613,11 +690,7 @@ class MetricQueryRunner:
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
                             ) AS prev_value
-                        FROM posthog.metrics
-                        WHERE metric_name = {metric_name}
-                          AND {scan_range}
-                          AND {series_scope}
-                          AND {type_filter}
+                        FROM {points}
                     )
                 ) AS s
                 WHERE sample_timestamp >= {date_from}
@@ -630,11 +703,8 @@ class MetricQueryRunner:
                 "interval": _interval_expr(self.interval),
                 "divisor": ast.Constant(value=divisor),
                 "series_key": _series_key_expr(),
-                "metric_name": ast.Constant(value=self.metric_name),
-                "scan_range": time_range_expr(self.date_from - counter_lookback(self.interval), self.date_to),
+                "points": self._points_query(("timestamp", "series_fingerprint", "value", "aggregation_temporality")),
                 "date_from": ast.Constant(value=self.date_from),
-                "series_scope": self._series_scope_expr(),
-                "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )
@@ -650,7 +720,8 @@ class MetricQueryRunner:
                     toStartOfInterval(sample_timestamp, {interval}) AS time,
                     any(histogram_bounds) AS bounds,
                     groupUniqArray(histogram_bounds) AS bounds_variants,
-                    sumForEach(contribution_counts) AS counts
+                    sumForEach(contribution_counts) AS counts,
+                    groupUniqArray(s.series_fingerprint) AS series_fingerprints
                 FROM (
                     SELECT
                         timestamp AS sample_timestamp,
@@ -675,12 +746,7 @@ class MetricQueryRunner:
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
                             ) AS prev_counts
-                        FROM posthog.metrics
-                        WHERE metric_name = {metric_name}
-                          AND {scan_range}
-                          AND notEmpty(histogram_counts)
-                          AND {series_scope}
-                          AND {type_filter}
+                        FROM {points}
                     )
                 ) AS s
                 WHERE sample_timestamp >= {date_from}
@@ -691,11 +757,17 @@ class MetricQueryRunner:
             placeholders={
                 "interval": _interval_expr(self.interval),
                 "series_key": _series_key_expr(),
-                "metric_name": ast.Constant(value=self.metric_name),
-                "scan_range": time_range_expr(self.date_from - counter_lookback(self.interval), self.date_to),
+                "points": self._points_query(
+                    (
+                        "timestamp",
+                        "series_fingerprint",
+                        "aggregation_temporality",
+                        "histogram_bounds",
+                        "histogram_counts",
+                    ),
+                    point_filters=(parse_expr("notEmpty(histogram_counts)"),),
+                ),
                 "date_from": ast.Constant(value=self.date_from),
-                "series_scope": self._series_scope_expr(),
-                "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )

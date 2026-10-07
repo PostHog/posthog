@@ -352,22 +352,27 @@ membership_levels_st = st.one_of(st.just(OrganizationMembership.Level.MEMBER), s
 
 
 def oracle_explicit_level(specs: list[RowSpec], order: list[AccessControlLevel]) -> Optional[AccessControlLevel]:
-    # Mirrors get_user_access_level(obj, explicit=True): member/role rows on the
-    # object win over resource-level rows, which win over object rows including
-    # team defaults. Note the shadowing this implies: a self_member "none" row
-    # beats a team_default "admin" row even though it is lower.
+    # Mirrors get_user_access_level: member/role rows on the object win first. With no such
+    # row, an object-level default of "none" is final, because a broader resource-level
+    # grant must not widen a private object (the list filter blocks the same object).
+    # Otherwise resource-level rows win over the object's remaining default rows. Note the
+    # shadowing this implies: a self_member "none" row beats a team_default "admin" row even
+    # though it is lower.
     matching = [s for s in specs if s.target in MATCHING]
     specific: list[AccessControlLevel] = [
         s.level for s in matching if s.scope == "object" and s.target != "team_default"
     ]
     if specific:
         return _max_level(specific, order)
+    object_rows: list[AccessControlLevel] = [s.level for s in matching if s.scope == "object"]
+    object_default = _max_level(object_rows, order)
+    if object_rows and object_default == NO_ACCESS_LEVEL:
+        return NO_ACCESS_LEVEL
     resource_rows: list[AccessControlLevel] = [s.level for s in matching if s.scope == "resource"]
     if resource_rows:
         return _max_level(resource_rows, order)
-    object_rows: list[AccessControlLevel] = [s.level for s in matching if s.scope == "object"]
     if object_rows:
-        return _max_level(object_rows, order)
+        return object_default
     return None
 
 
@@ -519,6 +524,8 @@ def oracle_can_modify(
 
 
 class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
+    self_member_id: uuid.UUID
+    other_member_id: uuid.UUID
     other_user: User
     role_a: "Role"
     role_b: "Role"
@@ -541,6 +548,8 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
         cls.organization.save()
 
         cls.other_user = User.objects.create_and_join(cls.organization, "other-pbt@posthog.com", "testtest")
+        cls.self_member_id = OrganizationMembership.objects.get(user=cls.user, organization=cls.organization).pk
+        cls.other_member_id = OrganizationMembership.objects.get(user=cls.other_user, organization=cls.organization).pk
         cls.role_a = Role.objects.create(name="PBT Role A", organization=cls.organization)
         cls.role_b = Role.objects.create(name="PBT Role B", organization=cls.organization)
         RoleMembership.objects.create(user=cls.user, role=cls.role_a)
@@ -562,17 +571,16 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
         return OrganizationMembership.objects.get(user=user, organization=self.organization)
 
     def _set_membership_level(self, level: OrganizationMembership.Level) -> None:
-        membership = self._membership(self.user)
-        membership.level = level
-        membership.save()
+        # Permission resolution needs the row value, not membership save side effects.
+        OrganizationMembership.objects.filter(pk=self.self_member_id).update(level=level)
 
     def _row_kwargs(self, target: str) -> dict:
         if target == "team_default":
             return {}
         if target == "self_member":
-            return {"organization_member": self._membership(self.user)}
+            return {"organization_member_id": self.self_member_id}
         if target == "other_member":
-            return {"organization_member": self._membership(self.other_user)}
+            return {"organization_member_id": self.other_member_id}
         if target == "role_a":
             return {"role": self.role_a}
         if target == "role_other_org":
@@ -653,6 +661,23 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
             is_creator=own and model_has_created_by(model_cls),
             is_org_admin=membership_level >= OrganizationMembership.Level.ADMIN,
         )
+        assert self._fresh_uac().get_user_access_level(obj) == expected
+
+    def test_object_default_deny_is_final_over_resource_grant(self):
+        # The random strategy does not reliably draw an object default rule and a resource rule
+        # together, so the security interaction is pinned here: a private object (object default
+        # "none") stays denied even when the org grants a broader resource-level level.
+        resource: APIScopeObject = "dashboard"
+        model_cls = next(model for r, model in OBJECT_MODELS if r == resource)
+        obj = build_instance(model_cls, self.team, self.other_user)
+        specs = [
+            RowSpec(target="team_default", scope="object", level="none"),
+            RowSpec(target="team_default", scope="resource", level="editor"),
+        ]
+        self._materialize(specs, resource, obj)
+
+        expected = oracle_object_access_level(resource, specs, is_creator=False, is_org_admin=False)
+        assert expected == NO_ACCESS_LEVEL
         assert self._fresh_uac().get_user_access_level(obj) == expected
 
     @given(data=resource_level_rows(), membership_level=membership_levels_st)

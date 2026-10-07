@@ -34,7 +34,7 @@ A thin wrapper over grouped `BarChart` that owns the funnel look: hatched `track
 - `steps` is a `string[]` of display labels; duplicates are fine, bands are keyed by step index.
 - Each `Series.data[stepIndex]` is the conversion from the first step as a percent (0..100). `funnelFromCounts` builds the single-series case from raw `{ label, count }` steps (a zero basis yields 0, not `NaN`).
 - `onStepClick` replaces `onPointClick` and reports `{ stepIndex, converted }`; `converted: false` means the hatched drop-off track above the bar was clicked.
-- `stepFooter(stepIndex)` renders per-step content in a row below the plot, pixel-aligned under each step's bars, and hides the built-in step labels. Use it for step legends richer than an axis label.
+- `stepFooter(stepIndex)` renders per-step content in a row below the plot, pixel-aligned under each step's bars, and hides the built-in step labels. Use it for step legends richer than an axis label. A cell starts at the bars' left edge and runs over the gap to the right; set `stepFooterAlign: 'center'` in the config to center each cell on its bars instead, for centered footer content.
 - Config: `hideStepLabels`, `hideValueAxis`, `barCornerRadius`, `bandPadding`, `minBarSize` (hover and click floor for near-zero bars; default `FUNNEL_MIN_BAR_SIZE` of 4px, applied with `minBarSizeScope: 'hover'` so the resting bar keeps its true size and grows to a clickable nub under the cursor; pass 0 to disable), `maxBandRange` (cluster a two or three step funnel instead of stretching it), `chartMinHeight` (floor the plot height when `stepFooter` is set, so a tall footer cannot starve the canvas to zero height in a height-constrained column), plus the usual `tooltip`, `legend`, `margins`.
 - Compare mode uses `trackData` to draw a shorter period's volume gap as empty space; see [bars.md](./bars.md).
 
@@ -65,6 +65,7 @@ Part of whole, one value per series (`data[0]`).
 
 Distribution summaries: `{ min, p25, median, mean, p75, max }` per label.
 Supports `config.legend` for grouped series and `onBoxClick`.
+`axisOrientation: 'horizontal'` lists the labels down the y-axis and draws values along x; `yScaleType: 'log'` then applies to that x value axis, and `yTickFormatter` formats its ticks.
 The tooltip receives a `BoxPlotTooltipContext`; `BoxPlotTooltip` is the default.
 
 ## Heatmap

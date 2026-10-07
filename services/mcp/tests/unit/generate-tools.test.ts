@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
     buildResponseFilter,
     composeToolSchema,
     extractPathParams,
+    generateCategoryFile,
     generateDefinitionsJson,
     generateQueryWrapperDefinitionsJson,
     generateQueryWrapperFile,
@@ -96,6 +97,32 @@ describe('composeToolSchema', () => {
         const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
 
         expect(result.toolInputsImports).toEqual([])
+    })
+
+    it('requires a PATCH field without removing its Orval description', () => {
+        const config: ToolConfig = {
+            operation: 'things_partial_update',
+            enabled: true,
+            param_overrides: { destination: { required: true } },
+        }
+        const resolved = makeResolved({
+            method: 'PATCH',
+            operation: {
+                operationId: 'things_partial_update',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: { properties: { destination: { type: 'integer' } } },
+                        },
+                    },
+                },
+            },
+        })
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).toContain("ThingsPartialUpdateBody.shape['destination'].nonoptional()")
     })
 
     it('collects toolInputsImports from param_overrides with input_schema', () => {
@@ -1340,6 +1367,40 @@ describe('system_prompt_hint flows into tool definitions', () => {
     })
 })
 
+describe('per-tool category in tool definitions', () => {
+    it.each([
+        { toolCategory: undefined, expected: 'AI observability' },
+        { toolCategory: 'Experiments', expected: 'Experiments' },
+    ])('uses $expected when the tool category is $toolCategory', ({ toolCategory, expected }) => {
+        const toolConfig: EnabledToolConfig = {
+            operation: 'llm_prompts_list',
+            enabled: true,
+            scopes: ['llm_prompt:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+            ...(toolCategory ? { category: toolCategory } : {}),
+        }
+        const resolved: ResolvedOperation = {
+            method: 'GET',
+            path: '/api/environments/{project_id}/llm_prompts/',
+            operation: { operationId: 'llm_prompts_list', description: 'List prompts' },
+        }
+        const definitions = generateDefinitionsJson([
+            {
+                config: {
+                    category: 'AI observability',
+                    feature: 'llm_analytics',
+                    url_prefix: '/ai-observability',
+                    tools: {},
+                },
+                enabledTools: [['llma-prompt-list', toolConfig, resolved]],
+                enabledWrappers: [],
+                yamlDir: '/tmp',
+            },
+        ]) as Record<string, { category?: string; feature?: string }>
+        expect(definitions['llma-prompt-list']).toMatchObject({ category: expected, feature: 'llm_analytics' })
+    })
+})
+
 describe('generateQueryWrapperFile with use_optimized_output', () => {
     const minimalQuerySchema = {
         definitions: {
@@ -1469,6 +1530,19 @@ describe('ToolConfigSchema validation', () => {
     it.each(conflictCases)('$name', ({ extra }) => {
         const result = ToolConfigSchema.safeParse({ ...validBase, ...extra })
         expect(result.success).toBe(false)
+    })
+
+    it.each([
+        { name: 'rejects a blank disabled_reason', extra: { enabled: false, disabled_reason: '  ' }, valid: false },
+        { name: 'rejects disabled_reason on an enabled tool', extra: { disabled_reason: 'Old' }, valid: false },
+        {
+            name: 'accepts enabled: false with disabled_reason',
+            extra: { enabled: false, disabled_reason: 'Superseded by things-list' },
+            valid: true,
+        },
+    ])('$name', ({ extra, valid }) => {
+        const result = ToolConfigSchema.safeParse({ operation: 'things_list', enabled: true, ...extra })
+        expect(result.success).toBe(valid)
     })
 
     it('allows input_schema without include_params, exclude_params, or param_overrides', () => {
@@ -1765,6 +1839,32 @@ describe('generateToolCode with informational response wrapping', () => {
         expect(result.code).toContain('"thing-references", "Use it only to identify relevant things.")')
         expect(result.needsWithInformationalResponse).toBe(true)
         expect(result.toolUtilsValueImports).toEqual(new Set(['omitResponseFields', 'withInformationalResponse']))
+    })
+})
+
+describe('generateToolCode with a text projection', () => {
+    it('projects outside the enrichment, so the projected fields can name `_posthogUrl`', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            list: true,
+            enrich_url: '{id}',
+            response: { text_include: ['id', 'status', '_posthogUrl'] },
+        }
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            makeResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('withTextProjection(await withPostHogUrl(context, {')
+        expect(result.code).toContain("}, '/things'), ['id', 'status', '_posthogUrl'])")
+        expect(result.toolUtilsValueImports).toEqual(new Set(['withTextProjection']))
     })
 })
 
@@ -2215,5 +2315,400 @@ describe('optional param with state fallback', () => {
         // demand the id the fallback exists to supply.
         const collapsed = result.code.replace(/\s+/g, ' ')
         expect(collapsed).toContain('.optional()).optional()')
+    })
+})
+
+describe('composeToolSchema param aliases', () => {
+    const resolvedWithIdAndQuery = makeResolved({
+        path: '/api/projects/{project_id}/things/{id}/',
+        operation: {
+            operationId: 'things_retrieve',
+            parameters: [
+                { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+                { name: 'thing_id', in: 'query', required: false, schema: { type: 'string' } },
+            ],
+        },
+    })
+
+    it('collects aliases that shadow nothing', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: { id: { aliases: ['thingId', 'thing_identifier'] } },
+        }
+
+        const result = composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)
+
+        expect(result.paramAliases).toEqual({ id: ['thingId', 'thing_identifier'] })
+    })
+
+    // normalizeParamAliases deletes alias keys, so an alias that is also a real parameter
+    // would drop that parameter's value with no error at runtime. The generator is the only
+    // place that sees both the alias list and the operation's parameters.
+    it('rejects an alias that is also a declared parameter of the operation', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: { id: { aliases: ['thingId', 'thing_id'] } },
+        }
+
+        expect(() => composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "thing_id" for param "id" is also a declared parameter/
+        )
+    })
+
+    it('rejects an alias that collides with a body field, including one added by a later override', () => {
+        const withBody = makeResolved({
+            method: 'POST',
+            path: '/api/projects/{project_id}/things/{id}/',
+            operation: {
+                operationId: 'things_update',
+                parameters: [
+                    { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                    { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+                ],
+                requestBody: {
+                    content: { 'application/json': { schema: { properties: { name: { type: 'string' } } } } },
+                },
+            },
+        })
+
+        const collidesWithBody: ToolConfig = {
+            operation: 'things_update',
+            enabled: true,
+            param_overrides: { id: { aliases: ['name'] } },
+        }
+        expect(() => composeToolSchema(collidesWithBody, withBody, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "name" for param "id" is also a declared parameter/
+        )
+
+        // The alias override comes first in key order; the field it collides with is only
+        // added by the input_schema override after it, so the check must run after the loop.
+        const collidesWithLaterOverride: ToolConfig = {
+            operation: 'things_update',
+            enabled: true,
+            param_overrides: { id: { aliases: ['steps'] }, steps: { input_schema: 'StepsSchema' } },
+        }
+        expect(() => composeToolSchema(collidesWithLaterOverride, withBody, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "steps" for param "id" is also a declared parameter/
+        )
+    })
+
+    it('rejects one alias claimed by two params', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: { id: { aliases: ['ref'] }, thing_id: { aliases: ['ref'] } },
+        }
+
+        expect(() => composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "ref" is declared by both "id" and "thing_id"/
+        )
+    })
+
+    it('rejects an alias equal to its own canonical name', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: { id: { aliases: ['id'] } },
+        }
+
+        expect(() => composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "id" for param "id"/
+        )
+    })
+})
+
+describe('generateCategoryFile with a missing operation', () => {
+    const tool = {
+        operation: 'things_gone',
+        scopes: ['thing:read'],
+        annotations: { readOnly: true, destructive: false, idempotent: true },
+    }
+
+    it.each([
+        { name: 'exits for an enabled tool', enabled: true, exits: true },
+        { name: 'skips a disabled tool', enabled: false, exits: false },
+    ])('$name', ({ enabled, exits }) => {
+        const exit = vi.spyOn(process, 'exit').mockImplementation((() => {
+            throw new Error('process.exit')
+        }) as never)
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const category = { ...defaultCategory, tools: { 'thing-get': { ...tool, enabled } } }
+        const generate = (): unknown =>
+            generateCategoryFile(category, 'things.yaml', 'things', makeSpec(), new Set(), stubGetQuerySchema as never)
+
+        if (exits) {
+            expect(generate).toThrow('process.exit')
+            expect(exit).toHaveBeenCalledWith(1)
+            expect(error).toHaveBeenCalledWith(expect.stringContaining('things_gone'))
+        } else {
+            expect(generate).not.toThrow()
+            expect(exit).not.toHaveBeenCalled()
+        }
+        vi.restoreAllMocks()
+    })
+})
+
+describe('derived scopes and annotations', () => {
+    const readAndWrite = [{ PersonalAPIKeyAuth: ['thing:read', 'thing:write'] }]
+
+    function specWith(
+        method: string,
+        security?: Array<Record<string, string[]>>,
+        requestDependentScopes?: boolean
+    ): OpenApiSpec {
+        return makeSpec({
+            paths: {
+                '/api/projects/{project_id}/things/': {
+                    [method.toLowerCase()]: {
+                        operationId: 'things_op',
+                        parameters: [],
+                        security,
+                        'x-request-dependent-scopes': requestDependentScopes,
+                    },
+                },
+            },
+        })
+    }
+
+    function generate(spec: OpenApiSpec, tool: Partial<ToolConfig>): ReturnType<typeof generateCategoryFile> {
+        const category = {
+            ...defaultCategory,
+            tools: { 'thing-op': { operation: 'things_op', enabled: true, ...tool } as ToolConfig },
+        }
+        return generateCategoryFile(category, 'products/things/mcp/tools.yaml', 'things', spec, new Set(), () => ({
+            definitions: {},
+        }))
+    }
+
+    function generateAndCaptureExit(spec: OpenApiSpec, tool: Partial<ToolConfig>): string {
+        const errors: string[] = []
+        vi.spyOn(console, 'error').mockImplementation((message: string) => {
+            errors.push(message)
+        })
+        vi.spyOn(process, 'exit').mockImplementation((() => {
+            throw new Error('exit')
+        }) as never)
+        expect(() => generate(spec, tool)).toThrow('exit')
+        return errors.join('\n')
+    }
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+        vi.unstubAllEnvs()
+    })
+
+    it.each([
+        {
+            name: 'takes scopes from the spec when the YAML has none',
+            security: readAndWrite,
+            yamlScopes: undefined,
+            expected: ['thing:read', 'thing:write'],
+        },
+        {
+            name: 'dedupes scopes repeated across security entries',
+            security: [{ PersonalAPIKeyAuth: ['thing:read'] }, { PersonalAPIKeyAuth: ['thing:read'] }],
+            yamlScopes: undefined,
+            expected: ['thing:read'],
+        },
+        {
+            name: 'prefers explicit YAML scopes over the spec',
+            security: readAndWrite,
+            yamlScopes: ['thing:write'],
+            expected: ['thing:write'],
+        },
+    ])('scopes: $name', ({ security, yamlScopes, expected }) => {
+        const { enabledTools } = generate(specWith('GET', security), { scopes: yamlScopes })
+
+        expect(enabledTools[0]?.[1].scopes).toEqual(expected)
+    })
+
+    it.each([
+        {
+            name: 'no security block',
+            security: undefined,
+            requestDependent: false,
+            error: /Add "scopes" to the tool's YAML/,
+        },
+        {
+            name: 'an empty security requirement',
+            security: [{}],
+            requestDependent: false,
+            error: /Add "scopes" to the tool's YAML/,
+        },
+        {
+            name: 'request-dependent scopes',
+            security: readAndWrite,
+            requestDependent: true,
+            error: /picks the scopes for "things_op" per request/,
+        },
+    ])('scopes: fails when the YAML has none and the spec has $name', ({ security, requestDependent, error }) => {
+        expect(generateAndCaptureExit(specWith('GET', security, requestDependent), {})).toMatch(error)
+    })
+
+    it.each([
+        { method: 'GET', expected: { readOnly: true, destructive: false, idempotent: true } },
+        { method: 'DELETE', expected: { readOnly: false, destructive: true, idempotent: true } },
+    ])('annotations: $method defaults to $expected', ({ method, expected }) => {
+        const { enabledTools } = generate(specWith(method, readAndWrite), {})
+
+        expect(enabledTools[0]?.[1].annotations).toEqual(expected)
+    })
+
+    it.each(['PATCH', 'POST', 'PUT'])('annotations: %s without annotations fails', (method) => {
+        expect(generateAndCaptureExit(specWith(method, readAndWrite), {})).toMatch(
+            new RegExp(`${method} endpoints have no defaults`)
+        )
+    })
+
+    it('annotations: explicit YAML wins over the method default', () => {
+        const explicit = { readOnly: false, destructive: true, idempotent: false }
+
+        const { enabledTools } = generate(specWith('GET', readAndWrite), { annotations: explicit })
+
+        expect(enabledTools[0]?.[1].annotations).toEqual(explicit)
+    })
+
+    describe('scope coverage check', () => {
+        function runCoverage(spec: OpenApiSpec, tool: Partial<ToolConfig>): { exited: boolean; output: string } {
+            const lines: string[] = []
+            vi.spyOn(console, 'error').mockImplementation((message: string) => {
+                lines.push(message)
+            })
+            vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+                lines.push(String(chunk))
+                return true
+            })
+            vi.spyOn(process, 'exit').mockImplementation((() => {
+                throw new Error('exit')
+            }) as never)
+            let exited = false
+            try {
+                generate(spec, tool)
+            } catch {
+                exited = true
+            }
+            return { exited, output: lines.join('') }
+        }
+
+        it.each([
+            { name: 'YAML misses a spec scope', yamlScopes: ['thing:read'], requestDependent: false, fails: true },
+            {
+                name: 'YAML is broader than the spec',
+                yamlScopes: ['thing:read', 'thing:write', 'thing:admin'],
+                requestDependent: false,
+                fails: false,
+            },
+            { name: 'YAML has no scopes', yamlScopes: undefined, requestDependent: false, fails: false },
+            {
+                name: 'the API picks the scopes per request',
+                yamlScopes: ['task:read'],
+                requestDependent: true,
+                fails: false,
+            },
+        ])('$name -> fails: $fails', ({ yamlScopes, requestDependent, fails }) => {
+            const { exited, output } = runCoverage(specWith('GET', readAndWrite, requestDependent), {
+                scopes: yamlScopes,
+            })
+
+            expect(exited).toBe(fails)
+            expect(output.includes('thing:write')).toBe(fails)
+            if (fails) {
+                expect(output).toContain('Tool "thing-op"')
+                expect(output).toContain('products/things/mcp/tools.yaml')
+            }
+        })
+
+        it('treats a write scope as covering a spec read scope', () => {
+            const { exited, output } = runCoverage(specWith('GET', [{ PersonalAPIKeyAuth: ['thing:read'] }]), {
+                scopes: ['thing:write'],
+            })
+
+            expect(exited).toBe(false)
+            expect(output).toBe('')
+        })
+
+        it('skips tools whose spec declares no scopes', () => {
+            const { exited, output } = runCoverage(specWith('GET', undefined), { scopes: ['thing:read'] })
+
+            expect(exited).toBe(false)
+            expect(output).toBe('')
+        })
+
+        it.each([
+            { githubActions: 'true', annotated: true },
+            { githubActions: 'false', annotated: false },
+        ])('emits a GitHub annotation only on CI (GITHUB_ACTIONS=$githubActions)', ({ githubActions, annotated }) => {
+            vi.stubEnv('GITHUB_ACTIONS', githubActions)
+
+            const { output } = runCoverage(specWith('GET', readAndWrite), { scopes: ['thing:read'] })
+
+            expect(output.includes('::error file=products/things/mcp/tools.yaml::')).toBe(annotated)
+        })
+    })
+})
+
+describe('hooks', () => {
+    const spec = makeSpec({
+        paths: {
+            '/api/projects/{project_id}/things/': {
+                get: { operationId: 'things_list', parameters: [], security: [{ PersonalAPIKeyAuth: ['thing:read'] }] },
+            },
+        },
+    })
+
+    function generate(tool: Partial<ToolConfig>): ReturnType<typeof generateCategoryFile> {
+        const category = {
+            ...defaultCategory,
+            tools: { 'thing-list': { operation: 'things_list', enabled: true, ...tool } as ToolConfig },
+        }
+        return generateCategoryFile(category, 'products/things/mcp/tools.yaml', 'things', spec, new Set(), () => ({
+            definitions: {},
+        }))
+    }
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
+    it('imports the hooks module and wraps the handler', () => {
+        const { code } = generate({ hooks: 'tool-hooks' })
+
+        expect(code).toContain("import hooks_thingList from '@/tools/tool-hooks'")
+        expect(code).toContain("import { withToolHooks } from '@/tools/tool-hooks'")
+        expect(code).toMatch(/handler: withToolHooks\(\s*hooks_thingList,\s*async \(context: Context/)
+    })
+
+    it('leaves tools without hooks unwrapped', () => {
+        const { code } = generate({})
+
+        expect(code).not.toContain('withToolHooks')
+        expect(code).toContain('handler: async (context: Context')
+    })
+
+    it('fails when the hooks module does not exist', () => {
+        const errors: string[] = []
+        vi.spyOn(console, 'error').mockImplementation((message: string) => {
+            errors.push(message)
+        })
+        vi.spyOn(process, 'exit').mockImplementation((() => {
+            throw new Error('exit')
+        }) as never)
+
+        expect(() => generate({ hooks: 'nowhere/missingHooks' })).toThrow('exit')
+        expect(errors.join('\n')).toMatch(/hooks module "nowhere\/missingHooks" not found/)
+    })
+
+    it('rejects hooks combined with confirmed_action', () => {
+        const result = ToolConfigSchema.safeParse({
+            operation: 'things_list',
+            enabled: true,
+            hooks: 'tool-hooks',
+            confirmed_action: {},
+        })
+
+        expect(result.success).toBe(false)
     })
 })

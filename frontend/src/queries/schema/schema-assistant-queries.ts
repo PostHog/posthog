@@ -21,6 +21,7 @@ import {
     EventsNode,
     FunnelExclusionSteps,
     FunnelsFilterLegacy,
+    InsightNodeKind,
     LifecycleFilterLegacy,
     MultipleBreakdownType,
     Node,
@@ -37,7 +38,7 @@ import {
 import { integer, positive_integer } from './type-utils'
 
 /**
- * This filter only works with absolute dates.
+ * This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.
  */
 export interface AssistantDateRange {
     /**
@@ -45,7 +46,7 @@ export interface AssistantDateRange {
      */
     date_from: string
     /**
-     * ISO8601 date string.
+     * ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.
      */
     date_to?: string | null
 }
@@ -487,12 +488,12 @@ export interface AssistantTrendsFilter {
     /**
      * Visualization type. Available values:
      * `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time.
-     * `ActionsBar` - time-series bar chart.
+     * `ActionsBar` - time-series bar chart with one bar per interval and breakdown values stacked in each bar. Do not use it to compare breakdown values or series as totals. Use `ActionsBarValue` for that.
      * `ActionsAreaGraph` - time-series area chart.
      * `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics.
      * `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison ("how many X in the last 30 days", "what's our conversion rate this month", "how does this month compare to last"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown.
      * `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series.
-     * `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data.
+     * `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as "top pages" or "failures by reason".
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
      * `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.
@@ -1990,4 +1991,24 @@ export interface AssistantDataVisualizationNode {
     tableSettings?: AssistantDataVisualizationTableSettings
 }
 
-export type InsightQuery = AssistantInsightVizNode | AssistantDataVisualizationNode
+// `MCPInsightSerializer.validate_query` wraps these two shapes server-side before it saves the
+// insight, so a query straight out of a `query-*` tool can be passed through unchanged. Both carry
+// an index signature because zod strips every key the schema does not declare, which would send
+// `{ kind }` alone to the endpoint and save an empty insight.
+export interface AssistantBareInsightQuery {
+    kind: InsightNodeKind
+    [key: string]: unknown
+}
+
+export interface AssistantBareHogQLQuery {
+    kind: NodeKind.HogQLQuery
+    /** The HogQL query to run. */
+    query: string
+    [key: string]: unknown
+}
+
+export type InsightQuery =
+    | AssistantInsightVizNode
+    | AssistantDataVisualizationNode
+    | AssistantBareInsightQuery
+    | AssistantBareHogQLQuery

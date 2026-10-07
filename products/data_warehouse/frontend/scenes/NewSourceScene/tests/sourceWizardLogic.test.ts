@@ -1,10 +1,18 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { captureMarketingCrossSellClick, getMarketingCrossSellAttribution } from 'lib/marketingCrossSell'
 
-import type { SourceConfig } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import type { ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
+import type { AvailableColumn, ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
+
+import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import {
     buildKeaFormDefaultFromSourceDetails,
@@ -16,18 +24,205 @@ import {
     sourceWizardLogic,
 } from '../sourceWizardLogic'
 
+function buildSourceConfig(overrides: Partial<SourceConfigResponseApi>): SourceConfigResponseApi {
+    // Fills the fields the wizard endpoint always sends but no case here exercises, so each
+    // fixture states only what it is about.
+    return {
+        name: 'Postgres',
+        iconPath: '',
+        caption: null,
+        fields: [],
+        supportsColumnSelection: false,
+        versions: [],
+        defaultVersion: '',
+        deprecatedVersions: [],
+        ...overrides,
+    }
+}
+
 describe('sourceWizardLogic', () => {
     beforeEach(() => {
         initKeaTests()
     })
 
+    it.each<{
+        name: SourceConfigResponseApi['name']
+        category: SourceConfigResponseApi['category']
+        marketingIntent: boolean
+    }>([
+        { name: 'AdRoll', category: 'Advertising', marketingIntent: true },
+        { name: 'AppLovin', category: 'Advertising', marketingIntent: true },
+        { name: 'Outbrain', category: 'Advertising', marketingIntent: true },
+        { name: 'Taboola', category: 'Advertising', marketingIntent: true },
+        { name: 'AmazonAds', category: 'Advertising', marketingIntent: true },
+        { name: 'AppleSearchAds', category: 'Advertising', marketingIntent: true },
+        { name: 'OpenAIAds', category: 'Advertising', marketingIntent: true },
+        { name: 'RoktAds', category: 'Advertising', marketingIntent: true },
+        { name: 'MetaAds', category: 'Advertising', marketingIntent: true },
+        { name: 'MetaAds', category: null, marketingIntent: false },
+        { name: 'BigQuery', category: 'Databases', marketingIntent: false },
+        { name: 'Postgres', category: 'Databases', marketingIntent: false },
+        { name: 'Hubspot', category: 'CRM', marketingIntent: false },
+        { name: 'Mailchimp', category: 'Marketing & email', marketingIntent: false },
+    ])('records expected intents for $name ($category)', async ({ name, category, marketingIntent }) => {
+        const source = buildSourceConfig({ name, category })
+        const updateIntent = jest.spyOn(api.productIntents, 'update').mockResolvedValue(MOCK_DEFAULT_TEAM)
+        const logic = sourceWizardLogic({ availableSources: { [name]: source } })
+        const unmount = logic.mount()
+
+        try {
+            await expectLogic(logic, () => {
+                logic.actions.selectConnector(source)
+            }).toFinishAllListeners()
+
+            expect(updateIntent.mock.calls.map(([intent]) => intent)).toEqual([
+                {
+                    product_type: ProductKey.DATA_WAREHOUSE,
+                    intent_context: ProductIntentContext.SELECTED_CONNECTOR,
+                },
+                ...(marketingIntent
+                    ? [
+                          {
+                              product_type: ProductKey.MARKETING_ANALYTICS,
+                              intent_context: ProductIntentContext.MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED,
+                          },
+                      ]
+                    : []),
+            ])
+        } finally {
+            unmount()
+            updateIntent.mockRestore()
+        }
+    })
+
+    describe('marketing cross-sell conversions', () => {
+        beforeEach(() => {
+            sessionStorage.clear()
+            jest.spyOn(posthog, 'get_distinct_id').mockReturnValue('test-user')
+            jest.spyOn(posthog, 'capture').mockClear()
+            jest.spyOn(api.productIntents, 'update').mockResolvedValue(MOCK_DEFAULT_TEAM)
+            featureFlagLogic.mount()
+        })
+        afterEach(() => {
+            sessionStorage.clear()
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            { enabled: true, category: 'Advertising', attributed: true },
+            { enabled: false, category: 'Advertising', attributed: false },
+            { enabled: true, category: 'Databases', attributed: false },
+            { enabled: true, category: 'Marketing & email', attributed: false },
+        ] as const)(
+            'attributes success only for eligible sources: $enabled / $category',
+            async ({ enabled, category, attributed }) => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL]: enabled,
+                })
+                const source = buildSourceConfig({
+                    name:
+                        category === 'Advertising'
+                            ? 'GoogleAds'
+                            : category === 'Marketing & email'
+                              ? 'GoogleSearchConsole'
+                              : 'Postgres',
+                    category,
+                })
+                const logic = sourceWizardLogic({
+                    availableSources: { [source.name]: source },
+                    onComplete: jest.fn(),
+                    requiredTables: [],
+                })
+                const unmount = logic.mount()
+                jest.spyOn(api.externalDataSources, 'create').mockResolvedValue({ id: 'test-ad-source' } as Awaited<
+                    ReturnType<typeof api.externalDataSources.create>
+                >)
+                try {
+                    await expectLogic(logic, () => logic.actions.selectConnector(source)).toFinishAllListeners()
+                    captureMarketingCrossSellClick(MOCK_DEFAULT_TEAM.id, WebStatsBreakdown.InitialChannelType, false)
+                    const attribution = getMarketingCrossSellAttribution(MOCK_DEFAULT_TEAM.id)!
+                    if (category !== 'Databases') {
+                        logic.actions.setReturnConfig(
+                            '/project/997/marketing?tab=ad-performance',
+                            'Marketing analytics'
+                        )
+                    }
+                    await expectLogic(logic, () => logic.actions.createSource()).toFinishAllListeners()
+                    expect(posthog.capture).toHaveBeenCalledWith(
+                        'warehouse source connect completed',
+                        expect.objectContaining({
+                            sourceType: source.name,
+                            returnLabel: category === 'Databases' ? undefined : 'Marketing analytics',
+                        })
+                    )
+                    const conversions = jest
+                        .mocked(posthog.capture)
+                        .mock.calls.filter(([name]) => name === 'web analytics marketing cross sell source created')
+                    expect(conversions).toEqual(
+                        attributed
+                            ? [
+                                  [
+                                      'web analytics marketing cross sell source created',
+                                      expect.objectContaining({
+                                          cross_sell_id: attribution.cross_sell_id,
+                                          source_id: 'test-ad-source',
+                                          source_type: 'GoogleAds',
+                                      }),
+                                  ],
+                              ]
+                            : []
+                    )
+                } finally {
+                    unmount()
+                }
+            }
+        )
+
+        it('retains attribution after failure and records conversion after a successful retry', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL]: true })
+            const source = buildSourceConfig({ name: 'GoogleAds', category: 'Advertising' })
+            const logic = sourceWizardLogic({
+                availableSources: { GoogleAds: source },
+                onComplete: jest.fn(),
+                requiredTables: [],
+            })
+            const unmount = logic.mount()
+            jest.spyOn(api.externalDataSources, 'create')
+                .mockRejectedValueOnce({ status: 400, message: 'Invalid credentials' })
+                .mockResolvedValueOnce({ id: 'test-ad-source' } as Awaited<
+                    ReturnType<typeof api.externalDataSources.create>
+                >)
+            try {
+                await expectLogic(logic, () => logic.actions.selectConnector(source)).toFinishAllListeners()
+                captureMarketingCrossSellClick(MOCK_DEFAULT_TEAM.id, WebStatsBreakdown.InitialUTMCampaign, false)
+                const attribution = getMarketingCrossSellAttribution(MOCK_DEFAULT_TEAM.id)!
+                await expectLogic(logic, () => logic.actions.createSource()).toFinishAllListeners()
+                expect(posthog.capture).not.toHaveBeenCalledWith(
+                    'warehouse source connect completed',
+                    expect.anything()
+                )
+                expect(posthog.capture).not.toHaveBeenCalledWith(
+                    'web analytics marketing cross sell source created',
+                    expect.anything()
+                )
+                expect(getMarketingCrossSellAttribution(MOCK_DEFAULT_TEAM.id)).toEqual(attribution)
+                await expectLogic(logic, () => logic.actions.createSource()).toFinishAllListeners()
+                expect(posthog.capture).toHaveBeenCalledWith(
+                    'web analytics marketing cross sell source created',
+                    expect.objectContaining({
+                        cross_sell_id: attribution.cross_sell_id,
+                        source_id: 'test-ad-source',
+                    })
+                )
+                expect(getMarketingCrossSellAttribution(MOCK_DEFAULT_TEAM.id)).toBeNull()
+            } finally {
+                unmount()
+            }
+        })
+    })
+
     it('shares a single wizard instance across references with the same props', () => {
-        const postgresSource = {
-            name: 'Postgres',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const postgresSource = buildSourceConfig({ name: 'Postgres' })
         const availableSources = { Postgres: postgresSource }
         const firstReference = sourceWizardLogic({ availableSources })
         const secondReference = sourceWizardLogic({ availableSources })
@@ -50,12 +245,7 @@ describe('sourceWizardLogic', () => {
         // Regression test: onSubmit used to read `values.currentStep` again after onNext()
         // advanced it, so a single click on step 4 (webhook) fell through into the step-5
         // completion branch in the same call, skipping the progress step entirely.
-        const postgresSource = {
-            name: 'Postgres',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const postgresSource = buildSourceConfig({ name: 'Postgres' })
         const onComplete = jest.fn()
         const logic = sourceWizardLogic({ availableSources: { Postgres: postgresSource }, onComplete })
         const unmount = logic.mount()
@@ -75,12 +265,7 @@ describe('sourceWizardLogic', () => {
     })
 
     it('does not hydrate the same source URL again after the wizard has started', () => {
-        const postgresSource = {
-            name: 'Postgres',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const postgresSource = buildSourceConfig({ name: 'Postgres' })
 
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'direct', 'direct')).toBe(false)
         expect(shouldHydrateSourceFromUrl(1, postgresSource, postgresSource, 'direct', 'direct')).toBe(true)
@@ -105,8 +290,15 @@ describe('sourceWizardLogic', () => {
             // DRF answers an unhandled 500 with a fixed placeholder detail. Surfacing it told the
             // user nothing, and it masked the 5xx branch below.
             const message = resolveConnectErrorMessage({ detail: 'A server error occurred.', status: 500 })
-            expect(message).toContain('check your connection details')
+            expect(message).toContain('the details you entered')
             expect(message).not.toContain('A server error occurred.')
+        })
+
+        it('keeps the 5xx guidance free of causes only database sources have', () => {
+            // Every source shares this branch, so wording aimed at a database sent users of
+            // API-backed sources looking for a schema and a host they never configured.
+            const message = resolveConnectErrorMessage({ status: 504 })
+            expect(message).not.toMatch(/database|schema/i)
         })
 
         it('never returns undefined for a 4xx with no message body', () => {
@@ -157,10 +349,8 @@ describe('sourceWizardLogic', () => {
         it('returns defaults for text fields', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'Stripe',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'test_field',
@@ -171,7 +361,7 @@ describe('sourceWizardLogic', () => {
                             secret: false,
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({ prefix: '', description: '', payload: { test_field: '' } })
@@ -180,10 +370,8 @@ describe('sourceWizardLogic', () => {
         it('returns defaults for pure select field', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'Stripe',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'test_field',
@@ -194,7 +382,7 @@ describe('sourceWizardLogic', () => {
                             defaultValue: 'value1',
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({ prefix: '', description: '', payload: { test_field: 'value1' } })
@@ -203,10 +391,8 @@ describe('sourceWizardLogic', () => {
         it('returns an array default for a multiple select field', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'GoogleSearchConsole',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'search_types',
@@ -221,7 +407,7 @@ describe('sourceWizardLogic', () => {
                             defaultValue: 'web',
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({ prefix: '', description: '', payload: { search_types: ['web'] } })
@@ -230,10 +416,8 @@ describe('sourceWizardLogic', () => {
         it('returns defaults for select field with fields', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'Stripe',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'test_field',
@@ -259,7 +443,7 @@ describe('sourceWizardLogic', () => {
                             defaultValue: 'value1',
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({
@@ -272,10 +456,8 @@ describe('sourceWizardLogic', () => {
         it('returns defaults for switch group field - default disabled', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'Stripe',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'test_field',
@@ -294,7 +476,7 @@ describe('sourceWizardLogic', () => {
                             ],
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({
@@ -307,10 +489,8 @@ describe('sourceWizardLogic', () => {
         it('returns defaults for switch group field - default enabled', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'Stripe',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'test_field',
@@ -329,7 +509,7 @@ describe('sourceWizardLogic', () => {
                             ],
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({
@@ -775,12 +955,7 @@ describe('sourceWizardLogic', () => {
 
     // Reducer guards for permission_error rows (Stripe scope gating).
     describe('permission_error sync gating', () => {
-        const stripeSource = {
-            name: 'Stripe',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const stripeSource = buildSourceConfig({ name: 'Stripe' })
 
         const buildSchema = (overrides: Partial<ExternalDataSourceSyncSchema> = {}): ExternalDataSourceSyncSchema =>
             ({
@@ -964,12 +1139,7 @@ describe('sourceWizardLogic', () => {
     // Onboarding one-click setup: autoConfigureTables opts every syncable table in so the user
     // can sync the whole source without touching the schema step.
     describe('autoConfigureTables', () => {
-        const stripeSource = {
-            name: 'Stripe',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const stripeSource = buildSourceConfig({ name: 'Stripe' })
 
         const apiSchema = (overrides: Partial<ExternalDataSourceSyncSchema> = {}): ExternalDataSourceSyncSchema =>
             ({
@@ -1051,16 +1221,45 @@ describe('sourceWizardLogic', () => {
                 unmount()
             }
         })
+
+        const column = (field: string): AvailableColumn => ({ field, label: field, type: 'string', nullable: true })
+
+        it.each([
+            ['no primary key and no id column', 'full_refresh', { available_columns: [column('updated_at')] }],
+            [
+                'a detected primary key',
+                'incremental',
+                { available_columns: [column('uuid'), column('updated_at')], detected_primary_keys: ['uuid'] },
+            ],
+            ['an id column', 'incremental', { available_columns: [column('ID'), column('updated_at')] }],
+            ['no introspected columns', 'incremental', { available_columns: [] }],
+        ])('defaults a table with %s to %s', async (_, expectedSyncType, overrides) => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema({
+                    incremental_available: true,
+                    incremental_fields: [
+                        { field: 'updated_at', field_type: 'datetime', label: 'updated_at', type: 'datetime' },
+                    ],
+                    ...overrides,
+                }),
+            ] as ExternalDataSourceSyncSchema[])
+
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                expect(logic.values.databaseSchema[0].sync_type).toBe(expectedSyncType)
+            } finally {
+                unmount()
+            }
+        })
     })
 
     // Signals setup passes requiredTables to skip the schema step and sync just those tables.
     describe('requiredTables', () => {
-        const githubSource = {
-            name: 'Github',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const githubSource = buildSourceConfig({ name: 'Github' })
 
         const apiSchema = (
             table: string,
@@ -1232,8 +1431,8 @@ describe('sourceWizardLogic', () => {
     // columns as default cursors; anything else falls back to full refresh instead of a cursor
     // that never advances (see resolveUpdateTrackedIncrementalField).
     describe('Supabase incremental defaults', () => {
-        const supabaseSource = { name: 'Supabase', iconPath: '', caption: null, fields: [] } as SourceConfig
-        const postgresSource = { name: 'Postgres', iconPath: '', caption: null, fields: [] } as SourceConfig
+        const supabaseSource = buildSourceConfig({ name: 'Supabase' })
+        const postgresSource = buildSourceConfig({ name: 'Postgres' })
 
         const apiSchema = (
             table: string,
@@ -1267,7 +1466,7 @@ describe('sourceWizardLogic', () => {
         ]
 
         const mountAndLoadSchemas = async (
-            source: SourceConfig
+            source: SourceConfigResponseApi
         ): Promise<{ logic: ReturnType<typeof sourceWizardLogic>; unmount: () => void }> => {
             const logic = sourceWizardLogic({ availableSources: { [source.name]: source } })
             const unmount = logic.mount()
@@ -1322,6 +1521,57 @@ describe('sourceWizardLogic', () => {
             try {
                 expect(logic.values.databaseSchema[0].sync_type).toBe('incremental')
                 expect(logic.values.databaseSchema[0].incremental_field).toBe('date_of_birth')
+            } finally {
+                unmount()
+            }
+        })
+    })
+
+    describe('connectError', () => {
+        const stripeSource = buildSourceConfig({ name: 'Stripe' })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('keeps a rejected connection message until the next attempt', async () => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockRejectedValue({
+                status: 400,
+                data: { message: 'Your API key is invalid or expired.' },
+            })
+
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                expect(logic.values.connectError).toBe('Your API key is invalid or expired.')
+
+                jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([])
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                expect(logic.values.connectError).toBeNull()
+            } finally {
+                unmount()
+            }
+        })
+
+        it('drops the message when another source is picked', async () => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockRejectedValue({
+                status: 400,
+                data: { message: 'Your API key is invalid or expired.' },
+            })
+
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                expect(logic.values.connectError).toBe('Your API key is invalid or expired.')
+
+                logic.actions.selectConnector(null)
+                expect(logic.values.connectError).toBeNull()
             } finally {
                 unmount()
             }

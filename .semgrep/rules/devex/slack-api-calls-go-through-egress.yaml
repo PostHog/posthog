@@ -6,11 +6,11 @@ rules:
           Use `posthog.egress.slack.client.SlackWebClient` (or `SlackAsyncWebClient`) for
           Slack SDK calls and `posthog.egress.slack.transport.slack_request` for direct HTTP.
           Incoming webhooks and interactivity response URLs are outside this rule because their
-          secret URL, not a workspace ID, owns the budget. See `posthog/egress/README.md`.
+          secret URL, not a workspace ID, owns the budget. See `posthog/egress/slack/README.md`.
 
-          The direct-HTTP half only catches literal/f-string URLs on the `requests` module, so
-          keep URLs inline at the call site. Any `WebClient` / `AsyncWebClient` construction is
-          caught regardless of URL shape. Suppress a legitimate exception with
+          The direct-HTTP half only catches literal/f-string URLs on the `requests` module, and the
+          SDK half only a plain `WebClient` / `AsyncWebClient` import. The other shapes are caught by
+          `slack-api-calls-go-through-egress-wide`. Suppress a legitimate exception with
           `# nosemgrep: slack-api-calls-go-through-egress -- <reason>`.
       languages: [python]
       severity: ERROR
@@ -32,6 +32,198 @@ rules:
                       from slack_sdk.web.async_client import AsyncWebClient
                       ...
                 - pattern: AsyncWebClient(...)
+      paths:
+          include:
+              - common/**/*.py
+              - ee/**/*.py
+              - posthog/**/*.py
+              - products/**/*.py
+          exclude:
+              - posthog/egress/**
+              - '**/test/**'
+              - '**/tests/**'
+
+    - id: slack-api-calls-go-through-egress-wide
+      message: |
+          Outbound Slack Web API calls must go through the recorded egress clients. This rule catches
+          the shapes that `slack-api-calls-go-through-egress` misses: a `WebClient` or
+          `AsyncWebClient` that is aliased (`from slack_sdk import WebClient as X`), imported from
+          another `slack_sdk` module or called through the module (`slack_sdk.WebClient(...)`), and a
+          `slack.com/api` URL called through a variable, `requests.Session`, `httpx`, `aiohttp` or
+          `urllib.request`.
+
+          Use `posthog.egress.slack.client.SlackWebClient` (or `SlackAsyncWebClient`) for Slack SDK
+          calls and `posthog.egress.slack.transport.slack_request` for direct HTTP. Incoming webhooks
+          and interactivity response URLs are outside this rule because their secret URL, not a
+          workspace ID, owns the budget. See `posthog/egress/slack/README.md`.
+
+          Suppress a legitimate exception with
+          `# nosemgrep: slack-api-calls-go-through-egress-wide -- <reason>`.
+      languages: [python]
+      severity: ERROR
+      patterns:
+          - pattern-either:
+                # Semgrep resolves an imported name to its module path, so these patterns also match
+                # a bare `WebClient(...)`. The `pattern-not` lines leave those to the ERROR rule.
+                - patterns:
+                      - pattern-either:
+                            - pattern: slack_sdk.WebClient(...)
+                            - pattern: slack_sdk.AsyncWebClient(...)
+                            - pattern: slack_sdk.web.WebClient(...)
+                            - pattern: slack_sdk.web.AsyncWebClient(...)
+                            - pattern: slack_sdk.web.client.WebClient(...)
+                            - pattern: slack_sdk.web.async_client.AsyncWebClient(...)
+                      - pattern-not: WebClient(...)
+                      - pattern-not: AsyncWebClient(...)
+                - patterns:
+                      - pattern: $CLIENT(...)
+                      - pattern-either:
+                            - pattern-inside: |
+                                  from slack_sdk import WebClient as $CLIENT
+                                  ...
+                            - pattern-inside: |
+                                  from slack_sdk import AsyncWebClient as $CLIENT
+                                  ...
+                            - pattern-inside: |
+                                  from slack_sdk.web import WebClient as $CLIENT
+                                  ...
+                            - pattern-inside: |
+                                  from slack_sdk.web import AsyncWebClient as $CLIENT
+                                  ...
+                            - pattern-inside: |
+                                  from slack_sdk.web.client import WebClient as $CLIENT
+                                  ...
+                            - pattern-inside: |
+                                  from slack_sdk.web.async_client import AsyncWebClient as $CLIENT
+                                  ...
+                      # An alias pattern also matches an import without `as`. The plain names are the
+                      # business of `slack-api-calls-go-through-egress`.
+                      - metavariable-regex:
+                            metavariable: $CLIENT
+                            regex: ^(?!WebClient$|AsyncWebClient$)
+                - patterns:
+                      - pattern-either:
+                            - patterns:
+                                  - pattern: AsyncWebClient(...)
+                                  - pattern-either:
+                                        - pattern-inside: |
+                                              from slack_sdk import AsyncWebClient
+                                              ...
+                                        - pattern-inside: |
+                                              from slack_sdk.web import AsyncWebClient
+                                              ...
+                            - patterns:
+                                  - pattern: WebClient(...)
+                                  - pattern-either:
+                                        - pattern-inside: |
+                                              from slack_sdk.web import WebClient
+                                              ...
+                                        - pattern-inside: |
+                                              from slack_sdk.web.client import WebClient
+                                              ...
+                - patterns:
+                      - pattern-either:
+                            - patterns:
+                                  - pattern-either:
+                                        - pattern: requests.$METHOD($URL, ...)
+                                        - pattern: requests.Session().$METHOD($URL, ...)
+                                        - pattern: httpx.$METHOD($URL, ...)
+                                        - pattern: httpx.Client(...).$METHOD($URL, ...)
+                                        - pattern: httpx.AsyncClient(...).$METHOD($URL, ...)
+                                        - pattern: aiohttp.ClientSession(...).$METHOD($URL, ...)
+                                        - patterns:
+                                              - pattern: $S.$METHOD($URL, ...)
+                                              - pattern-either:
+                                                    - pattern-inside: |
+                                                          $S = requests.Session()
+                                                          ...
+                                                    - pattern-inside: |
+                                                          $S = httpx.Client(...)
+                                                          ...
+                                                    - pattern-inside: |
+                                                          $S = httpx.AsyncClient(...)
+                                                          ...
+                                                    - pattern-inside: |
+                                                          $S = aiohttp.ClientSession(...)
+                                                          ...
+                                                    - pattern-inside: |
+                                                          with requests.Session() as $S:
+                                                              ...
+                                                    - pattern-inside: |
+                                                          with httpx.Client(...) as $S:
+                                                              ...
+                                                    - pattern-inside: |
+                                                          async with httpx.AsyncClient(...) as $S:
+                                                              ...
+                                                    - pattern-inside: |
+                                                          async with aiohttp.ClientSession(...) as $S:
+                                                              ...
+                                  # Only the HTTP verbs send a request. `httpx.URL(...)` and `Session().mount(...)`
+                                  # take a URL and send nothing.
+                                  - metavariable-regex:
+                                        metavariable: $METHOD
+                                        regex: ^(get|post|put|patch|delete|head|options)$
+                            - pattern: requests.request($M, $URL, ...)
+                            - pattern: requests.Session().request($M, $URL, ...)
+                            - pattern: httpx.request($M, $URL, ...)
+                            - pattern: httpx.Client(...).request($M, $URL, ...)
+                            - pattern: httpx.AsyncClient(...).request($M, $URL, ...)
+                            - pattern: aiohttp.request($M, $URL, ...)
+                            - pattern: aiohttp.ClientSession(...).request($M, $URL, ...)
+                            - patterns:
+                                  - pattern: $S.request($M, $URL, ...)
+                                  - pattern-either:
+                                        - pattern-inside: |
+                                              $S = requests.Session()
+                                              ...
+                                        - pattern-inside: |
+                                              $S = httpx.Client(...)
+                                              ...
+                                        - pattern-inside: |
+                                              $S = httpx.AsyncClient(...)
+                                              ...
+                                        - pattern-inside: |
+                                              $S = aiohttp.ClientSession(...)
+                                              ...
+                                        - pattern-inside: |
+                                              with requests.Session() as $S:
+                                                  ...
+                                        - pattern-inside: |
+                                              with httpx.Client(...) as $S:
+                                                  ...
+                                        - pattern-inside: |
+                                              async with httpx.AsyncClient(...) as $S:
+                                                  ...
+                                        - pattern-inside: |
+                                              async with aiohttp.ClientSession(...) as $S:
+                                                  ...
+                            - pattern: urllib.request.urlopen($URL, ...)
+                            - pattern: urlopen($URL, ...)
+                      # Skip what `slack-api-calls-go-through-egress` already reports: a `requests` call whose argument text names the API.
+                      - pattern-not:
+                            patterns:
+                                - pattern: requests.$METHOD($URL, ...)
+                                - metavariable-regex:
+                                      metavariable: $METHOD
+                                      regex: ^(get|post|put|patch|delete|head|options)$
+                                - metavariable-regex:
+                                      metavariable: $URL
+                                      regex: .*slack\.com/api.*
+                      - pattern-not:
+                            patterns:
+                                - pattern: requests.request($M, $URL, ...)
+                                - metavariable-regex:
+                                      metavariable: $URL
+                                      regex: .*slack\.com/api.*
+                      - metavariable-pattern:
+                            metavariable: $URL
+                            pattern-either:
+                                - pattern: |
+                                      "=~/.*slack\.com/api.*/"
+                                - pattern: |
+                                      "=~/.*slack\.com/api.*/" + ...
+                                - pattern: |
+                                      f"=~/.*slack\.com/api.*/"
       paths:
           include:
               - common/**/*.py

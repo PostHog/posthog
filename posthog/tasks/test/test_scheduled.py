@@ -1,7 +1,12 @@
+from unittest.mock import MagicMock
+
 from django.test import SimpleTestCase, TestCase
+
+from parameterized import parameterized
 
 from posthog.celery import app
 from posthog.tasks.scheduled import instance_spread_minute, setup_periodic_tasks
+from posthog.tasks.team_llm_gateway_quota import reconcile_llm_gateway_quota_projection
 
 
 class TestScheduledTasks(TestCase):
@@ -13,6 +18,37 @@ class TestScheduledTasks(TestCase):
             setup_periodic_tasks(app)
         except Exception as exc:
             assert exc is None, exc
+
+
+class TestPrivacyTaskScheduling(SimpleTestCase):
+    @parameterized.expand([("disabled", "", 0), ("enabled", "test-table", 1)])
+    def test_privacy_schedule_requires_configured_worker(self, _name: str, table: str, expected_count: int) -> None:
+        sender = MagicMock()
+        with self.settings(AI_RESEARCH_REPLAY_KEY_TABLE=table):
+            setup_periodic_tasks(sender)
+        calls = [
+            call
+            for call in sender.add_periodic_task.call_args_list
+            if call.kwargs.get("name") == "process-ai-training-privacy"
+        ]
+        self.assertEqual(len(calls), expected_count)
+        if calls:
+            self.assertEqual(calls[0].args[1].type.queue, "ai_research_privacy")
+
+
+class TestLLMGatewayQuotaReconcileScheduling(SimpleTestCase):
+    def test_the_reconcile_runs_every_15_minutes(self) -> None:
+        sender = MagicMock()
+        setup_periodic_tasks(sender)
+        calls = [
+            call
+            for call in sender.add_periodic_task.call_args_list
+            if call.kwargs.get("name") == "llm-gateway quota projection reconcile"
+        ]
+        self.assertEqual(len(calls), 1)
+        schedule, signature = calls[0].args
+        self.assertEqual(schedule.minute, {7, 22, 37, 52})
+        self.assertEqual(signature.task, reconcile_llm_gateway_quota_projection.name)
 
 
 class TestInstanceSpreadMinute(SimpleTestCase):

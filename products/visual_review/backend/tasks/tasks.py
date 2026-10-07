@@ -8,8 +8,6 @@ NOTE: Imports are done inside functions to avoid circular imports
 when Celery loads this module at startup.
 """
 
-import time
-from datetime import date
 from uuid import UUID
 
 from django.core.cache import cache
@@ -19,11 +17,9 @@ from celery import shared_task
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
-from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import with_team_scope
 from posthog.scoping_audit import skip_team_scope_audit
 
-from ..db import READER_DB
 from ..logic.errors import HashIntegrityError
 from ..models import Repo
 
@@ -38,6 +34,13 @@ _DEBT_DIGEST_LOCK_SECONDS = 900
 # A child task worth running is a child task worth running today. A worker draining a backlog past
 # this drops it, and the next morning's run recomputes what is still owed.
 _DEBT_DIGEST_EXPIRY_SECONDS = 60 * 60
+# A notice that sat in a backed-up queue no longer reports something that just happened.
+QUARANTINE_NOTICE_EXPIRY_SECONDS = 15 * 60
+
+# Past the sweep budget in logic/retention.py and below the grace period a deploy gives a busy
+# worker. A sweep that overruns its budget then fails with a logged error. Without the limit the
+# deploy kills the worker, and nothing records that the sweep stopped.
+_RETENTION_SWEEP_SOFT_TIME_LIMIT_SECONDS = 18 * 60
 
 
 @shared_task(
@@ -174,53 +177,27 @@ def post_approval_comment(self, team_id: int, run_id: str, add_images: bool = Fa
 
 
 @shared_task(
-    name="products.visual_review.backend.tasks.sweep_visual_review_retention",
+    name="products.visual_review.backend.tasks.sweep_visual_review_runs",
     ignore_result=True,
+    soft_time_limit=_RETENTION_SWEEP_SOFT_TIME_LIMIT_SECONDS,
 )
-@skip_team_scope_audit  # cross-team housekeeping; sweep_repo scopes every query to the repo's team
-def sweep_visual_review_retention() -> None:
-    """Apply the retention policy to every repo.
-
-    One repo's failure must not stop the rest, so each repo is swept on its
-    own and the next daily run retries whatever failed.
-    """
+@skip_team_scope_audit  # cross-team housekeeping; sweep_repo_runs scopes every query to the repo's team
+def sweep_visual_review_runs() -> None:
     from ..logic import retention  # noqa: PLC0415 — avoids the logic/tasks circular import
 
-    deadline = time.monotonic() + retention.SWEEP_TIME_BUDGET_SECONDS
-    # A handful of rows, materialized so the sweep does not hold a reader cursor
-    # open for its whole run.
-    # nosemgrep: idor-lookup-without-team — cross-team retention sweep, no user input
-    repos = list(Repo.objects.unscoped().using(READER_DB).order_by("created_at"))
-    repos = retention.rotate_for_day(repos, date.today())
-    for swept, repo in enumerate(repos):
-        if time.monotonic() >= deadline:
-            logger.warning(
-                "visual_review.retention_sweep_budget_exhausted",
-                repos_swept=swept,
-                repos_total=len(repos),
-            )
-            break
-        started = time.monotonic()
-        try:
-            result = retention.sweep_repo(repo, deadline=deadline)
-        except Exception as e:
-            capture_exception(e)
-            logger.exception(
-                "visual_review.retention_sweep_failed",
-                repo_id=str(repo.id),
-                team_id=repo.team_id,
-            )
-            continue
+    retention.sweep_every_repo("runs", retention.sweep_repo_runs)
 
-        logger.info(
-            "visual_review.retention_sweep_completed",
-            repo_id=str(repo.id),
-            team_id=repo.team_id,
-            runs_deleted=result.runs_deleted,
-            artifacts_deleted=result.artifacts_deleted,
-            objects_leaked=result.objects_leaked,
-            duration_seconds=round(time.monotonic() - started, 1),
-        )
+
+@shared_task(
+    name="products.visual_review.backend.tasks.sweep_visual_review_artifacts",
+    ignore_result=True,
+    soft_time_limit=_RETENTION_SWEEP_SOFT_TIME_LIMIT_SECONDS,
+)
+@skip_team_scope_audit  # cross-team housekeeping; sweep_repo_artifacts scopes every query to the repo's team
+def sweep_visual_review_artifacts() -> None:
+    from ..logic import retention  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    retention.sweep_every_repo("artifacts", retention.sweep_repo_artifacts)
 
 
 @shared_task(
@@ -231,8 +208,8 @@ def sweep_visual_review_retention() -> None:
 def send_visual_review_debt_digests() -> None:
     """Fan out to every repo, one task each.
 
-    One repo's failure must not stop the rest, and nothing is stored about what was sent, so the
-    next morning's run recomputes and resends whatever is still owed.
+    One repo's failure must not stop the rest, and nothing is stored about what was sent, so next
+    Monday's run recomputes and resends whatever is still owed.
     """
     from ..logic import debt_digest  # noqa: PLC0415 — avoids the logic/tasks circular import
 
@@ -264,4 +241,53 @@ def send_visual_review_debt_digest(team_id: int, repo_id: str) -> None:
     if repo is None:
         logger.warning("visual_review.debt_digest_repo_missing", repo_id=repo_id, team_id=team_id)
         return
+
     debt_digest.send_debt_digest(repo, mode=debt_digest.MODE_LIVE)
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.notify_quarantine_owners",
+    ignore_result=True,
+)
+@with_team_scope()
+def notify_quarantine_owners(team_id: int, entry_id: str) -> None:
+    """Tell the team that owns a just-quarantined story, in its Slack channel."""
+    from ..logic import quarantine_notice  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    try:
+        quarantine_notice.send_quarantine_notice(UUID(entry_id), team_id)
+    except Exception:
+        # Nothing retries a notice: a late one no longer reports something that just happened.
+        logger.warning("visual_review.quarantine_notice_failed", entry_id=entry_id, team_id=team_id, exc_info=True)
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.reconcile_quarantine_lifts",
+    bind=True,
+    ignore_result=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    max_retries=3,
+)
+@with_team_scope()
+def reconcile_quarantine_lifts(self, team_id: int, run_id: str) -> None:
+    """Apply the pending lift requests that a completed default-branch run proves ready."""
+    from posthog.egress.github.transport import GitHubRateLimitError
+
+    from ..logic import quarantine_lifts  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    try:
+        quarantine_lifts.reconcile_lift_requests(UUID(run_id))
+    except GitHubRateLimitError as e:
+        logger.warning(
+            "visual_review.quarantine_lift_rate_limited",
+            run_id=run_id,
+            retry=self.request.retries,
+            max_retries=self.max_retries,
+        )
+        # `retry(exc=e)` re-raises `e` once the budget is spent, so check the budget first.
+        if self.max_retries is not None and self.request.retries >= self.max_retries:
+            # The next default-branch run checks the same requests again.
+            logger.warning("visual_review.quarantine_lift_giving_up", run_id=run_id)
+            return
+        raise self.retry(countdown=min(e.retry_after or 60, 600), exc=e)

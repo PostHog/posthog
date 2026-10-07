@@ -1,18 +1,19 @@
 import './menu.css'
 
-import { Menu as MenuPrimitive } from '@base-ui/react/menu'
+import type { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { Menubar as MenubarPrimitive } from '@base-ui/react/menubar'
 import * as React from 'react'
 
-import { Checkbox } from './checkbox'
 import {
     DropdownMenu,
+    DropdownMenuCheckboxItem,
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuLabel,
     DropdownMenuPortal,
     DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuShortcut,
     DropdownMenuSub,
@@ -21,7 +22,6 @@ import {
     DropdownMenuTrigger,
 } from './dropdown-menu'
 import { cn } from './lib/utils'
-import { RadioIndicator } from './radio-group'
 
 function Menubar({ className, ...props }: MenubarPrimitive.Props): React.ReactElement {
     return (
@@ -87,7 +87,7 @@ function MenubarItem({
             data-inset={inset}
             variant={variant}
             className={cn(
-                'group/menubar-item min-h-7 gap-2 rounded-sm px-2 py-1 text-xs/relaxed data-disabled:opacity-50',
+                'group/menubar-item min-h-7 gap-2 rounded-sm px-2 py-1 data-disabled:opacity-50',
                 className
             )}
             {...props}
@@ -95,70 +95,19 @@ function MenubarItem({
     )
 }
 
+// Explicit Base UI props, not `ComponentProps<typeof ...>`, so inline `onCheckedChange` callbacks keep their parameter type.
 function MenubarCheckboxItem({
-    className,
-    children,
-    checked,
-    inset,
     ...props
-}: MenuPrimitive.CheckboxItem.Props & {
-    inset?: boolean
-}): React.ReactElement {
-    return (
-        <MenuPrimitive.CheckboxItem
-            data-slot="menubar-checkbox-item"
-            data-inset={inset}
-            className={cn(
-                // Match the focus-visible ring on the inner <Button> that MenubarItem uses, so
-                // keyboard navigation through checkbox/radio items shows the same affordance.
-                'quill-menu-item--inset relative flex min-h-7 cursor-default items-center gap-2 rounded-sm py-1.5 pe-2 text-xs outline-hidden select-none hover:bg-[var(--fill-hover)] focus:bg-[var(--fill-hover)] focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_30%,transparent)] data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
-                className
-            )}
-            checked={checked}
-            {...props}
-        >
-            <span className="pointer-events-none absolute start-2 flex size-4 items-center justify-center">
-                <Checkbox size="sm" tabIndex={-1} />
-                <MenuPrimitive.CheckboxItemIndicator className="absolute">
-                    <Checkbox size="sm" checked tabIndex={-1} />
-                </MenuPrimitive.CheckboxItemIndicator>
-            </span>
-            {children}
-        </MenuPrimitive.CheckboxItem>
-    )
+}: MenuPrimitive.CheckboxItem.Props & { inset?: boolean }): React.ReactElement {
+    return <DropdownMenuCheckboxItem data-slot="menubar-checkbox-item" {...props} />
 }
 
 function MenubarRadioGroup({ ...props }: React.ComponentProps<typeof DropdownMenuRadioGroup>): React.ReactElement {
     return <DropdownMenuRadioGroup data-slot="menubar-radio-group" {...props} />
 }
 
-function MenubarRadioItem({
-    className,
-    children,
-    inset,
-    ...props
-}: MenuPrimitive.RadioItem.Props & {
-    inset?: boolean
-}): React.ReactElement {
-    return (
-        <MenuPrimitive.RadioItem
-            data-slot="menubar-radio-item"
-            data-inset={inset}
-            className={cn(
-                "quill-menu-item--inset relative flex min-h-7 cursor-default items-center gap-2 rounded-sm py-1.5 pe-2 text-xs outline-hidden select-none hover:bg-[var(--fill-hover)] focus:bg-[var(--fill-hover)] focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_30%,transparent)] data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
-                className
-            )}
-            {...props}
-        >
-            <span className="pointer-events-none absolute start-2 flex size-4 items-center justify-center">
-                <RadioIndicator size="sm" />
-                <MenuPrimitive.RadioItemIndicator className="absolute">
-                    <RadioIndicator size="sm" checked />
-                </MenuPrimitive.RadioItemIndicator>
-            </span>
-            {children}
-        </MenuPrimitive.RadioItem>
-    )
+function MenubarRadioItem({ ...props }: MenuPrimitive.RadioItem.Props & { inset?: boolean }): React.ReactElement {
+    return <DropdownMenuRadioItem data-slot="menubar-radio-item" {...props} />
 }
 
 function MenubarLabel({
@@ -220,7 +169,7 @@ function MenubarSubTrigger({
             data-slot="menubar-sub-trigger"
             data-inset={inset}
             className={cn(
-                "min-h-7 gap-2 rounded-sm px-2 py-1 text-xs focus:bg-fill-hover data-open:bg-fill-selected [&_svg:not([class*='size-'])]:size-3.5",
+                "min-h-7 gap-2 rounded-sm px-2 py-1 focus:bg-fill-hover data-open:bg-fill-selected [&_svg:not([class*='size-'])]:size-3.5",
                 inset && 'quill-menu-item--inset',
                 className
             )}

@@ -2,18 +2,16 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lovable import (
     LovableSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.lovable import LovableResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.source import LovableSource
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.lovable.source"
@@ -39,10 +37,39 @@ class TestLovableSource:
         assert api_key_field.secret is True
         assert api_key_field.required is True
 
-    def test_get_schemas_lists_every_endpoint_as_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1)
+    @parameterized.expand(
+        [
+            (
+                "v1",
+                "v1",
+                [
+                    "Workspaces",
+                    "Projects",
+                    "WorkspaceMembers",
+                    "WorkspaceCreditHistory",
+                    "ProjectCollaborators",
+                    "ProjectSecurityScans",
+                    "ProjectPiiLabels",
+                ],
+            ),
+            (
+                "dated",
+                "2026-09-11",
+                ["Workspaces", "Projects", "WorkspaceMembers", "ProjectSecurityScans", "ProjectPiiLabels"],
+            ),
+            (
+                "unpinned_uses_the_default",
+                None,
+                ["Workspaces", "Projects", "WorkspaceMembers", "ProjectSecurityScans", "ProjectPiiLabels"],
+            ),
+        ]
+    )
+    def test_get_schemas_lists_the_pinned_versions_endpoints_as_full_refresh(
+        self, _name: str, api_version: str | None, expected: list[str]
+    ) -> None:
+        schemas = self.source.get_schemas(self.config, team_id=1, api_version=api_version)
 
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
+        assert [schema.name for schema in schemas] == expected
         # No v1 list endpoint takes a timestamp filter, so nothing here can sync incrementally.
         assert all(not schema.supports_incremental and not schema.supports_append for schema in schemas)
         assert all(schema.incremental_fields == [] for schema in schemas)
@@ -76,11 +103,14 @@ class TestLovableSource:
 
         assert manager._data_class is LovableResumeConfig
 
+    @parameterized.expand([("pinned_v1", "v1", "v1"), ("unpinned_uses_the_default", None, "2026-09-11")])
     @mock.patch(f"{SOURCE_MODULE}.lovable_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_lovable_source: mock.MagicMock) -> None:
+    def test_source_for_pipeline_plumbs_arguments(
+        self, _name: str, pinned: str | None, expected_version: str, mock_lovable_source: mock.MagicMock
+    ) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "Projects"
-        inputs.api_version = None
+        inputs.api_version = pinned
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -88,7 +118,7 @@ class TestLovableSource:
         kwargs = mock_lovable_source.call_args.kwargs
         assert kwargs == {
             "api_key": "lov_key",
-            "api_version": "v1",
+            "api_version": expected_version,
             "endpoint": "Projects",
             "resumable_source_manager": manager,
         }
@@ -96,11 +126,11 @@ class TestLovableSource:
     @mock.patch(f"{SOURCE_MODULE}.validate_lovable_credentials", return_value=(True, None))
     def test_validate_credentials_resolves_the_api_version(self, mock_validate: mock.MagicMock) -> None:
         assert self.source.validate_credentials(self.config, team_id=1) == (True, None)
-        assert mock_validate.call_args.args == ("lov_key", "v1")
+        assert mock_validate.call_args.args == ("lov_key", "2026-09-11")
 
     @mock.patch(f"{SOURCE_MODULE}.check_endpoint_permissions", return_value={"Projects": None})
     def test_endpoint_permissions_delegate_to_the_probe(self, mock_check: mock.MagicMock) -> None:
         assert self.source.get_endpoint_permissions(self.config, team_id=1, endpoints=["Projects"]) == {
             "Projects": None
         }
-        assert mock_check.call_args.args == ("lov_key", "v1", ["Projects"])
+        assert mock_check.call_args.args == ("lov_key", "2026-09-11", ["Projects"])

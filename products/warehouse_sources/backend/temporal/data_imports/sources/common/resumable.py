@@ -1,4 +1,5 @@
 import json
+import functools
 import dataclasses
 import collections.abc
 from contextlib import contextmanager
@@ -13,7 +14,12 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.redis import get_client
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import ResumableData, SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    ResumableData,
+    SourceInputs,
+    SourceResponse,
+)
 
 
 class ResumableSourceManager(Generic[ResumableData]):
@@ -21,12 +27,27 @@ class ResumableSourceManager(Generic[ResumableData]):
     _data_class: type[ResumableData]
     _logger: FilteringBoundLogger
     _namespace: str | None
+    _pending: dict[str, str]
+    _staged: dict[str, str]
 
-    def __init__(self, inputs: SourceInputs, data_class: type[ResumableData], namespace: str | None = None):
+    def __init__(
+        self,
+        inputs: SourceInputs,
+        data_class: type[ResumableData],
+        namespace: str | None = None,
+        pending: dict[str, str] | None = None,
+        staged: dict[str, str] | None = None,
+    ):
         self._inputs = inputs
         self._data_class = data_class
         self._logger = inputs.logger
         self._namespace = namespace
+        # A cursor from save_state() waits here until confirm(). A source can save a cursor and still
+        # hold rows that the cursor covers, so the source alone cannot make a cursor ready to commit.
+        self._pending = pending if pending is not None else {}
+        # Cursors wait here until commit(). Siblings from with_namespace() share the dict, so the
+        # one commit the pipeline issues after a write covers every namespace a source touched.
+        self._staged = staged if staged is not None else {}
 
     def with_namespace(self, namespace: str) -> "ResumableSourceManager[ResumableData]":
         """Return a sibling manager whose Redis state is isolated under `namespace`.
@@ -36,7 +57,9 @@ class ResumableSourceManager(Generic[ResumableData]):
         state in separate slots. Without it a retry that switches endpoints could load a
         cursor the other endpoint wrote and replay it against an API that can't parse it.
         """
-        return ResumableSourceManager(self._inputs, self._data_class, namespace=namespace)
+        return ResumableSourceManager(
+            self._inputs, self._data_class, namespace=namespace, pending=self._pending, staged=self._staged
+        )
 
     @contextmanager
     def _get_redis(self):
@@ -73,7 +96,7 @@ class ResumableSourceManager(Generic[ResumableData]):
             try:
                 parsed_data = json.loads(data)
             except Exception as e:
-                raise ValueError(f"Failed to load resumable data: {data}") from e
+                raise ValueError("Failed to load resumable data") from e
 
         # Fields the running code does not know come from state a newer deploy wrote. Dropping
         # them makes a rollback a cache miss; passing them through raises TypeError and fails
@@ -100,14 +123,71 @@ class ResumableSourceManager(Generic[ResumableData]):
             write()
 
     def save_state(self, data: ResumableData) -> None:
-        with self._get_redis() as redis_client:
-            json_data = self._dump_json(data)
-            self._logger.debug(f"Saving resumable source state. key={self._key}, data={json_data}")
+        """Save `data` as the cursor to resume from once every row it covers is written.
 
-            self._write_with_stale_replica_retry(
-                redis_client,
-                lambda: redis_client.set(self._key, json_data, ex=60 * 60 * 24),  # 24 hours expiration
-            )
+        The cursor is only pending here. It becomes ready to commit at confirm(), which the pipeline
+        calls when the source hands it an item or reaches a safe point. A cursor saved after the last
+        yield therefore does not persist when the source raises. Nothing reaches Redis until commit(),
+        which the pipeline calls right after a write lands. A source with nothing outstanding saves
+        inside committing(), which commits at block end.
+        """
+        # No log here: a source can save on every row, and commit() logs each cursor that persists.
+        self._pending[self._key] = self._dump_json(data)
+
+    def has_staged_state(self) -> bool:
+        """Whether the next `commit` will write anything."""
+        return bool(self._staged)
+
+    def confirm(self) -> None:
+        """Make every pending cursor ready for the next commit(), across namespaces.
+
+        Call it only when the source holds no fetched row that a pending cursor skips: the source is
+        suspended at a `yield`, has ended, or has reached a safe point.
+        """
+        # One item at a time, so a cursor that another thread saves during the loop is not dropped.
+        while self._pending:
+            try:
+                key, json_data = self._pending.popitem()
+            except KeyError:
+                break
+            self._staged[key] = json_data
+
+    def commit(self) -> None:
+        """Persist every confirmed cursor, across namespaces."""
+        if not self._staged:
+            return
+        with self._get_redis() as redis_client:
+            for key, json_data in list(self._staged.items()):
+                self._logger.debug(f"Saving resumable source state. key={key}")
+                self._write_with_stale_replica_retry(
+                    redis_client,
+                    functools.partial(redis_client.set, key, json_data, ex=60 * 60 * 24),  # 24 hours expiration
+                )
+                del self._staged[key]
+
+    @contextmanager
+    def committing(self) -> collections.abc.Iterator[None]:
+        """Commit whatever the block stages, even when the block raises.
+
+        For a bookmark that must persist before any row exists, such as an export or report id the
+        source polls before it yields. The pipeline has no write to commit on, so the source does.
+        """
+        try:
+            yield
+        finally:
+            self.confirm()
+            self.commit()
+
+    def safe_point(self) -> None:
+        """Mark a point where resuming from the staged cursor loses no rows.
+
+        Call it only when every row the staged cursor covers has been yielded, and the source holds
+        none of them in a local buffer. The pipeline can then hand the run to another worker during a
+        shutdown, or commit the cursor when nothing is waiting to be written. A source that makes many
+        requests that return no rows needs this, because the pipeline otherwise acts only when an
+        item arrives. See `safe_point.py`.
+        """
+        reach_safe_point()
 
     def clear_state(self) -> None:
         """Drop any saved resume state so a subsequent attempt starts from scratch.
@@ -115,6 +195,8 @@ class ResumableSourceManager(Generic[ResumableData]):
         Called once a source has walked its data to completion: leaving the final checkpoint in
         place would let a later attempt resume mid-stream instead of restarting cleanly.
         """
+        self._pending.pop(self._key, None)
+        self._staged.pop(self._key, None)
         with self._get_redis() as redis_client:
             self._logger.debug(f"Clearing resumable source state. key={self._key}")
             self._write_with_stale_replica_retry(redis_client, lambda: redis_client.delete(self._key))
@@ -133,5 +215,20 @@ class ResumableSourceManager(Generic[ResumableData]):
                 self._logger.debug(f"No resumable source state found. key={self._key}")
                 return None
 
-            self._logger.debug(f"Loading resumable source state. key={self._key}, data={data}")
+            self._logger.debug(f"Loading resumable source state. key={self._key}")
             return self._load_json(data)
+
+
+def resolve_resume_manager(
+    manager: ResumableSourceManager[ResumableData] | None,
+    resource: SourceResponse,
+) -> ResumableSourceManager[ResumableData] | None:
+    """Combine the class-level capability (a manager exists) with the run-level one.
+
+    A resumable-source class whose current run can't actually resume — a SQL full load with no
+    orderable primary key, say — reports `supports_resume=False` and resolves to `None` here, so it
+    is treated as non-resumable everywhere downstream instead of at each call site.
+    """
+    if manager is None or not resource.supports_resume:
+        return None
+    return manager

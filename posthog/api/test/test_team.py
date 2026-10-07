@@ -11,6 +11,7 @@ from django.core.cache import cache
 from django.db import OperationalError
 from django.http import HttpResponse
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
+from django.test.client import RequestFactory
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,8 +22,11 @@ from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
     TeamSerializer,
+    TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _reset_default_data_color_theme_id_cache,
+    handle_conversations_token_on_update,
+    merge_conversations_settings,
 )
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -32,20 +36,27 @@ from posthog.models.group_type_mapping import (
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
     cached_group_types_for_team,
 )
-from posthog.models.instance_setting import get_instance_setting
+from posthog.models.instance_setting import get_instance_setting, override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-from posthog.utils import get_instance_realm
+from posthog.utils import get_context_for_template, get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.conversations.backend.playbook import compose_support_playbook
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.team_home_tab_dashboard_config import TeamHomeTabDashboardConfig
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 
 def team_api_test_factory():
@@ -446,6 +457,8 @@ def team_api_test_factory():
             # `mock_capture` is patched.
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
             team_pk = team.pk
+            # The 48 hour delay only applies to a project that has ingested data.
+            Team.objects.filter(pk=team_pk).update(ingested_event=True)
             # create_with_data fires capture events; clear them so we only assert delete-time events
             mock_capture.reset_mock()
 
@@ -475,13 +488,14 @@ def team_api_test_factory():
                     send_feature_flags=False,
                 ),
             ]
-            mock_start_workflow.assert_called_once_with(
-                team_ids=[team_pk],
-                project_id=team_pk,
-                user_id=self.user.id,
-                # The org's first project already holds the plain default name, so the second one gets a suffix
-                project_name="Default project 2",
-            )
+            mock_start_workflow.assert_called_once()
+            workflow_kwargs = mock_start_workflow.call_args.kwargs
+            self.assertEqual(workflow_kwargs["team_ids"], [team_pk])
+            self.assertEqual(workflow_kwargs["project_id"], team_pk)
+            self.assertEqual(workflow_kwargs["user_id"], self.user.id)
+            self.assertEqual(workflow_kwargs["project_name"], "Default project 2")
+            self.assertGreater(workflow_kwargs["start_delay"], timedelta(hours=47))
+            self.assertLessEqual(workflow_kwargs["start_delay"], timedelta(hours=48))
             assert mock_capture.call_args_list == expected_capture_calls
 
         @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
@@ -573,9 +587,10 @@ def team_api_test_factory():
 
             self._assert_activity_log_is_empty()
 
-            # Ensure there is no secret API token
+            # Support is the only product that can still mint a first legacy secret token
             self.team.secret_api_token = None
             self.team.secret_api_token_backup = None
+            self.team.conversations_enabled = True
             self.team.save()
 
             response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
@@ -742,6 +757,47 @@ def team_api_test_factory():
                 ]
             )
 
+        def test_retiring_a_legacy_token_deletes_its_migrated_psak_row(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            primary = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            backup = "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+            self.team.secret_api_token = primary
+            self.team.secret_api_token_backup = backup
+            self.team.save()
+            for token, label in ((primary, "Migrated legacy secret API key"), (backup, "Migrated legacy key (backup)")):
+                create_project_secret_api_key(team=self.team, label=label, value=token)
+
+            # Rotation drops the old backup; its PSAK row must stop authenticating with it.
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(backup)).exists())
+            self.assertTrue(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
+
+            # Deleting the backup (the rotated-out primary) retires its row too.
+            response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
+
+        def test_retiring_a_token_never_touches_another_teams_row(self):
+            # secure_value is globally unique, so when two teams hold the same string the
+            # single row belongs to one of them — retiring the other team's token must
+            # not delete it.
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            token = "phs_string_shared_by_two_teams_somehow"
+            self.team.secret_api_token = "phs_this_teams_own_primary_token_value"
+            self.team.secret_api_token_backup = token
+            self.team.save()
+            other_team = Team.objects.create(organization=self.organization, project=self.project, name="other")
+            row, _ = create_project_secret_api_key(team=other_team, label="Twin value", value=token)
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertTrue(ProjectSecretAPIKey.objects.filter(pk=row.pk).exists())
+
         @parameterized.expand(
             [
                 ("no_existing_token", None, False, status.HTTP_400_BAD_REQUEST),
@@ -750,10 +806,7 @@ def team_api_test_factory():
                 ("no_existing_token_conversations_enabled", None, True, status.HTTP_200_OK),
             ]
         )
-        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
-        def test_secret_token_generation_when_psak_enabled(
-            self, _name, existing_token, conversations_enabled, expected_status, _mock_flag
-        ):
+        def test_secret_token_generation(self, _name, existing_token, conversations_enabled, expected_status):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
@@ -824,6 +877,43 @@ def team_api_test_factory():
                 ]
             )
 
+        def test_rotate_heatmaps_screenshot_secret(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.assertIsNone(self.team.heatmaps_screenshot_secret)
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            first_secret = response.json()["heatmaps_screenshot_secret"]
+            self.assertTrue(first_secret.startswith("phh_"))
+            self.assertEqual(first_secret, self.team.heatmaps_screenshot_secret)
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.assertNotEqual(response.json()["heatmaps_screenshot_secret"], first_secret)
+            changes = [
+                change
+                for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Team").order_by("created_at")
+                for change in (log.detail or {}).get("changes", [])
+                if change["field"] == "heatmaps_screenshot_secret"
+            ]
+            self.assertEqual([change["action"] for change in changes], ["created", "changed"])
+            self.assertNotIn(first_secret, str(changes))
+            self.assertNotIn(response.json()["heatmaps_screenshot_secret"], str(changes))
+
+            self.client.patch(f"/api/environments/{self.team.id}/", {"heatmaps_screenshot_secret": "phh_chosen"})
+            self.team.refresh_from_db()
+            self.assertNotEqual(self.team.heatmaps_screenshot_secret, "phh_chosen")
+
+        def test_rotate_heatmaps_screenshot_secret_insufficient_privileges(self):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.team.refresh_from_db()
+            self.assertIsNone(self.team.heatmaps_screenshot_secret)
+
         def test_rotate_secret_token_insufficient_privileges(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
@@ -873,6 +963,60 @@ def team_api_test_factory():
             self.assertEqual(
                 response.json(),
                 self.validation_error_response("Dashboard does not belong to this team.", attr="primary_dashboard"),
+            )
+
+        def test_update_home_tab_dashboard(self):
+            self.assertFalse(TeamHomeTabDashboardConfig.objects.for_team(self.team.id).exists())
+            response = self.client.get("/api/environments/@current/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertIsNone(response.json()["home_tab_dashboard"])
+            self.assertFalse(TeamHomeTabDashboardConfig.objects.for_team(self.team.id).exists())
+
+            d = Dashboard.objects.create(name="Test", team=self.team)
+
+            response = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": d.id})
+            response_data = response.json()
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            self.assertEqual(response_data["home_tab_dashboard"], d.id)
+            self.assertEqual(Team.objects.get(pk=self.team.pk).home_tab_dashboard.id, d.id)
+
+            changes = [
+                change
+                for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Team")
+                for change in (log.detail or {}).get("changes", [])
+                if change["field"] == "home_tab_dashboard"
+            ]
+            self.assertEqual(
+                changes,
+                [{"type": "Team", "action": "created", "field": "home_tab_dashboard", "before": None, "after": d.id}],
+            )
+
+            response = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": None})
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            self.assertIsNone(response.json()["home_tab_dashboard"])
+            self.assertIsNone(Team.objects.get(pk=self.team.pk).home_tab_dashboard)
+            changes = [
+                change
+                for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Team").order_by("created_at")
+                for change in (log.detail or {}).get("changes", [])
+                if change["field"] == "home_tab_dashboard"
+            ]
+            self.assertEqual([change["action"] for change in changes], ["created", "deleted"])
+            self.assertEqual(changes[-1]["before"], d.id)
+            self.assertIsNone(changes[-1]["after"])
+
+        def test_cant_set_home_tab_dashboard_to_another_teams_dashboard(self):
+            team_2 = Team.objects.create(organization=self.organization, name="Default project")
+            d = Dashboard.objects.create(name="Test", team=team_2)
+
+            response = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": d.id})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                self.validation_error_response(
+                    "Dashboard does not belong to this team.", code="does_not_exist", attr="home_tab_dashboard"
+                ),
             )
 
         def test_is_generating_demo_data(self):
@@ -1136,6 +1280,55 @@ def team_api_test_factory():
             # and the existing second level nesting is not preserved
             self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
 
+        def test_workflow_task_limits_are_writable_and_clearable(self) -> None:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {
+                    "workflows_config": {
+                        "workflow_task_rate_limit_per_day": 250,
+                        "workflow_task_team_rate_limit_per_day": 1000,
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            self.team.refresh_from_db()
+            assert self.team.workflows_config.workflow_task_rate_limit_per_day == 250
+            assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"workflows_config": {"workflow_task_rate_limit_per_day": None}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            self.team.refresh_from_db()
+            assert self.team.workflows_config.workflow_task_rate_limit_per_day is None
+            assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
+
+        def test_support_raised_limit_survives_an_echoed_update(self) -> None:
+            TeamWorkflowsConfig.objects.update_or_create(
+                team=self.team, defaults={"workflow_task_rate_limit_per_day": 600}
+            )
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {
+                    "workflows_config": {
+                        "capture_workflows_engagement_events": True,
+                        "workflow_task_rate_limit_per_day": 600,
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            row = TeamWorkflowsConfig.objects.get(team=self.team)
+            assert row.workflow_task_rate_limit_per_day == 600
+            assert row.capture_workflows_engagement_events is True
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"workflows_config": {"workflow_task_rate_limit_per_day": 700}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+
         def test_modifiers_are_merged_on_patch(self) -> None:
             # Set initial modifiers with personsOnEventsMode
             response = self.client.patch(
@@ -1172,6 +1365,23 @@ def team_api_test_factory():
             assert response.json()["modifiers"]["customChannelTypeRules"] == [
                 {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
             ]
+
+        def test_modifiers_use_new_events_schema_is_not_client_writable(self) -> None:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"useNewEventsSchema": True}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert "useNewEventsSchema" not in response.json()["modifiers"]
+
+            self.team.modifiers = {"useNewEventsSchema": True}
+            self.team.save()
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"useNewEventsSchema": False, "bounceRateDurationSeconds": 30}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["modifiers"] == {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
 
         @parameterized.expand(
             [
@@ -1484,6 +1694,13 @@ def team_api_test_factory():
             other_org_membership.save()
             return other_org, other_org_membership
 
+        def _create_user_that_stays_in_source_organization(self) -> User:
+            outsider = User.objects.create_and_join(self.organization, "outsider@posthog.com", None)
+            outsider.current_team = self.team
+            outsider.current_organization = self.organization
+            outsider.save()
+            return outsider
+
         def test_cant_change_organization_if_not_admin_of_target_org(self):
             other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.MEMBER)
             res = self.client.post(
@@ -1514,9 +1731,14 @@ def team_api_test_factory():
             other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
-            res = self.client.post(
-                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
-            )
+            source_org_url = f"/api/organizations/{self.organization.id}/"
+            # Populates the source organization's cached project list before the move.
+            assert [team["id"] for team in self.client.get(source_org_url).json()["teams"]] == [self.team.id]
+
+            with self.captureOnCommitCallbacks(execute=True):
+                res = self.client.post(
+                    f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+                )
 
             assert res.status_code == status.HTTP_200_OK, res.json()
             assert res.json()["id"] == self.team.id
@@ -1525,6 +1747,9 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             assert self.project.organization == other_org
             assert self.team.organization == other_org
+            source_org = self.client.get(source_org_url).json()
+            assert source_org["teams"] == []
+            assert source_org["projects"] == []
 
         def test_change_organization_reconciles_current_project_of_affected_users(self):
             other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
@@ -1533,22 +1758,18 @@ def team_api_test_factory():
             self.user.current_team = self.team
             self.user.current_organization = self.organization
             self.user.save()
-            # This user stays behind in the source organization
-            outsider = User.objects.create_and_join(self.organization, "outsider@posthog.com", None)
-            outsider.current_team = self.team
-            outsider.current_organization = self.organization
-            outsider.save()
+            outsider = self._create_user_that_stays_in_source_organization()
 
             res = self.client.post(
                 f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
             )
             assert res.status_code == status.HTTP_200_OK, res.json()
 
-            # A member of the target organization keeps the project and follows it across
+            # A member of the target organization keeps the project and follows it across.
             self.user.refresh_from_db()
             assert self.user.current_team == self.team
             assert self.user.current_organization == other_org
-            # Everyone else loses the pointer instead of keeping a project they cannot reach
+            # Everyone else loses the pointer instead of keeping a project they cannot reach.
             outsider.refresh_from_db()
             assert outsider.current_team_id is None and outsider.current_organization_id is None
 
@@ -1563,28 +1784,26 @@ def team_api_test_factory():
             )
             assert res.status_code == status.HTTP_200_OK, res.json()
 
-            # The losing organization keeps a readable record even though it can no longer reach the project
+            # The losing organization keeps a readable record even though it can no longer reach the project.
             source_project_logs = ActivityLog.objects.filter(
                 organization_id=source_org.id, scope="Project", item_id=str(self.project.pk)
             )
             assert source_project_logs.count() == 1
             source_project_log = source_project_logs.get()
             assert source_project_log.detail is not None
-            # The row names the project that left, not action text, so the losing org can read it
+            # The row names the project that left, not action text, so the losing org can read it.
             assert source_project_log.detail["name"] == self.project.name
 
-            # And one entry per environment that left, so the source org sees which ones moved
+            # And one entry per environment that left, so the source org sees which ones moved.
             source_team_logs = ActivityLog.objects.filter(
                 organization_id=source_org.id, scope="Team", item_id=str(self.team.pk)
             )
             assert source_team_logs.count() == 1
 
-            # The receiving organization still gets its arrival entry
+            # The receiving organization still gets its arrival entry.
             assert ActivityLog.objects.filter(organization_id=other_org.id, scope="Project").count() == 1
 
         def test_change_organization_to_same_organization_is_rejected(self):
-            # organization_id arrives from the request body as a string, so a same-org request must
-            # still be caught by the guard, or it writes false move entries in the activity log.
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
@@ -1597,7 +1816,7 @@ def team_api_test_factory():
 
             assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
             assert res.json()["detail"] == "Project is already in the target organization."
-            # A no-op move must not write audit rows
+            # A no-op move must not write audit rows.
             assert ActivityLog.objects.count() == logs_before
 
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
@@ -1790,6 +2009,19 @@ def team_api_test_factory():
             assert settings["widget_greeting_text"] == "Hello!"
             assert settings["widget_color"] == "#ff0000"
 
+        @parameterized.expand([(["legacy", "list"],), ("legacy string",), (1,)])
+        def test_conversations_settings_merges_with_legacy_non_object_existing(self, legacy_value):
+            # Rows written before validation required an object/null can hold a stray
+            # array or scalar. A later object update must not 500 trying to merge it.
+            self.team.conversations_settings = legacy_value
+            self.team.save()
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_color": "#ff0000"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["widget_color"] == "#ff0000"
+
         def test_conversations_settings_change_reports_event_per_setting(self):
             with patch("posthog.api.team.report_user_action") as mock_report:
                 response = self.client.patch(
@@ -1845,9 +2077,117 @@ def team_api_test_factory():
             assert settings["widget_identification_form_description"] == "Please provide your details."
             assert settings["widget_placeholder_text"] == "Type your message..."
 
-        def test_enabling_conversations_auto_generates_token(self):
+        def test_conversations_playbook_custom_instructions(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": "  Always greet first.  "}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["ai_reply_custom_instructions"] == "Always greet first."
+
+            blank = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": "   "}},
+            )
+            assert blank.status_code == status.HTTP_200_OK
+            assert blank.json()["conversations_settings"]["ai_reply_custom_instructions"] is None
+
+            too_long = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": "x" * 8001}},
+            )
+            assert too_long.status_code == status.HTTP_400_BAD_REQUEST
+
+            reset = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": None}},
+            )
+            assert reset.status_code == status.HTTP_200_OK
+            assert reset.json()["conversations_settings"]["ai_reply_custom_instructions"] is None
+
+            inherited = compose_support_playbook().inherited_text
+            snapshot = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": inherited}},
+            )
+            assert snapshot.status_code == status.HTTP_200_OK
+            assert snapshot.json()["conversations_settings"]["ai_reply_custom_instructions"] is None
+
+            prefixed = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": f"{inherited}\n\nAlways greet first."}},
+            )
+            assert prefixed.status_code == status.HTTP_200_OK
+            assert prefixed.json()["conversations_settings"]["ai_reply_custom_instructions"] == "Always greet first."
+
+            # A later PATCH that omits docs_source has to normalize against the saved source, or
+            # the PostHog overlay the editor displayed gets stored as custom text and stacks twice.
+            assert (
+                self.client.patch(
+                    "/api/environments/@current/",
+                    {"conversations_settings": {"docs_source": "posthog"}},
+                ).status_code
+                == status.HTTP_200_OK
+            )
+            posthog_inherited = compose_support_playbook(docs_source="posthog").inherited_text
+            overlay = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "conversations_settings": {
+                        "ai_reply_custom_instructions": f"{posthog_inherited}\n\nAlways greet first."
+                    }
+                },
+            )
+            assert overlay.status_code == status.HTTP_200_OK
+            assert overlay.json()["conversations_settings"]["ai_reply_custom_instructions"] == "Always greet first."
+
+        def test_conversations_docs_source_validation(self):
+            ok = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"docs_source": "posthog"}},
+            )
+            assert ok.status_code == status.HTTP_200_OK
+            assert ok.json()["conversations_settings"]["docs_source"] == "posthog"
+
+            bad = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"docs_source": "acme"}},
+            )
+            assert bad.status_code == status.HTTP_400_BAD_REQUEST
+
+        def test_conversations_ai_context_account_property_ids(self):
+            from products.customer_analytics.backend.facade.testing import create_custom_property_definition
+
+            account_def = create_custom_property_definition(team_id=self.team.id, name="Plan", target_type="account")
+            person_def = create_custom_property_definition(team_id=self.team.id, name="Role", target_type="person")
+            ok = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "conversations_settings": {
+                        "ai_context_account_property_ids": [str(account_def.id), str(person_def.id)]
+                    }
+                },
+            )
+            assert ok.status_code == status.HTTP_200_OK
+            assert ok.json()["conversations_settings"]["ai_context_account_property_ids"] == [str(account_def.id)]
+
+            empty = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_context_account_property_ids": None}},
+            )
+            assert empty.status_code == status.HTTP_200_OK
+            assert empty.json()["conversations_settings"]["ai_context_account_property_ids"] == []
+
+            bad = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_context_account_property_ids": ["not-a-uuid"]}},
+            )
+            assert bad.status_code == status.HTTP_400_BAD_REQUEST
+
+        @parameterized.expand([(None,), ("legacy string",), (["legacy", "list"],)])
+        def test_enabling_conversations_auto_generates_token(self, stored_settings):
             self.team.conversations_enabled = False
-            self.team.conversations_settings = None
+            self.team.conversations_settings = stored_settings
             self.team.save()
 
             response = self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
@@ -1866,16 +2206,23 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["conversations_settings"]["widget_public_token"] == "existing_token_123"
 
-        def test_disabling_conversations_clears_token(self):
+        @parameterized.expand(
+            [
+                (
+                    {"widget_public_token": "some_token", "widget_color": "#123456"},
+                    {"widget_public_token": None, "widget_color": "#123456"},
+                ),
+                (1, {"widget_public_token": None}),
+            ]
+        )
+        def test_disabling_conversations_clears_token(self, stored_settings, expected_settings):
             self.team.conversations_enabled = True
-            self.team.conversations_settings = {"widget_public_token": "some_token", "widget_color": "#123456"}
+            self.team.conversations_settings = stored_settings
             self.team.save()
 
             response = self.client.patch("/api/environments/@current/", {"conversations_enabled": False})
             assert response.status_code == status.HTTP_200_OK
-            settings = response.json()["conversations_settings"]
-            assert settings["widget_public_token"] is None
-            assert settings["widget_color"] == "#123456"
+            assert response.json()["conversations_settings"] == expected_settings
 
         def test_generate_conversations_public_token(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -1951,6 +2298,111 @@ def team_api_test_factory():
                 )
                 assert "retention_days must be one of" in response.json()["detail"]
 
+        @parameterized.expand(
+            [
+                (" app.context ", "app.context"),
+                ("", ""),
+                (" " + "a" * 200 + " ", "a" * 200),
+                (" \t" + "😀" * 200 + "\n ", "😀" * 200),
+                ("\u001c\u001d\u001e\u001f\u0085" + "😀" * 200 + "\u3000\u00a0", "😀" * 200),
+                ("\ufeff" + "a" * 199, "\ufeff" + "a" * 199),
+            ]
+        )
+        def test_logs_settings_json_attribute_key(self, key, expected):
+            existing_settings = {
+                "retention_days": 14,
+                "json_parse_logs": False,
+                "pii_scrub_logs": True,
+                "future_setting": {"enabled": True},
+            }
+            self.team.logs_settings = existing_settings
+            self.team.save()
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {**existing_settings, "json_parse_logs_attribute_key": key}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            self.team.refresh_from_db()
+            expected_settings = {**existing_settings, "json_parse_logs_attribute_key": expected}
+            assert self.team.logs_settings == expected_settings
+            assert response.json()["logs_settings"] == expected_settings
+
+        @parameterized.expand([(123,), ("😀" * 201,), ("\ufeff" + "a" * 200,)])
+        def test_logs_settings_invalid_json_attribute_key(self, key):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"json_parse_logs_attribute_key": key}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "json_parse_logs_attribute_key must be a string" in response.json()["detail"]
+
+        def test_logs_settings_must_be_an_object(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": "json_parse_logs_attribute_key"},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "logs_settings must be an object" in response.json()["detail"]
+
+        def test_logs_settings_custom_retention_requires_flag(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 90}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "retention_days must be one of" in response.json()["detail"]
+
+            with patch("posthoganalytics.feature_enabled", return_value=True):
+                for valid_days in [90, 360, 2580]:
+                    response = self.client.patch(
+                        "/api/environments/@current/",
+                        {"logs_settings": {"retention_days": valid_days}},
+                    )
+                    assert response.status_code == status.HTTP_200_OK, response.json()
+                    assert response.json()["logs_settings"]["retention_days"] == valid_days
+                    # Reset so the next update is not blocked by the 24-hour throttle.
+                    self.team.logs_settings = {}
+                    self.team.save()
+
+                for invalid_days in [45, 2610, 0, -30]:
+                    response = self.client.patch(
+                        "/api/environments/@current/",
+                        {"logs_settings": {"retention_days": invalid_days}},
+                    )
+                    assert response.status_code == status.HTTP_400_BAD_REQUEST, (
+                        f"Expected 400 for retention_days={invalid_days}"
+                    )
+                    assert "multiple of 30" in response.json()["detail"]
+
+        def test_logs_settings_unchanged_custom_retention_kept_when_flag_off(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+            with patch("posthoganalytics.feature_enabled", return_value=True):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 90}},
+                )
+                assert response.status_code == status.HTTP_200_OK, response.json()
+
+            # Settings switches send the whole object back, including the stored period.
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 90, "json_parse_logs": True}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["logs_settings"]["retention_days"] == 90
+            assert response.json()["logs_settings"]["json_parse_logs"] is True
+
+        def test_logs_settings_custom_retention_requires_paid_feature(self):
+            with patch("posthoganalytics.feature_enabled", return_value=True):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 90}},
+                )
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert "90 days" in response.json()["detail"]
+
         def test_logs_settings_retention_requires_matching_feature(self):
             response = self.client.patch(
                 "/api/environments/@current/",
@@ -2008,6 +2460,7 @@ def team_api_test_factory():
                         "logs_settings": {
                             "retention_days": 14,  # Same retention
                             "json_parse_logs": True,
+                            "json_parse_logs_attribute_key": "context",
                         }
                     },
                 )
@@ -2621,6 +3074,33 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
 
 
 class TestTeamAPI(team_api_test_factory()):  # type: ignore
+    @parameterized.expand(
+        [
+            (
+                "read_flag_evaluations_reads_events",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                FlagEvaluationsMode.EVENTS,
+            ),
+            (
+                "flag_evaluations_only_keeps_its_mode",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            ),
+        ]
+    )
+    def test_page_load_team_follows_the_reads_switch(self, _name, stored_mode, expected_mode):
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            flag_evaluations_mode=stored_mode
+        )
+        request = RequestFactory().get("/")
+        request.user = self.user
+        request.session = self.client.session
+
+        with override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", True):
+            context = get_context_for_template("index.html", request)
+
+        self.assertEqual(context["posthog_app_context"]["current_team"]["flag_evaluations_mode"], expected_mode)
+
     def test_teams_outside_personal_api_key_scoped_teams_not_listed(self):
         # Scope to a primary team (team.id == project.id) so the env→project rewrite can address it directly.
         _, scoped_team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
@@ -3592,6 +4072,32 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         # Even the safe field must not be applied when the request is rejected.
         assert self.team.surveys_opt_in is not True
 
+    def test_member_cannot_read_heatmaps_screenshot_secret(self) -> None:
+        self.team.rotate_heatmaps_screenshot_secret_and_save(user=self.user, is_impersonated_session=False)
+        self.team.refresh_from_db()
+        assert self.team.heatmaps_screenshot_secret
+
+        for url in (f"/api/environments/{self.team.id}/", f"/api/projects/{self.project.id}/"):
+            response = self.client.get(url)
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["heatmaps_screenshot_secret"] is None, (
+                f"MEMBER read the admin-only screenshot secret via {url}"
+            )
+
+    def test_admin_can_read_heatmaps_screenshot_secret(self) -> None:
+        self.team.rotate_heatmaps_screenshot_secret_and_save(user=self.user, is_impersonated_session=False)
+        self.team.refresh_from_db()
+        secret = self.team.heatmaps_screenshot_secret
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        for url in (f"/api/environments/{self.team.id}/", f"/api/projects/{self.project.id}/"):
+            response = self.client.get(url)
+            assert response.json()["heatmaps_screenshot_secret"] == secret, (
+                f"ADMIN could not read the screenshot secret via {url}"
+            )
+
     def _enable_access_control_with_member_level(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -3671,6 +4177,81 @@ _TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
 
 
 class TestTeamSerializerValidationNoDB(SimpleTestCase):
+    @parameterized.expand([(None,), ({},), ({"widget_color": "#123456"},)])
+    def test_conversations_settings_clear_without_managed_values(self, existing: dict[str, str] | None) -> None:
+        self.assertIsNone(merge_conversations_settings(None, existing))
+
+    @parameterized.expand([(enabling, has_token) for enabling in (False, True) for has_token in (False, True)])
+    def test_conversations_clear_retains_integration_state_on_toggle(self, enabling: bool, has_token: bool) -> None:
+        current: dict[str, object] = {
+            "widget_color": "#123456",
+            "slack_enabled": False,
+            "teams_tenant_id": None,
+        }
+        if has_token:
+            current["widget_public_token"] = "test-existing-token"
+        updates = {
+            "conversations_enabled": enabling,
+            "conversations_settings": merge_conversations_settings(None, current),
+        }
+
+        with patch("posthog.api.team.secrets.token_urlsafe", return_value="test-generated-token"):
+            result = handle_conversations_token_on_update(updates, not enabling, current)
+
+        token = ("test-existing-token" if has_token else "test-generated-token") if enabling else None
+        self.assertEqual(
+            result["conversations_settings"],
+            {"slack_enabled": False, "teams_tenant_id": None, "widget_public_token": token},
+        )
+
+    @parameterized.expand(
+        [(enabling, settings_input) for enabling in (False, True) for settings_input in ("omitted", "null", "empty")]
+    )
+    def test_conversations_token_update_respects_cleared_settings(self, enabling: bool, settings_input: str) -> None:
+        current_settings = {"widget_color": "#123456"}
+        updates: dict[str, object] = {"conversations_enabled": enabling}
+        if settings_input != "omitted":
+            updates["conversations_settings"] = None if settings_input == "null" else {}
+
+        with patch("posthog.api.team.secrets.token_urlsafe", return_value="test-generated-token"):
+            result = handle_conversations_token_on_update(updates, not enabling, current_settings)
+
+        expected: dict[str, str | None] = dict(current_settings) if settings_input == "omitted" else {}
+        expected["widget_public_token"] = "test-generated-token" if enabling else None
+        self.assertEqual(result["conversations_settings"], expected)
+
+    @parameterized.expand(
+        [
+            (serializer, value)
+            for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
+            for value in (list[object](), "text", 1, True)
+        ]
+    )
+    def test_conversations_settings_requires_an_object(
+        self, serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer], value: object
+    ) -> None:
+        serializer = serializer_class(data={"conversations_settings": value}, partial=True)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("conversations_settings", serializer.errors)
+
+    @parameterized.expand([(None,), (True,), (123,), ([],), ({},), ("a" * 201,)])
+    def test_invalid_logs_json_attribute_key(self, key):
+        self._assert_field_error(
+            "logs_settings",
+            {"json_parse_logs_attribute_key": key},
+            "invalid",
+            "json_parse_logs_attribute_key must be a string of at most 200 characters. "
+            "Use an empty string to disable parsing.",
+        )
+
+    @parameterized.expand(
+        [("context", "context"), (" app.context ", "app.context"), ("  ", ""), (" " + "a" * 200 + " ", "a" * 200)]
+    )
+    def test_normalize_logs_json_attribute_key(self, key, expected):
+        assert TeamSerializer().validate_logs_settings({"json_parse_logs_attribute_key": key}) == {
+            "json_parse_logs_attribute_key": expected
+        }
+
     # Field-level input validation runs inside `is_valid()` (in `to_internal_value`),
     # before the object-level `validate()` that needs request context — so these never
     # touch the DB. `.errors` carries DRF's raw code (`invalid`); the HTTP envelope's
@@ -3846,6 +4427,25 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         # widget_domains rides in on a raw JSONField, so entries reach validation untyped.
         serializer = TeamSerializer(data={"conversations_settings": {"widget_domains": [entry]}}, partial=True)
         assert not serializer.is_valid()
+
+    @parameterized.expand(
+        [
+            ["per workflow above the ceiling", "workflow_task_rate_limit_per_day", 501, False],
+            ["per workflow at the ceiling", "workflow_task_rate_limit_per_day", 500, True],
+            ["per workflow negative", "workflow_task_rate_limit_per_day", -1, False],
+            ["per workflow paused", "workflow_task_rate_limit_per_day", 0, True],
+            ["per project above the ceiling", "workflow_task_team_rate_limit_per_day", 2501, False],
+            ["per project at the ceiling", "workflow_task_team_rate_limit_per_day", 2500, True],
+        ]
+    )
+    def test_workflow_task_limit_ceiling(self, _name: str, field: str, value: int, expected_valid: bool) -> None:
+        # The ceiling is the only thing between this settings input and an unbounded daily
+        # spend on agent runs. Support raises a project past it in Django admin, which does
+        # not use this serializer. Asserted on the nested serializer, which is what
+        # `validate_workflows_config` builds, because a value the ceiling accepts goes on to
+        # TeamSerializer's object-level `validate()` and its request context.
+        serializer = TeamWorkflowsConfigSerializer(data={field: value})
+        assert serializer.is_valid() == expected_valid, serializer.errors
 
     def test_invalid_autocapture_exceptions_opt_in_not_a_boolean(self) -> None:
         # `autocapture_exceptions_errors_to_ignore` is deliberately not here: its validation

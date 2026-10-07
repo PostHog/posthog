@@ -3,8 +3,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 export type ActivityEventsWidgetEvent = {
     uuid: string
@@ -34,7 +35,7 @@ export function ActivityEventsWidgetRowSkeleton(): JSX.Element {
 export function ActivityEventsWidgetRow({ event }: { event: ActivityEventsWidgetEvent }): JSX.Element {
     return (
         <Link
-            to={urls.event(event.uuid, event.timestamp)}
+            to={urls.event(event.uuid, event.timestamp, event.event)}
             target="_blank"
             subtle
             className="@container flex flex-col gap-0.5 px-3 py-2 hover:bg-surface-secondary focus-visible:outline-offset-[-2px]"

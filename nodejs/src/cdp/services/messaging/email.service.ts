@@ -30,6 +30,7 @@ import {
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
@@ -345,7 +346,7 @@ export class EmailService {
         private integrationManager: IntegrationManagerService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         encryptionSaltKeys: string,
-        siteUrl: string,
+        private siteUrl: string,
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
         private recipientsManager: RecipientsManagerService,
@@ -560,19 +561,49 @@ export class EmailService {
                 // without them the rescheduled dequeue resumes the Hog VM and drops the send.
                 result.invocation.queueParameters = params
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: capDelay.retryDelayMs })
+                const capRetrySeconds = Math.round(capDelay.retryDelayMs / 1000)
                 addLog(
                     'info',
-                    `This project reached its email sending limit of ${capDelay.label}. Retrying this email in ${Math.round(capDelay.retryDelayMs / 1000)}s. The limit rises as the project builds a clean sending history.`
+                    capDelay.label
+                        ? `This project reached its email sending limit of ${capDelay.label}. Retrying this email in ${capRetrySeconds}s. The limit rises as the project builds a clean sending history.`
+                        : `Could not check this project's email sending limit, so this email is waiting. Retrying in ${capRetrySeconds}s. No action is needed on your side.`
                 )
                 return result
             }
 
+            // Tagged before click tracking wraps the links, so the tags land on the destination URL.
+            const metadata = invocation.hogFunction.metadata
+            const sendParams =
+                metadata?.utm_tags_enabled === true && params.html
+                    ? {
+                          ...params,
+                          html: addUtmTagsToEmail(
+                              params.html,
+                              resolveUtmTags(
+                                  {
+                                      utm_source: 'posthog',
+                                      utm_medium: 'email',
+                                      utm_campaign: metadata.hog_flow_name ?? invocation.hogFunction.name,
+                                      utm_content: metadata.hog_flow_action_name ?? '',
+                                  },
+                                  renderUtmOverrides(metadata.utm_params, invocation.state.globals, (key, message) =>
+                                      addLog(
+                                          'warn',
+                                          `Used the default ${key} because its value has an error: ${message}`
+                                      )
+                                  )
+                              ),
+                              this.siteUrl
+                          ),
+                      }
+                    : params
+
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
-                    await this.sendEmailWithMaildev(result, params, from, trackingEnabled, isTest)
+                    await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, params, from, trackingEnabled, isTest)
+                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest)
                     break
 
                 case 'unsupported':
@@ -584,7 +615,7 @@ export class EmailService {
             // "View email" chip, so suppressing it for skipped captures keeps the chip
             // from 404-ing on click.
             if (!isTest && this.messageAssetsService) {
-                assetRow = this.messageAssetsService.buildRowForEmail(invocation, params)
+                assetRow = this.messageAssetsService.buildRowForEmail(invocation, sendParams)
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
             addLog('info', `Email sent to ${params.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
@@ -688,12 +719,14 @@ export class EmailService {
      * Failure stances differ on purpose. A failed tier lookup lets the send through, because a
      * config blip must never throttle a legitimate customer. A failed bucket claim returns 0 from
      * the limiter, which delays the send, because we must not send when we cannot account for it.
+     * That second case returns a null `label`: the send waits, but no cap was reached, so the
+     * caller must not tell the customer it hit one.
      */
     private async claimTeamSendingBudget(
         invocation: CyclotronJobInvocationHogFunction,
         isTest: boolean,
         recipients: number = 1
-    ): Promise<{ retryDelayMs: number; label: string } | null> {
+    ): Promise<{ retryDelayMs: number; label: string | null } | null> {
         const mode: TeamEmailCapMode = this.sesConfig.teamEmailCapMode ?? 'off'
         if (mode === 'off' || isTest || !this.teamEmailRateLimiter) {
             return null
@@ -734,13 +767,23 @@ export class EmailService {
             if (claim.granted) {
                 return null
             }
-            const denied = buckets[claim.deniedIndex ?? 1]
-            teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: denied.name, mode })
-            const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, denied.refillPerSecond, claim.reserved)
+            // `deniedIndex` is null when the limiter itself failed, not when a bucket was full. The
+            // send still waits, because we must not send what we cannot account for, but no cap was
+            // reached, so a null label tells the caller it has no cap to name to the customer.
+            const denied = claim.deniedIndex === null ? null : buckets[claim.deniedIndex]
+            // The daily bucket paces a limiter failure because it is the slower of the two, so the
+            // retry backs off at the safer rate while the limiter is unreachable.
+            const pacing = denied ?? buckets[1]
+            teamEmailCapDelayedTotal.inc({
+                tier: String(tier),
+                bucket: denied?.name ?? 'limiter_unavailable',
+                mode,
+            })
+            const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, pacing.refillPerSecond, claim.reserved)
             emailReservedParkMs.labels('team-email').observe(retryDelayMs)
             return {
                 retryDelayMs,
-                label: denied.label,
+                label: denied?.label ?? null,
             }
         }
 
@@ -962,7 +1005,7 @@ export class EmailService {
             from: from.name ? `"${from.name}" <${from.email}>` : from.email,
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
             subject: sanitizeEmailSubject(params.subject),
-            text: params.text,
+            ...(params.text ? { text: params.text } : {}),
             headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
             ...(params.html
                 ? {
@@ -1045,10 +1088,7 @@ export class EmailService {
                         Charset: 'UTF-8',
                     },
                     Body: {
-                        Text: {
-                            Data: params.text,
-                            Charset: 'UTF-8',
-                        },
+                        ...(params.text ? { Text: { Data: params.text, Charset: 'UTF-8' } } : {}),
                         ...htmlBody,
                     },
                 },

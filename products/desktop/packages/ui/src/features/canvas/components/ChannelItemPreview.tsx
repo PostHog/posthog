@@ -303,10 +303,12 @@ export function ChannelItemPreview({
   payload,
   onAction,
   onSubmenuOpenChange,
+  shortcutActive = true,
 }: {
   payload: ChannelItemPreviewPayload;
   onAction: () => void;
   onSubmenuOpenChange: (open: boolean) => void;
+  shortcutActive?: boolean;
 }) {
   const { item, menu } = payload;
   // The submenu flag lives on the provider, and Base UI reports no close when
@@ -367,6 +369,7 @@ export function ChannelItemPreview({
           menu={menu}
           onAction={onAction}
           onSubmenuOpenChange={onSubmenuOpenChange}
+          shortcutActive={shortcutActive}
         />
       </div>
     </ItemGroup>

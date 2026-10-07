@@ -526,8 +526,20 @@ class TestClerkFeatureGatedEndpoints:
             ("domains", 404, {"errors": [{"code": "resource_not_found"}]}),
             # Organizations off: the invitations list answers the same 404 resource_not_found.
             ("organization_invitations", 404, {"errors": [{"code": "resource_not_found"}]}),
+            # Organizations off: every other instance-wide Organizations list answers it too.
+            ("organizations", 404, {"errors": [{"code": "resource_not_found"}]}),
+            ("organization_memberships", 404, {"errors": [{"code": "resource_not_found"}]}),
+            ("organization_domains", 404, {"errors": [{"code": "resource_not_found"}]}),
+            ("organization_roles", 404, {"errors": [{"code": "resource_not_found"}]}),
+            ("organization_permissions", 404, {"errors": [{"code": "resource_not_found"}]}),
             # Invitations unavailable: the list answers the same 404 resource_not_found.
             ("invitations", 404, {"errors": [{"code": "resource_not_found"}]}),
+            # SMS off: the SMS template list answers the same 404 resource_not_found.
+            ("sms_templates", 404, {"errors": [{"code": "resource_not_found"}]}),
+            # Machine (M2M) auth off: the machines list answers the same 404 resource_not_found.
+            ("machines", 404, {"errors": [{"code": "resource_not_found"}]}),
+            # m2m_tokens fans out over /machines, so it meets the same 404 on its parent fetch.
+            ("m2m_tokens", 404, {"errors": [{"code": "resource_not_found"}]}),
         ],
     )
     def test_feature_not_enabled_syncs_no_rows_instead_of_failing(
@@ -584,7 +596,8 @@ class TestClerkValidateCredentials:
         [
             (400, "invalid or has been revoked"),
             (401, "invalid or has been revoked"),
-            (403, "does not have permission"),
+            (403, "active Clerk instance"),
+            (404, "active Clerk instance"),
             (500, "Couldn't validate your Clerk secret key"),
         ],
     )
@@ -606,6 +619,7 @@ class TestClerkValidateCredentials:
         ("status_code", "should_capture"),
         [
             (400, False),  # malformed key is user input, not an error to file
+            (404, False),  # an instance Clerk can't resolve is user input too
             (500, True),  # a genuine server fault still files an issue
         ],
     )
@@ -628,6 +642,19 @@ class TestClerkValidateCredentials:
         assert is_valid is False
         assert "Copy the key again" in (message or "")
         assert "latin-1" not in (message or "")
+        mock_session.assert_not_called()
+
+    @pytest.mark.parametrize("secret_key", ["sk_live_key\rextra_pasted_content", "sk_live_key\nextra_pasted_content"])
+    def test_key_with_return_character_is_rejected_before_any_request(self, secret_key: str) -> None:
+        # A carriage return or newline is ASCII, so it passes isascii(), but requests still rejects
+        # it as an invalid header value (InvalidHeader) when dispatching. That exception is a
+        # RequestException subclass, so it was previously swallowed by the generic network-error
+        # handler below and reported as a transient "couldn't reach Clerk" failure instead of
+        # explaining the malformed key.
+        with patch(_VALIDATE_SESSION) as mock_session:
+            is_valid, message = validate_credentials(secret_key)
+        assert is_valid is False
+        assert "Copy the key again" in (message or "")
         mock_session.assert_not_called()
 
     def test_network_error_returns_actionable_message_without_leaking_exception(self) -> None:

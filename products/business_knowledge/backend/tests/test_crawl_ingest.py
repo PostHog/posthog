@@ -25,8 +25,12 @@ from collections.abc import Mapping
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
-from products.business_knowledge.backend import crawl, discover, url_fetch
-from products.business_knowledge.backend.logic import create_crawl_source, refresh_source
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
+from products.business_knowledge.backend import crawl, discover, logic, url_fetch
+from products.business_knowledge.backend.logic import create_crawl_source, ingest_source, refresh_source
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SourceStatus
 
 
@@ -92,6 +96,98 @@ class TestDiscoverSitemap(BaseTest):
             "https://example.com/2",
             "https://example.com/3",
         ]
+
+    def test_unfurls_nested_sitemap_indexes(self) -> None:
+        # Three index levels yield the page. The sitemap past that is not fetched.
+        root = _sitemap_index_xml(["https://example.com/section.xml"])
+        section = _sitemap_index_xml(["https://example.com/pages.xml"])
+        pages = _sitemap_index_xml(["https://example.com/leaf.xml", "https://example.com/more-index.xml"])
+        leaf = _sitemap_xml(["https://example.com/docs/start"])
+        more_index = _sitemap_index_xml(["https://example.com/too-deep.xml"])
+        documents = {
+            "https://example.com/sitemap.xml": root,
+            "https://example.com/section.xml": section,
+            "https://example.com/pages.xml": pages,
+            "https://example.com/leaf.xml": leaf,
+            "https://example.com/more-index.xml": more_index,
+        }
+        fetched: list[str] = []
+
+        def _fake_fetch(url: str, max_bytes: int = 0) -> str:
+            fetched.append(url)
+            try:
+                return documents[url]
+            except KeyError as exc:
+                raise AssertionError(f"unexpected discover fetch: {url}") from exc
+
+        with patch.object(discover, "_http_get_text", side_effect=_fake_fetch):
+            urls = discover.discover(
+                "sitemap",
+                "https://example.com/sitemap.xml",
+                discover.CrawlConfig(max_pages=10),
+            ).urls
+        assert urls == ["https://example.com/docs/start"]
+        assert "https://example.com/more-index.xml" in fetched
+        assert "https://example.com/too-deep.xml" not in fetched
+
+    def test_stops_at_the_discover_cap(self) -> None:
+        sitemap = _sitemap_xml([f"https://example.com/{i}" for i in range(10)])
+        with (
+            patch.object(discover, "_http_get_text", return_value=sitemap),
+            patch.object(discover, "HARD_DISCOVER_CAP", 3),
+        ):
+            urls = discover.discover(
+                "sitemap",
+                "https://example.com/sitemap.xml",
+                discover.CrawlConfig(max_pages=10),
+            ).urls
+        assert urls == ["https://example.com/0", "https://example.com/1", "https://example.com/2"]
+
+    def test_sitemap_index_fetches_stop_at_the_fetch_cap(self) -> None:
+        children = [f"https://example.com/{i}.xml" for i in range(5)]
+        index = _sitemap_index_xml(children)
+        page = _sitemap_xml(["https://example.com/docs"])
+
+        def _fake_fetch(url: str, max_bytes: int = 0) -> str:
+            if url == "https://example.com/sitemap.xml":
+                return index
+            return page
+
+        with (
+            patch.object(discover, "_http_get_text", side_effect=_fake_fetch) as fetch,
+            patch.object(discover, "MAX_SITEMAP_FETCHES", 3),
+        ):
+            discover.discover(
+                "sitemap",
+                "https://example.com/sitemap.xml",
+                discover.CrawlConfig(max_pages=1),
+            )
+        assert fetch.call_count == 3
+
+    def test_nested_index_pages_are_found_before_broad_siblings_use_the_fetch_cap(self) -> None:
+        root = _sitemap_index_xml(
+            ["https://example.com/section.xml"] + [f"https://example.com/{i}.xml" for i in range(5)]
+        )
+        section = _sitemap_index_xml(["https://example.com/leaf.xml"])
+        leaf = _sitemap_xml(["https://example.com/docs/start"])
+        documents = {
+            "https://example.com/sitemap.xml": root,
+            "https://example.com/section.xml": section,
+            "https://example.com/leaf.xml": leaf,
+        }
+
+        with (
+            patch.object(
+                discover, "_http_get_text", side_effect=lambda url, max_bytes=0: documents.get(url, _sitemap_xml([]))
+            ),
+            patch.object(discover, "MAX_SITEMAP_FETCHES", 3),
+        ):
+            urls = discover.discover(
+                "sitemap",
+                "https://example.com/sitemap.xml",
+                discover.CrawlConfig(max_pages=10),
+            ).urls
+        assert urls == ["https://example.com/docs/start"]
 
     def test_applies_glob_filters(self) -> None:
         sitemap = _sitemap_xml(
@@ -268,6 +364,26 @@ def _ok(url: str, body: bytes) -> url_fetch.FetchResult:
     )
 
 
+class TestIterFetch(SimpleTestCase):
+    def test_submits_at_most_max_in_flight_before_the_first_outcome(self) -> None:
+        urls = [f"https://example.com/{i}" for i in range(10)]
+        fake = _FakeFetch({url: _ok(url, f"<html><body>Page {url}.</body></html>".encode()) for url in urls})
+        submitted: list[str] = []
+
+        def _etag_for(url: str) -> None:
+            submitted.append(url)
+            return None
+
+        with patch.object(crawl.url_fetch, "fetch_url", side_effect=fake):
+            outcomes = crawl.iter_fetch(urls, etag_for=_etag_for, max_workers=4, max_in_flight=2)
+            first = next(outcomes)
+            assert len(submitted) == 2
+            rest = list(outcomes)
+
+        assert sorted(o.url for o in [first, *rest]) == sorted(urls)
+        assert all(o.status == "ok" for o in [first, *rest])
+
+
 class TestCreateCrawlSource(APIBaseTest):
     def test_happy_path_indexes_all_discovered_pages(self) -> None:
         sitemap = _sitemap_xml(["https://example.com/a", "https://example.com/b", "https://example.com/c"])
@@ -294,6 +410,92 @@ class TestCreateCrawlSource(APIBaseTest):
         docs = KnowledgeDocument.objects.unscoped().filter(source=source)
         assert all(d.content_hash for d in docs)
         assert KnowledgeChunk.objects.unscoped().filter(source=source).count() >= 3
+
+    def test_chunk_cap_hit_in_a_later_batch_leaves_no_documents(self) -> None:
+        urls = ["https://example.com/a", "https://example.com/b"]
+        behaviours = {url: _ok(url, f"<html><body>Body of {url}.</body></html>".encode()) for url in urls}
+        with (
+            patch.object(discover, "_http_get_text", return_value=_sitemap_xml(urls)),
+            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+            patch.object(logic, "CRAWL_WRITE_BATCH_SIZE", 1),
+            patch.object(logic, "MAX_CHUNKS_PER_TEAM", 1),
+        ):
+            source = create_crawl_source(
+                team_id=self.team.id,
+                created_by_id=self.user.id,
+                name="Handbook",
+                url="https://example.com/sitemap.xml",
+                crawl_mode="sitemap",
+                crawl_config={"max_pages": 10},
+            )
+        assert source.status == SourceStatus.ERROR
+        assert "would exceed" in source.error_message
+        assert not KnowledgeDocument.objects.unscoped().filter(source=source).exists()
+        assert not KnowledgeChunk.objects.unscoped().filter(source=source).exists()
+
+    @parameterized.expand(
+        [
+            ("retry_succeeds", False, SourceStatus.READY, 2),
+            ("retry_fails_discovery", True, SourceStatus.ERROR, 0),
+        ]
+    )
+    def test_retried_ingest_replaces_rows_from_the_attempt_before(
+        self, _name: str, discovery_fails: bool, expected_status: str, expected_docs: int
+    ) -> None:
+        urls = ["https://example.com/a", "https://example.com/b"]
+        behaviours = {url: _ok(url, f"<html><body>Body of {url}.</body></html>".encode()) for url in urls}
+        with (
+            patch.object(discover, "_http_get_text", return_value=_sitemap_xml(urls)),
+            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+        ):
+            source = create_crawl_source(
+                team_id=self.team.id,
+                created_by_id=self.user.id,
+                name="Handbook",
+                url="https://example.com/sitemap.xml",
+                crawl_mode="sitemap",
+                crawl_config={"max_pages": 10},
+            )
+        chunks_before = KnowledgeChunk.objects.unscoped().filter(source=source).count()
+        KnowledgeSource.objects.unscoped().filter(id=source.id).update(status=SourceStatus.PROCESSING)
+
+        discovery_effect = discover.DiscoverError("Sitemap unreachable.") if discovery_fails else None
+        with (
+            patch.object(discover, "_http_get_text", return_value=_sitemap_xml(urls), side_effect=discovery_effect),
+            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+        ):
+            retried = ingest_source(source_id=source.id, team_id=self.team.id)
+
+        assert retried is not None
+        assert retried.status == expected_status
+        assert KnowledgeDocument.objects.unscoped().filter(source=source).count() == expected_docs
+        assert KnowledgeChunk.objects.unscoped().filter(source=source).count() == (
+            chunks_before if expected_docs else 0
+        )
+
+    def test_ingest_of_a_finished_source_keeps_its_rows(self) -> None:
+        urls = ["https://example.com/a"]
+        behaviours = {url: _ok(url, f"<html><body>Body of {url}.</body></html>".encode()) for url in urls}
+        with (
+            patch.object(discover, "_http_get_text", return_value=_sitemap_xml(urls)),
+            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+        ):
+            source = create_crawl_source(
+                team_id=self.team.id,
+                created_by_id=self.user.id,
+                name="Handbook",
+                url="https://example.com/sitemap.xml",
+                crawl_mode="sitemap",
+                crawl_config={"max_pages": 10},
+            )
+        chunks_before = KnowledgeChunk.objects.unscoped().filter(source=source).count()
+
+        with patch.object(discover, "_http_get_text", side_effect=AssertionError("must not rediscover")):
+            again = ingest_source(source_id=source.id, team_id=self.team.id)
+
+        assert again is not None
+        assert again.status == SourceStatus.READY
+        assert KnowledgeChunk.objects.unscoped().filter(source=source).count() == chunks_before
 
     def test_zero_safe_urls_returns_error_source(self) -> None:
         sitemap = _sitemap_xml(["http://127.0.0.1/secret"])
@@ -406,6 +608,7 @@ class TestRefreshCrawlSource(APIBaseTest):
         with (
             patch.object(discover, "_http_get_text", return_value=sitemap),
             patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+            patch.object(logic, "CRAWL_WRITE_BATCH_SIZE", 1),
         ):
             refresh_source(source_id=source.id, team_id=self.team.id)
 
@@ -441,6 +644,30 @@ class TestRefreshCrawlSource(APIBaseTest):
         # Chunks for the vanished doc are gone, but the doc row is preserved.
         assert KnowledgeChunk.objects.unscoped().filter(document_id=doc_b.id).count() == 0
         assert KnowledgeDocument.objects.unscoped().filter(id=doc_b.id).exists()
+
+    def test_vanished_page_chunks_do_not_count_against_the_cap(self) -> None:
+        source = self._seed(["https://example.com/a", "https://example.com/b"])
+        doc_b = KnowledgeDocument.objects.unscoped().get(source=source, stable_id="https://example.com/b")
+        at_cap = KnowledgeChunk.objects.unscoped().filter(team_id=self.team.id).count()
+
+        sitemap = _sitemap_xml(["https://example.com/a", "https://example.com/c"])
+        behaviours = {
+            url: _ok(url, f"<html><body>body of {url}</body></html>".encode())
+            for url in ["https://example.com/a", "https://example.com/c"]
+        }
+        with (
+            patch.object(discover, "_http_get_text", return_value=sitemap),
+            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+            patch.object(logic, "MAX_CHUNKS_PER_TEAM", at_cap),
+        ):
+            refresh_source(source_id=source.id, team_id=self.team.id)
+
+        source.refresh_from_db()
+        doc_b.refresh_from_db()
+        assert source.status == SourceStatus.READY
+        assert source.last_refresh_error == ""
+        assert doc_b.tombstoned_at is not None
+        assert KnowledgeDocument.objects.unscoped().filter(source=source, stable_id="https://example.com/c").exists()
 
     def test_unchanged_source_reports_not_modified(self) -> None:
         source = self._seed(["https://example.com/a"])

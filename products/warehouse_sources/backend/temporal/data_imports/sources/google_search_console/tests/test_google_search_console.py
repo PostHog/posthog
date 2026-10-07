@@ -6,7 +6,7 @@ from unittest import mock
 from django.db import OperationalError
 
 import requests
-from google.auth.exceptions import RefreshError
+from google.auth.exceptions import RefreshError, TransportError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
@@ -947,6 +947,39 @@ def test_query_permanent_token_refresh_error_bubbles_without_retry(monkeypatch):
     assert session.post.call_count == 1
 
 
+def test_query_retries_token_refresh_transport_error_then_succeeds(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.side_effect = [
+        # AuthorizedSession wraps a network-layer failure (e.g. a proxy error) hit while
+        # refreshing the access token in this class, not RefreshError.
+        TransportError("Cannot connect to proxy."),
+        _fake_response(200, {"rows": [{"keys": ["2026-04-15"], "clicks": 1}]}),
+    ]
+
+    rows = _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert rows == [{"keys": ["2026-04-15"], "clicks": 1}]
+    assert session.post.call_count == 2
+
+
+def test_query_token_refresh_transport_error_bubbles_after_max_retries(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.side_effect = TransportError("Cannot connect to proxy.")
+
+    # A persistent token-refresh transport failure exhausts the inline budget and surfaces the
+    # real TransportError (retryable at the activity level).
+    with pytest.raises(TransportError):
+        _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert session.post.call_count == QUOTA_MAX_RETRIES + 1
+
+
 def test_throttle_spaces_requests_per_site(monkeypatch):
     gsc._next_request_at.clear()
     fake_now = {"t": 100.0}
@@ -981,6 +1014,13 @@ def test_throttle_spaces_requests_per_site(monkeypatch):
         ("Https://example.com/Blog", "https://example.com/Blog/"),
         # Surrounding whitespace.
         ("  https://example.com/  ", "https://example.com/"),
+        # Quotes copied along with the value, matched or not.
+        ("'sc-domain:example.com'", "sc-domain:example.com"),
+        ("'sc-domain:example.com", "sc-domain:example.com"),
+        ('"https://example.com"', "https://example.com/"),
+        ("\u2018sc-domain:example.com\u2019", "sc-domain:example.com"),
+        # A quote inside a URL path is part of the property, not a wrapper.
+        ("https://example.com/blog'", "https://example.com/blog'/"),
         # The full Search Console UI URL — the property lives in resource_id.
         (
             "https://search.google.com/search-console/performance/search-analytics"
@@ -1013,8 +1053,12 @@ def test_normalize_site_url(raw, expected):
         ("EXAMPLE.COM", ["sc-domain:example.com"], "sc-domain:example.com"),
         # No registered property matches — nothing to suggest.
         ("plotlens.ai", ["https://other.com/"], None),
-        # Already scheme-qualified or a domain property: not ambiguous, so no suggestion.
-        ("https://plotlens.ai/", ["https://plotlens.ai/"], None),
+        # A root URL whose site is registered only as a domain property.
+        ("https://example.com/", ["sc-domain:example.com"], "sc-domain:example.com"),
+        ("https://www.example.com/", ["sc-domain:example.com"], "sc-domain:example.com"),
+        # A URL with a path would widen to the whole domain, so no suggestion.
+        ("https://example.com/blog/", ["sc-domain:example.com"], None),
+        ("https://plotlens.ai/", ["https://other.com/"], None),
         ("sc-domain:plotlens.ai", ["sc-domain:plotlens.ai"], None),
     ],
 )
@@ -1125,3 +1169,36 @@ def test_no_base_schema_name_collides_with_a_search_type_suffix():
     # of a shorter name, quietly querying the wrong dimensions.
     for base_name in SEARCH_ANALYTICS_SCHEMAS:
         assert split_schema_name(base_name) == (base_name, DEFAULT_SEARCH_TYPE)
+
+
+@pytest.mark.parametrize("resource_name", ["sites", "sitemaps"])
+@pytest.mark.parametrize(
+    "body,expected_error,expected_match",
+    [
+        (_QUOTA_BODY, GoogleSearchConsoleQuotaExceededError, r"\(retryable\)"),
+        (_PERMISSION_BODY, requests.HTTPError, "403 Client Error"),
+    ],
+)
+def test_property_listing_separates_quota_from_permission_denial(
+    monkeypatch, resource_name, body, expected_error, expected_match
+):
+    # A spent quota and a denied permission share the 403, and only the body separates them.
+    # The quota case reaching `raise_for_status` is what disabled the table over a condition
+    # that refills on its own.
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    session = mock.MagicMock()
+    session.get.return_value = _fake_response(403, body)
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: session)
+
+    response = google_search_console_source(
+        config=config,
+        resource_name=resource_name,
+        team_id=1,
+        resumable_source_manager=mock.MagicMock(),
+    )
+
+    with pytest.raises(expected_error, match=expected_match):
+        list(response.items())  # type: ignore[arg-type]

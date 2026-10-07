@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -30,9 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.lo
     validate_credentials as validate_lovable_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.settings import (
-    ENDPOINTS,
     INCREMENTAL_FIELDS,
+    LOVABLE_API_VERSION_2026_09_11,
     LOVABLE_API_VERSION_V1,
+    version_config,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -40,8 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class LovableSource(ResumableSource[LovableSourceConfig, LovableResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
-    supported_versions = (LOVABLE_API_VERSION_V1,)
-    default_version = LOVABLE_API_VERSION_V1
+    supported_versions = (LOVABLE_API_VERSION_V1, LOVABLE_API_VERSION_2026_09_11)
+    default_version = LOVABLE_API_VERSION_2026_09_11
     api_docs_url = "https://api.lovable.dev/v1/docs"
 
     @property
@@ -53,6 +52,7 @@ class LovableSource(ResumableSource[LovableSourceConfig, LovableResumeConfig]):
             "401 Client Error": "Your Lovable API key is invalid or has been revoked. Create a new key in Lovable and reconnect.",
             "402 Client Error": "This table needs a higher Lovable plan. Turn it off in the sync settings, or upgrade the workspace in Lovable.",
             "403 Client Error": "Your Lovable API key does not have permission to read this data. Use a key from an account with access, or turn this table off in the sync settings.",
+            "410 Client Error": "Lovable has retired the API version this source uses. Contact PostHog support to move the source to a supported version.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -71,7 +71,9 @@ class LovableSource(ResumableSource[LovableSourceConfig, LovableResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # The table set differs by version, so discovery must follow the source's pin.
+        endpoints = tuple(version_config(self.resolve_api_version(api_version)).endpoints)
+        return build_endpoint_schemas(endpoints, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self,
@@ -106,7 +108,7 @@ class LovableSource(ResumableSource[LovableSourceConfig, LovableResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LOVABLE,
+            name=ExternalDataSourceType.LOVABLE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Lovable",
             caption=(

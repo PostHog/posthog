@@ -56,14 +56,16 @@ from posthog.metrics import pushed_metrics_registry
 from posthog.models.scoping import team_scope
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
-from products.experiments.backend.models.experiment import Experiment
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.temporal.metric_resolution import (
+from products.experiments.backend.metric_resolution import (
+    METRIC_BUILDERS,
     ExperimentMetric,
     build_metric,
     find_metric_dict,
-    iter_metric_dicts,
+    metric_dict_reads_data_warehouse,
+    scheduled_metric_definitions,
 )
+from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.models import (
     ALL_OUTCOMES,
     MAX_CANARY_DETAIL_LENGTH,
@@ -104,8 +106,9 @@ MIN_CORRECTNESS_SUM_DELTA = 100.0
 MIN_EXPOSURES_PER_VARIANT = 100
 
 # Metric types that use the precompute path: all of them read precomputed exposures, and funnel,
-# mean, and retention also read precomputed metric events when eligible.
-ELIGIBLE_METRIC_TYPES = ("funnel", "mean", "ratio", "retention")
+# mean, and retention also read precomputed metric events when eligible. Derived from the runner's
+# builder registry so a new buildable type is sampled automatically instead of silently uncovered.
+ELIGIBLE_METRIC_TYPES = frozenset(METRIC_BUILDERS)
 
 # Experiments must have been running this long to be sampled — comfortably past the runner's 12h
 # precomputation gate, with enough accumulated exposures for the comparison to be meaningful.
@@ -130,7 +133,7 @@ def _eligible_experiments() -> list[Experiment]:
     )
     if not team_ids:
         return []
-    return list(
+    experiments = (
         Experiment.objects.filter(
             team_id__in=team_ids,
             start_date__lte=timezone.now() - MIN_EXPERIMENT_RUNTIME,
@@ -138,15 +141,23 @@ def _eligible_experiments() -> list[Experiment]:
         )
         .exclude(deleted=True)
         .exclude(archived=True)
-        .select_related("team")
-        # Metric discovery walks saved metrics per experiment; prefetch to avoid an N+1 over the sample.
-        .prefetch_related("experimenttosavedmetric_set__saved_metric")
+        .select_related("team", "feature_flag")
     )
+    # Metric discovery walks saved metrics per experiment; prefetch to avoid an N+1 over the sample.
+    experiments = experiments.prefetch_related("experimenttosavedmetric_set__saved_metric")
+    # Group-aggregated experiments never precompute (the exposures build can't resolve $group_N), so
+    # sampling one buys a guaranteed path flip. The index is a property over the flag's filters JSON,
+    # hence the Python-side filter.
+    return [e for e in experiments if e.feature_flag.aggregation_group_type_index is None]
 
 
 def _experiment_metric_dicts(experiment: Experiment) -> list[dict[str, Any]]:
     with team_scope(experiment.team_id, canonical=True):
-        return [m for m in iter_metric_dicts(experiment) if m.get("metric_type") in ELIGIBLE_METRIC_TYPES]
+        return [
+            m
+            for m in scheduled_metric_definitions(experiment).values()
+            if m.get("metric_type") in ELIGIBLE_METRIC_TYPES
+        ]
 
 
 def _forensics_targets(experiment_id: int, metric_uuids: list[str] | None) -> list[CanaryMetricTarget]:
@@ -211,7 +222,11 @@ def sample_canary_targets_sync(inputs: ExperimentPrecomputeCanaryInputs) -> list
                 break
             metric_type = metric_dict["metric_type"]
             metric_uuid = metric_dict["uuid"]
-            if quotas.get(metric_type, 0) <= 0 or metric_uuid in seen_uuids:
+            if (
+                quotas.get(metric_type, 0) <= 0
+                or metric_uuid in seen_uuids
+                or metric_dict_reads_data_warehouse(metric_dict)
+            ):
                 continue
             seen_uuids.add(metric_uuid)
             targets.append(
@@ -277,6 +292,23 @@ def _stability_violated(metric_type: str, run_a: CanaryRunSnapshot, run_b: Canar
     return False
 
 
+def _flipped_sides(run: CanaryRunSnapshot) -> list[str]:
+    """Cache sides a forced-precomputed run fell back on. Non-empty means the run is a path flip:
+    it read live data, so comparing it against another run tests nothing about the cache."""
+    sides = []
+    if not run.is_precomputed:
+        sides.append(f"{run.label} (exposures)")
+    if run.metric_events_path == "direct_scan":
+        sides.append(f"{run.label} (metric events)")
+    return sides
+
+
+def _path_flip_verdict(flipped: list[str]) -> CanaryVerdict:
+    # A forced-precomputed run fell back to the direct scan (e.g. the lazy computation executor timed
+    # out). Deviation is expected — not a divergence.
+    return CanaryVerdict(outcome=OUTCOME_PATH_FLIP, detail=f"run(s) {', '.join(flipped)} fell back to direct scan")
+
+
 def evaluate_canary_runs(
     metric_type: str, run_a: CanaryRunSnapshot, run_b: CanaryRunSnapshot, run_c: CanaryRunSnapshot | None
 ) -> CanaryVerdict:
@@ -294,16 +326,9 @@ def evaluate_canary_runs(
     # also explain a variant showing up in one run but not another. Both cache sides count: a run whose
     # metric-events build fell back to scanning events would compare that scan against run c's scan,
     # which passes trivially without testing the cache.
-    flipped = []
-    for run in (run_a, run_b):
-        if not run.is_precomputed:
-            flipped.append(f"{run.label} (exposures)")
-        if run.metric_events_path == "direct_scan":
-            flipped.append(f"{run.label} (metric events)")
+    flipped = [side for run in (run_a, run_b) for side in _flipped_sides(run)]
     if flipped:
-        # A forced-precomputed run fell back to the direct scan (e.g. the lazy computation executor timed
-        # out). Deviation is expected — not a divergence.
-        return CanaryVerdict(outcome=OUTCOME_PATH_FLIP, detail=f"run(s) {', '.join(flipped)} fell back to direct scan")
+        return _path_flip_verdict(flipped)
 
     variant_keys = {frozenset(run.variants) for run in runs}
     if len(variant_keys) > 1:
@@ -433,6 +458,7 @@ def run_metric_canary_sync(target: CanaryMetricTarget) -> CanaryMetricResult:
         canary_id = uuid.uuid4().hex[:12]
         runs: list[CanaryRunSnapshot] = []
         direct_scan_uncheckable = False
+        flipped: list[str] = []
         for label, mode in _CANARY_RUNS:
             query_id = f"experiment-canary-{canary_id}-{label}"
             try:
@@ -451,12 +477,22 @@ def run_metric_canary_sync(target: CanaryMetricTarget) -> CanaryMetricResult:
                     metric_uuid=target.metric_uuid,
                     query_id=query_id,
                 )
+                continue
             except Exception:
                 _log_canary_run_failed(target, label, query_id)
                 raise
+            # A flipped run already decides the verdict; the remaining runs would only burn ClickHouse
+            # on a comparison that cannot happen.
+            if mode == PrecomputationMode.PRECOMPUTED:
+                flipped = _flipped_sides(runs[-1])
+                if flipped:
+                    break
 
-        run_c = None if direct_scan_uncheckable else runs[2]
-        verdict = evaluate_canary_runs(metric_type, runs[0], runs[1], run_c)
+        if flipped:
+            verdict = _path_flip_verdict(flipped)
+        else:
+            run_c = None if direct_scan_uncheckable else runs[2]
+            verdict = evaluate_canary_runs(metric_type, runs[0], runs[1], run_c)
         result = CanaryMetricResult(
             target=target,
             outcome=verdict.outcome,

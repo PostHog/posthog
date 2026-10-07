@@ -2,6 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from urllib.parse import urljoin, urlparse
 
 import requests
 from dateutil import parser as date_parser
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.settings import (
     PERSONA_ENDPOINTS,
+    PersonaChildList,
     PersonaEndpointConfig,
     PersonaFanout,
 )
@@ -26,6 +28,18 @@ PAGE_SIZE = 100  # Persona caps page[size] at 100 (default 10).
 
 class PersonaRetryableError(Exception):
     pass
+
+
+class PersonaRedirectError(Exception):
+    """The API answered with a 3xx. Redirects are refused so the API key stays on the API host."""
+
+
+def _refuse_redirect(response: requests.Response) -> None:
+    if not 300 <= response.status_code < 400:
+        return
+    location = response.headers.get("Location") or ""
+    target = urlparse(urljoin(response.url or "", location)).hostname or "an unknown host"
+    raise PersonaRedirectError(f"Persona redirected the API request to {target}; refusing to follow")
 
 
 @dataclasses.dataclass
@@ -112,8 +126,11 @@ def validate_credentials(api_key: str) -> int:
     try:
         # Inquiry and verification bodies carry KYC PII (names, DOBs, government-ID and selfie check
         # results) that the name-based scrubber can't reliably strip, so keep them out of HTTP sample
-        # capture, following the same pattern as gusto and workday.
-        response = make_tracked_session(capture=False).get(url, headers=_get_headers(api_key), timeout=10)
+        # capture, following the same pattern as gusto and workday. Redirects are refused so the key
+        # is only ever sent to the API host.
+        response = make_tracked_session(capture=False, allow_redirects=False).get(
+            url, headers=_get_headers(api_key), timeout=10
+        )
         return response.status_code
     except Exception:
         return 0
@@ -141,6 +158,10 @@ def _fetch_page(
     # headers on 429; exponential jitter is a safe fallback that respects the 300 req/min budget.
     if response.status_code == 429 or response.status_code >= 500:
         raise PersonaRetryableError(f"Persona API error (retryable): status={response.status_code}, url={page_url}")
+
+    # The session does not follow redirects, so a 3xx reaches here. `raise_for_status` treats it as
+    # success, so reject it explicitly.
+    _refuse_redirect(response)
 
     if not response.ok:
         logger.error(f"Persona API error: status={response.status_code}, body={response.text}, url={page_url}")
@@ -184,6 +205,42 @@ def _rows_for_parent(
     return rows
 
 
+def _child_list_rows(
+    session: requests.Session,
+    child_list: PersonaChildList,
+    parent: dict[str, Any],
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    """Page through one parent's child list and return its rows, tagged with the parent id."""
+    parent_id = parent["id"]
+    rows: list[dict[str, Any]] = []
+    after: str | None = None
+    while True:
+        params: dict[str, Any] = {f"filter[{child_list.parent_filter}]": parent_id, "page[size]": PAGE_SIZE}
+        if after is not None:
+            params["page[after]"] = after
+        url = _build_url(f"{PERSONA_BASE_URL}{child_list.path}", params)
+        try:
+            data = _fetch_page(session, url, headers, logger)
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                # The parent can be deleted between the list page and this call.
+                logger.warning(f"Persona: {child_list.path} for {parent_id} returned 404, skipping")
+                return rows
+            raise
+
+        items = data.get("data") or []
+        for item in items:
+            row = _flatten_item(item)
+            row[child_list.parent_key] = parent_id
+            rows.append(row)
+
+        if not items or not data.get("links", {}).get("next"):
+            return rows
+        after = items[-1]["id"]
+
+
 def _build_params(config: PersonaEndpointConfig, watermark: Optional[datetime], after: str | None) -> dict[str, Any]:
     params: dict[str, Any] = {"page[size]": PAGE_SIZE}
     if watermark is not None:
@@ -207,8 +264,9 @@ def get_rows(
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page so urllib3 keeps the connection alive. Inquiry and
     # verification bodies carry KYC PII the name-based scrubber can't reliably strip, so keep them
-    # out of HTTP sample capture, following the same pattern as gusto and workday.
-    session = make_tracked_session(capture=False)
+    # out of HTTP sample capture, following the same pattern as gusto and workday. Redirects are
+    # refused so the key is only ever sent to the API host.
+    session = make_tracked_session(capture=False, allow_redirects=False)
 
     use_incremental = should_use_incremental_field and config.supports_incremental
     watermark = _to_datetime(db_incremental_field_last_value) if use_incremental else None
@@ -245,11 +303,12 @@ def get_rows(
                     stop = True
                     break
 
-            rows = (
-                _rows_for_parent(session, config.path, config.fanout, item, headers, logger)
-                if config.fanout is not None
-                else [_flatten_item(item)]
-            )
+            if config.fanout is not None:
+                rows = _rows_for_parent(session, config.path, config.fanout, item, headers, logger)
+            elif config.child_list is not None:
+                rows = _child_list_rows(session, config.child_list, item, headers, logger)
+            else:
+                rows = [_flatten_item(item)]
             for row in rows:
                 batcher.batch(row)
 
@@ -270,6 +329,11 @@ def get_rows(
 
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
+
+    # Walked to completion, so drop the checkpoint. Persona lists newest-first, so a cursor left
+    # over from a finished walk points at the oldest object it saw: the next run would resume below
+    # its whole created-at window instead of starting at page one.
+    resumable_source_manager.clear_state()
 
 
 def persona_source(

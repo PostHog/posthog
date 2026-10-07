@@ -1,9 +1,20 @@
 import type { PiRpcClient } from "@posthog/agent/pi/rpc-client";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import type { RootLogger } from "@posthog/di/logger";
+import { ROOT_LOGGER } from "@posthog/di/logger";
 import { getCloudUrlFromRegion } from "@posthog/shared";
-import type { AgentAuth } from "@posthog/workspace-server/services/agent/ports";
+import {
+  AGENT_AUTH,
+  AGENT_MCP_APPS,
+  MCP_SERVER_CONNECTION_SOURCE,
+} from "@posthog/workspace-server/services/agent/identifiers";
+import type {
+  AgentAuth,
+  AgentMcpApps,
+} from "@posthog/workspace-server/services/agent/ports";
 import type { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
+import { AUTH_PROXY_SERVICE } from "@posthog/workspace-server/services/auth-proxy/identifiers";
+import { Container } from "inversify";
 import { describe, expect, it, vi } from "vitest";
 import { DesktopPiRpcClientFactory } from "./desktop-pi-rpc-client-factory";
 
@@ -93,11 +104,21 @@ describe("DesktopPiRpcClientFactory", () => {
         error: vi.fn(),
       }),
     } as unknown as RootLogger;
+    const mcpApps = {
+      addServerConfigs: vi.fn(),
+      handleDiscovery: vi.fn(async () => {}),
+    };
     const factory = new DesktopPiRpcClientFactory(
       auth,
       authProxy,
       mcpServerSource,
+      mcpApps as unknown as AgentMcpApps,
       rootLogger,
+      {
+        getRoute: vi.fn(async () => ({ mode: "legacy" as const, reason: "x" })),
+        remint: vi.fn(),
+        fallBack: vi.fn(),
+      },
     );
 
     await expect(
@@ -121,6 +142,14 @@ describe("DesktopPiRpcClientFactory", () => {
     );
     expect(authProxy.start).toHaveBeenCalledWith("https://app.dev.posthog.dev");
     expect(createLocalRuntimeMcpServers).toHaveBeenCalledWith("/workspace");
+    expect(mcpApps.addServerConfigs).toHaveBeenCalledWith([
+      {
+        name: "posthog",
+        url: "http://127.0.0.1:4321/posthog",
+        headers: { "x-posthog-project-id": "1" },
+      },
+    ]);
+    expect(mcpApps.handleDiscovery).toHaveBeenCalledWith(["posthog"]);
     expect(createPiRpcClient).toHaveBeenCalledWith({
       enrichment: {
         apiUrl: "http://127.0.0.1:5678",
@@ -166,4 +195,107 @@ describe("DesktopPiRpcClientFactory", () => {
       extensions: ["context-wiki"],
     });
   });
+
+  it.each([
+    ["go", "http://127.0.0.1:1234/session"],
+    ["legacy", "http://127.0.0.1:1234/legacy"],
+  ] as const)(
+    "routes a Pi session to the %s gateway by the source's route",
+    async (mode, expectedBaseUrl) => {
+      const auth = {
+        getOAuthCredentials: vi.fn(async () => ({
+          access: "access-token",
+          refresh: null,
+          expires: 1,
+          region: "us" as const,
+        })),
+        getState: vi.fn(() => ({ currentProjectId: 7 })),
+        getValidAccessToken: vi.fn(async () => ({
+          accessToken: "access-token",
+          apiHost: "https://us.posthog.com",
+        })),
+      } as unknown as AgentAuth;
+      const authProxy = {
+        start: vi.fn(async (url: string) =>
+          url === "https://us.posthog.com"
+            ? "http://127.0.0.1:5678"
+            : "http://127.0.0.1:1234/legacy",
+        ),
+        startGatewaySession: vi.fn(async () => "http://127.0.0.1:1234/session"),
+      } as unknown as AuthProxyService;
+      const source = {
+        getRoute: vi.fn(async () =>
+          mode === "go"
+            ? { mode: "go", token: "phe_x", teamId: 7, projectId: 7 }
+            : { mode: "legacy", reason: "not_rolled_out" },
+        ),
+        remint: vi.fn(),
+        fallBack: vi.fn(),
+      };
+      createPiRpcClient.mockReturnValue({} as PiRpcClient);
+      const factory = new DesktopPiRpcClientFactory(
+        auth,
+        authProxy,
+        {
+          getMcpRuntimeConfiguration: vi.fn(async () => ({
+            servers: [],
+            policies: [],
+          })),
+        },
+        {
+          addServerConfigs: vi.fn(),
+          handleDiscovery: vi.fn(async () => {}),
+        } as unknown as AgentMcpApps,
+        {
+          scope: () => ({
+            debug: vi.fn(),
+            info: vi.fn(),
+            warn: vi.fn(),
+            error: vi.fn(),
+          }),
+        } as unknown as RootLogger,
+        source as never,
+      );
+
+      await factory.create({ taskContext: { taskId: "task-9", cwd: "/w" } });
+
+      expect(source.getRoute).toHaveBeenCalledWith(7, { awaitRecheck: true });
+      expect(createPiRpcClient).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          providerOptions: {
+            region: "us",
+            baseUrl: expectedBaseUrl,
+            apiKey: "posthog-code-auth-proxy",
+          },
+        }),
+      );
+      if (mode === "go") {
+        expect(authProxy.startGatewaySession).toHaveBeenCalledWith({
+          projectId: 7,
+          legacyGatewayUrl: getLlmGatewayUrl("https://us.posthog.com"),
+          headers: {
+            "x-posthog-property-task_id": "task-9",
+            "x-posthog-property-$ai_session_id": "task-9",
+            "X-PostHog-Project-Id": "7",
+          },
+        });
+      }
+    },
+  );
+});
+
+it("refuses to resolve the Pi factory without a gateway credential source", () => {
+  const container = new Container();
+  for (const token of [
+    AGENT_AUTH,
+    AUTH_PROXY_SERVICE,
+    MCP_SERVER_CONNECTION_SOURCE,
+    AGENT_MCP_APPS,
+    ROOT_LOGGER,
+  ]) {
+    container.bind(token).toConstantValue({});
+  }
+  container.bind(DesktopPiRpcClientFactory).toSelf();
+
+  expect(() => container.get(DesktopPiRpcClientFactory)).toThrow();
 });

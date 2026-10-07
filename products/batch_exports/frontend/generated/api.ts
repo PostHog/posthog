@@ -13,6 +13,7 @@ import type {
     BatchExportBackfillApi,
     BatchExportRequestApi,
     BatchExportRunApi,
+    BatchExportUnpauseRequestApi,
     BatchExportsBackfillsListParams,
     BatchExportsListParams,
     BatchExportsLogsRetrieveParams,
@@ -20,7 +21,6 @@ import type {
     BatchExportsRunsLogsRetrieveParams,
     CreateFileDownloadRequestApi,
     CreateOutputApi,
-    FileDownloadBatchExportOnDemandApi,
     FileDownloadBatchExportsListParams,
     FileDownloadBatchExportsLogsRetrieveParams,
     FileDownloadCountRowsRequestApi,
@@ -428,17 +428,10 @@ export const getBatchExportsPauseCreateUrl = (projectId: string, id: string) => 
 /**
  * Pause a BatchExport.
  */
-export const batchExportsPauseCreate = async (
-    projectId: string,
-    id: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
-    options?: RequestInit
-): Promise<void> => {
+export const batchExportsPauseCreate = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBatchExportsPauseCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
     })
 }
 
@@ -470,14 +463,14 @@ export const getBatchExportsUnpauseCreateUrl = (projectId: string, id: string) =
 export const batchExportsUnpauseCreate = async (
     projectId: string,
     id: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
+    batchExportUnpauseRequestApi?: BatchExportUnpauseRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getBatchExportsUnpauseCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
+        body: JSON.stringify(batchExportUnpauseRequestApi),
     })
 }
 
@@ -588,14 +581,11 @@ export const getFileDownloadBatchExportsCancelCreateUrl = (projectId: string, id
 export const fileDownloadBatchExportsCancelCreate = async (
     projectId: string,
     id: string,
-    fileDownloadBatchExportOnDemandApi: FileDownloadBatchExportOnDemandApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getFileDownloadBatchExportsCancelCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileDownloadBatchExportOnDemandApi),
     })
 }
 

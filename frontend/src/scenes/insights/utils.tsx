@@ -13,8 +13,8 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
+import { isWarehouseSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { teamLogic } from 'scenes/teamLogic'
-import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
@@ -23,6 +23,7 @@ import { examples } from '~/queries/examples'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
+    ExperimentDataWarehouseNode,
     BreakdownFilter,
     DashboardFilter,
     FileSystemIconType,
@@ -42,8 +43,8 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
+    isBIVisualizationNode,
     isDataTableNode,
-    isAnyDataWarehouseNode,
     isEventsNode,
     isGroupNode,
     isInsightVizNode,
@@ -68,6 +69,8 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { insightLogic } from './insightLogic'
 
@@ -118,7 +121,7 @@ export const getDisplayNameFromEntityFilter = (
 }
 
 export const getDisplayNameFromEntityNode = (
-    node: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
+    node: AnyEntityNode<AnyDataWarehouseNode | ExperimentDataWarehouseNode> | GroupNode,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings
@@ -140,7 +143,7 @@ export const getDisplayNameFromEntityNode = (
         name = 'All events'
     }
 
-    const id = isAnyDataWarehouseNode(node)
+    const id = isWarehouseSeriesNode(node)
         ? node.table_name
         : isEventsNode(node)
           ? node.event
@@ -198,7 +201,8 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
 
     return insightId
         ? insightId
-        : (await api.get(`api/environments/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
+        : // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsList() from 'products/product_analytics/frontend/generated/api' instead.
+          (await api.get(`api/projects/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
               .results[0]?.id
 }
 
@@ -306,7 +310,16 @@ function formatNumericBreakdownLabel(
         return BREAKDOWN_NULL_DISPLAY
     }
 
-    if (formatPropertyValueForDisplay) {
+    const breakdownType = (
+        typeof multipleBreakdownIndex === 'number'
+            ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]?.type
+            : breakdownFilter?.breakdown_type
+    ) as string | undefined
+
+    // Element breakdown values (tag_name, text, href) have no matching property definition — the type
+    // falls back to Event, so a same-named DateTime/Duration event property would otherwise reformat
+    // a numeric-looking element value into a date or duration.
+    if (formatPropertyValueForDisplay && breakdownType !== 'element') {
         const nestedBreakdown =
             typeof multipleBreakdownIndex === 'number'
                 ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]
@@ -517,6 +530,7 @@ export const INSIGHT_TYPE_URLS: Record<InsightType | string, string> = {
     [InsightType.PATHS]: urls.insightNew({ type: InsightType.PATHS }),
     [InsightType.JOURNEYS]: urls.insightNew({ type: InsightType.JOURNEYS }),
     [InsightType.WEB_ANALYTICS]: urls.insightNew({ type: InsightType.WEB_ANALYTICS }),
+    [InsightType.METRICS]: urls.insightNew({ type: InsightType.METRICS }),
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
     SQL: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery)['query'] }),
@@ -856,6 +870,9 @@ export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
 }
 
 export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
+    if (isBIVisualizationNode(query)) {
+        return 'business_intelligence'
+    }
     if (!query?.kind) {
         return 'product_analytics'
     }

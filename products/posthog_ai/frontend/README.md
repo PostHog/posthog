@@ -26,6 +26,8 @@ import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
 side-effectful tool registry (`api/tools`) and the markdown/virtualization-heavy thread (`api/primitives`)
 must not leak into a bundle that only needs a status helper from `api/logics`. A status badge that imports
 a fat path drags presenters and the registry into its chunk; importing `api/logics` alone does not.
+In the same way, an eager surface that only needs an input box imports `Composer` from `api/composer`,
+because `api/primitives` pulls the query and insight stack through its thread presenters.
 
 There is deliberately **no root `index.ts` barrel** — a barrel that re-exports every tier would
 re-introduce the exact bundling problem the split solves. Always import an `api/<module>`.
@@ -34,12 +36,12 @@ re-introduce the exact bundling problem the split solves. Always import an `api/
 
 Pick the **lowest tier** that does the job.
 
-| Tier                           | Module                                              | What's in it                                                                                                                                                                                                                                                                                                                                                                     | Use when                                                                                                                                                                    |
-| ------------------------------ | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker product for inline hosts)                                                                                                                                                                                      | "Just show a run" → `ReadonlyRunSurface` (inbox embeds). "Drive a run / custom layout" → `RunSurface` (tasks). "Embed the whole `/tasks` product" → `EmbeddedRunner` (Max). |
-| **2 — Compound primitives**    | `api/primitives`                                    | `Thread` + atoms (`.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall`), `ThreadView`, `Composer.*`, `AttachedContextBar`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces                                                                                                         | Custom layout, or a bespoke/compact thread.                                                                                                                                 |
-| **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, status helpers (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers, context injection (`attachedContextLogic`, `useAttachedContext`, `contextPickerLogic`), tool-stream subscriptions (`toolStreamEventsLogic`, `useToolStreamListener`); folded-thread + tool types, `AttachedContextItem`, `ToolStreamEvent` | Status badge, automation, context injection, tool-event listeners — no presenters, no registry.                                                                             |
-| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                                                                                                                                                                                                          | Your product renders tool cards (insights, dashboards…). Declare them in your product list and include it in the central manifest.                                          |
+| Tier                           | Module                                              | What's in it                                                                                                                                                                                                                                                                                                                                                  | Use when                                                                                                                                                                |
+| ------------------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker workspace for inline hosts)                                                                                                                                                                 | "Just show a run" → `ReadonlyRunSurface` (inbox embeds). "Drive a run / custom layout" → `RunSurface` (tasks). "Embed the `/tasks` workspace" → `EmbeddedRunner` (Max). |
+| **2 — Compound primitives**    | `api/primitives` + `api/composer`                   | `Thread` + atoms (`.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall`), `ThreadView`, `AttachedContextBar`, task navigation items and filters, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces; `api/composer` holds `Composer.*` and the quill composer frame | Custom layout, shared navigation, or a bespoke/compact thread. An input box alone imports only `api/composer`.                                                          |
+| **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, `tasksLogic`, status helpers (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers, context injection (`attachedContextLogic`, `useAttachedContext`, `contextPickerLogic`), tool-stream subscriptions (`toolStreamEventsLogic`, `useToolStreamListener`); folded-thread, task, and tool types | Status badge, automation, context injection, task navigation, tool-event listeners — no presenters or registry.                                                         |
+| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                                                                                                                                                                                       | Your product renders tool cards (insights, dashboards…). Declare them in your product list and include it in the central manifest.                                      |
 
 The Tier 1 surfaces are built on `api/primitives` (Tier 2), which consumes the headless
 `api/logics`/`api/types` (Tier 3). Going down a tier trades convenience for control and a smaller chunk.
@@ -73,7 +75,8 @@ own the composer. See `scenes/TaskTracker/components/TaskRunChat.tsx` for the fu
 
 ```tsx
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
-import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/primitives'
+import { Composer } from 'products/posthog_ai/frontend/api/composer'
+import { QueuedMessageList } from 'products/posthog_ai/frontend/api/primitives'
 import { runInteractionLogic } from 'products/posthog_ai/frontend/api/logics'
 
 // Bind runInteractionLogic (the follow-up/queue facade) keyed by the same runId RunSurface.Root binds.
@@ -274,7 +277,8 @@ resource changes) is an upsert — see `logics/contextPickerLogic.ts` for the fu
 free for the model/effort pickers):
 
 ```tsx
-import { AttachedContextBar, Composer } from 'products/posthog_ai/frontend/api/primitives'
+import { Composer } from 'products/posthog_ai/frontend/api/composer'
+import { AttachedContextBar } from 'products/posthog_ai/frontend/api/primitives'
 ;<Composer.Header>
   <AttachedContextBar />
 </Composer.Header>
@@ -336,3 +340,9 @@ Max/LangGraph/conversation. Anything the LangGraph path owns that the surface do
 / the tool registry / `streamKey` — lifted to a generic seam here, never special-cased. The four-tier
 contract above is unchanged whichever side of the switch is active. See
 [`AGENTS.md`](./AGENTS.md#6-replacement-readiness) for the contributor-side detail.
+
+### Task selection in embedded hosts
+
+Pass `taskId` to `EmbeddedRunner` to render an existing task.
+The AI scene reads it from `/ai?task=<id>`, so shared history links and reloads select the same task.
+Tasks created from `/ai` stay under that route; the standalone `/tasks` scene keeps its existing routes.

@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -50,7 +48,7 @@ class HoneycombSource(ResumableSource[HoneycombSourceConfig, HoneycombResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HONEYCOMB,
+            name=ExternalDataSourceType.HONEYCOMB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Honeycomb",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -97,6 +95,7 @@ Keys are region-specific — pick the region that matches your Honeycomb account
             "401 Client Error: Unauthorized for url: https://api.eu1.honeycomb.io": "Your Honeycomb API key is invalid, revoked, or for a different region. Create a configuration key in your Honeycomb environment settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.honeycomb.io": "Your Honeycomb API key is missing a permission needed to sync this data. Grant the matching access (e.g. Manage SLOs, Manage Triggers) on the key, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.eu1.honeycomb.io": "Your Honeycomb API key is missing a permission needed to sync this data. Grant the matching access (e.g. Manage SLOs, Manage Triggers) on the key, then reconnect.",
+            "Honeycomb SLO counts history is unavailable": "Honeycomb SLO counts history needs the Enterprise plan, with the feature turned on for your team by Honeycomb. Ask your Honeycomb account team to turn it on, or stop syncing the slo_counts_history table.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -124,17 +123,23 @@ Keys are region-specific — pick the region that matches your Honeycomb account
                 )
             if endpoint_config.scope is HoneycombScope.PER_SLO:
                 return "One row per burn alert per dataset, fetched by walking every dataset's SLOs."
+            if endpoint_config.scope is HoneycombScope.PER_SLO_TIME_WINDOW:
+                return (
+                    "Hourly good and bad event counts per SLO. Requires the Honeycomb Enterprise plan "
+                    "with SLO counts history enabled for your team."
+                )
             if endpoint_config.include_environment_wide:
                 return "Includes environment-wide rows under the __all__ dataset slug alongside per-dataset rows."
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = HONEYCOMB_ENDPOINTS[endpoint]
-            # Full refresh only: Honeycomb's v1 config endpoints expose no server-side
-            # timestamp filter, so a client-side cursor would still walk every row each run.
+            # Only endpoints with a server-side time filter advertise incremental fields; the
+            # config endpoints have none, so a client-side cursor would still walk every row.
+            # Append stays off: the latest SLO counts bucket is partial and must be merged.
             return SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=bool(endpoint_config.incremental_fields),
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
@@ -171,4 +176,7 @@ Keys are region-specific — pick the region that matches your Honeycomb account
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=(
+                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            ),
         )

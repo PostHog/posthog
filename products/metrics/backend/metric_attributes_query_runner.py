@@ -1,10 +1,9 @@
 """Attribute key/value autocomplete for the metrics filter bar.
 
-Queries the `metric_attributes` aggregate table (fed by MVs on the metrics
-ingest stream) rather than the raw data point table, mirroring the logs product's
-`LogAttributesQueryRunner`/`LogValuesQueryRunner` pair. Keys are searched
-across both datapoint ('metric') and resource attributes in one pass — the
-viewer filters with scope 'auto', so the split is invisible to users.
+Keys for one metric count distinct attribute values from recent series metadata.
+Keys across all metrics and values use the `metric_attributes` aggregate table:
+scanning series metadata without a metric name reads every attribute map.
+Both queries merge metric attributes and resource attributes.
 """
 
 import datetime as dt
@@ -33,7 +32,7 @@ _TIME_BUCKET_INTERVAL = dt.timedelta(hours=1)
 
 # Without an explicit window, suggest from recent data only — same lookback the
 # metric names picker uses.
-_DEFAULT_LOOKBACK = dt.timedelta(days=7)
+_DEFAULT_LOOKBACK = dt.timedelta(hours=24)
 
 # Autocomplete tolerates partial results, so reads break at the budget instead
 # of erroring the way the chart queries do.
@@ -58,49 +57,29 @@ def _validate_limit(limit: int) -> int:
 
 
 class MetricAttributeKeysQueryRunner:
-    """Distinct attribute keys seen on the team's metrics in a window, most
-    frequent first, exact search matches floated to the top."""
+    """Attribute keys ordered by distinct value count from recent series.
+    The synthetic `service_name` key only stands in for series without a `service.name`
+    resource attribute, so senders see the one spelling they emit."""
 
     def __init__(
         self,
         team: Team,
         *,
+        metric_name: str = "",
         search: str = "",
         date_from: dt.datetime | None = None,
         date_to: dt.datetime | None = None,
         limit: int = 100,
     ) -> None:
         self.team = team
+        self.metric_name = metric_name.strip()
         self.search = search.strip()
-        self.date_from, self.date_to = _resolve_window(date_from, date_to)
+        self.bucket_date_from, self.date_to = _resolve_window(date_from, date_to)
+        self.date_from = self.bucket_date_from + _TIME_BUCKET_INTERVAL
         self.limit = _validate_limit(limit)
 
     def run(self) -> list[dict[str, Any]]:
-        query = parse_select(
-            """
-                SELECT
-                    attribute_key AS name,
-                    sum(attribute_count) AS total_count
-                FROM posthog.metric_attributes
-                WHERE time_bucket >= {date_from}
-                  AND time_bucket < {date_to}
-                  AND attribute_key ILIKE {search_pattern}
-                GROUP BY attribute_key
-                ORDER BY
-                    lower(attribute_key) = lower({exact}) DESC,
-                    sum(attribute_count) DESC,
-                    attribute_key ASC
-                LIMIT {limit}
-            """,
-            placeholders={
-                "date_from": ast.Constant(value=self.date_from),
-                "date_to": ast.Constant(value=self.date_to),
-                "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
-                "exact": ast.Constant(value=self.search),
-                "limit": ast.Constant(value=self.limit),
-            },
-        )
-        assert isinstance(query, ast.SelectQuery)
+        query = self._series_query() if self.metric_name else self._aggregate_query()
 
         response = execute_hogql_query(
             query_type="MetricAttributeKeysQuery",
@@ -110,13 +89,73 @@ class MetricAttributeKeysQueryRunner:
             settings=_QUERY_SETTINGS,
         )
 
-        keys = [row[0] for row in response.results]
-        # service_name lives in its own column, so it never appears as an attribute
-        # row; surface it whenever it matches the search (mirrors anomaly key discovery).
+        results = [{"name": row[0], "value_count": int(row[1])} for row in response.results]
         search_lower = self.search.lower()
-        if (search_lower in "service_name" or search_lower in "service.name") and "service_name" not in keys:
-            keys.insert(0, "service_name")
-        return [{"name": key} for key in keys[: self.limit]]
+        if not results and (search_lower in "service_name" or search_lower in "service.name"):
+            results.append({"name": "service_name", "value_count": 0})
+        return results
+
+    def _aggregate_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # Like the series query, the window end is not enforced: keys come from recent data.
+        return parse_select(
+            """
+                SELECT attribute_key, value_count
+                FROM (
+                    SELECT attribute_key, uniq(attribute_value) AS value_count
+                    FROM posthog.metric_attributes
+                    WHERE time_bucket >= {date_from}
+                      AND attribute_key ILIKE {search_pattern}
+                    GROUP BY attribute_key
+                    UNION ALL
+                    SELECT 'service_name' AS attribute_key, uniq(service_name) AS value_count
+                    FROM posthog.metric_attributes
+                    WHERE time_bucket >= {date_from}
+                      AND ('service_name' ILIKE {search_pattern} OR 'service.name' ILIKE {search_pattern})
+                    HAVING value_count > 0
+                )
+                ORDER BY value_count DESC, attribute_key ASC
+                LIMIT {limit}
+            """,
+            placeholders={
+                "date_from": ast.Constant(value=self.bucket_date_from),
+                "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
+                "limit": ast.Constant(value=self.limit),
+            },
+        )
+
+    def _series_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(
+            """
+                SELECT
+                    arrayJoin(arrayDistinct(arrayConcat(
+                        mapKeys(attributes), mapKeys(resource_attributes),
+                        if(mapContains(resource_attributes, 'service.name'), [], ['service_name'])
+                    ))) AS attribute_key,
+                    uniqCombined64(if(attribute_key IN ('service_name', 'service.name'), service_name,
+                        if(arrayElement(resource_attributes, attribute_key) != '',
+                            arrayElement(resource_attributes, attribute_key),
+                            arrayElement(attributes, attribute_key)))) AS value_count
+                FROM posthog.metric_series
+                WHERE last_seen >= {date_from}
+                  AND {metric_name_filter}
+                  AND (attribute_key ILIKE {search_pattern}
+                       OR (attribute_key = 'service_name' AND 'service.name' ILIKE {search_pattern})
+                       OR (attribute_key = 'service.name' AND 'service_name' ILIKE {search_pattern}))
+                GROUP BY attribute_key
+                ORDER BY value_count DESC, attribute_key ASC
+                LIMIT {limit}
+            """,
+            placeholders={
+                "date_from": ast.Constant(value=self.date_from),
+                "metric_name_filter": ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["metric_name"]),
+                    right=ast.Constant(value=self.metric_name),
+                ),
+                "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
+                "limit": ast.Constant(value=self.limit),
+            },
+        )
 
 
 class MetricAttributeValuesQueryRunner:

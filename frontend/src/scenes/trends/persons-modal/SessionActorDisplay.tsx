@@ -1,9 +1,11 @@
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { humanFriendlyDuration } from 'lib/utils/durations'
-import { asDisplay } from 'scenes/persons/person-utils'
-import { gatherIconProperties, PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
+import { gatherIconProperties } from 'scenes/session-recordings/playlist/gatherIconProperties'
+import { PropertyIcons } from 'scenes/session-recordings/playlist/PropertyIcons'
 
 import { SessionActorType } from '~/types'
+
+import { asDisplay } from 'products/persons/frontend/person-utils'
 
 export function SessionActorDisplay({ actor }: { actor: SessionActorType }): JSX.Element {
     const iconProps = gatherIconProperties(actor.person?.properties)

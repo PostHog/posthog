@@ -752,6 +752,27 @@ database "posthog" {
     }
   }
 
+  table "distributed_person_group_membership_config" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "group_type_index" {
+      type = "UInt8"
+    }
+    column "enabled" {
+      type = "UInt8"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "person_group_membership_config"
+      sharding_key    = "sipHash64(team_id)"
+    }
+  }
+
   table "distributed_posthog_document_embeddings" {
     column "team_id" {
       type = "Int64"
@@ -1523,7 +1544,16 @@ database "posthog" {
       type = "String"
     }
     column "properties" {
-      type = "JSON(max_dynamic_types=8, max_dynamic_paths=256, `$active_feature_flags` Array(String), `$ai_experiment_id` Nullable(String), `$ai_http_status` Nullable(String), `$ai_is_error` Nullable(String), `$ai_model` Nullable(String), `$ai_parent_id` Nullable(String), `$ai_prompt_name` Nullable(String), `$ai_provider` Nullable(String), `$ai_session_id` Nullable(String), `$ai_span_id` Nullable(String), `$ai_total_cost_usd` Nullable(String), `$ai_trace_id` Nullable(String), `$anon_distinct_id` Nullable(String), `$app_build` Nullable(String), `$app_namespace` Nullable(String), `$app_version` Nullable(String), `$browser` Nullable(String), `$browser_version` Nullable(String), `$current_url` Nullable(String), `$device` Nullable(String), `$device_id` Nullable(String), `$device_model` Nullable(String), `$device_type` Nullable(String), `$el_text` Nullable(String), `$event_type` Nullable(String), `$exception_fingerprint` Nullable(String), `$exception_functions` Array(String), `$exception_issue_id` Nullable(String), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flag` Nullable(String), `$feature_flag_payloads` Nullable(String), `$feature_flag_response` Nullable(String), `$geoip_city_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$geoip_subdivision_1_code` Nullable(String), `$group_0` Nullable(String), `$group_1` Nullable(String), `$group_2` Nullable(String), `$group_3` Nullable(String), `$group_4` Nullable(String), `$groups` Nullable(String), `$host` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referrer` Nullable(String), `$initial_referring_domain` Nullable(String), `$ip` Nullable(String), `$is_identified` Nullable(String), `$lib` Nullable(String), `$lib_custom_api_host` Nullable(String), `$lib_version` Nullable(String), `$lib_version__minor` Nullable(String), `$os` Nullable(String), `$os_name` Nullable(String), `$os_version` Nullable(String), `$pathname` Nullable(String), `$prev_pageview_max_content_percentage` Nullable(String), `$prev_pageview_max_scroll_percentage` Nullable(String), `$prev_pageview_pathname` Nullable(String), `$process_person_profile` Nullable(String), `$referrer` Nullable(String), `$referring_domain` Nullable(String), `$screen_height` Nullable(String), `$screen_name` Nullable(String), `$screen_width` Nullable(String), `$sent_at` Nullable(String), `$session_id` Nullable(String), `$survey_id` Nullable(String), `$survey_response` Nullable(String), `$survey_response_1` Nullable(String), `$time` Nullable(String), `$user_id` Nullable(String), `$viewport_height` Nullable(String), `$viewport_width` Nullable(String), `$web_vitals_CLS_value` Nullable(String), `$web_vitals_FCP_value` Nullable(String), `$web_vitals_INP_value` Nullable(String), `$web_vitals_LCP_value` Nullable(String), `$window_id` Nullable(String))"
+      type = "JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)"
+    }
+    column "temporary_properties" {
+      type = "JSON(max_dynamic_paths=32)"
+    }
+    column "properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "temporary_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
     }
     column "timestamp" {
       type = "DateTime64(6, 'UTC')"
@@ -1534,12 +1564,9 @@ database "posthog" {
     column "distinct_id" {
       type = "String"
     }
-    column "elements_hash" {
-      type    = "String"
-      default = "''"
-    }
     column "created_at" {
-      type = "DateTime64(6, 'UTC')"
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -1554,27 +1581,25 @@ database "posthog" {
       type = "UUID"
     }
     column "person_properties" {
-      type = "JSON(max_dynamic_types=6, max_dynamic_paths=32, `$app_version` Nullable(String), `$browser` Nullable(String), `$current_url` Nullable(String), `$geoip_continent_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$initial_current_url` Nullable(String), `$initial_fbclid` Nullable(String), `$initial_gad_source` Nullable(String), `$initial_gbraid` Nullable(String), `$initial_gclid` Nullable(String), `$initial_msclkid` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referring_domain` Nullable(String), `$initial_utm_campaign` Nullable(String), `$initial_utm_content` Nullable(String), `$initial_utm_medium` Nullable(String), `$initial_utm_source` Nullable(String), `$initial_utm_term` Nullable(String), `$initial_wbraid` Nullable(String), `$os_name` Nullable(String), `$referring_domain` Nullable(String))"
+      type = "JSON(max_dynamic_paths=256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String))"
+    }
+    column "person_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
     }
     column "group0_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group1_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group2_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group3_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group4_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "person_created_at" {
       type = "DateTime64(3)"
@@ -1595,46 +1620,27 @@ database "posthog" {
       type = "DateTime64(3)"
     }
     column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
+      type    = "DateTime64(6, 'UTC')"
       default = "now64()"
     }
     column "person_mode" {
       type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
-    column "is_deleted" {
-      type    = "Bool"
-      default = "false"
-    }
     column "consumer_breadcrumbs" {
       type = "Array(String)"
     }
     column "historical_migration" {
-      type    = "Bool"
-      default = "false"
+      type = "Bool"
     }
-    column "$group_0" {
-      type = "String"
+    column "total_event_size" {
+      type = "UInt32"
     }
-    column "$group_1" {
-      type = "String"
+    column "captured_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
     }
-    column "$group_2" {
-      type = "String"
-    }
-    column "$group_3" {
-      type = "String"
-    }
-    column "$group_4" {
-      type = "String"
-    }
-    column "$window_id" {
-      type = "String"
-    }
-    column "$session_id" {
-      type = "String"
-    }
-    column "$session_id_uuid" {
-      type = "Nullable(UInt128)"
+    column "_partition" {
+      type = "UInt64"
     }
     column "elements_chain_href" {
       type = "String"
@@ -2591,6 +2597,41 @@ database "posthog" {
     }
   }
 
+  table "log_entries_distributed" {
+    column "team_id" {
+      type = "UInt64"
+    }
+    column "log_source" {
+      type = "LowCardinality(String)"
+    }
+    column "log_source_id" {
+      type = "String"
+    }
+    column "instance_id" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "level" {
+      type = "LowCardinality(String)"
+    }
+    column "message" {
+      type = "String"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "log_entries_data"
+    }
+  }
+
   table "marketing_conversions_preaggregated" {
     column "team_id" {
       type = "Int64"
@@ -3233,6 +3274,33 @@ database "posthog" {
     }
   }
 
+  table "person_group_membership" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "group_type_index" {
+      type = "UInt8"
+    }
+    column "group_key" {
+      type = "String"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "first_seen" {
+      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
+    }
+    column "last_seen" {
+      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_person_group_membership"
+      sharding_key    = "sipHash64(team_id, group_type_index, group_key)"
+    }
+  }
+
   table "person_overrides" {
     order_by     = ["team_id", "old_person_id"]
     partition_by = "toYYYYMM(oldest_event)"
@@ -3265,26 +3333,6 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.person_overrides"
       replica_name   = "{replica}-{shard}"
       version_column = "version"
-    }
-  }
-
-  table "person_property_mutation_log" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "event_uuid" {
-      type = "UUID"
-    }
-    column "properties" {
-      type = "String"
-    }
-    column "ingested_at" {
-      type = "DateTime('UTC')"
-    }
-    engine "distributed" {
-      cluster_name    = "aux"
-      remote_database = "posthog"
-      remote_table    = "person_property_mutation_log_data"
     }
   }
 
@@ -3354,6 +3402,79 @@ database "posthog" {
       replica_name      = "{replica}-{shard}"
       version_column    = "timestamp"
       is_deleted_column = "is_deleted"
+    }
+  }
+
+  table "platform_alert_events" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "configuration_id" {
+      type = "UUID"
+    }
+    column "alert_id" {
+      type = "UUID"
+    }
+    column "grouping_key" {
+      type = "String"
+    }
+    column "evaluation_key" {
+      type = "String"
+    }
+    column "kind" {
+      type = "LowCardinality(String)"
+    }
+    column "alert_name" {
+      type = "String"
+    }
+    column "previous_state" {
+      type = "LowCardinality(String)"
+    }
+    column "state" {
+      type = "LowCardinality(String)"
+    }
+    column "episode_started_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "value" {
+      type = "Nullable(Float64)"
+    }
+    column "labels" {
+      type = "Map(String, String)"
+    }
+    column "condition_snapshot" {
+      type = "String"
+    }
+    column "source_config_snapshot" {
+      type = "String"
+    }
+    column "query_duration_ms" {
+      type = "Nullable(UInt32)"
+    }
+    column "error_message" {
+      type = "String"
+    }
+    column "consecutive_failures" {
+      type = "UInt32"
+    }
+    column "muted_notification" {
+      type = "LowCardinality(String)"
+    }
+    column "occurred_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "source_kind" {
+      type = "LowCardinality(String)"
+    }
+    column "expires_at" {
+      type    = "Date"
+      default = "today() + toIntervalDay(90)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_platform_alert_events"
+      sharding_key    = "cityHash64(team_id)"
     }
   }
 
@@ -3914,6 +4035,18 @@ database "posthog" {
     column "lc_modifiers" {
       type  = "String"
       alias = "if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')"
+    }
+    column "lc_plan_fingerprint" {
+      type  = "String"
+      alias = "ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), '')"
+    }
+    column "lc_estimated_rows" {
+      type  = "Int64"
+      alias = "ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0)"
+    }
+    column "lc_estimated_bytes" {
+      type  = "Int64"
+      alias = "ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)"
     }
     engine "distributed" {
       cluster_name    = "ops"
@@ -4516,8 +4649,8 @@ database "posthog" {
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
     }
     column "flag_keys" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -4623,7 +4756,7 @@ database "posthog" {
       type = "SimpleAggregateFunction(max, DateTime)"
     }
     column "snapshot_source" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "all_urls" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -4660,8 +4793,8 @@ database "posthog" {
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
-    column "snapshot_mode" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -5514,18 +5647,19 @@ database "posthog" {
   }
 
   table "sharded_events_json" {
-    primary_key  = ["team_id", "toDate(timestamp)", "event", "timestamp", "cityHash64(distinct_id)"]
-    order_by     = ["team_id", "toDate(timestamp)", "event", "timestamp", "cityHash64(distinct_id)", "distinct_id", "uuid"]
-    partition_by = "toYYYYMM(timestamp)"
+    primary_key  = ["team_id", "toDate(timestamp)", "event", "cityHash64(distinct_id)"]
+    order_by     = ["team_id", "toDate(timestamp)", "event", "cityHash64(distinct_id)", "timestamp", "uuid"]
+    partition_by = "clamp(toYYYYMM(timestamp), 202001, 203512)"
     sample_by    = "cityHash64(distinct_id)"
     settings = {
-      index_granularity                                             = "8192"
-      merge_max_block_size                                          = "131072"
-      merge_max_block_size_bytes                                    = "67108864"
-      object_serialization_version                                  = "v3"
-      object_shared_data_serialization_version                      = "map_with_buckets"
-      object_shared_data_serialization_version_for_zero_level_parts = "map"
-      vertical_merge_algorithm_min_rows_to_activate                 = "0"
+      enable_block_number_column                             = "1"
+      enable_block_offset_column                             = "1"
+      index_granularity                                      = "8192"
+      map_serialization_version                              = "with_buckets"
+      object_serialization_version                           = "v3"
+      object_shared_data_serialization_version               = "map_with_buckets"
+      propagate_types_serialization_versions_to_nested_types = "1"
+      string_serialization_version                           = "single_stream"
     }
     column "uuid" {
       type = "UUID"
@@ -5534,10 +5668,22 @@ database "posthog" {
       type = "String"
     }
     column "properties" {
-      type = "JSON(max_dynamic_types=8, max_dynamic_paths=256, `$active_feature_flags` Array(String), `$ai_experiment_id` Nullable(String), `$ai_http_status` Nullable(String), `$ai_is_error` Nullable(String), `$ai_model` Nullable(String), `$ai_parent_id` Nullable(String), `$ai_prompt_name` Nullable(String), `$ai_provider` Nullable(String), `$ai_session_id` Nullable(String), `$ai_span_id` Nullable(String), `$ai_total_cost_usd` Nullable(String), `$ai_trace_id` Nullable(String), `$anon_distinct_id` Nullable(String), `$app_build` Nullable(String), `$app_namespace` Nullable(String), `$app_version` Nullable(String), `$browser` Nullable(String), `$browser_version` Nullable(String), `$current_url` Nullable(String), `$device` Nullable(String), `$device_id` Nullable(String), `$device_model` Nullable(String), `$device_type` Nullable(String), `$el_text` Nullable(String), `$event_type` Nullable(String), `$exception_fingerprint` Nullable(String), `$exception_functions` Array(String), `$exception_issue_id` Nullable(String), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flag` Nullable(String), `$feature_flag_payloads` Nullable(String), `$feature_flag_response` Nullable(String), `$geoip_city_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$geoip_subdivision_1_code` Nullable(String), `$group_0` Nullable(String), `$group_1` Nullable(String), `$group_2` Nullable(String), `$group_3` Nullable(String), `$group_4` Nullable(String), `$groups` Nullable(String), `$host` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referrer` Nullable(String), `$initial_referring_domain` Nullable(String), `$ip` Nullable(String), `$is_identified` Nullable(String), `$lib` Nullable(String), `$lib_custom_api_host` Nullable(String), `$lib_version` Nullable(String), `$lib_version__minor` Nullable(String), `$os` Nullable(String), `$os_name` Nullable(String), `$os_version` Nullable(String), `$pathname` Nullable(String), `$prev_pageview_max_content_percentage` Nullable(String), `$prev_pageview_max_scroll_percentage` Nullable(String), `$prev_pageview_pathname` Nullable(String), `$process_person_profile` Nullable(String), `$referrer` Nullable(String), `$referring_domain` Nullable(String), `$screen_height` Nullable(String), `$screen_name` Nullable(String), `$screen_width` Nullable(String), `$sent_at` Nullable(String), `$session_id` Nullable(String), `$survey_id` Nullable(String), `$survey_response` Nullable(String), `$survey_response_1` Nullable(String), `$time` Nullable(String), `$user_id` Nullable(String), `$viewport_height` Nullable(String), `$viewport_width` Nullable(String), `$web_vitals_CLS_value` Nullable(String), `$web_vitals_FCP_value` Nullable(String), `$web_vitals_INP_value` Nullable(String), `$web_vitals_LCP_value` Nullable(String), `$window_id` Nullable(String))"
+      type = "JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)"
+    }
+    column "temporary_properties" {
+      type = "JSON(max_dynamic_paths=32)"
+      ttl  = "toDateTime(inserted_at) + toIntervalDay(60)"
+    }
+    column "properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "temporary_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+      ttl  = "toDateTime(inserted_at) + toIntervalDay(60)"
     }
     column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
+      type  = "DateTime64(6, 'UTC')"
+      codec = "GCD, Default"
     }
     column "team_id" {
       type = "Int64"
@@ -5545,18 +5691,18 @@ database "posthog" {
     column "distinct_id" {
       type = "String"
     }
-    column "elements_hash" {
-      type    = "String"
-      default = "''"
-    }
     column "created_at" {
-      type = "DateTime64(6, 'UTC')"
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+      codec   = "GCD, Default"
     }
     column "_timestamp" {
-      type = "DateTime"
+      type  = "DateTime"
+      codec = "T64, Default"
     }
     column "_offset" {
-      type = "UInt64"
+      type  = "UInt64"
+      codec = "T64, Default"
     }
     column "elements_chain" {
       type = "String"
@@ -5565,30 +5711,29 @@ database "posthog" {
       type = "UUID"
     }
     column "person_properties" {
-      type = "JSON(max_dynamic_types=6, max_dynamic_paths=32, `$app_version` Nullable(String), `$browser` Nullable(String), `$current_url` Nullable(String), `$geoip_continent_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$initial_current_url` Nullable(String), `$initial_fbclid` Nullable(String), `$initial_gad_source` Nullable(String), `$initial_gbraid` Nullable(String), `$initial_gclid` Nullable(String), `$initial_msclkid` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referring_domain` Nullable(String), `$initial_utm_campaign` Nullable(String), `$initial_utm_content` Nullable(String), `$initial_utm_medium` Nullable(String), `$initial_utm_source` Nullable(String), `$initial_utm_term` Nullable(String), `$initial_wbraid` Nullable(String), `$os_name` Nullable(String), `$referring_domain` Nullable(String))"
+      type = "JSON(max_dynamic_paths=256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String))"
+    }
+    column "person_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
     }
     column "group0_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group1_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group2_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group3_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group4_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "person_created_at" {
-      type = "DateTime64(3)"
+      type  = "DateTime64(3)"
+      codec = "GCD, Default"
     }
     column "group0_created_at" {
       type = "DateTime64(3)"
@@ -5606,54 +5751,31 @@ database "posthog" {
       type = "DateTime64(3)"
     }
     column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
+      type    = "DateTime64(6, 'UTC')"
       default = "now64()"
+      codec   = "GCD, Default"
     }
     column "person_mode" {
       type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
-    }
-    column "is_deleted" {
-      type    = "Bool"
-      default = "false"
     }
     column "consumer_breadcrumbs" {
       type = "Array(String)"
     }
     column "historical_migration" {
-      type    = "Bool"
-      default = "false"
+      type = "Bool"
     }
-    column "$group_0" {
-      type  = "String"
-      alias = "ifNull(properties.`$group_0`, '')"
+    column "total_event_size" {
+      type  = "UInt32"
+      codec = "T64, Default"
     }
-    column "$group_1" {
-      type  = "String"
-      alias = "ifNull(properties.`$group_1`, '')"
+    column "captured_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+      codec   = "GCD, Default"
     }
-    column "$group_2" {
-      type  = "String"
-      alias = "ifNull(properties.`$group_2`, '')"
-    }
-    column "$group_3" {
-      type  = "String"
-      alias = "ifNull(properties.`$group_3`, '')"
-    }
-    column "$group_4" {
-      type  = "String"
-      alias = "ifNull(properties.`$group_4`, '')"
-    }
-    column "$window_id" {
-      type  = "String"
-      alias = "ifNull(properties.`$window_id`, '')"
-    }
-    column "$session_id" {
-      type  = "String"
-      alias = "ifNull(properties.`$session_id`, '')"
-    }
-    column "$session_id_uuid" {
-      type  = "Nullable(UInt128)"
-      alias = "toUInt128(toUUIDOrNull(properties.`$session_id`))"
+    column "_partition" {
+      type  = "UInt64"
+      codec = "T64, Default"
     }
     column "elements_chain_href" {
       type         = "String"
@@ -5671,427 +5793,37 @@ database "posthog" {
       type         = "Array(Enum8('a'=1, 'button'=2, 'form'=3, 'input'=4, 'select'=5, 'textarea'=6, 'label'=7))"
       materialized = "arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\\\.|$|:)'))"
     }
-    index "kafka_timestamp_minmax_sharded_events" {
-      expr        = "_timestamp"
-      type        = "minmax"
-      granularity = 3
-    }
-    index "minmax_$group_0" {
-      expr        = "properties.`$group_0`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$group_1" {
-      expr        = "properties.`$group_1`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$group_2" {
-      expr        = "properties.`$group_2`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$group_3" {
-      expr        = "properties.`$group_3`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$group_4" {
-      expr        = "properties.`$group_4`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$window_id" {
-      expr        = "properties.`$window_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$session_id" {
-      expr        = "properties.`$session_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$sent_at" {
-      expr        = "properties.`$sent_at`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$initial_pathname" {
-      expr        = "properties.`$initial_pathname`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$lib_version" {
-      expr        = "properties.`$lib_version`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_utm_campaign" {
-      expr        = "person_properties.`$initial_utm_campaign`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_utm_medium" {
-      expr        = "person_properties.`$initial_utm_medium`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_gclid" {
-      expr        = "person_properties.`$initial_gclid`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_gad_source" {
-      expr        = "person_properties.`$initial_gad_source`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_utm_source" {
-      expr        = "person_properties.`$initial_utm_source`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_referring_domain" {
-      expr        = "person_properties.`$initial_referring_domain`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_utm_term" {
-      expr        = "person_properties.`$initial_utm_term`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_utm_content" {
-      expr        = "person_properties.`$initial_utm_content`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_gbraid" {
-      expr        = "person_properties.`$initial_gbraid`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_wbraid" {
-      expr        = "person_properties.`$initial_wbraid`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_msclkid" {
-      expr        = "person_properties.`$initial_msclkid`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_fbclid" {
-      expr        = "person_properties.`$initial_fbclid`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$geoip_subdivision_1_code" {
-      expr        = "properties.`$geoip_subdivision_1_code`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$prev_pageview_max_scroll_percentage" {
-      expr        = "properties.`$prev_pageview_max_scroll_percentage`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$prev_pageview_max_content_percentage" {
-      expr        = "properties.`$prev_pageview_max_content_percentage`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$prev_pageview_pathname" {
-      expr        = "properties.`$prev_pageview_pathname`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_pathname" {
-      expr        = "person_properties.`$initial_pathname`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$geoip_country_code" {
-      expr        = "person_properties.`$geoip_country_code`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$browser_version" {
-      expr        = "properties.`$browser_version`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_current_url" {
-      expr        = "person_properties.`$initial_current_url`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$current_url" {
-      expr        = "person_properties.`$current_url`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$app_namespace" {
-      expr        = "properties.`$app_namespace`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$os_name" {
-      expr        = "properties.`$os_name`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$os_name" {
-      expr        = "person_properties.`$os_name`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$app_version" {
-      expr        = "person_properties.`$app_version`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$screen_height" {
-      expr        = "properties.`$screen_height`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$screen_width" {
-      expr        = "properties.`$screen_width`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$app_build" {
-      expr        = "properties.`$app_build`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$geoip_country_code" {
-      expr        = "properties.`$geoip_country_code`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$survey_id" {
-      expr        = "properties.`$survey_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$survey_response_1" {
-      expr        = "properties.`$survey_response_1`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$survey_response" {
-      expr        = "properties.`$survey_response`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$el_text" {
-      expr        = "properties.`$el_text`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$os_version" {
-      expr        = "properties.`$os_version`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$feature_flag_payloads" {
-      expr        = "properties.`$feature_flag_payloads`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$groups" {
-      expr        = "properties.`$groups`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$feature_flag" {
-      expr        = "properties.`$feature_flag`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "bf_active_feature_flags" {
-      expr        = "properties.`$active_feature_flags`"
-      type        = "bloom_filter(0.01)"
-      granularity = 1
-    }
-    index "minmax_mat_$device_id" {
-      expr        = "properties.`$device_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$geoip_continent_name" {
-      expr        = "person_properties.`$geoip_continent_name`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$feature_flag_response" {
-      expr        = "properties.`$feature_flag_response`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$referring_domain" {
-      expr        = "person_properties.`$referring_domain`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$lib_version__minor" {
-      expr        = "properties.`$lib_version__minor`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_inserted_at" {
-      expr        = "coalesce(inserted_at, _timestamp)"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$lib_custom_api_host" {
-      expr        = "properties.`$lib_custom_api_host`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$geoip_country_name" {
-      expr        = "person_properties.`$geoip_country_name`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "is_deleted_idx" {
-      expr        = "is_deleted"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$device" {
-      expr        = "properties.`$device`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$exception_issue_id" {
-      expr        = "properties.`$exception_issue_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$exception_fingerprint" {
-      expr        = "properties.`$exception_fingerprint`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$web_vitals_LCP_value" {
-      expr        = "properties.`$web_vitals_LCP_value`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$web_vitals_FCP_value" {
-      expr        = "properties.`$web_vitals_FCP_value`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$web_vitals_CLS_value" {
-      expr        = "properties.`$web_vitals_CLS_value`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$web_vitals_INP_value" {
-      expr        = "properties.`$web_vitals_INP_value`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$viewport_width" {
-      expr        = "properties.`$viewport_width`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$viewport_height" {
-      expr        = "properties.`$viewport_height`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$anon_distinct_id" {
-      expr        = "properties.`$anon_distinct_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$ai_trace_id" {
-      expr        = "properties.`$ai_trace_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$ai_model" {
-      expr        = "properties.`$ai_model`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$ai_provider" {
-      expr        = "properties.`$ai_provider`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$ai_parent_id" {
-      expr        = "properties.`$ai_parent_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$ai_span_id" {
-      expr        = "properties.`$ai_span_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$ai_http_status" {
-      expr        = "properties.`$ai_http_status`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$process_person_profile" {
-      expr        = "properties.`$process_person_profile`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$app_version" {
-      expr        = "properties.`$app_version`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "bloom_mat_$is_identified" {
-      expr        = "properties.`$is_identified`"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "minmax_$session_id_uuid" {
-      expr        = "toUInt128(toUUIDOrNull(properties.`$session_id`))"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "bloom_filter_$ai_trace_id" {
-      expr        = "properties.`$ai_trace_id`"
-      type        = "bloom_filter(0.001)"
-      granularity = 2
-    }
-    index "bloom_filter_$ai_session_id" {
-      expr        = "properties.`$ai_session_id`"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "minmax_$ai_session_id" {
-      expr        = "properties.`$ai_session_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "set_$ai_is_error" {
-      expr        = "properties.`$ai_is_error`"
-      type        = "set(7)"
-      granularity = 1
-    }
-    index "minmax_mat_$ai_total_cost_usd" {
-      expr        = "properties.`$ai_total_cost_usd`"
-      type        = "minmax"
-      granularity = 1
-    }
     index "bloom_filter_distinct_id" {
       expr        = "distinct_id"
       type        = "bloom_filter"
       granularity = 1
     }
-    index "minmax_sharded_events_timestamp" {
+    index "bloom_filter_uuid" {
+      expr        = "uuid"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "bloom_filter_person_id" {
+      expr        = "person_id"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "minmax_captured_at" {
+      expr        = "captured_at"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "minmax_kafka_timestamp" {
+      expr        = "_timestamp"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "minmax_inserted_at" {
+      expr        = "inserted_at"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "minmax_timestamp" {
       expr        = "timestamp"
       type        = "minmax"
       granularity = 1
@@ -6101,28 +5833,8 @@ database "posthog" {
       type        = "minmax"
       granularity = 1
     }
-    index "bloom_mat_$feature_flag" {
-      expr        = "properties.`$feature_flag`"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "bloom_filter_$ai_prompt_name" {
-      expr        = "properties.`$ai_prompt_name`"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "minmax_$ai_prompt_name" {
-      expr        = "properties.`$ai_prompt_name`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "bloom_filter_$ai_experiment_id" {
-      expr        = "properties.`$ai_experiment_id`"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "minmax_$ai_experiment_id" {
-      expr        = "properties.`$ai_experiment_id`"
+    index "minmax_created_at" {
+      expr        = "created_at"
       type        = "minmax"
       granularity = 1
     }
@@ -7629,8 +7341,8 @@ database "posthog" {
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
     }
     column "flag_keys" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -7649,6 +7361,11 @@ database "posthog" {
     }
     index "event_names_bloom_filter" {
       expr        = "event_names"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "flag_key_values_bloom_filter" {
+      expr        = "flag_key_values"
       type        = "bloom_filter()"
       granularity = 1
     }
@@ -7763,7 +7480,7 @@ database "posthog" {
       type = "SimpleAggregateFunction(max, DateTime)"
     }
     column "snapshot_source" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "all_urls" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -7800,8 +7517,8 @@ database "posthog" {
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
-    column "snapshot_mode" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.session_replay_events"
@@ -8028,6 +7745,80 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_usage_report_events_preagg"
       sharding_key    = "sipHash64(date)"
+    }
+  }
+
+  table "warehouse_object_reads_daily" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "day" {
+      type = "Date"
+    }
+    column "read_kind" {
+      type = "Enum8('read'=1, 'refresh'=2)"
+    }
+    column "subject_kind" {
+      type = "Enum8('saved_query'=1, 'table'=2)"
+    }
+    column "subject_id" {
+      type = "String"
+    }
+    column "workflow_id" {
+      type = "String"
+    }
+    column "lc_kind" {
+      type = "LowCardinality(String)"
+    }
+    column "lc_product" {
+      type = "LowCardinality(String)"
+    }
+    column "lc_feature" {
+      type = "LowCardinality(String)"
+    }
+    column "lc_access_method" {
+      type = "LowCardinality(String)"
+    }
+    column "source" {
+      type = "LowCardinality(String)"
+    }
+    column "scene" {
+      type = "LowCardinality(String)"
+    }
+    column "has_user_id" {
+      type = "Bool"
+    }
+    column "read_alone" {
+      type = "Bool"
+    }
+    column "requests" {
+      type = "AggregateFunction(uniq, String)"
+    }
+    column "users" {
+      type = "AggregateFunction(uniq, Int64)"
+    }
+    column "read_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "duration_ms_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "read_bytes_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "duration_ms_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    column "read_bytes_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    column "max_event_time" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_warehouse_object_reads_daily"
     }
   }
 
@@ -8675,6 +8466,74 @@ database "posthog" {
     }
   }
 
+  table "web_sessions_dimensional_preaggregated" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "period_bucket" {
+      type = "DateTime"
+    }
+    column "session_id_v7" {
+      type = "UInt128"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "start_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "min_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "max_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "channel_type" {
+      type = "String"
+    }
+    column "utm_source" {
+      type = "String"
+    }
+    column "utm_medium" {
+      type = "String"
+    }
+    column "utm_campaign" {
+      type = "String"
+    }
+    column "utm_term" {
+      type = "String"
+    }
+    column "utm_content" {
+      type = "String"
+    }
+    column "referring_domain" {
+      type = "String"
+    }
+    column "entry_pathname" {
+      type = "String"
+    }
+    column "pageview_count" {
+      type = "UInt64"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_web_sessions_dimensional_preaggregated"
+      sharding_key    = "cityHash64(person_id)"
+    }
+  }
+
   table "web_stats_dimensional_preaggregated" {
     column "team_id" {
       type = "Int64"
@@ -9107,7 +8966,16 @@ database "posthog" {
       type = "String"
     }
     column "properties" {
-      type = "JSON(max_dynamic_types=8, max_dynamic_paths=256, `$active_feature_flags` Array(String), `$ai_experiment_id` Nullable(String), `$ai_http_status` Nullable(String), `$ai_is_error` Nullable(String), `$ai_model` Nullable(String), `$ai_parent_id` Nullable(String), `$ai_prompt_name` Nullable(String), `$ai_provider` Nullable(String), `$ai_session_id` Nullable(String), `$ai_span_id` Nullable(String), `$ai_total_cost_usd` Nullable(String), `$ai_trace_id` Nullable(String), `$anon_distinct_id` Nullable(String), `$app_build` Nullable(String), `$app_namespace` Nullable(String), `$app_version` Nullable(String), `$browser` Nullable(String), `$browser_version` Nullable(String), `$current_url` Nullable(String), `$device` Nullable(String), `$device_id` Nullable(String), `$device_model` Nullable(String), `$device_type` Nullable(String), `$el_text` Nullable(String), `$event_type` Nullable(String), `$exception_fingerprint` Nullable(String), `$exception_functions` Array(String), `$exception_issue_id` Nullable(String), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flag` Nullable(String), `$feature_flag_payloads` Nullable(String), `$feature_flag_response` Nullable(String), `$geoip_city_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$geoip_subdivision_1_code` Nullable(String), `$group_0` Nullable(String), `$group_1` Nullable(String), `$group_2` Nullable(String), `$group_3` Nullable(String), `$group_4` Nullable(String), `$groups` Nullable(String), `$host` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referrer` Nullable(String), `$initial_referring_domain` Nullable(String), `$ip` Nullable(String), `$is_identified` Nullable(String), `$lib` Nullable(String), `$lib_custom_api_host` Nullable(String), `$lib_version` Nullable(String), `$lib_version__minor` Nullable(String), `$os` Nullable(String), `$os_name` Nullable(String), `$os_version` Nullable(String), `$pathname` Nullable(String), `$prev_pageview_max_content_percentage` Nullable(String), `$prev_pageview_max_scroll_percentage` Nullable(String), `$prev_pageview_pathname` Nullable(String), `$process_person_profile` Nullable(String), `$referrer` Nullable(String), `$referring_domain` Nullable(String), `$screen_height` Nullable(String), `$screen_name` Nullable(String), `$screen_width` Nullable(String), `$sent_at` Nullable(String), `$session_id` Nullable(String), `$survey_id` Nullable(String), `$survey_response` Nullable(String), `$survey_response_1` Nullable(String), `$time` Nullable(String), `$user_id` Nullable(String), `$viewport_height` Nullable(String), `$viewport_width` Nullable(String), `$web_vitals_CLS_value` Nullable(String), `$web_vitals_FCP_value` Nullable(String), `$web_vitals_INP_value` Nullable(String), `$web_vitals_LCP_value` Nullable(String), `$window_id` Nullable(String))"
+      type = "JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)"
+    }
+    column "temporary_properties" {
+      type = "JSON(max_dynamic_paths=32)"
+    }
+    column "properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "temporary_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
     }
     column "timestamp" {
       type = "DateTime64(6, 'UTC')"
@@ -9118,12 +8986,9 @@ database "posthog" {
     column "distinct_id" {
       type = "String"
     }
-    column "elements_hash" {
-      type    = "String"
-      default = "''"
-    }
     column "created_at" {
-      type = "DateTime64(6, 'UTC')"
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -9138,27 +9003,25 @@ database "posthog" {
       type = "UUID"
     }
     column "person_properties" {
-      type = "JSON(max_dynamic_types=6, max_dynamic_paths=32, `$app_version` Nullable(String), `$browser` Nullable(String), `$current_url` Nullable(String), `$geoip_continent_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$initial_current_url` Nullable(String), `$initial_fbclid` Nullable(String), `$initial_gad_source` Nullable(String), `$initial_gbraid` Nullable(String), `$initial_gclid` Nullable(String), `$initial_msclkid` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referring_domain` Nullable(String), `$initial_utm_campaign` Nullable(String), `$initial_utm_content` Nullable(String), `$initial_utm_medium` Nullable(String), `$initial_utm_source` Nullable(String), `$initial_utm_term` Nullable(String), `$initial_wbraid` Nullable(String), `$os_name` Nullable(String), `$referring_domain` Nullable(String))"
+      type = "JSON(max_dynamic_paths=256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String))"
+    }
+    column "person_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
     }
     column "group0_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group1_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group2_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group3_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group4_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "person_created_at" {
       type = "DateTime64(3)"
@@ -9179,22 +9042,27 @@ database "posthog" {
       type = "DateTime64(3)"
     }
     column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
+      type    = "DateTime64(6, 'UTC')"
       default = "now64()"
     }
     column "person_mode" {
       type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
-    column "is_deleted" {
-      type    = "Bool"
-      default = "false"
-    }
     column "consumer_breadcrumbs" {
       type = "Array(String)"
     }
     column "historical_migration" {
-      type    = "Bool"
-      default = "false"
+      type = "Bool"
+    }
+    column "total_event_size" {
+      type = "UInt32"
+    }
+    column "captured_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "_partition" {
+      type = "UInt64"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -9837,8 +9705,8 @@ database "posthog" {
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
     }
     column "flag_keys" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -9953,13 +9821,13 @@ database "posthog" {
       type = "SimpleAggregateFunction(sum, Int64)"
     }
     column "snapshot_source" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "snapshot_library" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
-    column "snapshot_mode" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime)"
@@ -11943,7 +11811,7 @@ SELECT
   uniqExactMerge(screen_uniq) AS screen_uniq,
   uniqUpToMerge(1)(page_screen_uniq_up_to) AS page_screen_uniq_up_to,
   max(has_autocapture) AS has_autocapture,
-  groupUniqArrayMapMerge(flag_values) AS flag_values,
+  groupUniqArrayArray(10000)(flag_key_values) AS flag_key_values,
   groupUniqArrayArray(flag_keys) AS flag_keys,
   groupUniqArrayArray(2000)(event_names) AS event_names,
   groupUniqArrayArray(100)(hosts) AS hosts,

@@ -135,8 +135,9 @@ impl HarnessClient {
     }
 }
 
-/// Client for the personhog-identity service — the get-or-create entry
-/// point. Called directly, not through the router, so no routing headers.
+/// Client for the personhog-identity service, the get-or-create entry
+/// point. No routing headers: identity pods are interchangeable, and the
+/// router forwards these paths verbatim when it fronts the service.
 #[derive(Clone)]
 pub struct IdentityClient {
     inner: PersonHogIdentityClient<Channel>,

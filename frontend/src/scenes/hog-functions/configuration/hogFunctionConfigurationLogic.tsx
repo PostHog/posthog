@@ -33,7 +33,6 @@ import { dayjs } from 'lib/dayjs'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { uuid } from 'lib/utils/dom'
 import { addProductIntent } from 'lib/utils/product-intents'
-import { asDisplay } from 'scenes/persons/person-utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { buildSurveyExampleInvocationGlobals } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -80,6 +79,8 @@ import {
     SurveyEventName,
     SurveyEventProperties,
 } from '~/types'
+
+import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import type { GroupType, GroupTypeIndex, HogFunctionMappingTemplateType, ProjectType } from '../../../types'
 import type { TeamPublicType, TeamType } from '../../../types'
@@ -1058,7 +1059,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         )
                     if (isNew && errorTrackingTriggerEvent) {
                         posthog.capture('error_tracking_alert_created', {
-                            source: 'traditional',
+                            ui_source: 'traditional',
                             trigger_event: errorTrackingTriggerEvent,
                             subtemplate_id: res.template?.id,
                             has_custom_filters: res.filters && Object.keys(res.filters).length > 1,
@@ -1143,7 +1144,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     const sampleGlobalsLoader = SAMPLE_GLOBALS_CONTEXTS[values.contextId]
                     if (sampleGlobalsLoader) {
                         try {
-                            const globals = await sampleGlobalsLoader(values.exampleInvocationGlobals)
+                            const globals = await sampleGlobalsLoader(
+                                values.exampleInvocationGlobals,
+                                values.configuration?.filters
+                            )
                             breakpoint()
                             return globals
                         } catch (e: any) {

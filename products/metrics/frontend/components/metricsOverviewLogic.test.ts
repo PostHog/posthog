@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
-import { metricsOverviewRetrieve, metricsValuesRetrieve } from '../generated/api'
+import { metricsNamesRetrieve, metricsOverviewRetrieve } from '../generated/api'
 import type { _MetricsOverviewResponseApi } from '../generated/api.schemas'
 import { metricsSceneLogic } from '../metricsSceneLogic'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
@@ -14,12 +14,11 @@ jest.mock('../generated/api', () => ({
     metricsAttributeValuesRetrieve: jest.fn(),
     metricsAttributesRetrieve: jest.fn(),
     metricsCharacterizeCreate: jest.fn(),
-    metricsExplainCreate: jest.fn(),
     metricsHasMetricsRetrieve: jest.fn(),
     metricsOverviewRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
     metricsSamplesCreate: jest.fn(),
-    metricsValuesRetrieve: jest.fn(),
+    metricsNamesRetrieve: jest.fn(),
 }))
 
 const OVERVIEW_FIXTURE: _MetricsOverviewResponseApi = {
@@ -48,7 +47,7 @@ describe('metricsOverviewLogic', () => {
         jest.mocked(metricsOverviewRetrieve).mockReset()
         jest.mocked(metricsOverviewRetrieve).mockResolvedValue(OVERVIEW_FIXTURE as any)
         // The name picker mounts alongside the viewer logic and loads on mount.
-        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: [] } as any)
+        jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: [] } as any)
     })
 
     afterEach(() => {

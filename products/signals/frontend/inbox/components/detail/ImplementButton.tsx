@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCopy, IconPullRequest } from '@posthog/icons'
-import { LemonButton, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenuOverlay, lemonToast } from '@posthog/lemon-ui'
 
+import type { AgentPromptDestination } from 'lib/components/AgentPromptButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
@@ -14,6 +15,7 @@ import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { ImplementationSlotClaim, inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { buildReportImplementationPrompt } from './buildReportImplementationPrompt'
+import { IMPLEMENTATION_AGENTS } from './implementationAgents'
 
 const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
     in_flight: 'A pull request run is already in progress for this report. Open it in the task log to follow it.',
@@ -21,18 +23,21 @@ const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
 }
 
 export function ImplementButton({ report }: { report: SignalReport }): JSX.Element {
-    const { isCreatingPr, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
-    const { implementationSlotClaim } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
-    const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
+    const { isCreatingPr, isDiscussing, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { implementationSlotClaim, reportTaskToOpen } = useValues(
+        inboxReportDetailLogic({ reportId: report.id, report })
+    )
+    const { createPrFromReport, openReportTask } = useActions(inboxTaskKickoffLogic)
     const [instructions, setInstructions] = useState('')
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
     const disabledReason =
         createPrDisabledReason ??
+        (isDiscussing ? 'Wait for the discussion task to start.' : undefined) ??
         (implementationSlotClaim ? SLOT_CLAIM_DISABLED_REASON[implementationSlotClaim] : undefined)
 
     const submit = (note: string): void => {
-        if (isCreatingPr || implementationSlotClaim) {
+        if (isCreatingPr || isDiscussing || implementationSlotClaim) {
             return
         }
         if (createPrDisabledReason) {
@@ -49,18 +54,36 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
         createPrFromReport(report, trimmed || undefined)
     }
 
-    const copyImplementationPrompt = async (): Promise<void> => {
-        const copied = await copyToClipboard(
-            buildReportImplementationPrompt(report, reportUrl),
-            'implementation prompt'
+    const runImplementationPrompt = (agentKey: AgentPromptDestination, run: (prompt: string) => void): void => {
+        const prompt = buildReportImplementationPrompt(report, reportUrl)
+        captureInboxReportAction({
+            report,
+            actionType: 'copy_implementation_prompt',
+            surface: 'detail_pane',
+            extra: { agent: agentKey },
+        })
+        run(prompt)
+    }
+
+    if (reportTaskToOpen?.task.latest_run) {
+        const task = reportTaskToOpen.task
+        const run = task.latest_run!
+        return (
+            <LemonButton
+                type="primary"
+                size="small"
+                className="w-fit"
+                to={urls.taskDetail(task.id)}
+                onClick={(event) => {
+                    event.preventDefault()
+                    openReportTask(report, task.id, run.id)
+                }}
+                tooltip="Open this task in the PostHog AI sidebar"
+                data-attr="inbox-report-open-task"
+            >
+                View task
+            </LemonButton>
         )
-        if (copied) {
-            captureInboxReportAction({
-                report,
-                actionType: 'copy_implementation_prompt',
-                surface: 'detail_pane',
-            })
-        }
     }
 
     return (
@@ -82,7 +105,7 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                     placement: 'bottom-end',
                     closeOnClickInside: false,
                     overlay: (
-                        <div className="flex w-120 flex-col gap-2 p-2">
+                        <div className="flex w-128 flex-col gap-2 p-2">
                             <span className="text-xs font-semibold text-tertiary">
                                 Add instructions for the PostHog agent
                             </span>
@@ -104,8 +127,29 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                                 <LemonButton
                                     type="secondary"
                                     icon={<IconCopy />}
-                                    onClick={() => void copyImplementationPrompt()}
+                                    onClick={() =>
+                                        runImplementationPrompt('clipboard', (prompt) => {
+                                            void copyToClipboard(prompt, 'prompt for your agent')
+                                        })
+                                    }
                                     data-attr="inbox-report-copy-implementation-prompt"
+                                    sideAction={{
+                                        tooltip: 'Open prompt in an agent',
+                                        'aria-label': 'Open prompt in an agent',
+                                        dropdown: {
+                                            placement: 'bottom-start',
+                                            overlay: (
+                                                <LemonMenuOverlay
+                                                    items={IMPLEMENTATION_AGENTS.map((agent) => ({
+                                                        key: agent.key,
+                                                        label: agent.name,
+                                                        icon: agent.icon,
+                                                        onClick: () => runImplementationPrompt(agent.key, agent.open),
+                                                    }))}
+                                                />
+                                            ),
+                                        },
+                                    }}
                                 >
                                     Copy prompt for your agent
                                 </LemonButton>

@@ -1,17 +1,24 @@
+import json
+import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
+
+from django.utils import timezone
 
 from posthog.hogql import ast
+from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.achievements.definitions import STREAK_ARM_WEEKLY
+from products.web_analytics.backend.achievements.query_concurrency import achievement_query_scope
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import test_account_filter_expr
 from products.web_analytics.backend.models import WebAnalyticsInteraction, WebAnalyticsVisit
 
@@ -22,6 +29,19 @@ class EvalContext:
     user: User | None
     today: date
     arm: str | None
+
+
+@frozen
+class PriorProgress:
+    value: int
+    last_computed_at: datetime | None
+    checkpoint: dict[str, object]
+
+
+@frozen
+class TrackEvaluation:
+    value: int
+    checkpoint: dict[str, object] | None = None
 
 
 def _week_monday(day: date) -> date:
@@ -99,49 +119,141 @@ def _test_account_filter_expr(team: Team) -> ast.Expr:
     return test_account_filter_expr(test_account_filters=filters, team=team)
 
 
-def evaluate_cumulative_pageviews(ctx: EvalContext) -> int:
-    total = 0
-    for team in _project_environment_teams(ctx.team):
-        query = parse_select(
-            "SELECT count() FROM events WHERE and(event IN ('$pageview', '$screen'), {test})",
-            placeholders={"test": _test_account_filter_expr(team)},
+INGESTION_LAG = timedelta(hours=1)
+LATE_ARRIVAL_LOOKBACK = timedelta(days=3)
+
+
+def _ingestion_window_expr(since: datetime | None, until: datetime, earliest_timestamp: datetime | None) -> ast.Expr:
+    exprs: list[ast.Expr] = [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["created_at"]), right=ast.Constant(value=until)
         )
-        response = execute_hogql_query(query=query, team=team, query_type="web_achievements_pageviews")
-        if response.results:
-            total += int(response.results[0][0] or 0)
-    return total
+    ]
+    if since is not None:
+        exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq, left=ast.Field(chain=["created_at"]), right=ast.Constant(value=since)
+            )
+        )
+    if earliest_timestamp is not None:
+        exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=earliest_timestamp),
+            )
+        )
+    return ast.And(exprs=exprs)
+
+
+def evaluate_cumulative_pageviews(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluation:
+    until = timezone.now() - INGESTION_LAG
+    since = parse_zoned_datetime_string(prior.checkpoint.get("counted_through")) or prior.last_computed_at
+    earliest_timestamp = since - LATE_ARRIVAL_LOOKBACK if since is not None else None
+    total = prior.value if since is not None else 0
+    with achievement_query_scope(ctx.team.id):
+        for team in _project_environment_teams(ctx.team):
+            query = parse_select(
+                "SELECT count() FROM events WHERE and(event IN ('$pageview', '$screen'), {window}, {test})",
+                placeholders={
+                    "window": _ingestion_window_expr(since, until, earliest_timestamp),
+                    "test": _test_account_filter_expr(team),
+                },
+            )
+            response = execute_hogql_query(query=query, team=team, query_type="web_achievements_pageviews")
+            if response.results:
+                total += int(response.results[0][0] or 0)
+    return TrackEvaluation(value=total, checkpoint={"counted_through": until.isoformat()})
 
 
 CONVERSIONS_LOOKBACK_DAYS = 90
 
 
-def evaluate_conversions(ctx: EvalContext) -> int:
+def _action_event_filter_expr(actions: list[Action]) -> ast.Expr:
+    event_names: set[str] = set()
+    for action in actions:
+        step_events = action.get_step_events()
+        if not step_events or any(event is None for event in step_events):
+            return ast.Constant(value=True)
+        event_names.update(event for event in step_events if event is not None)
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.In,
+        left=ast.Field(chain=["event"]),
+        right=ast.Tuple(exprs=[ast.Constant(value=name) for name in sorted(event_names)]),
+    )
+
+
+def _action_fingerprints(actions: list[Action]) -> list[list[object]]:
+    return [
+        [action.id, hashlib.sha256(json.dumps(action.steps_json or [], sort_keys=True).encode()).hexdigest()[:16]]
+        for action in actions
+    ]
+
+
+def _daily_buckets(checkpoint: dict[str, object], fingerprints: list[list[object]]) -> dict[str, list[int]] | None:
+    daily = checkpoint.get("daily")
+    if checkpoint.get("actions") != fingerprints or not isinstance(daily, dict):
+        return None
+    try:
+        return {
+            str(day): [int(count) for count in counts]
+            for day, counts in daily.items()
+            if isinstance(counts, list) and len(counts) == len(fingerprints)
+        }
+    except (TypeError, ValueError):
+        return None
+
+
+def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluation:
     actions = list(
-        Action.objects.filter(team__project_id=ctx.team.project_id, deleted=False).order_by(
-            "pinned_at", "-last_calculated_at"
-        )[:5]
+        Action.objects.filter(team__project_id=ctx.team.project_id, deleted=False)
+        .select_related("team")
+        .order_by("pinned_at", "-last_calculated_at")[:5]
     )
     if not actions:
-        return 0
+        return TrackEvaluation(value=0, checkpoint={})
 
-    per_action_totals = [0] * len(actions)
-    for team in _project_environment_teams(ctx.team):
-        query = parse_select(
-            "SELECT 1 FROM events WHERE and(timestamp >= now() - toIntervalDay({days}), {test})",
-            placeholders={
-                "days": ast.Constant(value=CONVERSIONS_LOOKBACK_DAYS),
-                "test": _test_account_filter_expr(team),
-            },
-        )
-        if not isinstance(query, ast.SelectQuery):
-            raise TypeError(f"evaluate_conversions: expected SelectQuery, got {type(query)}")
-        query.select = [ast.Call(name="countIf", args=[action_to_expr(action)]) for action in actions]
-        response = execute_hogql_query(query=query, team=team, query_type="web_achievements_conversions")
-        if response.results:
-            for index, value in enumerate(response.results[0]):
-                per_action_totals[index] += int(value or 0)
+    until = timezone.now() - INGESTION_LAG
+    window_start = datetime.combine(
+        (until - timedelta(days=CONVERSIONS_LOOKBACK_DAYS - 1)).astimezone(UTC).date(), time.min, tzinfo=UTC
+    )
+    fingerprints = _action_fingerprints(actions)
+    daily = _daily_buckets(prior.checkpoint, fingerprints)
+    since = parse_zoned_datetime_string(prior.checkpoint.get("counted_through"))
+    if daily is None or since is None:
+        daily, since, earliest_timestamp = {}, None, window_start
+    else:
+        earliest_timestamp = max(window_start, since - LATE_ARRIVAL_LOOKBACK)
 
-    return max(len(actions), max(per_action_totals, default=0))
+    with achievement_query_scope(ctx.team.id):
+        for team in _project_environment_teams(ctx.team):
+            query = parse_select(
+                "SELECT toDate(toTimeZone(timestamp, 'UTC')) AS day FROM events WHERE and({window}, {events}, {test}) GROUP BY day",
+                placeholders={
+                    "window": _ingestion_window_expr(since, until, earliest_timestamp),
+                    "events": _action_event_filter_expr(actions),
+                    "test": _test_account_filter_expr(team),
+                },
+            )
+            if not isinstance(query, ast.SelectQuery):
+                raise TypeError(f"evaluate_conversions: expected SelectQuery, got {type(query)}")
+            query.select = [
+                query.select[0],
+                *(ast.Call(name="countIf", args=[action_to_expr(action)]) for action in actions),
+            ]
+            response = execute_hogql_query(query=query, team=team, query_type="web_achievements_conversions")
+            for row in response.results or []:
+                day_counts = daily.setdefault(row[0].isoformat(), [0] * len(actions))
+                for index, value in enumerate(row[1:]):
+                    day_counts[index] += int(value or 0)
+
+    oldest_kept_day = window_start.date().isoformat()
+    daily = {day: counts for day, counts in daily.items() if day >= oldest_kept_day and any(counts)}
+    per_action_totals = [sum(counts[index] for counts in daily.values()) for index in range(len(actions))]
+    return TrackEvaluation(
+        value=max(len(actions), max(per_action_totals, default=0)),
+        checkpoint={"actions": fingerprints, "daily": daily, "counted_through": until.isoformat()},
+    )
 
 
 def _interaction_count(ctx: EvalContext, kind: str) -> int:
@@ -162,8 +274,11 @@ def evaluate_recordings_opened(ctx: EvalContext) -> int:
 EVALUATORS: dict[str, Callable[[EvalContext], int]] = {
     "streak": evaluate_streak,
     "loyal_days": evaluate_loyal_days,
-    "cumulative_pageviews": evaluate_cumulative_pageviews,
-    "conversions": evaluate_conversions,
     "data_events": evaluate_data_events,
     "recordings_opened": evaluate_recordings_opened,
+}
+
+INCREMENTAL_EVALUATORS: dict[str, Callable[[EvalContext, PriorProgress], TrackEvaluation]] = {
+    "cumulative_pageviews": evaluate_cumulative_pageviews,
+    "conversions": evaluate_conversions,
 }

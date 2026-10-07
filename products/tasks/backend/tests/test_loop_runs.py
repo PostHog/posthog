@@ -1,8 +1,8 @@
 from datetime import timedelta
+from uuid import UUID
 
 from unittest.mock import patch
 
-from django.apps import apps
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone as django_timezone
 
@@ -13,6 +13,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.canvas.backend.facade import testing as canvas_testing
 from products.tasks.backend.logic.services.loop_runs import (
     DISABLED_REASON_REPEATED_FAILURES,
     DISABLED_REASON_USAGE_LIMITED,
@@ -20,8 +21,10 @@ from products.tasks.backend.logic.services.loop_runs import (
     LOOP_RATE_CAP_PER_DAY,
     LOOP_TEAM_RATE_CAP_PER_DAY,
     TRIGGER_CONTEXT_MAX_BYTES,
+    dispatch_loop_pr_notification,
     fire_loop,
     handle_loop_run_terminal,
+    render_context_target_block,
     render_trigger_context,
 )
 from products.tasks.backend.models import (
@@ -82,6 +85,33 @@ class TestRenderTriggerContext(SimpleTestCase):
         fenced_body = context.split("```")[1].strip("\n")
         self.assertLessEqual(len(fenced_body.encode("utf-8")), TRIGGER_CONTEXT_MAX_BYTES)
         self.assertIn(f"[truncated: payload exceeded {TRIGGER_CONTEXT_MAX_BYTES} bytes]", context)
+
+
+class TestRenderContextTargetBlock(SimpleTestCase):
+    CHANNEL_ID = "0199c0de-0000-4000-8000-000000000001"
+    CANVAS_ID = "0199c0de-0000-4000-8000-000000000002"
+    LOOP_ID = "0199c0de-0000-4000-8000-000000000003"
+
+    @parameterized.expand(
+        [
+            ("context only", {"update_context": True}, "context page"),
+            ("canvas only", {"canvas_id": CANVAS_ID}, "canvas"),
+            ("both", {"update_context": True, "canvas_id": CANVAS_ID}, "canvas"),
+        ]
+    )
+    def test_failures_are_published_to_a_deliverable_the_target_has(self, _name, outputs, destination):
+        block = render_context_target_block(
+            {"channel_id": self.CHANNEL_ID, "name": "Growth", "outputs": outputs}, loop_id=self.LOOP_ID
+        )
+
+        self.assertIn(f"stored errors in the {destination}", block)
+
+    def test_failure_history_names_the_firing_loop(self):
+        block = render_context_target_block(
+            {"channel_id": self.CHANNEL_ID, "outputs": {"update_context": True}}, loop_id=self.LOOP_ID
+        )
+
+        self.assertIn(f"`loops-runs-retrieve` with id={self.LOOP_ID}", block)
 
 
 class LoopRunsTestCase(TestCase):
@@ -506,10 +536,11 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
 
     @parameterized.expand(
         [
-            ("claude_default_resolves_to_sonnet_5", "claude", "", None, "claude-sonnet-5", None),
-            ("codex_default_resolves_to_gpt5", "codex", "", None, "gpt-5", None),
-            ("supported_effort_on_default_model_is_kept", "claude", "", "high", "claude-sonnet-5", "high"),
-            ("unsupported_effort_on_default_model_falls_back_to_auto", "codex", "", "xhigh", "gpt-5", None),
+            ("claude_default_resolves_to_sonnet_5_5", "claude", "", None, "claude-sonnet-5-5", None),
+            ("codex_default_resolves_to_gpt_6_1_sol", "codex", "", None, "gpt-6.1-sol", None),
+            ("supported_effort_on_default_model_is_kept", "claude", "", "high", "claude-sonnet-5-5", "high"),
+            ("supported_effort_on_codex_default_model_is_kept", "codex", "", "xhigh", "gpt-6.1-sol", "xhigh"),
+            ("unsupported_effort_on_default_model_falls_back_to_auto", "codex", "", "ultracode", "gpt-6.1-sol", None),
             ("pinned_model_keeps_its_supported_effort", "claude", "claude-sonnet-5", "low", "claude-sonnet-5", "low"),
             (
                 "pinned_model_clamps_unsupported_stored_effort",
@@ -765,13 +796,12 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
             team=self.team, name="growth-team", channel_type=Channel.ChannelType.PUBLIC, created_by=self.user
         )
         self.channel.save()
-        canvas_model = apps.get_model("canvas", "Canvas")
-        canvas_model.objects.unscoped().create(
-            id=self.CANVAS_ID,
-            team=self.team,
-            channel=self.channel,
+        canvas_testing.create_canvas(
+            canvas_id=UUID(self.CANVAS_ID),
+            team_id=self.team.id,
+            channel_id=self.channel.id,
             name="Growth Team",
-            created_by=self.user,
+            created_by_id=self.user.id,
         )
 
     def context_target(self, **outputs) -> dict:
@@ -1141,3 +1171,46 @@ class TestTerminalizeUnstartedTaskRun(LoopRunsTestCase):
             "run_failed",
             {"task_id": str(task_run.task_id), "task_run_id": str(task_run.id), "status": TaskRun.Status.FAILED},
         )
+
+
+class TestDispatchLoopPrNotification(LoopRunsTestCase):
+    PR_URL = "https://github.com/posthog/posthog/pull/42"
+
+    def make_run(self, team: Team, *, loop: Loop | None = None, state_loop_id: str | None = None) -> TaskRun:
+        task = Task.objects.create(
+            team=team,
+            created_by=self.user,
+            title="Loop run",
+            description="d",
+            origin_product=Task.OriginProduct.LOOP,
+            loop=loop,
+        )
+        return task.create_run(mode="background", extra_state={"loop_id": state_loop_id} if state_loop_id else None)
+
+    @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
+    def test_sends_each_pr_event_once_per_run(self, mock_dispatch):
+        loop = self.create_loop()
+        run = self.make_run(self.team, loop=loop)
+
+        sent = [
+            dispatch_loop_pr_notification(str(run.id), "pr_merged", self.PR_URL),
+            dispatch_loop_pr_notification(str(run.id), "pr_merged", self.PR_URL),
+            dispatch_loop_pr_notification(str(run.id), "pr_created", self.PR_URL),
+        ]
+
+        self.assertEqual(sent, [True, False, True])
+        first_loop, first_event, first_payload = mock_dispatch.call_args_list[0].args
+        self.assertEqual((first_loop.id, first_event), (loop.id, "pr_merged"))
+        self.assertEqual(first_payload["url"], self.PR_URL)
+        self.assertEqual(first_payload["body"], f"Merged {self.PR_URL}")
+        self.assertEqual(first_payload["dedupe_key"], f"pr_merged:{self.PR_URL}")
+
+    @parameterized.expand([("run_outside_a_loop", False), ("forged_loop_id_from_another_team", True)])
+    @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
+    def test_sends_nothing_without_a_loop_in_the_runs_team(self, _name, forge_loop_id, mock_dispatch):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        victim_loop = self.create_loop()
+        run = self.make_run(other_team, state_loop_id=str(victim_loop.id) if forge_loop_id else None)
+
+        self.assertFalse(dispatch_loop_pr_notification(str(run.id), "pr_closed", self.PR_URL))
+        mock_dispatch.assert_not_called()

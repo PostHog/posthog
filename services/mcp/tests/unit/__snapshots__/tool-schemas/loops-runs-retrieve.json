@@ -15,6 +15,11 @@
             "maximum": 100,
             "minimum": 1,
             "type": "number"
+        },
+        "status": {
+            "description": "Only return runs with this status. Use failed to read errors even when canvas state is unavailable.\n\n* `not_started` - Not Started\n* `queued` - Queued\n* `in_progress` - In Progress\n* `completed` - Completed\n* `failed` - Failed\n* `cancelled` - Cancelled",
+            "enum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
+            "type": "string"
         }
     },
     "required": ["id"],

@@ -105,6 +105,10 @@ export function ActivityView() {
     [markTasksRead],
   );
   const markAllRead = useCallback(() => {
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "activity_mark_all_read",
+      surface: "activity",
+    });
     markTasksRead(activityReadPayload(unreadItems));
   }, [markTasksRead, unreadItems]);
   useEffect(() => {
@@ -122,7 +126,13 @@ export function ActivityView() {
         variant="outline"
         loading={taskActivity.isFetchingNextPage}
         disabled={taskActivity.isFetchingNextPage}
-        onClick={() => void taskActivity.fetchNextPage()}
+        onClick={() => {
+          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+            action_type: "activity_load_more",
+            surface: "activity",
+          });
+          void taskActivity.fetchNextPage();
+        }}
       >
         Load more
       </Button>
@@ -206,7 +216,7 @@ export function ActivityView() {
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <ActivityUnreadsToggle />
+            <ActivityUnreadsToggle surface="activity" />
             <ActivityActionsMenu
               loadedUnreadCount={unreadItems.length}
               totalUnreadCount={unreadCount}

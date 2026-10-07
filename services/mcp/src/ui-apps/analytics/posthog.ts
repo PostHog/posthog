@@ -12,9 +12,8 @@ declare const __POSTHOG_MCP_APPS_ANALYTICS_BASE_URL__: string | undefined
 
 const POSTHOG_TOKEN = typeof __POSTHOG_UI_APPS_TOKEN__ !== 'undefined' ? __POSTHOG_UI_APPS_TOKEN__ : undefined
 const POSTHOG_HOST =
-    typeof __POSTHOG_MCP_APPS_ANALYTICS_BASE_URL__ !== 'undefined'
-        ? __POSTHOG_MCP_APPS_ANALYTICS_BASE_URL__
-        : 'https://us.posthog.com'
+    (typeof __POSTHOG_MCP_APPS_ANALYTICS_BASE_URL__ !== 'undefined' && __POSTHOG_MCP_APPS_ANALYTICS_BASE_URL__) ||
+    undefined
 
 let client: PostHog | null = null
 let currentDistinctId: string | null = null
@@ -37,15 +36,24 @@ export function initPostHog(appName: string, appVersion: string): void {
     }
 
     log('Initializing PostHog client', { token: POSTHOG_TOKEN, host: POSTHOG_HOST, appName, appVersion })
-    client = new PostHog(POSTHOG_TOKEN, { host: POSTHOG_HOST })
-    client.register({
-        $mcp_app_name: appName,
-        $mcp_app_version: appVersion,
-        // Stamped once per loaded app document. Host notifications currently arrive at
-        // twice the connection count, and this separates a host that delivers each
-        // notification twice from a host that mounts the app twice.
-        $mcp_app_instance_id: newInstanceId(),
-    })
+    try {
+        // posthog-js-lite reads localStorage during construction, which can fail in a sandboxed iframe.
+        client = new PostHog(POSTHOG_TOKEN, { host: POSTHOG_HOST })
+    } catch (error) {
+        log('PostHog client initialization failed', error)
+        client = null
+        return
+    }
+
+    try {
+        client.register({
+            $mcp_app_name: appName,
+            $mcp_app_version: appVersion,
+            $mcp_app_instance_id: newInstanceId(),
+        })
+    } catch (error) {
+        log('PostHog register failed', error)
+    }
 }
 
 function newInstanceId(): string {
@@ -58,10 +66,14 @@ function newInstanceId(): string {
 /**
  * Identify the user with their PostHog distinct ID from the MCP server.
  */
-export function identifyUser(distinctId: string, toolName?: string): void {
+export function identifyUser(distinctId: string, toolName?: string, mcpClientName?: string): void {
     if (!client) {
         log('PostHog client not initialized while attempting to identify user', { distinctId, toolName })
         return
+    }
+
+    if (mcpClientName) {
+        client.register({ $mcp_client_name: mcpClientName })
     }
 
     if (currentDistinctId === distinctId) {
@@ -174,6 +186,29 @@ export function captureHostContextChanged(params: {
         has_styles: params.hasStyles,
         has_fonts: params.hasFonts,
         theme: params.theme,
+    })
+}
+
+export function captureInsightViewed(params: {
+    queryKind?: string | undefined
+    querySourceKind?: string | undefined
+    display?: string | undefined
+    funnelVizType?: string | undefined
+    isSupported: boolean
+}): void {
+    capture('mcp_ui_app_insight_viewed', {
+        query_kind: params.queryKind,
+        query_source_kind: params.querySourceKind,
+        display: params.display,
+        funnel_viz_type: params.funnelVizType,
+        is_supported: params.isSupported,
+    })
+}
+
+export function captureInsightDisplayChanged(params: { from: string; to: string }): void {
+    capture('mcp_ui_app_insight_display_changed', {
+        from_display: params.from,
+        to_display: params.to,
     })
 }
 

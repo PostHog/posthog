@@ -1,9 +1,40 @@
 import posthog from 'posthog-js'
 
 import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { dayjs, Dayjs } from 'lib/dayjs'
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 import { AvailableFeature, IntervalType } from '~/types'
+
+export function evaluationDelayPreview(
+    interval: IntervalType,
+    delay: number,
+    timezone: string,
+    weekStartDay: number = 0,
+    now: Dayjs = dayjs()
+): string {
+    const local = now.tz(timezone)
+    let start: Dayjs
+    let end: Dayjs
+    if (interval === 'hour' || interval === 'minute' || interval === 'second') {
+        const boundary = local
+            .utc()
+            .subtract(interval === 'hour' ? local.minute() : 0, 'minute')
+            .subtract(interval !== 'second' ? local.second() : 0, 'second')
+            .millisecond(0)
+        end = boundary.subtract(delay, interval).tz(timezone)
+        start = boundary.subtract(delay + 1, interval).tz(timezone)
+    } else {
+        const wallClock = dayjs.utc(local.format('YYYY-MM-DDTHH:mm:ss'))
+        const boundary =
+            interval === 'week'
+                ? wallClock.startOf('day').subtract((wallClock.day() - weekStartDay + 7) % 7, 'day')
+                : wallClock.startOf(interval)
+        start = dayjs.tz(boundary.subtract(delay + 1, interval).format('YYYY-MM-DDTHH:mm:ss'), timezone)
+        end = dayjs.tz(boundary.subtract(delay, interval).format('YYYY-MM-DDTHH:mm:ss'), timezone)
+    }
+    return `${start.format('MMM D, YYYY HH:mm Z')} to ${end.format('MMM D, YYYY HH:mm Z')}`
+}
 
 export function getDefaultSimulationRange(interval: AlertCalculationInterval): string {
     switch (interval) {
@@ -33,6 +64,31 @@ const SUB_DAILY_INTERVALS = [
 
 export function isSubDailyAlertInterval(interval: AlertCalculationInterval): boolean {
     return SUB_DAILY_INTERVALS.includes(interval)
+}
+
+export function canSetAlertScheduleStartTime(interval: AlertCalculationInterval): boolean {
+    return interval === AlertCalculationInterval.HOURLY
+}
+
+export function scheduleStartTimeForInterval(
+    interval: AlertCalculationInterval,
+    scheduleStartTime: string | null | undefined
+): string | null {
+    return canSetAlertScheduleStartTime(interval) ? (scheduleStartTime ?? null) : null
+}
+
+export function getAlertScheduleStartMinute(scheduleStartTime: string | null | undefined): number | undefined {
+    if (!scheduleStartTime) {
+        return undefined
+    }
+    return Number(scheduleStartTime.split(':')[1])
+}
+
+export function scheduleStartTimeForMinute(minute: number | null | undefined): string | null {
+    if (minute === null || minute === undefined || !Number.isInteger(minute) || minute < 0 || minute > 59) {
+        return null
+    }
+    return `00:${String(minute).padStart(2, '0')}`
 }
 
 const INTERVAL_DISPLAY_LABELS: Record<AlertCalculationInterval, string> = {

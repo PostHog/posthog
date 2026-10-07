@@ -130,6 +130,21 @@ impl PersonHogService for MockPersonHogService {
         Err(Status::unimplemented("not exercised by this mock"))
     }
 
+    async fn fence_persons(
+        &self,
+        _req: Request<personhog_proto::personhog::types::v1::FencePersonsRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::FencePersonsResponse>, Status> {
+        Err(Status::unimplemented("not exercised by this mock"))
+    }
+
+    async fn release_fences(
+        &self,
+        _req: Request<personhog_proto::personhog::types::v1::ReleaseFencesRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::ReleaseFencesResponse>, Status>
+    {
+        Err(Status::unimplemented("not exercised by this mock"))
+    }
+
     async fn fold_person_document(
         &self,
         _req: Request<personhog_proto::personhog::types::v1::FoldPersonDocumentRequest>,
@@ -337,6 +352,31 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+
+    async fn delete_tombstoned_persons(
+        &self,
+        _: Request<DeleteTombstonedPersonsRequest>,
+    ) -> Result<Response<DeleteTombstonedPersonsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn get_person_tombstones(
+        &self,
+        _: Request<GetPersonTombstonesRequest>,
+    ) -> Result<Response<GetPersonTombstonesResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn ack_person_tombstones(
+        &self,
+        _: Request<AckPersonTombstonesRequest>,
+    ) -> Result<Response<AckPersonTombstonesResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn list_person_tombstone_queue(
+        &self,
+        _: Request<ListPersonTombstoneQueueRequest>,
+    ) -> Result<Response<ListPersonTombstoneQueueResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
     async fn get_group_type_mapping_by_dashboard_id(
         &self,
         _: Request<GetGroupTypeMappingByDashboardIdRequest>,
@@ -401,6 +441,13 @@ impl PersonHogService for MockPersonHogService {
         &self,
         _: Request<SetPersonVersionFloorRequest>,
     ) -> Result<Response<SetPersonVersionFloorResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _: Request<EnsurePersonVersionFloorsRequest>,
+    ) -> Result<Response<EnsurePersonVersionFloorsResponse>, Status> {
         Err(Status::unimplemented(""))
     }
 }

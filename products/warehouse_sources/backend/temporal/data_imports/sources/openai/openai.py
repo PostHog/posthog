@@ -1,11 +1,11 @@
 import hashlib
 import dataclasses
-from collections.abc import Callable
-from datetime import UTC, date, datetime
+from collections.abc import Callable, Iterable, Iterator
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 import structlog
-from requests import Request, Response
+from requests import HTTPError, Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     EndpointResource,
@@ -36,6 +37,11 @@ ENTITY_PAGE_SIZE = 100
 # usage or cost data can predate this — starting here rather than the epoch avoids requesting
 # decades of empty buckets while still pulling all available history.
 DEFAULT_START_TIME = datetime(2020, 1, 1, tzinfo=UTC)
+# Some usage endpoints only report a limited window of history and reject an older `start_time` with
+# this error code. OpenAI does not document the window per endpoint, so a rejected start moves
+# forward through these steps (days before now) until the API accepts one.
+LOOKBACK_EXCEEDED_CODE = "reporting_lookback_exceeded"
+LOOKBACK_FALLBACK_DAYS = (730, 365, 180, 90, 30, 7)
 
 
 @dataclasses.dataclass
@@ -319,6 +325,50 @@ def _make_fanout_data_map(endpoint: str) -> Callable[[dict[str, Any]], dict[str,
     return _stamp
 
 
+def _is_lookback_exceeded(error: HTTPError) -> bool:
+    response = error.response
+    if response is None or response.status_code != 400:
+        return False
+    try:
+        body = response.json()
+    except Exception:
+        return False
+    detail = body.get("error") if isinstance(body, dict) else None
+    return isinstance(detail, dict) and detail.get("code") == LOOKBACK_EXCEEDED_CODE
+
+
+def _lookback_fallback_starts(requested_start: Any, now: datetime) -> list[datetime]:
+    """Later start times to try if OpenAI rejects `requested_start` as too far back, oldest first."""
+    requested = _to_unix_seconds(requested_start)
+    starts = [now - timedelta(days=days) for days in LOOKBACK_FALLBACK_DAYS]
+    return [start for start in starts if int(start.timestamp()) > requested]
+
+
+def _iterate_with_lookback_fallback(
+    endpoint: str,
+    build_resource: Callable[[Optional[datetime]], Iterable[Any]],
+    fallback_starts: list[datetime],
+) -> Iterator[Any]:
+    # Only the first request can fail this way: later pages reuse the same `start_time`. So a page
+    # already yielded means the error has another cause, and it must propagate.
+    attempts: list[Optional[datetime]] = [None, *fallback_starts]
+    for index, start in enumerate(attempts):
+        yielded = False
+        try:
+            for page in build_resource(start):
+                yielded = True
+                yield page
+            return
+        except HTTPError as e:
+            if yielded or index == len(attempts) - 1 or not _is_lookback_exceeded(e):
+                raise
+            logger.warning(
+                "openai_source.reporting_lookback_exceeded",
+                endpoint=endpoint,
+                next_start_time=attempts[index + 1],
+            )
+
+
 def _incremental_param(config: OpenAIEndpointConfig) -> Optional[tuple[str, dict[str, Any]]]:
     """Server-side time-filter param for an incremental endpoint, or None for full-refresh lists."""
     if not config.supports_incremental:
@@ -359,11 +409,14 @@ def openai_source(
     }
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    items: Optional[Callable[[], Iterable[Any]]] = None
 
     if config.fan_out_over_projects:
-        # Project-scoped resources have no org-wide list endpoint; enumerate every project (archived
-        # included, since they are still referenced by historical usage/cost rows) and fetch the
-        # resource per project.
+        # Project-scoped resources have no org-wide list endpoint; enumerate the projects and fetch
+        # the resource per project. Archived ones are left out: OpenAI rejects every project-scoped
+        # read under an archived project, which would fail the whole schema on the first one. The
+        # `projects` table keeps them (see its `extra_params`) so historical usage/cost rows still
+        # resolve their project.
         projects_config = OPENAI_ENDPOINTS["projects"]
         rest_config: RESTAPIConfig = {
             "client": client_config,
@@ -373,7 +426,7 @@ def openai_source(
                     "name": "projects",
                     "endpoint": {
                         "path": projects_config.path,
-                        "params": {"limit": ENTITY_PAGE_SIZE, **projects_config.extra_params},
+                        "params": {"limit": ENTITY_PAGE_SIZE},
                         "data_selector": "data",
                         "paginator": _EntityPaginator(),
                     },
@@ -478,18 +531,36 @@ def openai_source(
             if state and state.get("cursor"):
                 resumable_source_manager.save_state(OpenAIResumeConfig(cursor=state["cursor"]))
 
-        resource = rest_api_resource(
-            rest_config,
-            team_id,
-            job_id,
-            db_incremental_field_last_value,
-            resume_hook=save_checkpoint,
-            initial_paginator_state=initial_paginator_state,
-        )
+        def build_resource(start_override: Optional[datetime] = None) -> Resource:
+            # A start override replaces the rejected start, so a page cursor saved for it is stale.
+            return rest_api_resource(
+                rest_config,
+                team_id,
+                job_id,
+                db_incremental_field_last_value if start_override is None else start_override,
+                resume_hook=save_checkpoint,
+                initial_paginator_state=initial_paginator_state if start_override is None else None,
+            )
+
+        resource = build_resource()
+
+        if config.pagination == PaginationType.PAGE:
+            requested_start = (
+                db_incremental_field_last_value if db_incremental_field_last_value is not None else DEFAULT_START_TIME
+            )
+            fallback_starts = _lookback_fallback_starts(requested_start, datetime.now(UTC))
+            # A recent watermark has no later start to fall back to. Keep the framework resource
+            # unwrapped in that case, so the pipeline still reaches its safe points.
+            if fallback_starts:
+                items = lambda: _iterate_with_lookback_fallback(
+                    endpoint,
+                    lambda start: resource if start is None else build_resource(start),
+                    fallback_starts,
+                )
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=items if items is not None else lambda: resource,
         primary_keys=config.primary_keys,
         sort_mode=config.sort_mode,
         partition_count=1,

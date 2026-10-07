@@ -24,24 +24,22 @@ export const LOOPS_FLAG = featureFlagKeys.LOOPS_FLAG;
 /** Desktop Loops read and write workflows (`hog_flows`) instead of the loops API. */
 export const LOOPS_HOG_FLOWS_FLAG = featureFlagKeys.LOOPS_HOG_FLOWS_FLAG;
 export const DESKTOP_HOME_FLAG = featureFlagKeys.DESKTOP_HOME_FLAG;
+export const DESKTOP_WORK_LAYOUT_FLAG =
+  featureFlagKeys.DESKTOP_WORK_LAYOUT_FLAG;
 export const SAVED_SEARCHES_RAIL_FLAG =
   featureFlagKeys.SAVED_SEARCHES_RAIL_FLAG;
 export const TASKS_PREWARM_SANDBOX_FLAG =
   featureFlagKeys.TASKS_PREWARM_SANDBOX_FLAG;
-export const GLM_MODEL_FLAG = featureFlagKeys.GLM_MODEL_FLAG;
-export const GLM53_MODEL_FLAG = featureFlagKeys.GLM53_MODEL_FLAG;
-export const GLM53_FLASH_MODEL_FLAG = featureFlagKeys.GLM53_FLASH_MODEL_FLAG;
-/** PostHog Desktop: show DeepSeek V4 Flash in the model picker. Off = hidden. */
-export const DEEPSEEK_MODEL_FLAG = featureFlagKeys.DEEPSEEK_MODEL_FLAG;
 
 export const TASK_ANALYSIS_FLAG = featureFlagKeys.TASK_ANALYSIS_FLAG;
-export const KIMI_MODEL_FLAG = featureFlagKeys.KIMI_MODEL_FLAG;
 /** Gates the Fast Mode section of the reasoning dropdown. */
 export const FAST_MODE_FLAG = featureFlagKeys.FAST_MODE_FLAG;
 /** Spoken narration (agent speaks via the `speak` tool). Gated for a staged rollout. */
 export const SPOKEN_NARRATION_FLAG = featureFlagKeys.SPOKEN_NARRATION_FLAG;
 export const CODEX_OWN_SUBSCRIPTION_FLAG =
   featureFlagKeys.CODEX_OWN_SUBSCRIPTION_FLAG;
+export const CODEX_OWN_SUBSCRIPTION_CLOUD_FLAG =
+  featureFlagKeys.CODEX_OWN_SUBSCRIPTION_CLOUD_FLAG;
 export const CLAUDE_OWN_SUBSCRIPTION_FLAG =
   featureFlagKeys.CLAUDE_OWN_SUBSCRIPTION_FLAG;
 export const CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG =
@@ -75,46 +73,34 @@ export const SIGNALS_PR_REFUNDS_FLAG = featureFlagKeys.SIGNALS_PR_REFUNDS_FLAG;
 export const CHANNEL_REPORTS_FLAG = featureFlagKeys.CHANNEL_REPORTS_FLAG;
 
 /**
- * The global reports inbox: one sectioned, keyboard-triageable page for every
- * report, reclaiming the inbox nav slot from the channel-reports takeover.
- * The per-space sidebar list stays the working set beside it.
- */
-export const REPORTS_INBOX_FLAG = featureFlagKeys.REPORTS_INBOX_FLAG;
-
-/**
  * One-report-at-a-time keyboard triage inside the reports inbox. On by
  * default in dev builds for iteration (see useTriageFocusEnabled); off in
  * production until it stabilizes.
  */
 export const TRIAGE_FOCUS_FLAG = featureFlagKeys.TRIAGE_FOCUS_FLAG;
 
-/**
- * Serves a session's Claude traffic from Bedrock instead of Anthropic. The
- * `test` variant sends `x-posthog-provider: bedrock`, which the gateway routes
- * to its Bedrock backend; `control` sends nothing and the gateway keeps its
- * `anthropic` default.
- *
- * The variants differ in resilience, not just in provider. `control` keeps the
- * gateway's Bedrock *failover* (`x-posthog-use-bedrock-fallback`), which retries
- * against Bedrock when Anthropic returns 5xx/429 or blocks on billing. `test`
- * cannot use it: the gateway dispatches on the provider header and returns
- * before reading the fallback one, and its direct-Bedrock path has no reverse
- * fallback to Anthropic. So a Bedrock outage fails a `test` session outright.
- */
-export const BEDROCK_LLM_GATEWAY_FLAG =
-  featureFlagKeys.BEDROCK_LLM_GATEWAY_FLAG;
-
-/** Variants of {@link BEDROCK_LLM_GATEWAY_FLAG}. */
-export const BEDROCK_GATEWAY_VARIANTS = ["test", "control"] as const;
-
-export type BedrockGatewayVariant = (typeof BEDROCK_GATEWAY_VARIANTS)[number];
+export {
+  BEDROCK_GATEWAY_VARIANTS,
+  BEDROCK_LLM_GATEWAY_FLAG,
+  type BedrockGatewayVariant,
+} from "@posthog/agent-contracts/bedrock-gateway";
 /** Gates the organization context wiki: the Context explorer in the nav rails. */
 export const CONTEXT_LAYER_FLAG = featureFlagKeys.CONTEXT_LAYER_FLAG;
+/** Gates the "set up this space for" step in the create-space flow. */
+export const SPACE_SETUP_FLAG = featureFlagKeys.SPACE_SETUP_FLAG;
 
 export const BACKGROUND_AGENT_LOGS_FLAG =
   featureFlagKeys.BACKGROUND_AGENT_LOGS_FLAG;
+/** Gates the settings and sounds backup section in Advanced settings. */
+export const SETTINGS_BACKUP_FLAG = featureFlagKeys.SETTINGS_BACKUP_FLAG;
 export const CUSTOM_IMAGES_FEATURE_FLAG =
   featureFlagKeys.CUSTOM_IMAGES_FEATURE_FLAG;
 export const PI_HARNESS_FLAG = featureFlagKeys.PI_HARNESS_FLAG;
 export const TWIG_CLOUD_MODE_FLAG = featureFlagKeys.TWIG_CLOUD_MODE_FLAG;
 export const USER_SPEND_LIMIT_FLAG = featureFlagKeys.USER_SPEND_LIMIT_FLAG;
+/** Move local custom instructions to "My instructions" on the server, then stop adding them to cloud tasks. */
+export const SERVER_AGENT_INSTRUCTIONS_FLAG =
+  featureFlagKeys.SERVER_AGENT_INSTRUCTIONS_FLAG;
+/** Move local task defaults to the server once, then keep "always create pull requests" in step with it. */
+export const SERVER_TASK_DEFAULTS_FLAG =
+  featureFlagKeys.SERVER_TASK_DEFAULTS_FLAG;

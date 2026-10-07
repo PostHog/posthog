@@ -13,11 +13,21 @@ inputs:
     args:
         description: >
             Arguments for `semgrep ci` (--config, --include/--exclude, --exclude-rule,
-            --jobs, ...). Split on whitespace, so values must not contain spaces or
-            quotes. Anchor --include/--exclude patterns with a leading slash
-            (--include /bin); unanchored patterns also match same-named nested
-            directories anywhere in the tree.
+            --jobs, ...). Split on whitespace and handed to semgrep as positional
+            parameters, so a single argument must not contain spaces or quotes.
+            Everything else reaches semgrep verbatim -- glob characters included,
+            unexpanded. Anchor --include/--exclude
+            patterns with a leading slash (--include /bin); unanchored patterns also
+            match same-named nested directories anywhere in the tree.
         required: true
+    full-scan:
+        description: >
+            'true' runs `semgrep scan --error` over the whole tree instead of the
+            diff-aware `semgrep ci`, so a pull request reports every finding, the way a
+            push does. Set it when the pull request changes a rule or the scan setup:
+            the diff-aware scan cannot see what an edited rule matches in unchanged code.
+        required: false
+        default: 'false'
 
 runs:
     using: composite
@@ -27,6 +37,7 @@ runs:
           env:
               SEMGREP_ARGS: ${{ inputs.args }}
               SEMGREP_IMAGE: ${{ inputs.image }}
+              FULL_SCAN: ${{ inputs.full-scan }}
               # Lets semgrep resolve the PR merge-base with one API call instead of
               # deepening fetches (cli/src/semgrep/meta.py GithubMeta._find_branchoff_point)
               GH_TOKEN: ${{ github.token }}
@@ -35,6 +46,30 @@ runs:
           # auth from .git/config, and safe.directory because the workspace is
           # owned by the runner user while the container runs as root.
           run: |
+              # Split `args` HERE and pass the words as positional parameters.
+              # Never splice the string into the command the container shell
+              # parses: that inner shell re-parses it as a SCRIPT, and a token
+              # that ends a command there truncates every flag after it. With
+              # `#`, a newline or `;` the truncation is silent, because `exec`
+              # never returns and the job exits 0; `&` and `|` leave the flag to
+              # run as a command of its own, so the step fails with 127. A caller
+              # writes this value as a YAML block scalar, where `#` is data rather
+              # than a comment and a more-indented line keeps its newlines, so the
+              # hazard needs no unusual input.
+              # `set -f` splits on whitespace WITHOUT pathname expansion, so a
+              # glob reaches semgrep unexpanded and semgrep does its own matching.
+              # With `"$@"` a stray `#` is just an argument semgrep rejects loudly.
+              set -f
+              # shellcheck disable=SC2206  # deliberate word split; globbing disabled above
+              semgrep_args=($SEMGREP_ARGS)
+              set +f
+
+              if [[ "$FULL_SCAN" == 'true' ]]; then
+                semgrep_command=(scan --error)
+              else
+                semgrep_command=(ci)
+              fi
+
               docker run --rm \
                 -v "$GITHUB_WORKSPACE:/src" -w /src \
                 -v "$GITHUB_EVENT_PATH:/github-event.json:ro" \
@@ -45,4 +80,5 @@ runs:
                 -e GITHUB_REPOSITORY_ID -e GITHUB_REPOSITORY_OWNER_ID \
                 -e GH_TOKEN \
                 "$SEMGREP_IMAGE" \
-                sh -c "git config --global --add safe.directory /src && exec semgrep ci --metrics=off --verbose --timeout 300 $SEMGREP_ARGS"
+                sh -c 'git config --global --add safe.directory /src && exec semgrep "$@"' sh \
+                "${semgrep_command[@]}" --metrics=off --verbose --timeout 300 "${semgrep_args[@]}"

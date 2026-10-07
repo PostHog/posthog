@@ -16,18 +16,19 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
-from products.engineering_analytics.backend.facade.contracts import MasterFailureGroup, RepoRef
+from products.engineering_analytics.backend.facade.contracts import CIEngine, MasterFailureGroup, RepoRef
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
+    UNPAGED_SCAN_LIMIT,
     run_windowed_job_created_floor_constant,
 )
 
-# Failed default-branch runs in the window is a triage view, not an archive — cap it.
+# Failed default-branch runs in the window is a triage view, not an archive, so cap it.
 _RUN_CAP = 500
 
 _FAILED_RUNS_SELECT = f"""
-    SELECT id, repo_owner, repo_name, workflow_name, run_started_at
+    SELECT id, repo_owner, repo_name, workflow_name, run_started_at, ci_engine
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__
         AND head_branch = {{branch}}
@@ -37,9 +38,10 @@ _FAILED_RUNS_SELECT = f"""
 """
 
 _FAILED_JOBS_SELECT = f"""
-    SELECT run_id, name
+    SELECT run_id, name, ci_engine
     FROM __JOBS_SOURCE__ AS j
     WHERE run_id IN {{run_ids}} AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 # Trailing "(G/N)" shard suffix, incl. nested parens ("Product tests (experiments (1/2))") —
@@ -77,7 +79,7 @@ def query_master_failures(
 
     # Failed job names per run — empty when the jobs source isn't synced, in which case
     # groups degrade to workflow-level (failed_job = '').
-    jobs_by_run: dict[int, list[str]] = {}
+    jobs_by_run: dict[tuple[str, int], list[str]] = {}
     # run_id IN (...) scopes the result but not the scan, and the builder's is_rerun_copy window would
     # otherwise sort the whole jobs history. The run ids come from a run_started_at-windowed scan, so
     # the floor takes the wider re-run slack.
@@ -91,12 +93,12 @@ def query_master_failures(
                 "job_created_floor": run_windowed_job_created_floor_constant(date_from),
             },
         )
-        for run_id, job_name in jobs_response.results or []:
-            jobs_by_run.setdefault(run_id, []).append(job_name)
+        for run_id, job_name, ci_engine in jobs_response.results or []:
+            jobs_by_run.setdefault((ci_engine, run_id), []).append(job_name)
 
     groups: dict[tuple[str, str, str, str], dict] = {}
-    for run_id, repo_owner, repo_name, workflow_name, run_started_at in runs:
-        failed_jobs = {strip_shard_suffix(name) for name in jobs_by_run.get(run_id, [])} or {""}
+    for run_id, repo_owner, repo_name, workflow_name, run_started_at, ci_engine in runs:
+        failed_jobs = {strip_shard_suffix(name) for name in jobs_by_run.get((ci_engine, run_id), [])} or {""}
         for failed_job in failed_jobs:
             key = (repo_owner, repo_name, workflow_name, failed_job)
             group = groups.setdefault(
@@ -106,14 +108,16 @@ def query_master_failures(
                     "first_seen": run_started_at,
                     "last_seen": run_started_at,
                     "latest_run_id": run_id,
+                    "latest_ci_engine": ci_engine,
                 },
             )
-            group["run_ids"].add(run_id)
+            group["run_ids"].add((ci_engine, run_id))
             if run_started_at < group["first_seen"]:
                 group["first_seen"] = run_started_at
             if run_started_at > group["last_seen"]:
                 group["last_seen"] = run_started_at
                 group["latest_run_id"] = run_id
+                group["latest_ci_engine"] = ci_engine
 
     return sorted(
         (
@@ -125,6 +129,7 @@ def query_master_failures(
                 first_seen=group["first_seen"],
                 last_seen=group["last_seen"],
                 latest_run_id=group["latest_run_id"],
+                latest_ci_engine=CIEngine(group["latest_ci_engine"]),
             )
             for (repo_owner, repo_name, workflow_name, failed_job), group in groups.items()
         ),

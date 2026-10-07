@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -61,7 +59,7 @@ class IncidentIoSource(ResumableSource[IncidentIoSourceConfig, IncidentIoResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.INCIDENT_IO,
+            name=ExternalDataSourceType.INCIDENTIO,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["incident.io"],
             label="incident.io",
@@ -70,7 +68,7 @@ class IncidentIoSource(ResumableSource[IncidentIoSourceConfig, IncidentIoResumeC
 You can create an API key in your [incident.io dashboard](https://app.incident.io/settings/api-keys). API keys have per-resource permissions — grant the `view` scope for each resource you want to sync (incidents, follow-ups, alerts, users, and so on).""",
             iconPath="/static/services/incident_io.png",
             docsUrl="https://posthog.com/docs/cdp/sources/incident-io",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

@@ -1,5 +1,6 @@
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { parseJSON } from '~/common/utils/json-parse'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 
 import {
     FetchCandidate,
@@ -85,14 +86,22 @@ describe('FrontierPublisher', () => {
 
         expect(await batch.republish(candidate(), target, 'redirect')).toBe('queued')
         expect(
-            await batch.republish(candidate({ originalRef: `imageurl:${'b'.repeat(22)}` }), target, 'redirect')
+            await batch.republish(
+                candidate({ originalRef: `imageurl:${'b'.repeat(22)}`, firstSeenAtMs: 1_699_999_000_000 }),
+                target,
+                'redirect'
+            )
         ).toBe('queued')
         expect(sent).toEqual([])
         await expect(batch.flush()).resolves.toEqual({ failedUrls: 0 })
 
         expect(republished).toHaveBeenCalledTimes(2)
         expect(sent).toHaveLength(1)
-        expect(sent[0]).toMatchObject({ topic: FRONTIER, key: 'other.net' })
+        expect(sent[0]).toMatchObject({
+            topic: FRONTIER,
+            key: 'other.net',
+            headers: { [CAPTURE_TIMESTAMP_HEADER]: '1699999000000' },
+        })
         expect(parseCollectedUrlsRecord(sent[0].value, 'other.net')).toMatchObject({
             ok: true,
             candidates: [
@@ -422,6 +431,7 @@ describe('FrontierPublisher', () => {
             key: `imageurl:${'a'.repeat(22)}`,
             value: Buffer.from('image'),
             headers: {
+                ai_research_ingestion_version: '1',
                 'content-type': 'image/png',
                 'content-encoding': 'gzip',
                 'capture-timestamp-ms': '1700000000000',

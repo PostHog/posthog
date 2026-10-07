@@ -1,3 +1,6 @@
+import os
+
+from posthog.settings.base_variables import BASE_DIR
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # Integration service. Both unset (the default) means credential reads fall back to the
@@ -5,6 +8,10 @@ from posthog.settings.utils import get_from_env, get_list, str_to_bool
 INTEGRATION_SERVICE_URL = get_from_env("INTEGRATION_SERVICE_URL", "")
 # Comma-separated `new,old`, newest first. Per deployment, not fleet-wide.
 INTEGRATION_SERVICE_JWT_SECRET = get_from_env("INTEGRATION_SERVICE_JWT_SECRET", "")
+
+# Bot token and channel for the staff-only UI feedback widget. Empty token disables delivery.
+INTERNAL_FEEDBACK_SLACK_BOT_TOKEN = get_from_env("INTERNAL_FEEDBACK_SLACK_BOT_TOKEN", "")
+INTERNAL_FEEDBACK_SLACK_CHANNEL = get_from_env("INTERNAL_FEEDBACK_SLACK_CHANNEL", "C09G8Q32R6F")
 
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
 HUBSPOT_APP_CLIENT_SECRET = get_from_env("HUBSPOT_APP_CLIENT_SECRET", "")
@@ -20,6 +27,16 @@ INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 # keep the app importable and the OAuth auth method dormant until the client is provisioned.
 RESEND_APP_CLIENT_ID = get_from_env("RESEND_APP_CLIENT_ID", "")
 RESEND_APP_CLIENT_SECRET = get_from_env("RESEND_APP_CLIENT_SECRET", "")
+
+# Apple Ads service provider OAuth. Apple issues no static client secret: the client secret is an
+# ES256 JWT this app signs per token request with the private key whose public half was registered
+# in Apple Ads (see posthog/models/integration/apple_ads.py). Empty defaults keep the app importable
+# and the OAuth auth method dormant until the service provider registration is provisioned.
+APPLE_ADS_APP_CLIENT_ID = get_from_env("APPLE_ADS_APP_CLIENT_ID", "")
+APPLE_ADS_APP_TEAM_ID = get_from_env("APPLE_ADS_APP_TEAM_ID", "")
+APPLE_ADS_APP_KEY_ID = get_from_env("APPLE_ADS_APP_KEY_ID", "")
+# PEM body of the EC P-256 private key. Newlines may be escaped as literal \n.
+APPLE_ADS_APP_PRIVATE_KEY = get_from_env("APPLE_ADS_APP_PRIVATE_KEY", "")
 
 SALESFORCE_CONSUMER_KEY = get_from_env("SALESFORCE_CONSUMER_KEY", "")
 SALESFORCE_CONSUMER_SECRET = get_from_env("SALESFORCE_CONSUMER_SECRET", "")
@@ -47,9 +64,6 @@ YOUTUBE_ANALYTICS_APP_CLIENT_SECRET = get_from_env("YOUTUBE_ANALYTICS_APP_CLIENT
 
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", "")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", "")
-# HMAC keys, newest first, for the email and `sub` fingerprints in ee/api/google_oauth_diagnostics.py.
-# Provision a unique value per environment. When empty, those fingerprints are left out.
-GOOGLE_OAUTH_DIAGNOSTICS_FINGERPRINT_KEYS = get_list(get_from_env("GOOGLE_OAUTH_DIAGNOSTICS_FINGERPRINT_KEYS", ""))
 
 LINEAR_APP_CLIENT_ID = get_from_env("LINEAR_APP_CLIENT_ID", "")
 LINEAR_APP_CLIENT_SECRET = get_from_env("LINEAR_APP_CLIENT_SECRET", "")
@@ -85,6 +99,12 @@ STAMPHOG_GITHUB_APP_SLUG = get_from_env("STAMPHOG_GITHUB_APP_SLUG", "")
 # PyPI, the LLM gateway host, the PostHog capture host). Comma-separated; an ops escape hatch for
 # when a legitimate dependency host is missing — never a way to open the sandbox wide.
 STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS = get_list(get_from_env("STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS", ""))
+# The review engine's entrypoint, whose PEP 723 header lists the engine's pinned deps. A settings
+# constant rather than an import, so the tasks product can bake those deps into the
+# STAMPHOG_REVIEW sandbox image without a tasks -> stamphog dependency.
+STAMPHOG_REVIEW_ENGINE_SCRIPT = os.path.join(
+    BASE_DIR, "products", "stamphog", "packages", "pr-approval-agent", "review_local.py"
+)
 # Models the reviewer's per-run gateway token may call, comma-separated; empty leaves the token
 # unpinned. Set per region in charts (temporal-worker-stamphog); pin every model the Agent SDK
 # uses in a review, including its small utility model.
@@ -119,6 +139,9 @@ BING_ADS_CLIENT_ID_FALLBACK = get_from_env("BING_ADS_CLIENT_ID_FALLBACK", "")
 BING_ADS_CLIENT_SECRET_FALLBACK = get_from_env("BING_ADS_CLIENT_SECRET_FALLBACK", "")
 BING_ADS_DEVELOPER_TOKEN = get_from_env("BING_ADS_DEVELOPER_TOKEN", "")
 
+TWITTER_ADS_CONSUMER_KEY = get_from_env("TWITTER_ADS_CONSUMER_KEY", "")
+TWITTER_ADS_CONSUMER_SECRET = get_from_env("TWITTER_ADS_CONSUMER_SECRET", "")
+
 REDDIT_ADS_CLIENT_ID = get_from_env("REDDIT_ADS_CLIENT_ID", "")
 REDDIT_ADS_CLIENT_SECRET = get_from_env("REDDIT_ADS_CLIENT_SECRET", "")
 
@@ -146,8 +169,7 @@ ATLASSIAN_APP_CLIENT_SECRET = get_from_env("ATLASSIAN_APP_CLIENT_SECRET", "")
 #   marketplace app's own token. That token is written into the customer's Stripe Secret Store at
 #   account scope, so every member of their Stripe account can read it. It must not share an
 #   application with the orchestrator, because the provisioning namespace authorizes on application
-#   identity alone. Until this is set the two share one application and marketplace tokens can reach
-#   the provisioning endpoints.
+#   identity alone. Left unset, a new install gets no PostHog credential.
 # - STRIPE_SIGNING_SECRET: Used to verify the authenticity of incoming webhook/agentic provisioning requests from Stripe
 STRIPE_APP_CLIENT_ID = get_from_env("STRIPE_APP_CLIENT_ID", "")
 STRIPE_APP_OVERRIDE_AUTHORIZE_URL = get_from_env("STRIPE_APP_OVERRIDE_AUTHORIZE_URL", "")
@@ -200,10 +222,35 @@ BROWSERLESS_EGRESS_HOURLY_BUDGET = get_from_env("BROWSERLESS_EGRESS_HOURLY_BUDGE
 
 HEATMAP_BROWSERLESS_URL = get_from_env("HEATMAP_BROWSERLESS_URL", "")
 HEATMAP_BROWSERLESS_TOKEN = get_from_env("HEATMAP_BROWSERLESS_TOKEN", "")
+# Enable only after verifying that the renderer and its proxies do not log cookie values.
+HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED = get_from_env(
+    "HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED", False, type_cast=str_to_bool
+)
 # Browserless /screenshot session cap (ms); must stay under the plan's max-timeout.
 HEATMAP_BROWSERLESS_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_TIMEOUT_MS", 180000, type_cast=int)
 HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS", 30000, type_cast=int)
 HEATMAP_BROWSERLESS_BLOCK_ADS = get_from_env("HEATMAP_BROWSERLESS_BLOCK_ADS", False, type_cast=str_to_bool)
+
+# Lighthouse audits run on the same Browserless fleet as the heatmap screenshots above, over the
+# `/performance` REST API rather than `/screenshot`. They get their own settings so one can be
+# repointed or switched off without touching the other, and default to the heatmap fleet because
+# that is the only Browserless we provision today. Which pages may be audited, and by whom, is
+# policy rather than connection config and lives in `posthog/settings/signals.py`.
+LIGHTHOUSE_BROWSERLESS_URL = get_from_env("LIGHTHOUSE_BROWSERLESS_URL", HEATMAP_BROWSERLESS_URL)
+LIGHTHOUSE_BROWSERLESS_TOKEN = get_from_env("LIGHTHOUSE_BROWSERLESS_TOKEN", HEATMAP_BROWSERLESS_TOKEN)
+# Unlike the heatmap render, this one is awaited inside a request handler, so the cap has to fit
+# inside the app server's own request timeout rather than the Browserless plan's max — a longer
+# budget just means the proxy hangs up first, leaving the run charged for a report it never sees
+# and a browser session still running. A throttled desktop load of a heavy marketing page measures
+# ~17s, so 60s is generous; raise it only alongside the ingress timeout.
+LIGHTHOUSE_BROWSERLESS_TIMEOUT_MS = get_from_env("LIGHTHOUSE_BROWSERLESS_TIMEOUT_MS", 60000, type_cast=int)
+LIGHTHOUSE_BROWSERLESS_CONNECT_TIMEOUT_MS = get_from_env(
+    "LIGHTHOUSE_BROWSERLESS_CONNECT_TIMEOUT_MS", 10000, type_cast=int
+)
+# A Lighthouse report carries base64 screenshot and filmstrip blobs; the one measured against
+# posthog.com was 1.8 MB. Reject an implausibly large body before it is parsed into worker memory,
+# mirroring `HEATMAP_SCREENSHOT_MAX_BYTES`.
+LIGHTHOUSE_REPORT_MAX_BYTES = get_from_env("LIGHTHOUSE_REPORT_MAX_BYTES", 32 * 1024 * 1024, type_cast=int)
 
 # PostHog connect — lets a user connect (via the target's OAuth consent flow) to another PostHog
 # project to drive its APIs, e.g. dispatching a Task that must run in that project (including one in

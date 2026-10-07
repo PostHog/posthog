@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorAccessDenied as ErrorAccessDeniedComponent } from '~/layout/ErrorAccessDenied'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
+import { ErrorProjectAccessDenied as ErrorProjectAccessDeniedComponent } from '~/layout/ErrorProjectAccessDenied'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { productConfiguration, productRedirects, productRoutes } from '~/products'
 import { EventsQuery } from '~/queries/schema/schema-general'
@@ -28,6 +29,9 @@ export const preloadedScenes: Record<string, SceneExport> = {
     },
     [Scene.ErrorNetwork]: {
         component: ErrorNetworkComponent,
+    },
+    [Scene.ErrorProjectAccessDenied]: {
+        component: ErrorProjectAccessDeniedComponent,
     },
     [Scene.ErrorProjectUnavailable]: {
         component: ErrorProjectUnavailableComponent,
@@ -136,7 +140,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.HOG_FUNCTION,
     },
     [Scene.DeadLetterQueue]: { instanceLevel: true },
-    [Scene.ExperimentsStaffTools]: { instanceLevel: true, name: 'Experiments staff tools' },
     [Scene.Destinations]: {
         projectBased: true,
         name: 'Destinations',
@@ -146,11 +149,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'data_pipeline',
     },
     [Scene.DebugHog]: { projectBased: true, name: 'Hog Repl' },
+    [Scene.ProjectFiles]: { projectBased: true, name: 'Files', layout: 'app-full-scene-height' },
     [Scene.DebugQuery]: { projectBased: true },
+    [Scene.Terminal]: { projectBased: true, name: 'Terminal', layout: 'app-full-scene-height' },
 
     [Scene.Error404]: { name: 'Not found', projectBased: true },
     [Scene.ErrorAccessDenied]: { name: 'Access denied' },
     [Scene.ErrorNetwork]: { name: 'Network error' },
+    [Scene.ErrorProjectAccessDenied]: { name: 'Project access denied' },
     [Scene.ErrorProjectUnavailable]: { name: 'Project unavailable' },
     [Scene.EventDefinitionEdit]: {
         projectBased: true,
@@ -247,24 +253,15 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.InviteSignup]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.LegacyPlugin]: { projectBased: true, name: 'Legacy plugin' },
     [Scene.Coupons]: { name: 'Coupons', organizationBased: true, layout: 'app-container' },
-    [Scene.Link]: { projectBased: true },
-    [Scene.Links]: { projectBased: true, name: 'Links' },
     [Scene.LiveEvents]: {
         projectBased: true,
         name: 'Live events',
         description: 'Real-time events from your app or website.',
         iconType: 'live',
     },
-    [Scene.LiveDebugger]: { projectBased: true, name: 'Live debugger' },
     [Scene.Login2FA]: { onlyUnauthenticated: true, name: 'Login 2FA', layout: 'plain' },
     [Scene.Login]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw-no-header', hideProjectNotice: true },
-    [Scene.Models]: {
-        projectBased: true,
-        name: 'Models',
-        description: 'Create and manage views and materialized views for transforming and organizing your data.',
-        iconType: 'sql_editor',
-    },
     [Scene.MoveToPostHogCloud]: { name: 'Move to PostHog Cloud', hideProjectNotice: true },
     [Scene.NewTab]: {
         projectBased: true,
@@ -310,19 +307,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.VercelConnect]: { allowUnauthenticated: true, layout: 'plain', name: 'Connect to Vercel' },
     [Scene.VercelLinkError]: { layout: 'plain', name: 'Vercel account mismatch' },
     [Scene.AgenticAccountMismatch]: { layout: 'plain', name: 'Account mismatch', allowUnauthenticated: true },
-    [Scene.Person]: {
-        projectBased: true,
-        name: 'People',
-        activityScope: ActivityScope.PERSON,
-        iconType: 'user',
-    },
-    [Scene.Persons]: {
-        projectBased: true,
-        name: 'Persons',
-        description: 'A catalog of all the people behind your events',
-        activityScope: ActivityScope.PERSON,
-        iconType: 'persons',
-    },
     [Scene.AccountConnected]: {
         name: 'Account connected',
         layout: 'plain',
@@ -344,6 +328,22 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Homepage',
         layout: 'app-raw-no-header',
+    },
+    [Scene.Library]: {
+        projectBased: true,
+        name: 'Library',
+    },
+    [Scene.Views]: {
+        projectBased: true,
+        name: 'Views',
+    },
+    [Scene.ViewsNew]: {
+        projectBased: true,
+        name: 'New view',
+    },
+    [Scene.Tools]: {
+        projectBased: true,
+        name: 'Tools',
     },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
@@ -481,7 +481,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.IdentityProviderConfig]: { projectBased: true, name: 'Configure identity provider' },
     [Scene.Signup]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
-    [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'app-container' },
+    [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'plain' },
     [Scene.SurveyWizard]: {
         projectBased: true,
         name: 'Create survey',
@@ -534,6 +534,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.CodeCanvasLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.CodeChannelLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.CodeTaskLink]: { allowUnauthenticated: true, layout: 'app-raw' },
+    [Scene.CodeLoopLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.VerifyEmail]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.WebAnalyticsPageReports]: {
         projectBased: true,
@@ -622,10 +623,12 @@ export const redirects: Record<
     '/action/:id': ({ id }) => urls.action(id),
     '/actions': urls.actions(),
     '/activity': urls.activity(),
+    '/activity/explore': (_params, searchParams, hashParams) =>
+        combineUrl(urls.activity(ActivityTab.ExploreEvents), searchParams, hashParams).url,
     '/annotations': () => urls.annotations(),
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
-    '/batch_exports': urls.destinations(),
+    '/batch_exports': urls.destinations('batch'),
     // Billing lives at /organization/billing. A bare /billing has no scene, so send it there.
     // /billing/authorization_status keeps its own scene route, so it must not be caught here.
     '/billing': urls.organizationBilling(),
@@ -648,7 +651,7 @@ export const redirects: Record<
     '/web/ai-search': urls.webAnalyticsPagePerformance(),
 
     '/events': urls.activity(),
-    '/events/:id/*': ({ id, _ }) => {
+    '/events/:id/*': ({ id, _ }, { event }) => {
         const query = getDefaultEventsSceneQuery([
             {
                 type: PropertyFilterType.HogQL,
@@ -656,11 +659,16 @@ export const redirects: Record<
                 value: null,
             },
         ])
+        const source = query.source as EventsQuery
+        if (typeof event === 'string' && event) {
+            // The events query reads some events, such as flag calls, from their own table.
+            // It picks that table only when the query filters to the event name, so a uuid filter alone misses the row.
+            source.event = event
+        }
         try {
             const timestamp = decodeURIComponent(_)
-            const after = dayjs(timestamp).subtract(15, 'second').startOf('second').toISOString()
-            const before = dayjs(timestamp).add(15, 'second').startOf('second').toISOString()
-            Object.assign(query.source as EventsQuery, { before, after })
+            source.after = dayjs(timestamp).subtract(15, 'second').startOf('second').toISOString()
+            source.before = dayjs(timestamp).add(15, 'second').startOf('second').toISOString()
         } catch {
             lemonToast.error('Invalid event timestamp')
         }
@@ -680,9 +688,16 @@ export const redirects: Record<
     '/instance/query_performance': urls.experimentsStaffTools(),
     '/me/settings': urls.settings('user'),
     '/new': urls.newTab(),
-    '/live-debugger': urls.liveDebugger(),
+    // Only billing, confirm-creation and create-project have an `/organization*` scene. Every other
+    // path here is guessed or bookmarked, matched no route, and rendered the 404 screen.
+    '/organization': urls.settings('organization'),
     '/organization/members': urls.settings('organization'),
     '/organization/settings': urls.settings('organization'),
+    '/organization/projects': urls.settings('organization'),
+    '/organization/settings/projects': urls.settings('organization'),
+    '/organization/projects/new': urls.projectCreateFirst(),
+    '/organization/create': urls.organizationCreateFirst(),
+    '/organization/new': urls.organizationCreateFirst(),
     '/pipeline': urls.sources(),
     '/pipelines': urls.sources(),
     '/pipeline/new/site-app': urls.webScriptsNew(),
@@ -721,6 +736,8 @@ export const redirects: Record<
     '/replay': urls.replay(),
     '/replay/recent': (_params, searchParams) =>
         urls.replay(undefined, searchParams.filters, searchParams.sessionRecordingId),
+    '/replay/templates': (_params, searchParams, hashParams) =>
+        combineUrl(urls.replay(), { ...searchParams, showFilters: true, filtersTab: 'templates' }, hashParams).url,
     '/saved_insights': urls.savedInsights(),
     '/settings': urls.settings(),
     '/settings/organization-rbac': urls.settings('organization-roles'),
@@ -799,16 +816,13 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.replayPlaylist(':id')]: [Scene.ReplayPlaylist, 'replayPlaylist'],
     [urls.replaySettings()]: [Scene.ReplaySettings, 'replaySettings'],
     [urls.sessionProfile(':id')]: [Scene.SessionProfile, 'sessionProfile'],
-    [urls.personByDistinctId('*', false)]: [Scene.Person, 'personByDistinctId'],
-    [urls.personByUUID('*', false)]: [Scene.Person, 'personByUUID'],
-    [urls.persons()]: [Scene.Persons, 'persons'],
     [urls.customCss()]: [Scene.CustomCss, 'customCss'],
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
     [urls.cohortCalculationHistory(':id')]: [Scene.CohortCalculationHistory, 'cohortCalculationHistory'],
     [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
     [urls.experiments()]: [Scene.Experiments, 'experiments'],
     // Must come before the parameterized /experiments/:id route
-    [urls.experimentsStaffTools()]: [Scene.ExperimentsStaffTools, 'experimentsStaffTools'],
+    [urls.experimentsStaffTools()]: ['ExperimentsStaffTools' as Scene, 'experimentsStaffTools'],
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
     [urls.experimentsSharedMetric(':id')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
     [urls.experimentsSharedMetric(':id', ':action')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
@@ -830,6 +844,12 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.variables()]: [Scene.DataManagement, 'variables'],
     [urls.variableEdit(':id')]: [Scene.SqlVariableEdit, 'sqlVariableEdit'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
+    [urls.todayReport(':reportId')]: [Scene.ProjectHomepage, 'todayReport'],
+    [urls.library()]: [Scene.Library, 'library'],
+    [urls.library(':objectType')]: [Scene.Library, 'libraryObjectType'],
+    [urls.views()]: [Scene.Views, 'views'],
+    [urls.viewsNew()]: [Scene.ViewsNew, 'viewsNew'],
+    [urls.tools()]: [Scene.Tools, 'tools'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
@@ -855,7 +875,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.deadLetterQueue()]: [Scene.DeadLetterQueue, 'deadLetterQueue'],
     [urls.destinations()]: [Scene.Destinations, 'destinations'],
     [urls.materializedColumns()]: [Scene.MaterializedColumns, 'materializedColumns'],
-    [urls.models()]: [Scene.Models, 'models'],
     [urls.transformations()]: [Scene.Transformations, 'transformations'],
     [urls.eventFiltering()]: [Scene.EventFiltering, 'eventFiltering'],
     [urls.toolbarLaunch()]: [Scene.ToolbarLaunch, 'toolbarLaunch'],
@@ -887,11 +906,14 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.codeChannelLink(':channelId')]: [Scene.CodeChannelLink, 'codeChannelLink'],
     [urls.codeChannelLink(':channelId', ':taskId')]: [Scene.CodeChannelLink, 'codeChannelThreadLink'],
     [urls.codeTaskLink(':taskId')]: [Scene.CodeTaskLink, 'codeTaskLink'],
+    [urls.codeLoopLink(':loopId')]: [Scene.CodeLoopLink, 'codeLoopLink'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
     [urls.integration(':slug')]: [Scene.IntegrationsLanding, 'integrationsLanding'],
     [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
+    [urls.terminal()]: [Scene.Terminal, 'terminal'],
+    [urls.projectFiles()]: [Scene.ProjectFiles, 'projectFiles'],
 
     [urls.notebook(':shortId')]: [Scene.Notebook, 'notebook'],
     [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],
@@ -900,9 +922,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
-    [urls.liveDebugger()]: [Scene.LiveDebugger, 'liveDebugger'],
-    [urls.links()]: [Scene.Links, 'links'],
-    [urls.link(':id')]: [Scene.Link, 'link'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.health()]: [Scene.Health, 'health'],
@@ -915,11 +934,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.agenticAuthorize()]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
-    [`${urls.agenticAuthorize()}/`]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
-    [`${urls.oauthAuthorize()}/`]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
-    [urls.dataOps()]: [Scene.DataOps, 'dataOps'],
     [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],
     [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
     [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],

@@ -41,9 +41,19 @@ from products.mcp_store.backend.models import (
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
 )
-from products.mcp_store.backend.policy import GatewayCaller, PolicyContext, is_read_only_connector_tool
+from products.mcp_store.backend.policy import (
+    GatewayCaller,
+    PolicyContext,
+    is_policy_state_allowed,
+    is_read_only_connector_tool,
+)
 from products.mcp_store.backend.proxy import record_tool_call_audit, resolve_call_decision, validate_installation_auth
-from products.mcp_store.backend.tools import ToolCallError, ToolsFetchError, call_upstream_tool
+from products.mcp_store.backend.tools import (
+    ToolCallError,
+    ToolsFetchError,
+    call_upstream_tool,
+    resync_installation_tools,
+)
 
 # Re-exported for the presentation layer ("presentation must use facade"
 # import-linter contract): the single MCP URL policy entry point — shared SSRF
@@ -58,6 +68,8 @@ def resolve_member_tool_states(
     team_id: int,
     gateway_server_id: uuid.UUID | None,
     user_id: int | None = None,
+    *,
+    block_locked_approvals: bool = False,
 ) -> dict[str, str]:
     """Return a {tool_name: effective_state} map for an installation.
 
@@ -68,7 +80,11 @@ def resolve_member_tool_states(
     call them even if the cached approval state was previously `approved` —
     if the tool is gone upstream, it's gone. Anything not in the map is
     treated as `needs_approval` by the caller (explicit opt-in for freshly
-    discovered tools)."""
+    discovered tools).
+
+    With `block_locked_approvals`, a `needs_approval` state that an org rule
+    locks surfaces as `"do_not_use"`. Use it for callers that approve calls
+    on the member's behalf, because the member cannot approve a locked state."""
     rows = MCPServerInstallationTool.objects.filter(installation_id=installation_id).values(
         "tool_name", "annotations", "approval_state", "removed_at"
     )
@@ -88,8 +104,54 @@ def resolve_member_tool_states(
         if row["removed_at"]:
             resolved[row["tool_name"]] = "do_not_use"
         else:
-            resolved[row["tool_name"]] = context.resolve(row["tool_name"], row["annotations"]).state
+            resolved[row["tool_name"]] = _member_tool_state(
+                context, row["tool_name"], row["annotations"], block_locked_approvals=block_locked_approvals
+            )
     return resolved
+
+
+def resolve_member_unlisted_tool_state(
+    installation_id: str,
+    team_id: int,
+    gateway_server_id: uuid.UUID,
+    user_id: int,
+    tool_name: str,
+) -> str:
+    """Return the effective state of a tool the installation has no row for.
+
+    The installation re-lists its tools once, so a tool the upstream server
+    added later resolves with its real annotations. Without a row the
+    annotations are unknown, so the tool resolves as if it were destructive.
+    The result is never looser than `needs_approval`, the default for
+    unknown tools."""
+    installation = MCPServerInstallation.objects.filter(id=installation_id, team_id=team_id).first()
+    tool = _registered_tool(installation, tool_name) if installation is not None else None
+    context = PolicyContext(
+        team_id=team_id,
+        caller=GatewayCaller(kind="member", user_id=user_id),
+        gateway_server_id=gateway_server_id,
+        legacy_rows={},
+    )
+    if tool is not None and tool.removed_at is None:
+        state = _member_tool_state(context, tool_name, tool.annotations, block_locked_approvals=True)
+    else:
+        as_listed = _member_tool_state(context, tool_name, None, block_locked_approvals=True)
+        as_destructive = _member_tool_state(context, tool_name, {"destructiveHint": True}, block_locked_approvals=True)
+        state = as_destructive if is_policy_state_allowed(as_destructive, as_listed) else as_listed
+    return state if state == "do_not_use" else "needs_approval"
+
+
+def _member_tool_state(
+    context: PolicyContext,
+    tool_name: str,
+    annotations: dict[str, Any] | None,
+    *,
+    block_locked_approvals: bool,
+) -> str:
+    resolved = context.resolve(tool_name, annotations)
+    if block_locked_approvals and resolved.locked and resolved.state == "needs_approval":
+        return "do_not_use"
+    return resolved.state
 
 
 def unauthorized_installation_ids(team_id: int, user_id: int, candidate_ids: Iterable[str]) -> list[str]:
@@ -569,6 +631,22 @@ def member_server_tools(team_id: int, user_id: int, server_host: str) -> list[Co
     return tools
 
 
+def _registered_tool(installation: MCPServerInstallation, tool_name: str) -> MCPServerInstallationTool | None:
+    """The installation's row for one tool, re-listing upstream once on a miss.
+
+    A connection whose connect-time listing never landed holds no rows at all,
+    and a call it cannot resolve against policy is refused. A row marked removed
+    counts as a miss too, so a tool the upstream server brings back under the
+    same name is picked up here rather than waiting for "Refresh tools".
+    """
+
+    rows = installation.tools.filter(tool_name=tool_name).order_by("-last_seen_at", "-id")
+    tool = rows.first()
+    if (tool is None or tool.removed_at is not None) and resync_installation_tools(installation):
+        tool = rows.first()
+    return tool
+
+
 def _member_access_outcome(
     installation: MCPServerInstallation, team_id: int, user_id: int
 ) -> ConnectorCallOutcome | None:
@@ -616,7 +694,7 @@ def call_member_server_tool(
     if access_outcome is not None:
         return access_outcome
 
-    tool = installation.tools.filter(tool_name=tool_name).order_by("-last_seen_at", "-id").first()
+    tool = _registered_tool(installation, tool_name)
     if tool is None:
         return ConnectorCallOutcome(
             status="tool_missing", detail=f"Tool '{tool_name}' is not registered for this connection."

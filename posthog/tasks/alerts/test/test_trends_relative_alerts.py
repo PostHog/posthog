@@ -29,8 +29,8 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
 
-from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts_platform.backend.facade.contracts import AlertDelivery
 
 # Tuesday
 FROZEN_TIME = dateutil.parser.parse("2024-06-04T08:55:00.000Z")

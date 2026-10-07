@@ -96,6 +96,13 @@ WORKFLOW_EMAIL_WARN_COMPLAINT_RATE_24H: float = get_from_env(
 WORKFLOW_EMAIL_WARN_BOUNCE_RATE_1H: float = get_from_env("WORKFLOW_EMAIL_WARN_BOUNCE_RATE_1H", 0.05, type_cast=float)
 WORKFLOW_EMAIL_WARN_BOUNCE_RATE_24H: float = get_from_env("WORKFLOW_EMAIL_WARN_BOUNCE_RATE_24H", 0.025, type_cast=float)
 
+# A pause that lands within this window of the previous resume is staff-resumable only. Without
+# it, polling the resume endpoint keeps a spammy workflow sending for a fresh evaluation window
+# after every pause.
+WORKFLOW_EMAIL_AUTO_PAUSE_REPEAT_WINDOW_DAYS: int = get_from_env(
+    "WORKFLOW_EMAIL_AUTO_PAUSE_REPEAT_WINDOW_DAYS", 7, type_cast=int
+)
+
 # How long one warning covers a workflow. Without this bound the hourly detector would repeat the
 # same email every run while the workflow sits inside the warning band.
 WORKFLOW_EMAIL_WARN_COOLDOWN_DAYS: int = get_from_env("WORKFLOW_EMAIL_WARN_COOLDOWN_DAYS", 7, type_cast=int)

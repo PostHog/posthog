@@ -71,9 +71,13 @@ export const FeatureFlagsStaffCacheRebuildCreateBody = /* @__PURE__ */ zod.objec
  * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
  * per-team feature-flag count override.
  *
- * Single-team writes only, by design. Rollout settings are changed after staff verify SDK
+ * set() writes one team only, by design. Rollout settings are changed after staff verify SDK
  * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
- * bulk operation, unlike the cache tools' rebuild and clear.
+ * bulk operation, unlike the cache tools' rebuild and clear. flag_evaluations_mode belongs to the
+ * organization, and only set_flag_evaluations_mode() writes it, for the organizations of the given
+ * teams. It uses the same helpers as the set_flag_evaluations_mode command, including the guard
+ * against lowering an organization, and it writes every organization of a request in one
+ * transaction.
  *
  * set() takes partial updates: omit a setting to leave it unchanged, and send
  * max_feature_flags_override as null to clear the override.
@@ -106,6 +110,54 @@ export const FeatureFlagsStaffTeamConfigSetCreateBody = /* @__PURE__ */ zod.obje
         .describe(
             'New per-team flag-count limit (1-20,000). Send null to clear the override so the team falls back to the global default. Omit to leave it unchanged.'
         ),
+})
+
+/**
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
+ * per-team feature-flag count override.
+ *
+ * set() writes one team only, by design. Rollout settings are changed after staff verify SDK
+ * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
+ * bulk operation, unlike the cache tools' rebuild and clear. flag_evaluations_mode belongs to the
+ * organization, and only set_flag_evaluations_mode() writes it, for the organizations of the given
+ * teams. It uses the same helpers as the set_flag_evaluations_mode command, including the guard
+ * against lowering an organization, and it writes every organization of a request in one
+ * transaction.
+ *
+ * set() takes partial updates: omit a setting to leave it unchanged, and send
+ * max_feature_flags_override as null to clear the override.
+ *
+ * Registered on the root router so it is not team-nested; staff act on teams they do not
+ * belong to, same as staff_cache.py / staff_teams.py.
+ */
+export const featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyTeamIdsMax = 50
+
+export const featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyAllowDowngradeDefault = false
+export const featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyDryRunDefault = false
+
+export const FeatureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBody = /* @__PURE__ */ zod.object({
+    flag_evaluations_mode: zod
+        .union([zod.literal(0), zod.literal(1), zod.literal(2)])
+        .describe(
+            "Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist.\n\n\* `0` - Events\n\* `1` - Read flag evaluations\n\* `2` - Flag evaluations only"
+        ),
+    team_ids: zod
+        .array(zod.number())
+        .min(1)
+        .max(featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyTeamIdsMax)
+        .describe(
+            'Teams whose organizations to move (max 50). The mode belongs to the organization, so the write moves every team of each organization that owns one of these teams.'
+        ),
+    allow_downgrade: zod
+        .boolean()
+        .default(featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyAllowDowngradeDefault)
+        .describe(
+            'Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams in the ingestion allowlist. The events table keeps a gap for those teams for the time the organization spent on 2.'
+        ),
+    dry_run: zod
+        .boolean()
+        .default(featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyDryRunDefault)
+        .describe('Report what the write would change, and write nothing.'),
 })
 
 export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50
@@ -551,7 +603,6 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
             ),
-        created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsUpdateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
@@ -600,10 +651,6 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
             ),
-        last_called_at: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('Last time this feature flag was called (from $feature_flag_called events)'),
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
@@ -992,7 +1039,6 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
             .describe(
                 'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
             ),
-        created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
@@ -1041,13 +1087,96 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
             .describe(
                 'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
             ),
-        last_called_at: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('Last time this feature flag was called (from $feature_flag_called events)'),
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
+
+/**
+ * Serve a feature flag to every user.
+ *
+ * Adds a release condition with no property filters at 100% and keeps the existing
+ * conditions below it. Payloads, holdout and every other field are left as they are. On a
+ * boolean flag, removing the new condition restores the previous targeting. On a
+ * multivariate flag the variant distribution is rewritten as well, so removing the
+ * condition restores the audience but not the old split. A flag that already leads with
+ * such a condition gains no second one.
+ *
+ * This changes targeting only. A disabled flag still serves nobody, and a holdout is
+ * evaluated before release conditions, so users in one keep getting the holdout variant
+ * instead of the rollout. A flag gated on early access enrollment is refused, because that
+ * gate is evaluated before release conditions too and no targeting change gets past it.
+ *
+ * A multivariate flag needs `variant_key`, and every other flag rejects it. A release
+ * condition decides who the flag serves, not which variant they get, so rolling a
+ * multivariate flag out to everyone also gives the named variant 100% of the variant
+ * distribution and every other variant 0%. To serve everyone and keep the current split
+ * between variants, update the flag instead.
+ *
+ * Send the `version` your last read returned. A change to the flag after that version is
+ * refused with 409. Read the flag again and decide the rollout against its current
+ * definition.
+ */
+export const featureFlagsRollOutToEveryoneCreateBodyVersionMin = 0
+
+export const FeatureFlagsRollOutToEveryoneCreateBody = /* @__PURE__ */ zod.object({
+    version: zod
+        .number()
+        .min(featureFlagsRollOutToEveryoneCreateBodyVersionMin)
+        .nullable()
+        .describe(
+            'The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.'
+        ),
+    variant_key: zod
+        .string()
+        .nullish()
+        .describe(
+            'The variant every user gets. Required for a multivariate flag and rejected for any other flag, because a release condition decides who the flag serves and not which variant they get.'
+        ),
+})
+
+/**
+ * Set what percentage of one release condition's audience a feature flag is served to.
+ *
+ * Changes `rollout_percentage` on the release condition at `condition_index` and nothing
+ * else. The condition's property filters, every other condition, the variants, payloads,
+ * holdout and every remaining field are left as they are.
+ *
+ * Send the `version` your last read returned. A change to the flag after that version is
+ * refused with 409, because a condition index only names the condition you read. Read the
+ * flag again and decide the percentage against its current definition.
+ *
+ * On a multivariate flag this sets how many of the matching users get a variant at all. It
+ * does not change how the variants are split between them.
+ */
+export const featureFlagsSetReleaseConditionRolloutCreateBodyConditionIndexMin = 0
+
+export const featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMin = 0
+export const featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMax = 100
+
+export const featureFlagsSetReleaseConditionRolloutCreateBodyVersionMin = 0
+
+export const FeatureFlagsSetReleaseConditionRolloutCreateBody = /* @__PURE__ */ zod.object({
+    condition_index: zod
+        .number()
+        .min(featureFlagsSetReleaseConditionRolloutCreateBodyConditionIndexMin)
+        .describe(
+            'Zero-based position of the release condition in `filters.groups`, counted from the read that produced `version`.'
+        ),
+    rollout_percentage: zod
+        .number()
+        .min(featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMin)
+        .max(featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMax)
+        .describe(
+            'Percentage of the users matching that condition who are served the flag, 0 through 100. On a multivariate flag this is how many matching users get a variant at all, not how the variants are split between them. Fractional percentages such as 0.5 are accepted, the same as a write that sends `filters`.'
+        ),
+    version: zod
+        .number()
+        .min(featureFlagsSetReleaseConditionRolloutCreateBodyVersionMin)
+        .nullable()
+        .describe(
+            'The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.'
+        ),
+})
 
 /**
  * Test feature flag evaluation against a specific user at an optional point in time.
@@ -1083,8 +1212,9 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
  *
  * Returns same format as bulk_delete for UI compatibility.
  *
- * Uses bulk operations for efficiency: database updates are batched and cache
- * invalidation happens once at the end rather than per-flag.
+ * Config version 1 flags are deleted with batched updates, and cache invalidation
+ * runs once at the end. Config version 2 flags are deleted one at a time through
+ * ``update_flag``. Each one bumps its ``version`` and commits on its own.
  */
 
 export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
@@ -1094,7 +1224,9 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                 .enum(['true', 'false', 'STALE'])
                 .describe('\* `true` - true\n\* `false` - false\n\* `STALE` - STALE')
                 .optional()
-                .describe('Filter by active state.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE'),
+                .describe(
+                    "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE"
+                ),
             created_by_id: zod.number().optional().describe('Filter to flags created by a specific user ID.'),
             search: zod.string().optional().describe('Search by feature flag key or name (case-insensitive).'),
             type: zod
@@ -1197,7 +1329,7 @@ export const FeatureFlagsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     tags: zod
         .array(zod.string().max(featureFlagsBulkUpdateTagsCreateBodyTagsItemMax))
         .max(featureFlagsBulkUpdateTagsCreateBodyTagsMax)
-        .describe('Tag names to add, remove, or set.'),
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
 /**

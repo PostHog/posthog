@@ -1,8 +1,9 @@
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 from django.db import transaction
 from django.db.models import Q
 
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -10,11 +11,25 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
+from posthog.api.utils import action
 from posthog.models.integration import Integration
 from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
-from products.warehouse_sources.backend.facade.models import ExternalDataDestination, ExternalDataSchema
+from products.data_warehouse.backend.facade.api import is_any_external_data_schema_paused
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataDestination,
+    ExternalDataSchema,
+    ExternalDataSource,
+    ExternalDataSourceDestination,
+)
+from products.warehouse_sources.backend.presentation.destination_connection_check import (
+    CheckFailure,
+    DestinationConnectionCheckError,
+    check_postgres_destination,
+)
+from products.warehouse_sources.backend.presentation.views.destination_links import MAX_DESTINATIONS_PER_LINK
+from products.warehouse_sources.backend.presentation.views.external_data_schema import resync_schema
 
 # Which Integration kind holds the credentials for each destination type. A type absent from
 # this map needs no integration; the PostHog warehouse is the only such type today.
@@ -27,11 +42,70 @@ DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
     str(ExternalDataDestination.Type.REDSHIFT): (str(Integration.IntegrationKind.AWS_REDSHIFT),),
     str(ExternalDataDestination.Type.SNOWFLAKE): (str(Integration.IntegrationKind.SNOWFLAKE),),
     str(ExternalDataDestination.Type.DATABRICKS): (str(Integration.IntegrationKind.DATABRICKS),),
+    str(ExternalDataDestination.Type.S3): (
+        str(Integration.IntegrationKind.AWS_S3),
+        str(Integration.IntegrationKind.S3_COMPATIBLE),
+    ),
+    str(ExternalDataDestination.Type.BIGQUERY): (str(Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT),),
+    str(ExternalDataDestination.Type.AZURE_BLOB): (str(Integration.IntegrationKind.AZURE_BLOB),),
 }
 
 # Types a user may create. The PostHog warehouse row is created by the sync itself the first
 # time a schema resolves to it, and every team has exactly one, so it is not user-managed.
 USER_CREATABLE_TYPES = frozenset(DESTINATION_INTEGRATION_KINDS)
+
+
+class SyncedSourceSerializer(serializers.Serializer):
+    """One source that writes to a destination. Shape only — never used to deserialize."""
+
+    id = serializers.UUIDField(help_text="The source's id.")
+    name = serializers.CharField(help_text="How the source is labelled in the UI, prefix included.")
+    source_type = serializers.CharField(help_text="Which connector this is, e.g. Stripe or Postgres.")
+    via_table_override = serializers.BooleanField(
+        help_text="True when only some of the source's tables reach this destination, through their own override."
+    )
+
+
+class AddSourcesRequestSerializer(serializers.Serializer):
+    source_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=50,
+        help_text="IDs of up to 50 existing sources to attach to this destination.",
+    )
+    resync = serializers.BooleanField(
+        default=False, help_text="Start a full resync for each enabled table newly attached."
+    )
+
+
+class SkippedSourceSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the source that was not attached.")
+    name = serializers.CharField(help_text="Name of the source that was not attached.")
+    reason = serializers.CharField(help_text="Why the source was not attached.")
+
+
+class ResyncFailureSerializer(serializers.Serializer):
+    schema_id = serializers.UUIDField(help_text="ID of the table whose resync did not start.")
+    detail = serializers.CharField(help_text="Why the resync did not start.")
+
+
+class AddSourcesResponseSerializer(serializers.Serializer):
+    attached = SyncedSourceSerializer(many=True, help_text="Sources newly attached to this destination.")
+    skipped = SkippedSourceSerializer(many=True, help_text="Sources that were not attached and their reasons.")
+    tables_resyncing = serializers.IntegerField(help_text="Number of tables sent for a full resync.")
+    resync_failures = ResyncFailureSerializer(
+        many=True, help_text="Tables whose resync did not start. The sources are still attached."
+    )
+
+
+def _source_summary(source: ExternalDataSource, *, via_table_override: bool = False) -> dict[str, Any]:
+    # Prefix is part of how a person recognizes a source, since one connector can be added twice.
+    return {
+        "id": str(source.id),
+        "name": f"{source.prefix or ''}{source.source_type}".strip(),
+        "source_type": source.source_type,
+        "via_table_override": via_table_override,
+    }
 
 
 class ExternalDataDestinationSerializer(serializers.ModelSerializer):
@@ -58,6 +132,51 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
     is_posthog_warehouse = serializers.BooleanField(
         read_only=True, help_text="Whether this is the managed PostHog warehouse destination."
     )
+    synced_sources = serializers.SerializerMethodField(
+        help_text=(
+            "Sources whose tables sync to this destination, so you can see what a change or a "
+            "deletion would affect. Includes sources that reach it through a single table's "
+            "override, and — for the PostHog warehouse — sources that write there by default "
+            "because nothing else was configured."
+        )
+    )
+
+    @extend_schema_field(SyncedSourceSerializer(many=True))
+    def get_synced_sources(self, destination: ExternalDataDestination) -> list[dict[str, Any]]:
+        # Reads only prefetched relations plus lists built once per request, so a project with
+        # many destinations still costs a fixed number of queries.
+        #
+        # `accessible_source_ids` is None for service auth (nothing to restrict) and otherwise the
+        # set of sources the requesting user may see — the same check the source list endpoint
+        # itself enforces. Without it, a source with an explicit `none` grant would still leak its
+        # id/name/type here just because it shares a destination with a source the user can see.
+        accessible_source_ids = self.context.get("accessible_source_ids")
+
+        def _visible(source_id: Any) -> bool:
+            return accessible_source_ids is None or str(source_id) in accessible_source_ids
+
+        by_id: dict[str, dict[str, Any]] = {}
+        for link in destination.source_links.all():
+            if link.enabled and not link.source.deleted and _visible(link.source_id):
+                by_id[str(link.source_id)] = _source_summary(link.source)
+        for schema_link in destination.schema_links.all():
+            if (
+                schema_link.enabled
+                and not schema_link.schema.deleted
+                and not schema_link.schema.source.deleted
+                and _visible(schema_link.schema.source_id)
+            ):
+                by_id.setdefault(
+                    str(schema_link.schema.source_id),
+                    _source_summary(schema_link.schema.source, via_table_override=True),
+                )
+
+        if destination.is_posthog_warehouse:
+            for source in self.context.get("unconfigured_sources", []):
+                if _visible(source.id):
+                    by_id.setdefault(str(source.id), _source_summary(source))
+
+        return sorted(by_id.values(), key=lambda entry: entry["name"])
 
     class Meta:
         model = ExternalDataDestination
@@ -71,8 +190,9 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "synced_sources",
         ]
-        read_only_fields = ["id", "is_posthog_warehouse", "created_at", "created_by", "updated_at"]
+        read_only_fields = ["id", "is_posthog_warehouse", "created_at", "created_by", "updated_at", "synced_sources"]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         destination_type = attrs.get("type", getattr(self.instance, "type", None))
@@ -100,13 +220,44 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
 
         if self.instance is not None:
             self._reject_retargeting(attrs)
+        elif destination_type == ExternalDataDestination.Type.POSTGRES:
+            self._check_postgres_connection(integration, attrs.get("config"))
 
         return attrs
+
+    # Only creation tests the connection. A destination keeps its server, database and schema
+    # after that (see `_reject_retargeting`), so there is nothing new to test on update.
+    def _check_postgres_connection(self, integration: Integration, config: dict[str, Any] | None) -> None:
+        try:
+            check_postgres_destination(integration, config)
+        except DestinationConnectionCheckError as error:
+            field = (
+                "config"
+                if error.failure in (CheckFailure.UNKNOWN_DATABASE, CheckFailure.MISSING_PRIVILEGE)
+                else "integration"
+            )
+            raise ValidationError({field: str(error)})
 
     # Where a destination points is fixed once it exists. Everything already synced sits at the
     # current server and schema, so repointing one strands that data and needs a full resync of
     # every table that syncs there. A second destination is the supported way to write elsewhere.
-    RETARGETING_FIELDS = ("database", "schema")
+    # Config fields that pin where a destination's already-synced rows live, per type. Changing
+    # one points the destination somewhere else and strands everything written so far, so they
+    # are fixed after creation. Mirrors `retargetingKeys` on each definition in
+    # products/data_warehouse/frontend/shared/destinations/.
+    #
+    # Aliases are listed alongside the name the writer prefers: S3 reads `bucket` or
+    # `bucket_name` and Azure Blob reads `container_name` or `container`, so guarding only one
+    # spelling would let the other through.
+    RETARGETING_FIELDS_BY_TYPE: dict[str, tuple[str, ...]] = {
+        str(ExternalDataDestination.Type.POSTGRES): ("database", "schema"),
+        str(ExternalDataDestination.Type.REDSHIFT): ("database", "schema"),
+        str(ExternalDataDestination.Type.SNOWFLAKE): ("database", "schema"),
+        str(ExternalDataDestination.Type.DATABRICKS): ("catalog", "schema"),
+        str(ExternalDataDestination.Type.BIGQUERY): ("dataset", "dataset_id", "project", "project_id"),
+        str(ExternalDataDestination.Type.S3): ("bucket", "bucket_name", "prefix"),
+        str(ExternalDataDestination.Type.AZURE_BLOB): ("container_name", "container", "prefix"),
+    }
 
     def _reject_retargeting(self, attrs: dict[str, Any]) -> None:
         assert self.instance is not None
@@ -125,13 +276,15 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
 
         current = self.instance.config or {}
         incoming = attrs["config"] or {}
-        for field in self.RETARGETING_FIELDS:
+        destination_type = attrs.get("type", getattr(self.instance, "type", None))
+        for field in self.RETARGETING_FIELDS_BY_TYPE.get(str(destination_type), ()):
             if field in incoming and incoming[field] != current.get(field):
+                label = field.replace("_", " ")
                 raise ValidationError(
                     {
                         "config": (
-                            f"A destination keeps the {field} it was created with. Add a second "
-                            f"destination for the other {field}."
+                            f"A destination keeps the {label} it was created with. Add a second "
+                            f"destination for the other {label}."
                         )
                     }
                 )
@@ -143,6 +296,17 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             created_by=request.user,
             **validated_data,
         )
+
+    def update(self, instance: ExternalDataDestination, validated_data: dict[str, Any]) -> ExternalDataDestination:
+        # `config` is a single JSON blob, so a PATCH that includes it replaces the whole thing.
+        # A caller that means to change one key (say `compression`) without repeating every other
+        # key would otherwise silently drop `database`/`schema` and strand already-synced rows,
+        # the exact outcome `_reject_retargeting` exists to prevent. Merging onto the current
+        # config keeps every field `_reject_retargeting` did not see change.
+        if "config" in validated_data:
+            current = instance.config or {}
+            validated_data["config"] = {**current, **validated_data["config"]}
+        return super().update(instance, validated_data)
 
 
 class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -163,12 +327,49 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     requires_resource_level_access = True
     # `.unscoped()` is import-safe (the fail-closed manager raises on `.all()` without team
     # context); the mixin scopes every request by team_id.
-    queryset = ExternalDataDestination.objects.unscoped().exclude(deleted=True)
+    queryset = ExternalDataDestination.objects.unscoped().all()
     serializer_class = ExternalDataDestinationSerializer
     ordering = "name"
 
     def safely_get_queryset(self, queryset: Any) -> Any:
-        return queryset.filter(team_id=self.team_id).order_by(self.ordering)
+        # Prefetched so `synced_sources` reads relations already in memory: two extra queries for
+        # the whole page rather than two per destination.
+        if self.action != "add_sources":
+            queryset = queryset.exclude(deleted=True)
+        return (
+            queryset.filter(team_id=self.team_id)
+            .prefetch_related("source_links__source", "schema_links__schema__source")
+            .order_by(self.ordering)
+        )
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        # A source with no links of its own writes to the PostHog warehouse. Resolved once per
+        # request rather than per destination, and only when the warehouse can appear in the
+        # response at all.
+        context["unconfigured_sources"] = self._unconfigured_sources()
+        context["accessible_source_ids"] = self._accessible_source_ids()
+        return context
+
+    def _accessible_source_ids(self) -> Optional[set[str]]:
+        # None means "don't restrict": service auth acts on behalf of the system, not a project
+        # member, so there is no per-source grant to check.
+        if is_service_auth(self.request):
+            return None
+        accessible = self.user_access_control.filter_queryset_by_access_level(
+            ExternalDataSource.objects.filter(team_id=self.team_id).exclude(deleted=True),
+            resource="external_data_source",
+        )
+        return {str(source_id) for source_id in accessible.values_list("id", flat=True)}
+
+    def _unconfigured_sources(self) -> list[ExternalDataSource]:
+        return list(
+            ExternalDataSource.objects.filter(team_id=self.team_id)
+            .exclude(deleted=True)
+            .exclude(destination_links__enabled=True)
+            .exclude(schemas__destination_links__enabled=True)
+            .distinct()
+        )
 
     def _assert_can_mutate(self, instance: ExternalDataDestination) -> None:
         """Per-table gate for changing or deleting a shared destination.
@@ -198,6 +399,100 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             level = uac.get_user_access_level(schema.table or schema.source)
             if level is None or not access_level_satisfied_for_resource("warehouse_table", level, "editor"):
                 raise PermissionDenied("You do not have editor access to every table wired to this destination.")
+
+    @extend_schema(request=AddSourcesRequestSerializer, responses={200: AddSourcesResponseSerializer})
+    @action(methods=["POST"], detail=True)
+    def add_sources(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        destination: ExternalDataDestination = self.get_object()
+        if destination.deleted:
+            raise ValidationError({"destination": "This destination was deleted."})
+
+        serializer = AddSourcesRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        source_ids = serializer.validated_data["source_ids"]
+        team_id = self.team_id
+        sources = list(ExternalDataSource.objects.filter(team_id=team_id, id__in=source_ids).exclude(deleted=True))
+        by_id = {str(source.id): source for source in sources}
+        missing = {str(source_id) for source_id in source_ids} - by_id.keys()
+        if missing:
+            raise ValidationError({"source_ids": f"Unknown sources: {', '.join(sorted(missing))}"})
+        # Mirrors the source and schema viewsets, which reject writes to sources PostHog manages.
+        if any(source.is_system_managed for source in sources):
+            raise PermissionDenied("Sources managed by PostHog cannot be changed through this API.")
+        # Reject before attaching anything, so a billing pause never leaves links without a resync.
+        if serializer.validated_data["resync"] and is_any_external_data_schema_paused(team_id):
+            raise ValidationError(
+                {"resync": "Monthly sync limit reached. Please increase your billing limit to resume syncing."}
+            )
+
+        self._assert_can_mutate(destination)
+        if not is_service_auth(request):
+            for source in sources:
+                level = self.user_access_control.get_user_access_level(source)
+                if level is None or not access_level_satisfied_for_resource("external_data_source", level, "editor"):
+                    raise PermissionDenied("You do not have editor access to every selected source.")
+            schemas = (
+                ExternalDataSchema.objects.filter(team_id=team_id, source_id__in=source_ids)
+                .exclude(deleted=True)
+                .select_related("table", "source")
+            )
+            for schema in schemas:
+                level = self.user_access_control.get_user_access_level(schema.table or schema.source)
+                if level is None or not access_level_satisfied_for_resource("warehouse_table", level, "editor"):
+                    raise PermissionDenied("You do not have editor access to every table in these sources.")
+
+        attached: list[dict[str, Any]] = []
+        skipped: list[dict[str, str]] = []
+        attached_sources: list[ExternalDataSource] = []
+        for source_id in dict.fromkeys(str(source_id) for source_id in source_ids):
+            source = by_id[source_id]
+            reason: str | None = None
+            with transaction.atomic():
+                ExternalDataSource.objects.select_for_update(of=("self",)).get(pk=source.id, team_id=team_id)
+                links = ExternalDataSourceDestination.objects.for_team(team_id).filter(source=source)
+                if links.filter(destination=destination).exists():
+                    reason = "Already attached."
+                elif links.filter(enabled=True).count() >= MAX_DESTINATIONS_PER_LINK:
+                    reason = f"Source already has {MAX_DESTINATIONS_PER_LINK} enabled destinations."
+                else:
+                    ExternalDataSourceDestination.objects.for_team(team_id).create(
+                        team_id=team_id, source=source, destination=destination
+                    )
+            if reason:
+                skipped.append({"id": source_id, "name": _source_summary(source)["name"], "reason": reason})
+            else:
+                attached.append(_source_summary(source))
+                attached_sources.append(source)
+
+        tables_resyncing = 0
+        resync_failures: list[dict[str, str]] = []
+        if serializer.validated_data["resync"]:
+            for source in attached_sources:
+                for schema in ExternalDataSchema.objects.filter(
+                    team_id=team_id, source=source, should_sync=True, deleted=False
+                ):
+                    # The links are already committed, so report a table that fails to start instead of
+                    # erroring: a retry would skip these sources as already attached.
+                    try:
+                        result = resync_schema(schema)
+                    except ValidationError as e:
+                        resync_failures.append({"schema_id": str(schema.id), "detail": str(e.detail)})
+                        continue
+                    if result.status_code != status.HTTP_200_OK:
+                        resync_failures.append({"schema_id": str(schema.id), "detail": str(result.data)})
+                        continue
+                    tables_resyncing += 1
+
+        return Response(
+            AddSourcesResponseSerializer(
+                {
+                    "attached": attached,
+                    "skipped": skipped,
+                    "tables_resyncing": tables_resyncing,
+                    "resync_failures": resync_failures,
+                }
+            ).data
+        )
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         # `.instance` is `Any | None` on the base serializer type, but `update`/`partial_update`

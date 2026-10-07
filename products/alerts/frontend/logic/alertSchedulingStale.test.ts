@@ -12,17 +12,107 @@ import {
 describe('alertSchedulingStale', () => {
     describe('approximateNextAlertRun', () => {
         it.each([
-            [AlertCalculationInterval.REAL_TIME, '2026-07-24T16:02:00.000Z'],
-            [AlertCalculationInterval.EVERY_15_MINUTES, '2026-07-24T16:15:00.000Z'],
-            [AlertCalculationInterval.HOURLY, '2026-07-24T17:00:00.000Z'],
-            [AlertCalculationInterval.DAILY, '2026-07-25T05:00:00.000Z'],
-            [AlertCalculationInterval.WEEKLY, '2026-07-27T07:00:00.000Z'],
-            [AlertCalculationInterval.MONTHLY, '2026-08-01T08:00:00.000Z'],
-        ])('matches the backend anchor for %s', (interval, expected) => {
-            const now = dayjs.utc('2026-07-24T16:00:00.000Z')
+            [AlertCalculationInterval.REAL_TIME, '2026-07-24T16:09:00.000Z', '2026-07-24T16:09:00.000Z'],
+            [AlertCalculationInterval.EVERY_15_MINUTES, '2026-07-24T16:16:00.000Z', '2026-07-24T16:18:00.000Z'],
+            [AlertCalculationInterval.HOURLY, '2026-07-24T17:02:00.000Z', '2026-07-24T17:13:00.000Z'],
+            [AlertCalculationInterval.DAILY, '2026-07-25T05:02:00.000Z', '2026-07-25T05:59:00.000Z'],
+            [AlertCalculationInterval.WEEKLY, '2026-07-27T07:02:00.000Z', '2026-07-27T07:59:00.000Z'],
+            [AlertCalculationInterval.MONTHLY, '2026-08-01T08:02:00.000Z', '2026-08-01T08:59:00.000Z'],
+        ])('matches the backend window for %s', (interval, earliest, latest) => {
+            const now = dayjs.utc('2026-07-24T16:07:00.000Z')
 
-            expect(approximateNextAlertRun(interval, 'America/Toronto', now).toISOString()).toBe(expected)
+            const result = approximateNextAlertRun(interval, 'America/Toronto', null, now)
+            expect(result.earliest.toISOString()).toBe(earliest)
+            expect(result.latest.toISOString()).toBe(latest)
         })
+
+        it.each([
+            [
+                AlertCalculationInterval.EVERY_15_MINUTES,
+                '00:55',
+                '2026-07-24T16:30:00.000Z',
+                '2026-07-24T16:55:00.000Z',
+                '2026-07-24T16:55:00.000Z',
+                'UTC',
+            ],
+            [
+                AlertCalculationInterval.EVERY_15_MINUTES,
+                '00:55',
+                '2026-07-24T16:55:00.000Z',
+                '2026-07-24T17:10:00.000Z',
+                '2026-07-24T17:10:00.000Z',
+                'UTC',
+            ],
+            [
+                AlertCalculationInterval.HOURLY,
+                '00:55',
+                '2026-07-24T16:30:00.000Z',
+                '2026-07-24T16:55:00.000Z',
+                '2026-07-24T16:55:00.000Z',
+                'UTC',
+            ],
+            [
+                AlertCalculationInterval.HOURLY,
+                '00:NaN',
+                '2026-07-24T16:30:00.000Z',
+                '2026-07-24T17:02:00.000Z',
+                '2026-07-24T17:13:00.000Z',
+                'UTC',
+            ],
+            [
+                AlertCalculationInterval.DAILY,
+                '09:35',
+                '2026-07-24T08:00:00.000Z',
+                '2026-07-24T09:35:00.000Z',
+                '2026-07-24T09:35:00.000Z',
+                'UTC',
+            ],
+            [
+                AlertCalculationInterval.WEEKLY,
+                '09:35',
+                '2026-07-24T16:30:00.000Z',
+                '2026-07-27T09:35:00.000Z',
+                '2026-07-27T09:35:00.000Z',
+                'UTC',
+            ],
+            [
+                AlertCalculationInterval.MONTHLY,
+                '09:35',
+                '2026-07-24T16:30:00.000Z',
+                '2026-08-01T09:35:00.000Z',
+                '2026-08-01T09:35:00.000Z',
+                'UTC',
+            ],
+            // Lord Howe repeats 01:30 to 02:00 on 5 April. At 15:05 UTC the first 01:45 (14:45 UTC) has passed,
+            // so the backend runs the next day.
+            [
+                AlertCalculationInterval.DAILY,
+                '01:45',
+                '2026-04-04T15:05:00.000Z',
+                '2026-04-05T15:15:00.000Z',
+                '2026-04-05T15:15:00.000Z',
+                'Australia/Lord_Howe',
+            ],
+            // New York repeats 01:00 to 02:00 on 1 November. At 06:40 UTC (the second 01:40), the next automatic
+            // hourly window follows 02:00 EST (07:00 UTC), not the first 01:00 (05:00 UTC).
+            [
+                AlertCalculationInterval.HOURLY,
+                null,
+                '2026-11-01T06:40:00.000Z',
+                '2026-11-01T07:02:00.000Z',
+                '2026-11-01T07:13:00.000Z',
+                'America/New_York',
+            ],
+        ])(
+            'uses %s schedule start time %s',
+            (interval, scheduleStartTime, nowValue, expected, expectedLatest, timezone) => {
+                const now = dayjs.utc(nowValue)
+
+                const result = approximateNextAlertRun(interval, timezone, scheduleStartTime, now)
+                expect(result.earliest.toISOString()).toBe(expected)
+                expect(result.latest.toISOString()).toBe(expectedLatest)
+            }
+        )
     })
 
     describe('normalizeScheduleRestrictionForCompare', () => {
@@ -89,6 +179,17 @@ describe('alertSchedulingStale', () => {
                     calculation_interval: AlertCalculationInterval.DAILY,
                     schedule_restriction: null,
                     skip_weekend: true,
+                    config: { check_ongoing_interval: false },
+                },
+                true,
+            ],
+            [
+                'schedule_start_time',
+                {
+                    calculation_interval: AlertCalculationInterval.DAILY,
+                    schedule_restriction: null,
+                    schedule_start_time: '08:30',
+                    skip_weekend: false,
                     config: { check_ongoing_interval: false },
                 },
                 true,

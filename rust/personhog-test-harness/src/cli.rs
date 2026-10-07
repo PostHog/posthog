@@ -144,8 +144,8 @@ pub struct ConsistencyArgs {
 #[derive(Args, Clone)]
 pub struct GateArgs {
     /// Extra KEY=VALUE environment for spawned leaders — the lever for
-    /// benchmarking leader features (e.g. KAFKA_TRANSACTIONAL_FENCING)
-    /// without a harness change per flag. Repeatable.
+    /// benchmarking leader knobs (e.g. FENCING_LANES) without a harness
+    /// change per knob. Repeatable.
     #[arg(long = "leader-env", value_parser = parse_env_pair)]
     pub leader_env: Vec<(String, String)>,
 
@@ -569,6 +569,8 @@ const RESERVED_LEADER_ENV: &[&str] = &[
     "ETCD_PREFIX",
     "KAFKA_PERSON_STATE_TOPIC",
     "FALLBACK_TABLE",
+    "LIFECYCLE_OP_TABLE",
+    "LIFECYCLE_OP_PERSON_TABLE",
     "FALLBACK_DATABASE_URL",
     "WRITER_CONSUMER_GROUP",
     // Derived fencing timeouts scale off the lease TTL, so overriding it

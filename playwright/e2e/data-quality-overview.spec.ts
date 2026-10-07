@@ -1,5 +1,5 @@
 /**
- * Editing and deleting a data quality check from the Data Ops overview.
+ * Editing and deleting a data quality check from the Models overview.
  */
 import { expect } from '@playwright/test'
 
@@ -10,8 +10,8 @@ import { test } from '../utils/workspace-test-base'
 const CHECK_NAME = 'orders_has_rows'
 const SUBJECT_NAME = 'orders_e2e'
 
-test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }) => {
-    const workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true })
+test('edits and deletes a check from Models', async ({ page, playwrightSetup }) => {
+    const workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
     const auth = {
         headers: {
             Authorization: `Bearer ${workspace.personal_api_key}`,
@@ -26,27 +26,25 @@ test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }
     expect(savedQuery.ok()).toBe(true)
     const savedQueryId = (await savedQuery.json()).id
 
-    const created = await page.request.post(
-        `/api/projects/${workspace.team_id}/warehouse_saved_queries/${savedQueryId}/checks/`,
-        {
-            ...auth,
-            data: {
-                name: CHECK_NAME,
-                check_type: 'custom_sql',
-                column_name: '',
-                config: { query: 'SELECT id FROM orders_e2e WHERE id < 0' },
-            },
-        }
-    )
+    const created = await page.request.post(`/api/projects/${workspace.team_id}/data_quality_checks/`, {
+        ...auth,
+        data: {
+            name: CHECK_NAME,
+            check_type: 'custom_sql',
+            column_name: '',
+            config: { query: 'SELECT id FROM orders_e2e WHERE id < 0' },
+            subject_type: 'view',
+            subject_uuid: savedQueryId,
+        },
+    })
     expect(created.ok()).toBe(true)
     const check = await created.json()
 
     await mockFeatureFlags(page, {
-        [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: true,
         [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: true,
     })
     await playwrightSetup.loginAndNavigateToTeam(page, workspace)
-    await page.goto('/data-ops?tab=data-quality')
+    await page.goto('/models?tab=data-quality')
 
     await page.getByLabel(`Expand checks for ${SUBJECT_NAME}`).click({ timeout: 30000 })
     await expect(page.getByText(CHECK_NAME)).toBeVisible()
@@ -64,10 +62,7 @@ test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }
     await saveButton.click()
 
     await expect(page.getByText('Check saved')).toBeVisible()
-    const edited = await page.request.get(
-        `/api/projects/${workspace.team_id}/warehouse_saved_queries/${savedQueryId}/checks/${check.id}/`,
-        auth
-    )
+    const edited = await page.request.get(`/api/projects/${workspace.team_id}/data_quality_checks/${check.id}/`, auth)
     const editedCheck = await edited.json()
     // The point of the whole change: an edit refines the check rather than replacing it.
     expect(editedCheck.id).toEqual(check.id)

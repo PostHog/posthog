@@ -11,7 +11,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, ValidationError
 from temporalio.exceptions import ApplicationError
 
-from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.models.replay_scanner import ScannerType, config_experiment_scope
 
 if TYPE_CHECKING:
     from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -35,6 +35,20 @@ class ScannerSnapshot(BaseModel, frozen=True):
     experiment_targeting: dict[str, Any] | None = None
     sampling_rate: float | None = None
     sampling_mode: str | None = None
+    # The balanced per-variant rates the dispatching tick sampled at, so even per-variant counts
+    # don't read as even traffic ("control sampled at 1.1%, test at 100%"). Set by the tick, not
+    # `from_scanner`: the rates depend on live rollout shares the scanner row doesn't carry.
+    variant_sampling_rates: dict[str, float] | None = None
+    # The learned rulesets this scan runs with, frozen at create so retries match. Hidden from every dump, so the
+    # API never returns them; read back only through `load_for` and `model_validate`.
+    learned_ruleset_ids: list[str] = Field(default_factory=list, exclude=True)
+
+    def experiment_scope(self) -> dict[str, Any] | None:
+        """The experiment this scan watched, wherever the snapshot stores it; mirrors
+        `ReplayScanner.experiment_scope`."""
+        if self.scanner_type == ScannerType.EXPERIMENT:
+            return config_experiment_scope(self.scanner_config)
+        return self.experiment_targeting
 
     @classmethod
     def from_scanner(cls, scanner: "ReplayScanner") -> "ScannerSnapshot":

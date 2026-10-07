@@ -111,6 +111,7 @@ class TestEnrichmentCore(BaseTest):
         geoip_country_code=None,
         domain="stripe.com",
         provider=None,
+        phase=None,
     ):
         person_patch_kwargs = {"side_effect": person} if isinstance(person, Exception) else {"return_value": person}
         bridge_error = None
@@ -131,7 +132,7 @@ class TestEnrichmentCore(BaseTest):
         ctx = EnrichmentContext(
             organization_id=str(self.organization.id),
             domain=domain,
-            phase=EnrichmentPhase.RECHECK if is_recheck else EnrichmentPhase.AT_SIGNUP,
+            phase=phase or (EnrichmentPhase.RECHECK if is_recheck else EnrichmentPhase.AT_SIGNUP),
             distinct_id=distinct_id,
             role_at_organization=role_at_organization,
             geoip_country_code=geoip_country_code,
@@ -410,7 +411,7 @@ class TestEnrichmentCore(BaseTest):
         assert outcome.fit is not None and outcome.fit.score == 100
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data["icp_fit_score"] == 100
-        assert record.data["icp_fit_version"] == "v0.6"
+        assert record.data["icp_fit_version"] == "v0.7"
         assert record.data["icp_fit_status"] == "scored"
         assert record.data["icp_fit_lists_version"] == "test-lists-1"
         assert record.data["icp_fit_components"] == {
@@ -453,7 +454,7 @@ class TestEnrichmentCore(BaseTest):
         person_mock.assert_not_called()
         pha_client.set.assert_called_once_with(
             distinct_id="signer-distinct-id",
-            properties={"icp_fit_score": 100, "icp_fit_version": "v0.6", "icp_fit_status": "scored"},
+            properties={"icp_fit_score": 100, "icp_fit_version": "v0.7", "icp_fit_status": "scored"},
         )
 
     def test_student_role_disqualifies_fit_regardless_of_the_payload(self):
@@ -518,11 +519,33 @@ class TestEnrichmentCore(BaseTest):
 
         assert outcome.provider_fields is None
         record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert record.data == {
+        assert record.data["icp_fit_evaluation_kind"] == "initial"
+        assert outcome.fit_evaluated_at is not None
+        assert record.data["icp_fit_evaluated_at"] == outcome.fit_evaluated_at.isoformat()
+        data = {
+            k: v
+            for k, v in record.data.items()
+            if not k.startswith(("icp_fit_eval", "icp_fit_input_")) and k != "icp_fit_signup"
+        }
+        assert data == {
             "icp_fit_status": "not_found",
-            "icp_fit_version": "v0.6",
+            "icp_fit_version": "v0.7",
             "icp_fit_lists_version": "test-lists-1",
         }
+
+    @parameterized.expand(
+        [
+            ("at_signup", EnrichmentPhase.AT_SIGNUP, "initial"),
+            ("recheck", EnrichmentPhase.RECHECK, "recheck"),
+            ("sweep", EnrichmentPhase.SWEEP, "sweep"),
+        ]
+    )
+    def test_fit_evaluation_kind_derives_from_the_phase(self, _name, phase, expected_kind):
+        fields = EnrichmentFields(company_type="STARTUP", headcount=12)
+        self._enrich(ProviderLookup(fields=fields, raw_payload=_company()), phase=phase, domain="acme.ai")
+
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data["icp_fit_evaluation_kind"] == expected_kind
 
     def test_no_active_lists_degrades_to_clay_and_fields_only(self):
         IcpScoringConfig.objects.update(is_active=False)
@@ -559,7 +582,7 @@ class TestEnrichmentCore(BaseTest):
         fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
         with (
             patch(
-                "products.growth.backend.enrichment.core.score_company",
+                "products.growth.backend.enrichment.scoring_context.score_context",
                 side_effect=RuntimeError("scorer exploded"),
             ),
             patch("products.growth.backend.enrichment.core.capture_exception") as capture_mock,
@@ -591,8 +614,8 @@ class TestEnrichmentCore(BaseTest):
 
         bridge_mock.assert_called_once_with(organization_id=str(self.organization.id))
         assert outcome.fit is not None
-        assert outcome.fit.wizard_ai_sdk is True
-        assert outcome.fit.ai_pilled_source == "wizard"
+        assert outcome.fit.flags["wizard_ai_sdk"] is True
+        assert outcome.fit.flags["ai_pilled_source"] == "wizard"
         assert (outcome.fit.components or {}).get("ai_pilled") == 15
 
     def test_recheck_reads_the_organization_group_once_for_both_scores(self):
@@ -617,7 +640,7 @@ class TestEnrichmentCore(BaseTest):
             )
 
         assert outcome.fit is not None
-        assert outcome.fit.wizard_ai_sdk is True
+        assert outcome.fit.flags["wizard_ai_sdk"] is True
         get_group.assert_called_once()
 
     def test_first_attempt_ignores_the_wizard_bridge_input(self):
@@ -636,8 +659,8 @@ class TestEnrichmentCore(BaseTest):
             )
 
         assert outcome.fit is not None
-        assert outcome.fit.wizard_ai_sdk is False
-        assert outcome.fit.ai_pilled_source == "harmonic"
+        assert outcome.fit.flags["wizard_ai_sdk"] is False
+        assert outcome.fit.flags["ai_pilled_source"] == "harmonic"
 
     def test_wizard_bridge_read_failure_skips_a_fit_score_without_persisted_evidence(self):
         fields = EnrichmentFields(company_type="STARTUP", headcount=12)
@@ -666,7 +689,7 @@ class TestEnrichmentCore(BaseTest):
             data={
                 "icp_fit_score": 15,
                 "icp_fit_flags": {"wizard_ai_sdk": True, "ai_pilled_source": "wizard"},
-                "icp_fit_version": "v0.6",
+                "icp_fit_version": "v0.7",
             },
         )
         fields = EnrichmentFields(company_type="STARTUP", headcount=12)
@@ -688,8 +711,8 @@ class TestEnrichmentCore(BaseTest):
             )
 
         assert outcome.fit is not None
-        assert outcome.fit.wizard_ai_sdk is True
-        assert outcome.fit.ai_pilled_source == "wizard"
+        assert outcome.fit.flags["wizard_ai_sdk"] is True
+        assert outcome.fit.flags["ai_pilled_source"] == "wizard"
         assert (outcome.fit.components or {}).get("ai_pilled") == 15
         record.refresh_from_db()
         assert record.data["icp_fit_flags"]["wizard_ai_sdk"] is True

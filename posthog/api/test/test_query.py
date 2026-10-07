@@ -14,7 +14,9 @@ from unittest import mock
 from unittest.mock import patch
 
 from django.conf import settings
+from django.test import SimpleTestCase
 
+from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from parameterized import parameterized
 from rest_framework import status
 
@@ -29,6 +31,8 @@ from posthog.schema import (
     HogQLQuery,
     PersonPropertyFilter,
     PropertyOperator,
+    QueryScanAnalysis,
+    QueryScanFindingKind,
     QueryStatus,
 )
 
@@ -38,22 +42,46 @@ from posthog.api.query import (
     CONCURRENCY_LIMIT_USER_MESSAGE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
+    set_query_id_on_span,
 )
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
+from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
 from posthog.models import PersonalAPIKey
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
+from posthog.query_scan.findings import FindingCause, build_warning
+from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
+from posthog.query_scan.test.slots import stored_slot
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+
+
+class TestQueryTraceCorrelation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("01234567-89ab-4def-8123-456789abcdef", True),
+            ("0123456789ab4def8123456789abcdef", True),
+            ("person@example.com", False),
+            ("", False),
+            ("01234567-89ab-4def-8123-456789abcdef\n", False),
+        ]
+    )
+    def test_query_trace_correlation_excludes_free_text(self, query_id: str, expected: bool) -> None:
+        provider = TracerProvider()
+        self.addCleanup(provider.shutdown)
+        with provider.get_tracer(__name__).start_as_current_span("query") as span:
+            set_query_id_on_span(span, query_id)
+        assert isinstance(span, ReadableSpan)
+        self.assertEqual(dict(span.attributes or {}), {"query.client_query_id": query_id} if expected else {})
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -92,7 +120,77 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 {"query": HogQLQuery(query="select 1").model_dump()},
             )
         self.assertEqual(response.status_code, ClickHouseQueryTimeOut.status_code)
+        self.assertNotIn("Retry-After", response)
         self.assertEqual(mock_capture.called, expect_capture)
+
+    @parameterized.expand(
+        [
+            (
+                "known_code",
+                158,
+                "This query reads or returns more data than the limit allows. Use a shorter date range, "
+                "add filters, or add a LIMIT clause. Then run the query again.",
+            ),
+            (
+                "unknown_identifier",
+                47,
+                "A column in this query doesn't exist in the data. Check the column names. "
+                "If the query uses a view, check that the view still matches its source table.",
+            ),
+            ("unsupported_method", 1, "ClickHouse rejected the query with error UNSUPPORTED_METHOD."),
+            ("syntax_error", 62, "ClickHouse error while executing query."),
+            ("unknown_code", 999_999, "ClickHouse error while executing query."),
+            *[
+                (
+                    storage_error,
+                    499,
+                    "PostHog couldn't read from storage while running this query. Wait a few minutes, "
+                    "then run the query again. If the problem continues, contact support.",
+                    f"DB::Exception: {storage_error} reading managed/table.parquet (S3_ERROR)",
+                )
+                for storage_error in ["SlowDown", "InternalError"]
+            ],
+        ]
+    )
+    def test_internal_clickhouse_error_hides_raw_message(
+        self, _name, code, expected_detail, raw_message="DB::Exception: raw server detail"
+    ):
+        error = InternalCHQueryError(raw_message, code=code)
+
+        with (
+            patch("posthog.api.query.process_query_model", side_effect=error),
+            patch("posthog.api.query.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": HogQLQuery(query="select 1").model_dump()},
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["detail"], expected_detail)
+        mock_capture.assert_called_once_with(error)
+
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut("query timed out"), ClickHouseQueryTimeOut.status_code),
+            ("internal clickhouse error", InternalCHQueryError("too many rows", code=158), 500),
+        ]
+    )
+    def test_a_killed_run_puts_its_scan_on_the_error_body(self, _name, error, expected_status):
+        error.cache_key = "cache_key_1"
+        error.query_scan = {"rows_read": 41_200, "duration_ms": 19_000, "killed": True, "analysis_requested": True}
+
+        with patch("posthog.api.query.process_query_model", side_effect=error):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": HogQLQuery(query="select 1").model_dump()},
+            )
+
+        self.assertEqual(response.status_code, expected_status)
+        # Without the cache key on the failure the caller cannot read the stored analysis.
+        extra = response.json()["extra"]
+        self.assertEqual(extra["cache_key"], "cache_key_1")
+        self.assertEqual(extra["query_scan"]["killed"], True)
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):
@@ -1016,6 +1114,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "dashboard_id": mock.ANY,
                         "query_progress": None,
                         "labels": None,
+                        "cache_key": None,
+                        "query_scan": None,
                     }
                 },
             )
@@ -1297,18 +1397,58 @@ class TestQueryRetrieve(APIBaseTest):
         self.assertEqual(response.status_code, 500)
         self.assertTrue(response.json()["query_status"]["error"])
 
-    def test_failed_query_with_exposed_error(self):
+    @parameterized.expand(
+        [
+            (
+                "server_failure",
+                "too_many_parts",
+                "The database had a temporary problem while it ran this query. Wait a few minutes, "
+                "then run the query again. If the problem continues, contact support.",
+            ),
+            (
+                "internal_query_rejection",
+                "unknown_identifier",
+                "A column in this query doesn't exist in the data. Check the column names. "
+                "If the query uses a view, check that the view still matches its source table.",
+            ),
+        ]
+    )
+    def test_explained_internal_failure_keeps_http_500(self, _name, error_code, message):
         self.redis_client_mock.get.return_value = json.dumps(
             {
                 "id": self.valid_query_id,
                 "team_id": self.team_id,
                 "error": True,
-                "error_message": "Try changing the time range",
+                "error_message": None,
+                "error_code": error_code,
+            }
+        ).encode()
+        response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["query_status"]["error_message"], message)
+        self.assertEqual(response.json()["query_status"]["error_code"], error_code)
+
+    @parameterized.expand(
+        [
+            ("validation", "Try changing the time range", None),
+            ("timeout", "Query timed out", "error"),
+            ("memory_limit", "Query memory limit exceeded", "clickhouse_memory_limit_exceeded"),
+        ]
+    )
+    def test_failed_query_with_exposed_error(self, _name, message, error_code):
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "error": True,
+                "error_message": message,
+                "error_code": error_code,
             }
         ).encode()
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 400)
         self.assertTrue(response.json()["query_status"]["error"])
+        self.assertEqual(response.json()["query_status"]["error_message"], message)
 
     def test_destroy(self):
         self.redis_client_mock.get.return_value = json.dumps(
@@ -1322,6 +1462,77 @@ class TestQueryRetrieve(APIBaseTest):
         response = self.client.delete(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.redis_client_mock.delete.call_count, 2)
+
+
+SHOW_FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+LOG_ONLY_FLAG = QueryScanFlag(mode=QueryScanMode.LOG_ONLY, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+
+A_STORED_SCAN = stored_slot(
+    QueryScanAnalysis(
+        range_share=0.8,
+        project_share=0.25,
+        findings=[
+            build_warning(
+                kind=QueryScanFindingKind.NO_EVENT_FILTER,
+                cause=FindingCause.EVENT_FILTER_INSIDE_OR,
+                query_kind="HogQLQuery",
+            )
+        ],
+    )
+)
+A_CLAIMED_SCAN = json.dumps({"pending": True})
+
+
+class TestQueryScan(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.redis_client_mock = mock.Mock()
+        patcher = mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=self.redis_client_mock)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        flag_patcher = mock.patch("posthog.api.query.get_query_scan_flag", return_value=SHOW_FLAG)
+        self.flag_mock = flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+
+    def test_returns_the_stored_scan(self):
+        self.redis_client_mock.get.return_value = A_STORED_SCAN
+
+        response = self.client.get(f"/api/environments/{self.team.id}/query/scan/cache_key_1/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        analysis = response.json()["analysis"]
+        self.assertEqual(analysis["range_share"], 0.8)
+        self.assertEqual(analysis["project_share"], 0.25)
+        self.assertEqual([finding["kind"] for finding in analysis["findings"]], ["no_event_filter"])
+        # "Fix with AI" sends this, so the endpoint builds it rather than the client.
+        self.assertIn("- no_event_filter (in_or):", analysis["assistant_prompt"])
+
+    def test_answers_with_an_empty_body_while_the_job_runs(self):
+        # A client polls until an analysis arrives, so "not yet" has to differ from the 404 that
+        # ends the poll.
+        self.redis_client_mock.get.return_value = A_CLAIMED_SCAN
+
+        response = self.client.get(f"/api/environments/{self.team.id}/query/scan/cache_key_1/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {})
+
+    @parameterized.expand(
+        [
+            ("the query was never analyzed", None, SHOW_FLAG),
+            # `log_only` collects the analysis without showing it to anyone, so the endpoint that
+            # serves it to a client has to stay closed on that mode.
+            ("the team is in log-only mode", A_STORED_SCAN, LOG_ONLY_FLAG),
+            ("the flag is off", A_STORED_SCAN, None),
+        ]
+    )
+    def test_returns_404_when(self, _name, stored, flag):
+        self.redis_client_mock.get.return_value = stored
+        self.flag_mock.return_value = flag
+
+        response = self.client.get(f"/api/environments/{self.team.id}/query/scan/cache_key_1/")
+
+        self.assertEqual(response.status_code, 404)
 
 
 class TestQueryDraftSql(APIBaseTest):

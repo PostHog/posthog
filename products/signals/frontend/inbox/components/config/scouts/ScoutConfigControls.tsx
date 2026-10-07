@@ -34,7 +34,9 @@ import {
     weeklyCronToDayTime,
 } from '../../../utils/scoutRunsWindow'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
+import { ScoutRepositoriesPicker } from './ScoutRepositoriesPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
+import { ScoutStructuredOutputSection } from './ScoutStructuredOutputSection'
 import { ScoutTagsEditor } from './ScoutTagsEditor'
 import { ScoutWriteAccessSection } from './ScoutWriteAccessSection'
 
@@ -46,7 +48,16 @@ interface ScoutConfigControlsProps {
 
 // The models the picker offers, a deliberate subset of the Tasks catalog the backend
 // validates pins against — growing this list is a frontend-only change.
-const SCOUT_MODEL_IDS = ['claude-sonnet-5', 'claude-opus-5', 'gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol']
+const SCOUT_MODEL_IDS = [
+    'claude-sonnet-5-5',
+    'claude-opus-5-5',
+    'gpt-6-luna',
+    'gpt-5.6-luna',
+    'gpt-5.6-terra',
+    'gpt-6-sol',
+    'gpt-5.6-sol',
+    'gpt-6-astra',
+]
 
 // Labels come from the generated catalog, so every surface names a model the same way.
 const SCOUT_MODEL_OPTIONS: { value: string | null; label: string }[] = [
@@ -60,6 +71,8 @@ interface ScoutConfigFormProps extends ScoutConfigControlsProps {
     deleting?: boolean
     /** True while this scout's config update request is in flight. */
     updating?: boolean
+    /** Called when a staged edit (the record schema) gains or loses unsaved changes. */
+    onUnsavedChange?: (unsaved: boolean) => void
 }
 
 /** Enable/disable toggle for a scout. Lives on the row, not in the settings form. */
@@ -90,6 +103,7 @@ export function ScoutConfigForm({
     onDelete,
     deleting,
     updating = false,
+    onUnsavedChange,
 }: ScoutConfigFormProps): JSX.Element {
     const { timezone: projectTimezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -315,6 +329,22 @@ export function ScoutConfigForm({
                 // Editable while the scout is disabled, like network access: the selection must be
                 // settable BEFORE the enable or the first run races out with the wrong toolset.
                 disabledReason={updating ? 'Saving scout settings' : undefined}
+            />
+            <ScoutRepositoriesPicker
+                compact
+                selectedRepositories={[...(config.repositories ?? [])]}
+                onChange={(repositories) => onUpdate(config.id, { repositories })}
+                // Editable while the scout is disabled, for the same reason as the MCP selection.
+                disabledReason={updating ? 'Saving scout settings' : undefined}
+            />
+            {/* Keyed by scout because the scout page keeps this form mounted when the URL moves to another
+                scout, and an unsaved schema draft must not become the next scout's save. */}
+            <ScoutStructuredOutputSection
+                key={config.id}
+                config={config}
+                onUpdate={onUpdate}
+                updating={updating}
+                onUnsavedChange={onUnsavedChange}
             />
             <ScoutWriteAccessSection config={config} onUpdate={onUpdate} updating={updating} />
             {/* Only custom scouts are deletable. A canonical scout would be re-seeded from disk after

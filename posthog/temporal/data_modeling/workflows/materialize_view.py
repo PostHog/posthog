@@ -11,15 +11,16 @@ import temporalio.workflow
 import temporalio.exceptions
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.data_modeling.activities import (
     ClearCDPStagingInputs,
     CreateDataModelingJobInputs,
-    DuckgresShadowEligibilityInputs,
-    DuckgresShadowInputs,
-    DuckgresShadowResult,
     FailMaterializationInputs,
+    ManagedWarehouseShadowEligibilityInputs,
+    ManagedWarehouseShadowInputs,
+    ManagedWarehouseShadowResult,
     MaterializeViewInputs,
     MaterializeViewResult,
     PrepareQueryableTableInputs,
@@ -29,13 +30,12 @@ from posthog.temporal.data_modeling.activities import (
     StageQueryableFilesResult,
     SucceedMaterializationInputs,
     SucceedMaterializationResult,
-    check_duckgres_shadow_eligibility_activity,
-    check_duckgres_shadow_enabled_activity,
+    check_managed_warehouse_shadow_eligibility_activity,
     clear_cdp_staging_activity,
     create_data_modeling_job_activity,
     fail_materialization_activity,
     materialize_view_activity,
-    materialize_view_duckgres_activity,
+    materialize_view_managed_warehouse_activity,
     prepare_queryable_table_activity,
     publish_queryable_table_activity,
     quality_block_materialization_activity,
@@ -45,12 +45,12 @@ from posthog.temporal.data_modeling.activities import (
 from posthog.temporal.data_modeling.activities.enrich_view_semantics import EnrichViewSemanticsInputs
 from posthog.temporal.data_modeling.metrics import (
     get_clickhouse_materialization_duration_metric,
-    get_duckgres_shadow_duration_metric,
-    get_duckgres_shadow_finished_metric,
-    get_duckgres_shadow_row_count_match_metric,
-    get_duckgres_shadow_rows_materialized_metric,
-    get_duckgres_shadow_storage_delta_mib_metric,
-    get_duckgres_shadow_storage_mib_metric,
+    get_managed_warehouse_shadow_duration_metrics,
+    get_managed_warehouse_shadow_finished_metrics,
+    get_managed_warehouse_shadow_row_count_match_metrics,
+    get_managed_warehouse_shadow_rows_materialized_metrics,
+    get_managed_warehouse_shadow_storage_delta_mib_metrics,
+    get_managed_warehouse_shadow_storage_mib_metrics,
     get_node_duration_metric,
     get_node_finished_metric,
     get_node_rows_materialized_metric,
@@ -60,10 +60,7 @@ from posthog.temporal.data_modeling.metrics import (
 from posthog.temporal.data_modeling.workflows.enrich_view_semantics import EnrichViewSemanticsWorkflow
 from posthog.temporal.utils import CDPProducerWorkflowInputs
 
-from products.customer_analytics.backend.facade.temporal_contracts import (
-    DispatchAccountPropertySyncInput,
-    StageAccountPropertySyncInput,
-)
+from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
 from products.data_modeling.backend.facade.models import DataModelingJobEngine
 from products.data_quality.backend.facade.contracts import (
     CHECK_SUITE_WORKFLOW_NAME,
@@ -79,19 +76,6 @@ from products.warehouse_sources.backend.facade.hooks import (
     PersonPropertySyncActivityInputs,
 )
 
-# Covers every command the data quality feature adds here: the stage/audit/publish trio and the
-# warn-mode suite child.
-QUALITY_AUDIT_PATCH = "data-quality-audit-2026-08"
-ACCOUNT_PROPERTY_S3_SYNC_PATCH = "account-property-s3-sync-2026-08"
-ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH = "account-property-staging-workflow-2026-08"
-
-# Covers the CDP producer child and the staging-cleanup activity. Both are new commands, so a
-# history recorded before this deploy has to keep taking the branch that issues neither.
-CDP_VIEW_TRIGGER_PATCH = "cdp-data-warehouse-view-trigger-2026-08"
-
-# Histories recorded before this marker must keep passing only the team ID to the activity.
-DUCKGRES_SHADOW_TRANSLATION_GATE_PATCH = "duckgres-shadow-translation-gate-2026-09"
-
 # these indicate problems with the query or data, not transient issues
 NON_RETRYABLE_ERRORS = [
     "CHQueryErrorMemoryLimitExceeded",
@@ -99,6 +83,8 @@ NON_RETRYABLE_ERRORS = [
     "InvalidNodeTypeException",
     "NodeNotFoundException",
     "EmptyHogQLResponseColumnsError",
+    "DuplicateOutputColumnError",
+    "UnstorableIntegerError",
 ]
 
 
@@ -125,9 +111,12 @@ class MaterializeViewWorkflowInputs:
     team_id: int
     dag_id: str
     node_id: str
-    duckgres_only: bool = False
+    managed_warehouse_only: bool = False
     dangerously_execute_raw_sql: bool = False
     manually_triggered_by_id: int | None = None
+    skip_trino: bool = False
+    # Old workflow payloads contain this field, so removing it would prevent replay after deployment.
+    duckgres_only: bool = False
 
     @property
     def properties_to_log(self) -> dict:
@@ -159,6 +148,13 @@ class MaterializeViewWorkflowResult:
     duration_seconds: float
     quality_blocking_failures: int | None = None
     quality_audited: bool = False
+    trino_materialized: bool | None = None
+
+
+@frozen
+class _StagedAuditVerdict:
+    suite_run_id: str | None
+    blocking_failures: int
 
 
 @temporalio.workflow.defn(name="data-modeling-materialize-view")
@@ -189,40 +185,33 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         parent_info = temporalio.workflow.info().parent
         parent_workflow_id = parent_info.workflow_id if parent_info else None
         job_id = None
-        duckgres_job_id = None
+        managed_warehouse_job_id = None
+        managed_warehouse_only = inputs.managed_warehouse_only
 
-        if temporalio.workflow.patched(DUCKGRES_SHADOW_TRANSLATION_GATE_PATCH):
-            duckgres_enabled = await temporalio.workflow.execute_activity(
-                check_duckgres_shadow_eligibility_activity,
-                DuckgresShadowEligibilityInputs(
-                    team_id=inputs.team_id,
-                    dag_id=inputs.dag_id,
-                    node_id=inputs.node_id,
-                ),
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3,
-                ),
-            )
-        else:
-            duckgres_enabled = await temporalio.workflow.execute_activity(
-                check_duckgres_shadow_enabled_activity,
-                inputs.team_id,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3,
-                ),
-            )
+        managed_warehouse_enabled = await temporalio.workflow.execute_activity(
+            check_managed_warehouse_shadow_eligibility_activity,
+            ManagedWarehouseShadowEligibilityInputs(
+                team_id=inputs.team_id,
+                dag_id=inputs.dag_id,
+                node_id=inputs.node_id,
+            ),
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=3,
+            ),
+        )
 
-        duckgres_shadow_handle = None
-        if duckgres_enabled or inputs.duckgres_only:
-            duckgres_job_id = await temporalio.workflow.execute_activity(
+        use_trino = managed_warehouse_enabled
+        trino_materialized: bool | None = False if use_trino else None
+        managed_warehouse_shadow_handle = None
+        if (managed_warehouse_enabled or managed_warehouse_only) and not (use_trino and inputs.skip_trino):
+            managed_warehouse_job_id = await temporalio.workflow.execute_activity(
                 create_data_modeling_job_activity,
                 CreateDataModelingJobInputs(
                     team_id=inputs.team_id,
                     node_id=inputs.node_id,
                     dag_id=inputs.dag_id,
-                    engine=DataModelingJobEngine.DUCKGRES,
+                    engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
                     parent_workflow_id=parent_workflow_id,
                     manually_triggered_by_id=inputs.manually_triggered_by_id,
                 ),
@@ -231,25 +220,32 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     maximum_attempts=3,
                 ),
             )
-            # fire-and-forget: start duckgres shadow materialization in parallel
-            duckgres_shadow_handle = temporalio.workflow.start_activity(
-                materialize_view_duckgres_activity,
-                DuckgresShadowInputs(
+            # This activity runs in parallel so shadow failures cannot block the ClickHouse materialization.
+            managed_warehouse_shadow_handle = temporalio.workflow.start_activity(
+                materialize_view_managed_warehouse_activity,
+                ManagedWarehouseShadowInputs(
                     team_id=inputs.team_id,
                     node_id=inputs.node_id,
                     dag_id=inputs.dag_id,
-                    job_id=duckgres_job_id,
+                    job_id=managed_warehouse_job_id,
                     dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
+                    use_trino=use_trino,
                 ),
-                start_to_close_timeout=dt.timedelta(minutes=20),
+                start_to_close_timeout=dt.timedelta(minutes=365 if use_trino else 20),
+                heartbeat_timeout=dt.timedelta(minutes=2) if use_trino else None,
+                cancellation_type=(
+                    temporalio.workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED
+                    if use_trino
+                    else temporalio.workflow.ActivityCancellationType.TRY_CANCEL
+                ),
                 retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3 if inputs.duckgres_only else 1,
+                    maximum_attempts=3 if managed_warehouse_only else 1,
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(minutes=5),
                 ),
             )
 
-        if not inputs.duckgres_only:
+        if not managed_warehouse_only:
             job_id = await temporalio.workflow.execute_activity(
                 create_data_modeling_job_activity,
                 CreateDataModelingJobInputs(
@@ -290,16 +286,8 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 # materialize_view_activity guarantees file_uris is non-empty even for
                 # zero-row results — it falls back to _write_empty_parquet_for_zero_rows
                 # so prepare_s3_files_for_querying has something to list.
-                # Reading the mode as skip when the marker is absent keeps every command this
-                # feature adds out of a history that predates it. A rolling deploy can hand an old
-                # workflow worker a result from new activity code, and the SDK drops the fields the
-                # old dataclass lacks, so the mode alone cannot say who wrote the history.
-                quality_audit = (
-                    self._audit_mode(materialize_result, inputs)
-                    if temporalio.workflow.patched(QUALITY_AUDIT_PATCH)
-                    else QUALITY_AUDIT_SKIP
-                )
-                staged_verdict: int | None = None
+                quality_audit = self._audit_mode(materialize_result, inputs)
+                staged_verdict: _StagedAuditVerdict | None = None
                 prepare_inputs = PrepareQueryableTableInputs(
                     team_id=inputs.team_id,
                     job_id=job_id,
@@ -319,7 +307,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     staged_verdict = await self._staged_audit_verdict(
                         inputs, job_id, materialize_result, stage_result.staged_folder_path
                     )
-                    if staged_verdict:
+                    if staged_verdict is not None and staged_verdict.blocking_failures:
                         await temporalio.workflow.execute_activity(
                             quality_block_materialization_activity,
                             QualityBlockMaterializationInputs(
@@ -327,31 +315,34 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                                 node_id=inputs.node_id,
                                 dag_id=inputs.dag_id,
                                 job_id=job_id,
-                                blocking_failures=staged_verdict,
+                                blocking_failures=staged_verdict.blocking_failures,
+                                suite_run_id=staged_verdict.suite_run_id,
                             ),
                             start_to_close_timeout=dt.timedelta(minutes=5),
                             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
                         )
                         get_node_finished_metric("quality_blocked").add(1)
-                        if temporalio.workflow.patched(CDP_VIEW_TRIGGER_PATCH):
-                            await self._discard_staged_cdp_rows(inputs, job_id, materialize_result)
+                        await self._discard_staged_cdp_rows(inputs, job_id, materialize_result)
                         end_time = temporalio.workflow.now()
                         blocked_duration_seconds = (end_time - start_time).total_seconds()
-                        if duckgres_shadow_handle is not None:
-                            await self._collect_shadow_comparison(
-                                duckgres_shadow_handle,
-                                duckgres_job_id,
+                        if managed_warehouse_shadow_handle is not None:
+                            shadow_succeeded = await self._collect_shadow_comparison(
+                                managed_warehouse_shadow_handle,
+                                managed_warehouse_job_id,
                                 materialize_result.row_count,
                                 blocked_duration_seconds,
                                 inputs,
                             )
+                            if use_trino:
+                                trino_materialized = shadow_succeeded
                         return MaterializeViewWorkflowResult(
                             job_id=job_id,
                             node_id=inputs.node_id,
                             rows_materialized=materialize_result.row_count,
                             duration_seconds=blocked_duration_seconds,
-                            quality_blocking_failures=staged_verdict,
+                            quality_blocking_failures=staged_verdict.blocking_failures,
                             quality_audited=True,
+                            trino_materialized=trino_materialized,
                         )
                     storage_result: PrepareQueryableTableResult = await temporalio.workflow.execute_activity(
                         publish_queryable_table_activity,
@@ -396,8 +387,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 # None for in-flight runs on the pre-deploy activity version — treat that as "not needed".
                 await self._maybe_enrich_view_semantics(inputs, succeed_result)
 
-                if temporalio.workflow.patched(CDP_VIEW_TRIGGER_PATCH):
-                    await self._maybe_produce_cdp_rows(inputs, job_id, materialize_result)
+                await self._maybe_produce_cdp_rows(inputs, job_id, materialize_result)
 
                 quality_audited = staged_verdict is not None
                 if quality_audit == QUALITY_AUDIT_WARN:
@@ -407,23 +397,19 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 # that reads it. Fire-and-forget on the metadata queue, like enrichment above.
                 await self._maybe_sync_person_properties(inputs, materialize_result, job_id)
 
-                # New executions start the isolated staging child. A history that recorded the old
-                # inline dispatch under ACCOUNT_PROPERTY_S3_SYNC_PATCH must keep emitting that
-                # command on replay, so keep the old path in the else branch.
-                if temporalio.workflow.patched(ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH):
-                    await self._maybe_stage_account_properties(inputs, materialize_result, job_id)
-                elif temporalio.workflow.patched(ACCOUNT_PROPERTY_S3_SYNC_PATCH):
-                    await self._replay_account_property_dispatch(inputs, materialize_result, job_id)
+                await self._maybe_stage_account_properties(inputs, materialize_result, job_id)
 
                 # after the main workflow succeeds, collect shadow stats for comparison
-                if duckgres_shadow_handle is not None:
-                    await self._collect_shadow_comparison(
-                        duckgres_shadow_handle,
-                        duckgres_job_id,
+                if managed_warehouse_shadow_handle is not None:
+                    shadow_succeeded = await self._collect_shadow_comparison(
+                        managed_warehouse_shadow_handle,
+                        managed_warehouse_job_id,
                         materialize_result.row_count,
                         duration_seconds,
                         inputs,
                     )
+                    if use_trino:
+                        trino_materialized = shadow_succeeded
 
                 temporalio.workflow.logger.info(
                     "MaterializeViewWorkflow completed successfully",
@@ -448,8 +434,11 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     node_id=inputs.node_id,
                     rows_materialized=materialize_result.row_count,
                     duration_seconds=duration_seconds,
-                    quality_blocking_failures=staged_verdict,
+                    quality_blocking_failures=(
+                        staged_verdict.blocking_failures if staged_verdict is not None else None
+                    ),
                     quality_audited=quality_audited,
+                    trino_materialized=trino_materialized,
                 )
             except Exception as e:
                 # handle failure
@@ -467,7 +456,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 )
                 # A failure after the activity returned (publish, succeed) leaves that run's staged
                 # rows behind. The activity cleans up after its own failures itself.
-                if materialize_result is not None and temporalio.workflow.patched(CDP_VIEW_TRIGGER_PATCH):
+                if materialize_result is not None:
                     await self._discard_staged_cdp_rows(inputs, job_id, materialize_result)
                 try:
                     await temporalio.workflow.execute_activity(
@@ -493,29 +482,35 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 get_node_finished_metric("cancelled" if cancelled else "failed").add(1)
                 raise
 
-        # await the duckgres shadow activity so the parent workflow's concurrency
-        # semaphore isn't released until the query finishes on duckgres
+        # Keep the parent workflow's concurrency slot until managed warehouse finishes the query.
         result = None
-        if duckgres_shadow_handle is not None:
+        if managed_warehouse_shadow_handle is not None:
             try:
-                result = await duckgres_shadow_handle
+                result = await managed_warehouse_shadow_handle
             except Exception as shadow_err:
-                await self._finalize_orphaned_duckgres_job(duckgres_job_id, inputs, str(shadow_err))
+                await self._finalize_orphaned_managed_warehouse_job(managed_warehouse_job_id, inputs, str(shadow_err))
                 temporalio.workflow.logger.warning(
-                    f"Duckgres shadow activity failed (duckgres_only): {str(shadow_err)}",
+                    f"Managed warehouse shadow activity failed (managed_warehouse_only): {str(shadow_err)}",
                     extra=inputs.properties_to_log,
                 )
                 capture_exception(shadow_err)
-        # fallback to duckgres job if no clickhouse job was run
+        if use_trino:
+            trino_materialized = result is not None and result.error is None
+            if not trino_materialized:
+                raise temporalio.exceptions.ApplicationError(
+                    result.error if result and result.error else "Trino materialization did not complete"
+                )
+        # The managed warehouse job is the serving job when ClickHouse did not run.
         if job_id is None:
-            if duckgres_job_id is None:
+            if managed_warehouse_job_id is None:
                 raise temporalio.exceptions.ApplicationError("No data modeling job was created")
-            job_id = duckgres_job_id
+            job_id = managed_warehouse_job_id
         return MaterializeViewWorkflowResult(
             job_id=job_id,
             node_id=inputs.node_id,
             rows_materialized=result.row_count if result else 0,
             duration_seconds=result.duration_seconds if result else 0,
+            trino_materialized=trino_materialized,
         )
 
     async def _staged_audit_verdict(
@@ -524,8 +519,8 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         job_id: str,
         materialize_result: MaterializeViewResult,
         staged_folder_path: str,
-    ) -> int | None:
-        """The blocking-failure count, or None when the audit reached no verdict.
+    ) -> _StagedAuditVerdict | None:
+        """The suite ID and blocking-failure count, or None when the audit reached no verdict.
 
         None still publishes, because a broken check pipeline is not a verdict on the data, and it
         leaves the node to the DAG's sweep so the checks get another chance. Cancellation is not
@@ -556,7 +551,11 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             )
             return None
         if isinstance(result, dict):
-            return int(result.get("checks_failed_blocking") or 0)
+            suite_run_id = result.get("suite_run_id")
+            return _StagedAuditVerdict(
+                suite_run_id=suite_run_id if isinstance(suite_run_id, str) else None,
+                blocking_failures=int(result.get("checks_failed_blocking") or 0),
+            )
         return None
 
     async def _start_suite_on_published_data(
@@ -657,26 +656,6 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 "Failed to start person-property sync",
                 extra={"job_id": job_id, "error": str(e)},
             )
-
-    async def _replay_account_property_dispatch(
-        self,
-        inputs: MaterializeViewWorkflowInputs,
-        materialize_result: MaterializeViewResult,
-        job_id: str,
-    ) -> None:
-        if not materialize_result.account_property_sync_enabled:
-            return
-        await temporalio.workflow.execute_activity(
-            "dispatch-warehouse-account-property-sync",
-            DispatchAccountPropertySyncInput(
-                team_id=inputs.team_id,
-                saved_query_id=materialize_result.saved_query_id,
-                job_id=job_id,
-            ),
-            task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=5),
-        )
 
     async def _maybe_stage_account_properties(
         self,
@@ -834,76 +813,77 @@ class MaterializeViewWorkflow(PostHogWorkflow):
 
     async def _collect_shadow_comparison(
         self,
-        shadow_handle: temporalio.workflow.ActivityHandle[DuckgresShadowResult],
-        duckgres_job_id: str | None,
+        shadow_handle: temporalio.workflow.ActivityHandle[ManagedWarehouseShadowResult],
+        managed_warehouse_job_id: str | None,
         clickhouse_row_count: int,
         clickhouse_duration_seconds: float,
         inputs: MaterializeViewWorkflowInputs,
-    ) -> None:
-        """Await the duckgres shadow activity and emit comparison metrics.
+    ) -> bool:
+        """Await the managed warehouse shadow activity and emit comparison metrics.
 
         The activity itself is responsible for updating its job to a terminal state.
         This is best-effort — any failure is swallowed so it never affects the workflow result.
         """
         try:
-            shadow_result: DuckgresShadowResult = await shadow_handle
+            shadow_result: ManagedWarehouseShadowResult = await shadow_handle
 
             row_count_matched = clickhouse_row_count == shadow_result.row_count
             status = "completed" if shadow_result.error is None else "failed"
 
-            # prometheus metrics
-            get_duckgres_shadow_finished_metric(status).add(1)
+            get_managed_warehouse_shadow_finished_metrics(status).add(1)
             get_clickhouse_materialization_duration_metric().record(clickhouse_duration_seconds)
             if shadow_result.error is None:
-                get_duckgres_shadow_duration_metric().record(shadow_result.duration_seconds)
-                get_duckgres_shadow_rows_materialized_metric().record(shadow_result.row_count)
-                get_duckgres_shadow_row_count_match_metric(row_count_matched).add(1)
+                get_managed_warehouse_shadow_duration_metrics().record(shadow_result.duration_seconds)
+                get_managed_warehouse_shadow_rows_materialized_metrics().record(shadow_result.row_count)
+                get_managed_warehouse_shadow_row_count_match_metrics(row_count_matched).add(1)
                 if shadow_result.file_size_bytes > 0:
-                    get_duckgres_shadow_storage_mib_metric().record(shadow_result.file_size_bytes / (1024 * 1024))
+                    get_managed_warehouse_shadow_storage_mib_metrics().record(
+                        shadow_result.file_size_bytes / (1024 * 1024)
+                    )
                     if shadow_result.file_size_delta_bytes >= 0:
-                        get_duckgres_shadow_storage_delta_mib_metric().record(
+                        get_managed_warehouse_shadow_storage_delta_mib_metrics().record(
                             shadow_result.file_size_delta_bytes / (1024 * 1024)
                         )
 
-            # structured log for detailed comparison
             temporalio.workflow.logger.info(
-                "duckgres_shadow_comparison",
+                "managed_warehouse_shadow_comparison",
                 extra={
                     "clickhouse_rows": clickhouse_row_count,
                     "clickhouse_duration_seconds": round(clickhouse_duration_seconds, 2),
-                    "duckgres_rows": shadow_result.row_count,
-                    "duckgres_duration_seconds": round(shadow_result.duration_seconds, 2),
-                    "duckgres_schema": shadow_result.schema_name,
-                    "duckgres_table": shadow_result.table_name,
-                    "duckgres_error": shadow_result.error,
+                    "managed_warehouse_rows": shadow_result.row_count,
+                    "managed_warehouse_duration_seconds": round(shadow_result.duration_seconds, 2),
+                    "managed_warehouse_schema": shadow_result.schema_name,
+                    "managed_warehouse_table": shadow_result.table_name,
+                    "managed_warehouse_error": shadow_result.error,
                     "row_count_match": row_count_matched,
                     **inputs.properties_to_log,
                 },
             )
+            return shadow_result.error is None
         except Exception as shadow_err:
-            get_duckgres_shadow_finished_metric("error").add(1)
-            # the activity died before it could self-finalize its job — back it up here
-            await self._finalize_orphaned_duckgres_job(duckgres_job_id, inputs, str(shadow_err))
+            get_managed_warehouse_shadow_finished_metrics("error").add(1)
+            await self._finalize_orphaned_managed_warehouse_job(managed_warehouse_job_id, inputs, str(shadow_err))
             temporalio.workflow.logger.warning(
-                f"Duckgres shadow comparison failed: {str(shadow_err)}",
+                f"Managed warehouse shadow comparison failed: {str(shadow_err)}",
                 extra=inputs.properties_to_log,
             )
             capture_exception(shadow_err)
+            return False
 
-    async def _finalize_orphaned_duckgres_job(
+    async def _finalize_orphaned_managed_warehouse_job(
         self,
-        duckgres_job_id: str | None,
+        managed_warehouse_job_id: str | None,
         inputs: MaterializeViewWorkflowInputs,
         error: str,
     ) -> None:
-        """Mark a duckgres shadow job FAILED when its activity died before self-finalizing.
+        """Mark a managed warehouse shadow job FAILED when its activity died before self-finalizing.
 
         The shadow activity finalizes its own job on the happy path and on caught errors, but a
         timeout, worker loss, or a raise before its try block leaves the job stuck in RUNNING. The
         workflow is the only place guaranteed to observe the activity's death, so it backstops
         finalization here. Idempotent: fail_materialization_activity skips already-terminal jobs.
         """
-        if duckgres_job_id is None:
+        if managed_warehouse_job_id is None:
             return
         try:
             await temporalio.workflow.execute_activity(
@@ -912,8 +892,8 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     team_id=inputs.team_id,
                     node_id=inputs.node_id,
                     dag_id=inputs.dag_id,
-                    job_id=duckgres_job_id,
-                    error=f"Duckgres shadow activity did not finalize: {error}",
+                    job_id=managed_warehouse_job_id,
+                    error=f"Managed warehouse shadow activity did not finalize: {error}",
                     update_node=False,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
@@ -921,6 +901,6 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             )
         except Exception as fail_err:
             temporalio.workflow.logger.warning(
-                f"Failed to finalize orphaned duckgres job: {str(fail_err)}",
+                f"Failed to finalize orphaned managed warehouse job: {str(fail_err)}",
                 extra=inputs.properties_to_log,
             )

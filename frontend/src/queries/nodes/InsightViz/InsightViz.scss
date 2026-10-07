@@ -66,6 +66,17 @@
                     .ActionFilterGroup--events-list .TaxonomicPropertyFilter__row-items {
                         flex-basis: 100%;
                     }
+
+                    // The empty row keeps "where + Filter" as one unit so the suffix button wraps below it
+                    .ActionFilterGroup--events-list .property-filter-row--with-suffix .TaxonomicPropertyFilter__row {
+                        flex-wrap: nowrap;
+                    }
+
+                    .ActionFilterGroup--events-list
+                        .property-filter-row--with-suffix
+                        .TaxonomicPropertyFilter__row-items {
+                        flex-basis: auto;
+                    }
                 }
 
                 @container editor-panel (max-width: 400px) {
@@ -85,6 +96,14 @@
 
                     .ActionFilterRow-filters .TaxonomicPropertyFilter__row-operator--empty {
                         display: none;
+                    }
+
+                    .ActionFilterRow-filters .property-filter-row--with-suffix .TaxonomicPropertyFilter__row {
+                        flex-wrap: nowrap;
+                    }
+
+                    .ActionFilterRow-filters .property-filter-row--with-suffix .TaxonomicPropertyFilter__row-items {
+                        flex-basis: auto;
                     }
                 }
             }
@@ -121,7 +140,8 @@
     .MarkdownNotebook__real-node &,
     .InsightCard &,
     .ExportedInsight &,
-    .WebAnalyticsDashboard & {
+    .WebAnalyticsDashboard &,
+    .HomeTabDefaultChart & {
         flex: 1;
         height: 100%;
 
@@ -183,6 +203,12 @@
     }
 }
 
+.HomeTabDefaultChart {
+    .InsightVizDisplay {
+        --insight-viz-min-height: 24rem;
+    }
+}
+
 .RetentionContainer {
     display: flex;
     flex: 1;
@@ -240,7 +266,8 @@
     .NotebookNode &,
     .InsightCard &,
     .ExportedInsight &,
-    .WebAnalyticsDashboard & {
+    .WebAnalyticsDashboard &,
+    .HomeTabDefaultChart & {
         height: auto;
         min-height: auto;
         max-height: none;

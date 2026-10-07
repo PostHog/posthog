@@ -32,6 +32,7 @@ from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
@@ -1538,7 +1539,8 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(20):
+        # Includes one query for the project's replay gates
+        with self.assertNumQueries(21):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -5250,6 +5252,59 @@ class TestSurveysRecurringIterations(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "Cannot change survey recurrence to 1, should be at least 2"
 
+    @parameterized.expand(
+        [
+            ("once", "once"),
+            ("null", None),
+        ]
+    )
+    def test_switching_schedule_to_non_recurring_clears_iteration_fields(self, _name: str, schedule: Optional[str]):
+        survey = self._create_recurring_survey()
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"start_date": datetime.now(), "iteration_count": 2, "iteration_frequency_days": 30},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"schedule": schedule},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert response_data["schedule"] == schedule
+        assert response_data["iteration_count"] is None
+        assert response_data["iteration_frequency_days"] is None
+        assert response_data["iteration_start_dates"] == []
+        assert response_data["current_iteration"] is None
+
+    @parameterized.expand(
+        [
+            ("schedule_omitted", {}),
+            ("schedule_null", {"schedule": None}),
+        ]
+    )
+    def test_setting_iterations_without_a_schedule_marks_the_survey_recurring(self, _name: str, schedule_payload: dict):
+        survey = self._create_non_recurring_survey()
+        assert survey.schedule == Survey.Schedule.ONCE
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now(),
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+                **schedule_payload,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert response_data["schedule"] == "recurring"
+        assert response_data["iteration_count"] == 2
+        assert response_data["iteration_frequency_days"] == 30
+        assert len(response_data["iteration_start_dates"]) == 2
+
     def test_can_handle_non_nil_current_iteration(self):
         survey = self._create_non_recurring_survey()
         survey.current_iteration = 2
@@ -5976,6 +6031,37 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["stats"]["survey sent"]["total_count"], 0)
+
+    def test_linked_flag_in_another_config_format_links_but_cannot_pick_a_variant(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="other-format",
+            created_by=self.user,
+            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+        )
+        questions = [{"type": "open", "question": "How is it?"}]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Variant Survey",
+                "type": "popover",
+                "linked_flag_id": flag.id,
+                "conditions": {"linkedFlagVariant": "control"},
+                "questions": questions,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "configuration format" in response.json()["detail"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={"name": "Linked Survey", "type": "popover", "linked_flag_id": flag.id, "questions": questions},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["linked_flag"]["id"] == flag.id
 
     def test_create_survey_with_valid_linked_flag_variant(self):
         """Test creating a survey with a valid linkedFlagVariant"""
@@ -6765,6 +6851,38 @@ class TestSurveyBulkDuplication(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("once_with_stale_iterations", Survey.Schedule.ONCE, None, None),
+            ("recurring", Survey.Schedule.RECURRING, 3, 30),
+        ]
+    )
+    def test_bulk_duplicate_reconciles_schedule_with_iteration_fields(
+        self, _name: str, schedule: str, expected_count: Optional[int], expected_frequency: Optional[int]
+    ) -> None:
+        source = Survey.objects.create(
+            team=self.team,
+            name=f"Source {schedule}",
+            type="popover",
+            questions=[{"type": "open", "question": "Test?"}],
+            schedule=schedule,
+            iteration_count=3,
+            iteration_frequency_days=30,
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{source.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        duplicated = Survey.objects.get(team=self.team2)
+        assert duplicated.schedule == schedule
+        assert duplicated.iteration_count == expected_count
+        assert duplicated.iteration_frequency_days == expected_frequency
+
+    @parameterized.expand(
+        [
             (
                 "standard_keys",
                 {"fr": {"name": "Sondage"}, "es-MX": {"name": "Encuesta"}},
@@ -7437,6 +7555,124 @@ class TestSurveyLifecycleActions(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.survey.refresh_from_db()
         self.assertEqual(self.survey.end_date, original_end)
+
+
+class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey under approval policies",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        self.survey = Survey.objects.get(id=response.json()["id"])
+
+    def _create_policy(self, action_key: str) -> None:
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key=action_key,
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id], "roles": []},
+            allow_self_approve=True,
+            created_by=self.user,
+        )
+
+    def _flag_states(self) -> tuple[bool, bool]:
+        self.survey.refresh_from_db()
+        assert self.survey.targeting_flag is not None
+        assert self.survey.internal_targeting_flag is not None
+        return self.survey.targeting_flag.active, self.survey.internal_targeting_flag.active
+
+    @parameterized.expand([("feature_flag.enable",), ("feature_flag.disable",), ("feature_flag.update",)])
+    def test_start_and_stop_mirror_flag_state_without_a_change_request(self, action_key: str) -> None:
+        self._create_policy(action_key)
+        url = f"/api/projects/{self.team.id}/surveys/{self.survey.id}/"
+
+        response = self.client.patch(url, data={"start_date": datetime.now(UTC) - timedelta(days=1)}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._flag_states() == (True, True)
+
+        response = self.client.patch(url, data={"end_date": datetime.now(UTC) - timedelta(hours=1)}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._flag_states() == (False, False)
+
+        assert not ChangeRequest.objects.filter(team=self.team).exists()
+
+    def test_create_writes_its_internal_flag_through_the_rollout_gate(self) -> None:
+        self._create_policy("feature_flag.update")
+
+        surveys_before = Survey.objects.filter(team=self.team).count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={"name": "Gated survey", "type": "popover", "questions": [{"type": "open", "question": "Q?"}]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        # The internal flag is written after the survey row, so a rejected gate must take the row with it.
+        assert Survey.objects.filter(team=self.team).count() == surveys_before
+        assert response.json()["status"] == "approval_required"
+        change_request = ChangeRequest.objects.get(team=self.team, action_key="feature_flag.update")
+        assert response.json()["change_request_id"] == str(change_request.id)
+
+    def test_targeting_filter_change_goes_through_the_rollout_gate(self) -> None:
+        self._create_policy("feature_flag.update")
+        assert self.survey.targeting_flag is not None
+        filters_before = self.survey.targeting_flag.filters
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/",
+            data={"targeting_flag_filters": {"groups": [{"properties": [], "rollout_percentage": 50}]}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert response.json()["status"] == "approval_required"
+        self.survey.targeting_flag.refresh_from_db()
+        assert self.survey.targeting_flag.filters == filters_before
+        change_request = ChangeRequest.objects.get(team=self.team, action_key="feature_flag.update")
+        assert response.json()["change_request_id"] == str(change_request.id)
+
+    def test_a_rejected_replacement_keeps_the_existing_targeting_flag(self) -> None:
+        self._create_policy("feature_flag.update")
+        assert self.survey.targeting_flag is not None
+        existing_flag_id = self.survey.targeting_flag.id
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/",
+            data={
+                "remove_targeting_flag": True,
+                "targeting_flag_filters": {"groups": [{"properties": [], "rollout_percentage": 25}]},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert FeatureFlag.objects.filter(pk=existing_flag_id).exists()
+        self.survey.refresh_from_db()
+        assert self.survey.targeting_flag_id == existing_flag_id
+        assert ChangeRequest.objects.filter(team=self.team, action_key="feature_flag.update").exists()
 
 
 class TestSurveyListTypeFilter(APIBaseTest):

@@ -1,10 +1,9 @@
-import type { FeatureFlagKey } from 'lib/constants'
+import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
 
 import {
     AttributionMode,
     ConversionGoalFilter,
     DataWarehouseNode,
-    ExternalDataSourceType,
     IntegrationFilter,
     MARKETING_INTEGRATION_CONFIGS,
     MarketingAnalyticsColumnsSchemaNames,
@@ -17,9 +16,11 @@ import {
 } from '~/queries/schema/schema-general'
 import { HogQLMathType, ManualLinkSourceType, PropertyMathType } from '~/types'
 
+import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+
 import { NativeSource } from './marketingAnalyticsLogic'
 
-export type NonNativeMarketingSource = Extract<ExternalDataSourceType, 'BigQuery'>
+export type NonNativeMarketingSource = Extract<ExternalDataSourceTypeEnumApi, 'BigQuery'>
 
 export const VALID_NON_NATIVE_MARKETING_SOURCES: NonNativeMarketingSource[] = ['BigQuery']
 export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
@@ -29,10 +30,13 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
     'azure',
 ]
 
-// Map of native sources that require a feature flag to be enabled. Empty today
-// (all current sources are fully rolled out), but kept so a new source can be
-// gated behind a flag while it's being rolled out.
-export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {}
+export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
+    AmazonAds: FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS,
+    RoktAds: FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS,
+    TwitterAds: FEATURE_FLAGS.MARKETING_ANALYTICS_TWITTER_ADS,
+    AppleSearchAds: FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS,
+    OpenAIAds: FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS,
+}
 
 /**
  * Filter native marketing sources based on feature flags
@@ -45,7 +49,7 @@ export function getEnabledNativeMarketingSources(
     return VALID_NATIVE_MARKETING_SOURCES.filter((source) => {
         const featureFlagKey = NATIVE_SOURCE_FEATURE_FLAGS[source]
         if (featureFlagKey) {
-            return !!featureFlags[featureFlagKey]
+            return featureFlags[featureFlagKey] === true
         }
         return true
     })
@@ -70,6 +74,11 @@ const NATIVE_SOURCE_DISPLAY_LABELS: Record<NativeMarketingSource, string> = {
     BingAds: 'Bing Ads',
     SnapchatAds: 'Snapchat Ads',
     PinterestAds: 'Pinterest Ads',
+    AmazonAds: 'Amazon Ads',
+    RoktAds: 'Rokt Ads',
+    TwitterAds: 'X Ads',
+    AppleSearchAds: 'Apple Ads',
+    OpenAIAds: 'OpenAI Ads',
 }
 export function nativeSourceDisplayLabel(sourceType: string): string {
     return NATIVE_SOURCE_DISPLAY_LABELS[sourceType as NativeMarketingSource] ?? sourceType
@@ -316,9 +325,12 @@ interface SourceColumnMappings {
     clicks: string
     reportedConversion: string
     reportedConversionValue: string
+    reportedConversionValueCurrency?: string
     costNeedsDivision?: boolean
     currencyColumn?: string
     fallbackCurrency?: string
+    currencyTimestampColumn?: string
+    missingCurrencyMessage?: string
 }
 
 interface ConversionExprResult extends Partial<DataWarehouseNode> {
@@ -358,6 +370,125 @@ function buildConversionExpr(
 }
 
 const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
+    AmazonAds: {
+        idField: 'campaign_id',
+        timestampField: 'date',
+        columnMappings: {
+            cost: 'cost',
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: 'purchases14d',
+            reportedConversionValue: 'sales14d',
+            currencyColumn: 'campaign_budget_currency_code',
+            currencyTimestampColumn: 'date',
+        },
+        specialConversionLogic: (table, column) => {
+            if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                return buildConversionExpr('purchases14d', table)
+            }
+            if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                return buildConversionExpr('sales14d', table)
+            }
+            return null
+        },
+    },
+    TwitterAds: {
+        idField: 'entity_id',
+        timestampField: 'date',
+        columnMappings: {
+            cost: 'billed_charge_local_micro',
+            costNeedsDivision: true,
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: '0',
+            reportedConversionValue: '0',
+            currencyColumn: 'currency',
+            currencyTimestampColumn: 'date',
+            missingCurrencyMessage: 'X Ads currency is missing. Fully resync campaign_stats, then try again.',
+        },
+        specialConversionLogic: (_table, column) => {
+            if (
+                column === MarketingAnalyticsColumnsSchemaNames.ReportedConversion ||
+                column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue
+            ) {
+                return { math: HogQLMathType.HogQL, math_hogql: '0' }
+            }
+            return null
+        },
+    },
+    RoktAds: {
+        idField: 'campaign_id',
+        timestampField: 'datetime',
+        columnMappings: {
+            cost: 'gross_cost',
+            impressions: 'impressions',
+            clicks: 'referrals',
+            reportedConversion: 'conversions',
+            reportedConversionValue: 'conversion_value',
+            reportedConversionValueCurrency: 'USD',
+            currencyColumn: 'currency_code',
+            currencyTimestampColumn: 'datetime',
+            missingCurrencyMessage: 'Rokt Ads currency is missing. Fully resync CampaignPerformance, then try again.',
+        },
+        specialConversionLogic: (table, column) => {
+            if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                return buildConversionExpr('conversions', table)
+            }
+            if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                return buildConversionExpr('conversion_value', table)
+            }
+            return null
+        },
+    },
+    AppleSearchAds: {
+        idField: 'campaign_id',
+        timestampField: 'date',
+        columnMappings: {
+            cost: 'local_spend.amount',
+            impressions: 'impressions',
+            clicks: 'taps',
+            reportedConversion: 'total_installs',
+            reportedConversionValue: '0',
+            currencyColumn: 'local_spend.currency',
+            currencyTimestampColumn: 'date',
+        },
+        specialConversionLogic: (table, tileColumnSelection) => {
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                return buildConversionExpr(
+                    ['total_installs', 'installs'],
+                    table,
+                    (fields) => `SUM(coalesce(${fields.map((field) => `toFloat(${field})`).join(', ')}, 0))`
+                )
+            }
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                return { math: HogQLMathType.HogQL, math_hogql: '0' }
+            }
+            return null
+        },
+    },
+    OpenAIAds: {
+        idField: 'campaign_id',
+        timestampField: 'start_time',
+        columnMappings: {
+            cost: 'spend',
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: '0',
+            reportedConversionValue: '0',
+            currencyColumn: 'currency_code',
+            currencyTimestampColumn: 'start_time',
+            missingCurrencyMessage: 'OpenAI Ads currency is missing. Fully resync campaign_insights, then try again.',
+        },
+        specialConversionLogic: (_table, column) => {
+            if (
+                column === MarketingAnalyticsColumnsSchemaNames.ReportedConversion ||
+                column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue
+            ) {
+                return { math: HogQLMathType.HogQL, math_hogql: '0' }
+            }
+            return null
+        },
+    },
     GoogleAds: {
         // idField is a column on the stats table, which flattens `campaign.id` to
         // `campaign_id` and has no bare `id`.
@@ -643,12 +774,21 @@ function wrapWithCurrencyConversion(
 ): string {
     const currencyColumn = mappings.currencyColumn
     const fallbackCurrency = mappings.fallbackCurrency
-    const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
+    const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn.split('.')[0] in table.fields
 
     if (hasCurrencyColumn) {
-        return `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${valueExpr})))`
+        const dateArgument = mappings.currencyTimestampColumn
+            ? `, coalesce(toDate(${mappings.currencyTimestampColumn}), today())`
+            : ''
+        const converted = `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${valueExpr}${dateArgument})))`
+        return mappings.missingCurrencyMessage
+            ? `(${converted} + throwIf(countIf(empty(coalesce(${currencyColumn}, ''))) > 0, '${mappings.missingCurrencyMessage}'))`
+            : converted
     }
     if (fallbackCurrency) {
+        if (mappings.currencyTimestampColumn) {
+            return `SUM(toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', ${valueExpr}, coalesce(toDate(${mappings.currencyTimestampColumn}), today()))))`
+        }
         return `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', SUM(${valueExpr})))`
     }
     return `SUM(${valueExpr})`
@@ -662,7 +802,7 @@ function wrapAggregatedWithCurrencyConversion(
 ): string {
     const currencyColumn = mappings.currencyColumn
     const fallbackCurrency = mappings.fallbackCurrency
-    const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
+    const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn.split('.')[0] in table.fields
 
     if (hasCurrencyColumn) {
         return `toFloat(convertCurrency(any(coalesce(${currencyColumn}, '${baseCurrency}')), '${baseCurrency}', ${aggregatedExpr}))`
@@ -699,10 +839,72 @@ export function createMarketingTile(
         return null
     }
 
-    const table = source.tables.find((t) => t.name.split('.').pop() === integrationConfig.statsTableName)
+    const table = findSchemaByFieldName(
+        source.tables.map((table) => ({
+            name: (table.schema?.name ?? extractSchemaName(table.name, sourceType)).toLowerCase(),
+            table,
+        })),
+        integrationConfig.statsTableName.toLowerCase(),
+        sourceType
+    )?.table
     if (!table) {
         return null
     }
+
+    if (sourceType === 'RoktAds') {
+        if (
+            !['campaign_id', 'datetime', 'impressions', 'referrals', 'gross_cost'].every(
+                (field) => field in table.fields
+            )
+        ) {
+            return null
+        }
+        const monetaryColumn =
+            tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost ||
+            tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue ||
+            tileColumnSelection === 'roas' ||
+            tileColumnSelection === 'cost_per_reported_conversion'
+        if (monetaryColumn && !('currency_code' in table.fields)) {
+            return null
+        }
+    }
+
+    if (sourceType === 'AmazonAds' || sourceType === 'TwitterAds') {
+        const requiredFields =
+            sourceType === 'AmazonAds'
+                ? ['campaign_id', 'date', 'cost', 'impressions', 'clicks']
+                : ['entity_id', 'date', 'billed_charge_local_micro', 'impressions', 'clicks']
+        if (!requiredFields.every((field) => field in table.fields)) {
+            return null
+        }
+        const monetaryColumn =
+            tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost ||
+            tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue ||
+            tileColumnSelection === 'roas' ||
+            tileColumnSelection === 'cost_per_reported_conversion'
+        const currencyColumn = sourceType === 'AmazonAds' ? 'campaign_budget_currency_code' : 'currency'
+        if (monetaryColumn && !(currencyColumn in table.fields)) {
+            return null
+        }
+    }
+
+    if (sourceType === 'OpenAIAds') {
+        if (!['campaign_id', 'start_time', 'impressions', 'clicks', 'spend'].every((field) => field in table.fields)) {
+            return null
+        }
+        if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost && !('currency_code' in table.fields)) {
+            return null
+        }
+    }
+
+    const conversionValueMappings: SourceColumnMappings = tileConfig.columnMappings.reportedConversionValueCurrency
+        ? {
+              ...tileConfig.columnMappings,
+              currencyColumn: undefined,
+              fallbackCurrency: tileConfig.columnMappings.reportedConversionValueCurrency,
+              missingCurrencyMessage: undefined,
+          }
+        : tileConfig.columnMappings
 
     // Handle ROAS (Return on Ad Spend) - calculated as conversion_value / cost
     if (tileColumnSelection === 'roas') {
@@ -713,7 +915,16 @@ export function createMarketingTile(
             MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
             tileConfig.columnMappings.reportedConversionValue
         )
-        const mathHogql = conversionValueExpr === '0' ? '0' : `${conversionValueExpr} / nullIf(SUM(${costExpr}), 0)`
+        let totalValueExpr = conversionValueExpr
+        let totalCostExpr = `SUM(${costExpr})`
+        if (tileConfig.columnMappings.currencyTimestampColumn && conversionValueExpr !== '0') {
+            const perRowValue =
+                tileConfig.specialConversionLogic?.(table, MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue)
+                    ?.perRowValueExpr ?? safeFloat(tileConfig.columnMappings.reportedConversionValue)
+            totalValueExpr = wrapWithCurrencyConversion(perRowValue, conversionValueMappings, table, baseCurrency)
+            totalCostExpr = wrapWithCurrencyConversion(costExpr, tileConfig.columnMappings, table, baseCurrency)
+        }
+        const mathHogql = conversionValueExpr === '0' ? '0' : `${totalValueExpr} / nullIf(${totalCostExpr}, 0)`
         return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }
 
@@ -726,7 +937,10 @@ export function createMarketingTile(
             MarketingAnalyticsColumnsSchemaNames.ReportedConversion,
             tileConfig.columnMappings.reportedConversion
         )
-        const mathHogql = conversionExpr === '0' ? '0' : `SUM(${costExpr}) / nullIf(${conversionExpr}, 0)`
+        const totalCostExpr = tileConfig.columnMappings.currencyTimestampColumn
+            ? wrapWithCurrencyConversion(costExpr, tileConfig.columnMappings, table, baseCurrency)
+            : `SUM(${costExpr})`
+        const mathHogql = conversionExpr === '0' ? '0' : `${totalCostExpr} / nullIf(${conversionExpr}, 0)`
         return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }
 
@@ -749,14 +963,14 @@ export function createMarketingTile(
                 if (specialLogic.perRowValueExpr) {
                     finalMathHogql = wrapWithCurrencyConversion(
                         specialLogic.perRowValueExpr,
-                        tileConfig.columnMappings,
+                        conversionValueMappings,
                         table,
                         baseCurrency
                     )
                 } else {
                     finalMathHogql = wrapAggregatedWithCurrencyConversion(
                         finalMathHogql,
-                        tileConfig.columnMappings,
+                        conversionValueMappings,
                         table,
                         baseCurrency
                     )
@@ -829,9 +1043,13 @@ export function rowMatchesSearch(record: unknown, searchTerm: string): boolean {
     })
 }
 
-/** The stored filter is whatever an older build of this page wrote, so keep only the field we still read.
+/** The stored filter is whatever an older build of this page wrote, so keep only the fields we still read.
  * A key the query schema no longer accepts makes the backend reject every request the dashboard sends. */
 export function sanitizeIntegrationFilter(stored: unknown): IntegrationFilter {
     const ids = (stored as IntegrationFilter | null | undefined)?.integrationSourceIds
-    return { integrationSourceIds: Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : [] }
+    const includeNonIntegrated = (stored as IntegrationFilter | null | undefined)?.includeNonIntegrated
+    return {
+        integrationSourceIds: Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : [],
+        ...(typeof includeNonIntegrated === 'boolean' ? { includeNonIntegrated } : {}),
+    }
 }

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -51,13 +49,13 @@ class HumanitixSource(ResumableSource[HumanitixSourceConfig, HumanitixResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HUMANITIX,
+            name=ExternalDataSourceType.HUMANITIX,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Humanitix",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Humanitix API key to pull your Humanitix data into the PostHog Data warehouse.
 
-You can generate an API key under **Account → Advanced → Public API key** in the Humanitix dashboard. This single key grants read access to your events and tags.
+You can generate an API key under **Account → Advanced → Public API key** in the Humanitix dashboard. This single key grants read access to your events, tags, orders, and tickets.
 """,
             iconPath="/static/services/humanitix.png",
             docsUrl="https://posthog.com/docs/cdp/sources/humanitix",
@@ -101,8 +99,7 @@ You can generate an API key under **Account → Advanced → Public API key** in
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — Humanitix's list endpoints expose no server-side
-        # timestamp filter, so there is no incremental cursor to advance (INCREMENTAL_FIELDS is empty).
+        # Every endpoint is full refresh only (INCREMENTAL_FIELDS is empty); settings.py explains why.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(

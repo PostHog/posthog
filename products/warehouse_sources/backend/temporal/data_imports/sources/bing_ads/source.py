@@ -1,17 +1,15 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
-
-from posthog.exceptions_capture import capture_exception
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
@@ -37,7 +35,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 from .bing_ads import bing_ads_source, get_incremental_fields, get_schemas
 from .client import BingAdsClient
+from .schemas import BingAdsResource
 from .utils import BingAdsResumeConfig
+
+# Default incremental overlap re-read windows, keyed by schema name. The report request sets
+# ReturnOnlyCompleteData = False, so the newest days arrive before Microsoft finishes processing them,
+# and Microsoft attributes later conversions to the date of the click. An incremental sync that starts
+# at the newest imported day freezes each earlier day at its first-imported value. Re-reading a trailing
+# window lets those days catch up, and merge-by-primary-key makes the overlap idempotent. The window
+# matches the Google Ads stats tables, and users can change it per schema.
+BING_ADS_INCREMENTAL_LOOKBACK_SECONDS: dict[str, int] = {
+    BingAdsResource.DESTINATION_URL_PERFORMANCE_REPORT.value: 15 * 24 * 60 * 60,
+}
 
 
 @SourceRegistry.register
@@ -175,7 +184,7 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BING_ADS,
+            name=ExternalDataSourceType.BINGADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             keywords=["microsoft ads", "microsoft advertising"],
             label="Bing Ads",
@@ -314,6 +323,7 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
                     {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
                     for column_name, column_type in ads_incremental_fields.get(endpoint, [])
                 ],
+                default_incremental_lookback_seconds=BING_ADS_INCREMENTAL_LOOKBACK_SECONDS.get(endpoint),
             )
             for endpoint in bing_ads_schemas.keys()
         ]

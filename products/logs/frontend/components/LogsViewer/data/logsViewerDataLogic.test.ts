@@ -397,10 +397,49 @@ describe('logsViewerDataLogic', () => {
             }).toNotHaveDispatchedActions([filtersLogic.actionCreators.bumpFacetRefresh()])
         })
 
+        it.each([
+            ['setSessionId', 'sess-1'],
+            ['setPersonId', 'person-1'],
+        ])('setting and clearing the scope via %s triggers runQuery', async (action, value) => {
+            await expectLogic(logic, () => {
+                ;(filtersLogic.actions as any)[action](value)
+            }).toDispatchActions(['runQuery'])
+
+            await expectLogic(logic, () => {
+                ;(filtersLogic.actions as any)[action](undefined)
+            }).toDispatchActions(['runQuery'])
+        })
+
         it('setFilters triggers runQuery', async () => {
             await expectLogic(logic, () => {
                 filtersLogic.actions.setFilters({ searchTerm: 'new search' })
             }).toDispatchActions(['handleQueryChange', 'runQuery'])
+        })
+
+        it('mounting a scoped viewer runs one query, not one per scope prop', async () => {
+            // Without the guard the mount firing of each scope subscription adds its own query.
+            let queryCalls = 0
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/logs/query/': () => {
+                        queryCalls += 1
+                        return [200, { results: [], maxExportableLogs: 5000 }]
+                    },
+                    '/api/environments/:team_id/logs/sparkline/': () => [200, []],
+                },
+            })
+
+            const scopedFilters = logsViewerFiltersLogic({ id: 'scoped-tab', sessionId: 'sess-1' })
+            const scoped = logsViewerDataLogic({ id: 'scoped-tab' })
+            queryCalls = 0
+            scopedFilters.mount()
+            scoped.mount()
+            await expectLogic(scoped).toFinishAllListeners()
+
+            expect(queryCalls).toBe(1)
+
+            scoped.unmount()
+            scopedFilters.unmount()
         })
 
         it('setOrderBy triggers runQuery', async () => {

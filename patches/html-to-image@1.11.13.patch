@@ -1,0 +1,493 @@
+diff --git a/es/clone-node.js b/es/clone-node.js
+index 114cbf214f65cda237dbba67458c2b68fadf421e..6436f0377161d77ea048e8d451d68f34ccc8d634 100644
+--- a/es/clone-node.js
++++ b/es/clone-node.js
+@@ -2,8 +2,19 @@ import { clonePseudoElements } from './clone-pseudos';
+ import { createImage, toArray, isInstanceOfElement, getStyleProperties, } from './util';
+ import { getMimeType } from './mimes';
+ import { resourceToDataURL } from './dataurl';
++function readCanvasDataURL(canvas) {
++    try {
++        return canvas.toDataURL();
++    }
++    catch (error) {
++        const blank = canvas.ownerDocument.createElement('canvas');
++        blank.width = canvas.width;
++        blank.height = canvas.height;
++        return blank.toDataURL();
++    }
++}
+ async function cloneCanvasElement(canvas) {
+-    const dataURL = canvas.toDataURL();
++    const dataURL = readCanvasDataURL(canvas);
+     if (dataURL === 'data:,') {
+         return canvas.cloneNode(false);
+     }
+@@ -41,7 +52,12 @@ async function cloneSingleNode(node, options) {
+         return cloneCanvasElement(node);
+     }
+     if (isInstanceOfElement(node, HTMLVideoElement)) {
+-        return cloneVideoElement(node, options);
++        return cloneVideoElement(node, options).catch((error) => {
++            if (options.imagePlaceholder) {
++                return createImage(options.imagePlaceholder);
++            }
++            throw error;
++        });
+     }
+     if (isInstanceOfElement(node, HTMLIFrameElement)) {
+         return cloneIFrameElement(node, options);
+diff --git a/es/dataurl.js b/es/dataurl.js
+index 174e4b9c1f517448661016e619e0d9cbdc645b08..4850558b2d0a0c133f6c8a4e375e57b5da35ba44 100644
+--- a/es/dataurl.js
++++ b/es/dataurl.js
+@@ -9,8 +9,8 @@ export function makeDataUrl(content, mimeType) {
+ }
+ export async function fetchAsDataURL(url, init, process) {
+     const res = await fetch(url, init);
+-    if (res.status === 404) {
+-        throw new Error(`Resource "${res.url}" not found`);
++    if (!res.ok) {
++        throw new Error(`Resource "${res.url}" responded with ${res.status}`);
+     }
+     const blob = await res.blob();
+     return new Promise((resolve, reject) => {
+@@ -69,6 +69,7 @@ export async function resourceToDataURL(resourceUrl, contentType, options) {
+         if (msg) {
+             console.warn(msg);
+         }
++        return dataURL;
+     }
+     cache[cacheKey] = dataURL;
+     return dataURL;
+diff --git a/es/embed-webfonts.js b/es/embed-webfonts.js
+index f6b0d96829c8a3301c142cacd07079e85b1f64fd..c516c470bf587cc4e1005b067e6d16266829cec0 100644
+--- a/es/embed-webfonts.js
++++ b/es/embed-webfonts.js
+@@ -1,13 +1,13 @@
+-import { toArray } from './util';
++import { toArray, isInstanceOfElement } from './util';
+ import { fetchAsDataURL } from './dataurl';
+ import { shouldEmbed, embedResources } from './embed-resources';
+ const cssFetchCache = {};
+-async function fetchCSS(url) {
++async function fetchCSS(url, options) {
+     let cache = cssFetchCache[url];
+     if (cache != null) {
+         return cache;
+     }
+-    const res = await fetch(url);
++    const res = await fetch(url, options.fetchRequestInit);
+     const cssText = await res.text();
+     cache = { url, cssText };
+     cssFetchCache[url] = cache;
+@@ -73,31 +73,46 @@ function parseCSS(source) {
+     }
+     return result;
+ }
++function createDetachedSheet() {
++    try {
++        return new CSSStyleSheet();
++    }
++    catch (e) {
++        const doc = document.implementation.createHTMLDocument('');
++        const style = doc.createElement('style');
++        doc.head.appendChild(style);
++        return style.sheet;
++    }
++}
++function insertFetchedRule(sheet, rule) {
++    if (!sheet || rule.trimStart().startsWith('@import')) {
++        return;
++    }
++    try {
++        sheet.insertRule(rule, sheet.cssRules.length);
++    }
++    catch (error) {
++        console.error('Error inserting rule from remote css', {
++            rule,
++            error,
++        });
++    }
++}
+ async function getCSSRules(styleSheets, options) {
+     const ret = [];
+     const deferreds = [];
++    const fetchedRules = createDetachedSheet();
+     // First loop inlines imports
+     styleSheets.forEach((sheet) => {
+         if ('cssRules' in sheet) {
+             try {
+                 toArray(sheet.cssRules || []).forEach((item, index) => {
+                     if (item.type === CSSRule.IMPORT_RULE) {
+-                        let importIndex = index + 1;
+                         const url = item.href;
+-                        const deferred = fetchCSS(url)
++                        const deferred = fetchCSS(url, options)
+                             .then((metadata) => embedFonts(metadata, options))
+                             .then((cssText) => parseCSS(cssText).forEach((rule) => {
+-                            try {
+-                                sheet.insertRule(rule, rule.startsWith('@import')
+-                                    ? (importIndex += 1)
+-                                    : sheet.cssRules.length);
+-                            }
+-                            catch (error) {
+-                                console.error('Error inserting rule from remote css', {
+-                                    rule,
+-                                    error,
+-                                });
+-                            }
++                            insertFetchedRule(fetchedRules, rule);
+                         }))
+                             .catch((e) => {
+                             console.error('Error loading remote css', e.toString());
+@@ -107,12 +122,11 @@ async function getCSSRules(styleSheets, options) {
+                 });
+             }
+             catch (e) {
+-                const inline = styleSheets.find((a) => a.href == null) || document.styleSheets[0];
+                 if (sheet.href != null) {
+-                    deferreds.push(fetchCSS(sheet.href)
++                    deferreds.push(fetchCSS(sheet.href, options)
+                         .then((metadata) => embedFonts(metadata, options))
+                         .then((cssText) => parseCSS(cssText).forEach((rule) => {
+-                        inline.insertRule(rule, inline.cssRules.length);
++                        insertFetchedRule(fetchedRules, rule);
+                     }))
+                         .catch((err) => {
+                         console.error('Error loading remote stylesheet', err);
+@@ -136,6 +150,9 @@ async function getCSSRules(styleSheets, options) {
+                 }
+             }
+         });
++        toArray(fetchedRules ? fetchedRules.cssRules : []).forEach((item) => {
++            ret.push(item);
++        });
+         return ret;
+     });
+ }
+@@ -163,7 +180,7 @@ function getUsedFonts(node) {
+             fonts.add(normalizeFontFamily(font));
+         });
+         Array.from(node.children).forEach((child) => {
+-            if (child instanceof HTMLElement) {
++            if (isInstanceOfElement(child, HTMLElement)) {
+                 traverse(child);
+             }
+         });
+@@ -175,7 +192,7 @@ export async function getWebFontCSS(node, options) {
+     const rules = await parseWebFontRules(node, options);
+     const usedFonts = getUsedFonts(node);
+     const cssTexts = await Promise.all(rules
+-        .filter((rule) => usedFonts.has(normalizeFontFamily(rule.style.fontFamily)))
++        .filter((rule) => usedFonts.has(normalizeFontFamily(rule.style.getPropertyValue('font-family'))))
+         .map((rule) => {
+         const baseUrl = rule.parentStyleSheet
+             ? rule.parentStyleSheet.href
+diff --git a/es/index.js b/es/index.js
+index 0eda9388109fc26752b7df643813f80e135c95e5..270f4a97d4abf0bb1556e3fd7d1039ab7cd93c35 100644
+--- a/es/index.js
++++ b/es/index.js
+@@ -51,7 +51,7 @@ export async function toJpeg(node, options = {}) {
+ }
+ export async function toBlob(node, options = {}) {
+     const canvas = await toCanvas(node, options);
+-    const blob = await canvasToBlob(canvas);
++    const blob = await canvasToBlob(canvas, options);
+     return blob;
+ }
+ export async function getFontEmbedCSS(node, options = {}) {
+diff --git a/es/util.js b/es/util.js
+index 90a3cd19a6bcc763d98cbd476fde17f4bc0428fa..7c16761d3a1ff11ebb603a3693d74204656e3b4b 100644
+--- a/es/util.js
++++ b/es/util.js
+@@ -11,16 +11,17 @@ export function resolveUrl(url, baseUrl) {
+     if (url.match(/^[a-z]+:/i)) {
+         return url;
+     }
+-    const doc = document.implementation.createHTMLDocument();
+-    const base = doc.createElement('base');
+-    const a = doc.createElement('a');
+-    doc.head.appendChild(base);
+-    doc.body.appendChild(a);
+-    if (baseUrl) {
+-        base.href = baseUrl;
++    // Assigning <base href> is judged against `base-uri` even on a detached document, so under a
++    // strict policy Chromium refuses it and the URL resolves against about:blank. The URL
++    // constructor does the same resolution with no element and no policy surface. The only
++    // caller guards on a truthy baseUrl, and a base the parser rejects returns the input
++    // unchanged, which is what the anchor did too.
++    try {
++        return new URL(url, baseUrl).href;
++    }
++    catch (_e) {
++        return url;
+     }
+-    a.href = url;
+-    return a.href;
+ }
+ export const uuid = (() => {
+     // generate uuid for className of pseudo elements.
+@@ -149,7 +150,9 @@ export function createImage(url) {
+     return new Promise((resolve, reject) => {
+         const img = new Image();
+         img.onload = () => {
+-            img.decode().then(() => {
++            img.decode()
++                .catch(() => undefined)
++                .then(() => {
+                 requestAnimationFrame(() => resolve(img));
+             });
+         };
+diff --git a/lib/clone-node.js b/lib/clone-node.js
+index 214f4d30a50baae7f007d2399eeac298366538c7..a881e63325fbd9d77682164e4919d66d9ec2e79b 100644
+--- a/lib/clone-node.js
++++ b/lib/clone-node.js
+@@ -41,11 +41,22 @@ var clone_pseudos_1 = require("./clone-pseudos");
+ var util_1 = require("./util");
+ var mimes_1 = require("./mimes");
+ var dataurl_1 = require("./dataurl");
++function readCanvasDataURL(canvas) {
++    try {
++        return canvas.toDataURL();
++    }
++    catch (error) {
++        var blank = canvas.ownerDocument.createElement('canvas');
++        blank.width = canvas.width;
++        blank.height = canvas.height;
++        return blank.toDataURL();
++    }
++}
+ function cloneCanvasElement(canvas) {
+     return __awaiter(this, void 0, void 0, function () {
+         var dataURL;
+         return __generator(this, function (_a) {
+-            dataURL = canvas.toDataURL();
++            dataURL = readCanvasDataURL(canvas);
+             if (dataURL === 'data:,') {
+                 return [2 /*return*/, canvas.cloneNode(false)];
+             }
+@@ -105,7 +116,12 @@ function cloneSingleNode(node, options) {
+                 return [2 /*return*/, cloneCanvasElement(node)];
+             }
+             if ((0, util_1.isInstanceOfElement)(node, HTMLVideoElement)) {
+-                return [2 /*return*/, cloneVideoElement(node, options)];
++                return [2 /*return*/, cloneVideoElement(node, options).catch(function (error) {
++                        if (options.imagePlaceholder) {
++                            return (0, util_1.createImage)(options.imagePlaceholder);
++                        }
++                        throw error;
++                    })];
+             }
+             if ((0, util_1.isInstanceOfElement)(node, HTMLIFrameElement)) {
+                 return [2 /*return*/, cloneIFrameElement(node, options)];
+diff --git a/lib/dataurl.js b/lib/dataurl.js
+index d0b4141324abeb9a47322f03ee8a297d3bc926cb..ff0e779a94af09fd81dc582fffc777d778c7708c 100644
+--- a/lib/dataurl.js
++++ b/lib/dataurl.js
+@@ -56,8 +56,8 @@ function fetchAsDataURL(url, init, process) {
+                 case 0: return [4 /*yield*/, fetch(url, init)];
+                 case 1:
+                     res = _a.sent();
+-                    if (res.status === 404) {
+-                        throw new Error("Resource \"".concat(res.url, "\" not found"));
++                    if (!res.ok) {
++                        throw new Error("Resource \"".concat(res.url, "\" responded with ").concat(res.status));
+                     }
+                     return [4 /*yield*/, res.blob()];
+                 case 2:
+@@ -132,7 +132,7 @@ function resourceToDataURL(resourceUrl, contentType, options) {
+                     if (msg) {
+                         console.warn(msg);
+                     }
+-                    return [3 /*break*/, 4];
++                    return [2 /*return*/, dataURL];
+                 case 4:
+                     cache[cacheKey] = dataURL;
+                     return [2 /*return*/, dataURL];
+diff --git a/lib/embed-webfonts.js b/lib/embed-webfonts.js
+index c91538bd9c3afa63326a91267fb7b5b9c999cccd..af4d87c9ebe96b1a75bd1091f450d4ec94b00dd2 100644
+--- a/lib/embed-webfonts.js
++++ b/lib/embed-webfonts.js
+@@ -41,7 +41,7 @@ var util_1 = require("./util");
+ var dataurl_1 = require("./dataurl");
+ var embed_resources_1 = require("./embed-resources");
+ var cssFetchCache = {};
+-function fetchCSS(url) {
++function fetchCSS(url, options) {
+     return __awaiter(this, void 0, void 0, function () {
+         var cache, res, cssText;
+         return __generator(this, function (_a) {
+@@ -51,7 +51,7 @@ function fetchCSS(url) {
+                     if (cache != null) {
+                         return [2 /*return*/, cache];
+                     }
+-                    return [4 /*yield*/, fetch(url)];
++                    return [4 /*yield*/, fetch(url, options.fetchRequestInit)];
+                 case 1:
+                     res = _a.sent();
+                     return [4 /*yield*/, res.text()];
+@@ -134,35 +134,50 @@ function parseCSS(source) {
+     }
+     return result;
+ }
++function createDetachedSheet() {
++    try {
++        return new CSSStyleSheet();
++    }
++    catch (e) {
++        var doc = document.implementation.createHTMLDocument('');
++        var style = doc.createElement('style');
++        doc.head.appendChild(style);
++        return style.sheet;
++    }
++}
++function insertFetchedRule(sheet, rule) {
++    if (!sheet || rule.trimStart().startsWith('@import')) {
++        return;
++    }
++    try {
++        sheet.insertRule(rule, sheet.cssRules.length);
++    }
++    catch (error) {
++        console.error('Error inserting rule from remote css', {
++            rule: rule,
++            error: error,
++        });
++    }
++}
+ function getCSSRules(styleSheets, options) {
+     return __awaiter(this, void 0, void 0, function () {
+-        var ret, deferreds;
++        var ret, deferreds, fetchedRules;
+         return __generator(this, function (_a) {
+             ret = [];
+             deferreds = [];
++            fetchedRules = createDetachedSheet();
+             // First loop inlines imports
+             styleSheets.forEach(function (sheet) {
+                 if ('cssRules' in sheet) {
+                     try {
+                         (0, util_1.toArray)(sheet.cssRules || []).forEach(function (item, index) {
+                             if (item.type === CSSRule.IMPORT_RULE) {
+-                                var importIndex_1 = index + 1;
+                                 var url = item.href;
+-                                var deferred = fetchCSS(url)
++                                var deferred = fetchCSS(url, options)
+                                     .then(function (metadata) { return embedFonts(metadata, options); })
+                                     .then(function (cssText) {
+                                     return parseCSS(cssText).forEach(function (rule) {
+-                                        try {
+-                                            sheet.insertRule(rule, rule.startsWith('@import')
+-                                                ? (importIndex_1 += 1)
+-                                                : sheet.cssRules.length);
+-                                        }
+-                                        catch (error) {
+-                                            console.error('Error inserting rule from remote css', {
+-                                                rule: rule,
+-                                                error: error,
+-                                            });
+-                                        }
++                                        insertFetchedRule(fetchedRules, rule);
+                                     });
+                                 })
+                                     .catch(function (e) {
+@@ -173,13 +188,12 @@ function getCSSRules(styleSheets, options) {
+                         });
+                     }
+                     catch (e) {
+-                        var inline_1 = styleSheets.find(function (a) { return a.href == null; }) || document.styleSheets[0];
+                         if (sheet.href != null) {
+-                            deferreds.push(fetchCSS(sheet.href)
++                            deferreds.push(fetchCSS(sheet.href, options)
+                                 .then(function (metadata) { return embedFonts(metadata, options); })
+                                 .then(function (cssText) {
+                                 return parseCSS(cssText).forEach(function (rule) {
+-                                    inline_1.insertRule(rule, inline_1.cssRules.length);
++                                    insertFetchedRule(fetchedRules, rule);
+                                 });
+                             })
+                                 .catch(function (err) {
+@@ -204,6 +218,9 @@ function getCSSRules(styleSheets, options) {
+                             }
+                         }
+                     });
++                    (0, util_1.toArray)(fetchedRules ? fetchedRules.cssRules : []).forEach(function (item) {
++                        ret.push(item);
++                    });
+                     return ret;
+                 })];
+         });
+@@ -243,7 +260,7 @@ function getUsedFonts(node) {
+             fonts.add(normalizeFontFamily(font));
+         });
+         Array.from(node.children).forEach(function (child) {
+-            if (child instanceof HTMLElement) {
++            if ((0, util_1.isInstanceOfElement)(child, HTMLElement)) {
+                 traverse(child);
+             }
+         });
+@@ -262,7 +279,7 @@ function getWebFontCSS(node, options) {
+                     usedFonts = getUsedFonts(node);
+                     return [4 /*yield*/, Promise.all(rules
+                             .filter(function (rule) {
+-                            return usedFonts.has(normalizeFontFamily(rule.style.fontFamily));
++                            return usedFonts.has(normalizeFontFamily(rule.style.getPropertyValue('font-family')));
+                         })
+                             .map(function (rule) {
+                             var baseUrl = rule.parentStyleSheet
+diff --git a/lib/index.js b/lib/index.js
+index b8f1e8969373ea3b6a4217a884d129e471bbdf7c..252557f16f850650cdbcd041d89ab681fa36d49d 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -163,7 +163,7 @@ function toBlob(node, options) {
+                 case 0: return [4 /*yield*/, toCanvas(node, options)];
+                 case 1:
+                     canvas = _a.sent();
+-                    return [4 /*yield*/, (0, util_1.canvasToBlob)(canvas)];
++                    return [4 /*yield*/, (0, util_1.canvasToBlob)(canvas, options)];
+                 case 2:
+                     blob = _a.sent();
+                     return [2 /*return*/, blob];
+diff --git a/lib/util.js b/lib/util.js
+index 6a6ae9c8bd15b276d46773d853c2182aaba8326e..55968896a06e928da2a03f7f2af176ab2352c81b 100644
+--- a/lib/util.js
++++ b/lib/util.js
+@@ -50,16 +50,17 @@ function resolveUrl(url, baseUrl) {
+     if (url.match(/^[a-z]+:/i)) {
+         return url;
+     }
+-    var doc = document.implementation.createHTMLDocument();
+-    var base = doc.createElement('base');
+-    var a = doc.createElement('a');
+-    doc.head.appendChild(base);
+-    doc.body.appendChild(a);
+-    if (baseUrl) {
+-        base.href = baseUrl;
++    // Assigning <base href> is judged against `base-uri` even on a detached document, so under a
++    // strict policy Chromium refuses it and the URL resolves against about:blank. The URL
++    // constructor does the same resolution with no element and no policy surface. The only
++    // caller guards on a truthy baseUrl, and a base the parser rejects returns the input
++    // unchanged, which is what the anchor did too.
++    try {
++        return new URL(url, baseUrl).href;
++    }
++    catch (_e) {
++        return url;
+     }
+-    a.href = url;
+-    return a.href;
+ }
+ exports.resolveUrl = resolveUrl;
+ exports.uuid = (function () {
+@@ -202,7 +203,9 @@ function createImage(url) {
+     return new Promise(function (resolve, reject) {
+         var img = new Image();
+         img.onload = function () {
+-            img.decode().then(function () {
++            img.decode()
++                .catch(function () { return undefined; })
++                .then(function () {
+                 requestAnimationFrame(function () { return resolve(img); });
+             });
+         };

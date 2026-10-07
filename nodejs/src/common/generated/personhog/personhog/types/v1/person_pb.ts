@@ -13,7 +13,7 @@ import { file_personhog_types_v1_common } from './common_pb'
 export const file_personhog_types_v1_person: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'Ch9wZXJzb25ob2cvdHlwZXMvdjEvcGVyc29uLnByb3RvEhJwZXJzb25ob2cudHlwZXMudjEisgIKBlBlcnNvbhIKCgJpZBgBIAEoAxIMCgR1dWlkGAIgASgJEg8KB3RlYW1faWQYAyABKAMSEgoKcHJvcGVydGllcxgEIAEoDBIiChpwcm9wZXJ0aWVzX2xhc3RfdXBkYXRlZF9hdBgFIAEoDBIhChlwcm9wZXJ0aWVzX2xhc3Rfb3BlcmF0aW9uGAYgASgMEhIKCmNyZWF0ZWRfYXQYByABKAMSDwoHdmVyc2lvbhgIIAEoAxIVCg1pc19pZGVudGlmaWVkGAkgASgIEhcKCmlzX3VzZXJfaWQYCiABKAhIAIgBARIZCgxsYXN0X3NlZW5fYXQYCyABKANIAYgBARISCgppc19kZWxldGVkGAwgASgIQg0KC19pc191c2VyX2lkQg8KDV9sYXN0X3NlZW5fYXQiTgoVRGlzdGluY3RJZFdpdGhWZXJzaW9uEhMKC2Rpc3RpbmN0X2lkGAEgASgJEhQKB3ZlcnNpb24YAiABKANIAIgBAUIKCghfdmVyc2lvbiJoChVQZXJzb25XaXRoRGlzdGluY3RJZHMSEwoLZGlzdGluY3RfaWQYASABKAkSLwoGcGVyc29uGAIgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbkgAiAEBQgkKB19wZXJzb24iZwoRUGVyc29uRGlzdGluY3RJZHMSEQoJcGVyc29uX2lkGAEgASgDEj8KDGRpc3RpbmN0X2lkcxgCIAMoCzIpLnBlcnNvbmhvZy50eXBlcy52MS5EaXN0aW5jdElkV2l0aFZlcnNpb24ihwEKGFBlcnNvbldpdGhUZWFtRGlzdGluY3RJZBIvCgNrZXkYASABKAsyIi5wZXJzb25ob2cudHlwZXMudjEuVGVhbURpc3RpbmN0SWQSLwoGcGVyc29uGAIgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbkgAiAEBQgkKB19wZXJzb24ibQoQR2V0UGVyc29uUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhEKCXBlcnNvbl9pZBgCIAEoAxI1CgxyZWFkX29wdGlvbnMYAyABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMiTwoRR2V0UGVyc29uUmVzcG9uc2USLwoGcGVyc29uGAEgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbkgAiAEBQgkKB19wZXJzb24ibwoRR2V0UGVyc29uc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxISCgpwZXJzb25faWRzGAIgAygDEjUKDHJlYWRfb3B0aW9ucxgDIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucyJTCg9QZXJzb25zUmVzcG9uc2USKwoHcGVyc29ucxgBIAMoCzIaLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb24SEwoLbWlzc2luZ19pZHMYAiADKAMibgoWR2V0UGVyc29uQnlVdWlkUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEgwKBHV1aWQYAiABKAkSNQoMcmVhZF9vcHRpb25zGAMgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zInEKGEdldFBlcnNvbnNCeVV1aWRzUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEg0KBXV1aWRzGAIgAygJEjUKDHJlYWRfb3B0aW9ucxgDIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucyJ7ChxHZXRQZXJzb25CeURpc3RpbmN0SWRSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEwoLZGlzdGluY3RfaWQYAiABKAkSNQoMcmVhZF9vcHRpb25zGAMgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zIoQBCiRHZXRQZXJzb25zQnlEaXN0aW5jdElkc0luVGVhbVJlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIUCgxkaXN0aW5jdF9pZHMYAiADKAkSNQoMcmVhZF9vcHRpb25zGAMgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zImAKIlBlcnNvbnNCeURpc3RpbmN0SWRzSW5UZWFtUmVzcG9uc2USOgoHcmVzdWx0cxgBIAMoCzIpLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb25XaXRoRGlzdGluY3RJZHMilgEKHkdldFBlcnNvbnNCeURpc3RpbmN0SWRzUmVxdWVzdBI9ChF0ZWFtX2Rpc3RpbmN0X2lkcxgBIAMoCzIiLnBlcnNvbmhvZy50eXBlcy52MS5UZWFtRGlzdGluY3RJZBI1CgxyZWFkX29wdGlvbnMYAiABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMiXQocUGVyc29uc0J5RGlzdGluY3RJZHNSZXNwb25zZRI9CgdyZXN1bHRzGAEgAygLMiwucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbldpdGhUZWFtRGlzdGluY3RJZCKZAQoeR2V0RGlzdGluY3RJZHNGb3JQZXJzb25SZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEQoJcGVyc29uX2lkGAIgASgDEjUKDHJlYWRfb3B0aW9ucxgDIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucxISCgVsaW1pdBgEIAEoA0gAiAEBQggKBl9saW1pdCJiCh9HZXREaXN0aW5jdElkc0ZvclBlcnNvblJlc3BvbnNlEj8KDGRpc3RpbmN0X2lkcxgBIAMoCzIpLnBlcnNvbmhvZy50eXBlcy52MS5EaXN0aW5jdElkV2l0aFZlcnNpb24isQEKH0dldERpc3RpbmN0SWRzRm9yUGVyc29uc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxISCgpwZXJzb25faWRzGAIgAygDEjUKDHJlYWRfb3B0aW9ucxgDIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucxIdChBsaW1pdF9wZXJfcGVyc29uGAQgASgDSACIAQFCEwoRX2xpbWl0X3Blcl9wZXJzb24iZgogR2V0RGlzdGluY3RJZHNGb3JQZXJzb25zUmVzcG9uc2USQgoTcGVyc29uX2Rpc3RpbmN0X2lkcxgBIAMoCzIlLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb25EaXN0aW5jdElkcyKWAgodVXBkYXRlUGVyc29uUHJvcGVydGllc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIRCglwZXJzb25faWQYAiABKAMSEgoKZXZlbnRfbmFtZRgDIAEoCRIWCg5zZXRfcHJvcGVydGllcxgEIAEoDBIbChNzZXRfb25jZV9wcm9wZXJ0aWVzGAUgASgMEhgKEHVuc2V0X3Byb3BlcnRpZXMYBiADKAkSGgoNaXNfaWRlbnRpZmllZBgHIAEoCEgAiAEBEhkKDGxhc3Rfc2Vlbl9hdBgIIAEoA0gBiAEBEhQKDGZvcmNlX3VwZGF0ZRgJIAEoCEIQCg5faXNfaWRlbnRpZmllZEIPCg1fbGFzdF9zZWVuX2F0Im0KHlVwZGF0ZVBlcnNvblByb3BlcnRpZXNSZXNwb25zZRIvCgZwZXJzb24YASABKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uSACIAQESDwoHdXBkYXRlZBgCIAEoCEIJCgdfcGVyc29uIj0KFERlbGV0ZVBlcnNvbnNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSFAoMcGVyc29uX3V1aWRzGAIgAygJIi4KFURlbGV0ZVBlcnNvbnNSZXNwb25zZRIVCg1kZWxldGVkX2NvdW50GAEgASgDIkcKIERlbGV0ZVBlcnNvbnNCYXRjaEZvclRlYW1SZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEgoKYmF0Y2hfc2l6ZRgCIAEoAyI6CiFEZWxldGVQZXJzb25zQmF0Y2hGb3JUZWFtUmVzcG9uc2USFQoNZGVsZXRlZF9jb3VudBgBIAEoAyJXChJTcGxpdFBlcnNvblJlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIRCglwZXJzb25faWQYAiABKAMSHQoVZGlzdGluY3RfaWRzX3RvX3NwbGl0GAMgAygJIo4BCgtTcGxpdFJlc3VsdBITCgtkaXN0aW5jdF9pZBgBIAEoCRIXCg9uZXdfcGVyc29uX3V1aWQYAiABKAkSGgoSbmV3X3BlcnNvbl92ZXJzaW9uGAMgASgDEhMKC3BkaV92ZXJzaW9uGAQgASgDEiAKGG5ld19wZXJzb25fY3JlYXRlZF9hdF9tcxgFIAEoAyJGChNTcGxpdFBlcnNvblJlc3BvbnNlEi8KBnNwbGl0cxgBIAMoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5TcGxpdFJlc3VsdCJjCiZTZXRQZXJzb25EaXN0aW5jdElkVmVyc2lvbkZsb29yUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJEhMKC21pbl92ZXJzaW9uGAMgASgDImUKJ1NldFBlcnNvbkRpc3RpbmN0SWRWZXJzaW9uRmxvb3JSZXNwb25zZRIvCgZwZXJzb24YASABKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uSACIAQFCCQoHX3BlcnNvbiJXChxTZXRQZXJzb25WZXJzaW9uRmxvb3JSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEQoJcGVyc29uX2lkGAIgASgDEhMKC21pbl92ZXJzaW9uGAMgASgDIjAKHVNldFBlcnNvblZlcnNpb25GbG9vclJlc3BvbnNlEg8KB3VwZGF0ZWQYASABKAgifQoSRmVuY2VQZXJzb25SZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEQoJcGVyc29uX2lkGAIgASgDEg0KBW9wX2lkGAMgASgJEjQKB29wX3R5cGUYBCABKA4yIy5wZXJzb25ob2cudHlwZXMudjEuTGlmZWN5Y2xlT3BUeXBlIkEKE0ZlbmNlUGVyc29uUmVzcG9uc2USKgoGc2VhbGVkGAEgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbiLWAQoTUmVsZWFzZUZlbmNlUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhEKCXBlcnNvbl9pZBgCIAEoAxITCgtwZXJzb25fdXVpZBgDIAEoCRINCgVvcF9pZBgEIAEoCRIzCgdvdXRjb21lGAUgASgOMiIucGVyc29uaG9nLnR5cGVzLnYxLlJlbGVhc2VPdXRjb21lEhsKDnNlYWxlZF92ZXJzaW9uGAYgASgDSACIAQESEgoKY3JlYXRlZF9hdBgHIAEoA0IRCg9fc2VhbGVkX3ZlcnNpb24iFgoUUmVsZWFzZUZlbmNlUmVzcG9uc2UiUwoUU2VhbGVkU291cmNlU25hcHNob3QSKgoGcGVyc29uGAEgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbhIPCgdvcmRpbmFsGAIgASgFIr0BChlGb2xkUGVyc29uRG9jdW1lbnRSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEQoJcGVyc29uX2lkGAIgASgDEkIKEHNlYWxlZF9zbmFwc2hvdHMYAyADKAsyKC5wZXJzb25ob2cudHlwZXMudjEuU2VhbGVkU291cmNlU25hcHNob3QSEQoJZXZlbnRfc2V0GAQgASgMEhYKDmV2ZW50X3NldF9vbmNlGAUgASgMEg0KBW9wX2lkGAYgASgJIkgKGkZvbGRQZXJzb25Eb2N1bWVudFJlc3BvbnNlEioKBnBlcnNvbhgBIAEoCzIaLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb24qbwoPTGlmZWN5Y2xlT3BUeXBlEiEKHUxJRkVDWUNMRV9PUF9UWVBFX1VOU1BFQ0lGSUVEEAASHAoYTElGRUNZQ0xFX09QX1RZUEVfREVMRVRFEAESGwoXTElGRUNZQ0xFX09QX1RZUEVfTUVSR0UQAiptCg5SZWxlYXNlT3V0Y29tZRIfChtSRUxFQVNFX09VVENPTUVfVU5TUEVDSUZJRUQQABIdChlSRUxFQVNFX09VVENPTUVfQ09NTUlUVEVEEAESGwoXUkVMRUFTRV9PVVRDT01FX0FCT1JURUQQAmIGcHJvdG8z',
+        'Ch9wZXJzb25ob2cvdHlwZXMvdjEvcGVyc29uLnByb3RvEhJwZXJzb25ob2cudHlwZXMudjEisgIKBlBlcnNvbhIKCgJpZBgBIAEoAxIMCgR1dWlkGAIgASgJEg8KB3RlYW1faWQYAyABKAMSEgoKcHJvcGVydGllcxgEIAEoDBIiChpwcm9wZXJ0aWVzX2xhc3RfdXBkYXRlZF9hdBgFIAEoDBIhChlwcm9wZXJ0aWVzX2xhc3Rfb3BlcmF0aW9uGAYgASgMEhIKCmNyZWF0ZWRfYXQYByABKAMSDwoHdmVyc2lvbhgIIAEoAxIVCg1pc19pZGVudGlmaWVkGAkgASgIEhcKCmlzX3VzZXJfaWQYCiABKAhIAIgBARIZCgxsYXN0X3NlZW5fYXQYCyABKANIAYgBARISCgppc19kZWxldGVkGAwgASgIQg0KC19pc191c2VyX2lkQg8KDV9sYXN0X3NlZW5fYXQiZgoVRGlzdGluY3RJZFdpdGhWZXJzaW9uEhMKC2Rpc3RpbmN0X2lkGAEgASgJEhQKB3ZlcnNpb24YAiABKANIAIgBARIPCgJpZBgDIAEoA0gBiAEBQgoKCF92ZXJzaW9uQgUKA19pZCJoChVQZXJzb25XaXRoRGlzdGluY3RJZHMSEwoLZGlzdGluY3RfaWQYASABKAkSLwoGcGVyc29uGAIgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbkgAiAEBQgkKB19wZXJzb24iZwoRUGVyc29uRGlzdGluY3RJZHMSEQoJcGVyc29uX2lkGAEgASgDEj8KDGRpc3RpbmN0X2lkcxgCIAMoCzIpLnBlcnNvbmhvZy50eXBlcy52MS5EaXN0aW5jdElkV2l0aFZlcnNpb24ihwEKGFBlcnNvbldpdGhUZWFtRGlzdGluY3RJZBIvCgNrZXkYASABKAsyIi5wZXJzb25ob2cudHlwZXMudjEuVGVhbURpc3RpbmN0SWQSLwoGcGVyc29uGAIgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbkgAiAEBQgkKB19wZXJzb24ibQoQR2V0UGVyc29uUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhEKCXBlcnNvbl9pZBgCIAEoAxI1CgxyZWFkX29wdGlvbnMYAyABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMiTwoRR2V0UGVyc29uUmVzcG9uc2USLwoGcGVyc29uGAEgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbkgAiAEBQgkKB19wZXJzb24ibwoRR2V0UGVyc29uc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxISCgpwZXJzb25faWRzGAIgAygDEjUKDHJlYWRfb3B0aW9ucxgDIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucyJTCg9QZXJzb25zUmVzcG9uc2USKwoHcGVyc29ucxgBIAMoCzIaLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb24SEwoLbWlzc2luZ19pZHMYAiADKAMibgoWR2V0UGVyc29uQnlVdWlkUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEgwKBHV1aWQYAiABKAkSNQoMcmVhZF9vcHRpb25zGAMgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zInEKGEdldFBlcnNvbnNCeVV1aWRzUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEg0KBXV1aWRzGAIgAygJEjUKDHJlYWRfb3B0aW9ucxgDIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucyJ7ChxHZXRQZXJzb25CeURpc3RpbmN0SWRSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEwoLZGlzdGluY3RfaWQYAiABKAkSNQoMcmVhZF9vcHRpb25zGAMgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zIoQBCiRHZXRQZXJzb25zQnlEaXN0aW5jdElkc0luVGVhbVJlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIUCgxkaXN0aW5jdF9pZHMYAiADKAkSNQoMcmVhZF9vcHRpb25zGAMgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zImAKIlBlcnNvbnNCeURpc3RpbmN0SWRzSW5UZWFtUmVzcG9uc2USOgoHcmVzdWx0cxgBIAMoCzIpLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb25XaXRoRGlzdGluY3RJZHMilgEKHkdldFBlcnNvbnNCeURpc3RpbmN0SWRzUmVxdWVzdBI9ChF0ZWFtX2Rpc3RpbmN0X2lkcxgBIAMoCzIiLnBlcnNvbmhvZy50eXBlcy52MS5UZWFtRGlzdGluY3RJZBI1CgxyZWFkX29wdGlvbnMYAiABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMiXQocUGVyc29uc0J5RGlzdGluY3RJZHNSZXNwb25zZRI9CgdyZXN1bHRzGAEgAygLMiwucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbldpdGhUZWFtRGlzdGluY3RJZCK/AQoeR2V0RGlzdGluY3RJZHNGb3JQZXJzb25SZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEQoJcGVyc29uX2lkGAIgASgDEjUKDHJlYWRfb3B0aW9ucxgDIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucxISCgVsaW1pdBgEIAEoA0gAiAEBEhYKCWN1cnNvcl9pZBgFIAEoA0gBiAEBQggKBl9saW1pdEIMCgpfY3Vyc29yX2lkIpIBCh9HZXREaXN0aW5jdElkc0ZvclBlcnNvblJlc3BvbnNlEj8KDGRpc3RpbmN0X2lkcxgBIAMoCzIpLnBlcnNvbmhvZy50eXBlcy52MS5EaXN0aW5jdElkV2l0aFZlcnNpb24SGwoObmV4dF9jdXJzb3JfaWQYAiABKANIAIgBAUIRCg9fbmV4dF9jdXJzb3JfaWQisQEKH0dldERpc3RpbmN0SWRzRm9yUGVyc29uc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxISCgpwZXJzb25faWRzGAIgAygDEjUKDHJlYWRfb3B0aW9ucxgDIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucxIdChBsaW1pdF9wZXJfcGVyc29uGAQgASgDSACIAQFCEwoRX2xpbWl0X3Blcl9wZXJzb24iZgogR2V0RGlzdGluY3RJZHNGb3JQZXJzb25zUmVzcG9uc2USQgoTcGVyc29uX2Rpc3RpbmN0X2lkcxgBIAMoCzIlLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb25EaXN0aW5jdElkcyKWAgodVXBkYXRlUGVyc29uUHJvcGVydGllc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIRCglwZXJzb25faWQYAiABKAMSEgoKZXZlbnRfbmFtZRgDIAEoCRIWCg5zZXRfcHJvcGVydGllcxgEIAEoDBIbChNzZXRfb25jZV9wcm9wZXJ0aWVzGAUgASgMEhgKEHVuc2V0X3Byb3BlcnRpZXMYBiADKAkSGgoNaXNfaWRlbnRpZmllZBgHIAEoCEgAiAEBEhkKDGxhc3Rfc2Vlbl9hdBgIIAEoA0gBiAEBEhQKDGZvcmNlX3VwZGF0ZRgJIAEoCEIQCg5faXNfaWRlbnRpZmllZEIPCg1fbGFzdF9zZWVuX2F0Im0KHlVwZGF0ZVBlcnNvblByb3BlcnRpZXNSZXNwb25zZRIvCgZwZXJzb24YASABKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uSACIAQESDwoHdXBkYXRlZBgCIAEoCEIJCgdfcGVyc29uInIKFERlbGV0ZVBlcnNvbnNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSFAoMcGVyc29uX3V1aWRzGAIgAygJEjMKBG1vZGUYAyABKA4yJS5wZXJzb25ob2cudHlwZXMudjEuRGVsZXRlUGVyc29uc01vZGUiPAoUVG9tYnN0b25lZERpc3RpbmN0SWQSEwoLZGlzdGluY3RfaWQYASABKAkSDwoHdmVyc2lvbhgCIAEoAyJ4ChBUb21ic3RvbmVkUGVyc29uEhMKC3BlcnNvbl91dWlkGAEgASgJEg8KB3ZlcnNpb24YAiABKAMSPgoMZGlzdGluY3RfaWRzGAMgAygLMigucGVyc29uaG9nLnR5cGVzLnYxLlRvbWJzdG9uZWREaXN0aW5jdElkInwKFURlbGV0ZVBlcnNvbnNSZXNwb25zZRIVCg1kZWxldGVkX2NvdW50GAEgASgDEhIKCnRvbWJzdG9uZWQYAiABKAgSOAoKdG9tYnN0b25lcxgDIAMoCzIkLnBlcnNvbmhvZy50eXBlcy52MS5Ub21ic3RvbmVkUGVyc29uIkMKGkdldFBlcnNvblRvbWJzdG9uZXNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSFAoMcGVyc29uX3V1aWRzGAIgAygJIlcKG0dldFBlcnNvblRvbWJzdG9uZXNSZXNwb25zZRI4Cgp0b21ic3RvbmVzGAEgAygLMiQucGVyc29uaG9nLnR5cGVzLnYxLlRvbWJzdG9uZWRQZXJzb24iPAoUQWNrZWRQZXJzb25Ub21ic3RvbmUSEwoLcGVyc29uX3V1aWQYASABKAkSDwoHdmVyc2lvbhgCIAEoAyJrChpBY2tQZXJzb25Ub21ic3RvbmVzUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEjwKCnRvbWJzdG9uZXMYAiADKAsyKC5wZXJzb25ob2cudHlwZXMudjEuQWNrZWRQZXJzb25Ub21ic3RvbmUiNAobQWNrUGVyc29uVG9tYnN0b25lc1Jlc3BvbnNlEhUKDWNsZWFyZWRfY291bnQYASABKAMihAEKH0xpc3RQZXJzb25Ub21ic3RvbmVRdWV1ZVJlcXVlc3QSFQoNYWZ0ZXJfdGVhbV9pZBgBIAEoAxIZChFhZnRlcl9wZXJzb25fdXVpZBgCIAEoCRINCgVsaW1pdBgDIAEoAxIUCgd0ZWFtX2lkGAQgASgDSACIAQFCCgoIX3RlYW1faWQicAoZUGVyc29uVG9tYnN0b25lUXVldWVFbnRyeRIPCgd0ZWFtX2lkGAEgASgDEhMKC3BlcnNvbl91dWlkGAIgASgJEhYKDnBlcnNvbl92ZXJzaW9uGAMgASgDEhUKDXRvbWJzdG9uZWRfYXQYBCABKAMiYgogTGlzdFBlcnNvblRvbWJzdG9uZVF1ZXVlUmVzcG9uc2USPgoHZW50cmllcxgBIAMoCzItLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb25Ub21ic3RvbmVRdWV1ZUVudHJ5IkcKIERlbGV0ZVBlcnNvbnNCYXRjaEZvclRlYW1SZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEgoKYmF0Y2hfc2l6ZRgCIAEoAyI6CiFEZWxldGVQZXJzb25zQmF0Y2hGb3JUZWFtUmVzcG9uc2USFQoNZGVsZXRlZF9jb3VudBgBIAEoAyKcAQoeRGVsZXRlVG9tYnN0b25lZFBlcnNvbnNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSFAoMcGVyc29uX3V1aWRzGAIgAygJEhAKCG1heF9yb3dzGAMgASgDEkEKD2JvdW5kZWRfcGVyc29ucxgEIAMoCzIoLnBlcnNvbmhvZy50eXBlcy52MS5WZXJzaW9uQm91bmRlZFBlcnNvbiJAChRWZXJzaW9uQm91bmRlZFBlcnNvbhITCgtwZXJzb25fdXVpZBgBIAEoCRITCgttYXhfdmVyc2lvbhgCIAEoAyLkAQofRGVsZXRlVG9tYnN0b25lZFBlcnNvbnNSZXNwb25zZRIVCg1kZWxldGVkX2NvdW50GAEgASgDEhoKEnNraXBwZWRfbGl2ZV9jb3VudBgCIAEoAxIcChRibG9ja2VkX3BlcnNvbl91dWlkcxgDIAMoCRIcChRwZW5kaW5nX3BlcnNvbl91dWlkcxgEIAMoCRIUCgxyb3dzX2RlbGV0ZWQYBSABKAMSHQoVdmVyc2lvbl9ndWFyZF9hcHBsaWVkGAYgASgIEh0KFXNraXBwZWRfdmVyc2lvbl9jb3VudBgHIAEoAyJXChJTcGxpdFBlcnNvblJlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIRCglwZXJzb25faWQYAiABKAMSHQoVZGlzdGluY3RfaWRzX3RvX3NwbGl0GAMgAygJIo4BCgtTcGxpdFJlc3VsdBITCgtkaXN0aW5jdF9pZBgBIAEoCRIXCg9uZXdfcGVyc29uX3V1aWQYAiABKAkSGgoSbmV3X3BlcnNvbl92ZXJzaW9uGAMgASgDEhMKC3BkaV92ZXJzaW9uGAQgASgDEiAKGG5ld19wZXJzb25fY3JlYXRlZF9hdF9tcxgFIAEoAyJGChNTcGxpdFBlcnNvblJlc3BvbnNlEi8KBnNwbGl0cxgBIAMoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5TcGxpdFJlc3VsdCJjCiZTZXRQZXJzb25EaXN0aW5jdElkVmVyc2lvbkZsb29yUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJEhMKC21pbl92ZXJzaW9uGAMgASgDImUKJ1NldFBlcnNvbkRpc3RpbmN0SWRWZXJzaW9uRmxvb3JSZXNwb25zZRIvCgZwZXJzb24YASABKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uSACIAQFCCQoHX3BlcnNvbiJXChxTZXRQZXJzb25WZXJzaW9uRmxvb3JSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEQoJcGVyc29uX2lkGAIgASgDEhMKC21pbl92ZXJzaW9uGAMgASgDIjAKHVNldFBlcnNvblZlcnNpb25GbG9vclJlc3BvbnNlEg8KB3VwZGF0ZWQYASABKAgiPgoSUGVyc29uVmVyc2lvbkZsb29yEhMKC3BlcnNvbl91dWlkGAEgASgJEhMKC21pbl92ZXJzaW9uGAIgASgDImsKIEVuc3VyZVBlcnNvblZlcnNpb25GbG9vcnNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSNgoGZmxvb3JzGAIgAygLMiYucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvblZlcnNpb25GbG9vciJ6ChhQZXJzb25WZXJzaW9uRmxvb3JSZXN1bHQSEwoLcGVyc29uX3V1aWQYASABKAkSOAoHb3V0Y29tZRgCIAEoDjInLnBlcnNvbmhvZy50eXBlcy52MS5WZXJzaW9uRmxvb3JPdXRjb21lEg8KB3ZlcnNpb24YAyABKAMiYgohRW5zdXJlUGVyc29uVmVyc2lvbkZsb29yc1Jlc3BvbnNlEj0KB3Jlc3VsdHMYASADKAsyLC5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uVmVyc2lvbkZsb29yUmVzdWx0In0KEkZlbmNlUGVyc29uUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhEKCXBlcnNvbl9pZBgCIAEoAxINCgVvcF9pZBgDIAEoCRI0CgdvcF90eXBlGAQgASgOMiMucGVyc29uaG9nLnR5cGVzLnYxLkxpZmVjeWNsZU9wVHlwZSJBChNGZW5jZVBlcnNvblJlc3BvbnNlEioKBnNlYWxlZBgBIAEoCzIaLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb24ifwoTRmVuY2VQZXJzb25zUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEg0KBW9wX2lkGAIgASgJEjQKB29wX3R5cGUYAyABKA4yIy5wZXJzb25ob2cudHlwZXMudjEuTGlmZWN5Y2xlT3BUeXBlEhIKCnBlcnNvbl9pZHMYBCADKAMiXwoURmVuY2VQZXJzb25zUmVzcG9uc2USNAoGc2VhbGVkGAEgAygLMiQucGVyc29uaG9nLnR5cGVzLnYxLkZlbmNlZFBlcnNvblNlYWwSEQoJbm90X2ZvdW5kGAIgAygDIkoKEEZlbmNlZFBlcnNvblNlYWwSEQoJcGVyc29uX2lkGAEgASgDEg8KB3ZlcnNpb24YAiABKAMSEgoKY3JlYXRlZF9hdBgDIAEoAyLWAQoTUmVsZWFzZUZlbmNlUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhEKCXBlcnNvbl9pZBgCIAEoAxITCgtwZXJzb25fdXVpZBgDIAEoCRINCgVvcF9pZBgEIAEoCRIzCgdvdXRjb21lGAUgASgOMiIucGVyc29uaG9nLnR5cGVzLnYxLlJlbGVhc2VPdXRjb21lEhsKDnNlYWxlZF92ZXJzaW9uGAYgASgDSACIAQESEgoKY3JlYXRlZF9hdBgHIAEoA0IRCg9fc2VhbGVkX3ZlcnNpb24iFgoUUmVsZWFzZUZlbmNlUmVzcG9uc2UiogEKFFJlbGVhc2VGZW5jZXNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSDQoFb3BfaWQYAiABKAkSMwoHb3V0Y29tZRgDIAEoDjIiLnBlcnNvbmhvZy50eXBlcy52MS5SZWxlYXNlT3V0Y29tZRI1CgdwZXJzb25zGAQgAygLMiQucGVyc29uaG9nLnR5cGVzLnYxLlJlbGVhc2VGZW5jZUl0ZW0ifgoQUmVsZWFzZUZlbmNlSXRlbRIRCglwZXJzb25faWQYASABKAMSEwoLcGVyc29uX3V1aWQYAiABKAkSGwoOc2VhbGVkX3ZlcnNpb24YAyABKANIAIgBARISCgpjcmVhdGVkX2F0GAQgASgDQhEKD19zZWFsZWRfdmVyc2lvbiIXChVSZWxlYXNlRmVuY2VzUmVzcG9uc2UiUwoUU2VhbGVkU291cmNlU25hcHNob3QSKgoGcGVyc29uGAEgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbhIPCgdvcmRpbmFsGAIgASgFIr0BChlGb2xkUGVyc29uRG9jdW1lbnRSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEQoJcGVyc29uX2lkGAIgASgDEkIKEHNlYWxlZF9zbmFwc2hvdHMYAyADKAsyKC5wZXJzb25ob2cudHlwZXMudjEuU2VhbGVkU291cmNlU25hcHNob3QSEQoJZXZlbnRfc2V0GAQgASgMEhYKDmV2ZW50X3NldF9vbmNlGAUgASgMEg0KBW9wX2lkGAYgASgJIkgKGkZvbGRQZXJzb25Eb2N1bWVudFJlc3BvbnNlEioKBnBlcnNvbhgBIAEoCzIaLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb24qeQoRRGVsZXRlUGVyc29uc01vZGUSIwofREVMRVRFX1BFUlNPTlNfTU9ERV9VTlNQRUNJRklFRBAAEhwKGERFTEVURV9QRVJTT05TX01PREVfSEFSRBABEiEKHURFTEVURV9QRVJTT05TX01PREVfVE9NQlNUT05FEAIq5AEKE1ZlcnNpb25GbG9vck91dGNvbWUSJQohVkVSU0lPTl9GTE9PUl9PVVRDT01FX1VOU1BFQ0lGSUVEEAASLAooVkVSU0lPTl9GTE9PUl9PVVRDT01FX1RPTUJTVE9ORV9JTlNFUlRFRBABEioKJlZFUlNJT05fRkxPT1JfT1VUQ09NRV9UT01CU1RPTkVfUkFJU0VEEAISLAooVkVSU0lPTl9GTE9PUl9PVVRDT01FX1RPTUJTVE9ORV9BVF9GTE9PUhADEh4KGlZFUlNJT05fRkxPT1JfT1VUQ09NRV9MSVZFEAQqbwoPTGlmZWN5Y2xlT3BUeXBlEiEKHUxJRkVDWUNMRV9PUF9UWVBFX1VOU1BFQ0lGSUVEEAASHAoYTElGRUNZQ0xFX09QX1RZUEVfREVMRVRFEAESGwoXTElGRUNZQ0xFX09QX1RZUEVfTUVSR0UQAiptCg5SZWxlYXNlT3V0Y29tZRIfChtSRUxFQVNFX09VVENPTUVfVU5TUEVDSUZJRUQQABIdChlSRUxFQVNFX09VVENPTUVfQ09NTUlUVEVEEAESGwoXUkVMRUFTRV9PVVRDT01FX0FCT1JURUQQAmIGcHJvdG8z',
         [file_personhog_types_v1_common]
     )
 
@@ -114,6 +114,13 @@ export type DistinctIdWithVersion = Message<'personhog.types.v1.DistinctIdWithVe
      * @generated from field: optional int64 version = 2;
      */
     version?: bigint
+
+    /**
+     * Row ID, usable as a pagination cursor.
+     *
+     * @generated from field: optional int64 id = 3;
+     */
+    id?: bigint
 }
 
 /**
@@ -501,6 +508,13 @@ export type GetDistinctIdsForPersonRequest = Message<'personhog.types.v1.GetDist
      * @generated from field: optional int64 limit = 4;
      */
     limit?: bigint
+
+    /**
+     * Keyset cursor: return rows with id > cursor_id.
+     *
+     * @generated from field: optional int64 cursor_id = 5;
+     */
+    cursorId?: bigint
 }
 
 /**
@@ -519,6 +533,13 @@ export type GetDistinctIdsForPersonResponse = Message<'personhog.types.v1.GetDis
      * @generated from field: repeated personhog.types.v1.DistinctIdWithVersion distinct_ids = 1;
      */
     distinctIds: DistinctIdWithVersion[]
+
+    /**
+     * Absent when no more pages.
+     *
+     * @generated from field: optional int64 next_cursor_id = 2;
+     */
+    nextCursorId?: bigint
 }
 
 /**
@@ -707,9 +728,9 @@ export const UpdatePersonPropertiesResponseSchema: GenMessage<UpdatePersonProper
     messageDesc(file_personhog_types_v1_person, 21)
 
 /**
- * DeletePersonsRequest deletes persons from Postgres by UUID.
- * Also deletes associated posthog_persondistinctid rows (FK is NO ACTION).
- * posthog_featureflaghashkeyoverride rows cascade automatically at the DB level.
+ * DeletePersonsRequest deletes persons from Postgres by UUID, together with
+ * their posthog_persondistinctid, posthog_cohortpeople and
+ * posthog_featureflaghashkeyoverride rows (nothing cascades them).
  *
  * @generated from message personhog.types.v1.DeletePersonsRequest
  */
@@ -725,6 +746,11 @@ export type DeletePersonsRequest = Message<'personhog.types.v1.DeletePersonsRequ
      * @generated from field: repeated string person_uuids = 2;
      */
     personUuids: string[]
+
+    /**
+     * @generated from field: personhog.types.v1.DeletePersonsMode mode = 3;
+     */
+    mode: DeletePersonsMode
 }
 
 /**
@@ -736,6 +762,57 @@ export const DeletePersonsRequestSchema: GenMessage<DeletePersonsRequest> =
     messageDesc(file_personhog_types_v1_person, 22)
 
 /**
+ * @generated from message personhog.types.v1.TombstonedDistinctId
+ */
+export type TombstonedDistinctId = Message<'personhog.types.v1.TombstonedDistinctId'> & {
+    /**
+     * @generated from field: string distinct_id = 1;
+     */
+    distinctId: string
+
+    /**
+     * @generated from field: int64 version = 2;
+     */
+    version: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.TombstonedDistinctId.
+ * Use `create(TombstonedDistinctIdSchema)` to create a new message.
+ */
+export const TombstonedDistinctIdSchema: GenMessage<TombstonedDistinctId> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 23)
+
+/**
+ * @generated from message personhog.types.v1.TombstonedPerson
+ */
+export type TombstonedPerson = Message<'personhog.types.v1.TombstonedPerson'> & {
+    /**
+     * @generated from field: string person_uuid = 1;
+     */
+    personUuid: string
+
+    /**
+     * @generated from field: int64 version = 2;
+     */
+    version: bigint
+
+    /**
+     * @generated from field: repeated personhog.types.v1.TombstonedDistinctId distinct_ids = 3;
+     */
+    distinctIds: TombstonedDistinctId[]
+}
+
+/**
+ * Describes the message personhog.types.v1.TombstonedPerson.
+ * Use `create(TombstonedPersonSchema)` to create a new message.
+ */
+export const TombstonedPersonSchema: GenMessage<TombstonedPerson> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 24)
+
+/**
  * @generated from message personhog.types.v1.DeletePersonsResponse
  */
 export type DeletePersonsResponse = Message<'personhog.types.v1.DeletePersonsResponse'> & {
@@ -743,6 +820,24 @@ export type DeletePersonsResponse = Message<'personhog.types.v1.DeletePersonsRes
      * @generated from field: int64 deleted_count = 1;
      */
     deletedCount: bigint
+
+    /**
+     * True when the rows were tombstoned rather than removed, which is every successful call.
+     *
+     * @generated from field: bool tombstoned = 2;
+     */
+    tombstoned: boolean
+
+    /**
+     * One entry per requested person that is tombstoned after the call, with the
+     * versions its rows hold, so the caller can publish its ClickHouse tombstones
+     * at exactly those versions. Persons tombstoned before the call are included
+     * too, so a retry after a lost response gets the same versions again;
+     * deleted_count counts only the rows this call tombstoned.
+     *
+     * @generated from field: repeated personhog.types.v1.TombstonedPerson tombstones = 3;
+     */
+    tombstones: TombstonedPerson[]
 }
 
 /**
@@ -751,7 +846,196 @@ export type DeletePersonsResponse = Message<'personhog.types.v1.DeletePersonsRes
  */
 export const DeletePersonsResponseSchema: GenMessage<DeletePersonsResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_person, 23)
+    messageDesc(file_personhog_types_v1_person, 25)
+
+/**
+ * @generated from message personhog.types.v1.GetPersonTombstonesRequest
+ */
+export type GetPersonTombstonesRequest = Message<'personhog.types.v1.GetPersonTombstonesRequest'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * @generated from field: repeated string person_uuids = 2;
+     */
+    personUuids: string[]
+}
+
+/**
+ * Describes the message personhog.types.v1.GetPersonTombstonesRequest.
+ * Use `create(GetPersonTombstonesRequestSchema)` to create a new message.
+ */
+export const GetPersonTombstonesRequestSchema: GenMessage<GetPersonTombstonesRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 26)
+
+/**
+ * @generated from message personhog.types.v1.GetPersonTombstonesResponse
+ */
+export type GetPersonTombstonesResponse = Message<'personhog.types.v1.GetPersonTombstonesResponse'> & {
+    /**
+     * @generated from field: repeated personhog.types.v1.TombstonedPerson tombstones = 1;
+     */
+    tombstones: TombstonedPerson[]
+}
+
+/**
+ * Describes the message personhog.types.v1.GetPersonTombstonesResponse.
+ * Use `create(GetPersonTombstonesResponseSchema)` to create a new message.
+ */
+export const GetPersonTombstonesResponseSchema: GenMessage<GetPersonTombstonesResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 27)
+
+/**
+ * @generated from message personhog.types.v1.AckedPersonTombstone
+ */
+export type AckedPersonTombstone = Message<'personhog.types.v1.AckedPersonTombstone'> & {
+    /**
+     * @generated from field: string person_uuid = 1;
+     */
+    personUuid: string
+
+    /**
+     * @generated from field: int64 version = 2;
+     */
+    version: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.AckedPersonTombstone.
+ * Use `create(AckedPersonTombstoneSchema)` to create a new message.
+ */
+export const AckedPersonTombstoneSchema: GenMessage<AckedPersonTombstone> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 28)
+
+/**
+ * @generated from message personhog.types.v1.AckPersonTombstonesRequest
+ */
+export type AckPersonTombstonesRequest = Message<'personhog.types.v1.AckPersonTombstonesRequest'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * @generated from field: repeated personhog.types.v1.AckedPersonTombstone tombstones = 2;
+     */
+    tombstones: AckedPersonTombstone[]
+}
+
+/**
+ * Describes the message personhog.types.v1.AckPersonTombstonesRequest.
+ * Use `create(AckPersonTombstonesRequestSchema)` to create a new message.
+ */
+export const AckPersonTombstonesRequestSchema: GenMessage<AckPersonTombstonesRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 29)
+
+/**
+ * @generated from message personhog.types.v1.AckPersonTombstonesResponse
+ */
+export type AckPersonTombstonesResponse = Message<'personhog.types.v1.AckPersonTombstonesResponse'> & {
+    /**
+     * @generated from field: int64 cleared_count = 1;
+     */
+    clearedCount: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.AckPersonTombstonesResponse.
+ * Use `create(AckPersonTombstonesResponseSchema)` to create a new message.
+ */
+export const AckPersonTombstonesResponseSchema: GenMessage<AckPersonTombstonesResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 30)
+
+/**
+ * @generated from message personhog.types.v1.ListPersonTombstoneQueueRequest
+ */
+export type ListPersonTombstoneQueueRequest = Message<'personhog.types.v1.ListPersonTombstoneQueueRequest'> & {
+    /**
+     * @generated from field: int64 after_team_id = 1;
+     */
+    afterTeamId: bigint
+
+    /**
+     * @generated from field: string after_person_uuid = 2;
+     */
+    afterPersonUuid: string
+
+    /**
+     * @generated from field: int64 limit = 3;
+     */
+    limit: bigint
+
+    /**
+     * @generated from field: optional int64 team_id = 4;
+     */
+    teamId?: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.ListPersonTombstoneQueueRequest.
+ * Use `create(ListPersonTombstoneQueueRequestSchema)` to create a new message.
+ */
+export const ListPersonTombstoneQueueRequestSchema: GenMessage<ListPersonTombstoneQueueRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 31)
+
+/**
+ * @generated from message personhog.types.v1.PersonTombstoneQueueEntry
+ */
+export type PersonTombstoneQueueEntry = Message<'personhog.types.v1.PersonTombstoneQueueEntry'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * @generated from field: string person_uuid = 2;
+     */
+    personUuid: string
+
+    /**
+     * @generated from field: int64 person_version = 3;
+     */
+    personVersion: bigint
+
+    /**
+     * @generated from field: int64 tombstoned_at = 4;
+     */
+    tombstonedAt: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.PersonTombstoneQueueEntry.
+ * Use `create(PersonTombstoneQueueEntrySchema)` to create a new message.
+ */
+export const PersonTombstoneQueueEntrySchema: GenMessage<PersonTombstoneQueueEntry> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 32)
+
+/**
+ * @generated from message personhog.types.v1.ListPersonTombstoneQueueResponse
+ */
+export type ListPersonTombstoneQueueResponse = Message<'personhog.types.v1.ListPersonTombstoneQueueResponse'> & {
+    /**
+     * @generated from field: repeated personhog.types.v1.PersonTombstoneQueueEntry entries = 1;
+     */
+    entries: PersonTombstoneQueueEntry[]
+}
+
+/**
+ * Describes the message personhog.types.v1.ListPersonTombstoneQueueResponse.
+ * Use `create(ListPersonTombstoneQueueResponseSchema)` to create a new message.
+ */
+export const ListPersonTombstoneQueueResponseSchema: GenMessage<ListPersonTombstoneQueueResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 33)
 
 /**
  * DeletePersonsBatchForTeamRequest deletes up to batch_size persons for a team.
@@ -781,7 +1065,7 @@ export type DeletePersonsBatchForTeamRequest = Message<'personhog.types.v1.Delet
  */
 export const DeletePersonsBatchForTeamRequestSchema: GenMessage<DeletePersonsBatchForTeamRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_person, 24)
+    messageDesc(file_personhog_types_v1_person, 34)
 
 /**
  * @generated from message personhog.types.v1.DeletePersonsBatchForTeamResponse
@@ -801,7 +1085,150 @@ export type DeletePersonsBatchForTeamResponse = Message<'personhog.types.v1.Dele
  */
 export const DeletePersonsBatchForTeamResponseSchema: GenMessage<DeletePersonsBatchForTeamResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_person, 25)
+    messageDesc(file_personhog_types_v1_person, 35)
+
+/**
+ * DeleteTombstonedPersonsRequest deletes persons only while they are still
+ * tombstoned, checking under the same row locks as the delete, so a racing
+ * revival is either skipped or lands afterwards on a fresh row. One call does a
+ * bounded amount of work: persons whose dependent rows (distinct ids, hash key
+ * overrides, cohort memberships) fit the row budget are deleted whole; the first
+ * person that does not fit gives up as many rows as the leftover allows and is
+ * returned as pending, as is everything after the budget. Send pending uuids again
+ * until none come back. Idempotent.
+ *
+ * @generated from message personhog.types.v1.DeleteTombstonedPersonsRequest
+ */
+export type DeleteTombstonedPersonsRequest = Message<'personhog.types.v1.DeleteTombstonedPersonsRequest'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * Person UUIDs to delete. Max 1000 per request. Leave empty when bounded_persons is set.
+     *
+     * @generated from field: repeated string person_uuids = 2;
+     */
+    personUuids: string[]
+
+    /**
+     * Dependent rows this call may delete. 0 means the server default; the server
+     * clamps the value to its own maximum (replica setting TOMBSTONED_DELETE_MAX_ROWS).
+     *
+     * @generated from field: int64 max_rows = 3;
+     */
+    maxRows: bigint
+
+    /**
+     * Persons to delete, each with a version bound, in place of person_uuids. Max 1000 per request.
+     * A server that predates this field reads an empty person_uuids and deletes nothing, so the
+     * caller must check version_guard_applied on the response.
+     *
+     * @generated from field: repeated personhog.types.v1.VersionBoundedPerson bounded_persons = 4;
+     */
+    boundedPersons: VersionBoundedPerson[]
+}
+
+/**
+ * Describes the message personhog.types.v1.DeleteTombstonedPersonsRequest.
+ * Use `create(DeleteTombstonedPersonsRequestSchema)` to create a new message.
+ */
+export const DeleteTombstonedPersonsRequestSchema: GenMessage<DeleteTombstonedPersonsRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 36)
+
+/**
+ * @generated from message personhog.types.v1.VersionBoundedPerson
+ */
+export type VersionBoundedPerson = Message<'personhog.types.v1.VersionBoundedPerson'> & {
+    /**
+     * @generated from field: string person_uuid = 1;
+     */
+    personUuid: string
+
+    /**
+     * The person is deleted only while its version is at or below this value. A person with a
+     * higher version was tombstoned again after the caller took the bound.
+     *
+     * @generated from field: int64 max_version = 2;
+     */
+    maxVersion: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.VersionBoundedPerson.
+ * Use `create(VersionBoundedPersonSchema)` to create a new message.
+ */
+export const VersionBoundedPersonSchema: GenMessage<VersionBoundedPerson> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 37)
+
+/**
+ * @generated from message personhog.types.v1.DeleteTombstonedPersonsResponse
+ */
+export type DeleteTombstonedPersonsResponse = Message<'personhog.types.v1.DeleteTombstonedPersonsResponse'> & {
+    /**
+     * Persons hard-deleted together with their dependent rows.
+     *
+     * @generated from field: int64 deleted_count = 1;
+     */
+    deletedCount: bigint
+
+    /**
+     * Persons found with is_deleted = false: revived after the caller queued them.
+     * Nothing was deleted for them.
+     *
+     * @generated from field: int64 skipped_live_count = 2;
+     */
+    skippedLiveCount: bigint
+
+    /**
+     * Persons still tombstoned but referenced by a live distinct id. Nothing was
+     * deleted for them; the caller must not treat them as cleaned.
+     *
+     * @generated from field: repeated string blocked_person_uuids = 3;
+     */
+    blockedPersonUuids: string[]
+
+    /**
+     * Persons not finished within max_rows: still tombstoned, some rows possibly
+     * gone. Send them again.
+     *
+     * @generated from field: repeated string pending_person_uuids = 4;
+     */
+    pendingPersonUuids: string[]
+
+    /**
+     * Dependent rows deleted by this call.
+     *
+     * @generated from field: int64 rows_deleted = 5;
+     */
+    rowsDeleted: bigint
+
+    /**
+     * True when the request carried bounded_persons and the server checked every bound. Always
+     * false from a server that predates bounded_persons.
+     *
+     * @generated from field: bool version_guard_applied = 6;
+     */
+    versionGuardApplied: boolean
+
+    /**
+     * Persons still tombstoned but at a version above their bound. Nothing was deleted for them.
+     *
+     * @generated from field: int64 skipped_version_count = 7;
+     */
+    skippedVersionCount: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.DeleteTombstonedPersonsResponse.
+ * Use `create(DeleteTombstonedPersonsResponseSchema)` to create a new message.
+ */
+export const DeleteTombstonedPersonsResponseSchema: GenMessage<DeleteTombstonedPersonsResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 38)
 
 /**
  * SplitPersonRequest splits specific distinct_ids off of a person onto new persons.
@@ -839,7 +1266,7 @@ export type SplitPersonRequest = Message<'personhog.types.v1.SplitPersonRequest'
  */
 export const SplitPersonRequestSchema: GenMessage<SplitPersonRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_person, 26)
+    messageDesc(file_personhog_types_v1_person, 39)
 
 /**
  * SplitResult describes a single distinct_id that was split onto a new person.
@@ -881,7 +1308,7 @@ export type SplitResult = Message<'personhog.types.v1.SplitResult'> & {
  * Describes the message personhog.types.v1.SplitResult.
  * Use `create(SplitResultSchema)` to create a new message.
  */
-export const SplitResultSchema: GenMessage<SplitResult> = /*@__PURE__*/ messageDesc(file_personhog_types_v1_person, 27)
+export const SplitResultSchema: GenMessage<SplitResult> = /*@__PURE__*/ messageDesc(file_personhog_types_v1_person, 40)
 
 /**
  * @generated from message personhog.types.v1.SplitPersonResponse
@@ -901,7 +1328,7 @@ export type SplitPersonResponse = Message<'personhog.types.v1.SplitPersonRespons
  */
 export const SplitPersonResponseSchema: GenMessage<SplitPersonResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_person, 28)
+    messageDesc(file_personhog_types_v1_person, 41)
 
 /**
  * SetPersonDistinctIdVersionFloorRequest bumps a person_distinct_id row's version.
@@ -938,7 +1365,7 @@ export type SetPersonDistinctIdVersionFloorRequest =
  */
 export const SetPersonDistinctIdVersionFloorRequestSchema: GenMessage<SetPersonDistinctIdVersionFloorRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_person, 29)
+    messageDesc(file_personhog_types_v1_person, 42)
 
 /**
  * @generated from message personhog.types.v1.SetPersonDistinctIdVersionFloorResponse
@@ -961,7 +1388,7 @@ export type SetPersonDistinctIdVersionFloorResponse =
  */
 export const SetPersonDistinctIdVersionFloorResponseSchema: GenMessage<SetPersonDistinctIdVersionFloorResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_person, 30)
+    messageDesc(file_personhog_types_v1_person, 43)
 
 /**
  * SetPersonVersionFloorRequest bumps a person's version. Used by the undelete repair
@@ -996,7 +1423,7 @@ export type SetPersonVersionFloorRequest = Message<'personhog.types.v1.SetPerson
  */
 export const SetPersonVersionFloorRequestSchema: GenMessage<SetPersonVersionFloorRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_person, 31)
+    messageDesc(file_personhog_types_v1_person, 44)
 
 /**
  * @generated from message personhog.types.v1.SetPersonVersionFloorResponse
@@ -1016,7 +1443,110 @@ export type SetPersonVersionFloorResponse = Message<'personhog.types.v1.SetPerso
  */
 export const SetPersonVersionFloorResponseSchema: GenMessage<SetPersonVersionFloorResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_person, 32)
+    messageDesc(file_personhog_types_v1_person, 45)
+
+/**
+ * @generated from message personhog.types.v1.PersonVersionFloor
+ */
+export type PersonVersionFloor = Message<'personhog.types.v1.PersonVersionFloor'> & {
+    /**
+     * @generated from field: string person_uuid = 1;
+     */
+    personUuid: string
+
+    /**
+     * @generated from field: int64 min_version = 2;
+     */
+    minVersion: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.PersonVersionFloor.
+ * Use `create(PersonVersionFloorSchema)` to create a new message.
+ */
+export const PersonVersionFloorSchema: GenMessage<PersonVersionFloor> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 46)
+
+/**
+ * EnsurePersonVersionFloorsRequest raises each person tombstone to at least min_version in one transaction,
+ * inserting a tombstone for a missing person and leaving a live person unchanged. Publish a ClickHouse tombstone
+ * at the returned version for every non-LIVE result, because the Postgres cleanup drain removes only tombstones
+ * the ClickHouse deletion sweep finds.
+ *
+ * @generated from message personhog.types.v1.EnsurePersonVersionFloorsRequest
+ */
+export type EnsurePersonVersionFloorsRequest = Message<'personhog.types.v1.EnsurePersonVersionFloorsRequest'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * Max 250 per request. Duplicate person_uuids are rejected.
+     *
+     * @generated from field: repeated personhog.types.v1.PersonVersionFloor floors = 2;
+     */
+    floors: PersonVersionFloor[]
+}
+
+/**
+ * Describes the message personhog.types.v1.EnsurePersonVersionFloorsRequest.
+ * Use `create(EnsurePersonVersionFloorsRequestSchema)` to create a new message.
+ */
+export const EnsurePersonVersionFloorsRequestSchema: GenMessage<EnsurePersonVersionFloorsRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 47)
+
+/**
+ * @generated from message personhog.types.v1.PersonVersionFloorResult
+ */
+export type PersonVersionFloorResult = Message<'personhog.types.v1.PersonVersionFloorResult'> & {
+    /**
+     * @generated from field: string person_uuid = 1;
+     */
+    personUuid: string
+
+    /**
+     * @generated from field: personhog.types.v1.VersionFloorOutcome outcome = 2;
+     */
+    outcome: VersionFloorOutcome
+
+    /**
+     * The stored version after the call.
+     *
+     * @generated from field: int64 version = 3;
+     */
+    version: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.PersonVersionFloorResult.
+ * Use `create(PersonVersionFloorResultSchema)` to create a new message.
+ */
+export const PersonVersionFloorResultSchema: GenMessage<PersonVersionFloorResult> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 48)
+
+/**
+ * @generated from message personhog.types.v1.EnsurePersonVersionFloorsResponse
+ */
+export type EnsurePersonVersionFloorsResponse = Message<'personhog.types.v1.EnsurePersonVersionFloorsResponse'> & {
+    /**
+     * Same order as the request.
+     *
+     * @generated from field: repeated personhog.types.v1.PersonVersionFloorResult results = 1;
+     */
+    results: PersonVersionFloorResult[]
+}
+
+/**
+ * Describes the message personhog.types.v1.EnsurePersonVersionFloorsResponse.
+ * Use `create(EnsurePersonVersionFloorsResponseSchema)` to create a new message.
+ */
+export const EnsurePersonVersionFloorsResponseSchema: GenMessage<EnsurePersonVersionFloorsResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 49)
 
 /**
  * FencePersonRequest freezes a person for a lifecycle operation (see
@@ -1053,7 +1583,7 @@ export type FencePersonRequest = Message<'personhog.types.v1.FencePersonRequest'
  */
 export const FencePersonRequestSchema: GenMessage<FencePersonRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_person, 33)
+    messageDesc(file_personhog_types_v1_person, 50)
 
 /**
  * @generated from message personhog.types.v1.FencePersonResponse
@@ -1082,7 +1612,111 @@ export type FencePersonResponse = Message<'personhog.types.v1.FencePersonRespons
  */
 export const FencePersonResponseSchema: GenMessage<FencePersonResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_person, 34)
+    messageDesc(file_personhog_types_v1_person, 51)
+
+/**
+ * FencePersonsRequest freezes many persons of one op in one call (see
+ * PersonHogLeader.FencePersons). The saga sends one call per partition
+ * of the op, routed by one of the persons like a single fence.
+ *
+ * @generated from message personhog.types.v1.FencePersonsRequest
+ */
+export type FencePersonsRequest = Message<'personhog.types.v1.FencePersonsRequest'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * @generated from field: string op_id = 2;
+     */
+    opId: string
+
+    /**
+     * @generated from field: personhog.types.v1.LifecycleOpType op_type = 3;
+     */
+    opType: LifecycleOpType
+
+    /**
+     * @generated from field: repeated int64 person_ids = 4;
+     */
+    personIds: bigint[]
+}
+
+/**
+ * Describes the message personhog.types.v1.FencePersonsRequest.
+ * Use `create(FencePersonsRequestSchema)` to create a new message.
+ */
+export const FencePersonsRequestSchema: GenMessage<FencePersonsRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 52)
+
+/**
+ * Every requested person id lands in exactly one of the two lists; a
+ * failure any single FencePerson reports through its status, other than
+ * NOT_FOUND, fails the whole call the same way.
+ *
+ * @generated from message personhog.types.v1.FencePersonsResponse
+ */
+export type FencePersonsResponse = Message<'personhog.types.v1.FencePersonsResponse'> & {
+    /**
+     * The sealed scalars of every person fenced: what the delete saga reads
+     * from a seal. Full documents would not fit a batch, and the merge saga,
+     * which folds the document, fences one person at a time.
+     *
+     * @generated from field: repeated personhog.types.v1.FencedPersonSeal sealed = 1;
+     */
+    sealed: FencedPersonSeal[]
+
+    /**
+     * The persons a single FencePerson answers NOT_FOUND for: destroyed, so
+     * no fence was installed.
+     *
+     * @generated from field: repeated int64 not_found = 2;
+     */
+    notFound: bigint[]
+}
+
+/**
+ * Describes the message personhog.types.v1.FencePersonsResponse.
+ * Use `create(FencePersonsResponseSchema)` to create a new message.
+ */
+export const FencePersonsResponseSchema: GenMessage<FencePersonsResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 53)
+
+/**
+ * @generated from message personhog.types.v1.FencedPersonSeal
+ */
+export type FencedPersonSeal = Message<'personhog.types.v1.FencedPersonSeal'> & {
+    /**
+     * @generated from field: int64 person_id = 1;
+     */
+    personId: bigint
+
+    /**
+     * See FencePersonResponse.sealed: the version the fence made final.
+     *
+     * @generated from field: int64 version = 2;
+     */
+    version: bigint
+
+    /**
+     * The person's creation time in epoch milliseconds, as the death
+     * document carries it (see ReleaseFenceRequest.created_at).
+     *
+     * @generated from field: int64 created_at = 3;
+     */
+    createdAt: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.FencedPersonSeal.
+ * Use `create(FencedPersonSealSchema)` to create a new message.
+ */
+export const FencedPersonSealSchema: GenMessage<FencedPersonSeal> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 54)
 
 /**
  * ReleaseFenceRequest closes a fence (see PersonHogLeader.ReleaseFence).
@@ -1150,7 +1784,7 @@ export type ReleaseFenceRequest = Message<'personhog.types.v1.ReleaseFenceReques
  */
 export const ReleaseFenceRequestSchema: GenMessage<ReleaseFenceRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_person, 35)
+    messageDesc(file_personhog_types_v1_person, 55)
 
 /**
  * @generated from message personhog.types.v1.ReleaseFenceResponse
@@ -1163,7 +1797,94 @@ export type ReleaseFenceResponse = Message<'personhog.types.v1.ReleaseFenceRespo
  */
 export const ReleaseFenceResponseSchema: GenMessage<ReleaseFenceResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_person, 36)
+    messageDesc(file_personhog_types_v1_person, 56)
+
+/**
+ * ReleaseFencesRequest closes many fences of one op in one call (see
+ * PersonHogLeader.ReleaseFences), one call per partition of the op.
+ * Per-person fields carry what ReleaseFenceRequest carries.
+ *
+ * @generated from message personhog.types.v1.ReleaseFencesRequest
+ */
+export type ReleaseFencesRequest = Message<'personhog.types.v1.ReleaseFencesRequest'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * @generated from field: string op_id = 2;
+     */
+    opId: string
+
+    /**
+     * @generated from field: personhog.types.v1.ReleaseOutcome outcome = 3;
+     */
+    outcome: ReleaseOutcome
+
+    /**
+     * @generated from field: repeated personhog.types.v1.ReleaseFenceItem persons = 4;
+     */
+    persons: ReleaseFenceItem[]
+}
+
+/**
+ * Describes the message personhog.types.v1.ReleaseFencesRequest.
+ * Use `create(ReleaseFencesRequestSchema)` to create a new message.
+ */
+export const ReleaseFencesRequestSchema: GenMessage<ReleaseFencesRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 57)
+
+/**
+ * @generated from message personhog.types.v1.ReleaseFenceItem
+ */
+export type ReleaseFenceItem = Message<'personhog.types.v1.ReleaseFenceItem'> & {
+    /**
+     * @generated from field: int64 person_id = 1;
+     */
+    personId: bigint
+
+    /**
+     * @generated from field: string person_uuid = 2;
+     */
+    personUuid: string
+
+    /**
+     * See ReleaseFenceRequest.sealed_version.
+     *
+     * @generated from field: optional int64 sealed_version = 3;
+     */
+    sealedVersion?: bigint
+
+    /**
+     * See ReleaseFenceRequest.created_at.
+     *
+     * @generated from field: int64 created_at = 4;
+     */
+    createdAt: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.ReleaseFenceItem.
+ * Use `create(ReleaseFenceItemSchema)` to create a new message.
+ */
+export const ReleaseFenceItemSchema: GenMessage<ReleaseFenceItem> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 58)
+
+/**
+ * @generated from message personhog.types.v1.ReleaseFencesResponse
+ */
+export type ReleaseFencesResponse = Message<'personhog.types.v1.ReleaseFencesResponse'> & {}
+
+/**
+ * Describes the message personhog.types.v1.ReleaseFencesResponse.
+ * Use `create(ReleaseFencesResponseSchema)` to create a new message.
+ */
+export const ReleaseFencesResponseSchema: GenMessage<ReleaseFencesResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_person, 59)
 
 /**
  * A sealed source snapshot paired with its precedence ordinal — the
@@ -1191,7 +1912,7 @@ export type SealedSourceSnapshot = Message<'personhog.types.v1.SealedSourceSnaps
  */
 export const SealedSourceSnapshotSchema: GenMessage<SealedSourceSnapshot> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_person, 37)
+    messageDesc(file_personhog_types_v1_person, 60)
 
 /**
  * FoldPersonDocumentRequest folds sealed source snapshots into the merge
@@ -1267,7 +1988,7 @@ export type FoldPersonDocumentRequest = Message<'personhog.types.v1.FoldPersonDo
  */
 export const FoldPersonDocumentRequestSchema: GenMessage<FoldPersonDocumentRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_person, 38)
+    messageDesc(file_personhog_types_v1_person, 61)
 
 /**
  * @generated from message personhog.types.v1.FoldPersonDocumentResponse
@@ -1295,7 +2016,91 @@ export type FoldPersonDocumentResponse = Message<'personhog.types.v1.FoldPersonD
  */
 export const FoldPersonDocumentResponseSchema: GenMessage<FoldPersonDocumentResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_person, 39)
+    messageDesc(file_personhog_types_v1_person, 62)
+
+/**
+ * How DeletePersons removes the rows.
+ *
+ * @generated from enum personhog.types.v1.DeletePersonsMode
+ */
+export enum DeletePersonsMode {
+    /**
+     * Same as TOMBSTONE.
+     *
+     * @generated from enum value: DELETE_PERSONS_MODE_UNSPECIFIED = 0;
+     */
+    UNSPECIFIED = 0,
+
+    /**
+     * Rejected with INVALID_ARGUMENT, because a hard delete leaves the live ClickHouse rows above a
+     * re-created person's version 0. A deleted team's persons go through DeletePersonsBatchForTeam.
+     *
+     * @generated from enum value: DELETE_PERSONS_MODE_HARD = 1;
+     */
+    HARD = 1,
+
+    /**
+     * Keep the rows as tombstones and report the versions written. The caller
+     * owns the prerequisite: ingestion must revive tombstones for the team.
+     *
+     * @generated from enum value: DELETE_PERSONS_MODE_TOMBSTONE = 2;
+     */
+    TOMBSTONE = 2,
+}
+
+/**
+ * Describes the enum personhog.types.v1.DeletePersonsMode.
+ */
+export const DeletePersonsModeSchema: GenEnum<DeletePersonsMode> =
+    /*@__PURE__*/
+    enumDesc(file_personhog_types_v1_person, 0)
+
+/**
+ * What EnsurePersonVersionFloors found and did for one person.
+ *
+ * @generated from enum personhog.types.v1.VersionFloorOutcome
+ */
+export enum VersionFloorOutcome {
+    /**
+     * @generated from enum value: VERSION_FLOOR_OUTCOME_UNSPECIFIED = 0;
+     */
+    UNSPECIFIED = 0,
+
+    /**
+     * No row existed. The call inserted a tombstone at min_version.
+     *
+     * @generated from enum value: VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED = 1;
+     */
+    TOMBSTONE_INSERTED = 1,
+
+    /**
+     * A tombstone below min_version. The call raised it to min_version.
+     *
+     * @generated from enum value: VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED = 2;
+     */
+    TOMBSTONE_RAISED = 2,
+
+    /**
+     * A tombstone at or above min_version. Nothing changed.
+     *
+     * @generated from enum value: VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR = 3;
+     */
+    TOMBSTONE_AT_FLOOR = 3,
+
+    /**
+     * A live row. Nothing changed: the call never raises a live row.
+     *
+     * @generated from enum value: VERSION_FLOOR_OUTCOME_LIVE = 4;
+     */
+    LIVE = 4,
+}
+
+/**
+ * Describes the enum personhog.types.v1.VersionFloorOutcome.
+ */
+export const VersionFloorOutcomeSchema: GenEnum<VersionFloorOutcome> =
+    /*@__PURE__*/
+    enumDesc(file_personhog_types_v1_person, 1)
 
 /**
  * The kind of lifecycle operation — mirrors lifecycle_op.op_type. The
@@ -1324,7 +2129,7 @@ export enum LifecycleOpType {
 /**
  * Describes the enum personhog.types.v1.LifecycleOpType.
  */
-export const LifecycleOpTypeSchema: GenEnum<LifecycleOpType> = /*@__PURE__*/ enumDesc(file_personhog_types_v1_person, 0)
+export const LifecycleOpTypeSchema: GenEnum<LifecycleOpType> = /*@__PURE__*/ enumDesc(file_personhog_types_v1_person, 2)
 
 /**
  * @generated from enum personhog.types.v1.ReleaseOutcome
@@ -1353,4 +2158,4 @@ export enum ReleaseOutcome {
 /**
  * Describes the enum personhog.types.v1.ReleaseOutcome.
  */
-export const ReleaseOutcomeSchema: GenEnum<ReleaseOutcome> = /*@__PURE__*/ enumDesc(file_personhog_types_v1_person, 1)
+export const ReleaseOutcomeSchema: GenEnum<ReleaseOutcome> = /*@__PURE__*/ enumDesc(file_personhog_types_v1_person, 3)

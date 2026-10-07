@@ -1,11 +1,14 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { Suspense } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
     BoxPlotMissingPropertyState,
@@ -30,13 +33,6 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
-import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
-import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
-import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
-import { Paths } from 'scenes/paths/Paths'
-import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
-import { TrendInsight } from 'scenes/trends/Trends'
-import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
@@ -51,6 +47,7 @@ import {
     PropertyMathType,
 } from '~/types'
 
+import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
 import { FunnelCorrelation } from 'products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelation'
@@ -59,11 +56,23 @@ import { FunnelStepsTable } from 'products/product_analytics/frontend/insights/f
 import { FunnelTimeToConvertTable } from 'products/product_analytics/frontend/insights/funnels/FunnelTimeToConvertTable/FunnelTimeToConvertTable'
 import { FunnelTrendsTable } from 'products/product_analytics/frontend/insights/funnels/FunnelTrendsTable/FunnelTrendsTable'
 import { Journeys } from 'products/product_analytics/frontend/insights/journeys/Journeys'
+import { Paths } from 'products/product_analytics/frontend/insights/paths/Paths'
+import { PathCanvasLabel } from 'products/product_analytics/frontend/insights/paths/PathsLabel'
 import { RetentionContainer } from 'products/product_analytics/frontend/insights/retention/RetentionContainer'
+import { InsightsTable } from 'products/product_analytics/frontend/insights/shared/InsightsTable/InsightsTable'
+import { BoxPlotLegend } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotLegend'
+import { BoxPlotResultsTable } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotResultsTable'
+import { TrendInsight } from 'products/product_analytics/frontend/insights/trends/Trends'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
+
+// Query.tsx reaches this file through static imports, so a static import of web analytics puts its
+// tiles on every page that shows an insight.
+const WebAnalyticsInsight = lazyWithRetry(() =>
+    import('scenes/web-analytics/WebAnalyticsInsight').then((m) => ({ default: m.WebAnalyticsInsight }))
+)
 
 /** When the dashboard is still streaming/refreshing tiles, prefer loading UX over "Chart data didn't load". */
 function DashboardInsightRefreshHintOrLoading({
@@ -99,6 +108,46 @@ function DashboardInsightRefreshHintOrLoading({
         )
     }
     return <InsightRefreshDataHint onRetry={onRetry} insightProps={insightProps} />
+}
+
+function isNonEmptyResult(rows: unknown): boolean {
+    return Array.isArray(rows) ? rows.length > 0 : rows != null
+}
+
+/** A settled query came back with rows. An empty success is `result: []`, so presence alone is not enough. */
+export function hasResultRows(insightData: Record<string, any> | null | undefined): boolean {
+    return isNonEmptyResult(insightData?.result) || isNonEmptyResult(insightData?.results)
+}
+
+/**
+ * The "PostHog AI" section offers to explain the insight, so it only belongs next to results worth explaining.
+ * It stays up while the query is in flight so it doesn't appear only once the chart draws. A query that
+ * returned rows keeps it, even when the chart reads as empty, since that is what people ask PostHog AI about.
+ */
+export function shouldShowAIAnalysisSection({
+    editMode,
+    embedded,
+    inSharedMode,
+    hasQuerySource,
+    insightDataLoading,
+    hasBlockingEmptyState,
+    hasResults,
+}: {
+    editMode?: boolean
+    embedded?: boolean
+    inSharedMode?: boolean
+    hasQuerySource: boolean
+    insightDataLoading: boolean
+    hasBlockingEmptyState: boolean
+    hasResults: boolean
+}): boolean {
+    if (editMode || embedded || inSharedMode || !hasQuerySource) {
+        return false
+    }
+    if (insightDataLoading) {
+        return true
+    }
+    return !hasBlockingEmptyState && hasResults
 }
 
 /** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
@@ -178,21 +227,23 @@ export function InsightVizDisplay({
     const isFlowViz = funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
 
+    const insightLoadingState = (
+        <InsightLoadingState
+            queryId={queryId}
+            key={queryId}
+            insightProps={insightProps}
+            renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+            suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
+        />
+    )
+
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
         if (insightDataLoading) {
             if (hasRenderableResults) {
                 return null
             }
-            return (
-                <InsightLoadingState
-                    queryId={queryId}
-                    key={queryId}
-                    insightProps={insightProps}
-                    renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
-                    suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
-                />
-            )
+            return insightLoadingState
         }
 
         // Insight specific empty states - note order is important here
@@ -389,7 +440,14 @@ export function InsightVizDisplay({
             case InsightType.JOURNEYS:
                 return <Journeys showPersonsModal={!inSharedMode} />
             case InsightType.WEB_ANALYTICS:
-                return <WebAnalyticsInsight context={context} editMode={editMode} />
+                return (
+                    <ChunkLoadErrorBoundary>
+                        {/* The image exporter waits for every .Spinner to detach, so a Spinner fallback stops it capturing the page before this chunk loads. */}
+                        <Suspense fallback={<Spinner className="text-3xl mx-auto my-8" />}>
+                            <WebAnalyticsInsight context={context} editMode={editMode} />
+                        </Suspense>
+                    </ChunkLoadErrorBoundary>
+                )
             default:
                 return null
         }
@@ -476,37 +534,24 @@ export function InsightVizDisplay({
     }
 
     function renderAIAnalysisSection(): JSX.Element | null {
-        // Only show in view mode
-        if (editMode) {
-            return null
-        }
-
-        // Don't show in embedded or shared mode
-        if (embedded || inSharedMode) {
-            return null
-        }
-
-        // Only show for insight query nodes (use querySource which is the actual InsightQueryNode)
-        if (!querySource) {
-            return null
-        }
-
-        return <InsightAIAnalysis />
+        return shouldShowAIAnalysisSection({
+            editMode,
+            embedded,
+            inSharedMode,
+            hasQuerySource: !!querySource,
+            insightDataLoading,
+            hasBlockingEmptyState: !!BlockingEmptyState,
+            hasResults: hasResultRows(insightData),
+        }) ? (
+            <InsightAIAnalysis />
+        ) : null
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
-        return (
-            <InsightLoadingState
-                queryId={queryId}
-                key={queryId}
-                insightProps={insightProps}
-                renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
-                suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
-            />
-        )
+        return insightLoadingState
     }
 
     return (
@@ -519,7 +564,17 @@ export function InsightVizDisplay({
                 )}
                 data-attr={INSIGHT_GRAPH_DATA_ATTR}
             >
-                {disableHeader ? null : <InsightDisplayConfig />}
+                {disableHeader ? null : (
+                    <InsightDisplayConfig
+                        chartTypeControl={
+                            <ChartAlternatives
+                                insightProps={insightProps}
+                                embedded={embedded}
+                                inSharedMode={inSharedMode}
+                            />
+                        }
+                    />
+                )}
                 {showingResults && (
                     <>
                         {!embedded &&

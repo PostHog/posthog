@@ -1,10 +1,19 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { App } from 'scenes/App'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { ArtifactApi, RepoApi, RunApi, SnapshotApi } from '../generated/api.schemas'
+import type {
+    ArtifactApi,
+    QuarantineLiftEntryApi,
+    QuarantinedIdentifierEntryApi,
+    RepoApi,
+    RunApi,
+    SnapshotApi,
+} from '../generated/api.schemas'
 
 const RUN_ID = '00000000-0000-0000-0000-0000000000aa'
 const REPO_ID = '00000000-0000-0000-0000-0000000000bb'
@@ -28,6 +37,7 @@ const repo: RepoApi = {
     repo_full_name: 'PostHog/posthog',
     baseline_file_paths: {},
     enable_pr_comments: true,
+    debt_digest_enabled: false,
     created_at: '2026-06-10T00:00:00Z',
 }
 
@@ -45,6 +55,7 @@ const run: RunApi = {
     error_message: null,
     created_at: '2026-06-10T00:00:00Z',
     completed_at: '2026-06-10T00:01:00Z',
+    purpose: 'review',
     is_stale: false,
     metadata: {},
     search_match_type: null,
@@ -135,9 +146,25 @@ const masterRun: RunApi = {
     ...run,
     branch: 'master',
     pr_number: null,
+    purpose: 'observe',
+}
+
+// A merge-queue run keeps its PR number but is tracking-only, so it must not offer approval either.
+const mergeQueueRun: RunApi = {
+    ...run,
+    branch: 'trunk-merge/pr-42',
+    purpose: 'observe',
 }
 
 const emptyList = { count: 0, next: null, previous: null, results: [] }
+
+// The scene lists the run's snapshots twice: the changes, and with `quarantined_only` the quarantined stories.
+const snapshotsMock =
+    (listed: typeof snapshots, quarantined: SnapshotApi[] = []) =>
+    ({ request }: { request: Request }): [number, unknown] =>
+        new URL(request.url).searchParams.get('quarantined_only') === 'true'
+            ? [200, { ...emptyList, count: quarantined.length, results: quarantined }]
+            : [200, listed]
 
 const meta: Meta = {
     component: App,
@@ -153,10 +180,11 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: run,
-                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: snapshots,
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: snapshotsMock(snapshots),
                 [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/tolerated-hashes/`]: emptyList,
                 [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/`]: repo,
                 [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/quarantine/`]: emptyList,
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/quarantine_lifts/`]: [],
             },
         }),
     ],
@@ -179,4 +207,263 @@ export const TrackingOnlyMasterRun: StoryObj = {
             },
         }),
     ],
+}
+
+export const TrackingOnlyMergeQueueRun: StoryObj = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="visual-review-snapshot-thumbnail"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: mergeQueueRun,
+            },
+        }),
+    ],
+}
+
+// A removed snapshot has no current image, so "Accept change" is disabled and finalize prunes it.
+export const RemovedSnapshot: StoryObj = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="visual-review-snapshot-accept"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: {
+                    ...run,
+                    summary: { total: 1, changed: 0, new: 0, removed: 1, unchanged: 0 },
+                },
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: snapshotsMock({
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    quarantined_count: 0,
+                    results: [
+                        snapshot({
+                            id: 'snapshot-removed',
+                            identifier: 'Components/Legacy--card',
+                            result: 'removed',
+                            diff_percentage: null,
+                            diff_pixel_count: null,
+                            baseline_artifact: artifact('base_removed'),
+                        }),
+                    ],
+                }),
+            },
+        }),
+    ],
+}
+
+const repeatedTolerations = {
+    count: 3,
+    next: null,
+    previous: null,
+    results: ['2026-06-02', '2026-06-05', '2026-06-08'].map((day, index) => ({
+        id: `tolerated-${index}`,
+        alternate_hash: `alt_${index}`,
+        baseline_hash: 'base_changed',
+        reason: 'human',
+        diff_percentage: 2.6,
+        created_at: `${day}T10:00:00Z`,
+        source_run_id: null,
+    })),
+}
+
+const buttonQuarantine: QuarantinedIdentifierEntryApi = {
+    id: 'quarantine-button',
+    identifier: 'Components/Button--primary',
+    run_type: 'storybook',
+    reason: 'Hover state renders a frame late',
+    source: 'human',
+    expires_at: '2026-07-01T00:00:00Z',
+    created_at: '2026-06-01T00:00:00Z',
+    updated_at: '2026-06-01T00:00:00Z',
+}
+
+const pendingLift: QuarantineLiftEntryApi = {
+    id: 'lift-button',
+    quarantine_id: buttonQuarantine.id,
+    identifier: buttonQuarantine.identifier,
+    run_type: 'storybook',
+    pr_number: 42,
+    expected_hash: 'curr_changed',
+    state: 'pending',
+    detail: 'Waiting for the pull request to merge',
+    source: 'human',
+    created_at: '2026-06-10T00:02:00Z',
+    updated_at: '2026-06-10T00:02:00Z',
+}
+
+const tooltipQuarantine: QuarantinedIdentifierEntryApi = {
+    ...buttonQuarantine,
+    id: 'quarantine-tooltip',
+    identifier: 'Components/Tooltip--hover',
+    reason: 'Tooltip fades in at a random frame',
+}
+
+const quarantinedButton = {
+    ...snapshots.results[0],
+    review_state: 'approved',
+    approved_hash: 'curr_changed',
+    is_quarantined: true,
+}
+
+// The fix for the tooltip flake renders the story as its baseline, so only the clean list reaches it.
+const cleanQuarantinedTooltip = snapshot({
+    id: 'snapshot-tooltip',
+    identifier: tooltipQuarantine.identifier,
+    result: 'unchanged',
+    diff_percentage: null,
+    diff_pixel_count: null,
+    review_state: '',
+    is_quarantined: true,
+    baseline_artifact: artifact('base_tooltip'),
+    current_artifact: artifact('base_tooltip'),
+})
+
+// A pull request that fixes a quarantined story asks for the quarantine to lift once it merges.
+export const QuarantinedSnapshotLiftsOnMerge: StoryObj = {
+    parameters: {
+        pageUrl: `/visual_review/runs/${RUN_ID}#snapshot=snapshot-changed`,
+        testOptions: { waitForSelector: '[data-attr="visual-review-lift-on-merge-pending"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: snapshotsMock(
+                    {
+                        ...snapshots,
+                        results: snapshots.results.map((s) => (s.id === quarantinedButton.id ? quarantinedButton : s)),
+                    },
+                    [quarantinedButton, cleanQuarantinedTooltip]
+                ),
+                [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/quarantine/`]: {
+                    ...emptyList,
+                    count: 2,
+                    results: [buttonQuarantine, tooltipQuarantine],
+                },
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/quarantine_lifts/`]: [pendingLift],
+            },
+        }),
+    ],
+}
+
+const cleanQuarantinedCard = snapshot({
+    ...cleanQuarantinedTooltip,
+    id: 'snapshot-card',
+    identifier: 'Components/Card--hover',
+    baseline_artifact: artifact('base_card'),
+    current_artifact: artifact('base_card'),
+})
+
+const cleanQuarantinedMenu = snapshot({
+    ...cleanQuarantinedTooltip,
+    id: 'snapshot-menu',
+    identifier: 'Components/Menu--open',
+    baseline_artifact: artifact('base_menu'),
+    current_artifact: artifact('base_menu'),
+})
+
+const cardQuarantine: QuarantinedIdentifierEntryApi = {
+    ...tooltipQuarantine,
+    id: 'quarantine-card',
+    identifier: cleanQuarantinedCard.identifier,
+    reason: 'Shadow renders a frame late',
+}
+
+const menuQuarantine: QuarantinedIdentifierEntryApi = {
+    ...tooltipQuarantine,
+    id: 'quarantine-menu',
+    identifier: cleanQuarantinedMenu.identifier,
+    reason: 'Opens at a random scroll position',
+}
+
+// The card request came from an earlier run that rendered another picture, so it would fail after the merge.
+const staleCardLift: QuarantineLiftEntryApi = {
+    ...pendingLift,
+    id: 'lift-card',
+    quarantine_id: cardQuarantine.id,
+    identifier: cardQuarantine.identifier,
+    expected_hash: 'older_card',
+}
+
+const tooltipLift: QuarantineLiftEntryApi = {
+    ...pendingLift,
+    id: 'lift-tooltip',
+    quarantine_id: tooltipQuarantine.id,
+    identifier: tooltipQuarantine.identifier,
+    expected_hash: 'base_tooltip',
+}
+
+// The footer link opens the quarantined stories that rendered clean, grouped by their lift requests.
+export const CleanQuarantinedStories: StoryObj = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="visual-review-clean-quarantined-select"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: snapshotsMock(snapshots, [
+                    cleanQuarantinedTooltip,
+                    cleanQuarantinedCard,
+                    cleanQuarantinedMenu,
+                ]),
+                [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/quarantine/`]: {
+                    ...emptyList,
+                    count: 3,
+                    results: [tooltipQuarantine, cardQuarantine, menuQuarantine],
+                },
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/quarantine_lifts/`]: [tooltipLift, staleCardLift],
+            },
+        }),
+    ],
+    play: async () => {
+        const toggle = await waitFor(() => {
+            const element = document.querySelector<HTMLButtonElement>(
+                '[data-attr="visual-review-toggle-clean-quarantined"]'
+            )
+            if (!element) {
+                throw new Error('Clean quarantined toggle not yet rendered')
+            }
+            return element
+        })
+        await userEvent.click(toggle)
+        await waitFor(() => {
+            if (!document.querySelector('[data-attr="visual-review-clean-quarantined-select"]')) {
+                throw new Error('Clean quarantined list not yet rendered')
+            }
+        })
+    },
+}
+
+// A snapshot tolerated three times this month keeps changing. Clicking Tolerate offers a quarantine first.
+// Keep this story last: its dialog opens on its own React root, outlives the story, and covers the next one.
+export const TolerateSuggestsQuarantine: StoryObj = {
+    parameters: {
+        // Not `fullscreen`: the runner rejects snapshotTargetSelector for fullscreen stories.
+        layout: 'padded',
+        testOptions: {
+            waitForSelector: '[data-attr="visual-review-tolerate-nudge-quarantine"]',
+            snapshotTargetSelector: '.LemonModal',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/tolerated-hashes/`]: repeatedTolerations,
+            },
+        }),
+    ],
+    play: async () => {
+        const tolerateButton = await waitFor(() => {
+            const element = document.querySelector<HTMLButtonElement>('[data-attr="visual-review-snapshot-tolerate"]')
+            // The nudge reads the tolerated hashes, so wait for the sidebar to list them.
+            if (!element || !document.body.textContent?.includes('alt_0')) {
+                throw new Error('Tolerate button or tolerated hashes not yet rendered')
+            }
+            return element
+        })
+        await userEvent.click(tolerateButton)
+    },
 }

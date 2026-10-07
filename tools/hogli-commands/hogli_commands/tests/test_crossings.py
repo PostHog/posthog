@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import ast
 import textwrap
 from pathlib import Path
@@ -157,7 +158,7 @@ class TestBindingPaths:
 
     def test_unrelated_class_of_the_same_name_is_not_bound(self) -> None:
         candidate = _candidate(
-            "from products.alerts.backend.facade.contracts import AlertConfiguration\nqs = AlertConfiguration(id=1)"
+            "from products.alerts_platform.backend.facade.contracts import AlertConfiguration\nqs = AlertConfiguration(id=1)"
         )
         origins = crossings._origins([candidate], [ALERT])
         assert crossings._bound_names(candidate, origins) == {}
@@ -253,6 +254,11 @@ class TestBaselineRatchet:
         with pytest.raises(crossings.BaselineWouldGrow) as refusal:
             crossings.write_baseline([self._use("posthog.api.a", scanned)], path)
         assert refusal.value.added == [f"alerts.AlertConfiguration posthog.api.a instance-many(all) {scanned}"]
+
+    def test_a_moved_consumer_is_written(self, tmp_path: Path) -> None:
+        path = self._recorded(tmp_path, "posthog.api.a")
+        crossings.write_baseline([self._use("posthog.api.b")], path)
+        assert crossings.read_baseline(path) == [self.LINE_B]
 
     def test_a_removal_is_written(self, tmp_path: Path) -> None:
         path = self._recorded(tmp_path, "posthog.api.a", "posthog.api.b")
@@ -678,6 +684,30 @@ class TestGarageDrives:
             "helper": "products.product_analytics.backend.logic.helpers",
         }
 
+    @pytest.mark.parametrize(
+        "source",
+        ["products.acme.backend.temporal.workflows", "products.acme.backend.temporal"],
+        ids=["module", "package"],
+    )
+    def test_lazy_map_in_a_nested_facade_module_exports_the_wiring_location(
+        self, source: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        backend = tmp_path / "products" / "acme" / "backend"
+        (backend / "temporal").mkdir(parents=True)
+        (backend / "temporal" / "__init__.py").write_text("class SyncWorkflow: ...\n")
+        (backend / "temporal" / "workflows.py").write_text("class SyncWorkflow: ...\n")
+        (backend / "facade" / "destinations").mkdir(parents=True)
+        (backend / "facade" / "destinations" / "lazy.py").write_text(
+            f'_LAZY = {{"SyncWorkflow": "{source}"}}\n\ndef __getattr__(name):\n    return None\n'
+        )
+        monkeypatch.setattr(crossings, "REPO_ROOT", tmp_path)
+        monkeypatch.setattr(crossings, "PRODUCTS_DIR", tmp_path / "products")
+        monkeypatch.setattr(crossings, "_REPO_PREFIX", f"{tmp_path}{os.sep}")
+
+        exports = crossings._wiring_location_exports("acme", "backend/temporal/")
+
+        assert crossings._Export("products.acme.backend.facade.destinations.lazy", "SyncWorkflow") in exports
+
     def test_top_level_names_include_constants(self) -> None:
         module = "BOT_DEFINITIONS = [...]\nLIMIT: int = 5\n_private = 1\n\nclass Runner: ...\n\ndef helper(): ...\n"
         assert crossings._top_level_names(ast.parse(module)) == ["BOT_DEFINITIONS", "LIMIT", "Runner", "helper"]
@@ -808,11 +838,14 @@ class TestGarageDrives:
         assert hint.matches(b'client.post(url, {"query": {"kind": NodeKind.PATHS_QUERY}})')
         assert not hint.matches(b"NodeKind.TRENDS_QUERY")
 
-    def test_driven_wiring_locations_reads_the_products_lines(self, tmp_path: Path) -> None:
+    def test_driven_wiring_locations_reads_the_products_drives_lines(self, tmp_path: Path) -> None:
+        # A facade-logic line is keyed by a location too, so matching the product prefix alone would
+        # report backend/facade/ as a wiring location no test outside the product drives.
         baseline = tmp_path / "baseline.txt"
         baseline.write_text(
             "# header\n"
             "product_analytics:backend/hogql_queries/ posthog.api.test.test_x drives(PathsQuery) 1\n"
+            "product_analytics:backend/facade/models.py products.product_analytics.backend.facade.models facade-logic 1\n"
             "product_analytics.Insight posthog.api.sharing instance-many(all) 1\n"
             "web_analytics:backend/hogql_queries/ posthog.test.test_y drives(WebOverviewQueryRunner) 1\n"
         )

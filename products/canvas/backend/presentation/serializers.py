@@ -8,23 +8,22 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
-from products.canvas.backend.contract import (
+from products.canvas.backend.facade.api import (
+    CANVAS_LAYOUT_SCHEMA_VERSION,
     GRID_COLUMN_CHOICES,
     MAX_COMPONENT_HEIGHT,
     MAX_COMPONENT_WIDTH,
-    canvas_sdk_version,
-    contract_limits,
-)
-from products.canvas.backend.facade.api import (
-    CANVAS_LAYOUT_SCHEMA_VERSION,
     MAX_LAYOUT_PATCH_OPERATIONS,
     PLACEMENT_ID_RE,
     PLACEMENT_STATUSES,
     RESERVED_TEMPLATE_IDS,
     ConnectorCallStatus,
     ConnectorKind,
+    canvas_sdk_version,
+    contract_limits,
 )
-from products.canvas.backend.models import Canvas, CanvasState
+from products.canvas.backend.facade.contracts import CanvasBuildRecord, CanvasRecord
+from products.canvas.backend.facade.enums import CANVAS_KIND_FREEFORM, CANVAS_KINDS, CANVAS_STATE_SCOPES
 
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
 # from the contract's total-source cap rather than restating the number.
@@ -36,7 +35,7 @@ _CANVAS_URL_HELP_TEXT = (
 )
 
 
-def canvas_url(canvas: Canvas) -> str:
+def canvas_url(canvas: CanvasRecord) -> str:
     # The same shape the thread-message announcements use; the route deep-links
     # into the desktop app and renders in the web app.
     return f"{settings.SITE_URL}/code/canvas/{canvas.channel_id}/{canvas.id}"
@@ -84,12 +83,13 @@ class CanvasComponentMetaSerializer(serializers.Serializer):
     )
 
 
-class CanvasSerializer(serializers.ModelSerializer):
+class CanvasSerializer(serializers.Serializer):
     """A canvas document. Version/build content hangs off the source and build endpoints."""
 
-    channel = serializers.UUIDField(source="channel_id", read_only=True)
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
     kind = serializers.ChoiceField(
-        choices=Canvas.KINDS,
+        choices=CANVAS_KINDS,
         read_only=True,
         help_text=(
             "What the canvas is: 'freeform' (a standalone app), 'component' (a reusable widget grids place), "
@@ -100,12 +100,11 @@ class CanvasSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Short prose describing the canvas. For components, the store-search text.",
     )
-    component_meta = serializers.SerializerMethodField(
-        help_text=(
-            "For component-kind canvases: the head version's placement contract "
-            "(size, optional configSchema). Null for other kinds and unpublished components."
-        ),
-    )
+    channel = serializers.UUIDField(source="channel_id", read_only=True)
+    template_id = serializers.CharField(read_only=True)
+    generation_task_id = serializers.UUIDField(read_only=True, allow_null=True)
+    pinned = serializers.SerializerMethodField(help_text="Whether the canvas is pinned to its channel.")
+    pinned_at = serializers.DateTimeField(read_only=True, allow_null=True)
     current_version_id = serializers.UUIDField(
         source="current_source_version_id",
         read_only=True,
@@ -117,43 +116,26 @@ class CanvasSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.",
     )
+    component_meta = serializers.SerializerMethodField(
+        help_text=(
+            "For component-kind canvases: the head version's placement contract "
+            "(size, optional configSchema). Null for other kinds and unpublished components."
+        ),
+    )
     created_by = UserBasicSerializer(read_only=True)
-    pinned = serializers.SerializerMethodField(help_text="Whether the canvas is pinned to its channel.")
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
     url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
 
-    class Meta:
-        model = Canvas
-        fields = [
-            "id",
-            "name",
-            "kind",
-            "description",
-            "channel",
-            "template_id",
-            "generation_task_id",
-            "pinned",
-            "pinned_at",
-            "current_version_id",
-            "published_build_id",
-            "component_meta",
-            "created_by",
-            "created_at",
-            "updated_at",
-            "url",
-        ]
-        read_only_fields = fields
-
-    def get_pinned(self, canvas: Canvas) -> bool:
+    def get_pinned(self, canvas: CanvasRecord) -> bool:
         return canvas.pinned_at is not None
 
-    def get_url(self, canvas: Canvas) -> str:
+    def get_url(self, canvas: CanvasRecord) -> str:
         return canvas_url(canvas)
 
     @extend_schema_field(CanvasComponentMetaSerializer(allow_null=True))
-    def get_component_meta(self, canvas: Canvas) -> dict | None:
-        if canvas.kind != Canvas.KIND_COMPONENT or canvas.current_source_version is None:
-            return None
-        return canvas.current_source_version.component_meta
+    def get_component_meta(self, canvas: CanvasRecord) -> dict | None:
+        return canvas.component_meta
 
 
 class CanvasCreateSerializer(serializers.Serializer):
@@ -167,9 +149,9 @@ class CanvasCreateSerializer(serializers.Serializer):
     )
     channel_id = serializers.UUIDField(help_text="Id of the channel the canvas belongs to.")
     kind = serializers.ChoiceField(
-        choices=Canvas.KINDS,
+        choices=CANVAS_KINDS,
         required=False,
-        default=Canvas.KIND_FREEFORM,
+        default=CANVAS_KIND_FREEFORM,
         help_text=(
             "What to create: 'freeform' (a standalone app), 'component' (a reusable widget for grids — "
             "its published project must declare a `component` placement contract), or 'grid' "
@@ -246,7 +228,7 @@ class CanvasPostHogCapabilitiesSerializer(serializers.Serializer):
     captureEvents = serializers.ListField(child=serializers.CharField(max_length=200), max_length=100)
     # Optional so projects published before the state store exist unchanged.
     state = serializers.ListField(
-        child=serializers.ChoiceField(choices=CanvasState.SCOPES),
+        child=serializers.ChoiceField(choices=CANVAS_STATE_SCOPES),
         required=False,
         default=list,
         max_length=2,
@@ -573,7 +555,7 @@ class CanvasSummarySerializer(serializers.Serializer):
 
     id = serializers.UUIDField(help_text="The canvas's id.")
     name = serializers.CharField(help_text="Display name of the canvas.")
-    kind = serializers.ChoiceField(choices=Canvas.KINDS, help_text="The canvas's kind (freeform, component, or grid).")
+    kind = serializers.ChoiceField(choices=CANVAS_KINDS, help_text="The canvas's kind (freeform, component, or grid).")
     channel_id = serializers.UUIDField(help_text="Id of the channel the canvas belongs to.")
     current_version_id = serializers.CharField(
         allow_null=True,
@@ -587,7 +569,7 @@ class CanvasSummarySerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(help_text="When the canvas was created.")
     url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
 
-    def get_url(self, canvas: Canvas) -> str:
+    def get_url(self, canvas: CanvasRecord) -> str:
         return canvas_url(canvas)
 
 
@@ -707,19 +689,81 @@ class CanvasSourcePublishSerializer(serializers.Serializer):
     )
 
 
-class CanvasSourceEditOperationSerializer(serializers.Serializer):
-    """One per-file edit: set a file's content, or delete it."""
+class CanvasSourceEditOp(models.TextChoices):
+    WRITE = "write"
+    DELETE = "delete"
+    RENAME = "rename"
+    STR_REPLACE = "str_replace"
 
-    path = serializers.CharField(
-        help_text='Project-relative path of the file to write or delete (e.g. "src/canvas.tsx").'
+
+def _inferred_edit_op(attrs: dict[str, Any]) -> CanvasSourceEditOp:
+    if "old_string" in attrs or "new_string" in attrs:
+        return CanvasSourceEditOp.STR_REPLACE
+    if attrs.get("new_path"):
+        return CanvasSourceEditOp.RENAME
+    if "content" not in attrs:
+        raise serializers.ValidationError({"op": "Set op, or send content (null deletes the file)."})
+    return CanvasSourceEditOp.WRITE if attrs["content"] is not None else CanvasSourceEditOp.DELETE
+
+
+class CanvasSourceEditOperationSerializer(serializers.Serializer):
+    """One file edit: replace text in a file, write a whole file, delete it, or rename it."""
+
+    op = serializers.ChoiceField(
+        choices=CanvasSourceEditOp.choices,
+        required=False,
+        help_text=(
+            "What to do. 'str_replace' replaces old_string with new_string inside the file: the default for "
+            "changing an existing file. 'write' sets the file's complete content (new files, full rewrites). "
+            "'delete' removes the file. 'rename' moves it to new_path. When omitted, it follows the fields sent: "
+            "old_string or new_string means 'str_replace', new_path means 'rename', non-null content means 'write', "
+            "and content null means 'delete'. An operation with none of these fields is rejected."
+        ),
     )
+    path = serializers.CharField(help_text='Project-relative path of the file to edit (e.g. "src/canvas.tsx").')
     content = serializers.CharField(
         required=False,
         allow_null=True,
         allow_blank=True,
         trim_whitespace=False,
-        help_text="The file's complete new content. Null (or omitted) deletes the file.",
+        help_text="For 'write': the file's complete new content.",
     )
+    old_string = serializers.CharField(
+        required=False,
+        trim_whitespace=False,
+        help_text=(
+            "For 'str_replace': the exact text to replace, copied from the file with a few surrounding lines so it "
+            "matches one place only. If whitespace differs slightly, a unique line-by-line match is still accepted."
+        ),
+    )
+    new_string = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="For 'str_replace': the text that replaces old_string. An empty string deletes old_string.",
+    )
+    replace_all = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="For 'str_replace': replace every exact match of old_string instead of requiring exactly one.",
+    )
+    new_path = serializers.CharField(required=False, help_text="For 'rename': the file's new project-relative path.")
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        op = attrs.get("op")
+        if op is None:
+            op = attrs["op"] = _inferred_edit_op(attrs)
+        if op == CanvasSourceEditOp.WRITE and attrs.get("content") is None:
+            raise serializers.ValidationError({"content": "A 'write' operation needs the file's complete content."})
+        elif op == CanvasSourceEditOp.RENAME and not attrs.get("new_path"):
+            raise serializers.ValidationError({"new_path": "A 'rename' operation needs new_path."})
+        elif op == CanvasSourceEditOp.STR_REPLACE:
+            missing = [field for field in ("old_string", "new_string") if field not in attrs]
+            if missing:
+                raise serializers.ValidationError(
+                    dict.fromkeys(missing, "A 'str_replace' operation needs old_string and new_string.")
+                )
+        return attrs
 
 
 class CanvasSourceEditSerializer(serializers.Serializer):
@@ -727,8 +771,21 @@ class CanvasSourceEditSerializer(serializers.Serializer):
 
     operations = CanvasSourceEditOperationSerializer(
         many=True,
-        allow_empty=False,
-        help_text="Edits applied in order to the canvas's current source project.",
+        required=False,
+        default=list,
+        help_text=(
+            "Edits applied in order to the canvas's current source project, all or nothing. "
+            "May be empty when the edit only changes capabilities."
+        ),
+    )
+    capabilities = CanvasCapabilitiesSerializer(
+        required=False,
+        help_text=(
+            "The project's complete new capabilities, replacing the current ones in the same publish. "
+            "Send it when the change needs a capability the canvas does not declare yet, for example a new "
+            "ph.state scope, insight, capture event, or network origin. Copy the current capabilities from "
+            "canvas-source-retrieve and change only what you need. Omit to keep the current capabilities."
+        ),
     )
     prompt = serializers.CharField(
         required=False,
@@ -752,10 +809,34 @@ class CanvasSourceEditSerializer(serializers.Serializer):
         ),
     )
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not attrs["operations"] and "capabilities" not in attrs:
+            raise serializers.ValidationError({"operations": "Send at least one operation or new capabilities."})
+        return attrs
+
 
 class CanvasPublishCurrentVersionSerializer(serializers.Serializer):
     expected_current_version_id = serializers.UUIDField(
         help_text="Current source version to publish. A changed head returns a 409 version_conflict."
+    )
+
+
+class CanvasPublishedBuildSerializer(serializers.Serializer):
+    """The build a publish queued, as it stood when the response was sent."""
+
+    id = serializers.CharField(help_text="The build's id.")
+    build_status = serializers.ChoiceField(
+        choices=["queued", "building", "ready", "failed"],
+        source="status",
+        help_text=(
+            "'ready': the build finished. The canvas is live with this version when canvas.published_build_id "
+            "equals this id; then you do not need canvas-builds-retrieve. "
+            "'failed': fix the error diagnostics and save again. "
+            "'queued' or 'building': poll canvas-builds-retrieve until the build is terminal."
+        ),
+    )
+    diagnostics = CanvasDiagnosticSerializer(
+        many=True, help_text="Structured diagnostics recorded by the build (errors explain a failed status)."
     )
 
 
@@ -767,6 +848,9 @@ class CanvasSourcePublishResponseSerializer(serializers.Serializer):
     diagnostics = CanvasDiagnosticSerializer(
         many=True,
         help_text="Advisory (warning-severity) diagnostics recorded for the published project.",
+    )
+    build = CanvasPublishedBuildSerializer(
+        help_text="The queued build. The server waits a few seconds for it, so it is often already terminal."
     )
 
 
@@ -862,22 +946,8 @@ class CanvasBuildSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(help_text="When the build was queued.")
     finished_at = serializers.DateTimeField(allow_null=True, help_text="When the build reached a terminal state.")
 
-    def get_artifact_url(self, build: Any) -> str | None:
-        from products.canvas.backend.artifacts import create_canvas_artifact_url  # noqa: PLC0415
-
-        # artifact_object_prefix is cleared by retention once a ready build's
-        # objects are pruned; the artifact view 404s on it, so don't advertise a
-        # URL that can't be served.
-        if (
-            build.status != build.STATUS_READY
-            or not build.artifact_object_prefix
-            or not isinstance(build.manifest, dict)
-        ):
-            return None
-        entry = build.manifest.get("entryHtml")
-        if not isinstance(entry, str):
-            return None
-        return create_canvas_artifact_url(build, entry)
+    def get_artifact_url(self, build: CanvasBuildRecord) -> str | None:
+        return build.artifact_url
 
 
 class CanvasBuildsResponseSerializer(serializers.Serializer):
@@ -959,6 +1029,14 @@ class CanvasViewResponseSerializer(serializers.Serializer):
         help_text=(
             "For grid canvases: the renderable build of every component the layout's live placements "
             "reference, so the grid renders from this one call. Absent for other kinds."
+        ),
+    )
+    sandbox_document_url = serializers.CharField(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "URL of the sandbox document that renders the head source project in an iframe, served from "
+            "the artifact origin. Load it by URL, not as srcdoc. Null when artifact delivery is unavailable."
         ),
     )
 
@@ -1167,15 +1245,84 @@ class CanvasConnectorCallResultSerializer(serializers.Serializer):
     )
 
 
+class CanvasStateQuerySerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(choices=CANVAS_STATE_SCOPES, required=False, help_text="Only read this scope.")
+    key = serializers.CharField(required=False, max_length=200, help_text="Only read this exact key.")
+    key_prefix = serializers.CharField(
+        required=False,
+        max_length=200,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="Only read entries whose key starts with this prefix.",
+    )
+    keys_only = serializers.BooleanField(
+        required=False, default=False, help_text="True returns a key inventory without stored values."
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Entry offset from next_offset. Keep filters unchanged between pages.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum entries per page. Omit for the full state. Prefer an inventory and state/value for large values.",
+    )
+
+
+class CanvasStateValueQuerySerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(choices=CANVAS_STATE_SCOPES, help_text="Scope of the value to read.")
+    key = serializers.CharField(max_length=200, help_text="Exact key to read.")
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Character offset from next_offset."
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=12000,
+        min_value=1,
+        max_value=12000,
+        help_text="Maximum JSON characters in this response.",
+    )
+    revision = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Revision from the first chunk. Required when offset is greater than zero.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["offset"] and not attrs.get("revision"):
+            raise serializers.ValidationError({"revision": "Read the first chunk and pass its revision to continue."})
+        return attrs
+
+
+class CanvasStateValueResponseSerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(choices=CANVAS_STATE_SCOPES, help_text="Scope of this value.")
+    key = serializers.CharField(help_text="Key of this value.")
+    value_json = serializers.CharField(
+        allow_blank=True, help_text="A chunk of JSON text. Join all chunks in order, then parse the complete JSON."
+    )
+    revision = serializers.CharField(
+        help_text="Content revision. Pass it on subsequent reads; a changed value returns 409."
+    )
+    offset = serializers.IntegerField(help_text="Character offset of this chunk.")
+    total_length = serializers.IntegerField(help_text="Character length of the complete JSON text.")
+    next_offset = serializers.IntegerField(allow_null=True, help_text="Next character offset, or null when complete.")
+    complete = serializers.BooleanField(
+        help_text="True when no further chunks remain. Earlier chunks are still needed when offset is nonzero."
+    )
+
+
 class CanvasStateEntrySerializer(serializers.Serializer):
     """One key of a canvas's runtime key-value state (the ph.state store)."""
 
     scope = serializers.ChoiceField(
-        choices=CanvasState.SCOPES,
+        choices=CANVAS_STATE_SCOPES,
         help_text="user: private to the viewer who wrote it. shared: one value per canvas, visible to every viewer.",
     )
     key = serializers.CharField(max_length=200, help_text="The entry's key, unique within its scope.")
-    value = serializers.JSONField(help_text="The stored JSON value.")
+    value = serializers.JSONField(required=False, help_text="The stored JSON value. Omitted from a key inventory.")
     updated_at = serializers.DateTimeField(help_text="When the entry was last written.")
 
 
@@ -1186,13 +1333,15 @@ class CanvasStateResponseSerializer(serializers.Serializer):
         many=True,
         help_text="The canvas's shared entries plus the caller's own user-scoped entries.",
     )
+    next_offset = serializers.IntegerField(allow_null=True, help_text="Next entry offset, or null when complete.")
+    complete = serializers.BooleanField(help_text="True when no further entries remain for this selection.")
 
 
 class CanvasStateSetSerializer(serializers.Serializer):
     """Payload for writing (or deleting) one key of a canvas's runtime state."""
 
     scope = serializers.ChoiceField(
-        choices=CanvasState.SCOPES,
+        choices=CANVAS_STATE_SCOPES,
         help_text="Scope to write into; the canvas must declare it in capabilities.posthog.state.",
     )
     key = serializers.CharField(max_length=200, help_text="Key to write, unique within its scope.")
@@ -1303,3 +1452,102 @@ class CanvasAgentRequestResultSerializer(serializers.Serializer):
         ),
     )
     task_id = serializers.UUIDField(help_text="Authoring task that received the request or report.")
+
+
+class CanvasCommentsQuerySerializer(serializers.Serializer):
+    include_resolved = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether to include resolved comment threads.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum number of root comments to return.",
+    )
+    cursor = serializers.CharField(
+        required=False, max_length=256, help_text="Opaque cursor returned by the previous page."
+    )
+
+
+class CanvasCommentDetailQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum number of comments in the thread to return.",
+    )
+    cursor = serializers.CharField(
+        required=False, max_length=256, help_text="Opaque cursor returned by the previous page."
+    )
+    comment_id = serializers.UUIDField(
+        required=False,
+        help_text="Comment id whose truncated body should continue. Use with content_offset.",
+    )
+    content_offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Byte offset returned as content_next_offset for the selected comment.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("content_offset") and not attrs.get("comment_id"):
+            raise serializers.ValidationError({"comment_id": "This field is required with content_offset."})
+        if attrs.get("comment_id") and attrs.get("cursor"):
+            raise serializers.ValidationError({"cursor": "Do not combine cursor with comment_id."})
+        return attrs
+
+
+class CanvasCommentSummarySerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Root comment id.")
+    content = serializers.CharField(help_text="Bounded excerpt of the root comment body.")
+    content_truncated = serializers.BooleanField(help_text="Whether the root comment body has more content.")
+    selected_text = serializers.CharField(allow_null=True, help_text="Text selected when the comment was created.")
+    created_at = serializers.DateTimeField(help_text="When the root comment was created.")
+    reply_count = serializers.IntegerField(help_text="Number of human replies.")
+    resolved = serializers.BooleanField(help_text="Whether the comment thread is resolved.")
+
+
+class CanvasCommentsResponseSerializer(serializers.Serializer):
+    comments = CanvasCommentSummarySerializer(many=True, help_text="Root comments on the canvas, newest first.")
+    next = serializers.CharField(allow_null=True, help_text="Opaque cursor for the next page, or null.")
+
+
+class CanvasCommentAnchorSerializer(serializers.Serializer):
+    kind = serializers.CharField(required=False, help_text="Anchor kind: text or region.")
+    quote = serializers.CharField(required=False, help_text="Selected text.")
+    prefix = serializers.CharField(required=False, help_text="Text immediately before the selection.")
+    suffix = serializers.CharField(required=False, help_text="Text immediately after the selection.")
+    start = serializers.IntegerField(required=False, min_value=0, help_text="Selection start offset.")
+    end = serializers.IntegerField(required=False, min_value=1, help_text="Selection end offset.")
+    x = serializers.FloatField(required=False, min_value=0, max_value=1, help_text="Horizontal region position.")
+    y = serializers.FloatField(required=False, min_value=0, max_value=1, help_text="Vertical region position.")
+    width = serializers.FloatField(required=False, min_value=0, max_value=1, help_text="Region width.")
+    height = serializers.FloatField(required=False, min_value=0, max_value=1, help_text="Region height.")
+
+
+class CanvasCommentEntrySerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Comment id.")
+    content = serializers.CharField(help_text="Byte-bounded comment body chunk.")
+    content_truncated = serializers.BooleanField(help_text="Whether this comment body has more content.")
+    content_next_offset = serializers.IntegerField(
+        allow_null=True,
+        help_text="Byte offset for the next body chunk, or null when complete.",
+    )
+    author = serializers.CharField(allow_null=True, help_text="Display name of the comment author.")
+    created_at = serializers.DateTimeField(help_text="When the comment was created.")
+    anchor = CanvasCommentAnchorSerializer(allow_null=True, help_text="Normalized text or region anchor.")
+    canvas_version_id = serializers.CharField(
+        allow_null=True, help_text="Canvas version that was live when the comment was written."
+    )
+
+
+class CanvasCommentDetailSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Root comment id.")
+    resolved = serializers.BooleanField(help_text="Whether the comment thread is resolved.")
+    comments = CanvasCommentEntrySerializer(many=True, help_text="Comments in this page, oldest first.")
+    next = serializers.CharField(allow_null=True, help_text="Opaque cursor for the next page, or null.")

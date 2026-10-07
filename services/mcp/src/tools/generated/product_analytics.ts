@@ -195,7 +195,37 @@ const AssistantDataVisualizationNode = z.object({
     ).optional(),
 })
 
-const InsightQuery = z.union([AssistantInsightVizNode, AssistantDataVisualizationNode])
+const InsightNodeKind = z.enum([
+    'TrendsQuery',
+    'FunnelsQuery',
+    'RetentionQuery',
+    'PathsQuery',
+    'PathsV2Query',
+    'StickinessQuery',
+    'LifecycleQuery',
+    'WebStatsTableQuery',
+    'WebOverviewQuery',
+])
+
+const AssistantBareInsightQuery = z
+    .object({
+        kind: InsightNodeKind,
+    })
+    .catchall(z.unknown())
+
+const AssistantBareHogQLQuery = z
+    .object({
+        kind: z.literal('HogQLQuery').default('HogQLQuery'),
+        query: z.string().describe('The HogQL query to run.'),
+    })
+    .catchall(z.unknown())
+
+const InsightQuery = z.union([
+    AssistantInsightVizNode,
+    AssistantDataVisualizationNode,
+    AssistantBareInsightQuery,
+    AssistantBareHogQLQuery,
+])
 
 const ElementsStatsRetrieveSchema = () => {
     const ElementsStatsRetrieveQueryParams = orvalSchemas.ElementsStatsRetrieveQueryParams()
@@ -242,7 +272,10 @@ const InsightCreateSchema = () => {
     })
 }
 
-const insightCreate = (): ToolBase<ReturnType<typeof InsightCreateSchema>, WithPostHogUrl<Schemas.Insight>> => ({
+const insightCreate = (): ToolBase<
+    ReturnType<typeof InsightCreateSchema>,
+    WithAgentNote<WithPostHogUrl<Schemas.Insight>>
+> => ({
     name: 'insight-create',
     schema: InsightCreateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof InsightCreateSchema>>) => {
@@ -280,7 +313,10 @@ const insightCreate = (): ToolBase<ReturnType<typeof InsightCreateSchema>, WithP
             'hogql',
             'types',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`),
+            'When you tell the user about this insight, name the display you chose and one or two other displays that also fit this query, in one short sentence, and offer to change it. If the user agrees, change it with insight-update. Suggest only displays that the insight kind supports and that fit the question:\n\n- Trends (`trendsFilter.display`): for change over time `ActionsLineGraph`, `ActionsAreaGraph`, `ActionsBar` or `ActionsUnstackedBar`; for totals per breakdown value or series `ActionsBarValue`, `ActionsPie` or `ActionsTable`; for one number `Metric` or `BoldNumber`, never with a breakdown or more than one series; `WorldMap` only for a `$geoip_country_name` breakdown.\n- Funnels (`funnelsFilter.funnelVizType`): `steps` for drop-off per step, `trends` for conversion over time, or `time_to_convert` for how long users take.\n- Retention (`retentionFilter.display`): `ActionsLineGraph` or `ActionsBar`.\n- Stickiness (`stickinessFilter.display`): `ActionsLineGraph`, `ActionsBar` or `ActionsAreaGraph`.\n- Lifecycle: stacked or side-by-side bars (`lifecycleFilter.stacked`).\n- SQL (`DataVisualizationNode` `display`): only displays that fit the columns the query returns.\n- Paths: suggest nothing.\n\nUse the chart names a person sees, such as "bar chart per category" or "line chart", not enum values or tool names. If the user named the chart they want, do not suggest others. If you create several insights in this task, give one short list of alternatives at the end, not one per insight.\n\nAfter creating a Trends, SQL (HogQL), Funnels or Metrics insight, call insight-query with the returned short_id, read the current value, and offer an alert when the metric is one someone would act on if it moved sharply (signups, active users, revenue, conversion rate, error or failure counts, latency). Name an actual number, never a placeholder such as X, for example "want me to alert you when daily signups drop below 400?". A count sitting at zero, such as errors or failures, is a strong case, so offer an upper bound of 1. Offer nothing when the insight returned no rows. When no absolute number fits and the insight supports it, offer a relative-change alert on a sudden increase or decrease. Skip metrics nobody acts on, such as raw pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say nothing about alerts. Wait for the user to accept before creating an alert.\n'
+        )
     },
 })
 
@@ -426,7 +462,7 @@ const insightUpdate = (): ToolBase<
         ]) as typeof result
         return withAgentNote(
             await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`),
-            "If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a recurring delivery of that dashboard as a next step. `dashboards` is a full replacement, so only offer when the dashboard id you just added was not already on the insight before this call. Offer at most once per dashboard in a conversation, however many insights you attach to it. First call subscriptions-list with `dashboard` set to that dashboard's id, and do not offer a second subscription when it returns one. Say nothing when this update left `dashboards` alone or only removed the insight from a dashboard. Describe it the way a person would recognize it, for example a weekly email every Monday morning with these charts attached, or the same thing posted to a Slack channel. To create it, use subscriptions-create. It needs `dashboard` set to the dashboard's id, `dashboard_export_insights` listing up to 10 charts, `target_type` of `email` or `slack`, and `target_value`, `frequency`, `interval` and `start_date`. For a Slack delivery, also set `integration_id`. Find the connected Slack workspace with integrations-list (filter kind=slack) and the channel for `target_value` with integrations-channels-retrieve. Ask the user for the recipients and the cadence rather than choosing them, since this creates a recurring outbound delivery. If either subscriptions-create or subscriptions-list is not available to you in this session, say nothing about subscriptions. If the user already declined a subscription earlier in this conversation, do not offer again."
+            "If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a recurring delivery of that dashboard as a next step. `dashboards` is a full replacement, so only offer when the dashboard id you just added was not already on the insight before this call. Offer at most once per dashboard in a conversation, however many insights you attach to it. First call subscriptions-list with `dashboard` set to that dashboard's id, and do not offer a second subscription when it returns one. Say nothing when this update left `dashboards` alone or only removed the insight from a dashboard. Describe it the way a person would recognize it, for example a weekly email every Monday morning with these charts attached, or the same thing posted to a Slack channel. To create it, use subscriptions-create. It needs `dashboard` set to the dashboard's id, `dashboard_export_insights` listing up to 20 charts, `target_type` of `email` or `slack`, and `target_value`, `frequency`, `interval` and `start_date`. For a Slack delivery, also set `integration_id`. Find the connected Slack workspace with integrations-list (filter kind=slack) and the channel for `target_value` with integrations-channels-retrieve. Ask the user for the recipients and the cadence rather than choosing them, since this creates a recurring outbound delivery. If either subscriptions-create or subscriptions-list is not available to you in this session, say nothing about subscriptions. If the user already declined a subscription earlier in this conversation, do not offer again."
         )
     },
 })
@@ -532,6 +568,7 @@ const insightsList = (): ToolBase<
                 dashboards: params.dashboards,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                exclude_bi: params.exclude_bi,
                 favorited: params.favorited,
                 include_dashboards: params.include_dashboards,
                 insight: params.insight,
@@ -539,6 +576,7 @@ const insightsList = (): ToolBase<
                 last_viewed_date_to: params.last_viewed_date_to,
                 limit: params.limit,
                 offset: params.offset,
+                order: params.order,
                 saved: params.saved,
                 search: params.search,
                 short_id: params.short_id,

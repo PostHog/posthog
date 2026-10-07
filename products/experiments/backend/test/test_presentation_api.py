@@ -8,13 +8,24 @@ import time_machine
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
 
+from django.core.cache import cache
 from django.db import connection
 from django.db.models import F
 from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
+from django.utils import timezone
 
 from dateutil import parser
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.schema import (
+    ExperimentApiMetric,
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentRatioMetric,
+    ExperimentRetentionMetric,
+)
 
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
@@ -31,15 +42,19 @@ from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
     EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_resolution import find_metric_dict
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
     Experiment,
     ExperimentHoldout,
+    ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
@@ -47,11 +62,11 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
+from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 
 def _make(cls, **attrs):
@@ -609,6 +624,23 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["is_legacy"])
+
+    @parameterized.expand(
+        [
+            ("legacy_kind", {"kind": "ExperimentFunnelsQuery"}),
+            ("no_kind", {"metric_type": "mean", "source": {"kind": "EventsNode", "event": "$pageview"}}),
+            ("no_metric_type", {"kind": "ExperimentMetric", "source": {"kind": "EventsNode", "event": "$pageview"}}),
+        ]
+    )
+    def test_detail_serves_no_effective_query_for_a_query_outside_the_metric_union(
+        self, _name: str, saved_query: dict[str, Any]
+    ) -> None:
+        experiment, _ = self._create_experiment_with_action_metrics(0)
+        ExperimentSavedMetric.objects.filter(experimenttosavedmetric__experiment=experiment).update(query=saved_query)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["saved_metrics"][0]["effective_query"])
 
     @parameterized.expand(
         [
@@ -1227,6 +1259,94 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             {"id": holdout_2_id, "exclusion_percentage": 5},
         )
 
+    @parameterized.expand(
+        [
+            ("event_source", False, True),
+            ("action_source_renamed_after_the_save", True, True),
+            ("limit_without_link_breakdowns", False, False),
+        ]
+    )
+    def test_saved_metric_fingerprint_is_stamped_from_the_merged_query(
+        self, _name: str, rename_action: bool, link_has_breakdowns: bool
+    ):
+        """The stamped fingerprint tells the frontend which timeseries rows to read. It must be computed on
+        the saved query with the link overrides applied, the same dict the daily workflow files its rows
+        under, or the chart reads an empty series for an override-configured saved metric."""
+        breakdowns = [{"type": "event", "property": "$os_name"}] if link_has_breakdowns else []
+        action = Action.objects.create(team=self.team, name="Stored name", steps_json=[{"event": "$pageview"}])
+        source = (
+            {"kind": "ActionsNode", "id": action.id, "name": action.name}
+            if rename_action
+            else {"kind": "EventsNode", "event": "$pageview"}
+        )
+        saved_metric_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Breakdown saved metric",
+                "query": {"kind": "ExperimentMetric", "metric_type": "mean", "source": source},
+            },
+        )
+        if rename_action:
+            Action.objects.filter(pk=action.pk).update(name="Current name")
+        metadata = {"type": "primary", "breakdowns": breakdowns, "breakdown_limit": 20}
+        experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Breakdown fingerprint",
+                "feature_flag_key": "breakdown-fingerprint",
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+                "filters": {"events": [{"order": 0, "id": "$pageview"}], "properties": []},
+                "saved_metrics_ids": [{"id": saved_metric_response.json()["id"], "metadata": metadata}],
+            },
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+
+        detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_response.json()['id']}/")
+        served = detail.json()["saved_metrics"][0]
+        stamped = served["query"]["fingerprint"]
+        if rename_action:
+            self.assertEqual(served["query"]["source"]["name"], "Current name")
+        # The link limit applies only together with link breakdowns.
+        self.assertEqual(
+            served["effective_query"],
+            {
+                **served["query"],
+                "breakdownFilter": (
+                    {"breakdowns": breakdowns, "breakdown_limit": 20} if link_has_breakdowns else {"breakdowns": []}
+                ),
+            },
+        )
+
+        experiment = Experiment.objects.get(pk=experiment_response.json()["id"])
+        saved_query = experiment.saved_metrics.first().query  # type: ignore[union-attr]
+        fingerprint_args = (
+            experiment.start_date,
+            get_experiment_stats_method(experiment),
+            experiment.exposure_criteria,
+        )
+        effective_definition = find_metric_dict(experiment, saved_query["uuid"])
+        assert effective_definition is not None
+        expected = compute_metric_fingerprint(
+            effective_definition,
+            *fingerprint_args,
+            only_count_matured_users=experiment.only_count_matured_users,
+            excluded_variants=experiment.excluded_variants or [],
+        )
+        self.assertEqual(stamped, expected)
+        if link_has_breakdowns:
+            # The raw query hashes differently when real breakdowns exist, so a stamp computed on it would
+            # point the chart at rows that do not exist.
+            self.assertNotEqual(
+                stamped,
+                compute_metric_fingerprint(
+                    saved_query,
+                    *fingerprint_args,
+                    only_count_matured_users=experiment.only_count_matured_users,
+                    excluded_variants=experiment.excluded_variants or [],
+                ),
+            )
+
     def test_saved_metrics(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
@@ -1501,90 +1621,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["type"], "validation_error")
         self.assertEqual(response.json()["detail"], "Metadata must be an object")
-
-    @time_machine.travel("2025-02-10T13:00:00Z", tick=False)
-    def test_fetching_experiment_with_stale_metric_dates_applies_experiment_date_range(self):
-        test_feature_flag = FeatureFlag.objects.create(
-            name=f"Test experiment flag",
-            key="test-flag",
-            team=self.team,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": None}],
-                "multivariate": {
-                    "variants": [
-                        {
-                            "key": "control",
-                            "name": "Control",
-                            "rollout_percentage": 50,
-                        },
-                        {
-                            "key": "test",
-                            "name": "Test",
-                            "rollout_percentage": 50,
-                        },
-                    ]
-                },
-            },
-            created_by=self.user,
-        )
-        trends_query = {
-            "kind": "ExperimentTrendsQuery",
-            "count_query": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {
-                        "kind": "EventsNode",
-                        "math": "total",
-                        "name": "[jan-16-running] event one",
-                        "event": "[jan-16-running] event one",
-                    }
-                ],
-                "interval": "day",
-                "dateRange": {"date_to": "2025-01-16T23:59", "date_from": "2025-01-02T13:54", "explicitDate": True},
-                "trendsFilter": {"display": "ActionsLineGraph"},
-                "filterTestAccounts": True,
-            },
-        }
-        saved_trends_metric = ExperimentSavedMetric.objects.create(
-            name="Test saved metric",
-            description="Test description",
-            query=trends_query,
-            team=self.team,
-            created_by=self.user,
-        )
-        experiment = Experiment.objects.create(
-            name="Test Experiment with stale dates",
-            team=self.team,
-            feature_flag=test_feature_flag,
-            start_date=datetime(2025, 2, 1),
-            end_date=None,
-            metrics=[trends_query],
-            metrics_secondary=[trends_query],
-        )
-
-        saved_metric_serializer = ExperimentToSavedMetricSerializer(
-            data={
-                "experiment": experiment.id,
-                "saved_metric": saved_trends_metric.id,
-                "metadata": {"type": "secondary"},
-            },
-        )
-        saved_metric_serializer.is_valid(raise_exception=True)
-        saved_metric_serializer.save()
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["metrics"][0]["count_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z")
-        self.assertEqual(response.json()["metrics"][0]["count_query"]["dateRange"]["date_to"], "")
-        self.assertEqual(
-            response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z"
-        )
-        self.assertEqual(response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_to"], "")
-        self.assertEqual(
-            response.json()["saved_metrics"][0]["query"]["count_query"]["dateRange"]["date_from"],
-            "2025-02-01T00:00:00Z",
-        )
-        self.assertEqual(response.json()["saved_metrics"][0]["query"]["count_query"]["dateRange"]["date_to"], "")
 
     def test_adding_behavioral_cohort_filter_to_experiment_fails(self):
         cohort = Cohort.objects.create(
@@ -3313,8 +3349,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        # +1 query for survey internal flag IDs lookup
-        with self.assertNumQueries(22):
+        # +1 query for survey internal flag IDs lookup, +1 for the project's replay gates
+        with self.assertNumQueries(23):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -4638,6 +4674,217 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertIn(copy_response.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
 
+    def _enable_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+    def _create_experiment_to_copy(self, name: str, feature_flag_key: str) -> int:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": name, "feature_flag_key": feature_flag_key},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        return response.json()["id"]
+
+    def test_copy_experiment_to_project_requires_experiment_access_in_target(self) -> None:
+        self._enable_access_control()
+        target_team = Team.objects.create(organization=self.organization, name="Target Team")
+        AccessControl.objects.create(team=target_team, resource="experiment", access_level="none")
+        experiment_id = self._create_experiment_to_copy("Target denied", "target-denied-flag")
+
+        member = User.objects.create_and_join(self.organization, "no-target-experiments@posthog.com", None)
+        self.client.force_login(member)
+
+        copy_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/copy_to_project/",
+            {"target_team_id": target_team.id},
+        )
+
+        self.assertEqual(copy_response.status_code, status.HTTP_403_FORBIDDEN, copy_response.content)
+        self.assertFalse(Experiment.objects.filter(team_id=target_team.id).exists())
+
+    def test_copy_experiment_to_project_refuses_denied_flag_in_target(self) -> None:
+        self._enable_access_control()
+        target_team = Team.objects.create(organization=self.organization, name="Target Team")
+        target_flag = FeatureFlag.objects.create(
+            team=target_team,
+            key="target-private-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+                "payloads": {"control": '{"secret": "control"}', "test": '{"secret": "test"}'},
+            },
+        )
+        AccessControl.objects.create(
+            team=target_team, resource="feature_flag", resource_id=str(target_flag.id), access_level="none"
+        )
+        experiment_id = self._create_experiment_to_copy("Flag denied", "source-only-flag")
+
+        # The flag's creator keeps access regardless of access controls, so copy as a plain member.
+        member = User.objects.create_and_join(self.organization, "no-target-flag@posthog.com", None)
+        self.client.force_login(member)
+
+        copy_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/copy_to_project/",
+            {"target_team_id": target_team.id, "feature_flag_key": "target-private-flag"},
+        )
+
+        self.assertEqual(copy_response.status_code, status.HTTP_403_FORBIDDEN, copy_response.content)
+        self.assertNotIn("secret", copy_response.content.decode())
+        self.assertFalse(Experiment.objects.filter(team_id=target_team.id).exists())
+
+    def test_copy_experiment_to_project_rejects_key_not_scoped_to_target(self) -> None:
+        target_team = Team.objects.create(organization=self.organization, name="Target Team")
+        experiment_id = self._create_experiment_to_copy("Scoped key", "scoped-key-flag")
+
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="source-only",
+            secure_value=hash_key_value(token),
+            scopes=["experiment:write"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+
+        copy_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/copy_to_project/",
+            {"target_team_id": target_team.id},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(copy_response.status_code, status.HTTP_403_FORBIDDEN, copy_response.content)
+        self.assertFalse(Experiment.objects.filter(team_id=target_team.id).exists())
+
+    def test_create_experiment_refuses_flag_without_editor_access(self) -> None:
+        self._enable_access_control()
+        restricted_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="restricted-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(restricted_flag.id), access_level="none"
+        )
+
+        member = User.objects.create_and_join(self.organization, "no-flag-editor@posthog.com", None)
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Adopts restricted flag", "feature_flag_key": "restricted-flag"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertFalse(Experiment.objects.filter(feature_flag_id=restricted_flag.id).exists())
+
+    def test_create_experiment_refuses_new_flag_without_flag_create_access(self) -> None:
+        self._enable_access_control()
+        AccessControl.objects.create(team=self.team, resource="feature_flag", access_level="none")
+
+        member = User.objects.create_and_join(self.organization, "no-flag-create@posthog.com", None)
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Mints a new flag", "feature_flag_key": "minted-flag"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertFalse(FeatureFlag.objects.filter(key="minted-flag", team_id=self.team.id).exists())
+
+    def _restrict_flag_and_login_as_member(self, flag_key: str, email: str) -> FeatureFlag:
+        flag = FeatureFlag.objects.get(key=flag_key, team=self.team)
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(flag.id), access_level="none"
+        )
+        member = User.objects.create_and_join(self.organization, email, None)
+        self.client.force_login(member)
+        return flag
+
+    @parameterized.expand(
+        [
+            ("launch", "launch/", False, False),
+            ("pause", "pause/", True, True),
+            ("resume", "resume/", True, False),
+            ("ship_variant", "ship_variant/", True, True),
+        ]
+    )
+    def test_lifecycle_action_refuses_a_flag_the_user_cannot_edit(
+        self, name: str, path_suffix: str, needs_running: bool, flag_active_before: bool
+    ) -> None:
+        self._enable_access_control()
+        flag_key = f"lifecycle-{name}-flag"
+        if needs_running:
+            experiment_id = self._create_running_experiment(name=f"Lifecycle {name}", flag_key=flag_key)["id"]
+            if name == "resume":
+                pause = self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/")
+                self.assertEqual(pause.status_code, status.HTTP_200_OK, pause.content)
+        else:
+            experiment_id = self._create_experiment_to_copy(f"Lifecycle {name}", flag_key)
+
+        flag = self._restrict_flag_and_login_as_member(flag_key, f"no-flag-{name}@posthog.com")
+        self.assertEqual(flag.active, flag_active_before)
+
+        body = {"variant_key": "control"} if name == "ship_variant" else None
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/{path_suffix}",
+            body,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        flag.refresh_from_db()
+        self.assertEqual(flag.active, flag_active_before)
+
+    def test_patching_a_draft_without_touching_the_flag_needs_no_flag_access(self) -> None:
+        self._enable_access_control()
+        experiment_id = self._create_experiment_to_copy("Rename only", "rename-only-flag")
+        self._restrict_flag_and_login_as_member("rename-only-flag", "no-flag-rename@posthog.com")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"name": "Renamed without flag access"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(Experiment.objects.get(id=experiment_id).name, "Renamed without flag access")
+
+    def test_launching_by_patching_start_date_refuses_a_flag_the_user_cannot_edit(self) -> None:
+        self._enable_access_control()
+        experiment_id = self._create_experiment_to_copy("Patch launch", "patch-launch-flag")
+        flag = self._restrict_flag_and_login_as_member("patch-launch-flag", "no-flag-patch@posthog.com")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"start_date": "2026-01-01T00:00:00Z"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        flag.refresh_from_db()
+        self.assertFalse(flag.active)
+        self.assertIsNone(Experiment.objects.get(id=experiment_id).start_date)
+
     def test_copy_experiment_to_project_uses_selected_target_team(self) -> None:
         target_team = Team.objects.create(organization=self.organization, name="Target Team")
         secondary_target_team = Team.objects.create(
@@ -5588,8 +5835,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
-    def test_end_endpoint_cleanup_pr_requires_task_write_scope(self, _mock_flag):
+    def test_end_endpoint_cleanup_pr_requires_task_write_scope(self):
         exp_deny = self._create_running_experiment(name="Cleanup Deny", flag_key="cleanup-deny-flag")["id"]
         exp_no_opt = self._create_running_experiment(name="Cleanup No Opt", flag_key="cleanup-no-opt-flag")["id"]
         exp_allow = self._create_running_experiment(name="Cleanup Allow", flag_key="cleanup-allow-flag")["id"]
@@ -5630,14 +5876,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
 
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
-    def test_cleanup_pr_allowed_for_session_users(self, _mock_flag):
+    def test_cleanup_pr_allowed_for_session_users(self):
         exp_ship = self._create_running_experiment(name="Cleanup Session Ship", flag_key="cleanup-session-ship-flag")[
             "id"
         ]
 
-        # Session auth carries no scopes, and opening a cleanup PR is no longer gated on the
-        # Desktop waitlist, so both actions succeed ("end first, ship later" flow).
+        # Session auth carries no scopes, and opening a cleanup PR is not gated on the Desktop
+        # waitlist, so both actions succeed ("end first, ship later" flow).
         resp = self.client.post(
             f"/api/projects/{self.team.id}/experiments/{exp_ship}/end/",
             {"conclusion": "won", "open_cleanup_pr": True},
@@ -5828,14 +6073,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         [
             # (name, open_cleanup_pr, repository, expected_status)
             # Nothing persists in any of these: the value only sticks when a cleanup PR
-            # actually opens against it (team flag on + repo in the installation).
+            # actually opens against it, which needs the repo in the GitHub installation.
             ("not_persisted_when_cleanup_does_not_run", True, "acme/web", status.HTTP_200_OK),
             ("ignored_without_opt_in", False, "acme/web", status.HTTP_200_OK),
             ("invalid_format_rejected", True, "not-a-repo", status.HTTP_400_BAD_REQUEST),
         ]
     )
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
-    def test_end_endpoint_repository(self, _name, open_cleanup_pr, repository, expected_status, _mock_flag):
+    def test_end_endpoint_repository(self, _name, open_cleanup_pr, repository, expected_status):
         exp_id = self._create_running_experiment(name="End With Repo", flag_key="end-with-repo-flag")["id"]
 
         resp = self.client.post(
@@ -5848,11 +6092,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertIsNone(Experiment.objects.get(id=exp_id).repository)
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
     @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_end_endpoint_repository_persists_normalized_when_cleanup_opens(
-        self, mock_resolve_github, mock_create_task, _mock_flag, _mock_report
+        self, mock_resolve_github, mock_create_task, _mock_report
     ):
         mock_resolve_github.return_value = SimpleNamespace(
             list_all_cached_repositories=lambda max_repos: [{"full_name": "Acme/Web"}, {"full_name": "acme/api"}]
@@ -5872,11 +6115,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(Experiment.objects.get(id=exp_id).repository, "acme/web")
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
     @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_set_repository_as_team_default_requires_project_admin(
-        self, mock_resolve_github, mock_create_task, _mock_flag, _mock_report
+        self, mock_resolve_github, mock_create_task, _mock_report
     ):
         mock_resolve_github.return_value = SimpleNamespace(
             list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
@@ -5938,6 +6180,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # Default behavior: existing groups preserved, no catch-all prepended
         self.assertEqual(flag_filters["groups"], original_groups)
+
+        activity_log = ActivityLog.objects.filter(
+            scope="Experiment", item_id=str(experiment_id), activity="variant_shipped"
+        ).latest("created_at")
+        assert activity_log.detail is not None
+        shipped_change = next(c for c in activity_log.detail["changes"] if c["field"] == "shipped_variant")
+        self.assertEqual(shipped_change["after"], "test")
 
     def test_ship_variant_endpoint_release_to_everyone_prepends_catch_all(self):
         data = self._create_running_experiment(name="Ship Everyone", flag_key="ship-everyone-flag")
@@ -7237,6 +7486,61 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         self.assertIn("description", change_fields)
         self.assertNotIn("parameters", change_fields)
 
+    def test_running_time_calculation_output_drift_writes_no_activity_row(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Running time drift flag",
+            key="running-time-drift",
+            filters={},
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Running time drift",
+            feature_flag=feature_flag,
+            running_time_calculation={
+                "minimum_detectable_effect": 5,
+                "recommended_sample_size": 1000,
+                "recommended_running_time": 14,
+            },
+        )
+
+        drift_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/",
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 5,
+                    "recommended_sample_size": 2000,
+                    "recommended_running_time": 28,
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(drift_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.id), activity="updated").count(),
+            0,
+        )
+
+        input_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/",
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 10,
+                    "recommended_sample_size": 500,
+                    "recommended_running_time": 7,
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(input_response.status_code, status.HTTP_200_OK)
+        activity_log = ActivityLog.objects.filter(
+            scope="Experiment", item_id=str(experiment.id), activity="updated"
+        ).latest("created_at")
+        assert activity_log.detail is not None
+        change_fields = [change["field"] for change in activity_log.detail["changes"]]
+        self.assertIn("running_time_calculation", change_fields)
+
     def test_experiment_saved_metric_activity_logging_shows_correct_user_for_updates(self):
         """Test that experiment saved metric activity logs show the correct user for both creation and updates."""
 
@@ -7370,13 +7674,6 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         self.assertEqual(metadata_change["after"], {"type": "primary", "breakdowns": [{"property": "country"}]})
 
     def test_saved_metric_add_remove_does_not_log_ordering_changes(self):
-        """Adding/removing saved metrics should not create redundant ordering activity logs.
-
-        When a saved metric is added or removed and the user did not supply an explicit
-        ordering, the auto-synced ordering write is persisted via a muted
-        ``experiment.save(update_fields=...)`` so the only log entry is the
-        ``saved_metric_config`` add/remove.
-        """
         # Create a saved metric
         saved_metric_response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
@@ -7385,7 +7682,6 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
                 "query": {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": "test-uuid-001",
                     "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
@@ -7417,9 +7713,9 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-        # Verify ordering was updated in the database
+        # Adding a metric leaves the ordering alone: it is a display hint the client sends only on reorder.
         experiment = Experiment.objects.get(id=experiment_id)
-        self.assertIn("test-uuid-001", experiment.secondary_metrics_ordered_uuids or [])
+        self.assertIsNone(experiment.secondary_metrics_ordered_uuids)
 
         # Exactly 1 new log should be created (the saved_metric_config, not ordering changes)
         logs_after_add = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
@@ -7458,9 +7754,8 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         self.assertEqual(remove_response.status_code, status.HTTP_200_OK)
 
-        # Verify ordering was updated
         experiment.refresh_from_db()
-        self.assertNotIn("test-uuid-001", experiment.secondary_metrics_ordered_uuids or [])
+        self.assertIsNone(experiment.secondary_metrics_ordered_uuids)
 
         # Exactly 1 new log should be created (the saved_metric_config deletion)
         logs_after_remove = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
@@ -7474,6 +7769,48 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             detail__type="saved_metric_config",
         )
         self.assertEqual(delete_logs.count(), 1)
+
+    @parameterized.expand(
+        [
+            ("duplicates_deduped", ["uuid-a", "uuid-a", "uuid-b"], status.HTTP_200_OK, ["uuid-a", "uuid-b"]),
+            ("missing_metric_uuid_accepted", ["not-a-metric"], status.HTTP_200_OK, ["not-a-metric"]),
+            ("null_stored", None, status.HTTP_200_OK, None),
+            ("blank_entry_rejected", ["uuid-a", ""], status.HTTP_400_BAD_REQUEST, ["uuid-a"]),
+            ("non_list_rejected", "uuid-a", status.HTTP_400_BAD_REQUEST, ["uuid-a"]),
+        ]
+    )
+    def test_ordering_field_is_normalized_not_checked_against_metrics(
+        self, _name: str, payload: object, expected_status: int, expected_stored: list[str] | None
+    ):
+        experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "allow_unknown_events": True,
+                "name": "Ordering Normalization",
+                "feature_flag_key": "ordering-normalization",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "uuid-a",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                ],
+                "primary_metrics_ordered_uuids": ["uuid-a"],
+            },
+            format="json",
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = experiment_response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"primary_metrics_ordered_uuids": payload},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.assertEqual(Experiment.objects.get(id=experiment_id).primary_metrics_ordered_uuids, expected_stored)
 
     def test_user_initiated_metric_reorder_is_logged(self):
         """A standalone reorder (no add/remove) must produce an activity log entry."""
@@ -7542,7 +7879,6 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
                 "query": {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": "combined-saved-uuid",
                     "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
@@ -7550,6 +7886,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
         saved_metric_id = saved_metric_response.json()["id"]
+        saved_metric_uuid = saved_metric_response.json()["query"]["uuid"]
 
         # Start with one inline primary metric so we have an existing ordering to permute
         experiment_response = self.client.post(
@@ -7580,7 +7917,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
             {
                 "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
-                "primary_metrics_ordered_uuids": ["combined-saved-uuid", "combined-inline-uuid"],
+                "primary_metrics_ordered_uuids": [saved_metric_uuid, "combined-inline-uuid"],
             },
             format="json",
         )
@@ -7589,7 +7926,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         experiment = Experiment.objects.get(id=experiment_id)
         self.assertEqual(
             experiment.primary_metrics_ordered_uuids,
-            ["combined-saved-uuid", "combined-inline-uuid"],
+            [saved_metric_uuid, "combined-inline-uuid"],
         )
 
         # Two new logs: the saved_metric_config add AND the experiment-level reorder.
@@ -7616,7 +7953,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         ]
         self.assertEqual(len(ordering_changes), 1, "User-supplied reorder must be logged once")
         self.assertEqual(ordering_changes[0]["before"], ["combined-inline-uuid"])
-        self.assertEqual(ordering_changes[0]["after"], ["combined-saved-uuid", "combined-inline-uuid"])
+        self.assertEqual(ordering_changes[0]["after"], [saved_metric_uuid, "combined-inline-uuid"])
 
     @parameterized.expand(
         [
@@ -7624,19 +7961,12 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             ("secondary", "secondary_metrics_ordered_uuids", "primary_metrics_ordered_uuids"),
         ]
     )
-    def test_bulk_remove_shared_metrics_does_not_log_ordering_change(
+    def test_bulk_remove_shared_metrics_does_not_touch_ordering(
         self, metric_type: str, ordering_field: str, other_ordering_field: str
     ):
-        """Bulk-remove via the reorder dialog (saved_metrics_ids=[] + ordering=[]) must not log a reorder.
-
-        The frontend sends the now-empty ordering array alongside the empty
-        saved_metrics_ids on bulk remove. That mirrors auto-sync, so the ordering
-        write is bookkeeping and must be muted. Only the per-link `saved_metric_config`
-        deleted entries should appear.
-        """
-        saved_metric_uuids = ["bulk-remove-uuid-1", "bulk-remove-uuid-2"]
+        saved_metric_uuids: list[str] = []
         saved_metric_ids: list[int] = []
-        for index, uuid in enumerate(saved_metric_uuids):
+        for index in range(2):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/experiment_saved_metrics/",
                 {
@@ -7644,7 +7974,6 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
                     "query": {
                         "kind": "ExperimentMetric",
                         "metric_type": "mean",
-                        "uuid": uuid,
                         "source": {"kind": "EventsNode", "event": "$pageview"},
                     },
                 },
@@ -7652,6 +7981,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             saved_metric_ids.append(response.json()["id"])
+            saved_metric_uuids.append(response.json()["query"]["uuid"])
 
         experiment_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -7671,14 +8001,12 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
         logs_before = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
 
-        # Mirrors the curl payload from the reorder dialog: clear inline metrics,
-        # clear the ordering array, and clear saved_metrics_ids in the same PATCH.
+        # A removal sends no ordering: the stale entries match nothing and are ignored on read.
         inline_metrics_field = "metrics" if metric_type == "primary" else "metrics_secondary"
         remove_response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
             {
                 inline_metrics_field: [],
-                ordering_field: [],
                 "saved_metrics_ids": [],
             },
             format="json",
@@ -7686,7 +8014,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         self.assertEqual(remove_response.status_code, status.HTTP_200_OK)
 
         experiment = Experiment.objects.get(id=experiment_id)
-        self.assertEqual(getattr(experiment, ordering_field) or [], [])
+        self.assertEqual(getattr(experiment, ordering_field), saved_metric_uuids)
 
         # Two new logs expected: one saved_metric_config deleted per removed link.
         new_logs = list(
@@ -7758,696 +8086,6 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
         self.assertEqual(update_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("does not exist or does not belong to this project", str(update_response.json()))
-
-    def test_update_auto_syncs_ordering_when_inline_metric_added_with_empty_ordering(self):
-        """Test that adding a metric with an empty ordering array auto-populates the ordering"""
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-ordering-validation",
-                "parameters": None,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Add a metric with an empty ordering array - backend should auto-populate
-        metric_uuid = "test-metric-uuid-123"
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "allow_unknown_events": True,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    }
-                ],
-                "primary_metrics_ordered_uuids": [],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the ordering
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertIn(metric_uuid, update_response.json()["primary_metrics_ordered_uuids"])
-
-    def test_update_auto_syncs_ordering_when_saved_metric_added_with_empty_ordering(self):
-        """Test that adding a saved metric with empty ordering auto-populates the ordering"""
-        saved_metric_uuid = "saved-metric-uuid-456"
-        saved_metric_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            {
-                "name": "Test Saved Metric",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "uuid": saved_metric_uuid,
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
-        saved_metric_id = saved_metric_response.json()["id"]
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-saved-metric-ordering",
-                "parameters": None,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Add a saved metric with empty ordering - backend should auto-populate
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
-                "primary_metrics_ordered_uuids": [],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the ordering
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertIn(saved_metric_uuid, update_response.json()["primary_metrics_ordered_uuids"])
-
-    def test_update_succeeds_when_ordering_arrays_are_correct(self):
-        """Test that updating an experiment succeeds when ordering arrays contain all metric UUIDs"""
-        saved_metric_uuid = "saved-metric-uuid-789"
-        saved_metric_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            {
-                "name": "Test Saved Metric",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "uuid": saved_metric_uuid,
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
-        saved_metric_id = saved_metric_response.json()["id"]
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-correct-ordering",
-                "parameters": None,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        inline_metric_uuid = "inline-metric-uuid-abc"
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "allow_unknown_events": True,
-                "metrics": [
-                    {
-                        "uuid": inline_metric_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    }
-                ],
-                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
-                "primary_metrics_ordered_uuids": [inline_metric_uuid, saved_metric_uuid],
-            },
-            format="json",
-        )
-
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-
-    def test_create_auto_syncs_ordering_when_inline_metric_added_with_empty_ordering(self):
-        """Test that creating an experiment with metrics and empty ordering auto-populates the ordering"""
-        metric_uuid = "create-metric-uuid-123"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "allow_unknown_events": True,
-                "name": "Test Experiment",
-                "feature_flag_key": "test-create-ordering-validation",
-                "parameters": None,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    }
-                ],
-                "primary_metrics_ordered_uuids": [],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the ordering
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIn(metric_uuid, response.json()["primary_metrics_ordered_uuids"])
-
-    def test_update_auto_syncs_ordering_when_inline_metric_added_without_ordering(self):
-        """Test that adding a metric without sending ordering at all auto-populates the ordering"""
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-ordering-auto-sync",
-                "parameters": None,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Add a metric WITHOUT sending ordering - backend should auto-populate
-        metric_uuid = "auto-sync-metric-uuid-123"
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "allow_unknown_events": True,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    }
-                ],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the ordering
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertIn(metric_uuid, update_response.json()["primary_metrics_ordered_uuids"])
-
-    def test_update_removes_uuid_from_ordering_when_metric_removed(self):
-        """Test that removing a metric also removes its UUID from the ordering array"""
-        metric_uuid_1 = "remove-test-uuid-1"
-        metric_uuid_2 = "remove-test-uuid-2"
-
-        # Create experiment with two metrics
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "allow_unknown_events": True,
-                "name": "Test Experiment",
-                "feature_flag_key": "test-remove-sync",
-                "parameters": None,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid_1,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
-                    {
-                        "uuid": metric_uuid_2,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageleave"}],
-                    },
-                ],
-                "primary_metrics_ordered_uuids": [metric_uuid_1, metric_uuid_2],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Remove one metric - backend should auto-remove from ordering
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "allow_unknown_events": True,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid_1,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
-                ],
-            },
-            format="json",
-        )
-
-        # Should succeed, only metric_uuid_1 should remain in ordering
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        ordering = update_response.json()["primary_metrics_ordered_uuids"]
-        self.assertIn(metric_uuid_1, ordering)
-        self.assertNotIn(metric_uuid_2, ordering)
-
-    def test_update_auto_syncs_secondary_metrics_ordering(self):
-        """Test that adding a secondary metric auto-populates the secondary ordering array"""
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-secondary-sync",
-                "parameters": None,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Add a secondary metric without ordering
-        metric_uuid = "secondary-metric-uuid-123"
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "allow_unknown_events": True,
-                "metrics_secondary": [
-                    {
-                        "uuid": metric_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    }
-                ],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the secondary ordering
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertIn(metric_uuid, update_response.json()["secondary_metrics_ordered_uuids"])
-
-    def test_update_ordering_unchanged_when_no_metrics_change(self):
-        """Test that ordering arrays are not modified when only name is updated"""
-        metric_uuid = "unchanged-metric-uuid"
-
-        # Create experiment with a metric
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "allow_unknown_events": True,
-                "name": "Test Experiment",
-                "feature_flag_key": "test-unchanged-ordering",
-                "parameters": None,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    }
-                ],
-                "primary_metrics_ordered_uuids": [metric_uuid],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-        original_ordering = response.json()["primary_metrics_ordered_uuids"]
-
-        # Update only the name - ordering should remain unchanged
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "name": "Updated Experiment Name",
-            },
-            format="json",
-        )
-
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(update_response.json()["primary_metrics_ordered_uuids"], original_ordering)
-
-    def test_update_preserves_existing_order_when_adding_metrics(self):
-        """Test that existing metric order is preserved when adding new metrics"""
-        metric_uuid_1 = "preserve-order-uuid-1"
-        metric_uuid_2 = "preserve-order-uuid-2"
-        metric_uuid_3 = "preserve-order-uuid-3"
-
-        # Create experiment with two metrics in specific order
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "allow_unknown_events": True,
-                "name": "Test Experiment",
-                "feature_flag_key": "test-preserve-order",
-                "parameters": None,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid_1,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
-                    {
-                        "uuid": metric_uuid_2,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageleave"}],
-                    },
-                ],
-                "primary_metrics_ordered_uuids": [metric_uuid_2, metric_uuid_1],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Add a third metric - existing order should be preserved, new one appended
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "allow_unknown_events": True,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid_1,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
-                    {
-                        "uuid": metric_uuid_2,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageleave"}],
-                    },
-                    {
-                        "uuid": metric_uuid_3,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$custom"}],
-                    },
-                ],
-            },
-            format="json",
-        )
-
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        ordering = update_response.json()["primary_metrics_ordered_uuids"]
-        # Original order preserved, new metric appended
-        self.assertEqual(ordering, [metric_uuid_2, metric_uuid_1, metric_uuid_3])
-
-    def test_update_auto_syncs_ordering_when_saved_metric_added_without_ordering(self):
-        """Test that adding a saved metric without sending ordering auto-populates the ordering"""
-        saved_metric_uuid = "saved-metric-no-ordering-uuid"
-        saved_metric_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            {
-                "name": "Test Saved Metric",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "uuid": saved_metric_uuid,
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
-        saved_metric_id = saved_metric_response.json()["id"]
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-saved-metric-no-ordering",
-                "parameters": None,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Add a saved metric WITHOUT sending ordering - backend should auto-populate
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the ordering
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertIn(saved_metric_uuid, update_response.json()["primary_metrics_ordered_uuids"])
-
-    def test_update_removes_saved_metric_uuid_from_ordering_when_removed(self):
-        """Test that removing a saved metric also removes its UUID from the ordering array"""
-        saved_metric_uuid_1 = "remove-saved-uuid-1"
-        saved_metric_uuid_2 = "remove-saved-uuid-2"
-
-        # Create two saved metrics
-        saved_metric_response_1 = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            {
-                "name": "Saved Metric 1",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "uuid": saved_metric_uuid_1,
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                },
-            },
-            format="json",
-        )
-        saved_metric_id_1 = saved_metric_response_1.json()["id"]
-
-        saved_metric_response_2 = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            {
-                "name": "Saved Metric 2",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "uuid": saved_metric_uuid_2,
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "$pageleave"}],
-                },
-            },
-            format="json",
-        )
-        saved_metric_id_2 = saved_metric_response_2.json()["id"]
-
-        # Create experiment with both saved metrics
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-remove-saved-metric",
-                "parameters": None,
-                "saved_metrics_ids": [
-                    {"id": saved_metric_id_1, "metadata": {"type": "primary"}},
-                    {"id": saved_metric_id_2, "metadata": {"type": "primary"}},
-                ],
-                "primary_metrics_ordered_uuids": [saved_metric_uuid_1, saved_metric_uuid_2],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Remove one saved metric - backend should auto-remove from ordering
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "saved_metrics_ids": [{"id": saved_metric_id_1, "metadata": {"type": "primary"}}],
-            },
-            format="json",
-        )
-
-        # Should succeed, only saved_metric_uuid_1 should remain in ordering
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        ordering = update_response.json()["primary_metrics_ordered_uuids"]
-        self.assertIn(saved_metric_uuid_1, ordering)
-        self.assertNotIn(saved_metric_uuid_2, ordering)
-
-    def test_update_auto_syncs_secondary_saved_metric_ordering(self):
-        """Test that adding a secondary saved metric auto-populates the secondary ordering array"""
-        saved_metric_uuid = "secondary-saved-metric-uuid"
-        saved_metric_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            {
-                "name": "Secondary Saved Metric",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "uuid": saved_metric_uuid,
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
-        saved_metric_id = saved_metric_response.json()["id"]
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-secondary-saved-metric",
-                "parameters": None,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Add a secondary saved metric without ordering
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "secondary"}}],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the secondary ordering
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertIn(saved_metric_uuid, update_response.json()["secondary_metrics_ordered_uuids"])
-
-    def test_create_auto_syncs_ordering_when_inline_metric_added_without_ordering(self):
-        """Test that creating an experiment with metrics but no ordering auto-populates the ordering"""
-        metric_uuid = "create-no-ordering-uuid"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "allow_unknown_events": True,
-                "name": "Test Experiment",
-                "feature_flag_key": "test-create-no-ordering",
-                "parameters": None,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    }
-                ],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the ordering
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIn(metric_uuid, response.json()["primary_metrics_ordered_uuids"])
-
-    def test_create_auto_syncs_ordering_for_secondary_inline_metrics(self):
-        """Test that creating an experiment with secondary metrics auto-populates secondary ordering"""
-        metric_uuid = "create-secondary-uuid"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "allow_unknown_events": True,
-                "name": "Test Experiment",
-                "feature_flag_key": "test-create-secondary",
-                "parameters": None,
-                "metrics_secondary": [
-                    {
-                        "uuid": metric_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    }
-                ],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the secondary ordering
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIn(metric_uuid, response.json()["secondary_metrics_ordered_uuids"])
-
-    def test_create_auto_syncs_ordering_for_saved_metrics(self):
-        """Test that creating an experiment with saved metrics auto-populates ordering"""
-        saved_metric_uuid = "create-saved-metric-uuid"
-        saved_metric_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            {
-                "name": "Test Saved Metric",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "uuid": saved_metric_uuid,
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
-        saved_metric_id = saved_metric_response.json()["id"]
-
-        # Create experiment with saved metric but no ordering
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-create-saved-metric",
-                "parameters": None,
-                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
-            },
-            format="json",
-        )
-
-        # Should succeed and the saved metric UUID should be in the ordering
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIn(saved_metric_uuid, response.json()["primary_metrics_ordered_uuids"])
-
-    def test_create_auto_syncs_ordering_for_mixed_metrics(self):
-        """Test that creating an experiment with both inline and saved metrics auto-populates ordering"""
-        inline_uuid = "create-mixed-inline-uuid"
-        saved_metric_uuid = "create-mixed-saved-uuid"
-
-        saved_metric_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            {
-                "name": "Test Saved Metric",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "uuid": saved_metric_uuid,
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                },
-            },
-            format="json",
-        )
-        saved_metric_id = saved_metric_response.json()["id"]
-
-        # Create experiment with both inline and saved metrics, no ordering
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "allow_unknown_events": True,
-                "name": "Test Experiment",
-                "feature_flag_key": "test-create-mixed",
-                "parameters": None,
-                "metrics": [
-                    {
-                        "uuid": inline_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageleave"}],
-                    }
-                ],
-                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
-            },
-            format="json",
-        )
-
-        # Should succeed and both UUIDs should be in the ordering
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        ordering = response.json()["primary_metrics_ordered_uuids"]
-        self.assertIn(inline_uuid, ordering)
-        self.assertIn(saved_metric_uuid, ordering)
 
 
 class TestExperimentParametersFieldMutation(APILicensedTest):
@@ -8851,6 +8489,265 @@ class TestCalculateRunningTimeEndpoint(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
 
+class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def _post(self, payload: dict[str, Any], *, flag_on: bool = True, **kwargs: Any):
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **_: flag_on and key == EXPERIMENT_SETUP_CONTEXT_FLAG,
+        ):
+            return self.client.post(
+                f"/api/projects/{self.team.id}/experiments/setup_context/", payload, format="json", **kwargs
+            )
+
+    @parameterized.expand([("flag_off", False, status.HTTP_404_NOT_FOUND), ("flag_on", True, status.HTTP_200_OK)])
+    def test_flag_gates_endpoint_for_read_scoped_personal_api_key(
+        self, _name: str, flag_on: bool, expected_status: int
+    ) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="read",
+            secure_value=hash_key_value(token),
+            scopes=["experiment:read", "experiment_saved_metric:read", "query:read"],
+        )
+        self.client.logout()
+
+        response = self._post({}, flag_on=flag_on, headers={"authorization": f"Bearer {token}"})
+
+        assert response.status_code == expected_status, response.content
+        if flag_on:
+            sections = response.json()
+            assert sections["target_surface"] == {"status": "skipped", "data": None}
+            assert sections["team_defaults"]["status"] == "ok"
+            assert sections["sdk_profile"]["status"] == "ok"
+
+    @parameterized.expand(
+        [
+            # Saved-metric names, events and reuse counts sit behind the saved-metric API's own scope.
+            ("without_saved_metric_scope", ["experiment:read", "query:read"]),
+            # Event counts for caller-chosen events are the same data /query/ gates behind query:read.
+            ("without_query_scope", ["experiment:read", "experiment_saved_metric:read"]),
+        ]
+    )
+    def test_rejects_key_missing_a_scope_for_data_it_would_return(self, _name: str, scopes: list[str]) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="partial", secure_value=hash_key_value(token), scopes=scopes
+        )
+        self.client.logout()
+
+        response = self._post({}, flag_on=True, headers={"authorization": f"Bearer {token}"})
+
+        assert response.status_code == 403, response.content
+
+    @parameterized.expand(
+        [
+            (
+                "url_filter_without_pageview",
+                {"target_event": "$screen", "target_url_contains": "pricing"},
+                "target_url_contains",
+            ),
+            (
+                "metric_event_equals_target_event",
+                {"target_event": "$pageview", "metric_event": "$pageview"},
+                "metric_event",
+            ),
+            (
+                "target_properties_without_target_event",
+                {"target_properties": [{"key": "$pathname", "type": "event", "value": ["/"]}]},
+                "target_properties",
+            ),
+            (
+                "metric_properties_without_metric_event",
+                {"metric_properties": [{"key": "plan", "type": "event", "value": ["paid"]}]},
+                "metric_properties",
+            ),
+            (
+                "a_filter_type_the_query_cannot_apply",
+                {"target_event": "$pageview", "target_properties": [{"key": "id", "type": "cohort", "value": 1}]},
+                "target_properties",
+            ),
+            (
+                "an_operator_the_query_cannot_apply",
+                {
+                    "target_event": "$pageview",
+                    "target_properties": [
+                        {"key": "flag", "type": "event", "operator": "flag_evaluates_to", "value": ["true"]}
+                    ],
+                },
+                "target_properties",
+            ),
+            (
+                "more_filters_than_the_maximum",
+                {
+                    "target_event": "$pageview",
+                    "target_properties": [
+                        {"key": f"p-{index}", "type": "event", "value": ["x"]} for index in range(11)
+                    ],
+                },
+                "target_properties",
+            ),
+        ]
+    )
+    def test_rejects_input_that_cannot_produce_an_answer(
+        self, _name: str, payload: dict[str, Any], expected_attr: str
+    ) -> None:
+        response = self._post(payload)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == expected_attr
+
+    @parameterized.expand(
+        [
+            ("flag_on_for_staff_only", "staff", status.HTTP_200_OK),
+            ("flag_on_for_customer_only", "customer", status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_flag_is_evaluated_for_the_impersonating_staff_user(
+        self, _name: str, flag_on_for: str, expected_status: int
+    ) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        customer = User.objects.create_and_join(self.organization, "setup-context-customer@example.com", None)
+        flag_distinct_id = str(self.user.distinct_id if flag_on_for == "staff" else customer.distinct_id)
+        self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": customer.id}),
+            data={"read_only": "true", "reason": "Setup context support ticket"},
+            format="multipart",
+        )
+        assert self.client.get("/api/users/@me/").json()["email"] == customer.email
+
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, distinct_id, *args, **_: (
+                key == EXPERIMENT_SETUP_CONTEXT_FLAG and distinct_id == flag_distinct_id
+            ),
+        ):
+            response = self.client.post(f"/api/projects/{self.team.id}/experiments/setup_context/", {}, format="json")
+
+        assert response.status_code == expected_status, response.content
+
+    def test_omits_experiments_the_user_cannot_access(self) -> None:
+        other_user = self._create_user("setup-context-other@posthog.com")
+        visible_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="setup-visible")
+        hidden_flag = FeatureFlag.objects.create(team=self.team, created_by=other_user, key="setup-hidden")
+        visible = Experiment.objects.create(
+            team=self.team, name="Visible", created_by=self.user, feature_flag=visible_flag
+        )
+        hidden = Experiment.objects.create(
+            team=self.team, name="Hidden", created_by=other_user, feature_flag=hidden_flag
+        )
+        AccessControl.objects.create(resource="experiment", resource_id=hidden.id, team=self.team, access_level="none")
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self._post({})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        listed = [experiment["id"] for experiment in response.json()["previous_experiments"]["data"]["experiments"]]
+        assert listed == [visible.id]
+
+    def test_serializes_a_context_with_every_section_populated(self) -> None:
+        # The response serializer runs outside the per-section guard, so a field it cannot render
+        # fails the whole endpoint rather than one section. Only a populated context reaches the
+        # nested serializers for the outcome, the SDK rows and the two baselines.
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="setup-populated",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}]},
+            },
+        )
+        # The result belongs to the run that starts here, so both dates come from one value.
+        started_at = timezone.now() - timedelta(days=10)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Populated",
+            created_by=self.user,
+            feature_flag=flag,
+            start_date=started_at,
+            metrics=[{"kind": "ExperimentMetric", "metric_type": "mean", "uuid": "populated-metric"}],
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid="populated-metric",
+            query_from=started_at,
+            query_to=timezone.now(),
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={
+                "baseline": {"key": "control", "number_of_samples": 100, "sum": 1, "sum_squares": 1},
+                "variant_results": [{"key": "test", "number_of_samples": 90, "significant": True}],
+            },
+            completed_at=timezone.now(),
+        )
+        ExperimentToSavedMetric.objects.create(
+            experiment=experiment,
+            saved_metric=ExperimentSavedMetric.objects.create(
+                team=self.team,
+                name="Revenue",
+                query={"kind": "ExperimentMetric", "metric_type": "mean", "uuid": "saved-uuid"},
+            ),
+            metadata={"type": "secondary"},
+        )
+        _create_person(team=self.team, distinct_ids=["buyer"])
+        for event in ["$pageview", "purchase"]:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id="buyer",
+                timestamp=timezone.now() - timedelta(days=1),
+                properties={
+                    "$lib": "web",
+                    "$is_identified": False,
+                    "$device_id": "device-1",
+                    "$pathname": "/",
+                },
+            )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="buyer",
+            timestamp=timezone.now() - timedelta(days=1),
+            properties={"$lib": "web", "$feature_flag": "setup-populated", "$feature_flag_response": "control"},
+        )
+        flush_persons_and_events()
+
+        response = self._post(
+            {
+                "target_event": "$pageview",
+                "target_properties": [{"key": "$pathname", "type": "event", "operator": "exact", "value": ["/"]}],
+                "metric_event": "purchase",
+            }
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        context = response.json()
+        assert {name: section["status"] for name, section in context.items()} == {
+            "team_defaults": "ok",
+            "sdk_profile": "ok",
+            "target_surface": "ok",
+            "candidate_metric": "ok",
+            "previous_experiments": "ok",
+            "shared_metrics": "ok",
+        }
+        assert context["sdk_profile"]["data"]["libs"][0]["lib"] == "web"
+        # The echoed filters are parsed and dumped through pydantic, so the operator reaches JSON
+        # as its value rather than as an enum the renderer cannot write.
+        assert context["target_surface"]["data"]["target_properties"] == [
+            {"key": "$pathname", "operator": "exact", "type": "event", "value": ["/"]}
+        ]
+        assert context["candidate_metric"]["data"]["funnel_baseline_stats"]["number_of_samples"] == 1
+        assert context["candidate_metric"]["data"]["mean_count_baseline_stats"]["number_of_samples"] == 1
+        assert context["previous_experiments"]["data"]["experiments"][0]["outcome"]["analyzed_exposures"] == 190
+        assert context["shared_metrics"]["data"]["metrics"][0]["name"] == "Revenue"
+
+
 class TestExperimentSerializerSuperset(unittest.TestCase):
     """Structural guard: ExperimentBasicSerializer must stay a subset of ExperimentSerializer.
 
@@ -8923,6 +8820,174 @@ class TestExperimentApiExposureCriteriaParity(unittest.TestCase):
             "Generated write clients (MCP, frontend) strip these silently — add them to the slim API "
             "type in frontend/src/queries/schema/schema-general.ts and rerun hogli build:schema.",
         )
+
+
+class TestExperimentApiMetricParity(unittest.TestCase):
+    """A field missing from the slim API metric schema is stripped by the generated write clients."""
+
+    INTENTIONALLY_OMITTED = {
+        # Server-computed or internal.
+        "fingerprint",
+        "response",
+        "version",
+        # Shared-metric linkage, set through the shared metric endpoints.
+        "isSharedMetric",
+        "sharedMetricId",
+        # Breakdowns are not exposed on the write schema yet.
+        "breakdownFilter",
+        "breakdownAttributionType",
+        "breakdownAttributionValue",
+    }
+
+    def test_api_schema_exposes_every_runtime_field(self) -> None:
+        runtime_fields: set[str] = set()
+        for metric_model in (
+            ExperimentMeanMetric,
+            ExperimentFunnelMetric,
+            ExperimentRatioMetric,
+            ExperimentRetentionMetric,
+        ):
+            runtime_fields |= set(metric_model.model_fields)
+
+        api_fields = set(ExperimentApiMetric.model_fields)
+        dropped = runtime_fields - api_fields - self.INTENTIONALLY_OMITTED
+        self.assertFalse(
+            dropped,
+            f"ExperimentApiMetric omits metric fields the runtime honors: {dropped}. "
+            "Generated write clients (MCP, frontend) strip these silently — add them to the slim API "
+            "type in frontend/src/queries/schema/schema-general.ts and rerun hogli build:schema, or "
+            "add them to INTENTIONALLY_OMITTED with a reason.",
+        )
+
+
+class TestExperimentTags(APILicensedTest):
+    def _create_experiment(self, name: str, flag_key: str, tags: list[str] | None = None) -> dict:
+        payload: dict[str, Any] = {"name": name, "feature_flag_key": flag_key}
+        if tags is not None:
+            payload["tags"] = tags
+        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", payload, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()
+
+    def test_create_with_tags_persists_and_normalizes_them(self):
+        # Guards the expected_fields allowlist in ExperimentSerializer.create: if tags stops being
+        # popped before that check, every tagged create fails with "Can't create keys: tags".
+        experiment = self._create_experiment("Tagged", "tags-create-flag", tags=["Growth", "checkout"])
+        assert sorted(experiment["tags"]) == ["checkout", "growth"]
+        detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment['id']}/").json()
+        assert sorted(detail["tags"]) == ["checkout", "growth"]
+
+    def test_update_replaces_tags_and_untagged_update_preserves_them(self):
+        experiment = self._create_experiment("Tagged", "tags-update-flag", tags=["one"])
+
+        # A PATCH that doesn't mention tags must not wipe them (tags=None no-op in update()).
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"description": "still tagged"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["one"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"tags": ["two", "three"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert sorted(response.json()["tags"]) == ["three", "two"]
+
+        # tags: [] clears (None preserves, [] clears — both ride the same pop in update())
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"tags": []},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == []
+        detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment['id']}/").json()
+        assert detail["tags"] == []
+
+    @parameterized.expand(
+        [
+            ("tags_match", 'tags=["growth"]', {"A"}),
+            ("tags_no_match", 'tags=["nonexistent"]', set()),
+            ("excluded_tags", 'excluded_tags=["growth"]', {"B", "C"}),
+            ("tags_and_excluded", 'tags=["shared"]&excluded_tags=["growth"]', {"B"}),
+        ]
+    )
+    def test_list_filters_by_tags(self, _name: str, query: str, expected_names: set[str]):
+        self._create_experiment("A", "tags-list-flag-a", tags=["growth", "shared"])
+        self._create_experiment("B", "tags-list-flag-b", tags=["shared"])
+        self._create_experiment("C", "tags-list-flag-c")
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?{query}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {row["name"] for row in response.json()["results"]} == expected_names
+
+    def test_list_includes_tags(self):
+        # ExperimentBasicSerializer takes a different (deferred) queryset path than the detail
+        # serializer; this catches the list prefetch/serialization of tags breaking independently.
+        experiment = self._create_experiment("Tagged", "tags-list-flag", tags=["growth"])
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        row = next(r for r in response.json()["results"] if r["id"] == experiment["id"])
+        assert row["tags"] == ["growth"]
+
+    def test_bulk_update_tags(self):
+        # Wiring guard for TaggedItemViewSetMixin on the experiments viewset: team-scoped queryset,
+        # per-object mutation, and missing IDs reported as skipped.
+        experiment = self._create_experiment("Bulk", "tags-bulk-flag", tags=["existing"])
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/bulk_update_tags/",
+            {"ids": [experiment["id"], 999999], "action": "add", "tags": ["added"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["updated"] == [{"id": experiment["id"], "tags": ["added", "existing"]}]
+        assert body["skipped"] == [{"id": 999999, "reason": "Not found or no edit access"}]
+
+    def test_bulk_update_tags_works_with_personal_api_key(self):
+        # scope_object_write_actions must include bulk_update_tags for PAT access — a config-only
+        # regression that no session-auth test would catch.
+        experiment = self._create_experiment("PAT", "tags-pat-flag")
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            scopes=["experiment:write"],
+            secure_value=hash_key_value(personal_api_key),
+        )
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/bulk_update_tags/",
+            {"ids": [experiment["id"]], "action": "set", "tags": ["via-pat"]},
+            format="json",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["updated"] == [{"id": experiment["id"], "tags": ["via-pat"]}]
+
+    def test_matching_ids_applies_list_filters(self):
+        tagged = self._create_experiment("Tagged", "tags-matching-flag-a", tags=["growth"])
+        self._create_experiment("Untagged", "tags-matching-flag-b")
+        response = self.client.get(f'/api/projects/{self.team.id}/experiments/matching_ids/?tags=["growth"]')
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"ids": [tagged["id"]], "total": 1}
+
+    def test_matching_ids_excludes_view_only_experiments(self):
+        editable = self._create_experiment("Mine", "tags-acl-flag-a")
+
+        other_user = self._create_user("other-tags-acl@posthog.com")
+        flag = FeatureFlag.objects.create(team=self.team, created_by=other_user, key="tags-acl-flag-b")
+        view_only = Experiment.objects.create(team=self.team, name="Theirs", created_by=other_user, feature_flag=flag)
+        AccessControl.objects.create(
+            resource="experiment", resource_id=view_only.id, team=self.team, access_level="viewer"
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/matching_ids/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert view_only.id not in response.json()["ids"]
+        assert editable["id"] in response.json()["ids"]
 
 
 class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
@@ -9023,10 +9088,6 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(stale_delete.status_code, status.HTTP_200_OK, stale_delete.json())
         result = stale_delete.json()
         self.assertEqual(self._events(result["metrics_secondary"]), {"e2", "e3", "e4", "e5", "e6", "e7"})
-        self.assertEqual(
-            set(result["secondary_metrics_ordered_uuids"]),
-            {metric["uuid"] for metric in result["metrics_secondary"]},
-        )
 
     def test_concurrent_additions_of_different_metrics_both_survive(self) -> None:
         snapshot = self._create_experiment("both-add", metrics=[self._metric("base")])
@@ -9281,11 +9342,10 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(result["parameters"]["variant_notes"], {"control": "baseline notes"})
         self.assertEqual(result["running_time_calculation"]["recommended_running_time"], 9)
 
-    def test_stale_reorder_keeps_relative_order_and_appends_concurrent_addition(self) -> None:
+    def test_stale_reorder_is_stored_as_sent_and_keeps_the_concurrent_addition(self) -> None:
         snapshot = self._create_experiment("reorder", metrics=[self._metric("m1"), self._metric("m2")])
         added = self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("m3")]})
         self.assertEqual(added.status_code, status.HTTP_200_OK)
-        added_uuid = next(m["uuid"] for m in added.json()["metrics"] if m["source"]["event"] == "m3")
 
         uuid_1, uuid_2 = (metric["uuid"] for metric in snapshot["metrics"])
         stale_reorder = self._patch(
@@ -9299,7 +9359,9 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         )
 
         self.assertEqual(stale_reorder.status_code, status.HTTP_200_OK, stale_reorder.json())
-        self.assertEqual(stale_reorder.json()["primary_metrics_ordered_uuids"], [uuid_2, uuid_1, added_uuid])
+        # The ordering is a display hint, so the unlisted m3 renders last without an entry.
+        self.assertEqual(stale_reorder.json()["primary_metrics_ordered_uuids"], [uuid_2, uuid_1])
+        self.assertEqual(self._events(stale_reorder.json()["metrics"]), {"m1", "m2", "m3"})
 
     def test_stale_shared_metric_removal_keeps_concurrently_linked_metric(self) -> None:
         saved_1 = ExperimentSavedMetric.objects.create(

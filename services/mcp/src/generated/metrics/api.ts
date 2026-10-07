@@ -255,15 +255,26 @@ export const MetricsQueryCreateBody = () => zod.object({
             interval: zod
                 .union([
                     zod
-                        .enum(['second', 'minute', 'minute_5', 'minute_15', 'hour', 'hour_6', 'day', 'week'])
+                        .enum([
+                            'second_15',
+                            'second_30',
+                            'minute',
+                            'minute_5',
+                            'minute_15',
+                            'minute_30',
+                            'hour',
+                            'hour_6',
+                            'day',
+                            'week',
+                        ])
                         .describe(
-                            '\* `second` - second\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
+                            '\* `second_15` - second_15\n\* `second_30` - second_30\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `minute_30` - minute_30\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
                         ),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    'Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).\n\n\* `second` - second\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
+                    'Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).\n\n\* `second_15` - second_15\n\* `second_30` - second_30\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `minute_30` - minute_30\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
                 ),
             clauses: zod
                 .array(
@@ -394,7 +405,7 @@ export const MetricsQueryCreateBody = () => zod.object({
 })
 
 /**
- * Distinct metric names for the team. Backs the picker UI.
+ * Distinct metric names for the team. Backs the catalog UI.
  */
 export const MetricsValuesRetrieveParams = () => zod.object({
     project_id: zod

@@ -1,21 +1,25 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { IconCornerDownRight } from '@posthog/icons'
-
+import { useNotebookJupyterCommands, useNotebookJupyterStoreValue } from 'lib/components/MarkdownNotebook/jupyterMode'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 
+import { notebookCodeCellLogic } from 'products/notebooks/frontend/notebookCodeCellLogic'
+
+import { notebookJupyterLogic } from '../Notebook/notebookJupyterLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookCellOutputHeader } from './components/NotebookCellOutputHeader'
+import { NotebookCellOutputNameFooter } from './components/NotebookCellOutputNameFooter'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import { NotebookJupyterCellOutput } from './components/NotebookJupyterCellOutput'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { countTextLines, initialSizedRunId, outputHeightForShape } from './notebookNodeOutputHeight'
 import type { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
-import { SQL_V2_DEFAULT_PAGE_SIZE, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
+import { SQL_V2_DEFAULT_PAGE_SIZE } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
 // The revamped Python cell: code runs in the notebook's sandbox kernel via the SQLV2 run
@@ -38,6 +42,9 @@ const PYTHON_EDITOR_MIN_HEIGHT = 160
 // and an editor that grows with the code pushes the output and the next cell off the screen.
 // Past the cap the editor scrolls, and the drag handle expands it.
 const PYTHON_EDITOR_MAX_HEIGHT = 360
+// A Jupyter cell starts one line tall and grows with its code, so the whole cell stays in view.
+const JUPYTER_EDITOR_MIN_HEIGHT = 34
+const JUPYTER_EDITOR_MAX_HEIGHT = 100000
 
 const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeResult => {
     const columns = result.columns ?? []
@@ -55,20 +62,13 @@ const Component = ({
 }: NotebookNodeProps<NotebookNodePythonV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { nodeId, notebookLogic, expanded, isEditable } = useValues(nodeLogic)
-    const notebookShortId = notebookLogic.props.shortId
 
-    const dataLogic = notebookNodeSQLV2Logic({
-        nodeId,
-        notebookShortId,
-        updateAttributes,
-        runId: attributes.runId ?? null,
-        hasResult: !!attributes.result,
-        getContent: () => notebookLogic.values.content ?? null,
-        getVariables: () => notebookLogic.values.runnableVariables,
-    })
+    const dataLogic = notebookCodeCellLogic(nodeId, notebookLogic, attributes, updateAttributes)
     const {
         isRunning,
         runError,
+        isRestoringResult,
+        resultRestoreUnavailable,
         page,
         pageSize,
         pageResult,
@@ -79,10 +79,13 @@ const Component = ({
         isChainRunning,
         staleDownstreamCount,
         pendingKernelStart,
+        result: runResult,
     } = useValues(dataLogic)
     const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
+    const isJupyterMode = !!useNotebookJupyterCommands()
+    const { executionCounts } = useValues(notebookJupyterLogic({ shortId: notebookLogic.props.shortId }))
 
-    const result = attributes.result ?? null
+    const result = runResult ?? attributes.result ?? null
     const dataframeResult = useMemo(() => {
         if (pageResult) {
             return toDataframeResult({
@@ -113,7 +116,7 @@ const Component = ({
         const runId = attributes.runId ?? null
         // A read-only notebook lays the node out from its content, so there is no fixed height to
         // outgrow — and no editor to persist one into.
-        if (!result || !isEditable || runId === sizedRunIdRef.current) {
+        if (!result || !isEditable || isJupyterMode || runId === sizedRunIdRef.current) {
             return
         }
         sizedRunIdRef.current = runId
@@ -130,6 +133,42 @@ const Component = ({
 
     if (!expanded) {
         return null
+    }
+
+    if (isJupyterMode) {
+        return (
+            <NotebookJupyterCellOutput
+                result={result}
+                dataframeResult={dataframeResult}
+                dataframeProps={{
+                    page,
+                    pageSize,
+                    hasMore: hasMorePages,
+                    loading: isRunning || pageLoading || (isRestoringResult && !result?.first_page?.length),
+                    paginationDisabledReason: pageLoading
+                        ? 'Fetching page…'
+                        : isRunning
+                          ? 'Cell is running'
+                          : (operationBlockReason ?? undefined),
+                    onNextPage: () => setPage(page + 1),
+                    onPreviousPage: () => setPage(page - 1),
+                }}
+                runError={runError}
+                status={
+                    isRunning && pendingKernelStart
+                        ? 'Starting compute sandbox…'
+                        : resultRestoreUnavailable
+                          ? 'Run the cell again to see its full output.'
+                          : isRestoringResult
+                            ? 'Loading saved output…'
+                            : null
+                }
+                executionCount={executionCounts[nodeId] ?? null}
+                returnVariable={attributes.returnVariable ?? ''}
+                onReturnVariableChange={(returnVariable) => updateAttributes({ returnVariable })}
+                isEditable={isEditable}
+            />
+        )
     }
 
     return (
@@ -176,13 +215,18 @@ const Component = ({
                         ))}
                     </div>
                 ) : null}
+                {resultRestoreUnavailable ? (
+                    <div className="p-2 text-xs text-muted">Run the cell again to see its full results.</div>
+                ) : isRestoringResult ? (
+                    <div className="p-2 text-xs text-muted">Loading saved results…</div>
+                ) : null}
                 {runError ? (
                     <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
                 ) : dataframeResult ? (
                     <div className="min-h-0 flex-1 overflow-y-auto">
                         <NotebookDataframeTable
                             result={dataframeResult}
-                            loading={isRunning || pageLoading}
+                            loading={isRunning || pageLoading || (isRestoringResult && !result?.first_page?.length)}
                             page={page}
                             pageSize={pageSize}
                             hasMore={hasMorePages}
@@ -205,30 +249,10 @@ const Component = ({
                     <div className="text-xs text-muted font-mono p-2">Run the cell to see execution results.</div>
                 )}
             </div>
-            <div
-                // Translucent overlay, not a surface token: the shell is surface-primary in light
-                // mode but surface-tertiary in dark, so a fixed surface vanishes against one of them.
-                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t border-primary bg-fill-highlight-50 p-2"
-                onClick={(event) => event.stopPropagation()}
-                onMouseDown={(event) => event.stopPropagation()}
-            >
-                <span className="font-mono mt-0.5">
-                    <IconCornerDownRight />
-                </span>
-                <input
-                    type="text"
-                    // The dataframe name this cell's result is exposed as to later cells.
-                    // Optional: left empty, the cell binds nothing and later cells can't read it.
-                    // Wide enough for the placeholder to sit on one line without clipping. The name
-                    // carries weight through size and a faintly warm near-black rather than a hue —
-                    // a saturated color here competes with the accent the app spends on links.
-                    className="w-56 rounded border border-primary px-1.5 py-0.5 text-sm font-medium font-mono bg-surface-primary text-[oklch(0.27_0.022_345deg)] dark:text-[oklch(0.93_0.014_345deg)] focus:outline-none focus:ring-1 focus:ring-primary"
-                    value={attributes.returnVariable ?? ''}
-                    onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
-                    placeholder="Output dataframe name"
-                    spellCheck={false}
-                />
-            </div>
+            <NotebookCellOutputNameFooter
+                returnVariable={attributes.returnVariable ?? ''}
+                onChange={(returnVariable) => updateAttributes({ returnVariable })}
+            />
         </div>
     )
 }
@@ -238,19 +262,26 @@ const Settings = ({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodePythonV2Attributes>): JSX.Element => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { nodeId, notebookLogic } = useValues(nodeLogic)
-    const notebookShortId = notebookLogic.props.shortId
+    const { nodeId, notebookLogic, isEditable } = useValues(nodeLogic)
 
-    const dataLogic = notebookNodeSQLV2Logic({
-        nodeId,
-        notebookShortId,
-        updateAttributes,
-        runId: attributes.runId ?? null,
-        hasResult: !!attributes.result,
-        getContent: () => notebookLogic.values.content ?? null,
-        getVariables: () => notebookLogic.values.runnableVariables,
-    })
+    const dataLogic = notebookCodeCellLogic(nodeId, notebookLogic, attributes, updateAttributes)
     const { runNode } = useActions(dataLogic)
+    const isJupyterMode = !!useNotebookJupyterCommands()
+    const showLineNumbers = useNotebookJupyterStoreValue((state) => state.lineNumbers)
+    const jupyterEditorOptions = useMemo(
+        () => ({
+            lineNumbers: showLineNumbers ? ('on' as const) : ('off' as const),
+            lineDecorationsWidth: showLineNumbers ? 10 : 4,
+            folding: false,
+            renderLineHighlight: 'none' as const,
+            overviewRulerLanes: 0,
+            overviewRulerBorder: false,
+            hideCursorInOverviewRuler: true,
+            readOnly: !isEditable,
+            scrollbar: { vertical: 'hidden' as const, handleMouseWheel: false },
+        }),
+        [showLineNumbers, isEditable]
+    )
 
     // Read the run state imperatively: Monaco binds Cmd+Enter once at editor mount, so a captured
     // value would be the one from that first render. The guard keeps the keybinding from firing a
@@ -274,8 +305,10 @@ const Settings = ({
                 value={typeof attributes.code === 'string' ? attributes.code : ''}
                 onChange={(value) => updateAttributes({ code: value ?? '' })}
                 onPressCmdEnter={runOnCmdEnter}
-                minHeight={PYTHON_EDITOR_MIN_HEIGHT}
-                maxHeight={PYTHON_EDITOR_MAX_HEIGHT}
+                minHeight={isJupyterMode ? JUPYTER_EDITOR_MIN_HEIGHT : PYTHON_EDITOR_MIN_HEIGHT}
+                maxHeight={isJupyterMode ? JUPYTER_EDITOR_MAX_HEIGHT : PYTHON_EDITOR_MAX_HEIGHT}
+                allowManualResize={!isJupyterMode}
+                options={isJupyterMode ? jupyterEditorOptions : undefined}
                 embedded
             />
         </div>
@@ -294,10 +327,8 @@ export const NotebookNodePythonV2 = createPostHogWidgetNode<NotebookNodePythonV2
         code: {
             default: '',
         },
-        // Optional: empty means the cell binds no dataframe, so nothing downstream can read it.
-        // A cell that predates the optional name carries its persisted name and keeps exporting it.
         returnVariable: {
-            default: '',
+            default: 'df',
         },
         runId: {
             default: null,

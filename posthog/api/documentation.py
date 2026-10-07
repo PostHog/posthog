@@ -8,7 +8,7 @@ from django.db import models
 from drf_spectacular.drainage import warn as spectacular_warn
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.openapi import AutoSchema
-from drf_spectacular.plumbing import build_basic_type, build_mock_request, build_parameter_type
+from drf_spectacular.plumbing import ComponentRegistry, build_basic_type, build_mock_request, build_parameter_type
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -80,9 +80,32 @@ class _FallbackSerializer(serializers.Serializer):
     pass
 
 
+def _include_internal_operations() -> bool:
+    return os.environ.get("OPENAPI_INCLUDE_INTERNAL", "").lower() in ("1", "true")
+
+
 class PostHogAutoSchema(AutoSchema):
     """AutoSchema subclass that silences path-parameter warnings for params
     handled by TeamAndOrgViewSetMixin (project_id, environment_id, etc.)."""
+
+    def is_excluded(self) -> bool:
+        if super().is_excluded():
+            return True
+        # `x-internal` keeps an operation out of the served schema (Swagger, Redoc, the public
+        # API docs) but in the codegen build, so MCP tools and frontend types still cover it
+        # without a public REST contract.
+        return bool(self.get_extensions().get("x-internal")) and not _include_internal_operations()
+
+    def get_operation(
+        self, path: str, path_regex: str, path_prefix: str, method: str, registry: ComponentRegistry
+    ) -> dict[str, Any] | None:
+        operation = super().get_operation(path, path_regex, path_prefix, method, registry)
+        # The marker is set here and not in get_extensions(), because an @extend_schema(extensions=...)
+        # decorator on the action replaces the get_extensions() output.
+        dynamic_actions: frozenset[str] = getattr(self.view, "request_dependent_scope_actions", frozenset())
+        if operation is not None and getattr(self.view, "action", None) in dynamic_actions:
+            operation["x-request-dependent-scopes"] = True
+        return operation
 
     def _resolve_path_parameters(self, variables):
         from drf_spectacular.plumbing import get_view_model, resolve_django_path_parameter, resolve_regex_path_parameter
@@ -717,7 +740,7 @@ _ORG_PROJECTS_FINAL_RE = re.compile(r"^/api/organizations/[^/]+/projects/")
 
 
 def _get_product_from_module(module: str) -> str | None:
-    """Extract product folder name from module path like 'products.batch_exports.backend.api'."""
+    """Extract product folder name from module path like 'products.batch_exports.backend.presentation.views'."""
     if is_product_module(module):
         parts = module.split(".")
         if len(parts) >= 2:
@@ -746,7 +769,7 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     vs organization_id, etc.).
     """
     # For frontend type generation, include INTERNAL views if they have explicit tags
-    include_internal = os.environ.get("OPENAPI_INCLUDE_INTERNAL", "").lower() in ("1", "true")
+    include_internal = _include_internal_operations()
 
     # Clear previous mappings
     _endpoint_product_mapping.clear()

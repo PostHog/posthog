@@ -79,27 +79,30 @@ export function QuickFiltersModalContent({
             {
                 title: 'Options',
                 dataIndex: 'options',
-                render: (options: QuickFilterOption[]) => (
-                    <div className="flex gap-1 flex-wrap">
-                        {options.slice(0, 3).map((opt, index) => (
-                            <span key={index} className="px-2 py-0.5 bg-border rounded text-xs">
-                                {opt.label}
-                            </span>
-                        ))}
-                        {options.length > 3 && (
-                            <Tooltip
-                                title={options
-                                    .slice(3)
-                                    .map((o) => o.label)
-                                    .join(', ')}
-                            >
-                                <span className="px-2 py-0.5 bg-border rounded text-xs">
-                                    +{options.length - 3} more
+                render: (options: QuickFilterOption[], filter: QuickFilter) =>
+                    filter.type === 'auto-discovery' ? (
+                        <span className="text-xs text-secondary">Discovered automatically</span>
+                    ) : (
+                        <div className="flex gap-1 flex-wrap">
+                            {options.slice(0, 3).map((opt, index) => (
+                                <span key={index} className="px-2 py-0.5 bg-border rounded text-xs">
+                                    {opt.label}
                                 </span>
-                            </Tooltip>
-                        )}
-                    </div>
-                ),
+                            ))}
+                            {options.length > 3 && (
+                                <Tooltip
+                                    title={options
+                                        .slice(3)
+                                        .map((o) => o.label)
+                                        .join(', ')}
+                                >
+                                    <span className="px-2 py-0.5 bg-border rounded text-xs">
+                                        +{options.length - 3} more
+                                    </span>
+                                </Tooltip>
+                            )}
+                        </div>
+                    ),
             },
             {
                 title: 'Updated',

@@ -1257,7 +1257,8 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
         assert job.status == PreaggregationJob.Status.READY
         assert job.team == self.team
 
-    def test_reuses_existing_jobs(self):
+    @parameterized.expand([("unchanged", None), ("versioned", {"classification": "v1"})])
+    def test_reuses_existing_jobs(self, _name: str, cache_key_context: dict[str, str] | None) -> None:
         # First call
         first_result = ensure_precomputed(
             team=self.team,
@@ -1267,17 +1268,27 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
         )
         first_job_id = first_result.job_ids[0]
 
-        # Second call with same parameters
         second_result = ensure_precomputed(
             team=self.team,
             insert_query=self.MANUAL_INSERT_QUERY,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            cache_key_context=cache_key_context,
+            modifiers=HogQLQueryModifiers(sessionIdPushdown=True),
         )
 
-        # Should reuse the existing job
         assert len(second_result.job_ids) == 1
-        assert second_result.job_ids[0] == first_job_id
+        assert (second_result.job_ids[0] == first_job_id) is (cache_key_context is None)
+
+        restored_result = ensure_precomputed(
+            team=self.team,
+            insert_query=self.MANUAL_INSERT_QUERY,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_inserts=False,
+        )
+        assert restored_result.ready is True
+        assert restored_result.job_ids == [first_job_id]
 
     def test_creates_jobs_for_missing_ranges(self):
         # Create job for Jan 1 only
@@ -1943,12 +1954,14 @@ class TestComputationExecutorExecute(BaseTest):
     def test_returns_immediately_when_all_ranges_ready(self):
         query_info, query_hash = self._make_query_info()
 
+        computed_at = django_timezone.now() - timedelta(minutes=30)
         ready_job = PreaggregationJob.objects.create(
             team=self.team,
             query_hash=query_hash,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
             status=PreaggregationJob.Status.READY,
+            computed_at=computed_at,
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
@@ -1963,6 +1976,8 @@ class TestComputationExecutorExecute(BaseTest):
 
         assert result.ready is True
         assert ready_job.id in result.job_ids
+        # The materialized-at time of the served window is surfaced for the "data as of X" badge.
+        assert result.computed_at == computed_at
 
     def test_inserts_missing_ranges_and_returns_all_job_ids(self):
         query_info, query_hash = self._make_query_info()
@@ -2224,6 +2239,32 @@ class TestComputationExecutorExecute(BaseTest):
 
     @parameterized.expand(
         [
+            ("default_policy", False, None, True),
+            ("invalidated", True, None, False),
+            ("invalidated_with_grace", True, 6 * 60 * 60, False),
+        ]
+    )
+    def test_future_job_invalidation_is_opt_in(
+        self, _name: str, invalidate: bool, grace: int | None, expected_ready: bool
+    ) -> None:
+        query_info, _ = self._make_query_info()
+        start = datetime(2026, 9, 11, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        schedule = parse_ttl_schedule(2 * 60 * 60, invalidate_at_window_start=invalidate)
+        with time_machine.travel(start - timedelta(minutes=25), tick=False) as clock:
+            warmed = LazyComputationExecutor(ttl_schedule=schedule).execute(
+                team=self.team, query_info=query_info, start=start, end=end, run_insert=lambda t, j: 0
+            )
+            assert warmed.ready
+            clock.shift(timedelta(minutes=25))
+            cached = LazyComputationExecutor(
+                ttl_schedule=schedule, run_inserts=False, stale_while_revalidate_seconds=grace
+            ).execute(team=self.team, query_info=query_info, start=start, end=end, run_insert=lambda t, j: 0)
+            assert cached.ready is expected_ready
+            assert cached.job_ids == (warmed.job_ids if expected_ready else [])
+
+    @parameterized.expand(
+        [
             # Expired 1h ago (created 2h ago, 1h TTL) — within the 6h grace: served as-is.
             ("within_grace", 1, True),
             # Expired 9h ago — beyond the 6h grace: the normal recompute path runs.
@@ -2339,6 +2380,8 @@ class TestComputationExecutorExecute(BaseTest):
 
         assert result.ready is True
         assert fresh_job.id in result.job_ids
+        # Coverage pre-existed, so a quorum-skipping caller may read it in-request.
+        assert result.freshly_built is False
 
     def test_returned_jobs_cover_range_when_overlap_filter_evicts_broad_job(self):
         query_info, query_hash = self._make_query_info()
@@ -3123,6 +3166,29 @@ class TestPubsubAndStaleDetection(BaseTest):
             assert mock_publish.call_args[0][1] == "failed"
 
 
+class _FakeMonotonicClock:
+    """Stand-in for the executor's `time` module. The clock moves only when the
+    executor sleeps, so a wait deadline arrives after a fixed number of loop
+    passes and costs no wall-clock time. Each reading also adds a small tick, so
+    a loop that stops pacing still reaches the deadline instead of spinning
+    forever."""
+
+    TICK_SECONDS = 0.001
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        reading = self.now
+        self.now += self.TICK_SECONDS
+        return reading
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
 class TestJobLifecycleCounters(BaseTest):
     """Counters that answer "how many jobs were we creating vs finishing" — the
     framework runs jobs synchronously, so PENDING is just "INSERT in flight" and
@@ -3295,15 +3361,16 @@ class TestJobLifecycleCounters(BaseTest):
         # Range has no existing coverage, so the executor enters the create path
         # on every loop iteration. Patching `create_lazy_computation_job` to
         # always return None simulates losing the partial-unique-index race on
-        # every attempt; the executor times out shortly after.
+        # every attempt; the executor times out shortly after. The fake clock
+        # advances on the executor's own sleeps, so the timeout arrives after a
+        # fixed number of passes rather than after 0.2s of contended CPU.
+        clock = _FakeMonotonicClock()
         with (
             patch(
                 "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_lazy_computation_job",
                 return_value=None,
             ),
-            patch(
-                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.time.sleep"
-            ) as mock_sleep,
+            patch("products.analytics_platform.backend.lazy_computation.lazy_computation_executor.time", clock),
         ):
             executor = LazyComputationExecutor(wait_timeout_seconds=0.2, poll_interval_seconds=0.05)
             result = executor.execute(
@@ -3315,8 +3382,10 @@ class TestJobLifecycleCounters(BaseTest):
             )
             assert result.ready is False  # Timed out: every create attempt lost the race.
         # Repeated conflicts on a still-missing window must pace instead of
-        # hot-spinning no-op inserts for the whole wait budget.
-        assert mock_sleep.call_count >= 1
+        # hot-spinning no-op inserts, and the pacing must stay inside the wait
+        # budget instead of extending it.
+        assert len(clock.sleeps) >= 1
+        assert sum(clock.sleeps) <= 0.2
 
         assert (
             self._delta(
@@ -3458,6 +3527,18 @@ class TestInsertSettings(BaseTest):
         assert settings["max_execution_time"] == HOGQL_INCREASED_MAX_EXECUTION_TIME
         assert "readonly" not in settings
 
+    def test_background_builder_skips_replica_quorum(self):
+        # TEST/DEBUG already force the quorum constant to 0, so pin the production
+        # value to make the branch observable: without it a downed or
+        # stale-registered replica fails every background build with
+        # TOO_FEW_LIVE_REPLICAS until the cluster is repaired.
+        with patch(
+            f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.PREAGGREGATION_INSERT_QUORUM",
+            "auto",
+        ):
+            assert _get_insert_settings(self.team.pk)["insert_quorum"] == "auto"
+            assert _get_insert_settings(self.team.pk, read_after_write=False)["insert_quorum"] == 0
+
 
 class TestInsertSettingsAppliedToInserts(BaseTest):
     INSERT_QUERY = """
@@ -3472,23 +3553,76 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
         GROUP BY time_window_start
     """
 
-    def test_manual_insert_path_passes_insert_settings_to_clickhouse(self):
-        with patch(
-            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
-        ) as mock_execute:
+    @parameterized.expand(
+        [
+            ("default_read_after_write", {}, "auto"),
+            ("background_no_quorum", {"read_after_write": False}, 0),
+        ]
+    )
+    def test_manual_insert_path_passes_insert_settings_to_clickhouse(self, _name, extra_kwargs, expected_quorum):
+        # The quorum constant is patched to its production value because TEST forces
+        # it to 0, which would make both parameter rows assert the same settings.
+        with (
+            patch(
+                f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.PREAGGREGATION_INSERT_QUORUM",
+                "auto",
+            ),
+            patch(
+                f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
+            ) as mock_execute,
+        ):
             result = ensure_precomputed(
                 team=self.team,
                 insert_query=self.INSERT_QUERY,
                 time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
                 time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                **extra_kwargs,
             )
+            expected_settings = _get_insert_settings(self.team.pk, **extra_kwargs)
 
         assert result.ready is True
         # Bind the assertion to the INSERT specifically, so the test doesn't break (or silently
         # check the wrong call) if the executor flow ever issues other queries around the insert.
         insert_calls = [c for c in mock_execute.call_args_list if c.args[0].lstrip().startswith("INSERT")]
         assert len(insert_calls) == 1  # one missing range -> one INSERT
-        assert insert_calls[0].kwargs["settings"] == _get_insert_settings(self.team.pk)
+        assert insert_calls[0].kwargs["settings"] == expected_settings
+        assert insert_calls[0].kwargs["settings"]["insert_quorum"] == expected_quorum
+        # The coverage landed in this call, so quorum-skipping callers must not read it yet.
+        assert result.freshly_built is True
+
+    @parameterized.expand(
+        [
+            ("quorum_skipped_waits_for_replication", {"read_after_write": False}, True),
+            ("quorum_insert_needs_no_wait", {}, False),
+        ]
+    )
+    def test_settle_wait_after_quorumless_build(self, _name, extra_kwargs, expect_sleep):
+        # Without the wait, the builder's immediate read-back can land on a replica the
+        # quorum-less parts have not reached and cache a partial result for the TTL.
+        with (
+            patch(
+                f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.PREAGGREGATION_REPLICATION_SETTLE_SECONDS",
+                1.0,
+            ),
+            patch(
+                f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.time.sleep"
+            ) as mock_sleep,
+            patch(f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"),
+        ):
+            result = ensure_precomputed(
+                team=self.team,
+                insert_query=self.INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                **extra_kwargs,
+            )
+
+        assert result.ready is True
+        assert result.freshly_built is True
+        if expect_sleep:
+            mock_sleep.assert_called_once_with(1.0)
+        else:
+            mock_sleep.assert_not_called()
 
     def test_ast_insert_path_passes_insert_settings_to_clickhouse(self):
         job = PreaggregationJob.objects.create(

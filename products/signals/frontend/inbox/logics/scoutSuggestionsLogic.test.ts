@@ -96,10 +96,13 @@ const CONFIG: SignalScoutConfigApi = {
     skill_name: CANONICAL_ITEM.skill_name,
     description: 'Watches web vitals.',
     scout_origin: 'canonical',
+    scout_role: 'specialist',
     owners: [],
     enabled: false,
     status: 'active',
     pause_reason: null,
+    managed_by: 'team',
+    deprecation: null,
     emit: true,
     run_interval_minutes: 1440,
     run_cron_schedule: null,
@@ -110,12 +113,14 @@ const CONFIG: SignalScoutConfigApi = {
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
+    status_changed_by: null,
     auto_pause_exempt: false,
     network_access: 'trusted',
     model: null,
     source_product: null,
     source_id: null,
     created_at: '2026-07-22T00:00:00Z',
+    updated_at: '2026-07-22T00:00:00Z',
 }
 
 function suggestionSet(overrides: Partial<ScoutSuggestionSetApi> = {}): ScoutSuggestionSetApi {
@@ -185,6 +190,78 @@ describe('scoutSuggestionsLogic', () => {
 
         expect(mockList).toHaveBeenCalledTimes(1)
         expect(logic.values.hasPicks).toBe(true)
+    })
+
+    // The 500 row is the point of this case: a guard wide enough to swallow it would leave a real
+    // suggestions outage looking identical to a project the member cannot read.
+    it.each([
+        [403, 'loadSuggestionsSuccess'],
+        [404, 'loadSuggestionsSuccess'],
+        [500, 'loadSuggestionsFailure'],
+    ])('resolves a %s from the batch read to %s', async (status, expectedAction) => {
+        mockList.mockRejectedValueOnce(new ApiError('nope', status))
+        logic = scoutSuggestionsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions([expectedAction])
+        expect(logic.values.stripVisible).toBe(false)
+    })
+
+    // The members this guard serves send the read on every tab open, so leaving before the 403
+    // lands is routine and must not turn the refusal into a report.
+    it('reports nothing when a refusal lands after the strip unmounts', async () => {
+        let refuse: (error: ApiError) => void = () => {}
+        mockList.mockReturnValueOnce(
+            new Promise((_, reject) => {
+                refuse = reject
+            })
+        )
+        logic = scoutSuggestionsLogic()
+        logic.mount()
+
+        logic.unmount()
+        refuse(new ApiError('nope', 403))
+        await new Promise(setImmediate)
+
+        expect(posthog.captureException).not.toHaveBeenCalled()
+    })
+
+    // Access can go away between reads — a role change, or a project switch leaving a stale id in
+    // the URL. Every button on a pick would be refused, so the picks go with the access.
+    it('takes the strip away when a later read is refused', async () => {
+        await mountWithBatch()
+        expect(logic.values.stripVisible).toBe(true)
+
+        mockList.mockRejectedValueOnce(new ApiError('nope', 403))
+        logic.actions.loadSuggestions()
+
+        await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess'])
+        expect(logic.values.stripVisible).toBe(false)
+    })
+
+    // A refused read returns no batch, which the scan-settled check would otherwise read as a scan
+    // that found nothing (baseline set) or as a scan still running (no baseline).
+    it.each([
+        ['after an earlier scan', '2026-09-01T00:00:00Z'],
+        ['before any scan', null],
+    ])('stops waiting on a scan when a read during it is refused: %s', async (_name, generatedAt) => {
+        const info = jest.spyOn(lemonToast, 'info').mockReturnValue('toast-1')
+        const error = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-1')
+        await mountWithBatch(suggestionSet({ generated_at: generatedAt }))
+        logic.actions.requestRefresh('strip')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.isRefreshing).toBe(true)
+
+        mockList.mockRejectedValueOnce(new ApiError('nope', 403))
+        logic.actions.loadSuggestions()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.isRefreshing).toBe(false)
+        expect(logic.values.refreshScan).toBeNull()
+        expect(info).not.toHaveBeenCalled()
+        expect(error).not.toHaveBeenCalled()
+        info.mockRestore()
+        error.mockRestore()
     })
 
     // Whatever the batch row says, a batch with no picks has nothing to put on the roster.
@@ -465,5 +542,59 @@ describe('scoutSuggestionsLogic', () => {
         logic.actions.showStrip()
         expect(logic.values.stripHidden).toBe(false)
         expect(logic.values.collapsed).toBe(false)
+    })
+
+    it('reports each expand, collapse and close of the strip once, and nothing for a remembered state', async () => {
+        await mountWithBatch()
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        logic.actions.setCollapsed(false)
+        logic.actions.setCollapsed(true)
+        logic.actions.hideStrip()
+
+        const clicks = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === INBOX_EVENTS.SCOUT_SUGGESTION_CLICKED
+        )
+        expect(clicks.map(([, properties]) => properties)).toEqual(
+            ['expand', 'collapse', 'close'].map((target) =>
+                expect.objectContaining({
+                    click_target: target,
+                    suggestion_count: 2,
+                    batch_status: 'fresh',
+                    surface: 'strip',
+                })
+            )
+        )
+        expect(clicks[0][1]).not.toHaveProperty('skill_name')
+
+        // A reload restores the closed strip from storage, and that is not a press.
+        logic.unmount()
+        ;(posthog.capture as jest.Mock).mockClear()
+        await mountWithBatch()
+        expect(logic.values.stripHidden).toBe(true)
+        expect(
+            (posthog.capture as jest.Mock).mock.calls.filter(
+                ([event]) => event === INBOX_EVENTS.SCOUT_SUGGESTION_CLICKED
+            )
+        ).toEqual([])
+    })
+
+    it('ties a created scout to its suggestion and config, under the name it was created with', async () => {
+        await mountWithBatch()
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        logic.actions.suggestionCreated(CUSTOM_ITEM, 'strip', { ...CONFIG, id: 'config-9', skill_name: 'renamed' })
+
+        const created = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === INBOX_EVENTS.SCOUT_SUGGESTION_CREATED
+        )
+        expect(created.map(([, properties]) => properties)).toEqual([
+            expect.objectContaining({
+                suggestion_id: CUSTOM_ITEM.id,
+                config_id: 'config-9',
+                skill_name: 'renamed',
+                suggestion_kind: 'custom',
+            }),
+        ])
     })
 })

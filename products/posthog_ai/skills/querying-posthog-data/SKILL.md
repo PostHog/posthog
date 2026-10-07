@@ -1,11 +1,68 @@
 ---
 name: querying-posthog-data
-description: 'Required reading before writing any HogQL/SQL or calling execute-sql against PostHog. Use whenever the user wants to search, find, or do complex aggregations PostHog entities (insights, dashboards, cohorts, feature flags, experiments, surveys, hog flows, data warehouse, persons, etc.) and query analytics data (trends, funnels, retention, lifecycle, paths, stickiness, web analytics, error tracking, logs, sessions, LLM traces). Also the first stop for a governed business or telemetry measure (MRR, activation, billable usage, active organizations, failure rates): check the semantic layer (canonical metrics in system.information_schema.metrics) before deriving from raw events or a typed domain tool. Covers HogQL syntax differences from ClickHouse SQL, system table schemas (system.*), available functions, query examples, and the schema-discovery workflow.'
+description: >
+  Explains how to query PostHog data, defaulting to typed runners for supported product analytics.
+  Read it before you write HogQL/SQL.
+  Also read it before you call execute-sql against PostHog.
+  Use it to find or aggregate PostHog entities.
+  These entities include insights, dashboards, cohorts, feature flags, experiments,
+  surveys, hog flows, warehouse data, and persons.
+  Use it for trends, funnels, retention, lifecycle, paths, stickiness,
+  web analytics, error tracking, logs, sessions, and LLM traces.
+  Before you calculate a governed business or telemetry measure, check
+  system.information_schema.metrics for an approved definition.
+  Examples include MRR, activation, billable usage, active organizations, and failure rates.
+  Use the approved definition before you derive a measure from raw events or use a typed domain tool.
+  It also covers HogQL differences, system table schemas, functions, query examples, and schema discovery.
 ---
 
 # Querying data in PostHog
 
-The [guidelines](./references/guidelines.md) contain the same instructions as `posthog:execute-sql`. If you've already read `posthog:execute-sql`, you don't need to read them again.
+The [guidelines](./references/guidelines.md) explain SQL syntax and schema discovery. Read them when you choose `posthog:execute-sql`. You do not need them for typed queries.
+
+## Choose the query path
+
+Default to typed query tools for new product-analytics questions and dashboard insights when their schemas support the requested calculation. This includes simple event counts, unique users, property sums, breakdowns, and time series. Choose SQL only when the task needs SQL capabilities or explicitly requests SQL.
+
+For governed measures, follow the semantic-layer workflow below before deriving a query. Reuse a matching approved metric or saved query when it defines the requested measure.
+
+### Typed query tools
+
+Use the matching typed query tool for supported product analytics:
+
+- `posthog:query-trends` for native trends with series, breakdowns, formulas, and period comparisons.
+- `posthog:query-funnel` for conversion rates, drop-off, and step completion.
+- `posthog:query-retention` for users returning over time.
+- `posthog:query-stickiness` for engagement frequency.
+- `posthog:query-paths` for navigation flows.
+- `posthog:query-lifecycle` for new, returning, resurrecting, and dormant users.
+
+Do not approximate these analyses with SQL when the user expects PostHog's standard definitions. Confirm that the selected tool supports the required calculation and output.
+
+### SQL queries
+
+Use `posthog:execute-sql` when:
+
+- The request searches `system.*` tables for PostHog entities.
+- The user requests SQL, record inspection, or changes to an existing SQL query.
+- The analysis needs custom joins, CTEs, window functions, or warehouse SQL.
+- You need to inspect records or discover entities before constructing a later typed query. Use those findings to select events, properties, and filters; typed query tools cannot accept SQL result rows as input.
+
+### When either method fits
+
+When both methods fit a new event-analytics query, use the typed runner. SQL being familiar, an example being written in SQL, or an earlier discovery call using SQL is not a reason to choose SQL for the final analysis. Use SQL directly when the task needs its capabilities; a failed typed-query attempt is not required.
+
+Keep a valid existing query when it fits the task. Choose the method again when the task changes. For each new dashboard tile, run the matching typed query and save its native query node (such as `TrendsQuery` or `FunnelsQuery`) with `insight-create`; do not wrap an equivalent SQL query in `HogQLQuery`. Use SQL-backed insights only for tiles that need SQL. Both methods support visualizations, so a chart or table request alone does not justify SQL.
+
+## Render query results
+
+Choose the presentation path from the harness's capabilities, independently of the query method. A query tool having a UI resource does not mean every harness displays it, especially when the call runs inside `exec`.
+
+- **Already displayed:** direct tool calls and some exec harnesses render query results inline. When the harness says the interactive view is visible (for example, the response says "The user already sees this result as an interactive view"), summarize the conclusion without rendering the same chart again.
+- **Exec returned data without a chart:** if the harness exposes the top-level `posthog:render-ui` tool and the query tool is in its `tool_name` enum, call it after the query succeeds. Pass the same tool name and validated input (for example, `tool_name: "query-trends"` with the successful trends input as `tool_input`). Call `render-ui` directly, not through `exec`. The widget fetches its own data; pass query inputs, not result rows or a new SQL query.
+- **No supported UI tool:** follow the harness's rendering instructions or provide a written summary. Keep the typed query; lack of an inline chart is not a reason to switch to SQL.
+
+Keep a concise written conclusion alongside the visualization.
 
 ## When to use this skill
 
@@ -21,7 +78,7 @@ Don't try to reconstruct the entity from SQL — `execute-sql` is for discovery,
 
 ### Querying analytics data
 
-When the user wants analytics data (trends, funnels, retention, paths, sessions, LLM traces, web analytics, errors, logs, etc.) and the existing insight schemas don't fit the request:
+When SQL is the selected method for an analytics request:
 
 1. Look for a matching example under Analytics Query Examples. The list is not exhaustive — there may not be an example for every scenario. If one is a close fit (same domain, similar aggregation), read it; otherwise skip this step.
 2. Adapt the example query (if one was found) to the user's request and run it via `posthog:execute-sql`. If no example fit, compose the query from scratch using the Data Schema and HogQL References.
@@ -83,6 +140,7 @@ Every column table below is generated from the live HogQL catalog, so it lists e
 - [Notebooks](./references/models-notebooks.md)
 - [Session Recording Playlists](./references/models-session-recording-playlists.md)
 - [Session Recordings](./references/models-session-recordings.md)
+- [Replay Vision scanners](./references/models-replay-vision.md)
 - [Support Tickets](./references/models-support-tickets.md)
 - [Surveys](./references/models-surveys.md)
 - [Usage Metrics](./references/models-usage-metrics.md)
@@ -99,7 +157,7 @@ Every column table below is generated from the live HogQL catalog, so it lists e
 
 ## Analytics Query Examples
 
-Use the examples below to create optimized analytical queries.
+These references include a direct typed-query example and SQL examples for analytics and data inspection. Choose the method before adapting an example. An example's format does not require you to use that method for every similar question.
 
 - [Trends (unique users, specific time range, single series)](./references/example-trends-unique-users.md)
 - [Trends (total count with multiple breakdowns)](./references/example-trends-breakdowns.md)

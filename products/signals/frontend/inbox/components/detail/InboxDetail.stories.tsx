@@ -20,11 +20,13 @@ import {
     reportTabReports,
     runReportsMany,
 } from '../../__mocks__/inboxMocks'
+import { reportMetricQueryHandler, reportMetricsFixture } from '../../__mocks__/reportMetricMocks'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { AgentRunDetail } from './AgentRunDetail'
 import { ReportDetail } from './ReportDetail'
 import { ReportDetailLegacy } from './ReportDetailLegacy'
+import { ReportStatusSection } from './ReportStatusSection'
 
 const mixedPrChecks = {
     checks: [
@@ -88,9 +90,48 @@ const successfulPrChecks = {
 
 const detailMocks = mswDecorator({
     get: {
-        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => [
+        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
+            const reportId = req.params.reportId as string
+            return [200, mockArtefacts(reportId)]
+        },
+        '/api/projects/:id/signals/reports/:reportId/checks/': (req) => [
             200,
-            mockArtefacts(req.params.reportId as string),
+            {
+                count: req.params.reportId === reportTabReports[0].id ? 1 : 0,
+                results:
+                    req.params.reportId === reportTabReports[0].id
+                        ? [
+                              {
+                                  id: 'expected-outcome-check',
+                                  title: 'API key validation errors fall to at most 50 in 14 days',
+                                  rationale: 'The form should show users why their key could not be created.',
+                                  kind: 'metric_threshold',
+                                  status: 'pending',
+                                  config: {
+                                      metric_id: reportMetricsFixture[0].metric_id,
+                                      query: reportMetricsFixture[0].query,
+                                      metric_kind: reportMetricsFixture[0].kind,
+                                      value_format: reportMetricsFixture[0].value_format,
+                                      unit: reportMetricsFixture[0].unit,
+                                      comparison: { operator: 'lte', value: 50 },
+                                      baseline_value: 80,
+                                  },
+                                  approved_at: null,
+                                  next_run_at: '2026-09-12T00:00:00Z',
+                                  soak_minutes: 20160,
+                                  run_interval_minutes: null,
+                                  runs_remaining: 1,
+                                  expires_at: '2026-10-12T00:00:00Z',
+                                  last_run_at: null,
+                                  last_outcome: null,
+                                  dispatched_at: null,
+                                  consecutive_errors: 0,
+                                  created_at: '2026-08-29T00:00:00Z',
+                                  updated_at: '2026-08-29T00:00:00Z',
+                              },
+                          ]
+                        : [],
+            },
         ],
         '/api/projects/:id/signals/reports/:reportId/artefacts/:artefactId/diff/': () => [200, mockBranchDiff()],
         '/api/projects/:id/signals/reports/:reportId/signals': (req) => [
@@ -111,6 +152,24 @@ const detailMocks = mswDecorator({
         ],
         '/api/projects/:id/tasks/:taskId/runs/:runId/logs': () => new HttpResponse(mockRunLog()),
     },
+    post: {
+        '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
+    },
+})
+
+const readyToImplementMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
+            const artefacts = mockArtefacts(req.params.reportId as string)
+            return [
+                200,
+                {
+                    ...artefacts,
+                    results: artefacts.results.filter((artefact) => artefact.type !== 'task_run'),
+                },
+            ]
+        },
+    },
 })
 
 const meta: Meta = {
@@ -119,7 +178,11 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-11',
-        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true },
+        featureFlags: {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+        },
     },
     decorators: [detailMocks],
 }
@@ -131,10 +194,156 @@ function Frame({ children }: { children: React.ReactNode }): JSX.Element {
     return <div className="bg-primary min-h-screen py-4">{children}</div>
 }
 
+export const StatusBlock: Story = {
+    render: () => {
+        const report = makeReport({
+            status: SignalReportStatus.READY,
+            priority: 'P1',
+            actionability: 'immediately_actionable',
+            implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12002',
+            implementation_pr_state: 'open',
+            pull_requests: [
+                {
+                    id: '019e64b8-0000-7000-8000-000000000101',
+                    url: 'https://github.com/PostHog/posthog/pull/12002',
+                    state: 'open',
+                    merged: false,
+                    review_decision: 'approved',
+                    merged_at: null,
+                    claim_id: null,
+                    attached_at: null,
+                    attached_by: null,
+                },
+                {
+                    id: '019e64b8-0000-7000-8000-000000000102',
+                    url: 'https://github.com/PostHog/posthog-js/pull/12003',
+                    state: 'merged',
+                    merged: true,
+                    review_decision: 'approved',
+                    merged_at: '2026-06-11T10:00:00Z',
+                    claim_id: null,
+                    attached_at: null,
+                    attached_by: null,
+                },
+            ],
+            assignee: {
+                claim_id: '019e64b8-0000-7000-8000-000000000099',
+                kind: 'agent',
+                user: null,
+                task_id: null,
+                agent: 'Build agent',
+                claimed_at: '2026-06-11T10:00:00Z',
+            },
+        })
+        return (
+            <Frame>
+                <div className="w-[26rem] border border-primary bg-surface-primary p-5">
+                    <ReportStatusSection report={report} />
+                </div>
+            </Frame>
+        )
+    },
+}
+
 export const Report: Story = {
     render: () => (
         <Frame>
             <ReportDetail report={reportTabReports[0]} />
+        </Frame>
+    ),
+}
+
+export const ReportReadyToImplement: Story = {
+    decorators: [readyToImplementMocks],
+    render: () => (
+        <Frame>
+            <ReportDetail report={reportTabReports[0]} />
+        </Frame>
+    ),
+}
+
+export const ReportWithMetrics: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    title: 'Creating an API key does nothing when validation fails',
+                    summary: [
+                        'The Create key button swallows its own validation error, so people click it repeatedly and leave settings without a key.',
+                        '## Problem',
+                        'When the new API key form fails validation, the click handler returns early before the error state reaches the form. The button stays enabled and nothing renders.',
+                        '## Impact',
+                        'People creating keys are usually mid-setup, wiring an SDK or a CI job, so a silent failure here stalls an integration without leaving an error event behind.',
+                        '## Solution',
+                        'Set the form errors before the early return so the existing error rendering works again, and give the button a disabled reason while the request is in flight.',
+                    ].join('\n\n'),
+                    metrics: reportMetricsFixture,
+                })}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportWithFollowUpMetric: Story = {
+    parameters: {
+        mockDate: '2026-08-29',
+        featureFlags: {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+        },
+    },
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    title: 'Creating an API key does nothing when validation fails',
+                    summary: [
+                        'People cannot finish setup when the API key form hides validation errors.',
+                        '## Problem',
+                        'The form does not show the error after the Create key button is clicked.',
+                        '## Expected impact',
+                        'After the fix, fewer people should click Create key without getting a response.',
+                        '## Solution',
+                        'Show the validation error in the form.',
+                    ].join('\n\n'),
+                    metrics: reportMetricsFixture.slice(0, 1),
+                })}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportWithFollowUpMetricHidden: Story = {
+    ...ReportWithFollowUpMetric,
+    parameters: {
+        mockDate: '2026-08-29',
+        featureFlags: {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: false,
+        },
+    },
+}
+
+export const ReportFollowUpPending: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+        },
+    },
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    status: SignalReportStatus.IN_PROGRESS,
+                    summary: null,
+                    metrics: [],
+                })}
+            />
         </Frame>
     ),
 }
@@ -158,6 +367,29 @@ export const PullRequest: Story = {
     render: () => (
         <Frame>
             <ReportDetail report={pullRequestReports[0]} />
+        </Frame>
+    ),
+}
+
+export const PullRequestStack: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...pullRequestReports[0],
+                    pull_requests: [1, 2].map((number) => ({
+                        id: `019e64b8-0000-7000-8000-00000000000${number}`,
+                        url: `https://github.com/example/app/pull/${number}`,
+                        state: number === 1 ? 'merged' : 'open',
+                        merged: number === 1,
+                        review_decision: number === 1 ? 'approved' : 'review_required',
+                        merged_at: number === 1 ? '2026-06-11T10:00:00Z' : null,
+                        claim_id: null,
+                        attached_at: null,
+                        attached_by: null,
+                    })),
+                })}
+            />
         </Frame>
     ),
 }
