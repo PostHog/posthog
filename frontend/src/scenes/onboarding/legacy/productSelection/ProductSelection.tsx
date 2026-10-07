@@ -4,6 +4,7 @@ import { IconArrowRight, IconChevronDown, IconCursor } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { availableOnboardingProducts, getProductIcon } from 'scenes/onboarding/shared/utils'
 
 import type { ProductKey } from '~/queries/schema/schema-general'
@@ -108,7 +109,8 @@ function ProductCard({
     return (
         <LemonCard
             data-attr={`${productKey}-onboarding-card`}
-            className="OnboardingProductCard relative cursor-pointer hover:transform-none p-4"
+            // Match a 2/3/4-column grid track with a gap-3 gutter, so a partial row can be centered
+            className="OnboardingProductCard relative cursor-pointer hover:transform-none p-4 w-[calc((100%-0.75rem)/2)] sm:w-[calc((100%-1.5rem)/3)] lg:w-[calc((100%-2.25rem)/4)]"
             onClick={onToggle}
             focused={selected}
             hoverEffect
@@ -161,7 +163,7 @@ function ProductSelectionStep(): JSX.Element {
             {recommendationSource === 'browsing_history' && <BrowsingHistoryBanner />}
 
             {/* Products list */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 justify-center w-full">
+            <div className={cn('flex flex-wrap gap-3 w-full', showAllProducts ? 'justify-start' : 'justify-center')}>
                 {availableRecommendedProducts.map((productKey) => (
                     <ProductCard
                         key={productKey}
