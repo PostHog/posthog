@@ -292,7 +292,9 @@ fn select_uploadable_pairs(
     pairs: Vec<SourcePair>,
     native_debug_ids: bool,
 ) -> Result<Vec<SourcePair>> {
-    let has_native_debug_ids = pairs.iter().any(|pair| pair.get_debug_id().is_some());
+    let has_native_debug_ids = pairs
+        .iter()
+        .any(|pair| pair.source.get_debug_id().is_some());
     if !native_debug_ids {
         if has_native_debug_ids && pairs.iter().any(|pair| !pair.has_chunk_id()) {
             bail!(
@@ -302,12 +304,12 @@ fn select_uploadable_pairs(
         return Ok(pairs);
     }
     if !has_native_debug_ids {
-        bail!("--native-debug-ids was passed, but no native debug IDs were found");
+        bail!("--native-debug-ids was passed, but no source-carried native debug IDs were found");
     }
 
     let (uploadable, skipped): (Vec<_>, Vec<_>) = pairs
         .into_iter()
-        .partition(|pair| pair.has_chunk_id() || pair.get_debug_id().is_some());
+        .partition(|pair| pair.has_chunk_id() || pair.source.get_debug_id().is_some());
     if !skipped.is_empty() {
         let listed_paths = skipped
             .iter()
@@ -949,7 +951,39 @@ mod tests {
     }
 
     #[test]
-    fn native_debug_id_mode_accepts_map_only_ids_and_skips_unidentified_pairs() {
+    fn native_debug_id_mode_skips_map_only_ids() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let debug_id = "11111111-2222-4333-8444-555555555555";
+        let (native_source, native_map) = write_pair(dir.path(), "native");
+        std::fs::write(
+            native_source,
+            format!(
+                "console.log(1);\n//# debugId={debug_id}\n//# sourceMappingURL=native.js.map\n"
+            ),
+        )
+        .expect("Failed to add a source debug ID");
+        std::fs::write(
+            native_map,
+            format!(
+                r#"{{"version":3,"sources":["app.ts"],"mappings":"AAAA","debugId":"{debug_id}"}}"#
+            ),
+        )
+        .expect("Failed to add a matching map debug ID");
+        let (_, map_only) = write_pair(dir.path(), "mapped");
+        std::fs::write(
+            map_only,
+            r#"{"version":3,"sources":["app.ts"],"mappings":"AAAA","debugId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"}"#,
+        )
+        .expect("Failed to add a map-only debug ID");
+
+        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()), true)
+            .expect("The caller asserted native runtime support");
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].source.get_debug_id().as_deref(), Some(debug_id));
+    }
+
+    #[test]
+    fn native_debug_id_mode_requires_a_source_carried_debug_id() {
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let (_, map_path) = write_pair(dir.path(), "mapped");
         std::fs::write(
@@ -957,24 +991,11 @@ mod tests {
             r#"{"version":3,"sources":["app.ts"],"mappings":"AAAA","debugId":"11111111-2222-4333-8444-555555555555"}"#,
         )
         .expect("Failed to add a map-only debug ID");
-        write_pair(dir.path(), "missing");
-
-        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()), true)
-            .expect("The caller asserted native runtime support");
-        assert_eq!(pairs.len(), 1);
-        prepare_uploads(pairs, ReleaseMode::Event)
-            .expect("The pair carrying the native debug ID should upload");
-    }
-
-    #[test]
-    fn native_debug_id_mode_requires_a_native_debug_id() {
-        let dir = tempfile::tempdir().expect("Failed to create temp dir");
-        write_pair(dir.path(), "app");
 
         let error = select_uploadable_pairs(read_dir_pairs(dir.path()), true)
-            .expect_err("An incorrectly enabled native mode must not silently upload nothing");
+            .expect_err("A map-only debug ID cannot be reported by this source at runtime");
 
-        assert!(format!("{error:#}").contains("no native debug IDs were found"));
+        assert!(format!("{error:#}").contains("no source-carried native debug IDs were found"));
     }
 
     #[test]
