@@ -340,6 +340,7 @@ def test_dep_manifest_pr_gets_t1_scrutiny_not_t0(monkeypatch: pytest.MonkeyPatch
         pytest.param(".github/workflows/ci-backend.yml", [], id="github-workflow"),
         pytest.param(".depot/workflows/ci-backend.yml", [], id="depot-workflow"),
         pytest.param("docs/ci-backend.yml", [".github/workflows/ci-backend.yml"], id="workflow-renamed-out"),
+        pytest.param(".github/workflows/tests/test_ci.py", [], id="test-named-file-under-workflows"),
     ],
 )
 def test_exempt_author_workflow_pr_gets_t1_scrutiny_not_t0(

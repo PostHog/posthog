@@ -448,14 +448,15 @@ class Pipeline:
         # manifests, dependency_manifests_without_lockfile catches the rest
         # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
         # Workflows are .yml too, and they execute in CI, so an owner-only exemption
-        # must hand them to the reviewer instead of the T0 fast path.
+        # must hand them to the reviewer instead of either T0 fast path.
+        touches_ci = has_ci_workflow_changes(pr.deny_paths)
         allow_only = (
             is_allow_listed_only(file_paths)
             and not has_dependency_changes(file_paths)
             and not dep_manifests
-            and not has_ci_workflow_changes(pr.deny_paths)
+            and not touches_ci
         )
-        is_test = test_only(categories)
+        is_test = test_only(categories) and not touches_ci
         ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)
         ownership = detect_ownership(file_paths, ownership_resolvers)
 
