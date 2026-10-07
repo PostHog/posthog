@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from http.client import responses as status_names
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 from unittest import TestCase
@@ -15,7 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.testdino import (
     TestDinoSourceConfig as SourceConfig,
 )
@@ -34,6 +35,10 @@ def response(body: dict[str, Any], status: int = 200) -> Response:
     result.headers["Content-Type"] = "application/json"
     result._content = json.dumps(body).encode()
     return result
+
+
+def source_items(source: SourceResponse) -> Iterable[Any]:
+    return cast(Iterable[Any], source.items())
 
 
 class TestDinoTransport(TestCase):
@@ -73,7 +78,7 @@ class TestDinoTransport(TestCase):
             activate_safe_point(lambda: None, covers_framework_checkpoints=True),
         ):
             result = self.source.source_for_pipeline(self.config, self.manager, self.inputs("test_runs"))
-            items = iter(result.items())
+            items = iter(source_items(result))
             self.assertEqual(next(items), [{"id": "run-a"}])
             self.manager.save_state.assert_called_once_with(ResumeConfig(page=initial_page + 1))
             self.assertEqual(list(items), [[{"id": "run-b"}]])
@@ -99,7 +104,7 @@ class TestDinoTransport(TestCase):
             pages.append(response({"data": [{"id": "run-a"}], "pagination": {"hasNext": False}}))
         with patch("requests.Session.send", side_effect=pages) as send:
             result = self.source.source_for_pipeline(self.config, self.manager, self.inputs("test_runs"))
-            rows = [row for page in result.items() for row in page]
+            rows = [row for page in source_items(result) for row in page]
         self.assertEqual(rows, [{"id": "run-a"}] if has_next else [])
         self.assertEqual(send.call_count, 2 if has_next else 1)
         if has_next:
@@ -113,7 +118,7 @@ class TestDinoTransport(TestCase):
         with patch("requests.Session.send", return_value=response(body)):
             result = self.source.source_for_pipeline(self.config, self.manager, self.inputs("test_runs"))
             with self.assertRaisesRegex(RESTClientNonRetryableError, "pagination.hasNext"):
-                list(result.items())
+                list(source_items(result))
         self.manager.save_state.assert_not_called()
 
     @parameterized.expand(
@@ -128,7 +133,7 @@ class TestDinoTransport(TestCase):
         rows = [{"_id": f"record-{index}"} for index in range(count)]
         with patch("requests.Session.send", return_value=response({"data": rows, "count": count})) as send:
             result = self.source.source_for_pipeline(self.config, self.manager, self.inputs(table))
-            self.assertEqual([row for page in result.items() for row in page], rows)
+            self.assertEqual([row for page in source_items(result) for row in page], rows)
         self.assertEqual(result.primary_keys, ["_id"])
         send.assert_called_once()
         self.assertEqual(urlsplit(send.call_args.args[0].url).path, f"/api/v1/public/project_example/{path}")
@@ -142,7 +147,7 @@ class TestDinoTransport(TestCase):
         with patch("requests.Session.send", return_value=response({"data": rows, "count": 1000})) as send:
             result = self.source.source_for_pipeline(self.config, self.manager, self.inputs("manual_cases"))
             with self.assertRaisesRegex(RESTClientNonRetryableError, "1,000-case API limit") as error:
-                next(iter(result.items()))
+                next(iter(source_items(result)))
         send.assert_called_once()
         self.assertTrue(any(pattern in str(error.exception) for pattern in self.source.get_non_retryable_errors()))
 
@@ -173,7 +178,7 @@ class TestDinoTransport(TestCase):
             with patch("requests.Session.send", return_value=response(body, status)):
                 result = self.source.source_for_pipeline(self.config, self.manager, self.inputs("test_runs"))
                 with self.assertRaises(HTTPError) as error:
-                    list(result.items())
+                    list(source_items(result))
             messages = [
                 value
                 for pattern, value in self.source.get_non_retryable_errors().items()
@@ -188,7 +193,7 @@ class TestDinoTransport(TestCase):
         success = response({"data": [], "pagination": {"hasNext": False}})
         with patch("requests.Session.send", side_effect=[failure, success]) as send:
             result = self.source.source_for_pipeline(self.config, self.manager, self.inputs("test_runs"))
-            self.assertEqual(list(result.items()), [])
+            self.assertEqual(list(source_items(result)), [])
         self.assertEqual(send.call_count, 2)
 
     @parameterized.expand(
