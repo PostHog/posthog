@@ -17,6 +17,9 @@ import { type CloudRegion, getCloudUrlFromRegion } from "@posthog/shared";
 // Its own token chain, so a refresh here never rotates away hog's refresh token.
 const AUTH_PATH = join(homedir(), ".config", "posthog-tui", "auth.json");
 
+// Today's briefing needs scopes the desktop app's shared set leaves out. Only this app asks for them.
+const TUI_SCOPES = ["today:read", "today:write"];
+
 export const REGIONS: { id: CloudRegion; label: string }[] = [
   { id: "us", label: "US cloud" },
   { id: "eu", label: "EU cloud" },
@@ -58,6 +61,7 @@ export class TuiAuth {
         onSelect: async () => region,
       },
       region,
+      TUI_SCOPES,
     );
     const user = await fetch(
       `${getCloudUrlFromRegion(region)}/api/users/@me/`,
