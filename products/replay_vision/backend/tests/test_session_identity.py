@@ -47,22 +47,30 @@ class TestFetchSessionPersonProperties(ClickhouseTestMixin):
         assert "$geoip_city_name" not in properties
 
     @pytest.mark.django_db
-    @pytest.mark.parametrize("unlocated", [{}, {"$geoip_country_code": ""}])
-    def test_takes_every_location_field_from_the_earliest_located_event(self, team, unlocated) -> None:
+    @pytest.mark.parametrize(
+        "events,expected",
+        [
+            (
+                [{}, {"$geoip_city_name": "Oakland"}, {"$geoip_country_code": "US", "$geoip_city_name": "Reno"}],
+                {"$geoip_country_code": "US", "$geoip_city_name": "Reno"},
+            ),
+            (
+                [{"$geoip_country_code": ""}, {"$geoip_country_code": "US", "$geoip_city_name": "Oakland"}],
+                {"$geoip_country_code": "US", "$geoip_city_name": "Oakland"},
+            ),
+            ([{}, {"$geoip_city_name": "Oakland"}, {"$geoip_city_name": "Reno"}], {"$geoip_city_name": "Oakland"}),
+        ],
+    )
+    def test_takes_every_location_field_from_one_event_preferring_a_country(self, team, events, expected) -> None:
         # Per-field aggregates could mix events into a location no event carried.
         session_id = str(uuid7())
         _create_person(team_id=team.pk, distinct_ids=["user-1"], properties={})
-        located = [
-            (_START, unlocated),
-            (_START + dt.timedelta(minutes=1), {"$geoip_city_name": "Oakland"}),
-            (_START + dt.timedelta(minutes=2), {"$geoip_country_code": "US", "$geoip_city_name": "Reno"}),
-        ]
-        for timestamp, geoip in located:
+        for minutes, geoip in enumerate(events):
             _create_event(
                 team=team,
                 event="$pageview",
                 distinct_id="user-1",
-                timestamp=timestamp,
+                timestamp=_START + dt.timedelta(minutes=minutes),
                 properties={"$session_id": session_id, **geoip},
             )
         flush_persons_and_events()
@@ -71,9 +79,7 @@ class TestFetchSessionPersonProperties(ClickhouseTestMixin):
             team=team, session_id=session_id, distinct_id="user-1", start=_START, end=_END
         )
 
-        assert {key: value for key, value in properties.items() if key.startswith("$geoip_")} == {
-            "$geoip_city_name": "Oakland"
-        }
+        assert {key: value for key, value in properties.items() if key.startswith("$geoip_")} == expected
 
     @pytest.mark.django_db
     def test_ignores_events_another_person_posted_under_the_same_session_id(self, team) -> None:

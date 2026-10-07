@@ -31,9 +31,10 @@ PERSON_NAME_PART_KEYS = ("first_name", "last_name")
 # Every person property the identity query reads, in the column order it returns them.
 PERSON_IDENTITY_KEYS = ("email", *PERSON_NAME_KEYS, *PERSON_NAME_PART_KEYS, *PERSON_ORGANIZATION_KEYS)
 
-# Location of the recorded session, read off the subject's own events; the columns the sessions table keeps.
+# Location of the recorded session, read off the subject's own events.
 SESSION_GEOIP_KEYS = (
     "$geoip_country_code",
+    "$geoip_country_name",
     "$geoip_subdivision_1_code",
     "$geoip_subdivision_1_name",
     "$geoip_city_name",
@@ -79,7 +80,9 @@ def _person_identity_query() -> str:
 def _geoip_select() -> str:
     fields = [f"properties.{escape_hogql_identifier(key)}" for key in SESSION_GEOIP_KEYS]
     located = " OR ".join(f"notEmpty(coalesce({field}, ''))" for field in fields)
-    return f"argMinIf(tuple({', '.join(fields)}), timestamp, {located}) AS {_GEOIP_COLUMN}"
+    # Earliest event with a country wins; one without a country only when no event has one.
+    order = f"tuple(empty(coalesce({fields[0]}, '')), timestamp)"
+    return f"argMinIf(tuple({', '.join(fields)}), {order}, {located}) AS {_GEOIP_COLUMN}"
 
 
 # Module-level so the eval collector can run the identical query through the query API.
