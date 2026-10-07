@@ -17,6 +17,14 @@ class SharingExecutionDebug(TypedDict):
     reason: str
 
 
+class SharingWorkDebug(TypedDict):
+    executions: list[SharingExecutionDebug]
+    truncated: bool
+    query_count: int
+    rows_read: int
+    duration_ms: float
+
+
 class DashboardQuerySharingDebug:
     def __init__(self, tile_id: int) -> None:
         self.tile_id = tile_id

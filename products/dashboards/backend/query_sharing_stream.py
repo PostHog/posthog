@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from queue import Queue
 from threading import Lock
+from typing import Literal, NotRequired, TypedDict
 
 from django.db import connections
 
@@ -17,16 +18,35 @@ from posthog.clickhouse.query_tagging import tags_context
 from posthog.renderers import SafeJSONRenderer
 
 from products.dashboards.backend.query_sharing import DashboardQuerySharing
-from products.dashboards.backend.query_sharing_debug import DashboardQuerySharingDebug, sharing_debug
+from products.dashboards.backend.query_sharing_debug import DashboardQuerySharingDebug, SharingWorkDebug, sharing_debug
 
 logger = structlog.get_logger(__name__)
+
+
+class DashboardQuerySharingTileEvent(TypedDict):
+    type: Literal["tile"]
+    tile: dict[str, object]
+    debug: NotRequired[SharingWorkDebug]
+
+
+class DashboardQuerySharingErrorEvent(TypedDict):
+    type: Literal["error"]
+
+
+class DashboardQuerySharingCompleteEvent(TypedDict):
+    type: Literal["complete"]
+
+
+type DashboardQuerySharingStreamEvent = (
+    DashboardQuerySharingTileEvent | DashboardQuerySharingErrorEvent | DashboardQuerySharingCompleteEvent
+)
 
 
 class DashboardQuerySharingStream:
     def __init__(
         self,
         *,
-        jobs: Sequence[Callable[[], dict]],
+        jobs: Sequence[Callable[[], DashboardQuerySharingStreamEvent]],
         team_id: int,
         query_id: str,
         debug_tile_ids: Sequence[int] = (),
@@ -37,12 +57,12 @@ class DashboardQuerySharingStream:
         self._debug_tile_ids = debug_tile_ids
         self._context = copy_context()
         self._sharing = DashboardQuerySharing()
-        self._queue: Queue[dict] = Queue()
+        self._queue: Queue[DashboardQuerySharingStreamEvent] = Queue()
         self._pool: ThreadPoolExecutor | None = None
         self._active: set[str] = set()
         self._lock = Lock()
 
-    def _run(self, job: Callable[[], dict], query_id: str, tile_id: int | None) -> None:
+    def _run(self, job: Callable[[], DashboardQuerySharingStreamEvent], query_id: str, tile_id: int | None) -> None:
         token = hogql_execution_override.set(self._sharing.execute)
         debug = DashboardQuerySharingDebug(tile_id) if tile_id is not None else None
         debug_token = sharing_debug.set(debug)
@@ -54,7 +74,7 @@ class DashboardQuerySharingStream:
                 self._active.add(query_id)
             with tags_context(team_id=self._team_id, client_query_id=query_id), use(stats):
                 event = job()
-            if debug and stats:
+            if debug and stats and event["type"] == "tile":
                 # Keep diagnostics on the transport envelope, outside the independently cached tile results.
                 event["debug"] = {
                     "executions": debug.executions,
@@ -80,7 +100,7 @@ class DashboardQuerySharingStream:
                 self._context.copy().run,
                 self._run,
                 job,
-                f"{self._query_id}-{index}",
+                f"{self._query_id}-tile-{index}-",
                 self._debug_tile_ids[index] if self._debug_tile_ids else None,
             )
 
@@ -99,7 +119,7 @@ class DashboardQuerySharingStream:
                     logger.exception("Failed to cancel dashboard query sharing execution")
 
     @staticmethod
-    def _encode(event: dict) -> bytes:
+    def _encode(event: DashboardQuerySharingStreamEvent) -> bytes:
         return b"data: " + SafeJSONRenderer().render(event) + b"\n\n"
 
     def stream(self) -> Generator[bytes]:

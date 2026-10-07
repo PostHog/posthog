@@ -144,7 +144,10 @@ from products.dashboards.backend.models.dashboard import (
 )
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
-from products.dashboards.backend.query_sharing_stream import DashboardQuerySharingStream
+from products.dashboards.backend.query_sharing_stream import (
+    DashboardQuerySharingStream,
+    DashboardQuerySharingStreamEvent,
+)
 from products.dashboards.backend.run_insights_output import (
     bound_formatted_result,
     parse_max_result_chars,
@@ -471,9 +474,13 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
         return order, tile_data
 
 
-def _serialize_shared_tile(tile: DashboardTile, order: int, context: dict) -> dict:
+def _serialize_shared_tile(tile: DashboardTile, order: int, context: dict) -> DashboardQuerySharingStreamEvent:
     _, data = serialize_tile_with_context(tile, order, context)
-    return {"type": "tile", "tile": data}
+    return {"type": "tile", "tile": cast(dict[str, object], data)}
+
+
+def _denied_shared_tile(tile_id: int) -> DashboardQuerySharingStreamEvent:
+    return {"type": "tile", "tile": {"id": tile_id, "error": {"type": "access_denied"}}}
 
 
 class ReorderLayout(StrEnum):
@@ -3082,12 +3089,12 @@ class DashboardsViewSet(
             compute_surface=ComputeSurface.DASHBOARD_RUN_INSIGHTS,
         )
         by_id = {tile.id: tile for tile in tiles}
-        jobs: list[Callable[[], dict]] = []
+        jobs: list[Callable[[], DashboardQuerySharingStreamEvent]] = []
         for order, tile_id in enumerate(tile_ids):
             tile = by_id[tile_id]
             level = self.user_access_control.get_user_access_level(tile.insight)
             if not level or not access_level_satisfied_for_resource("insight", level, "viewer"):
-                jobs.append(partial(dict, type="tile", tile={"id": tile_id, "error": {"type": "access_denied"}}))
+                jobs.append(partial(_denied_shared_tile, tile_id))
             else:
                 jobs.append(partial(_serialize_shared_tile, tile, order, context))
         stream = DashboardQuerySharingStream(

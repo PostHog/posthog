@@ -19,7 +19,7 @@ from posthog.hogql.query_stats import record
 from products.dashboards.backend.api.query_sharing import DashboardQuerySharingParamsSerializer
 from products.dashboards.backend.query_sharing import DashboardQuerySharing
 from products.dashboards.backend.query_sharing_debug import DashboardQuerySharingDebug, sharing_debug
-from products.dashboards.backend.query_sharing_stream import DashboardQuerySharingStream
+from products.dashboards.backend.query_sharing_stream import DashboardQuerySharingStream, DashboardQuerySharingTileEvent
 
 
 class TestDashboardQuerySharing(SimpleTestCase):
@@ -97,13 +97,13 @@ class TestDashboardQuerySharing(SimpleTestCase):
     def test_stream_delivers_fast_tile_before_slow_tile(self, _name: str, debug: bool) -> None:
         release = Event()
 
-        def slow() -> dict:
+        def slow() -> DashboardQuerySharingTileEvent:
             if not release.wait(timeout=10):
                 raise AssertionError("Slow tile never released")
             record(rows_read=20, duration_ms=2)
             return {"type": "tile", "tile": {"id": 1}}
 
-        def fast() -> dict:
+        def fast() -> DashboardQuerySharingTileEvent:
             record(rows_read=10, duration_ms=1)
             return {"type": "tile", "tile": {"id": 2}}
 
@@ -136,7 +136,7 @@ class TestDashboardQuerySharing(SimpleTestCase):
         finished = Event()
         executor = self.executor("SELECT * FROM events")
 
-        def slow() -> dict:
+        def slow() -> DashboardQuerySharingTileEvent:
             try:
                 if not release.wait(timeout=10):
                     raise AssertionError("Slow tile never released")
@@ -164,7 +164,7 @@ class TestDashboardQuerySharing(SimpleTestCase):
                     iterator = stream.stream()
                     self.assertIn(b'"id":2', next(iterator))
                     iterator.close()
-                cancel.assert_any_call(team_id=1, client_query_id="test-0")
+                cancel.assert_any_call(team_id=1, client_query_id="test-tile-0-")
         finally:
             release.set()
         self.assertTrue(finished.wait(timeout=10))
