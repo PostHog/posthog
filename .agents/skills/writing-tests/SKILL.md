@@ -202,6 +202,16 @@ Escalating to the next rung is the last resort, not the default.
 - **No real network / live external services.** Mock the boundary.
 - **No cross-test ordering.**
   Tests must pass in any order and in isolation; don't rely on state a previous test left behind.
+- **A test must not inherit the CI matrix mode.**
+  Backend CI runs the same test under several modes, such as persons-on-events on and off, and each events schema.
+  A local run uses one of them.
+  If the assertion holds in only some modes, set the mode in the test: pass `HogQLQueryModifiers(...)` or use `override_settings`.
+  Otherwise the test fails on every run of the other shards, and no retry clears it.
+  Before you push, run the test under each mode its code path branches on, for example `PERSON_ON_EVENTS_V2_ENABLED=false hogli test <path>`.
+- **A new test that fails in CI is broken, even when the job is green.**
+  Trunk can classify a repeated failure as flaky and quarantine it, and a quarantined failure does not fail the job.
+  A test you added has no passing history, so it cannot be flaky.
+  Confirm a `PASSED` line for it in every shard that runs it, and fix a `FAILED` line before you ask for a merge.
 - **No `@skip` / `xfail` / `.skip`** without a one-line reason and a linked issue.
   A permanently-skipped test is dead weight — delete it or fix it.
 - **Never commit `.only`** (`it.only` / `describe.only`).
