@@ -2,10 +2,11 @@
 name: merging-prs
 description: >
   Merge a PR into `master` through the Trunk merge queue and babysit it until it
-  lands. Enqueue with a `/trunk merge` comment, then watch `trunk merge status`
+  lands. Enqueue with the `trunk merge` CLI (the `/trunk merge` comment is the
+  fallback), then watch `trunk merge status`
   and the PR state until it is MERGED or the queue kicks it out, reporting
   Trunk's own reason for the terminal transition. Use when asked to merge a PR,
-  "merge when ready", "land it", "ship it", to merge a whole stack (comment on
+  "merge when ready", "land it", "ship it", to merge a whole stack (enqueue
   the top PR — the queue merges it and every layer below atomically), to get a
   PR approved by stamphog (MCP review request first, `stamphog` label as the
   fallback), or to babysit/watch a PR through the
@@ -17,7 +18,9 @@ description: >
 
 Merges into `master` go **exclusively** through the [Trunk](https://trunk.io) merge queue.
 `gh pr merge` and the GitHub merge button are blocked by branch ruleset.
-To merge, you enqueue the PR with a comment, then watch it until Trunk lands it.
+To merge, you enqueue the PR with the `trunk` CLI, then watch it until Trunk lands it.
+Use the `trunk` CLI for every queue action (enqueue, status, cancel), and post `/trunk ...` comments on the PR only when the CLI is not available.
+The CLI talks to Trunk over an authenticated session and reports the result at once. A comment adds noise to the PR thread, and you only learn whether Trunk took it from the bot's reply.
 
 ## Required user approval
 
@@ -58,18 +61,26 @@ gh pr view <n> --json state,isDraft,mergeable,reviewDecision,statusCheckRollup,b
   - **Refusals.** A `409 not_reviewable` means stamphog does not review this PR at all (a draft, closed, bot-authored, from outside the repo, or an author without write access). The message says which. The label cannot help there, so report it.
   - **Label (fallback).** Use `gh pr edit <n> --add-label stamphog` when the MCP tool is not in your tool list, when the call fails on auth, or when it returns `404 not_found` (the repo is not connected in that PostHog project) or `503`. The label is sticky across ordinary pushes (non-trivial deltas re-review automatically), and it gets stripped on a `REFUSED`/`ESCALATE` verdict. Each verdict is its own review from the Stamphog app, opening with whether it approved.
   - **Either route:** read the reason before you retry. A retry without a change repeats the same verdict. Stamphog never approves bot-authored PRs.
-- **Part of a stack** (`baseRefName != "master"`, or the PR appears in `gh api repos/$REPO/stacks`) → the queue handles stacks natively: enqueueing a PR enqueues it **and every unmerged layer below it**, tests them together, and merges them atomically. After explicit user approval, comment `/trunk merge` on the **top** PR to merge the whole stack, or on the highest layer you want landed to merge just the bottom part. Run this preflight on every layer being merged, not only the one you comment on. `/stacking-prs` covers restack mechanics and the post-merge `gh stack sync --prune`.
+- **Part of a stack** (`baseRefName != "master"`, or the PR appears in `gh api repos/$REPO/stacks`) → the queue handles stacks natively: enqueueing a PR enqueues it **and every unmerged layer below it**, tests them together, and merges them atomically. After explicit user approval, enqueue the **top** PR to merge the whole stack, or the highest layer you want landed to merge just the bottom part. Run this preflight on every layer being merged, not only the one you enqueue. `/stacking-prs` covers restack mechanics and the post-merge `gh stack sync --prune`.
 
 ## 2. Enqueue
 
 Confirm the required explicit user approval before running this command. If it is absent, report that the PR is ready and stop.
 
 ```bash
-gh pr comment <n> --body "/trunk merge"
+trunk merge <n>
 ```
 
 For a stack, `<n>` is the highest layer you want merged — it and everything below it enqueue together (see the stack preflight bullet above).
-Append `--no-batch` to the comment to have the queue test the PR (or stack) alone instead of batched with other queued PRs.
+`--priority <0-255>` sets the queue priority (0 is highest and skips the line); use it only when the developer asks.
+
+Fall back to a PR comment only when the CLI is not usable: `trunk` is not installed, or `trunk merge` fails on auth (no `trunk login`).
+
+```bash
+gh pr comment <n> --body "/trunk merge"
+```
+
+The CLI has no flag for an unbatched run. When the developer wants the queue to test the PR (or stack) alone instead of batched with other queued PRs, use the comment with `--no-batch` appended.
 
 Within ~2 minutes, confirm Trunk picked it up:
 
@@ -94,9 +105,9 @@ If nothing appears after a couple of minutes, check in this order:
    gh run list --branch "$(gh pr view <n> --json headRefName -q .headRefName)" --workflow "PR housekeeping" --limit 3
    ```
 
-2. Whether the developer has write access, or GitHub-comment commands are
-   disabled — report that and suggest the `trunk-merge-queue-submit` label as a
-   fallback.
+2. Whether the developer has write access. If you enqueued with a comment, also check
+   whether GitHub-comment commands are disabled — report that and suggest `trunk merge <n>`
+   or the `trunk-merge-queue-submit` label as a fallback.
 
 ## 3. Watch until it lands
 
@@ -168,10 +179,11 @@ Optionally, Trunk's MCP server (`https://mcp.trunk.io/mcp`, OAuth or bearer toke
 If the developer asks to stop the merge:
 
 ```bash
-gh pr comment <n> --body "/trunk cancel"
+trunk merge cancel <n>
 ```
 
-Confirm the check run reports cancelled.
+Without the CLI, comment `/trunk cancel` on the PR instead.
+Confirm that `trunk merge status <n>` reports `Cancelled`.
 
 ## The pre-push merge queue guard
 
@@ -182,7 +194,7 @@ When the guard blocks you, leave the branch alone and put further changes on a n
 To update the queued PR on purpose, run `trunk merge cancel <n>` (or comment `/trunk cancel`), wait for it to leave the queue, then push.
 
 The check fails open — missing `gh` or `trunk`, not logged in, offline, API errors — and `TRUNK_QUEUE_PUSH_CHECK_DISABLED=1` skips it.
-`trunk login` arms it, which is why the one-time interactive login is worth running even if you prefer the PR comments.
+`trunk login` arms it and enables `trunk merge` and `trunk merge cancel`, so run the one-time interactive login before you use this skill.
 
 ## Hard rules
 
