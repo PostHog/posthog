@@ -620,10 +620,9 @@ async def test_produce_to_kafka_from_s3_retries_a_transient_s3_read_failure(
     mock_capture_exception, mock_get_s3_client, team
 ):
     # A HeadObject 503 that pyarrow surfaces as "AWS Error UNKNOWN" is a known-transient S3 blip
-    # (see is_transient_object_store_error), not a bug in our code. Opening the file used to fail
-    # on the first attempt, which produce_to_kafka_from_s3 swallows and the file is deleted - so an
-    # unretried blip meant the file's rows were silently dropped for good. This locks in that the
-    # open is retried before that swallow path is reached.
+    # (see is_transient_object_store_error), not a bug in our code: the open must be retried before
+    # the per-file swallow-and-delete path (which would otherwise drop the file's rows for good) is
+    # reached.
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
