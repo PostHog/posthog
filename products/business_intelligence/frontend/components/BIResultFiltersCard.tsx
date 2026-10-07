@@ -87,7 +87,7 @@ export function BIResultFiltersCard(): JSX.Element {
     const { config } = useValues(biEditorLogic)
     const { addResultFilter, setFilterGroup } = useActions(biEditorLogic)
     const label = (filter: BIResultFilter): string =>
-        `${config.values[filter.measureIndex] ? getBIValuePillLabel(config.values[filter.measureIndex]) : 'Count'} ${OPERATORS.find((operator) => operator.value === filter.operator)?.label.toLowerCase()} ${filter.value}${filter.operator === 'between' ? ` – ${filter.valueTo ?? ''}` : ''}`
+        `${config.values[filter.measureIndex] ? getBIValuePillLabel(config.values[filter.measureIndex]) : 'Count'} ${OPERATORS.find((operator) => operator.value === filter.operator)?.label.toLowerCase()} ${filter.value}${filter.operator === 'between' ? ` and ${filter.valueTo ?? ''}` : ''}`
     return (
         <BIShelfCard title="Result filters">
             <p className="mb-1 text-xs text-secondary">Filter measures after aggregation and table calculations.</p>

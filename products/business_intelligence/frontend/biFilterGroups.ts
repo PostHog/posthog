@@ -85,3 +85,20 @@ export function moveBICondition(group: BIConditionGroup, id: string, path: numbe
     })
     return updateBIConditionGroup(remove(group), path, (node) => ({ ...node, filters: [...node.filters, id] }))
 }
+
+export function ungroupBIConditionGroup(root: BIConditionGroup, path: number[]): BIConditionGroup {
+    if (!path.length) {
+        return root
+    }
+    return updateBIConditionGroup(root, path.slice(0, -1), (parent) => {
+        const index = path[path.length - 1]
+        const group = parent.groups[index]
+        return group
+            ? {
+                  ...parent,
+                  filters: [...parent.filters, ...group.filters],
+                  groups: parent.groups.flatMap((child, childIndex) => (childIndex === index ? group.groups : [child])),
+              }
+            : parent
+    })
+}
