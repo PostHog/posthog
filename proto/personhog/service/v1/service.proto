@@ -101,4 +101,8 @@ service PersonHogService {
   // Undelete repair version resets. Same routing caveat as DeletePersons above.
   rpc SetPersonDistinctIdVersionFloor(personhog.types.v1.SetPersonDistinctIdVersionFloorRequest) returns (personhog.types.v1.SetPersonDistinctIdVersionFloorResponse);
   rpc SetPersonVersionFloor(personhog.types.v1.SetPersonVersionFloorRequest) returns (personhog.types.v1.SetPersonVersionFloorResponse);
+
+  // Version floors for the ClickHouse cleanup jobs.
+  // The write goes to the primary: same routing caveat as DeletePersons above.
+  rpc EnsurePersonVersionFloors(personhog.types.v1.EnsurePersonVersionFloorsRequest) returns (personhog.types.v1.EnsurePersonVersionFloorsResponse);
 }

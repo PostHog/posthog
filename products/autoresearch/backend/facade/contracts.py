@@ -102,6 +102,8 @@ class Pipeline:
     last_scored_at: datetime | None
     champion_holdout_auc: float | None
     champion_realized_auc: float | None
+    champion_lift_at_10: float | None
+    champion_is_preliminary: bool | None
 
 
 @dataclass(frozen=True)

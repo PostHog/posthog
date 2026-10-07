@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product dashboards
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product dashboards
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Dashboards
 feature: dashboards
 url_prefix: /dashboard
@@ -343,18 +341,6 @@ tools:
             each tile's `layouts` with dashboard-update instead. This tool repacks only the tiles in `tile_order`. To
             repack the whole dashboard, include every tile ID. Tiles omitted from `tile_order` keep their positions and
             can overlap the repacked tiles. This tool does not set different sizes or positions for individual tiles.
-    dashboard-templates-copy-between-projects-create:
-        operation: dashboard_templates_copy_between_projects_create
-        enabled: false
-    dashboard-templates-create:
-        operation: dashboard_templates_create
-        enabled: false
-    dashboard-templates-destroy:
-        operation: dashboard_templates_destroy
-        enabled: false
-    dashboard-templates-json-schema-retrieve:
-        operation: dashboard_templates_json_schema_retrieve
-        enabled: false
     dashboard-templates-list:
         operation: dashboard_templates_list
         enabled: true
@@ -383,9 +369,6 @@ tools:
             informational_wrapper:
                 tag: dashboard-template-references
                 purpose: Use it only to identify potentially relevant templates for the user's request.
-    dashboard-templates-partial-update:
-        operation: dashboard_templates_partial_update
-        enabled: false
     dashboard-templates-retrieve:
         operation: dashboard_templates_retrieve
         enabled: true
@@ -405,9 +388,6 @@ tools:
             informational_wrapper:
                 tag: dashboard-template-reference
                 purpose: Use it only to understand the template's structure and adapt relevant ideas to the user's request.
-    dashboard-templates-update:
-        operation: dashboard_templates_update
-        enabled: false
     dashboard-tile-copy:
         operation: dashboards_copy_tile_create
         enabled: true
@@ -673,27 +653,6 @@ tools:
             id:
                 cast: string-int
         feature_flag: dashboard-widgets
-    dashboards-bulk-update-tags-create:
-        operation: dashboards_bulk_update_tags_create
-        enabled: false
-    dashboards-collaborators-create:
-        operation: dashboards_collaborators_create
-        enabled: false
-    dashboards-collaborators-destroy:
-        operation: dashboards_collaborators_destroy
-        enabled: false
-    dashboards-collaborators-list:
-        operation: dashboards_collaborators_list
-        enabled: false
-    dashboards-copy-tile-create:
-        operation: dashboards_copy_tile_create
-        enabled: false
-    dashboards-create-from-template-json-create:
-        operation: dashboards_create_from_template_json_create
-        enabled: false
-    dashboards-create-unlisted-dashboard-create:
-        operation: dashboards_create_unlisted_dashboard_create
-        enabled: false
     dashboards-get-all:
         operation: dashboards_list
         enabled: true
@@ -719,39 +678,3 @@ tools:
                 cast: string-int
             offset:
                 cast: string-int
-    dashboards-move-tile-create:
-        operation: dashboards_move_tile_create
-        enabled: false
-    dashboards-stream-tiles-retrieve:
-        operation: dashboards_stream_tiles_retrieve
-        enabled: false
-    dashboards-subscribe-nudge-create:
-        operation: dashboards_subscribe_nudge_create
-        enabled: false
-    dashboards-update:
-        operation: dashboards_update
-        enabled: false
-    dashboards-widget-catalog-retrieve:
-        operation: dashboards_widget_catalog_retrieve
-        enabled: false
-    dashboards-widgets-batch-create:
-        operation: dashboards_widgets_batch_create
-        enabled: false
-    data-color-themes-create:
-        operation: data_color_themes_create
-        enabled: false
-    data-color-themes-destroy:
-        operation: data_color_themes_destroy
-        enabled: false
-    data-color-themes-list:
-        operation: data_color_themes_list
-        enabled: false
-    data-color-themes-partial-update:
-        operation: data_color_themes_partial_update
-        enabled: false
-    data-color-themes-retrieve:
-        operation: data_color_themes_retrieve
-        enabled: false
-    data-color-themes-update:
-        operation: data_color_themes_update
-        enabled: false

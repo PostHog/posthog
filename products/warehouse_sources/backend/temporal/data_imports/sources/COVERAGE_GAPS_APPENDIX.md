@@ -968,7 +968,7 @@ Note: BreezoMeter is now Google Maps Platform: the connector calls airquality.go
 
 ## Brex — gaps
 
-Today (17): `budget_programs`, `budgets`, `card_accounts`, `card_transactions`, `cards`, `cash_accounts`, `cash_transactions`, `departments`, `expenses`, `field_values`, `fields`, `locations`, `spend_limits`, `titles`, `transfers`, `users`, `vendors`
+Today (18): `budget_programs`, `budgets`, `card_accounts`, `card_transactions`, `cards`, `cash_accounts`, `cash_transactions`, `cost_centers`, `departments`, `expenses`, `field_values`, `fields`, `locations`, `spend_limits`, `titles`, `transfers`, `users`, `vendors`
 
 Diffed against: <https://developer.brex.com/llms.txt>
 
@@ -984,6 +984,7 @@ Diffed against: <https://developer.brex.com/llms.txt>
 - [ ] `GET /v2/accounts/card/primary/statements and GET /v2/accounts/cash/{id}/statements` — period-end statement balances for reconciliation against transactions (medium)
 - [ ] `GET /v1/linked_accounts (Payments API)` — lookup resolving the external bank accounts transfers move money to and from (medium)
 - [ ] `GET /v2/legal_entities (Team API)` — lookup for multi-entity companies, needed to split spend by entity (low)
+- [x] `GET /v2/cost_centers (Team API)` — lookup resolving the cost_center_id carried on users and expenses (medium)
 
 Note: developer.brex.com serves an SPA (the openapi.json URLs return HTML), but the llms.txt index plus the per-API markdown mirrors (e.g. https://developer.brex.com/openapi/team\_api.md) list every operation with its literal path. Brex ships ten APIs — Accounting, Budgets, Expenses, Fields, Onboarding, Payments, Team, Transactions, Travel, Webhooks — and the connector covers pieces of six. The connector now also exposes /v2/accounts/cash as its own table, alongside the fan-out it already drove.
 
@@ -1324,6 +1325,17 @@ Diffed against: <https://developers.chameleon.io/apis/overview.md>
 - [ ] `GET /v3/edit/deliveries (Experience Deliveries)` — records of experiences targeted at specific users, the delivery side of the interaction funnel (medium)
 
 Note: Chameleon's published OpenAPI at developers.chameleon.io/api-reference/openapi.json is a stub (it documents a /plants toy API), so the authoritative endpoint table is the markdown overview page. Alert groups, rate limit groups, webhooks, domains and data imports were excluded as config/plumbing. Embeddables, Product Demos and Changes have doc pages in llms.txt but do not appear in the overview endpoint table, so no list endpoint could be confirmed for them - they are not reported as gaps.
+
+## Chargebee — gaps
+
+Today (10): `CreditUnits`, `Customers`, `Events`, `Invoices`, `ItemPrices`, `Items`, `Meters`, `Orders`, `Subscriptions`, `Transactions`
+
+Diffed against: <https://raw.githubusercontent.com/chargebee/openapi/main/spec/chargebee_api_v2_pc_v2_spec.json>
+
+- [x] `GET /meters` — usage-based billing meters: how usage of each metered feature is measured (medium)
+- [x] `GET /credit_units` — credit unit definitions that credit-based billing grants and consumes (medium)
+
+Note: `metered_features` has only write endpoints (create, archive, reactivate, delete) and no list endpoint; the same configuration is readable through `GET /meters`, whose `id` equals the feature id. `ledger_entries` is a documented resource with no list endpoint. The credit ledger is listable through `GET /ledger_operations`.
 
 ## Chargedesk — gaps
 
@@ -1818,13 +1830,13 @@ Note: Static endpoint list; no dynamic table discovery in products/warehouse_sou
 
 ## Cody — adequate
 
-Today (5): `credits`, `usage_by_user`, `usage_by_user_day`, `usage_by_user_day_client_language`, `usage_by_user_month`
+Today (6): `credits`, `usage_by_user`, `usage_by_user_day`, `usage_by_user_day_client_language`, `usage_by_user_month`, `user_registry`
 
 Diffed against: <https://sourcegraph.com/docs/analytics/api.md>
 
-No material gaps found.
+- [x] `user_registry (GET /api/reports/user-registry)` — CSV snapshot of instance users with service account and site admin flags, documented after the sweep (medium)
 
-Note: The Sourcegraph Analytics API has exactly two endpoints: GET /api/reports/by-user-client-date (granularity = by_user | by_user_month | by_user_day | by_user_day_client_language) and GET /api/credits. PostHog's five tables map 1:1 onto all four granularities plus credits, so coverage is complete. Note the docs page is client-rendered; the .md variant of the URL returns the full text.
+Note: The Sourcegraph Analytics API has three endpoints: GET /api/reports/by-user-client-date (granularity = by_user | by_user_month | by_user_day | by_user_day_client_language), GET /api/reports/user-registry, and GET /api/credits. PostHog's six tables map 1:1 onto all four granularities plus the user registry and credits, so coverage is complete. Note the docs page is client-rendered; the .md variant of the URL returns the full text.
 
 ## Cohere — gaps
 
@@ -2470,7 +2482,7 @@ Note: `Groups` covers all three group operations. `/v1/mgmt/group/all` returns e
 
 ## DevinAI — **thin**
 
-Today (9): `consumption_daily`, `consumption_daily_users`, `knowledge_notes`, `members`, `playbooks`, `secrets`, `session_insights`, `session_messages`, `sessions`
+Today (10): `automations`, `consumption_daily`, `consumption_daily_users`, `knowledge_notes`, `members`, `playbooks`, `secrets`, `session_insights`, `session_messages`, `sessions`
 
 Diffed against: <https://docs.devin.ai/llms.txt>
 
@@ -2486,6 +2498,7 @@ Diffed against: <https://docs.devin.ai/llms.txt>
 - [x] `/v3/organizations` — organization lookup for enterprises with multiple orgs under one key (medium) — does not exist at org scope. The listing is `/v3/enterprise/organizations` and needs `ViewOrganizations` at enterprise level, which this source's org-scoped service user does not hold.
 - [x] `/v3/organizations/{org_id}/guardrail-violations` — policy violations raised during sessions — compliance reporting (medium) — does not exist at org scope. The listing is `/v3beta1/enterprise/organizations/{org_id}/guardrail-violations` (beta) and needs both `ManageEnterpriseSettings` and `ViewAccountSessions` at enterprise level. It is otherwise a good fit — the standard `items`/`end_cursor` envelope, a `violation_id` key, and server-side `time_after`/`time_before` — so it becomes buildable if this source ever stores an enterprise service user.
 - [ ] `/v3/organizations/{org_id}/knowledge/folders` — folder lookup that gives the synced knowledge notes their hierarchy (low)
+- [x] `/v3/organizations/{org_id}/automations` — event-driven workflows that start Devin sessions, replacing the deprecated schedules endpoints (medium) — added as `automations`. Full refresh only: the listing returns newest first and has no server-side time filter.
 
 Note: docs.devin.ai/llms.txt enumerates every v1/v2/v3 API reference page; v3 alone spans sessions, consumption, metrics, users, repositories, pr-reviews, audit-logs, code-scans, guardrails and more, so 9 synced tables (one of which, secrets, is plumbing) is still a small fraction.
 That page count overstates what this source can reach, though: checked against the v3 OpenAPI spec (<https://docs.devin.ai/v3-openapi.json>), a large share of v3 lives under `/v3/enterprise/` or `/v3beta1/enterprise/` and needs an enterprise-level service user, while this source stores an org-level one.
@@ -4023,6 +4036,7 @@ Diffed against: <https://docs.hetzner.cloud/cloud.spec.json>
 - [x] `GET /zones` — DNS zones, now part of the Cloud API and not exposed at all today (medium)
 - [ ] `GET /zones/{id_or_name}/rrsets` — DNS records per zone — the actual queryable rows behind zones (medium)
 - [x] `GET /load_balancers/{id}/metrics` — connections, throughput and requests per load balancer for capacity analysis (medium)
+- [x] `GET /networks/{id}/members` — servers and load balancers attached to each network, with their private IP and attach status (medium)
 
 Note: Note the payload's doc url (docs.hetzner.cloud) is an HTML docs site; the OpenAPI 3.1 spec lives at https://docs.hetzner.cloud/cloud.spec.json (docs.hetzner.cloud/spec.json 404s). Coverage of the plain list collections is essentially complete — every other GET collection in the spec is already synced.
 
@@ -4385,6 +4399,19 @@ Diffed against: <https://instatus.com/help/api>
 
 Note: Existing 'team' table maps to the teammates endpoint (GET /v1/{page_id}/team) and 'pages' to GET /v2/pages, so those are covered. Metric data points are POST/DELETE only — there is no GET for metric datapoints, so metric time series is not fetchable. escalation-policies, monitors, on-call-schedules, routing-rules and monitoring-integrations doc pages expose no GET list endpoints.
 
+## Intercom — gaps
+
+Today (25): `activity_logs`, `admins`, `articles`, `audiences`, `collections`, `companies`, `company_attributes`, `company_segments`, `contact_attributes`, `contacts`, `content_snippets`, `conversation_attributes`, `conversation_parts`, `conversations`, `help_centers`, `macros`, `news_items`, `newsfeeds`, `segments`, `subscription_types`, `tags`, `teams`, `ticket_states`, `ticket_types`, `tickets`
+
+Diffed against: <https://github.com/intercom/Intercom-OpenAPI/blob/main/descriptions/2.16/api.intercom.io.yaml>
+
+The main spec-verified diff is in [COVERAGE_GAPS.md](COVERAGE_GAPS.md#intercom--spec-verified). These endpoints were announced in the 2.16 changelog and are not in the 2.13 or 2.15 descriptions, so the tables only show for sources pinned to 2.16.
+
+- [x] `GET /conversations/attributes` — conversation attribute definitions with list options, which decode the custom attribute values on `conversations` (medium). Added as `conversation_attributes`, including archived attributes.
+- [x] `GET /macros` — saved replies teammates use in the inbox (medium). Added as `macros`, incremental on `updated_at` through the `updated_since` filter.
+- [x] `GET /audiences` — saved audience definitions that content and messages target (low). Added as `audiences`.
+- [x] `GET /content_snippets` — snippets that feed Fin and Copilot answers (medium). Added as `content_snippets`.
+
 ## Intruder — adequate
 
 Today (7): `fixed_occurrences`, `issues`, `occurrences`, `scan_schedules`, `scans`, `tags`, `targets`
@@ -4702,11 +4729,11 @@ Today (18): `customers`, `inventory`, `inventory_movements`, `locations`, `manuf
 
 Diffed against: <https://api.katanamrp.com/v1/openapi.json>
 
-- [ ] `sales_order_rows` — line items behind sales_orders — required for any revenue-by-product or product-mix analysis (high)
-- [ ] `purchase_order_rows` — line items behind purchase_orders, with quantities and purchase prices (high)
+- [x] `sales_order_rows` — line items behind sales_orders — required for any revenue-by-product or product-mix analysis (high)
+- [x] `purchase_order_rows` — line items behind purchase_orders, with quantities and purchase prices (high)
 - [ ] `bom_rows` — bill-of-materials linking products/variants to the materials they consume (high)
-- [ ] `manufacturing_order_recipe_rows` — actual ingredient consumption per manufacturing order — yield and material-variance analysis (high)
-- [ ] `manufacturing_order_productions` — completed production output per manufacturing order; manufacturing_orders alone only carries planned state (high)
+- [x] `manufacturing_order_recipe_rows` — actual ingredient consumption per manufacturing order — yield and material-variance analysis (high)
+- [x] `manufacturing_order_productions` — completed production output per manufacturing order; manufacturing_orders alone only carries planned state (high)
 - [ ] `sales_order_fulfillments` — shipment/fulfillment records — the transition from order to delivered (high)
 - [ ] `sales_return_rows` — line items behind sales_returns, needed to attribute returns to products (medium)
 - [ ] `manufacturing_order_operation_rows` — per-operation timings and assigned operators, for throughput and labor cost (medium)
@@ -6483,6 +6510,15 @@ Diffed against: <https://raw.githubusercontent.com/PaystackOSS/openapi/main/dist
 
 Note: paystack.com/docs/api is behind Cloudflare (403 to curl), so I used the vendor's own published OpenAPI repo PaystackOSS/openapi (dist/paystack.yaml, 125 paths). Coverage of the classic payments objects is good; the gaps are ledger/reconciliation and commerce.
 
+## PeecAI — gaps
+
+Today (9): `actions`, `archived_prompts`, `brands`, `chats`, `model_channels`, `prompts`, `tag_groups`, `tags`, `topics`
+
+Diffed against: <https://api.peec.ai/customer/v1/openapi/json>
+
+- [x] `/actions/list` — Peec-generated and customer-written actions per project, with status, impact and assignee (high)
+- [x] `/tag-groups` — lookup resolving the user-defined `group` values on the tags we already sync, with their shared color (low)
+
 ## Pendo — **thin**
 
 Today (5): `accounts`, `features`, `guides`, `pages`, `visitors`
@@ -6822,6 +6858,17 @@ Diffed against: <https://docs.useplunk.com/openapi.json>
 No material gaps found.
 
 Note: The entire published Plunk API is seven operations: four listable collections (contacts, campaigns, templates, segments) plus three write-only actions (POST /v1/send, POST /v1/track, POST /v1/verify). PostHog already exposes all four listable collections, so there is nothing left to sync. Workflows and events are documented as product concepts but have no REST endpoints in the spec or in the API reference section of https://docs.useplunk.com/llms.txt.
+
+## Polymarket — gaps
+
+Today (5): `biggest_winners`, `events`, `markets`, `series`, `tags`
+
+Diffed against: <https://data-api.polymarket.com/v2/openapi.json>
+
+- [x] `/v2/biggest-winners` — the all-time board of the biggest single winning positions (medium)
+- [ ] `/v2/resolutions` — resolution lifecycle state per market (low)
+
+Note: `/v2/resolutions` only looks up up to 20 condition or event ids per call and has no list mode, so syncing it as a table means fanning out across the whole Gamma event catalog on every full refresh. The markets table already carries each market's resolution status.
 
 ## PrefectCloud — gaps
 
