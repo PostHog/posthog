@@ -3157,3 +3157,17 @@ export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
             'Whether the workflow contains an email step. The tiered audience limit only applies to email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true.'
         ),
 })
+
+/**
+ * @summary Save a recipient list for a batch workflow
+ */
+export const workflowRecipientListsCreateBodyRowsMax = 50000
+
+export const WorkflowRecipientListsCreateBody = /* @__PURE__ */ zod.object({
+    rows: zod
+        .array(zod.record(zod.string(), zod.string()))
+        .max(workflowRecipientListsCreateBodyRowsMax)
+        .describe(
+            'One object per recipient. Each needs \"email\"; \"distinct_id\" is optional and matches the row to that person. Every other key becomes {{ variables.<key> }} for that recipient.'
+        ),
+})

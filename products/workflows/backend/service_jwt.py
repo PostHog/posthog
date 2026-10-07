@@ -16,3 +16,9 @@ WORKFLOW_SCOUT_RUN_PURPOSE = ScopedServiceJwtPurpose(
     audience=PosthogJwtAudience.WORKFLOW_SCOUT_RUN,
     settings_name="WORKFLOW_SCOUT_RUN_JWT_SECRETS",
 )
+
+# Minted by the plugin server's batch resolver, verified by the recipient list page endpoint.
+WORKFLOW_RECIPIENT_LIST_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOW_RECIPIENT_LIST,
+    settings_name="WORKFLOW_RECIPIENT_LIST_JWT_SECRETS",
+)

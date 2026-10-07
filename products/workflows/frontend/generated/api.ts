@@ -60,6 +60,8 @@ import type {
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
     PatchedHogFlowUpdateApi,
+    RecipientListApi,
+    RecipientListCreateApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
     WorkflowProposalApi,
@@ -1306,6 +1308,44 @@ export const hogFlowsUserBlastRadiusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(blastRadiusRequestApi),
+    })
+}
+
+export const getWorkflowRecipientListsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_recipient_lists/`
+}
+
+/**
+ * @summary Save a recipient list for a batch workflow
+ */
+export const workflowRecipientListsCreate = async (
+    projectId: string,
+    recipientListCreateApi: RecipientListCreateApi,
+    options?: RequestInit
+): Promise<RecipientListApi> => {
+    return apiMutator<RecipientListApi>(getWorkflowRecipientListsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(recipientListCreateApi),
+    })
+}
+
+export const getWorkflowRecipientListsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workflow_recipient_lists/${id}/`
+}
+
+/**
+ * @summary Get a recipient list's size and columns
+ */
+export const workflowRecipientListsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<RecipientListApi> => {
+    return apiMutator<RecipientListApi>(getWorkflowRecipientListsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

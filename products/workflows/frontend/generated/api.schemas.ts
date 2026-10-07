@@ -2025,6 +2025,31 @@ export interface BlastRadiusApi {
     confirm_token: string
 }
 
+export type RecipientListCreateApiRowsItem = { [key: string]: string }
+
+export interface RecipientListCreateApi {
+    /**
+     * One object per recipient. Each needs "email"; "distinct_id" is optional and matches the row to that person. Every other key becomes {{ variables.<key> }} for that recipient.
+     * @maxItems 50000
+     */
+    rows: RecipientListCreateApiRowsItem[]
+}
+
+export interface RecipientListApi {
+    /** Set as filters.recipient_list_id on a batch trigger to send to this list. */
+    id: string
+    /** Recipients kept. */
+    row_count: number
+    /** Variable names available to each recipient's message. */
+    columns: string[]
+    /** Rows dropped for a missing or invalid email. */
+    dropped_invalid_email: number
+    /** Rows dropped because an earlier row had the email. */
+    dropped_duplicate_email: number
+    /** Rows dropped for holding more than 4KB of data. */
+    dropped_too_large: number
+}
+
 export type HogFlowTemplatesListParams = {
     /**
      * Number of results to return per page.

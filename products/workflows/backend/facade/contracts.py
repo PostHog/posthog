@@ -160,6 +160,35 @@ class AudiencePage:
 
 
 @frozen
+class RecipientListSummary:
+    """What an uploaded recipient list kept, and how many rows it dropped and why."""
+
+    id: str
+    row_count: int
+    columns: list[str]
+    dropped_invalid_email: int
+    dropped_duplicate_email: int
+    dropped_too_large: int
+
+
+@frozen
+class RecipientListRecipient:
+    """One row of a recipient list, matched to a person where one exists."""
+
+    email: str
+    person_id: str | None
+    distinct_id: str | None
+    variables: dict[str, str]
+
+
+@frozen
+class RecipientListPage:
+    recipients: list[RecipientListRecipient]
+    cursor: str | None
+    has_more: bool
+
+
+@frozen
 class EmailSendingTierLimits:
     """What a trust tier allows: two send-rate caps and a maximum batch audience."""
 
