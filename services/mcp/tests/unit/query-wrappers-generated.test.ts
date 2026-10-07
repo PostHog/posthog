@@ -51,7 +51,7 @@ function trendsDisplayEntry(display: string): string | undefined {
 
 describe('generated query wrappers', () => {
     it.each(trendsDisplayTypes)('describes the trends display type %s', (display) => {
-        expect(trendsDisplayEntry(display)).toBeDefined()
+        expect(trendsDisplayEntry(display)).toBeTruthy()
     })
 
     it.each([
