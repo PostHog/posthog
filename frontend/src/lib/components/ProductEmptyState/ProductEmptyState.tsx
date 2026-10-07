@@ -147,6 +147,9 @@ export function ProductEmptyState({ config: baseConfig, mode, preview = false }:
             {primaryAction.label}
         </LemonButton>
     ) : null
+    const customPrimaryAction = config.PrimaryAction ? (
+        <config.PrimaryAction onClick={() => captureClick('primary action clicked')} />
+    ) : null
     const guardedPrimaryAction =
         primaryActionButton && primaryAction?.accessControl ? (
             <AccessControlAction
@@ -169,19 +172,19 @@ export function ProductEmptyState({ config: baseConfig, mode, preview = false }:
                 copyLabel={`${config.productName} wizard command`}
                 onCopy={() => captureClick('wizard command copied')}
             />
-            {config.PrimaryAction || guardedPrimaryAction ? (
+            {customPrimaryAction || guardedPrimaryAction ? (
                 <>
                     <div className="flex items-center gap-3">
                         <div className="h-px flex-1 bg-border-primary" />
                         <span className="text-xs text-tertiary uppercase tracking-wide">or</span>
                         <div className="h-px flex-1 bg-border-primary" />
                     </div>
-                    {config.PrimaryAction ? <config.PrimaryAction /> : guardedPrimaryAction}
+                    {customPrimaryAction ?? guardedPrimaryAction}
                 </>
             ) : null}
         </>
-    ) : config.PrimaryAction ? (
-        <config.PrimaryAction />
+    ) : customPrimaryAction ? (
+        customPrimaryAction
     ) : guardedPrimaryAction ? (
         guardedPrimaryAction
     ) : manualUrl && mode === 'needs-setup' ? (
