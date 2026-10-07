@@ -54,11 +54,7 @@ export function getNavProductItems(featureFlags: FeatureFlagsSet): FileSystemImp
     ]
     const destinations = new Map<string, FileSystemImport>()
     for (const item of items) {
-        if (
-            !item.href ||
-            DEFINITIONS_TAB_HREFS.has(item.href) ||
-            !isFileSystemImportFlagEnabled(item, featureFlags)
-        ) {
+        if (!item.href || DEFINITIONS_TAB_HREFS.has(item.href) || !isFileSystemImportFlagEnabled(item, featureFlags)) {
             continue
         }
         const existing = destinations.get(item.href)
