@@ -88,6 +88,7 @@ def _patched_activity(source_mock, model=None, schema=None):
     """Patch out every dependency import_data_activity_sync touches before source setup."""
     if model is None:
         model = mock.MagicMock()
+        model.pipeline_version = ExternalDataJob.PipelineVersion.V3
         model.pipeline.source_type = "MongoDB"
         model.pipeline.job_inputs = {}
         model.folder_path = mock.Mock(return_value="dataset")
@@ -940,6 +941,7 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
 @contextlib.contextmanager
 def _patched_activity_reaching_run(source_mock, schema, api_version=None):
     model = mock.MagicMock()
+    model.pipeline_version = ExternalDataJob.PipelineVersion.V3
     model.pipeline.source_type = "MongoDB"
     model.pipeline.job_inputs = {}
     model.pipeline.api_version = api_version
@@ -1231,6 +1233,7 @@ async def test_parent_gate_inert_for_sources_without_requirements():
 
 def _probe_model() -> mock.MagicMock:
     model = mock.MagicMock()
+    model.pipeline_version = ExternalDataJob.PipelineVersion.V3
     model.pipeline.source_type = "Postgres"
     model.pipeline.job_inputs = {}
     model.folder_path = mock.Mock(return_value="dataset")

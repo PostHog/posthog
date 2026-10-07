@@ -1835,7 +1835,7 @@ def mark_schema_running_unless_halted(schema: ExternalDataSchema) -> bool:
 
 
 def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None:
-    """Mark a schema's first successful sync complete. Shared by the V2 pipelines and the V3 loader.
+    """Mark a schema's first successful sync complete. Called by the V3 loader's post-load.
 
     On the False→True transition, a CDC schema still in snapshot mode moves to
     ``cdc_mode="streaming"`` in the same row lock. Callers must only invoke this once the

@@ -801,40 +801,45 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         consumer_manages_job_status = False
         skip_post_import_activities = False
         workflow_starts_post_import = False
-        is_v3 = False
+        is_v3 = True
         lock_token = None
 
-        # Check pipeline version (FF evaluated once here, propagated everywhere)
-        try:
-            version_result = await workflow.execute_activity(
-                check_pipeline_version_activity,
-                CheckPipelineVersionActivityInputs(
-                    team_id=inputs.team_id,
-                    source_id=inputs.external_data_source_id,
-                    schema_id=inputs.external_data_schema_id,
-                ),
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            is_v3 = version_result.is_v3
-        except Exception:
-            # Guessing the version is not safe: a buffered CDC schema consumed on v2 records no
-            # load position, so the buffer re-merges in full and nothing is ever deleted. Skip
-            # the run and let the schedule fire again, matching the lock-not-acquired path.
-            # patched() keeps in-flight pre-patch executions replaying their recorded fall-through.
-            if workflow.patched("data-imports-skip-run-on-version-check-failure-v1"):
-                workflow.logger.error(
-                    "Failed to check pipeline version, skipping run",
+        # Every run is V3. A history recorded before this patch scheduled the version check as
+        # its first command, so the else branch keeps that command sequence for replay.
+        # TODO: swap to workflow.deprecate_patch and delete the else branch once no pre-patch
+        # executions remain.
+        if not workflow.patched("data-imports-v3-only-2026-10"):
+            is_v3 = False
+            try:
+                version_result = await workflow.execute_activity(
+                    check_pipeline_version_activity,
+                    CheckPipelineVersionActivityInputs(
+                        team_id=inputs.team_id,
+                        source_id=inputs.external_data_source_id,
+                        schema_id=inputs.external_data_schema_id,
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                is_v3 = version_result.is_v3
+            except Exception:
+                # Guessing the version is not safe: a buffered CDC schema consumed on v2 records no
+                # load position, so the buffer re-merges in full and nothing is ever deleted. Skip
+                # the run and let the schedule fire again, matching the lock-not-acquired path.
+                # patched() keeps in-flight pre-patch executions replaying their recorded fall-through.
+                if workflow.patched("data-imports-skip-run-on-version-check-failure-v1"):
+                    workflow.logger.error(
+                        "Failed to check pipeline version, skipping run",
+                        extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )
+                    get_version_check_skipped_metric().add(1)
+                    return
+                workflow.logger.warning(
+                    "Failed to check pipeline version, defaulting to V2",
                     extra={"schema_id": str(inputs.external_data_schema_id)},
                 )
-                get_version_check_skipped_metric().add(1)
-                return
-            workflow.logger.warning(
-                "Failed to check pipeline version, defaulting to V2",
-                extra={"schema_id": str(inputs.external_data_schema_id)},
-            )
 
-        # Only acquire lock for V3 pipelines (V2 never enters this block)
+        # Only a pre-patch replay that recorded a V2 version check skips the lock.
         if is_v3:
             lock_result = None
             try:

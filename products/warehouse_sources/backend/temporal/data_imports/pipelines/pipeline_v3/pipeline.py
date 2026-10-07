@@ -457,13 +457,7 @@ class PipelineV3(Generic[ResumableData]):
             # v3 stages the incremental cursor until job completion, so a retried attempt
             # re-extracts from batch 0 and the previous attempt's count must not be kept.
             if self._retry_loaded_rows is None:
-                await reset_rows_synced_if_needed(
-                    self._job,
-                    self._is_incremental,
-                    self._reset_pipeline,
-                    should_resume,
-                    incremental_cursor_staged=True,
-                )
+                await reset_rows_synced_if_needed(self._job, should_resume)
             else:
                 # The rows earlier attempts loaded stay in the table, so the job counts them once.
                 self._job.rows_synced = self._retry_loaded_rows
