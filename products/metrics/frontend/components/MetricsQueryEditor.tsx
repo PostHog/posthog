@@ -7,13 +7,17 @@ import { LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-u
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { setPromQLCompletionProvider } from 'lib/monaco/languages/promqlCompletionRegistry'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { MetricsDisplayType, MetricsQuery, MetricsQueryLanguage } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { METRICS_PANELS } from '../panels/registry'
+import { getPromQLCompletions } from '../queryLanguages/promqlCompletion'
+import { createMetricsPromQLCompletionSource } from '../queryLanguages/promqlCompletionSource'
 import { MetricsChartSettings } from './MetricsChartSettings'
 import { MetricsClauseRow } from './MetricsClauseRow'
 import { MetricsIntervalPicker } from './MetricsIntervalPicker'
@@ -92,6 +96,17 @@ function MetricsQueryTextEditor({
 }): JSX.Element {
     const { queryDraft, queryTextChanged } = useValues(metricsViewerLogic)
     const { setQueryDraft, runQueryText } = useActions(metricsViewerLogic)
+    const { currentTeamId } = useValues(teamLogic)
+
+    useEffect(() => {
+        if (language !== 'promql' || !currentTeamId) {
+            return
+        }
+        const source = createMetricsPromQLCompletionSource(String(currentTeamId))
+        // Load the metric names now, so the first suggestions do not wait for them.
+        void source.metricNames('').catch(() => undefined)
+        return setPromQLCompletionProvider((text, offset) => getPromQLCompletions(text, offset, source))
+    }, [language, currentTeamId])
 
     return (
         <div className="flex flex-col gap-2 flex-1 min-w-[16rem]" data-attr={`metrics-query-editor-${language}`}>
@@ -109,6 +124,8 @@ function MetricsQueryTextEditor({
                     wordWrap: 'on',
                     scrollBeyondLastLine: false,
                     lineNumbers: language === 'sql' ? 'on' : 'off',
+                    // Label values and quoted OTel names are typed inside strings.
+                    quickSuggestions: { other: true, comments: false, strings: true },
                 }}
             />
             <div className="flex flex-wrap items-center justify-between gap-2">
