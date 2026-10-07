@@ -54,14 +54,6 @@ _TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {
 
 
 @frozen
-class _Subscription:
-    """What one subscribed event carries, and whether it moves an incident rather than announcing."""
-
-    transitions: tuple[AnnouncedTransition, ...]
-    incident_action: IncidentAction | None
-
-
-@frozen
 class DeliveryOutcome:
     """What one evaluation's delivery did, for the activity to log and count."""
 
@@ -123,7 +115,10 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     # Per subscription rather than per destination. A destination subscribes to some of the
     # kinds an alert can announce, so one that asked for firings must not be handed the resolve
     # that another group produced in the same evaluation.
-    for event_id, subscription in _by_subscription(request, announced).items():
+    action_by_event_id = {
+        event_id: IncidentAction(action) for action, event_id in request.event_ids_by_incident_action.items()
+    }
+    for event_id, transitions in _by_subscription(request, announced).items():
         for target in _destinations(request, event_id):
             transport_class = _TRANSPORTS.get(target["type"])
             if transport_class is None:
@@ -137,8 +132,8 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     configuration_id=request.configuration_id,
                     evaluation_key=request.evaluation_key,
                     target=target,
-                    announcement=replace(announced, transitions=subscription.transitions),
-                    incident_action=subscription.incident_action,
+                    announcement=replace(announced, transitions=transitions),
+                    incident_action=action_by_event_id.get(event_id),
                 )
             except ThreadBusy as error:
                 busy.append(str(error))
@@ -164,7 +159,9 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     return DeliveryOutcome(live=True, sent=sent, skipped_without_transport=skipped)
 
 
-def _by_subscription(request: AlertDeliveryRequest, announced: EvaluationAnnouncement) -> dict[str, _Subscription]:
+def _by_subscription(
+    request: AlertDeliveryRequest, announced: EvaluationAnnouncement
+) -> dict[str, tuple[AnnouncedTransition, ...]]:
     """The transitions this evaluation announced or moved an incident with, grouped by the event a
     destination subscribes to.
 
@@ -174,23 +171,14 @@ def _by_subscription(request: AlertDeliveryRequest, announced: EvaluationAnnounc
     destination never hears about an incident and an incident manager never gets a message.
     """
     grouped: dict[str, list[AnnouncedTransition]] = {}
-    actions: dict[str, IncidentAction | None] = {}
-
-    def add(event_id: str | None, transition: AnnouncedTransition, action: IncidentAction | None) -> None:
-        if event_id is not None:
-            grouped.setdefault(event_id, []).append(transition)
-            actions[event_id] = action
-
     for transition in announced.transitions:
-        if request.sends_messages:
-            add(request.event_ids_by_kind.get(transition.kind.value), transition, None)
+        message_event = request.event_ids_by_kind.get(transition.kind.value) if request.sends_messages else None
         action = request.incident_actions.get(transition.grouping_key)
-        if action is not None:
-            add(request.event_ids_by_incident_action.get(action.value), transition, action)
-    return {
-        event_id: _Subscription(transitions=tuple(transitions), incident_action=actions[event_id])
-        for event_id, transitions in grouped.items()
-    }
+        incident_event = request.event_ids_by_incident_action.get(action.value) if action else None
+        for event_id in (message_event, incident_event):
+            if event_id is not None:
+                grouped.setdefault(event_id, []).append(transition)
+    return {event_id: tuple(transitions) for event_id, transitions in grouped.items()}
 
 
 def _destinations(request: AlertDeliveryRequest, event_id: str) -> list[AlertDestinationData]:

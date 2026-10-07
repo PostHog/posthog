@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -19,11 +18,10 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
     PagerDutySeverity,
 )
-from products.alerts_platform.backend.tests.delivery_messages import alert_message, announced_transition
+from products.alerts_platform.backend.tests.delivery_messages import alert_message, announced_transition, pinned_post
 
 ROUTING_KEY = "not-a-real-routing-key-0000000000"
 TARGET = cast(AlertDestinationData, {"type": "pagerduty", "pagerduty_routing_key": ROUTING_KEY})
-_POST = "products.alerts_platform.backend.delivery.pagerduty.requests.post"
 
 
 def _message(action: IncidentAction | None, **transition: Any) -> AlertMessage:
@@ -33,10 +31,6 @@ def _message(action: IncidentAction | None, **transition: Any) -> AlertMessage:
         transition=announced_transition(kind, **transition),
         incident_action=action,
     )
-
-
-def _response(status: int) -> MagicMock:
-    return MagicMock(status_code=status)
 
 
 class TestPagerDutyBody(SimpleTestCase):
@@ -97,12 +91,15 @@ class TestPagerDutyTransport(SimpleTestCase):
     def test_the_region_picks_the_endpoint(self, _name: str, region: str | None, endpoint: str) -> None:
         target = cast(AlertDestinationData, {**TARGET, **({"pagerduty_region": region} if region else {})})
 
-        with patch(_POST, return_value=_response(202)) as post:
+        with pinned_post(202) as adapter:
             handle = PagerDutyTransport().deliver(team_id=2, target=target, message=_message(IncidentAction.TRIGGER))
 
+        sent = json.loads(adapter.sent[-1].body or b"")
         assert handle is None
-        assert post.call_args.args[0] == endpoint
-        assert json.loads(post.call_args.kwargs["data"])["routing_key"] == ROUTING_KEY
+        assert adapter.sent[-1].url == endpoint
+        assert sent["routing_key"] == ROUTING_KEY
+        # The HogFunction path's default, so one firing pages at one severity on both paths.
+        assert sent["payload"]["severity"] == "critical"
 
     @parameterized.expand(
         [
@@ -114,7 +111,7 @@ class TestPagerDutyTransport(SimpleTestCase):
     def test_a_failed_send_never_repeats_the_routing_key(
         self, _name: str, status: int, error: Exception | None
     ) -> None:
-        with patch(_POST, return_value=_response(status), side_effect=error):
+        with pinned_post(status, error):
             with pytest.raises(DeliveryError) as raised:
                 PagerDutyTransport().deliver(team_id=2, target=TARGET, message=_message(IncidentAction.TRIGGER))
 
@@ -135,11 +132,11 @@ class TestPagerDutyTransport(SimpleTestCase):
     def test_an_event_pagerduty_cannot_route_is_refused_before_sending(
         self, _name: str, target: AlertDestinationData, action: IncidentAction | None
     ) -> None:
-        with patch(_POST) as post:
+        with pinned_post() as adapter:
             with pytest.raises(DeliveryError):
                 PagerDutyTransport().deliver(team_id=2, target=target, message=_message(action))
 
-        post.assert_not_called()
+        assert adapter.sent == []
 
     def test_the_thread_store_never_holds_the_routing_key(self) -> None:
         assert ROUTING_KEY not in PagerDutyTransport().channel_target(TARGET)

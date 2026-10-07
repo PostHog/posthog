@@ -94,6 +94,6 @@ def pinned_post(
     session = Session()
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    with patch("products.alerts_platform.backend.delivery.webhook_url.pinned_session") as pinned_session:
+    with patch("products.alerts_platform.backend.delivery.wire.pinned_session") as pinned_session:
         pinned_session.return_value.__enter__.return_value = session
         yield adapter

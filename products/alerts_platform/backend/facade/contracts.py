@@ -465,6 +465,11 @@ class PagerDutyRegion(StrEnum):
     EU = "eu"
 
 
+# What a PagerDuty destination that names neither gets, on every path that sends to one.
+DEFAULT_PAGERDUTY_SEVERITY: Final = PagerDutySeverity.CRITICAL
+DEFAULT_PAGERDUTY_REGION: Final = PagerDutyRegion.US
+
+
 class IncidentAction(StrEnum):
     """What one event kind does to the incident an alert holds open in an incident manager."""
 

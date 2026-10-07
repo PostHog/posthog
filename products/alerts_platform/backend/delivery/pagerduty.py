@@ -10,19 +10,20 @@ a log line or a metric label, and the thread store keys on a digest of it.
 These sends do not go through `posthog/egress`. The routing key belongs to the customer's own
 PagerDuty account, and PagerDuty limits events per integration key, so no PostHog-wide budget
 models it. A 429 fails the send, and the activity's retry backs off.
+
+The thread store claims each send, which keeps a retried trigger that lands after its resolve
+from reopening the incident under the same dedup key.
 """
 
-import json
 import hashlib
 from typing import Any, Final
 
-import requests
-
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
-from products.alerts_platform.backend.delivery.webhook import rfc3339
-from products.alerts_platform.backend.delivery.webhook_url import CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS
+from products.alerts_platform.backend.delivery.wire import credential_digest, post_json, rfc3339
 from products.alerts_platform.backend.facade.contracts import (
+    DEFAULT_PAGERDUTY_REGION,
+    DEFAULT_PAGERDUTY_SEVERITY,
     AlertDestinationData,
     IncidentAction,
     PagerDutyRegion,
@@ -88,9 +89,7 @@ class PagerDutyTransport:
     provider = PROVIDER
 
     def channel_target(self, target: AlertDestinationData) -> str:
-        # A digest rather than the key, so the thread row never stores the credential. A changed
-        # key gives a new digest, so a repointed destination starts a new incident.
-        return hashlib.sha256(target.get("pagerduty_routing_key", "").encode()).hexdigest()
+        return credential_digest(target.get("pagerduty_routing_key", ""))
 
     def deliver(
         self,
@@ -104,25 +103,11 @@ class PagerDutyTransport:
         if not routing_key:
             raise DeliveryError("This PagerDuty destination has no integration key.")
         try:
-            region = PagerDutyRegion(target.get("pagerduty_region") or PagerDutyRegion.US)
-            severity = PagerDutySeverity(target.get("pagerduty_severity") or PagerDutySeverity.ERROR)
+            region = PagerDutyRegion(target.get("pagerduty_region") or DEFAULT_PAGERDUTY_REGION)
+            severity = PagerDutySeverity(target.get("pagerduty_severity") or DEFAULT_PAGERDUTY_SEVERITY)
         except ValueError:
             raise DeliveryError("This PagerDuty destination has an unknown region or severity.") from None
-        self._post(ENDPOINTS[region], pagerduty_body(message, routing_key=routing_key, severity=severity))
+        body = pagerduty_body(message, routing_key=routing_key, severity=severity)
+        post_json(ENDPOINTS[region], body, display_name="PagerDuty")
         # PagerDuty answers with the dedup key, which this transport derives again for the resolve.
         return None
-
-    def _post(self, url: str, body: dict[str, Any]) -> None:
-        try:
-            response = requests.post(
-                url,
-                data=json.dumps(body, ensure_ascii=False).encode(),
-                headers={"Content-Type": "application/json"},
-                timeout=(CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS),
-                allow_redirects=False,
-            )
-        except requests.RequestException as error:
-            raise DeliveryError(f"PagerDuty could not be reached: {type(error).__name__}") from None
-        if not 200 <= response.status_code < 300:
-            # The status only. A 400's body can quote the event, and the event holds the routing key.
-            raise DeliveryError(f"PagerDuty refused the event with status {response.status_code}.")
