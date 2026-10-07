@@ -158,7 +158,7 @@ def _histogram_quantile(quantile: float, bounds: list[float], counts: list[float
 _TARGET_BUCKET_COUNT = 60
 
 # Upper bound on buckets in one query. A finer interval is coarsened to stay under it.
-_MAX_BUCKET_COUNT = 10000
+_MAX_BUCKET_COUNT = 500
 
 # List intervals from finest to coarsest.
 _INTERVAL_LADDER: list[tuple[str, dt.timedelta, ast.Call]] = [
