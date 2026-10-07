@@ -57,7 +57,7 @@ export function AgentBadgeRotator(): JSX.Element {
     const agents = showDesktopEntryPoints
         ? AGENTS
         : AGENTS.map((agent) =>
-              agent.url === POSTHOG_CODE_URL ? { ...agent, name: 'PostHog tasks', url: urls.taskTracker() } : agent
+              agent.url === POSTHOG_CODE_URL ? { ...agent, name: 'PostHog', url: urls.ai() } : agent
           )
 
     const [index, setIndex] = useState(() => (isStorybook ? 0 : Math.floor(Math.random() * AGENTS.length)))

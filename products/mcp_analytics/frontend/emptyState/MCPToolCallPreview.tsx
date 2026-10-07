@@ -148,8 +148,8 @@ export function MCPToolCallPreview({ mode }: { mode: ProductEmptyStateMode }): J
                             <img src={posthogCodeLogo} alt="PostHog Desktop" />
                         </Link>
                     ) : (
-                        <Link className="MCPSpark__code" to={urls.taskTracker()} title="PostHog tasks">
-                            <img src={posthogCodeLogo} alt="PostHog tasks" />
+                        <Link className="MCPSpark__code" to={urls.ai()} title="PostHog">
+                            <img src={posthogCodeLogo} alt="PostHog" />
                         </Link>
                     )}
                     {CLIENT_LOGOS.map((logo, i) => (

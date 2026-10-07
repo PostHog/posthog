@@ -12,13 +12,15 @@ function GitHubDescription(): JSX.Element {
     return (
         <>
             Connect GitHub to link issues and pull requests with PostHog and create issues directly from error tracking.
-            With <Link to={urls.integration('slack')}>Slack</Link> and{' '}
-            {showDesktopEntryPoints ? (
-                <Link to="https://posthog.com/desktop" target="_blank">
-                    PostHog Desktop
-                </Link>
-            ) : (
-                <Link to={urls.taskTracker()}>PostHog tasks</Link>
+            With <Link to={urls.integration('slack')}>Slack</Link>
+            {showDesktopEntryPoints && (
+                <>
+                    {' '}
+                    and{' '}
+                    <Link to="https://posthog.com/desktop" target="_blank">
+                        PostHog Desktop
+                    </Link>
+                </>
             )}{' '}
             connected, tag @PostHog to draft pull requests and ship code changes straight to your repositories.
         </>

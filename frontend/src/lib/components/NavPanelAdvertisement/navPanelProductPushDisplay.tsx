@@ -246,8 +246,8 @@ export const POSTHOG_TASKS_PUSH_DISPLAY: ProductPushDisplay = {
     iconUpright: true,
     accentColor: 'var(--color-accent)',
     tagline: 'Run AI agents that use your product data as context to ship changes.',
-    label: 'PostHog tasks',
-    href: urls.taskTracker(),
+    label: 'PostHog',
+    href: urls.ai(),
 }
 
 export function getProductPushDisplay(productKey: string): ProductPushDisplay {

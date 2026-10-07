@@ -1109,17 +1109,6 @@ describe('taskTrackerSceneLogic', () => {
         seedLogic.unmount()
     })
 
-    it('prefills the composer from the ask param on the new task route without submitting', async () => {
-        logic.mount()
-        router.actions.push('/tasks/new', { ask: 'Fix this TypeError' })
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.newTaskData.description).toBe('Fix this TypeError')
-        expect(router.values.searchParams.ask).toBeUndefined()
-        expect(logic.values.activeCreation).toBeNull()
-        expect(createBody).toBeNull()
-    })
-
     // A seed arriving while the composer is already mounted (the panel was open when another CTA fired) must
     // apply immediately via the setSeed listener, and autoSubmit=true must send it. Re-applying afterwards must
     // not re-submit — a reopened panel must never resend a stale prompt. Guards the listener path, the

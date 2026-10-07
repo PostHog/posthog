@@ -19,7 +19,7 @@ import { TodayActionButton } from './TodayActionButton'
 import { reportWorkKind, reportWorkPrompt } from './todayNextStep'
 import { todayReportLogic } from './todayReportLogic'
 
-const AGENTS = IMPLEMENTATION_AGENTS.filter((agent) => agent.key !== 'posthog-code' && agent.key !== 'posthog-task')
+const AGENTS = IMPLEMENTATION_AGENTS.filter((agent) => agent.key !== 'posthog-code')
 
 export function TodayImplementMenu({
     report,

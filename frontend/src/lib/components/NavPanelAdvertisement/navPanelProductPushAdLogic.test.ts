@@ -56,7 +56,7 @@ describe('navPanelProductPushAdLogic', () => {
 
     it.each([
         ['the desktop download page for staff', true, 'https://posthog.com/desktop', 'PostHog Desktop'],
-        ['web tasks for everyone else', false, '/tasks', 'PostHog tasks'],
+        ['PostHog AI for everyone else', false, '/ai', 'PostHog'],
     ])('sends a desktop campaign to %s', (_description, desktopEntryPoints, destination, label) => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], {

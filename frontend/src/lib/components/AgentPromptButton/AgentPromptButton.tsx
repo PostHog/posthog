@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import { useState } from 'react'
 
-import { IconCheckbox, IconChevronDown, IconCopy, IconLogomark, IconSparkles } from '@posthog/icons'
+import { IconChevronDown, IconCopy, IconLogomark, IconSparkles } from '@posthog/icons'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
@@ -27,9 +26,7 @@ import {
 } from 'lib/ui/quill'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { urls } from 'scenes/urls'
 
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
@@ -47,7 +44,6 @@ export interface AgentPromptAction {
 export type AgentPromptDestination =
     | 'posthog-ai'
     | 'posthog-code'
-    | 'posthog-task'
     | 'claude-code'
     | 'claude-desktop'
     | 'claude-code-vscode'
@@ -162,10 +158,6 @@ export function buildPostHogCodeDeepLink(prompt: string, repository?: string): s
     return `posthog-code://new?prompt=${encodeURIComponent(prompt)}${repoParam}`
 }
 
-export function buildPostHogTaskUrl(prompt: string): string {
-    return combineUrl(urls.taskNew(), { ask: prompt }).url
-}
-
 export function buildClaudeCodeDeepLink(prompt: string, repository?: string): string {
     const query = encodeURIComponent(truncatePrompt(prompt, CLAUDE_CODE_CLI_MAX_PROMPT_CHARS))
     const repoParam = repository ? `repo=${encodeURIComponent(repository)}&` : ''
@@ -209,7 +201,7 @@ export function buildCodexDeepLink(prompt: string, repository?: string): string 
 const AGENTS: AgentDef[] = [
     {
         key: 'posthog-ai',
-        name: 'PostHog AI',
+        name: 'PostHog',
         logo: <IconSparkles className="size-4 shrink-0 text-ai" />,
         verb: 'Open',
         open: (prompt, { askSidePanelMax }) => askSidePanelMax(prompt),
@@ -220,13 +212,6 @@ const AGENTS: AgentDef[] = [
         logo: <IconLogomark className="size-4 shrink-0" />,
         verb: 'Open',
         open: openDeepLink(buildPostHogCodeDeepLink),
-    },
-    {
-        key: 'posthog-task',
-        name: 'New task',
-        logo: <IconCheckbox className="size-4 shrink-0" />,
-        verb: 'Open',
-        open: (prompt) => newInternalTab(buildPostHogTaskUrl(prompt)),
     },
     {
         key: 'claude-code',
@@ -312,19 +297,12 @@ export function AgentPromptButton({
     const { askSidePanelMax } = useActions(maxGlobalLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
     const showDesktopEntryPoints = useFeatureFlag('POSTHOG_DESKTOP_ENTRY_POINTS')
-    const availableAgents = AGENTS.filter((agent) => {
-        if (agent.key === 'posthog-task') {
-            return (
-                !showDesktopEntryPoints &&
-                (!agentKeys || agentKeys.includes('posthog-task') || agentKeys.includes('posthog-code'))
-            )
-        }
-        return (
+    const availableAgents = AGENTS.filter(
+        (agent) =>
             (!agentKeys || agentKeys.includes(agent.key)) &&
             !(todayRailEnabled && agent.key === 'posthog-ai') &&
             !(!showDesktopEntryPoints && agent.key === 'posthog-code')
-        )
-    })
+    )
 
     if (actions.length === 0 || availableAgents.length === 0) {
         return null

@@ -1,4 +1,4 @@
-import { IconCheckbox, IconLogomark } from '@posthog/icons'
+import { IconLogomark } from '@posthog/icons'
 
 import {
     buildClaudeCodeDeepLink,
@@ -8,11 +8,9 @@ import {
     buildCodexDeepLink,
     buildCursorDeepLink,
     buildPostHogCodeDeepLink,
-    buildPostHogTaskUrl,
 } from 'lib/components/AgentPromptButton'
 import type { AgentPromptDestination } from 'lib/components/AgentPromptButton'
 import { AgentLogo, claudeLogo, cursorLogo, openaiLogo } from 'lib/components/AgentPromptButton/AgentLogo'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 
 export interface ImplementationAgent {
     key: AgentPromptDestination
@@ -31,12 +29,6 @@ export const IMPLEMENTATION_AGENTS: ImplementationAgent[] = [
         name: 'PostHog Desktop',
         icon: <IconLogomark />,
         open: openDeepLink(buildPostHogCodeDeepLink),
-    },
-    {
-        key: 'posthog-task',
-        name: 'New task',
-        icon: <IconCheckbox />,
-        open: (prompt) => newInternalTab(buildPostHogTaskUrl(prompt)),
     },
     {
         key: 'claude-code',
