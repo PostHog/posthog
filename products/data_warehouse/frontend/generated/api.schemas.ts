@@ -3526,6 +3526,12 @@ export interface CredentialApi {
  * * `Supermetrics` - Supermetrics
  * * `SQLite` - SQLite
  * * `Modal` - Modal
+ * * `Vimeo` - Vimeo
+ * * `Scrunch` - Scrunch
+ * * `Loom` - Loom
+ * * `Arcade` - Arcade
+ * * `Neo4j` - Neo4j
+ * * `TestDino` - TestDino
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4896,6 +4902,12 @@ export const ExternalDataSourceTypeEnumApi = {
     Supermetrics: 'Supermetrics',
     SQLite: 'SQLite',
     Modal: 'Modal',
+    Vimeo: 'Vimeo',
+    Scrunch: 'Scrunch',
+    Loom: 'Loom',
+    Arcade: 'Arcade',
+    Neo4j: 'Neo4j',
+    TestDino: 'TestDino',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
