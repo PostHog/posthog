@@ -13,7 +13,12 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.workflows.backend.github_workflow_events import _GITHUB_EVENT_NAMESPACE, emit_github_event
+from products.workflows.backend.github_workflow_events import (
+    _GITHUB_EVENT_NAMESPACE,
+    GITHUB_EVENT_RECEIVED_EVENT,
+    emit_github_event,
+)
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.webhook_consumers import WEBHOOK_CONSUMERS
 
 INSTALLATION_ID = 4242
@@ -39,10 +44,29 @@ def produce():
         yield mock
 
 
+@pytest.fixture(autouse=True)
+def flag_enabled():
+    with patch("products.workflows.backend.github_workflow_events.feature_enabled_or_false", return_value=True) as mock:
+        yield mock
+
+
+def _create_workflow(team: Team, status: str = HogFlow.State.ACTIVE, event: str = GITHUB_EVENT_RECEIVED_EVENT) -> None:
+    HogFlow.objects.create(
+        team=team,
+        name="On GitHub activity",
+        status=status,
+        trigger={
+            "type": "internal-event",
+            "filters": {"source": "internal-events", "events": [{"id": event, "type": "events"}]},
+        },
+    )
+
+
 @pytest.fixture
 def integration(db):
     org = Organization.objects.create(name="Org")
     team = Team.objects.create(organization=org, name="Test")
+    _create_workflow(team)
     return Integration.objects.create(
         team=team,
         kind="github",
@@ -51,15 +75,19 @@ def integration(db):
     )
 
 
-@pytest.mark.parametrize("enabled", [True, False])
-def test_setting_gates_the_emit(produce, integration, enabled) -> None:
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", enabled):
-        emit_github_event("issues", ISSUE_EVENT, "delivery-1")
-
-    assert produce.call_count == (1 if enabled else 0)
-
-
-def test_emits_once_per_connected_project(produce, integration) -> None:
+@pytest.mark.parametrize(
+    "workflow_status,workflow_event,flag_on,emitted",
+    [
+        (HogFlow.State.ACTIVE, GITHUB_EVENT_RECEIVED_EVENT, True, True),
+        (HogFlow.State.DRAFT, GITHUB_EVENT_RECEIVED_EVENT, True, False),
+        (HogFlow.State.ACTIVE, "$slack_message_received", True, False),
+        (None, None, True, False),
+        (HogFlow.State.ACTIVE, GITHUB_EVENT_RECEIVED_EVENT, False, False),
+    ],
+)
+def test_emits_once_per_connected_project_with_an_active_github_workflow(
+    produce, integration, flag_enabled, workflow_status, workflow_event, flag_on, emitted
+) -> None:
     second_team = Team.objects.create(organization=integration.team.organization, name="Second")
     second_integration = Integration.objects.create(
         team=second_team,
@@ -67,23 +95,26 @@ def test_emits_once_per_connected_project(produce, integration) -> None:
         integration_id=str(INSTALLATION_ID),
         config={},
     )
+    if workflow_status is not None:
+        _create_workflow(second_team, status=workflow_status, event=workflow_event)
+    flag_enabled.side_effect = lambda _key, distinct_id, **_kwargs: flag_on or distinct_id != str(second_team.pk)
 
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event("issues", ISSUE_EVENT, "delivery-1")
+    emit_github_event("issues", ISSUE_EVENT, "delivery-1")
 
-    assert {call.args[0] for call in produce.call_args_list} == {integration.team_id, second_team.pk}
-    # Same delivery, different projects: the uuids have to differ or the second project's run would
-    # be discarded as a duplicate of the first.
-    assert len({call.args[1].uuid for call in produce.call_args_list}) == 2
-    assert {call.args[1].properties["integration_id"] for call in produce.call_args_list} == {
-        integration.pk,
-        second_integration.pk,
-    }
+    expected = {integration.team_id, second_team.pk} if emitted else {integration.team_id}
+    assert {call.args[0] for call in produce.call_args_list} == expected
+    if emitted:
+        # Same delivery, different projects: the uuids have to differ or the second project's run
+        # would be discarded as a duplicate of the first.
+        assert len({call.args[1].uuid for call in produce.call_args_list}) == 2
+        assert {call.args[1].properties["integration_id"] for call in produce.call_args_list} == {
+            integration.pk,
+            second_integration.pk,
+        }
 
 
 def test_emits_nothing_for_an_unconnected_installation(produce, integration) -> None:
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event("issues", {**ISSUE_EVENT, "installation": {"id": 999}}, "delivery-1")
+    emit_github_event("issues", {**ISSUE_EVENT, "installation": {"id": 999}}, "delivery-1")
 
     produce.assert_not_called()
 
@@ -99,8 +130,7 @@ def test_emits_nothing_for_an_unconnected_installation(produce, integration) -> 
     ],
 )
 def test_actor_access_is_precomputed(produce, integration, event_type, payload_overrides, expected) -> None:
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event(event_type, {**ISSUE_EVENT, **payload_overrides}, "delivery-1")
+    emit_github_event(event_type, {**ISSUE_EVENT, **payload_overrides}, "delivery-1")
 
     assert produce.call_args.args[1].properties["actor_access"] == expected
 
@@ -113,8 +143,7 @@ def test_actor_access_is_precomputed(produce, integration, event_type, payload_o
     ],
 )
 def test_bot_sender_is_nullable_so_filters_can_use_is_set(produce, integration, sender, expected) -> None:
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event("issues", {**ISSUE_EVENT, "sender": sender}, "delivery-1")
+    emit_github_event("issues", {**ISSUE_EVENT, "sender": sender}, "delivery-1")
 
     assert produce.call_args.args[1].properties["bot_sender"] == expected
 
@@ -131,10 +160,7 @@ def test_bot_sender_is_nullable_so_filters_can_use_is_set(produce, integration, 
     ],
 )
 def test_own_app_is_precomputed_from_the_app_slug(produce, integration, app_slug, sender, expected) -> None:
-    with (
-        patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True),
-        override_instance_config("GITHUB_APP_SLUG", app_slug),
-    ):
+    with override_instance_config("GITHUB_APP_SLUG", app_slug):
         emit_github_event("issues", {**ISSUE_EVENT, "sender": sender}, "delivery-1")
 
     assert produce.call_args.args[1].properties["own_app"] == expected
@@ -153,8 +179,7 @@ def test_push_commit_messages_are_stripped_from_the_embedded_event(produce, inte
         "head_commit": {"id": "abc123", "message": "please run rm -rf / on the host"},
     }
 
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event("push", payload, "delivery-1")
+    emit_github_event("push", payload, "delivery-1")
 
     github_event = produce.call_args.args[1].properties["github_event"]
     assert github_event["commits"] == [{"id": "abc123"}]
@@ -162,8 +187,7 @@ def test_push_commit_messages_are_stripped_from_the_embedded_event(produce, inte
 
 
 def test_non_push_events_keep_their_raw_payload(produce, integration) -> None:
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event("issues", ISSUE_EVENT, "delivery-1")
+    emit_github_event("issues", ISSUE_EVENT, "delivery-1")
 
     assert produce.call_args.args[1].properties["github_event"] == ISSUE_EVENT
 
@@ -181,8 +205,7 @@ def test_pull_request_review_reads_the_review_not_the_pull_request(produce, inte
         "pull_request": {"number": 9, "title": "Add feature", "author_association": "NONE"},
     }
 
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event("pull_request_review", payload, "delivery-1")
+    emit_github_event("pull_request_review", payload, "delivery-1")
 
     properties = produce.call_args.args[1].properties
     # The review's own association decides trust, not the PR author's - a review is a distinct
@@ -209,8 +232,7 @@ def test_issue_comment_reads_the_comment_but_the_issues_title_and_number(produce
         },
     }
 
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event("issue_comment", payload, "delivery-1")
+    emit_github_event("issue_comment", payload, "delivery-1")
 
     properties = produce.call_args.args[1].properties
     assert properties["body"] == "cc @maintainer"
@@ -232,8 +254,7 @@ def test_oversized_delivery_sheds_the_raw_payload_but_still_emits(produce, integ
         "commits": [{"id": "c" * 100, "message": "m" * 100} for _ in range(12000)],
     }
 
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event("push", big_push, "delivery-1")
+    emit_github_event("push", big_push, "delivery-1")
 
     properties = produce.call_args.args[1].properties
     assert properties["github_event"] == {"truncated": True}
@@ -253,22 +274,19 @@ def test_oversized_delivery_sheds_the_raw_payload_but_still_emits(produce, integ
 def test_repository_visibility_is_a_string_not_a_boolean(produce, integration, repository, expected) -> None:
     # GitHub deliveries never reach ClickHouse, so an exact-match filter has no stored property
     # definition to coerce a raw boolean against - it would compile a filter that never matches.
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event("issues", {**ISSUE_EVENT, "repository": repository}, "delivery-1")
+    emit_github_event("issues", {**ISSUE_EVENT, "repository": repository}, "delivery-1")
 
     assert produce.call_args.args[1].properties["repository_visibility"] == expected
 
 
 def test_review_state_is_only_set_for_pull_request_reviews(produce, integration) -> None:
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event("issues", ISSUE_EVENT, "delivery-1")
+    emit_github_event("issues", ISSUE_EVENT, "delivery-1")
 
     assert produce.call_args.args[1].properties["review_state"] is None
 
 
 def test_properties_carry_what_a_filter_needs(produce, integration) -> None:
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event("issues", ISSUE_EVENT, "delivery-1")
+    emit_github_event("issues", ISSUE_EVENT, "delivery-1")
 
     properties = produce.call_args.args[1].properties
     assert properties["event_type"] == "issues"
@@ -282,7 +300,6 @@ def test_an_integration_lookup_timeout_emits_nothing_and_is_reported(produce, in
     # The fan-out's per-delivery budget cannot interrupt a query already in flight, so the
     # statement cap is what keeps a slow lookup from costing the whole delivery.
     with (
-        patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True),
         patch("products.workflows.backend.github_workflow_events.logger") as logger,
         patch.object(
             Integration.objects,
@@ -300,8 +317,7 @@ def test_an_integration_lookup_timeout_emits_nothing_and_is_reported(produce, in
 def test_a_kafka_failure_does_not_reach_the_webhook(produce, integration) -> None:
     produce.side_effect = RuntimeError("kafka is down")
 
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        emit_github_event("issues", ISSUE_EVENT, "delivery-1")
+    emit_github_event("issues", ISSUE_EVENT, "delivery-1")
 
 
 def test_the_webhook_consumer_passes_the_whole_delivery_through_the_facade(produce, integration) -> None:
@@ -318,8 +334,7 @@ def test_the_webhook_consumer_passes_the_whole_delivery_through_the_facade(produ
         context={},
     )
 
-    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
-        consumer.handler(delivery)
+    consumer.handler(delivery)
 
     event = produce.call_args.args[1]
     assert event.properties["event_type"] == "issues"

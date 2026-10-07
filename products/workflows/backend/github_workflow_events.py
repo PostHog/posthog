@@ -13,18 +13,23 @@ import json
 import uuid
 from typing import Any
 
-from django.conf import settings
-
 import structlog
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import Integration
+from posthog.ph_client import feature_enabled_or_false
+
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
 
 GITHUB_EVENT_RECEIVED_EVENT = "$github_event_received"
+
+# Gates the trigger tile in the workflow builder and the emit below, so widening the rollout or
+# switching it off is one flag change in both places.
+GITHUB_WORKFLOW_TRIGGERS_FLAG = "github-workflow-triggers"
 
 # Event types a workflow can be triggered by. The fan-out delivers more than these to other
 # handlers, so the registration in posthog/urls.py is the real list; this mirrors it for the
@@ -186,19 +191,29 @@ def emit_github_event(event_type: str, payload: dict[str, Any], delivery_id: str
     Never raises. This runs inside the webhook fan-out, which owes GitHub a fast response and
     shares the request with the tasks, conversations and loops handlers.
     """
-    if not settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED:
-        return
-
     installation_id = (payload.get("installation") or {}).get("id")
     if installation_id is None:
         return
 
     try:
-        with bounded_statement_timeout(_INTEGRATION_LOOKUP_TIMEOUT_MS, models=(Integration,)):
+        with bounded_statement_timeout(_INTEGRATION_LOOKUP_TIMEOUT_MS, models=(Integration, HogFlow)):
             integrations = list(
                 Integration.objects.filter(kind="github", integration_id=str(installation_id)).values_list(
                     "team_id", "id"
                 )
+            )
+            # Most installations exist for other features and have no GitHub-triggered workflow, so
+            # emitting for them would put every push and comment on the shared topic for nothing.
+            triggered_team_ids = (
+                set(
+                    HogFlow.objects.filter(
+                        team_id__in={team_id for team_id, _ in integrations},
+                        status=HogFlow.State.ACTIVE,
+                        trigger__contains={"filters": {"events": [{"id": GITHUB_EVENT_RECEIVED_EVENT}]}},
+                    ).values_list("team_id", flat=True)
+                )
+                if integrations
+                else set()
             )
     except Exception as e:
         if is_statement_timeout(e):
@@ -214,6 +229,8 @@ def emit_github_event(event_type: str, payload: dict[str, Any], delivery_id: str
     distinct_id = str((payload.get("sender") or {}).get("login") or f"installation:{installation_id}")
 
     for team_id, integration_id in integrations:
+        if team_id not in triggered_team_ids or not _github_triggers_enabled(team_id):
+            continue
         try:
             produce_internal_event(
                 team_id,
@@ -231,3 +248,19 @@ def emit_github_event(event_type: str, payload: dict[str, Any], delivery_id: str
                 team_id=team_id,
                 delivery_id=delivery_id,
             )
+
+
+def _github_triggers_enabled(team_id: int) -> bool:
+    try:
+        return feature_enabled_or_false(
+            GITHUB_WORKFLOW_TRIGGERS_FLAG,
+            str(team_id),
+            groups={"project": str(team_id)},
+            group_properties={"project": {"id": str(team_id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        # An unreleased trigger stays off when the flags service is unreachable.
+        logger.exception("github_workflow_event_flag_check_failed", team_id=team_id)
+        return False
