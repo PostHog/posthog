@@ -23,6 +23,9 @@ globalThis.MonacoEnvironment = {
         if (label === 'json') {
             return createWorker('/static/monacoJsonWorker.js')
         }
+        if (label === 'html') {
+            return createWorker('/static/monacoHtmlWorker.js')
+        }
         if (label === 'typescript' || label === 'javascript') {
             return createWorker('/static/monacoTsWorker.js')
         }

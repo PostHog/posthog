@@ -31,6 +31,11 @@ export const WORKER_ENTRIES = [
         outfileName: 'monacoJsonWorker.js',
     },
     {
+        name: 'Monaco HTML Worker',
+        entryPoint: 'src/lib/monaco/workers/html.worker.ts',
+        outfileName: 'monacoHtmlWorker.js',
+    },
+    {
         name: 'Monaco TypeScript Worker',
         entryPoint: 'src/lib/monaco/workers/ts.worker.ts',
         outfileName: 'monacoTsWorker.js',
