@@ -67,6 +67,9 @@ where
             let mut encoder = zstd::Encoder::new(Vec::new(), 3)
                 .map_err(|e| Error::CompressionError(e.to_string()))?;
             encoder
+                .set_pledged_src_size(Some(raw_bytes.len() as u64))
+                .map_err(|e| Error::CompressionError(e.to_string()))?;
+            encoder
                 .write_all(&raw_bytes)
                 .map_err(|e| Error::CompressionError(e.to_string()))?;
             encoder
@@ -89,6 +92,28 @@ where
     T: SymbolData,
 {
     read_as_with_byte_count(data).map(|(v, _)| v)
+}
+
+pub fn known_decompressed_size(data: &[u8]) -> Result<Option<usize>, Error> {
+    let version = read_version(data)?;
+
+    match version {
+        V1_VERSION => {
+            assert_at_least_as_long_as(v1_header_len(), data.len())?;
+            Ok(Some(data.len() - v1_header_len()))
+        }
+        VERSION => {
+            assert_at_least_as_long_as(v2_header_len(), data.len())?;
+            let payload = &data[v2_header_len()..];
+            match Compression::try_from(data[v2_header_len() - 1])? {
+                Compression::None => Ok(Some(payload.len())),
+                Compression::Zstd => zstd::zstd_safe::get_frame_content_size(payload)
+                    .map(|size| size.and_then(|size| usize::try_from(size).ok()))
+                    .map_err(|e| Error::CompressionError(e.to_string())),
+            }
+        }
+        other => Err(Error::WrongVersion(other, VERSION)),
+    }
 }
 
 /// Like `read_as`, but also returns the decompressed payload byte count.

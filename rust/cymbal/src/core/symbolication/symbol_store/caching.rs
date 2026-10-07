@@ -2,7 +2,7 @@ use std::{any::Any, collections::HashMap, sync::Arc, time::Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{Mutex, Semaphore};
 use tracing::info;
 
 use crate::metric_consts::{
@@ -10,7 +10,7 @@ use crate::metric_consts::{
     STORE_CACHE_MISSES, SYMBOL_SET_LARGE_PARSE_WAIT_MS,
 };
 
-use super::{chunk_id::SymbolSetCacheKey, Fetcher, Parser, Provider};
+use super::{chunk_id::SymbolSetCacheKey, Fetcher, ParsePermit, Parser, Provider};
 
 // Parsing can transiently need many times the fetched size (e.g. ProguardCache::write), and
 // none of that is held against the cache budget. We log large parses before they start, so
@@ -43,12 +43,12 @@ impl ParseLimiter {
         }
     }
 
-    async fn acquire(&self, fetched_bytes: usize) -> Option<OwnedSemaphorePermit> {
-        if fetched_bytes < self.large_parse_bytes {
-            return None;
+    async fn acquire(&self, required: bool) -> ParsePermit {
+        if !required {
+            return ParsePermit::none();
         }
         // UNWRAP - we never close the semaphore
-        Some(self.permits.clone().acquire_owned().await.unwrap())
+        ParsePermit::limited(self.permits.clone().acquire_owned().await.unwrap())
     }
 }
 
@@ -107,11 +107,14 @@ where
 
         let wait_start = Instant::now();
         let permit = match &self.parse_limiter {
-            Some(limiter) => limiter.acquire(fetched_bytes).await,
-            None => None,
+            Some(limiter) => {
+                let required = found.requires_parse_permit(limiter.large_parse_bytes);
+                limiter.acquire(required).await
+            }
+            None => ParsePermit::none(),
         };
         let wait_ms = wait_start.elapsed().as_millis() as u64;
-        if permit.is_some() {
+        if permit.is_limited() {
             metrics::histogram!(SYMBOL_SET_LARGE_PARSE_WAIT_MS).record(wait_ms as f64);
         }
 
@@ -122,9 +125,7 @@ where
             );
         }
         let parse_start = Instant::now();
-        let parsed = self.inner.parse(found).await;
-        drop(permit);
-        let parsed = parsed?;
+        let parsed = self.inner.parse(found, permit).await?;
         let bytes = parsed.byte_count();
         if fetched_bytes >= LARGE_FETCHED_BYTES || bytes >= LARGE_PARSED_BYTES {
             info!(
@@ -239,6 +240,10 @@ struct CachedSymbolSet {
 
 pub trait Countable {
     fn byte_count(&self) -> usize;
+
+    fn requires_parse_permit(&self, threshold: usize) -> bool {
+        self.byte_count() >= threshold
+    }
 }
 
 impl Countable for Vec<u8> {
@@ -250,6 +255,14 @@ impl Countable for Vec<u8> {
 impl Countable for Bytes {
     fn byte_count(&self) -> usize {
         self.len()
+    }
+
+    fn requires_parse_permit(&self, threshold: usize) -> bool {
+        match posthog_symbol_data::symbol_data_known_decompressed_size(self) {
+            Ok(Some(size)) => size.max(self.len()) >= threshold,
+            Ok(None) => true,
+            Err(_) => self.len() >= threshold,
+        }
     }
 }
 
@@ -263,12 +276,13 @@ mod tests {
     use std::{
         convert::Infallible,
         sync::atomic::{AtomicUsize, Ordering},
-        sync::Arc,
+        sync::{Arc, Condvar, Mutex as StdMutex},
     };
 
     use super::*;
     use crate::symbolication::symbol_store::chunk_id::OrChunkId;
     use async_trait::async_trait;
+    use posthog_symbol_data::{write_symbol_data, SourceAndMap};
     use reqwest::Url;
 
     struct FakeProvider {
@@ -298,7 +312,11 @@ mod tests {
         type Set = Vec<u8>;
         type Err = Infallible;
 
-        async fn parse(&self, data: Self::Source) -> Result<Self::Set, Self::Err> {
+        async fn parse(
+            &self,
+            data: Self::Source,
+            _permit: ParsePermit,
+        ) -> Result<Self::Set, Self::Err> {
             Ok(data)
         }
     }
@@ -352,7 +370,12 @@ mod tests {
         type Set = Vec<u8>;
         type Err = Infallible;
 
-        async fn parse(&self, data: Self::Source) -> Result<Self::Set, Self::Err> {
+        async fn parse(
+            &self,
+            data: Self::Source,
+            permit: ParsePermit,
+        ) -> Result<Self::Set, Self::Err> {
+            let _permit = permit;
             let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
             self.max_in_flight.fetch_max(now, Ordering::SeqCst);
             for _ in 0..5 {
@@ -363,9 +386,59 @@ mod tests {
         }
     }
 
+    struct BlockingProvider {
+        active: Arc<AtomicUsize>,
+        started: tokio::sync::mpsc::UnboundedSender<()>,
+        release: Arc<(StdMutex<bool>, Condvar)>,
+    }
+
+    #[async_trait]
+    impl Fetcher for BlockingProvider {
+        type Ref = OrChunkId<Url>;
+        type Fetched = Vec<u8>;
+        type Err = Infallible;
+
+        async fn fetch(&self, _team_id: i32, _r: Self::Ref) -> Result<Self::Fetched, Self::Err> {
+            Ok(vec![0])
+        }
+    }
+
+    #[async_trait]
+    impl Parser for BlockingProvider {
+        type Source = Vec<u8>;
+        type Set = Vec<u8>;
+        type Err = Infallible;
+
+        async fn parse(
+            &self,
+            data: Self::Source,
+            permit: ParsePermit,
+        ) -> Result<Self::Set, Self::Err> {
+            let active = self.active.clone();
+            let started = self.started.clone();
+            let release = self.release.clone();
+
+            Ok(tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                active.fetch_add(1, Ordering::SeqCst);
+                started.send(()).unwrap();
+
+                let (lock, condvar) = &*release;
+                let mut released = lock.lock().unwrap();
+                while !*released {
+                    released = condvar.wait(released).unwrap();
+                }
+
+                active.fetch_sub(1, Ordering::SeqCst);
+                data
+            })
+            .await
+            .unwrap())
+        }
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn parse_limiter_bounds_only_large_parses() {
-        // (fetched bytes, expected max concurrent parses) with a 1-permit limiter at 100 bytes
         for (fetched_bytes, expected_max) in [(100, 1), (99, 3)] {
             let max_in_flight = Arc::new(AtomicUsize::new(0));
             let provider = SizedProvider {
@@ -388,6 +461,57 @@ mod tests {
                 "fetched_bytes = {fetched_bytes}"
             );
         }
+
+        let compressed = Bytes::from(
+            write_symbol_data(SourceAndMap {
+                minified_source: "a".repeat(100),
+                sourcemap: "b".repeat(100),
+            })
+            .unwrap(),
+        );
+        assert!(compressed.len() < 100);
+        assert!(compressed.requires_parse_permit(100));
+    }
+
+    #[tokio::test]
+    async fn cancelled_lookup_keeps_permit_until_blocking_parse_finishes() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let (started_tx, mut started_rx) = tokio::sync::mpsc::unbounded_channel();
+        let release = Arc::new((StdMutex::new(false), Condvar::new()));
+        let provider = BlockingProvider {
+            active: active.clone(),
+            started: started_tx,
+            release: release.clone(),
+        };
+        let limiter = ParseLimiter::new(1, 1);
+        let caching = Arc::new(
+            Caching::new(provider, Arc::new(Mutex::new(SymbolSetCache::new(1024))))
+                .with_parse_limiter(limiter.clone()),
+        );
+
+        let lookup = tokio::spawn({
+            let caching = caching.clone();
+            async move {
+                caching
+                    .lookup(1, OrChunkId::<Url>::chunk_id("set".to_string()))
+                    .await
+            }
+        });
+        started_rx.recv().await.unwrap();
+        lookup.abort();
+        assert!(lookup.await.unwrap_err().is_cancelled());
+
+        assert_eq!(active.load(Ordering::SeqCst), 1);
+        assert_eq!(limiter.permits.available_permits(), 0);
+
+        let (lock, condvar) = &*release;
+        *lock.lock().unwrap() = true;
+        condvar.notify_one();
+        let released_permit = limiter.permits.clone().acquire_owned().await.unwrap();
+
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+        drop(released_permit);
+        assert_eq!(limiter.permits.available_permits(), 1);
     }
 
     #[test]

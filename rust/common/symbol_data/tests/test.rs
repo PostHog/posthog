@@ -1,6 +1,9 @@
+use std::io::Write;
+
 use posthog_symbol_data::{
-    read_symbol_data, write_symbol_data, write_symbol_data_uncompressed, AppleDsym, ElfDebugInfo,
-    HermesMap, ProguardMapping, SourceAndMap,
+    read_symbol_data, symbol_data_known_decompressed_size, write_symbol_data,
+    write_symbol_data_uncompressed, AppleDsym, ElfDebugInfo, HermesMap, ProguardMapping,
+    SourceAndMap,
 };
 
 const MAGIC_LEN: usize = b"posthog_error_tracking".len();
@@ -30,8 +33,31 @@ fn test_v2_compressed_header() {
     assert_eq!(version, 2);
     assert_eq!(bytes[COMPRESSION_OFFSET], 1); // zstd
 
+    let uncompressed = write_symbol_data_uncompressed(input.clone()).unwrap();
+    assert_eq!(
+        symbol_data_known_decompressed_size(&bytes).unwrap(),
+        Some(uncompressed.len() - COMPRESSION_OFFSET - 1)
+    );
+
     let output = read_symbol_data::<SourceAndMap>(&bytes).unwrap();
     assert_eq!(input, output);
+}
+
+#[test]
+fn test_v2_compressed_without_content_size() {
+    let mut encoder = zstd::Encoder::new(Vec::new(), 3).unwrap();
+    encoder.write_all(b"legacy payload").unwrap();
+    let compressed = encoder.finish().unwrap();
+
+    let mut bytes = write_symbol_data(SourceAndMap {
+        minified_source: "source".to_string(),
+        sourcemap: "map".to_string(),
+    })
+    .unwrap();
+    bytes.truncate(COMPRESSION_OFFSET + 1);
+    bytes.extend(compressed);
+
+    assert_eq!(symbol_data_known_decompressed_size(&bytes).unwrap(), None);
 }
 
 #[test]
