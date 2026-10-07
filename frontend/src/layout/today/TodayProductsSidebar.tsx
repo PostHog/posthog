@@ -31,7 +31,11 @@ export function TodayProductsSidebar(): JSX.Element {
     const objectPageType = libraryTypeForPath(path)
 
     const showAllObjects = matchesPaneQuery('All objects', search)
-    const libraryTypes = objectTypes.filter((type) => matchesPaneQuery(type.pluralLabel, search))
+    const libraryTypes = objectTypes
+        .map((type) =>
+            type.value === 'session_recording_playlist' ? { ...type, pluralLabel: 'Session replay' } : type
+        )
+        .filter((type) => matchesPaneQuery(type.pluralLabel, search))
     const showLibrary = showAllObjects || libraryTypes.length > 0
     const recentSection = recentTools.length ? { key: 'recent', label: 'Recently viewed', tools: recentTools } : null
     const categorySections = toolGroups.map((group) => ({
@@ -96,7 +100,11 @@ export function TodayProductsSidebar(): JSX.Element {
                                         value={`library:${type.value}`}
                                         label={type.pluralLabel}
                                         icon={iconForType(type.value as FileSystemIconType)}
-                                        to={libraryListHref(type.value) ?? urls.library(type.value)}
+                                        to={
+                                            type.value === 'session_recording_playlist'
+                                                ? urls.replay()
+                                                : (libraryListHref(type.value) ?? urls.library(type.value))
+                                        }
                                         active={path === urls.library(type.value) || objectPageType === type.value}
                                         action={<LibraryCreateButton objectType={type.value} />}
                                         dataAttr="today-library-type"
