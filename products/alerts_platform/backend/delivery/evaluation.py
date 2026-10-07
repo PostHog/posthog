@@ -94,7 +94,12 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     if team is None or not destinations_are_live(team):
         return DeliveryOutcome(live=False, sent=0, skipped_without_transport=0)
 
-    announced = announcement(request.team_id, request.configuration_id, request.evaluation_key)
+    announced = announcement(
+        request.team_id,
+        request.configuration_id,
+        request.evaluation_key,
+        incident_actions=request.incident_actions,
+    )
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
 
@@ -153,8 +158,11 @@ def _by_subscription(
     """The transitions this evaluation announced, grouped by the event a destination subscribes to.
 
     A kind the source does not map to an event id reaches nobody: no destination can have asked
-    for it.
+    for it. Nor does anything on a delivery the source did not announce, which exists only for
+    its incident actions.
     """
+    if not request.announced:
+        return {}
     grouped: dict[str, list[AnnouncedTransition]] = {}
     for transition in announced.transitions:
         event_id = request.event_ids_by_kind.get(transition.kind.value)

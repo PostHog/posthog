@@ -255,8 +255,10 @@ class AnnouncedTransition:
     an address, reads the row, and builds one of these in the process that sends the message. So
     it carries what a message states, including the two snapshots the row already keeps.
 
-    Every field here is a column on `platform_alert_events`, which is what makes a message state
-    what its own check decided however long after the check it is rendered.
+    Every field but `incident_action` is a column on `platform_alert_events`, which is what makes
+    a message state what its own check decided however long after the check it is rendered.
+    `incident_action` comes from the delivery request, because the source decides it under its own
+    policy, which the history row does not record.
     """
 
     grouping_key: str
@@ -271,6 +273,9 @@ class AnnouncedTransition:
     error_message: str | None
     # A resolve states this as the time its firing ended.
     occurred_at: datetime
+    # What this transition does to an incident a paging destination holds. Set on a held CHECK row
+    # too, which is the only thing such a row carries to delivery.
+    incident_action: IncidentAction | None = None
 
 
 @frozen
@@ -303,6 +308,12 @@ class AlertDeliveryRequest:
     configuration while the platform runs beside a source's own stack. `event_ids_by_kind` maps
     each kind the source can announce onto the event id its destinations filter on. The platform
     imports no source, so it cannot derive either.
+
+    `incident_actions` maps a grouping key to whether its transition opened or closed a firing.
+    It is a decision rather than a fact a message states, so it travels here like
+    `event_ids_by_kind`. It is set even when cooldown or mute held the announcement back, which
+    is the case it exists for. `announced` is False on a delivery that exists only for those
+    actions, so its rows reach no message destination even when their kind has an event id.
     """
 
     source: SourceKind
@@ -311,6 +322,8 @@ class AlertDeliveryRequest:
     evaluation_key: str
     destination_alert_id: str
     event_ids_by_kind: dict[str, str]
+    incident_actions: dict[str, IncidentAction] = field(default_factory=dict)
+    announced: bool = True
 
 
 @frozen

@@ -48,6 +48,7 @@ from products.alerts_platform.backend.facade.lifecycle import (
     Outcome,
     apply_broken_config,
     decide_firing_episode,
+    decide_incident_action,
     evaluate_alert_check,
 )
 from products.alerts_platform.backend.facade.platform_metrics import (
@@ -311,10 +312,23 @@ def _delivery(
         ),
         disable=outcome.disable,
     )
-    if outcome.notification == NotificationAction.NONE:
-        return recorded, None
+    return recorded, _request(check, recorded, outcome, announced=outcome.notification != NotificationAction.NONE)
 
-    return recorded, AlertDeliveryRequest(
+
+def _request(
+    check: PlatformAlertCheckInput, recorded: PlatformAlertOutcome, outcome: Outcome, *, announced: bool
+) -> AlertDeliveryRequest | None:
+    """The delivery for a recorded outcome, or None when it neither announces nor moves a firing.
+
+    A firing that opens or closes needs a delivery even when cooldown or mute held the
+    announcement, because a paging destination needs one resolve for every trigger.
+    """
+    incident_action = decide_incident_action(
+        AlertState(check.state), outcome.new_state, policy=PLATFORM_LOGS_ALERT_POLICY
+    )
+    if not announced and incident_action is None:
+        return None
+    return AlertDeliveryRequest(
         source=SourceKind.LOGS,
         team_id=check.team_id,
         configuration_id=str(check.id),
@@ -323,6 +337,9 @@ def _delivery(
         evaluation_key=recorded.evaluation_key,
         destination_alert_id=str(check.legacy_configuration_id or check.id),
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
+        # Logs does not group, so its one row has the empty grouping key.
+        incident_actions={"": incident_action} if incident_action else {},
+        announced=announced,
     )
 
 
@@ -394,7 +411,7 @@ def _held(
     _record_check_metrics(
         check, new_state=outcome.new_state.value, notification=NotificationAction.NONE, skip=skip, now=now
     )
-    return recorded, None
+    return recorded, _request(check, recorded, outcome, announced=False)
 
 
 def _evaluate_cohort(

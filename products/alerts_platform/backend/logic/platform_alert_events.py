@@ -13,7 +13,7 @@ engine only remembers a bounded window of them.
 
 import json
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import fields
 from datetime import datetime
 from typing import Any
@@ -29,6 +29,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
+    IncidentAction,
 )
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
@@ -143,25 +144,40 @@ def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
     return len(rows)
 
 
-_ANNOUNCEMENT_SQL = f"""
+def _announcement_sql(kinds: str) -> str:
+    return f"""
 SELECT grouping_key, kind, episode_started_at, value, labels, condition_snapshot,
        source_config_snapshot, error_message, occurred_at, alert_name, consecutive_failures
 FROM {PLATFORM_ALERT_EVENTS_TABLE}
 WHERE team_id = %(team_id)s
   AND configuration_id = %(configuration_id)s
   AND evaluation_key = %(evaluation_key)s
-  AND kind != %(check_kind)s
+  AND {kinds}
 ORDER BY grouping_key, occurred_at DESC
 LIMIT 1 BY grouping_key
 """
 
 
-def announcement(team_id: int, configuration_id: str, evaluation_key: str) -> EvaluationAnnouncement | None:
+_ANNOUNCEMENT_SQL = _announcement_sql("kind != %(check_kind)s")
+# A separate query, so an evaluation with no incident action never sends an empty `IN` list.
+_ANNOUNCEMENT_WITH_INCIDENTS_SQL = _announcement_sql(
+    "(kind != %(check_kind)s OR grouping_key IN %(incident_grouping_keys)s)"
+)
+
+
+def announcement(
+    team_id: int,
+    configuration_id: str,
+    evaluation_key: str,
+    *,
+    incident_actions: Mapping[str, IncidentAction] | None = None,
+) -> EvaluationAnnouncement | None:
     """What one evaluation left for a destination to say, or None when it announced nothing.
 
     Rows whose kind is `CHECK` are excluded here rather than in the caller. They are recorded so
     a comparison can read every check, and they say nothing, so a message built from one would
-    have no headline.
+    have no headline. The exception is a group in `incident_actions`: cooldown or mute held its
+    announcement, but its firing still opened or closed, and a paging destination needs that row.
 
     `LIMIT 1 BY grouping_key` is the read's own deduplication. The insert carries a token the
     engine drops a repeat under, but it only remembers a bounded window of them, so a retry far
@@ -169,12 +185,13 @@ def announcement(team_id: int, configuration_id: str, evaluation_key: str) -> Ev
     """
     tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
     rows = sync_execute(
-        _ANNOUNCEMENT_SQL,
+        _ANNOUNCEMENT_WITH_INCIDENTS_SQL if incident_actions else _ANNOUNCEMENT_SQL,
         {
             "team_id": team_id,
             "configuration_id": configuration_id,
             "evaluation_key": evaluation_key,
             "check_kind": AlertEventKind.CHECK.value,
+            "incident_grouping_keys": tuple(incident_actions or ()),
         },
         team_id=team_id,
     )
@@ -192,6 +209,7 @@ def announcement(team_id: int, configuration_id: str, evaluation_key: str) -> Ev
             source_config=_snapshot(source_config_snapshot),
             error_message=error_message or None,
             occurred_at=occurred_at,
+            incident_action=(incident_actions or {}).get(grouping_key),
         )
         for grouping_key, kind, episode_started_at, value, labels, condition_snapshot, source_config_snapshot, error_message, occurred_at, _, _ in rows
     )

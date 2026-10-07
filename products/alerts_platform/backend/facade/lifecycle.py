@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 from enum import Enum, StrEnum
 from typing import Protocol
 
-from products.alerts_platform.backend.facade.contracts import FiringEpisode
+from products.alerts_platform.backend.facade.contracts import FiringEpisode, IncidentAction
 
 MAX_CONSECUTIVE_FAILURES = 5
 
@@ -242,9 +242,7 @@ def decide_firing_episode(
     parks in SNOOZED with the firing still running underneath the mute, so a caller reading the
     two state strings cannot tell that state from a resolve.
     """
-    was_firing = snapshot.state in FIRING_STATES or (
-        policy.clear_check_ends_snooze and snapshot.state == AlertState.SNOOZED
-    )
+    was_firing = _inside_firing(snapshot.state, policy)
     if outcome.new_state == AlertState.SNOOZED:
         if not (policy.clear_check_ends_snooze and was_firing):
             return None
@@ -258,6 +256,32 @@ def decide_firing_episode(
     if not was_firing:
         return None
     return FiringEpisode(started_at=snapshot.firing_started_at, ended=True)
+
+
+def _inside_firing(state: AlertState, policy: AlertPolicy) -> bool:
+    return state in FIRING_STATES or (policy.clear_check_ends_snooze and state == AlertState.SNOOZED)
+
+
+def decide_incident_action(
+    previous_state: AlertState, new_state: AlertState, *, policy: AlertPolicy
+) -> IncidentAction | None:
+    """Whether a transition opens or closes the incident a paging destination holds for the alert.
+
+    Read from the states and never from the notification. Cooldown and mute hold back the
+    announcement while the state still moves, and an incident manager needs one resolve for every
+    trigger it received, so a held resolve must still close the incident. The firing rule is
+    `decide_firing_episode`'s, so a policy that parks a firing alert in SNOOZED keeps its incident
+    open there.
+    """
+    was_firing = _inside_firing(previous_state, policy)
+    is_firing = new_state in FIRING_STATES or (
+        new_state == AlertState.SNOOZED and policy.clear_check_ends_snooze and was_firing
+    )
+    if is_firing and not was_firing:
+        return IncidentAction.TRIGGER
+    if was_firing and not is_firing:
+        return IncidentAction.RESOLVE
+    return None
 
 
 def evaluate_alert_check(

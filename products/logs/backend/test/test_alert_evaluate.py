@@ -17,6 +17,7 @@ from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import due_checks, record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
+    IncidentAction,
     PlatformConfigurationSnapshot,
     SourceBatchEvaluation,
     SourceKind,
@@ -62,9 +63,10 @@ class TestLogsAlertEvaluation(APIBaseTest):
         *configurations: PlatformConfigurationSnapshot,
         query_error: Exception | None = None,
         now: datetime | None = None,
+        count: int = 500,
     ) -> tuple[SourceBatchEvaluation, MagicMock]:
         now = now or self.cutoff
-        breaching = {str(c.id): [BucketedCount(timestamp=now, count=500)] for c in configurations}
+        breaching = {str(c.id): [BucketedCount(timestamp=now, count=count)] for c in configurations}
         with (
             patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
             patch(f"{_MODULE}.BatchedAlertCheckQuery") as query,
@@ -96,6 +98,9 @@ class TestLogsAlertEvaluation(APIBaseTest):
         self._record(evaluation)
 
         assert [(o.kind, o.value) for o in evaluation.outcomes] == [(AlertEventKind.FIRING, 500.0)]
+        assert [(d.announced, d.incident_actions) for d in evaluation.deliveries] == [
+            (True, {"": IncidentAction.TRIGGER})
+        ]
         with team_scope(self.team.id):
             alert = platform_testing.alert_for(configuration.id)
             assert alert is not None
@@ -178,7 +183,10 @@ class TestLogsAlertEvaluation(APIBaseTest):
         self._record(evaluation)
 
         query.assert_called_once()
-        assert evaluation.deliveries == ()
+        # Quiet hours hold the message, never the incident: the only delivery carries the trigger.
+        assert [(d.announced, d.incident_actions) for d in evaluation.deliveries] == [
+            (False, {"": IncidentAction.TRIGGER})
+        ]
         with team_scope(self.team.id):
             alert = platform_testing.alert_for(configuration.id)
             assert alert is not None
@@ -196,6 +204,21 @@ class TestLogsAlertEvaluation(APIBaseTest):
         unmuted, _ = self._run(configuration, now=datetime(2026, 9, 16, 12, 30, tzinfo=UTC))
 
         assert [o.kind for o in unmuted.outcomes] == [AlertEventKind.FIRING]
+
+    def test_a_resolve_cooldown_holds_still_closes_the_incident(self) -> None:
+        configuration = self._configuration(cooldown_minutes=60)
+        fired, _ = self._run(configuration)
+        record_outcomes(self.team.id, fired.outcomes, self.cutoff)
+        with team_scope(self.team.id):
+            configuration = platform_testing.configuration(configuration.id)
+
+        later = datetime(2026, 9, 16, 10, 10, tzinfo=UTC)
+        cleared, _ = self._run(configuration, now=later, count=0)
+
+        assert [o.kind for o in cleared.outcomes] == [AlertEventKind.CHECK]
+        assert [(d.announced, d.incident_actions) for d in cleared.deliveries] == [
+            (False, {"": IncidentAction.RESOLVE})
+        ]
 
     def test_a_broken_filter_config_stops_being_discovered(self) -> None:
         configuration = self._configuration(source_config={"filterGroup": {"type": "nonsense"}})
