@@ -380,17 +380,27 @@ class TestMCPToolsAPI(APIBaseTest):
                 "query_error",
                 None,
                 "Query failed",
+                None,
                 "Tool failed: MaxToolRetryableError: Query failed. You may retry with adjusted inputs.",
             ),
             (
                 "missing_error_message",
                 None,
                 None,
+                None,
+                "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Query failed. You may retry with adjusted inputs.",
+            ),
+            (
+                "query_was_cancelled",
+                None,
+                None,
+                "query_was_cancelled",
                 "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Query failed. You may retry with adjusted inputs.",
             ),
             (
                 "polling_error",
                 ConnectionError("Query status unavailable"),
+                None,
                 None,
                 "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Query status unavailable. You may retry with adjusted inputs.",
             ),
@@ -404,6 +414,7 @@ class TestMCPToolsAPI(APIBaseTest):
         _name: str,
         polling_error: Exception | None,
         error_message: str | None,
+        error_code: str | None,
         content: str,
         mock_query: Mock,
         mock_status: Mock,
@@ -416,6 +427,7 @@ class TestMCPToolsAPI(APIBaseTest):
             "complete": True,
             "error": True,
             "error_message": error_message,
+            "error_code": error_code,
         }
 
         response = self.client.post(
