@@ -1666,6 +1666,11 @@ class HogFlowActionSerializer(serializers.Serializer):
                             inputs,
                             {schema["key"] for schema in (input_schema or []) if schema.get("secret")},
                             (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id")) or {},
+                            frozenset(
+                                schema["key"]
+                                for schema in (input_schema or [])
+                                if schema.get("secret") and schema.get("required")
+                            ),
                         )
                 else:
                     function_config_serializer.is_valid(raise_exception=True)

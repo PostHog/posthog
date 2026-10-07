@@ -5691,14 +5691,22 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("resent_mask_preserves", {"secret": True}, "SUPER-SECRET"),
-            ("new_value_replaces", {"value": "ROTATED"}, "ROTATED"),
+            ("resent_mask_preserves", {"secret": True}, False, "SUPER-SECRET"),
+            ("new_value_replaces", {"value": "ROTATED"}, False, "ROTATED"),
             # A client that merges its new value into the masked object it read back must win over
             # the stored value - silently keeping the old token makes rotations appear to succeed.
-            ("mask_with_new_value_replaces", {"secret": True, "value": "ROTATED"}, "ROTATED"),
+            ("mask_with_new_value_replaces", {"secret": True, "value": "ROTATED"}, False, "ROTATED"),
+            # A web draft save keeps raw inputs when validation fails, so an empty required secret
+            # from an editor slip would otherwise be stored over the real credential.
+            ("empty_required_keeps_stored", {"value": "", "secret": False}, True, "SUPER-SECRET"),
+            ("empty_optional_clears", {"value": "", "secret": False}, False, ""),
         ]
     )
-    def test_secret_update(self, _name, api_key_input, expected_stored):
+    def test_secret_update(self, _name, api_key_input, required, expected_stored):
+        if required:
+            template = _secret_input_template()
+            template["inputs_schema"][1]["required"] = True
+            sync_template_to_db(template)
         flow_id = self._create()
 
         payload = self._flow_payload()
