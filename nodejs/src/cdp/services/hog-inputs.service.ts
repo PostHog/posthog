@@ -15,6 +15,8 @@ import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
+const EMAIL_INPUT_TYPES = ['native_email', 'email']
+
 export class HogInputsService {
     constructor(
         private integrationManager: IntegrationManagerService,
@@ -58,7 +60,7 @@ export class HogInputsService {
                 let value = input.value
                 // `design` is the email editor's state and is never sent. Its JSON-encoded strings escape quotes
                 // as \", which Liquid cannot parse. validation.py drops it the same way before it compiles hog.
-                if (['native_email', 'email'].includes(schemaTypes[key]) && value?.design !== undefined) {
+                if (EMAIL_INPUT_TYPES.includes(schemaTypes[key]) && value?.design !== undefined) {
                     const { design: _design, ...rest } = value
                     value = rest
                 }
@@ -76,9 +78,7 @@ export class HogInputsService {
         }
 
         // Add unsubscribe url if we have an email input here
-        const emailInputSchema = hogFunction.inputs_schema?.find((input) =>
-            ['native_email', 'email'].includes(input.type)
-        )
+        const emailInputSchema = hogFunction.inputs_schema?.find((input) => EMAIL_INPUT_TYPES.includes(input.type))
         const emailInput = hogFunction.inputs?.[emailInputSchema?.key ?? '']
 
         if (emailInputSchema && emailInput) {
