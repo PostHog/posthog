@@ -937,6 +937,54 @@ class TestDatabricksIntegration:
         assert not Integration.objects.filter(team=self.team, kind="databricks").exists()
 
 
+class TestGitLabIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.admin = User.objects.create_and_join(
+            self.organization, "admin@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        self.member = User.objects.create_and_join(
+            self.organization, "member@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+
+    def _connect(self, client: HttpClient, token: str):
+        return client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "gitlab",
+                "config": {"hostname": "https://gitlab.example.com", "project_id": "42", "project_access_token": token},
+            },
+            content_type="application/json",
+        )
+
+    @parameterized.expand(
+        [
+            ("admin", status.HTTP_201_CREATED, "new-token"),
+            ("member", status.HTTP_403_FORBIDDEN, "old-token"),
+        ]
+    )
+    @patch(
+        "posthog.models.integration.gitlab.GitLabIntegration.get",
+        return_value={"id": 42, "name_with_namespace": "Example / Repo", "path_with_namespace": "example/repo"},
+    )
+    def test_reconnecting_same_project_replaces_or_denies(
+        self, reconnecting_user, expected_status, expected_token, _mock_get
+    ):
+        client = HttpClient()
+        client.force_login(self.admin)
+        assert self._connect(client, "old-token").status_code == status.HTTP_201_CREATED
+
+        client.force_login(getattr(self, reconnecting_user))
+        response = self._connect(client, "new-token")
+
+        assert response.status_code == expected_status
+        integrations = Integration.objects.filter(team=self.team, kind="gitlab")
+        assert integrations.count() == 1
+        assert integrations.get().sensitive_config == {"access_token": expected_token}
+
+
 class TestGoogleCloudServiceAccountIntegration:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):
