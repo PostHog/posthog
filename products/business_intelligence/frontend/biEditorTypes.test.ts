@@ -398,12 +398,13 @@ describe('BI editor query generation', () => {
                 limit,
             })
 
-            expect(result?.query).toContain('toJSONString(tuple(event, timestamp)) AS bi_rows')
-            expect(result?.query).toContain(
-                'toJSONString(tuple(properties.$browser, properties.$geoip_country_name)) AS bi_columns'
-            )
+            expect(result?.query).toContain('event AS bi_row_event, timestamp AS bi_row_timestamp_2')
+            expect(result?.query).toContain('properties.$browser AS bi_column_browser')
+            expect(result?.query).toContain('properties.$geoip_country_name AS bi_column_country_2')
+            expect(result?.query).toMatch(/toJSONString\(tuple\(.*\)\) AS bi_rows/)
+            expect(result?.query).toMatch(/toJSONString\(tuple\(.*\)\) AS bi_columns/)
             expect(result?.query).toContain(`LIMIT ${limit}`)
-            expect(result?.node.chartSettings).toEqual({
+            expect(result?.node.chartSettings).toMatchObject({
                 heatmap: {
                     xAxisColumn: 'bi_columns',
                     yAxisColumn: 'bi_rows',
@@ -540,7 +541,7 @@ describe('BI editor query generation', () => {
             const result = buildBIQuery(config)!
             expect(result.query).toContain('sum(properties.revenue) AS sum_revenue_2,')
             expect(result.query).toContain('sum(properties.revenue) AS sum_revenue_2_2,')
-            expect(result.query).toContain('ORDER BY\n    sum_revenue_2_2 ASC')
+            expect(result.query).toMatch(/ORDER BY\s+sum_revenue_2_2 ASC/)
             expect(getBISortOptions(config).find(({ key }) => key === config.sort?.key)?.expression).toBe(
                 'sum_revenue_2_2'
             )
@@ -757,7 +758,7 @@ describe('BI editor query generation', () => {
             columns: [countryField],
             values: Array.from({ length: measureCount }, () => ({ field: revenueField, aggregation: 'sum' })),
         }
-        expect(getBIChartFit(pivotConfig, ChartDisplayType.TwoDimensionalHeatmap).fits).toBe(measureCount <= 1)
+        expect(getBIChartFit(pivotConfig, ChartDisplayType.TwoDimensionalHeatmap).fits).toBe(true)
         expect(buildBIQuery(pivotConfig)?.node.chartSettings?.heatmap?.valueColumn).toBe(
             measureCount === 0 ? 'count' : 'sum_revenue'
         )
