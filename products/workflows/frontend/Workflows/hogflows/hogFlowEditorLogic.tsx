@@ -2790,8 +2790,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         }
                     }
 
-                    // Without the team loaded the UTM keys stay out, so the API copies the team defaults on save.
-                    if (!isHogFlowActionNode && partialNewAction.type === 'function_email' && values.currentTeam) {
+                    // A copied email keeps its own UTM choice. Without the team loaded the UTM keys stay out, so
+                    // the API copies the team defaults on save.
+                    if (
+                        !isHogFlowActionNode &&
+                        partialNewAction.type === 'function_email' &&
+                        !('utm_tags_enabled' in config) &&
+                        values.currentTeam
+                    ) {
                         config = {
                             ...config,
                             ...newEmailUtmConfig(getTeamUtmDefaults(values.currentTeam.workflows_config)),
