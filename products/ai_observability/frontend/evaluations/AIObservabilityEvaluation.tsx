@@ -423,12 +423,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         <div className="text-muted">Applicable</div>
                                                     </div>
                                                 )}
-                                                <div className="text-center">
-                                                    <div className="font-semibold text-lg text-danger">
-                                                        {runsSummary.errors}
-                                                    </div>
-                                                    <div className="text-muted">Errors</div>
-                                                </div>
                                             </div>
                                             <div className="text-muted text-xs">
                                                 {runsBackfillId
