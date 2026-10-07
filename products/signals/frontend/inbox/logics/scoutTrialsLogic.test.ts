@@ -337,7 +337,10 @@ describe('scoutTrialsLogic', () => {
             logic.actions.setResults({ [launchId]: logic.values.results[launchId] }, {})
             const saved = logic.values.comparisonState.value!
             jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
-                results: [{ ...saved, status: 'not_started' }],
+                results: [
+                    { ...saved, status: 'not_started' },
+                    { ...saved, comparison_id: 'older-trial', status: 'completed', variants: [] },
+                ],
                 has_more: false,
             })
             await expectLogic(logic, () =>
@@ -345,6 +348,10 @@ describe('scoutTrialsLogic', () => {
             ).toFinishAllListeners()
             expect(logic.values.comparisonState.value?.status).toBe(saved.status)
             expect(logic.values.selectedResult?.error).toBeNull()
+            expect(logic.values.comparisonsForConfig.map((comparison) => comparison.id)).toEqual([
+                saved.comparison_id,
+                'older-trial',
+            ])
 
             jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue({ ...saved, status: 'judging' })
             jest.mocked(signalsScoutConfigTrialResult).mockImplementation(async (_, __, params) => ({

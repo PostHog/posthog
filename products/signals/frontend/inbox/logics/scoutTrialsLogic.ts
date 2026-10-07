@@ -929,10 +929,11 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
             for (const comparison of [...comparisonHistory.results].reverse()) {
                 // History can be read before the running workflow writes its first progress update.
                 const current = values.comparisonStates[comparison.comparison_id]?.value
-                if (comparison.status === 'not_started' && current && current.status !== 'not_started') {
-                    continue
-                }
-                actions.registerServerComparison(comparison)
+                actions.registerServerComparison(
+                    comparison.status === 'not_started' && current && current.status !== 'not_started'
+                        ? current
+                        : comparison
+                )
             }
         },
         loadComparison: async ({ comparisonId }) => {
