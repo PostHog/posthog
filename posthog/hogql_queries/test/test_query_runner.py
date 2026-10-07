@@ -2821,11 +2821,6 @@ class TestQuerySingleFlightRunner(BaseTest):
 
     @parameterized.expand(
         [
-            ("leader_failed_without_a_shareable_failure", FlightWait(outcome="failed")),
-            (
-                "published_failure_unknown_to_this_version",
-                FlightWait(outcome="failed", failure=SharedFailure(message="x", class_name="RenamedInANewerDeploy")),
-            ),
             ("leader_vanished", FlightWait(outcome="released")),
             ("wait_timed_out", FlightWait(outcome="timeout")),
             ("published_entry_never_landed", FlightWait(outcome="done", last_refresh=datetime(2026, 1, 1, tzinfo=UTC))),
@@ -2845,10 +2840,20 @@ class TestQuerySingleFlightRunner(BaseTest):
                     runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         mock_calculate.assert_not_called()
 
-    def test_follower_runs_alone_when_the_flight_is_unavailable(self):
+    @parameterized.expand(
+        [
+            ("flight_unavailable", FlightWait(outcome="unavailable")),
+            ("leader_failed_without_a_shareable_failure", FlightWait(outcome="failed")),
+            (
+                "published_failure_unknown_to_this_version",
+                FlightWait(outcome="failed", failure=SharedFailure(message="x", class_name="RenamedInANewerDeploy")),
+            ),
+        ]
+    )
+    def test_follower_runs_alone(self, _name, wait_result):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
-        self._become_follower(FlightWait(outcome="unavailable"))
+        self._become_follower(wait_result)
         with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
             response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert response.is_cached is False

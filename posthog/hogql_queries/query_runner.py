@@ -2555,10 +2555,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self._phase = RunPhase(name="flight_wait")
                 with self.timings.measure("flight_wait"):
                     wait = flight.wait()
-                if wait.outcome != "unavailable":
-                    return self._serve_flight_outcome(wait, cache_manager, query_run=query_run)
-                # The flight cannot be read, so this run goes alone, as it does when acquire hits a storage error.
-                QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_ran_alone").inc()
+                if wait.outcome == "unavailable":
+                    # The flight cannot be read, so this run goes alone, as it does when acquire hits a storage error.
+                    QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_ran_alone").inc()
+                else:
+                    served = self._serve_flight_outcome(wait, cache_manager, query_run=query_run)
+                    if served is not None:
+                        return served
                 flight = None
 
         try:
@@ -2601,8 +2604,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 query_scan=getattr(exc, "query_scan", None),
             )
 
-    def _serve_flight_outcome(self, wait: FlightWait, cache_manager: QueryCache, *, query_run: QueryRun) -> CR:
-        """Serve the entry the leader published, or fail the way it failed."""
+    def _serve_flight_outcome(
+        self, wait: FlightWait, cache_manager: QueryCache, *, query_run: QueryRun
+    ) -> Optional[CR]:
+        """Serve the entry the leader published, or fail the way it failed. None when this run must
+        go alone because the leader's failure can pass on a new run."""
         if wait.outcome == "done":
             # Only the entry the leader published. Identity is settled by last_refresh, so the
             # read ignores the request's freshness window: an entry a moment old is still the
@@ -2620,12 +2626,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_served_cache").inc()
                 self._report_result_from_cache(served, query_run=query_run, execution_path="single_flight_follower")
                 return served
-        if wait.outcome == "failed" and wait.failure is not None:
-            error = rebuild_shared_failure(wait.failure)
+        if wait.outcome == "failed":
+            error = rebuild_shared_failure(wait.failure) if wait.failure is not None else None
             if error is not None:
                 QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_failed_with_leader").inc()
                 raise error
-        # The leader failed in a way that cannot be shared, died, held its lock past the limit, or its entry is gone.
+            # A cancellation, a rate limit, or a capacity error can pass on the next run, so this run tries.
+            QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_ran_after_leader_failed").inc()
+            return None
+        # The leader died, held its lock past the limit, or its entry is gone.
         QUERY_SINGLE_FLIGHT_COUNTER.labels(action=f"follower_unresolved_{wait.outcome}").inc()
         raise QueryRanConcurrently()
 

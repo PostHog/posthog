@@ -97,8 +97,8 @@ class ClickHouseAtCapacity(APIException):
 
 
 class QueryRanConcurrently(APIException):
-    """Raised by a query single flight follower whose leader left nothing to serve or rebuild: the
-    leader failed in a way that cannot be shared, died, or held its lock past the limit."""
+    """Raised by a query single flight follower whose leader left nothing to serve: the leader died,
+    held its lock past the limit, or its entry is gone."""
 
     status_code = 503
     default_code = "query_ran_concurrently"
