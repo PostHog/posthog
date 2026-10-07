@@ -1147,21 +1147,16 @@ class ProjectBackwardCompatSerializer(
         attrs = validate_team_attrs(attrs, self.context["view"], self.instance)
 
         if "tags" in attrs:
-            new_groups = project_tags.validate_group_tags(attrs["tags"])
-            current_groups = (
-                project_tags.group_tags(project_tags.current_names(self.instance)) if self.instance else set()
+            project_tags.validate_group_change(
+                attrs["tags"],
+                current_groups=project_tags.group_tags(project_tags.current_names(self.instance))
+                if self.instance
+                else set(),
+                user=cast(User, self.context["request"].user),
+                organization_id=self.instance.organization_id
+                if self.instance
+                else self.context["view"].organization_id,
             )
-            if new_groups != current_groups:
-                organization_id = (
-                    self.instance.organization_id if self.instance else self.context["view"].organization_id
-                )
-                membership = OrganizationMembership.objects.filter(
-                    user=self.context["request"].user, organization_id=organization_id
-                ).first()
-                if membership is None or membership.level < OrganizationMembership.Level.ADMIN:
-                    raise serializers.ValidationError(
-                        {"tags": "Only organization admins and owners can change project groups."}
-                    )
 
         if self.instance:
             field_mappings = get_field_access_control_map(Team)
@@ -1182,6 +1177,23 @@ class ProjectBackwardCompatSerializer(
                             {field_name: f"You need {required_level} access to {display_name} to modify this field."}
                         )
         return super().validate(attrs)
+
+    def save(self, **kwargs: Any) -> Project:
+        if self.instance is None or "tags" not in self.validated_data:
+            return super().save(**kwargs)
+        with transaction.atomic():
+            project = get_object_or_404(
+                Project.objects.select_for_update(),
+                pk=self.instance.pk,
+                organization_id=self.instance.organization_id,
+            )
+            project_tags.validate_group_change(
+                self.validated_data["tags"],
+                current_groups=project_tags.group_tags(project_tags.current_names(project)),
+                user=cast(User, self.context["request"].user),
+                organization_id=project.organization_id,
+            )
+            return super().save(**kwargs)
 
     def create(self, validated_data: dict[str, Any], **kwargs) -> Project:
         # Analytics config sub-objects are created with the Team's defaults and only mutated via update;

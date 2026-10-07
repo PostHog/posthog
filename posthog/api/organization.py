@@ -363,6 +363,7 @@ class OrganizationSerializer(
         membership = self.user_permissions.organization_memberships.get(organization.pk)
         return membership.joined_at.isoformat() if membership is not None else None
 
+    @extend_schema_field(OrganizationTeamBasicSerializer(many=True))
     @tracer.start_as_current_span("organization_serializer.teams")
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
         user_id = _resolve_cached_user_id(self.context)

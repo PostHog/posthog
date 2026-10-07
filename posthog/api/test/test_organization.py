@@ -53,16 +53,17 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertNotIn("personalization", response_data)
         self.assertNotIn("setup", response_data)
 
-    def test_project_group_tags_are_visible_in_organization_projects(self):
-        self.client.get("/api/organizations/@current")
+    def test_project_group_tags_are_visible_in_organization_projects(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        self.client.get("/api/organizations/@current")
 
-        updated = self.client.patch(
-            f"/api/projects/{self.project.id}/",
-            {"tags": ["project-group:production-apps"]},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            updated = self.client.patch(
+                f"/api/projects/{self.project.id}/",
+                {"tags": ["project-group:production-apps"]},
+                format="json",
+            )
         self.assertEqual(updated.status_code, status.HTTP_200_OK, updated.json())
 
         organization = self.client.get("/api/organizations/@current")

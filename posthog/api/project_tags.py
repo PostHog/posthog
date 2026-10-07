@@ -1,12 +1,12 @@
 """Tagging for projects: the `tags` field, the list filter, and the analytics around both.
 
 The pieces live here rather than in `project.py` so that module keeps to project settings.
-`project.py` is the only caller.
 """
 
 import re
 from collections.abc import Iterable
 from typing import Any
+from uuid import UUID
 
 from django.db.models import Prefetch, QuerySet
 
@@ -15,6 +15,7 @@ from drf_spectacular.utils import OpenApiParameter
 from rest_framework import exceptions, serializers
 
 from posthog.event_usage import report_user_action
+from posthog.models.organization import OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
@@ -69,6 +70,17 @@ def validate_group_tags(tags: Iterable[str]) -> set[str]:
     if any(not PROJECT_GROUP_TAG_PATTERN.fullmatch(group) for group in groups):
         raise exceptions.ValidationError({"tags": "Project group tags must use project-group:<slug>."})
     return groups
+
+
+def validate_group_change(
+    tags: Iterable[str], *, current_groups: set[str], user: User, organization_id: UUID | str
+) -> None:
+    new_groups = validate_group_tags(tags)
+    if new_groups == current_groups:
+        return
+    membership = OrganizationMembership.objects.filter(user=user, organization_id=organization_id).first()
+    if membership is None or membership.level < OrganizationMembership.Level.ADMIN:
+        raise exceptions.ValidationError({"tags": "Only organization admins and owners can change project groups."})
 
 
 def tags_field() -> serializers.ListField:

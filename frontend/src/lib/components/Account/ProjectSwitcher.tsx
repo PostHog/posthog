@@ -1,6 +1,6 @@
 import { Combobox } from '@base-ui/react/combobox'
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useRef } from 'react'
 
 import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 
@@ -17,27 +17,12 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
-import { AvailableFeature, OrganizationTeamType } from '~/types'
+import { AvailableFeature } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { newAccountMenuLogic } from './newAccountMenuLogic'
+import { CreateProjectItem, ListItem, newAccountMenuLogic, ProjectListItem } from './newAccountMenuLogic'
 import { ProjectFreshnessIndicator } from './ProjectFreshnessIndicator'
 import { ProjectName } from './ProjectMenu'
-
-interface ProjectListItem {
-    type: 'project'
-    id: number
-    team: OrganizationTeamType
-    isCurrent: boolean
-}
-
-interface CreateProjectItem {
-    type: 'create'
-    id: 'create-new-project'
-    label: string
-}
-
-type ListItem = ProjectListItem | CreateProjectItem
 
 export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
@@ -45,63 +30,13 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
-    const { closeProjectSwitcher, setAccountMenuOpen } = useActions(newAccountMenuLogic)
-    const [searchValue, setSearchValue] = useState('')
+    const { closeProjectSwitcher, setAccountMenuOpen, setProjectSearchValue } = useActions(newAccountMenuLogic)
+    const {
+        projectSearchValue: searchValue,
+        filteredProjectItems: filteredItems,
+        projectGroups,
+    } = useValues(newAccountMenuLogic)
     const inputRef = useRef<HTMLInputElement>(null!)
-
-    const allProjectItems: ProjectListItem[] = useMemo(() => {
-        const items: ProjectListItem[] = []
-
-        if (currentOrganization?.teams) {
-            for (const team of currentOrganization.teams) {
-                items.push({
-                    type: 'project',
-                    id: team.id,
-                    team,
-                    isCurrent: team.id === currentTeam?.id,
-                })
-            }
-        }
-
-        return items
-    }, [currentOrganization?.teams, currentTeam?.id])
-
-    const filteredItems = useMemo(() => {
-        const searchLower = searchValue.trim().toLowerCase()
-
-        // Filter project items
-        const filteredProjects = searchLower
-            ? allProjectItems.filter((item) => item.team.name.toLowerCase().includes(searchLower))
-            : allProjectItems
-
-        // Create the "create" item - show different label based on search
-        const createItem: CreateProjectItem = {
-            type: 'create',
-            id: 'create-new-project',
-            label: 'New project',
-            // TODO: Uncomment this when we have a way to create projects with a name
-            // label: searchValue.trim() ? `Create '${searchValue.trim()}'` : 'New project',
-        }
-
-        return [...filteredProjects, createItem] as ListItem[]
-    }, [allProjectItems, searchValue])
-
-    const projectGroups = useMemo(() => {
-        const groups = new Map<string | null, ProjectListItem[]>()
-        for (const item of filteredItems) {
-            if (item.type !== 'project') {
-                continue
-            }
-            const group = item.team.project_group ?? null
-            groups.set(group, [...(groups.get(group) ?? []), item])
-        }
-        return [...groups.entries()]
-            .sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : a.localeCompare(b)))
-            .map(([name, projects]) => ({
-                name,
-                projects: projects.sort((a, b) => a.team.name.localeCompare(b.team.name)),
-            }))
-    }, [filteredItems])
     const createItem = filteredItems.find((p): p is CreateProjectItem => p.type === 'create')
 
     const canCreateProject = preflight?.can_create_org !== false && !projectCreationForbiddenReason
@@ -191,7 +126,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                         <Combobox.Input
                             ref={inputRef}
                             value={searchValue}
-                            onChange={(e) => setSearchValue(e.target.value)}
+                            onChange={(e) => setProjectSearchValue(e.target.value)}
                             aria-label="Search projects"
                             placeholder="Search projects..."
                             className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
@@ -203,7 +138,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                     <ButtonPrimitive
                                         iconOnly
                                         size="sm"
-                                        onClick={() => setSearchValue('')}
+                                        onClick={() => setProjectSearchValue('')}
                                         aria-label="Clear search"
                                         className="-mr-1"
                                     >
@@ -226,7 +161,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                         tabIndex={-1}
                     >
                         {projectGroups.map(({ name, projects }) => (
-                            <Combobox.Group key={name ?? 'ungrouped'} items={projects}>
+                            <Combobox.Group key={name === null ? 'ungrouped' : `group:${name}`} items={projects}>
                                 <Combobox.GroupLabel className="px-2 pt-2 pb-1 text-xxs text-tertiary font-medium">
                                     {name ? identifierToHuman(name, 'sentence') : 'Other projects'}
                                 </Combobox.GroupLabel>
