@@ -8427,7 +8427,9 @@ export interface BITableCalculationApi {
 export interface BIValueApi {
     aggregation: BIAggregationApi
     customExpression?: string | null
+    display?: ChartSettingsDisplayApi | null
     field: BIFieldApi
+    formatting?: ChartSettingsFormattingApi | null
     label?: string | null
     tableCalculation?: BITableCalculationApi | null
 }
