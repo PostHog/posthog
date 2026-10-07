@@ -187,7 +187,7 @@ pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
 
         // Quota, rate, and ops-imposed drops are surfaced through billing and
         // ops channels, not the warnings UI.
-        CaptureError::BillingLimit
+        CaptureError::BillingLimit(_)
         | CaptureError::RateLimited
         | CaptureError::GlobalRateLimitExceeded() => None,
 
@@ -257,6 +257,7 @@ mod tests {
     use crate::ingestion_warnings::{SdkAttribution, MAX_SDK_ATTRIBUTION_LEN};
     use common_ingestion_warnings::test_support::CollectingEmitter;
     use common_ingestion_warnings::UNKNOWN_ATTRIBUTION;
+    use limiters::redis::QuotaResource;
     use rstest::rstest;
 
     fn replay_context(attribution: SdkAttribution) -> ProcessingContext {
@@ -300,7 +301,7 @@ mod tests {
     #[case::empty_batch(CaptureError::EmptyBatch, None)]
     #[case::empty_payload(CaptureError::EmptyPayload, None)]
     #[case::no_token(CaptureError::NoTokenError, None)]
-    #[case::billing(CaptureError::BillingLimit, None)]
+    #[case::billing(CaptureError::BillingLimit(QuotaResource::Recordings), None)]
     #[case::rate_limited(CaptureError::RateLimited, None)]
     #[case::unreachable_cookieless(CaptureError::InvalidCookielessMode, None)]
     #[case::unreachable_window_id(CaptureError::MissingWindowId, None)]
