@@ -24,21 +24,24 @@ intervals** they were active, then count units per bucket.
 
 ## Lifecycle
 
-Classify each unit's activity in each interval relative to the previous interval and the unit's creation date
-(person or group profile `created_at`), as `query-lifecycle` does:
+Classify each unit's activity in each interval relative to the previous interval and the interval in which the
+unit started:
 
 | Bucket           | Meaning                                                                        |
 | ---------------- | ------------------------------------------------------------------------------ |
-| **New**          | Active this interval, and the profile was created this interval.               |
+| **New**          | Active this interval, and the unit started this interval.                      |
 | **Returning**    | Active this interval and the immediately previous interval (not new).          |
 | **Resurrecting** | Active this interval, inactive the previous interval, and not new.             |
 | **Dormant**      | Not active this interval, but active the previous interval (plotted negative). |
 
-- A unit created in an earlier interval than its first chosen event counts as resurrecting in that interval,
-  not new.
+- **When a unit started depends on the platform.**
+  - PostHog (`query-lifecycle` and the HogQL recipe): the person profile `created_at`.
+  - dbt or another warehouse: the first-ever chosen event over the full event history, or `created_at` from a
+    users table if you have one.
+- On PostHog, a person created in an earlier interval than their first chosen event counts as resurrecting in
+  that interval, not new.
 - Do not use "first event inside the analysis window" as new. It labels every existing user who is active at
-  the window's start as new. The dbt mart has no profile creation date, so it uses the first-ever chosen
-  event over the full event history.
+  the window's start as new. Use the full history or a profile creation date.
 - Output: stacked bars per interval (dormant negative). New + returning + resurrecting = active users;
   dormant shows churn out.
 - Reading: dormant outpacing returning + resurrecting = leaky bucket (growth masks churn); resurrection

@@ -27,7 +27,7 @@ SELECT
     week,
     countIf(week = created_week)                                                          AS new,
     countIf(week != created_week AND prev_week = week - INTERVAL 1 WEEK)                  AS returning,
-    countIf(week != created_week AND prev_week != week - INTERVAL 1 WEEK)                 AS resurrecting
+    countIf(week != created_week AND (prev_week IS NULL OR prev_week < week - INTERVAL 1 WEEK)) AS resurrecting
 FROM enriched
 WHERE week >= toStartOfWeek(now()) - INTERVAL 11 WEEK
 GROUP BY week
