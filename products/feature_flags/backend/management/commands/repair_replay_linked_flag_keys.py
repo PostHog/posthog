@@ -345,19 +345,20 @@ class Command(BaseCommand):
 
         if ref.key is None:
             return Outcome.MALFORMED, resolved
-        # This checks the key first, unlike the linked flag column, because the SDK resolves the
-        # key. Most references are the bare string form and store no id to fall back on.
-        if flags.resolves(project_id, ref.key):
-            return Outcome.ALREADY_CORRECT, resolved
+        key_resolves = flags.resolves(project_id, ref.key)
         if ref.flag_id is None:
-            return Outcome.KEY_UNRESOLVABLE, resolved
+            return (Outcome.ALREADY_CORRECT if key_resolves else Outcome.KEY_UNRESOLVABLE), resolved
         if (blocked := self._blocked_by(flag_id=ref.flag_id, project_id=project_id, flags=flags)) is not None:
-            return blocked, resolved
+            # The SDK resolves the key, so a key that resolves still gates recording.
+            return (Outcome.ALREADY_CORRECT if key_resolves else blocked), resolved
 
+        new_key = flags.by_id[ref.flag_id].key
+        if ref.key == new_key:
+            return Outcome.ALREADY_CORRECT, resolved
         # Adopting the id's key moves the gate onto whatever that flag is called now, which can be
         # a different flag than the stale key names today. The id is the stronger reference. The
         # old_key and new_key fields below make the move visible in the report.
-        return Outcome.REPAIRED, {**resolved, "old_key": ref.key, "new_key": flags.by_id[ref.flag_id].key}
+        return Outcome.REPAIRED, {**resolved, "old_key": ref.key, "new_key": new_key}
 
     def _write_repairs(self, team_id: int, findings: list[_Finding]) -> list[_Finding]:
         """Rewrite the references the scan classed as repairable, and report what the write did.

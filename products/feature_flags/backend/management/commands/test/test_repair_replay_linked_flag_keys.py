@@ -251,8 +251,11 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         with self.assertRaises(CommandError):
             self._run("--live-run", "--chunk-size", "0", teams=[self.team])
 
-    def test_repairs_a_trigger_group_key_and_names_the_group_it_fixed(self) -> None:
+    @parameterized.expand([("old_key_free", False), ("old_key_claimed_by_another_flag", True)])
+    def test_repairs_a_trigger_group_key_and_names_the_group_it_fixed(self, _name: str, old_key_claimed: bool) -> None:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
+        if old_key_claimed:
+            FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
         set_trigger_groups(
             self.team,
             {"events": ["$pageview"]},
