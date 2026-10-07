@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CodemagicResumeConfig:
     # v1 Builds: offset of the next page.
     skip: Optional[int] = None
