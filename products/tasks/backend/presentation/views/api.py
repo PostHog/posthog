@@ -68,7 +68,6 @@ from products.exports.backend.facade.api import render_png_export
 
 if TYPE_CHECKING:
     from products.exports.backend.facade.api import ExportedAsset
-from products.tasks.backend.constants import ARTIFACT_SCRIPT_SHA256_KEY
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
@@ -3068,7 +3067,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 str(artifact.get("name") or ""), str(artifact.get("content_type") or "")
             ):
                 raise NotFound()
-            stored_sha256 = artifact.get(ARTIFACT_SCRIPT_SHA256_KEY)
+            stored_sha256 = artifact.get(tasks_facade.ARTIFACT_SCRIPT_SHA256_KEY)
             script_digest = stored_sha256 if isinstance(stored_sha256, str) else None
         else:
             content, error = tasks_facade.read_task_run_living_artifact_version(
