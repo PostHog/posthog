@@ -308,6 +308,9 @@ export interface inboxOnboardingLogicActions {
     expectWizardRun: (workflowId: string) => {
         workflowId: string
     } // wizardActiveSessionDetectorLogic
+    expectedWizardRunEnded: () => {
+        value: true
+    } // wizardActiveSessionDetectorLogic
     dismissBanner: () => {
         value: true
     }
@@ -329,6 +332,9 @@ export interface inboxOnboardingLogicActions {
     }
     setManualSetupRequested: (teamId: number) => {
         teamId: number
+    }
+    stopAwaitingWizardRun: () => {
+        value: true
     }
     wizardCommandCopied: () => {
         value: true
@@ -447,7 +453,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
         ],
         actions: [
             wizardActiveSessionDetectorLogic,
-            ['check as checkWizardSession', 'expectRun as expectWizardRun'],
+            ['check as checkWizardSession', 'expectRun as expectWizardRun', 'endExpectedRun as expectedWizardRunEnded'],
             signalSourcesLogic,
             ['loadSourceConfigs'],
             scoutFleetLogic,
@@ -472,6 +478,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
         setManualSetupRequested: (teamId: number) => ({ teamId }),
         /** The wizard command was copied from the takeover or the banner. */
         wizardCommandCopied: true,
+        stopAwaitingWizardRun: true,
     }),
 
     listeners(({ actions, values }) => ({
@@ -514,10 +521,14 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
         ],
         // The takeover shows a waiting state from the first copy, until a run connects and the
         // takeover goes away.
+        // Cleared when the detector stops expecting a run or a run ends, so a takeover that comes
+        // back (no run arrived, or setup is still incomplete) offers the command again.
         awaitingWizardRun: [
             false,
             {
                 wizardCommandCopied: () => true,
+                expectedWizardRunEnded: () => false,
+                stopAwaitingWizardRun: () => false,
             },
         ],
         verdictWaitExpired: [
@@ -718,6 +729,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
         // the takeover back until the fresh data arrives.
         isWizardRunning: (isWizardRunning: boolean, previousIsWizardRunning: boolean | undefined) => {
             if (previousIsWizardRunning === true && !isWizardRunning) {
+                actions.stopAwaitingWizardRun()
                 actions.refreshSetupState()
             }
         },

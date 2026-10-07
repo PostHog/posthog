@@ -42,8 +42,10 @@ function CommandCta(): JSX.Element {
         }
     }, [])
 
-    const handleCopy = (): void => {
-        void copyToClipboard(SELF_DRIVING_WIZARD_COMMAND, 'self-driving setup command', { silent: true })
+    const handleCopy = async (): Promise<void> => {
+        if (!(await copyToClipboard(SELF_DRIVING_WIZARD_COMMAND, 'self-driving setup command', { silent: true }))) {
+            return
+        }
         captureInboxWelcomeCommandCopied({ surface: 'takeover' })
         wizardCommandCopied()
         setCopied(true)
@@ -62,7 +64,7 @@ function CommandCta(): JSX.Element {
             <button
                 type="button"
                 className="InboxWelcome__copy-button"
-                onClick={handleCopy}
+                onClick={() => void handleCopy()}
                 aria-label="Copy self-driving setup command"
             >
                 {copied ? 'Copied' : 'Copy'}

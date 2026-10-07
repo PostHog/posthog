@@ -44,10 +44,8 @@ export function InboxOnboardingBanner(): JSX.Element {
                 ariaLabel="Copy self-driving setup command"
                 decoration="rainbow"
                 size="sm"
-                onCopy={() => {
-                    captureInboxWelcomeCommandCopied({ surface: 'banner' })
-                    wizardCommandCopied()
-                }}
+                onCopy={() => captureInboxWelcomeCommandCopied({ surface: 'banner' })}
+                onCopySuccess={wizardCommandCopied}
                 // rounded-md sits one step inside the rounded-lg banner it nests in.
                 className="!m-0 rounded-md border border-primary bg-surface-secondary hover:border-accent"
             />

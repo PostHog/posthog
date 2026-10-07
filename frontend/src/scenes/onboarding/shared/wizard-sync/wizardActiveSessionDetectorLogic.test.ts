@@ -241,6 +241,12 @@ describe('wizardActiveSessionDetectorLogic', () => {
                 expect.anything()
             )
 
+            // An SDK install already in flight must not end the wait for the self-driving run.
+            logic.actions.markActive('posthog-integration')
+            mockLatestRetrieve.mockClear()
+            jest.advanceTimersByTime(5_000)
+            expect(mockLatestRetrieve).toHaveBeenCalled()
+
             logic.actions.markActive('self-driving')
             mockLatestRetrieve.mockClear()
             jest.advanceTimersByTime(20_000)

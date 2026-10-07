@@ -478,18 +478,22 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 { pauseOnPageHidden: false }
             )
             // Paused while hidden, so the return to the tab re-runs this setup and checks at once.
-            // The first check waits out the rest of the interval, so alt-tab flapping can't burst.
+            // The first check waits out the rest of the interval and the interval starts after it,
+            // so checks stay at least one interval apart and alt-tab flapping can't burst.
             cache.disposables.add(() => {
                 const sinceLastCheck = Date.now() - (cache.lastExpectedRunCheckAt ?? 0)
                 const fastCheck = (): void => {
                     cache.lastExpectedRunCheckAt = Date.now()
                     actions.check()
                 }
+                let intervalId: number | undefined
                 const firstId = window.setTimeout(
-                    fastCheck,
+                    () => {
+                        fastCheck()
+                        intervalId = window.setInterval(fastCheck, EXPECTED_RUN_POLL_INTERVAL_MS)
+                    },
                     Math.max(0, EXPECTED_RUN_POLL_INTERVAL_MS - sinceLastCheck)
                 )
-                const intervalId = window.setInterval(fastCheck, EXPECTED_RUN_POLL_INTERVAL_MS)
                 return () => {
                     window.clearTimeout(firstId)
                     window.clearInterval(intervalId)
@@ -507,10 +511,13 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             }
             expected.clear()
         },
-        markActive: () => {
+        markActive: ({ workflowId }) => {
             actions.cancelScheduledMarkInactive()
-            // The run connected, so the stream takes over from here.
-            cache.disposables.dispose('expected-run-poll')
+            // The expected run connected, so the stream takes over from here. A different program's
+            // run (an SDK install already in flight) must not stop the wait for the expected one.
+            if (cache.expectedRunWorkflows?.has(workflowId)) {
+                cache.disposables.dispose('expected-run-poll')
+            }
         },
         markInactive: () => {
             cache.markInactiveAt = undefined
