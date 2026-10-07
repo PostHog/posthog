@@ -515,6 +515,7 @@ export type AssistantTool =
     | 'marketing_suggest_conversion_goals'
     | 'marketing_suggest_utm_mappings'
     | 'summarize_replay_vision_summaries'
+    | 'compare_replay_vision_variants'
     | 'draft_replay_vision_scanner_prompt'
     | 'search_replay_vision_observations'
     | 'scan_replay_vision_sessions'
