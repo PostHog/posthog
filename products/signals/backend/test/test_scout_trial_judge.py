@@ -99,8 +99,15 @@ def _snapshot() -> TrialEvaluationSnapshot:
                 skill_body_sha256="synthetic-hash",
                 files=[
                     TrialEvidenceFile(
+                        id="rubric-reference",
+                        kind="instructions",
+                        filename="rubric-reference.txt",
+                        sha256="b" * 64,
+                        size_bytes=1024,
+                    ),
+                    TrialEvidenceFile(
                         id="trace", kind="trace", filename="run-log.jsonl", sha256="a" * 64, size_bytes=3_000_000
-                    )
+                    ),
                 ],
                 sources=[TrialEvidenceSource(id="report:1", kind="report", text="The invented check failed twice.")],
             )
@@ -143,13 +150,23 @@ class TestSandboxJudgePrompt(SimpleTestCase):
             snapshot.runs[0],
         )
         self.assertIn("run-log.jsonl", prompt)
+        self.assertIn("rubric-reference.txt", prompt)
         self.assertIn(snapshot.criteria[0].pass_condition, prompt)
-        self.assertIn("Inspect the checkout result.", prompt)
+        self.assertNotIn("Inspect the checkout result.", prompt)
         self.assertNotIn(snapshot.runs[0].sources[0].text, prompt)
         self.assertNotIn("hidden-source-model", prompt)
         self.assertNotIn("Hidden variant label", prompt)
 
-    @parameterized.expand([("old_version",), ("missing_reference",), ("duplicate_criteria",), ("missing_files",)])
+    @parameterized.expand(
+        [
+            ("old_version",),
+            ("missing_reference",),
+            ("duplicate_criteria",),
+            ("missing_files",),
+            ("missing_reference_file",),
+            ("reference_is_observation",),
+        ]
+    )
     def test_invalid_input_is_rejected_before_starting_a_judge(self, failure: str) -> None:
         snapshot = _snapshot()
         criteria = snapshot.criteria * 2 if failure == "duplicate_criteria" else snapshot.criteria
@@ -160,6 +177,19 @@ class TestSandboxJudgePrompt(SimpleTestCase):
             judge_prompt_version="15" if failure == "old_version" else JUDGE_PROMPT_VERSION,
         )
         evidence = snapshot.runs[0].model_copy(update={"files": []}) if failure == "missing_files" else snapshot.runs[0]
+        if failure == "missing_reference_file":
+            evidence = evidence.model_copy(
+                update={"files": [file for file in evidence.files if file.id != "rubric-reference"]}
+            )
+        elif failure == "reference_is_observation":
+            evidence = evidence.model_copy(
+                update={
+                    "files": [
+                        file.model_copy(update={"kind": "report"}) if file.id == "rubric-reference" else file
+                        for file in evidence.files
+                    ]
+                }
+            )
         with self.assertRaises(TrialJudgeValidationError):
             build_trial_judge_prompt(data, evidence)
 
@@ -296,11 +326,32 @@ class TestSandboxJudgeVerdicts(SimpleTestCase):
         self.assertEqual(result.criteria[0].verdict, "unknown")
         self.assertEqual(result.criteria[0].evidence, [])
 
-    @parameterized.expand([("pass",), ("fail",), ("not_applicable",), ("unknown",)])
-    def test_conclusive_verdicts_require_observed_citations(self, verdict: str) -> None:
+    @parameterized.expand(
+        [
+            (verdict, source_id)
+            for verdict in ("pass", "fail", "not_applicable", "unknown")
+            for source_id in (None, "rubric-reference")
+        ]
+    )
+    def test_conclusive_verdicts_require_observed_citations(self, verdict: str, source_id: str | None) -> None:
+        quote = "The operation succeeded."
         result = parse_trial_judgment(
-            json.dumps({"summary": "No observations.", "criteria": [{**_verdict(verdict=verdict), "evidence": []}]}),
+            json.dumps(
+                {
+                    "summary": "No observations.",
+                    "criteria": [
+                        {
+                            **_verdict(verdict=verdict),
+                            "evidence": [{"source_id": source_id, "quote": quote}] if source_id else [],
+                        }
+                    ],
+                }
+            ),
             criteria=[_criterion()],
-            sources=[],
+            sources=[
+                TrialEvidenceSource(
+                    id="rubric-reference", kind="instructions", text=json.dumps({"instructions": quote})
+                )
+            ],
         )
         self.assertEqual(result.criteria[0].verdict, "unknown")
