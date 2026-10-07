@@ -182,6 +182,21 @@ def _is_pooler_query_wait_timeout_error(error: BaseException) -> bool:
     return _POOLER_QUERY_WAIT_TIMEOUT_MARKER in str(error).lower()
 
 
+# pgbouncer's server_login_retry cooldown: a backend connect attempt failed, so pgbouncer
+# caches the failure and hands it to every client asking for a connection until the cooldown
+# elapses and it retries the backend itself. Self-heals without our retry doing anything
+# special, so it's transient by construction, not a symptom of the underlying cause. Same
+# ProtocolViolation (SQLSTATE 08P01) shape as the query_wait_timeout marker above, so matched
+# the same way. Mirrors posthog/temporal/common/db_errors.py's identical marker for the app DB.
+_POOLER_LOGIN_RETRY_CACHED_ERROR_MARKER = "server login has been failing, cached error"
+
+
+def _is_pooler_login_retry_cached_error(error: BaseException) -> bool:
+    if not isinstance(error, psycopg.errors.ProtocolViolation):
+        return False
+    return _POOLER_LOGIN_RETRY_CACHED_ERROR_MARKER in str(error).lower()
+
+
 def _is_transient_queue_db_error(error: BaseException) -> bool:
     """Whether `error` is the queue DB being briefly unavailable rather than a bug.
 
@@ -195,6 +210,7 @@ def _is_transient_queue_db_error(error: BaseException) -> bool:
         or _is_admin_shutdown_error(error)
         or _is_connection_dropped_error(error)
         or _is_pooler_query_wait_timeout_error(error)
+        or _is_pooler_login_retry_cached_error(error)
     )
 
 
@@ -517,12 +533,16 @@ class BatchConsumer:
         # Session-scoped SET, not a libpq startup option: PgBouncer rejects
         # statement_timeout inside the `options` startup parameter.
         timeout_ms = self._statement_timeout_ms(statement_timeout_seconds)
-        if timeout_ms is not None:
-            try:
+        try:
+            if timeout_ms is not None:
                 await conn.execute(f"SET statement_timeout = {timeout_ms}")
-            except psycopg.Error:
-                await conn.close()
-                raise
+            # The queue statements are index probes that take milliseconds, but the planner
+            # can price the claim query above jit_above_cost. JIT compilation then costs
+            # more than the whole statement, on every poll.
+            await conn.execute("SET jit = off")
+        except psycopg.Error:
+            await conn.close()
+            raise
         return conn
 
     async def _drop_conn(self, attr: str) -> None:
@@ -1270,38 +1290,56 @@ class BatchConsumer:
                 await self._stop_heartbeat(heartbeat_task)
                 heartbeat_task = None
 
-                for batch in batches:
-                    await self._adapter.after_batch_processed(status_conn, batch=batch)
+                try:
+                    for batch in batches:
+                        await self._adapter.after_batch_processed(status_conn, batch=batch)
 
-                duration = time.monotonic() - start
-                self._metrics.batch_processing_duration_seconds.observe(duration)
+                    duration = time.monotonic() - start
+                    self._metrics.batch_processing_duration_seconds.observe(duration)
 
-                await self._verify_ownership(lock_conn, head)
-                for batch in batches:
-                    await self._adapter.update_status(
-                        status_conn,
-                        batch_id=batch.id,
-                        job_state=self._adapter.succeeded_state,
-                        attempt=attempts[batch.id],
-                        batch_created_at=batch.created_at,
+                    await self._verify_ownership(lock_conn, head)
+                    for batch in batches:
+                        await self._adapter.update_status(
+                            status_conn,
+                            batch_id=batch.id,
+                            job_state=self._adapter.succeeded_state,
+                            attempt=attempts[batch.id],
+                            batch_created_at=batch.created_at,
+                        )
+                        self._metrics.batches_processed_total.labels(status="success").inc()
+                    self._metrics.coalesced_sets_total.labels(outcome="success").inc()
+                    self._metrics.coalesced_set_batches.observe(len(batches))
+                    self._metrics.coalesced_set_runs.observe(len(run_uuids))
+                    self._metrics.coalesced_set_rows.observe(row_count)
+                    logger.info(
+                        self._event("batch_set_processed_ok"),
+                        run_uuid=head.run_uuid,
+                        run_uuids=run_uuids,
+                        batch_indexes=[batch.batch_index for batch in batches],
+                        batch_count=len(batches),
+                        row_count=row_count,
+                        byte_size=byte_size,
+                        is_final_batch=batches[-1].is_final_batch,
+                        duration_seconds=round(duration, 3),
                     )
-                    self._metrics.batches_processed_total.labels(status="success").inc()
-                self._metrics.coalesced_sets_total.labels(outcome="success").inc()
-                self._metrics.coalesced_set_batches.observe(len(batches))
-                self._metrics.coalesced_set_runs.observe(len(run_uuids))
-                self._metrics.coalesced_set_rows.observe(row_count)
-                logger.info(
-                    self._event("batch_set_processed_ok"),
-                    run_uuid=head.run_uuid,
-                    run_uuids=run_uuids,
-                    batch_indexes=[batch.batch_index for batch in batches],
-                    batch_count=len(batches),
-                    row_count=row_count,
-                    byte_size=byte_size,
-                    is_final_batch=batches[-1].is_final_batch,
-                    duration_seconds=round(duration, 3),
-                )
-                return True
+                    return True
+                except OwnershipLostError:
+                    raise
+                except Exception as err:
+                    # The set's write already landed (process_batches returned), so only the
+                    # post-write bookkeeping failed — e.g. a dropped queue-DB connection while
+                    # marking a member succeeded. Falling back to the single-batch path, the same
+                    # way a load failure above does, routes the error through
+                    # _handle_batch_failure's retryable/transient classification instead of
+                    # letting it bubble to the group handler as an unconditional capture_exception.
+                    logger.warning(
+                        self._event("batch_set_failed_post_processing"),
+                        run_uuid=head.run_uuid,
+                        run_uuids=run_uuids,
+                        error=str(err),
+                        error_type=type(err).__name__,
+                    )
+                    return await self._process_singly(batches, lock_conn, spent_attempt=True)
             finally:
                 await self._stop_heartbeat(heartbeat_task)
 

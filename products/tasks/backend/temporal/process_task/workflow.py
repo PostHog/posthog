@@ -2744,7 +2744,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "organization": self.context.organization_id,
                 "project": self.context.team_uuid,
             },
-            capture_analytics=capture_analytics,
+            capture_analytics=capture_analytics
+            and not bool(
+                (self.context.state or {}).get("scout_trial") or (self.context.state or {}).get("scout_trial_judge")
+            ),
         )
         await workflow.execute_activity(
             track_workflow_event,
@@ -2781,11 +2784,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     def _record_first_command_dispatched(self) -> None:
         if self._first_command_dispatched_recorded or not self._agent_boot_interaction_telemetry_enabled:
             return
+        if self._context is None:
+            return
         self._first_command_dispatched_recorded = True
         self._schedule_boot_milestone("agent_first_command_dispatched")
 
     def _record_first_agent_activity(self) -> None:
         if self._first_agent_activity_recorded or not self._agent_boot_interaction_telemetry_enabled:
+            return
+        if self._context is None:
             return
         self._first_agent_activity_recorded = True
         self._schedule_boot_milestone("agent_first_activity_observed")

@@ -187,6 +187,8 @@ export interface ApiConfig {
     taskId?: string | undefined
     /** One tool call's stated intent, forwarded as `x-posthog-intent`. Set it through `withIntent`. */
     intent?: string | undefined
+    /** Called only for a trusted PostHog API response marked as private. */
+    onPrivateResponse?: (() => void) | undefined
     clientIp?: string | undefined
     clientIpSigningKeys?: string[] | undefined
 }
@@ -228,6 +230,13 @@ export class ApiClient {
         const scoped = Object.create(Object.getPrototypeOf(this) as object) as this
         Object.assign(scoped, this)
         scoped.config = { ...this.config, intent }
+        return scoped
+    }
+
+    withAnalyticsSuppression(onPrivateResponse: () => void): this {
+        const scoped = Object.create(Object.getPrototypeOf(this) as object) as this
+        Object.assign(scoped, this)
+        scoped.config = { ...this.config, onPrivateResponse }
         return scoped
     }
 
@@ -291,13 +300,17 @@ export class ApiClient {
         if (options?.body) {
             defaultHeaders['Content-Type'] = 'application/json'
         }
-        return fetch(url, {
+        const response = await fetch(url, {
             ...options,
             headers: {
                 ...defaultHeaders,
                 ...options?.headers,
             },
         })
+        if (response.headers.get('X-PostHog-Suppress-Analytics') === 'true') {
+            this.config.onPrivateResponse?.()
+        }
+        return response
     }
 
     /**
@@ -348,6 +361,8 @@ export class ApiClient {
                     body: errorText,
                     url,
                     method: opts.method,
+                    retryAfterSeconds:
+                        response.status === 503 ? parseRetryAfterSeconds(response.headers.get('Retry-After')) : null,
                 })
             }
             return (await response.text()) as T
@@ -592,6 +607,8 @@ export class ApiClient {
             body: errorText,
             url,
             method,
+            retryAfterSeconds:
+                response.status === 503 ? parseRetryAfterSeconds(response.headers.get('Retry-After')) : null,
         })
     }
 
@@ -796,7 +813,7 @@ export class ApiClient {
                     const response = await this.fetch(url)
 
                     if (!response.ok) {
-                        throw new Error(`Failed to fetch property definitions: ${response.statusText}`)
+                        throw this.buildApiError(response, await response.text(), url, 'GET')
                     }
 
                     const data = (await response.json()) as { results: ApiPropertyDefinition[] }
@@ -832,7 +849,7 @@ export class ApiClient {
                     const response = await this.fetch(requestUrl)
 
                     if (!response.ok) {
-                        throw new Error(`Failed to fetch event definitions: ${response.statusText}`)
+                        throw this.buildApiError(response, await response.text(), requestUrl, 'GET')
                     }
 
                     const data = (await response.json()) as { results: ApiEventDefinition[] }
@@ -894,7 +911,7 @@ export class ApiClient {
                     }
 
                     if (!findResponse.ok) {
-                        throw new Error(`Failed to find event definition: ${findResponse.statusText}`)
+                        throw this.buildApiError(findResponse, await findResponse.text(), findUrl, 'GET')
                     }
 
                     const eventDef = (await findResponse.json()) as ApiEventDefinition
@@ -908,7 +925,7 @@ export class ApiClient {
                     })
 
                     if (!updateResponse.ok) {
-                        throw new Error(`Failed to update event definition: ${updateResponse.statusText}`)
+                        throw this.buildApiError(updateResponse, await updateResponse.text(), updateUrl, 'PATCH')
                     }
 
                     const responseData = (await updateResponse.json()) as ApiEventDefinition
@@ -952,7 +969,7 @@ export class ApiClient {
                     const findResponse = await this.fetch(findUrl)
 
                     if (!findResponse.ok) {
-                        throw new Error(`Failed to find property definition: ${findResponse.statusText}`)
+                        throw this.buildApiError(findResponse, await findResponse.text(), findUrl, 'GET')
                     }
 
                     const findData = (await findResponse.json()) as { results: ApiPropertyDefinition[] }
@@ -975,7 +992,7 @@ export class ApiClient {
                     })
 
                     if (!updateResponse.ok) {
-                        throw new Error(`Failed to update property definition: ${updateResponse.statusText}`)
+                        throw this.buildApiError(updateResponse, await updateResponse.text(), updateUrl, 'PATCH')
                     }
 
                     const responseData = (await updateResponse.json()) as ApiPropertyDefinition
@@ -1304,16 +1321,14 @@ export class ApiClient {
                 insightId: number
             }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
-                    const response = await this.fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`,
-                        {
-                            method: 'PATCH',
-                            body: JSON.stringify({ deleted: true }),
-                        }
-                    )
+                    const url = `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`
+                    const response = await this.fetch(url, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ deleted: true }),
+                    })
 
                     if (!response.ok) {
-                        throw new Error(`Failed to delete insight: ${response.statusText}`)
+                        throw this.buildApiError(response, await response.text(), url, 'PATCH')
                     }
 
                     return {
@@ -1670,7 +1685,7 @@ export class ApiClient {
     async getGroupTypes(projectId: string): Promise<GroupType[]> {
         const result = await this.fetchJson<GroupType[]>(`${this.baseUrl}/api/projects/${projectId}/groups_types/`)
         if (!result.success) {
-            throw new Error(result.error.message)
+            throw result.error
         }
         return result.data
     }
@@ -1681,7 +1696,7 @@ export class ApiClient {
             `${this.baseUrl}/api/projects/${projectId}/mcp_server_installations/available_tools/`
         )
         if (!result.success) {
-            throw new Error(result.error.message)
+            throw result.error
         }
         return result.data
     }

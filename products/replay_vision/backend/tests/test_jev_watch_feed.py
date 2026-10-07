@@ -5,7 +5,6 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.conf import settings
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -336,7 +335,7 @@ class TestWatchRankCache(SimpleTestCase):
         # with their scores lost forever.
         team_id = 990_002
         scanner_id = uuid4()
-        inner = get_client(settings.REPLAY_VISION_REDIS_URL)
+        inner = get_client()
 
         class _JudgedWritesFail:
             def setex(self, key: str, ttl: Any, value: str) -> None:

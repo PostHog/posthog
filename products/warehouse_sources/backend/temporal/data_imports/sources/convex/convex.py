@@ -49,6 +49,8 @@ class ConvexResumeConfig:
 
 
 _CONVEX_CLOUD_HOST_RE = re.compile(r"^[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)?\.convex\.cloud$")
+# Production and development deploy keys name their deployment, e.g. "prod:swift-lemur-123|...".
+_DEPLOY_KEY_DEPLOYMENT_RE = re.compile(r"^(?:prod|dev):([a-z0-9][a-z0-9-]*)\|")
 
 
 class InvalidDeployUrlError(Exception):
@@ -122,6 +124,14 @@ def validate_deploy_key(deploy_key: str) -> str:
         ) from None
 
     return deploy_key
+
+
+def deploy_key_targets_other_deployment(clean_url: str, deploy_key: str) -> bool:
+    match = _DEPLOY_KEY_DEPLOYMENT_RE.match(deploy_key)
+    if match is None:
+        return False
+    deployment_name = (urlparse(clean_url).hostname or "").split(".")[0]
+    return match.group(1) != deployment_name
 
 
 def _headers(deploy_key: str) -> dict[str, str]:
@@ -422,7 +432,16 @@ def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | 
     except HTTPError as e:
         if e.response is not None:
             if e.response.status_code in (401, 403):
-                return False, "Invalid deploy key. Check your Convex deploy key and try again."
+                if deploy_key_targets_other_deployment(clean_url, deploy_key):
+                    return (
+                        False,
+                        "Your deploy key belongs to a different Convex deployment than your deployment URL. "
+                        "Copy both from the same deployment's settings, then reconnect.",
+                    )
+                return (
+                    False,
+                    "Convex rejected your deploy key. Copy a new deploy key from your Convex dashboard, then reconnect.",
+                )
         # Any other status falls through to a generic message. Keep the raw error
         # (which embeds the deployment URL) out of what the user sees.
         detail = f" (HTTP {e.response.status_code})" if e.response is not None else ""

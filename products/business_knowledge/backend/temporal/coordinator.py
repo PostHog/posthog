@@ -40,7 +40,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
-from .. import logic, safety
+from .. import llm_telemetry, logic, safety
 from ..constants import BK_EMBEDDING_DOCUMENT_TYPE, BK_EMBEDDING_MODEL, BK_EMBEDDING_PRODUCT, BK_EMBEDDING_RENDERING
 from ..models import SafetyVerdict
 
@@ -111,6 +111,24 @@ def _produce_document_chunks(doc: logic.DocumentToEmbed) -> None:
         )
 
 
+def _capture_embedding_cost(doc: logic.DocumentToEmbed, *, feature: str) -> None:
+    llm_telemetry.capture_embedding(
+        team_id=doc.team_id,
+        input_tokens=llm_telemetry.estimate_tokens(chunk.content for chunk in doc.chunks),
+        trace_id=str(doc.document_id),
+        properties={
+            **llm_telemetry.ingest_properties(
+                team_id=doc.team_id,
+                document_id=doc.document_id,
+                source_id=doc.source_id,
+                source_type=doc.source_type,
+                feature=feature,
+            ),
+            "chunk_count": len(doc.chunks),
+        },
+    )
+
+
 def _emit_one_document(doc: logic.DocumentToEmbed) -> int:
     """
     Produce every chunk of one SAFE doc to the embedding pipeline, then stamp
@@ -123,6 +141,7 @@ def _emit_one_document(doc: logic.DocumentToEmbed) -> int:
     """
     _produce_document_chunks(doc)
     logic.mark_document_embeddings_emitted(team_id=doc.team_id, document_id=doc.document_id)
+    _capture_embedding_cost(doc, feature=llm_telemetry.INGEST_EMBEDDING_FEATURE)
     return len(doc.chunks)
 
 
@@ -140,6 +159,7 @@ def _reemit_one_document(doc: logic.DocumentToEmbed) -> int:
     """
     _produce_document_chunks(doc)
     logic.restamp_document_embeddings_emitted(team_id=doc.team_id, document_id=doc.document_id)
+    _capture_embedding_cost(doc, feature=llm_telemetry.INGEST_EMBEDDING_REFRESH_FEATURE)
     return len(doc.chunks)
 
 

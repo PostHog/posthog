@@ -12,7 +12,12 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
-from products.business_knowledge.backend.logic import get_document_window, rerank_chunks, search_knowledge_for_team
+from products.business_knowledge.backend.logic import (
+    RetrievalTrace,
+    get_document_window,
+    rerank_chunks,
+    search_knowledge_for_team,
+)
 from products.business_knowledge.backend.models import KnowledgeChunk
 from products.conversations.backend.temporal.ai_reply.constants import (
     MAX_CHUNKS,
@@ -39,8 +44,9 @@ def _retrieve_sync(input: RetrieveInput) -> RetrieveOutput:
     seen_chunk_ids: set[str] = set()
 
     for query in input.queries:
-        results = search_knowledge_for_team(team, query, limit=RETRIEVE_LIMIT)
-        reranked = rerank_chunks(team, query, results, top_k=RERANK_TOP_K)
+        trace = RetrievalTrace(surface="support")
+        results = search_knowledge_for_team(team, query, limit=RETRIEVE_LIMIT, trace=trace)
+        reranked = rerank_chunks(team, query, results, top_k=RERANK_TOP_K, trace=trace)
         for r in reranked:
             cid = str(r.chunk_id)
             if cid not in seen_chunk_ids:

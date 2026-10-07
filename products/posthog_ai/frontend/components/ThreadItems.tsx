@@ -88,6 +88,7 @@ export function TaskNotificationItem({ item }: { item: ThreadItem }): JSX.Elemen
         <Activity
             id={item.id}
             title={item.summary || `Task ${item.status}`}
+            wrapTitle
             status={activityStatus}
             icon={icon}
             animate={false}

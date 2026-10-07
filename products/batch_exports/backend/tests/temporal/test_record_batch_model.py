@@ -771,7 +771,6 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 [{"key": "$feature/some-feature", "type": "event", "operator": "exact", "value": ["true"]}],
                 team_id=ateam.pk,
                 values=values,
-                native_events_source=True,
             )
             batches: list[pa.RecordBatch] = await database_sync_to_async(
                 lambda: list(
@@ -799,7 +798,14 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
             assert rows[0]["flag"] == "true"
             assert rows[0]["named_false"] == "false"
             assert rows[0]["named_true"] == "true"
-            assert json.loads(rows[0]["properties"])["$browser"] == "Firefox"
+            exported_properties = json.loads(rows[0]["properties"])
+            assert exported_properties["$browser"] == "Firefox"
+            assert exported_properties["$set"] == {"email": "buyer@example.com"}
+            assert "$feature_flags" not in exported_properties
+            assert exported_properties["$feature/some-feature"] is True
+            assert exported_properties["$feature/named-false"] == "false"
+            assert exported_properties["$feature/named-true"] == "true"
+            assert exported_properties["$active_feature_flags"] == ["named-false", "named-true", "some-feature"]
             assert json.loads(rows[0]["person_properties"])["email"] == "buyer@example.com"
             assert json.loads(rows[0]["set"]) == {"email": "buyer@example.com"}
             assert rows[0]["_inserted_at"] == dt.datetime(2024, 1, 1, 12, tzinfo=dt.UTC)

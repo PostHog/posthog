@@ -828,14 +828,14 @@ _PROJECT_STATS_UNAVAILABLE_STATUSES = (
 _NO_PROJECTS_AVAILABLE_DETAIL = "No projects available"
 
 # Any other 400 from the stats-summary endpoint is a deterministic rejection of the request we
-# build (most often the requested window falling outside the org's plan retention), so retrying
-# replays it identically. Surface a credential-safe message the source classifies as non-retryable
-# (see `SentrySource.get_non_retryable_errors`) instead of burning retries on the raw HTTPError,
-# whose URL embeds the org slug. The wording never interpolates the org, URL, or response body.
+# build, so retrying replays it identically. Surface a credential-safe message the source
+# classifies as non-retryable (see `SentrySource.get_non_retryable_errors`) instead of burning
+# retries on the raw HTTPError, whose URL embeds the org slug. The wording never interpolates the
+# org, URL, or response body, and it names no cause: the reason Sentry gives is logged at the
+# raise site instead, because a guess here reads to a support engineer as a finding.
 STATS_SUMMARY_REJECTED_MESSAGE = (
     "Sentry rejected PostHog's request for your per-project usage stats (the "
-    "organization_stats_summary table) with an HTTP 400. This usually means the requested date "
-    "range is outside your Sentry plan's data retention. Remove that table from this source's "
+    "organization_stats_summary table) with an HTTP 400. Remove that table from this source's "
     "selected tables, then re-enable the sync."
 )
 
@@ -1019,7 +1019,11 @@ def _iter_organization_stats_summary_rows(
             base_api_url,
             _endpoint_path("organization_stats_summary", organization_slug=organization_slug),
             headers,
-            {"field": "sum(quantity)", "start": window.start, "end": window.end},
+            # `interval` defaults to 1h on this endpoint. Only `totals` is read below, so an
+            # hourly resolution over the retention window buys nothing and asks Sentry for about
+            # two thousand buckets per project. The sibling `organization_stats` request already
+            # sends a daily interval, so send the same one here.
+            {"field": "sum(quantity)", "interval": "1d", "start": window.start, "end": window.end},
         )
     except HTTPError as exc:
         response = exc.response
@@ -1037,6 +1041,14 @@ def _iter_organization_stats_summary_rows(
                     organization_slug=organization_slug,
                 )
                 return
+            # Sentry's own reason is the one thing that identifies a rejection, and the curated
+            # message above deliberately drops it. Log it so the next rejection is diagnosed
+            # rather than guessed at. `detail` carries no credential and no org slug.
+            logger.warning(
+                "sentry_source.organization_stats_summary_rejected",
+                organization_slug=organization_slug,
+                detail=detail,
+            )
             raise SentryStatsSummaryRejectedError(STATS_SUMMARY_REJECTED_MESSAGE) from exc
         raise
 

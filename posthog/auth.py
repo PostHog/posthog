@@ -6,7 +6,7 @@ import functools
 from abc import abstractmethod
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypedDict, Union
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from django.apps import apps
 from django.conf import settings
@@ -20,6 +20,7 @@ from django.utils import timezone
 import jwt
 import structlog
 import posthoganalytics
+from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import authentication
@@ -28,7 +29,7 @@ from rest_framework.request import Request
 from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
-from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
+from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.two_factor_session import enforce_two_factor
@@ -69,7 +70,10 @@ from posthog.utils import get_trusted_client_ip
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.auth import get_export_renderer_asset_context
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import (
+    REFUSAL_CODE as SECURITY_REFUSAL_CODE,
+    access_refused as security_access_refused,
+)
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 from products.signals.backend.facade.activity_client import resolve_scout_client_tag
@@ -101,6 +105,47 @@ PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
 )
 
 AUTH_BRAND_COOKIE = "ph_auth_brand"
+
+# Shown at login and on every request once a block rule refuses the account. It says nothing
+# about the rule that matched; the code is what lets support trace it to an access rule.
+ACCOUNT_BLOCKED_DETAIL = (
+    "We couldn't sign you in. If you think this is a mistake, contact support "
+    f"and quote the code {SECURITY_REFUSAL_CODE}."
+)
+# The login page explains a refusal from this error code, so a passwordless login that refuses
+# an account redirects here.
+ACCOUNT_BLOCKED_LOGIN_URL = f"{settings.LOGIN_URL}?{urlencode({'error_code': SECURITY_REFUSAL_CODE})}"
+
+
+def account_refused(request: Union[HttpRequest, Request], user: User, *, call_site: str, impersonated: bool) -> bool:
+    """Whether an enforced access rule blocks this account on the app surface. Never raises.
+
+    Every authenticator that resolves a user asks this, because DRF stops at the first one that
+    succeeds, so a check in one of them alone leaves the others open. An impersonated request is
+    never refused, so staff can investigate a blocked account; its match counts as a would-block.
+    """
+    try:
+        return security_access_refused(
+            SecuritySubject(
+                email=user.email,
+                user_uuid=str(user.uuid),
+                ip=get_trusted_client_ip(getattr(request, "_request", request)),
+            ),
+            SecuritySurface.APP,
+            call_site=call_site,
+            enforce=not impersonated,
+        )
+    except Exception:
+        structlog_logger.exception("security_access_check_site_failed", call_site=call_site)
+        return False
+
+
+def refuse_blocked_account(
+    request: Union[HttpRequest, Request], user: User, *, call_site: str, impersonated: bool
+) -> None:
+    """Raise when an enforced access rule blocks this account on the app surface."""
+    if account_refused(request, user, call_site=call_site, impersonated=impersonated):
+        raise AuthenticationFailed(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
 
 
 def get_auth_brand_for_client_id(client_id: str | None) -> str | None:
@@ -200,18 +245,7 @@ class SessionAuthentication(
             user, auth = auth_result
             enforce_two_factor(request, user)
             enforce_verified_domain(request, user)
-            try:
-                security_shadow_check(
-                    SecuritySubject(
-                        email=user.email,
-                        user_uuid=str(user.uuid),
-                        ip=get_trusted_client_ip(getattr(request, "_request", request)),
-                    ),
-                    SecuritySurface.APP,
-                    call_site="session",
-                )
-            except Exception:
-                structlog_logger.exception("security_shadow_check_site_failed", call_site="session")
+            refuse_blocked_account(request, user, call_site="session", impersonated=is_impersonated_session(request))
 
             return (user, auth)
 
@@ -354,6 +388,9 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
                 personal_api_key_object.last_used_at = now
                 personal_api_key_object.save(update_fields=["last_used_at"])
             assert personal_api_key_object.user is not None
+            refuse_blocked_account(
+                request, personal_api_key_object.user, call_site="personal_api_key", impersonated=False
+            )
 
             # :KLUDGE: CHMiddleware does not receive the correct user when authenticating by api key.
             tag_authentication(
@@ -484,6 +521,9 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
 
     keyword = "Bearer"
     activity_credential_type = "project_secret_key"
+    # True on routes where a backfilled PSAK (#63111) mirroring the team's legacy token
+    # must fall through to the route's legacy branch; transitional until #66179.
+    defer_migrated_team_tokens = False
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         token = _extract_phs_token(request)
@@ -492,6 +532,12 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
 
         psak = find_project_secret_api_key(token)
         if psak is None:
+            return None
+
+        if self.defer_migrated_team_tokens and token in (
+            psak.team.secret_api_token,
+            psak.team.secret_api_token_backup,
+        ):
             return None
 
         now = timezone.now()
@@ -535,6 +581,7 @@ class JwtAuthentication(ActivityCredentialMixin, authentication.BaseAuthenticati
                         token = authorization_match.group(1).strip()
                         info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
                         user = User.objects.get(pk=info["id"])
+                        refuse_blocked_account(request, user, call_site="jwt", impersonated=False)
                         self.record_activity_actor(user)
                         return (user, None)
                     except AuthenticationFailed:
@@ -720,6 +767,7 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
             if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
                 raise AuthenticationFailed(detail="ID-JAG (XAA) is not enabled for this organization.")
 
+            refuse_blocked_account(request, user, call_site="id_jag_token", impersonated=False)
             self.id_jag_claims = claims
             self.scopes = str(claims.get("scope") or "").split()
             self.organization_id = organization_id
@@ -801,12 +849,14 @@ class ExportRendererAuthentication(ActivityCredentialMixin, authentication.BaseA
             self.exported_asset_id = exported_asset_id
             self.export_context = export_context
             user = User.objects.get(pk=user_id)
-            self.record_activity_actor(user, str(exported_asset_id))
-            return user, None
         except (jwt.DecodeError, jwt.InvalidAudienceError):
             return None
         except Exception:
             raise AuthenticationFailed(detail="Token invalid.")
+        # Outside the try, so the refusal keeps its code instead of becoming "Token invalid."
+        refuse_blocked_account(request, user, call_site="export_renderer", impersonated=False)
+        self.record_activity_actor(user, str(exported_asset_id))
+        return user, None
 
     def authenticate_header(self, request) -> str:
         return self.keyword
@@ -839,9 +889,9 @@ class SharingAccessTokenAuthentication(ActivityCredentialMixin, authentication.B
             if request.method not in ["GET", "HEAD"]:
                 raise AuthenticationFailed(detail="Sharing access token can only be used for GET requests.")
             try:
-                sharing_configuration = SharingConfiguration.objects.filter(SharingConfiguration.tokens_active_q()).get(
-                    access_token=sharing_access_token
-                )
+                sharing_configuration = SharingConfiguration.objects.filter(
+                    SharingConfiguration.tokens_active_q(), SharingConfiguration.without_retired_resources_q()
+                ).get(access_token=sharing_access_token)
 
                 # If password is required, don't authenticate via direct access_token
                 # Let the view handle showing the unlock page
@@ -897,7 +947,8 @@ class SharingPasswordProtectedAuthentication(ActivityCredentialMixin, authentica
                 SharePassword.objects.select_related("sharing_configuration")
                 .filter(
                     models.Q(sharing_configuration__expires_at__isnull=True)
-                    | models.Q(sharing_configuration__expires_at__gt=timezone.now())
+                    | models.Q(sharing_configuration__expires_at__gt=timezone.now()),
+                    SharingConfiguration.without_retired_resources_q(prefix="sharing_configuration__"),
                 )
                 .get(
                     id=payload["share_password_id"],
@@ -1002,12 +1053,17 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
         user = access_token.user
         if user is None:
             raise AuthenticationFailed(detail="User associated with access token not found.")
+        refuse_blocked_account(
+            request, user, call_site="oauth_token", impersonated=access_token.impersonated_by_id is not None
+        )
 
         tag_authentication(
             user_id=user.pk,
             team_id=user.current_team_id,
             access_method=AccessMethod.OAUTH,
         )
+        if access_token.sandbox_task_id is not None and "scout_experiment_internal:read" in access_token.scope.split():
+            tag_queries(is_scout_experiment=True)
 
         # ActivityLoggingMiddleware only captures session-authenticated users (it runs
         # before DRF auth), so signal-driven activity logging would otherwise record
@@ -1143,6 +1199,7 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
         except (KeyError, PersonalAPIKey.DoesNotExist) as error:
             raise AuthenticationFailed(detail="Source personal API key is no longer valid.") from error
 
+        refuse_blocked_account(request, personal_api_key.user, call_site="personal_api_key", impersonated=False)
         self.personal_api_key = personal_api_key
         tag_authentication(
             user_id=personal_api_key.user.pk,

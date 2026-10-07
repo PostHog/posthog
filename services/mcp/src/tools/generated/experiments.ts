@@ -551,7 +551,8 @@ const experimentGet = (): ToolBase<ReturnType<typeof ExperimentGetSchema>, WithP
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['saved_metrics.*.effective_query']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -1541,7 +1542,13 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
                 'excluded_variants',
                 'metrics',
                 'metrics_secondary',
-                'saved_metrics',
+                'saved_metrics.*.id',
+                'saved_metrics.*.experiment',
+                'saved_metrics.*.saved_metric',
+                'saved_metrics.*.metadata',
+                'saved_metrics.*.created_at',
+                'saved_metrics.*.query',
+                'saved_metrics.*.name',
                 'conclusion',
                 'conclusion_comment',
                 'tags',

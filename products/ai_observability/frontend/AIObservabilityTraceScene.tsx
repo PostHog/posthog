@@ -95,7 +95,9 @@ import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { normalizeMessages } from './messageNormalization'
 import { openInPlayground } from './playground/llmPlaygroundPromptsLogic'
+import { TraceViewSwitch } from './redesign/trace/components/TraceViewSwitch'
 import { TraceScene } from './redesign/trace/TraceScene'
+import { traceViewPreferenceLogic } from './redesign/trace/traceViewPreferenceLogic'
 import { ReviewQueuePickerModal } from './reviewQueues/ReviewQueuePickerModal'
 import { reviewQueuesApi } from './reviewQueues/reviewQueuesApi'
 import { SearchHighlight } from './SearchHighlight'
@@ -423,8 +425,19 @@ function TraceNavigation(): JSX.Element {
 }
 
 function TraceSceneForFlag(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN] ? <TraceScene /> : <AIObservabilityTraceScene />
+    const { activeView } = useValues(traceViewPreferenceLogic)
+    const { switchView } = useActions(traceViewPreferenceLogic)
+    if (activeView === 'legacy') {
+        return <AIObservabilityTraceScene />
+    }
+    return (
+        <>
+            <div className="mb-2">
+                <TraceViewSwitch view="new" onSwitch={switchView} />
+            </div>
+            <TraceScene />
+        </>
+    )
 }
 
 export const scene: SceneExport = {
@@ -503,6 +516,8 @@ function TraceSceneWrapper(): JSX.Element {
               ? { name: previousQueueTraceId ? 'Previous trace' : 'Reviews', path: backPath, key: 'reviews' }
               : { name: 'Traces', path: backPath, key: 'traces' }
     const showTraceNavigation = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION]
+    const { isSwitchAvailable } = useValues(traceViewPreferenceLogic)
+    const { switchView } = useActions(traceViewPreferenceLogic)
 
     return (
         <>
@@ -519,7 +534,12 @@ function TraceSceneWrapper(): JSX.Element {
                             name={trace.id}
                             resourceType={{ type: 'llm_analytics' }}
                             forceBackTo={forceBackTo}
-                            actions={showTraceNavigation ? <TraceNavigation /> : undefined}
+                            actions={
+                                <>
+                                    {isSwitchAvailable && <TraceViewSwitch view="legacy" onSwitch={switchView} />}
+                                    {showTraceNavigation && <TraceNavigation />}
+                                </>
+                            }
                             noBorder
                         />
                         <div className="flex items-start justify-between">

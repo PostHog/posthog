@@ -254,7 +254,8 @@ describe('taskRunArtifacts', () => {
     function slackFile(
         location: Record<string, unknown>,
         name = 'signups.png',
-        contentType = 'image/png'
+        contentType = 'image/png',
+        size = 2048
     ): TaskRunLivingArtifactResponseApi {
         return livingArtifact({
             id: 'doc-2',
@@ -265,7 +266,7 @@ describe('taskRunArtifacts', () => {
                 {
                     version: 1,
                     run_id: 'run-1',
-                    size: 2048,
+                    size,
                     content_type: contentType,
                     location,
                     created_at: '2026-09-30T16:00:00Z',
@@ -325,8 +326,16 @@ describe('taskRunArtifacts', () => {
             'none',
         ],
         ['a Slack file with no stored copy has no preview', {}, 'image.png', 'image/png', 'none'],
-    ])('%s', (_, location, name, contentType, expected) => {
-        const [file] = livingArtifactFiles([slackFile(location, name, contentType)])
+        [
+            'a stored Slack file video over the preview limit only downloads',
+            { storage_path: 'tasks/doc.v1.mp4' },
+            'demo.mp4',
+            'video/mp4',
+            'none',
+            30 * 1024 * 1024,
+        ],
+    ])('%s', (_, location, name, contentType, expected, size = 2048) => {
+        const [file] = livingArtifactFiles([slackFile(location, name, contentType, size)])
         expect(artifactPreviewKind(file.latest)).toBe(expected)
     })
 })

@@ -38,6 +38,7 @@ import {
     type AutoresearchTrainingRunApi,
     CreateSuggestionPriorityEnumApi,
 } from './generated/api.schemas'
+import type { PredictionsPeopleView } from './predictionsPeopleQuery'
 
 export interface AutoresearchPipelineLogicProps {
     id: string
@@ -174,6 +175,33 @@ export function trainingRunProgress(run: AutoresearchTrainingRunApi): TrainingRu
     }
 }
 
+/** How much of the inference population the latest scoring run covered, when it scored only part of it. */
+export interface ScoringCoverage {
+    scored: number
+    eligible: number
+    /** Days it takes to score everyone once: the runs a rotation needs times the days between runs. */
+    rescoreDays: number
+}
+
+/**
+ * A population at or above the scoring cap is scored on a rolling basis: each run scores the
+ * people whose last score is oldest. Returns null when the latest completed run scored everyone.
+ */
+export function scoringCoverage(runs: AutoresearchRunApi[], cadenceDays: number): ScoringCoverage | null {
+    const latest = runs
+        .filter((run) => run.run_type === 'inference' && run.status === 'completed')
+        .reduce<AutoresearchRunApi | null>(
+            (newest, run) => (newest === null || run.created_at > newest.created_at ? run : newest),
+            null
+        )
+    const scored = latest?.rows_scored ?? 0
+    const eligible = latest?.metrics?.rows_eligible
+    if (scored <= 0 || typeof eligible !== 'number' || eligible <= scored) {
+        return null
+    }
+    return { scored, eligible, rescoreDays: Math.ceil(eligible / scored) * Math.max(cadenceDays, 1) }
+}
+
 /** One scoring day's volume: emitted prediction events and their average probability as a 0-100 percentage. */
 export interface DailyVolumePoint {
     day: string
@@ -217,6 +245,7 @@ export interface autoresearchPipelineLogicValues {
     pipeline: AutoresearchPipelineApi | null
     pipelineError: boolean
     pipelineLoading: boolean
+    predictionsPeopleView: PredictionsPeopleView
     probabilityDistribution: ProbabilityBucket[] | null
     probabilityDistributionError: boolean
     probabilityDistributionLoading: boolean
@@ -228,6 +257,7 @@ export interface autoresearchPipelineLogicValues {
     runsLoading: boolean
     scoreResult: AutoresearchRunApi | null
     scoreResultLoading: boolean
+    scoringCoverage: ScoringCoverage | null
     startTrainingResult: AutoresearchTrainingRunApi | null
     startTrainingResultLoading: boolean
     suggestionDraft: string
@@ -500,6 +530,9 @@ export interface autoresearchPipelineLogicActions {
     setActiveTab: (tab: AutoresearchPipelineTab) => {
         tab: AutoresearchPipelineTab
     }
+    setPredictionsPeopleView: (view: PredictionsPeopleView) => {
+        view: PredictionsPeopleView
+    }
     setSuggestionDraft: (draft: string) => {
         draft: string
     }
@@ -584,6 +617,10 @@ export interface autoresearchPipelineLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         breadcrumbs: (pipeline: AutoresearchPipelineApi | null) => Breadcrumb[]
         validationRuns: (runs: AutoresearchRunApi[]) => AutoresearchRunApi[]
+        scoringCoverage: (
+            runs: AutoresearchRunApi[],
+            pipeline: AutoresearchPipelineApi | null
+        ) => ScoringCoverage | null
         onlinePerformanceRows: (validationRuns: AutoresearchRunApi[]) => OnlinePerformanceRow[]
         probabilityHistogram: (probabilityDistribution: ProbabilityBucket[] | null) => ProbabilityBucket[] | null
     }
@@ -606,6 +643,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
     }),
     actions({
         setActiveTab: (tab: AutoresearchPipelineTab) => ({ tab }),
+        setPredictionsPeopleView: (view: PredictionsPeopleView) => ({ view }),
         loadDetail: true,
         toggleRunArtifacts: (runId: string) => ({ runId }),
         reportNotebookOpened: (runId: string) => ({ runId }),
@@ -627,6 +665,12 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             'overview' as AutoresearchPipelineTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        predictionsPeopleView: [
+            'most_likely' as PredictionsPeopleView,
+            {
+                setPredictionsPeopleView: (_, { view }) => view,
             },
         ],
         activeScoreRun: [
@@ -961,6 +1005,11 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             (runs: AutoresearchRunApi[]): AutoresearchRunApi[] =>
                 runs.filter((r) => r.run_type === 'validation' && r.status === 'completed'),
         ],
+        scoringCoverage: [
+            (s) => [s.runs, s.pipeline],
+            (runs: AutoresearchRunApi[], pipeline: AutoresearchPipelineApi | null): ScoringCoverage | null =>
+                scoringCoverage(runs, pipeline?.cadence_days ?? 1),
+        ],
         onlinePerformanceRows: [
             (s) => [s.validationRuns],
             (validationRuns: AutoresearchRunApi[]): OnlinePerformanceRow[] => {
@@ -1170,6 +1219,9 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         },
         reportNotebookOpened: ({ runId }) => {
             posthog.capture('autoresearch model report notebook opened', { pipeline_id: props.id, run_id: runId })
+        },
+        setPredictionsPeopleView: ({ view }) => {
+            posthog.capture('autoresearch model predictions view changed', { pipeline_id: props.id, view })
         },
     })),
     actionToUrl(({ values }) => ({

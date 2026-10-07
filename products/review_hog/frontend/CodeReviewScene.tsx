@@ -750,7 +750,7 @@ function TriggerReviewSection(): JSX.Element | null {
                                             onClick={() =>
                                                 submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.Flash)
                                             }
-                                            tooltip="A faster, cheaper review that never resolves comments. Every message it posts is marked FLASH MODE."
+                                            tooltip="A faster, cheaper review that never resolves comments. Its status comment is marked as flash."
                                         >
                                             Review in Flash mode
                                         </LemonButton>

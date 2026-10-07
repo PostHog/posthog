@@ -20,7 +20,13 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 const DashboardCreateSchema = () => {
     const DashboardsCreateBody = orvalSchemas.DashboardsCreateBody()
     const DashboardsCreateQueryParams = orvalSchemas.DashboardsCreateQueryParams()
-    return DashboardsCreateQueryParams.omit({ format: true }).extend(DashboardsCreateBody.shape)
+    return DashboardsCreateQueryParams.omit({ format: true })
+        .extend(DashboardsCreateBody.shape)
+        .extend({
+            restriction_level: DashboardsCreateBody.shape['restriction_level'].describe(
+                'Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.'
+            ),
+        })
 }
 
 const dashboardCreate = (): ToolBase<
@@ -565,7 +571,12 @@ const DashboardUpdateSchema = () => {
     return DashboardsPartialUpdateParams.omit({ project_id: true })
         .extend(DashboardsPartialUpdateQueryParams.omit({ format: true }).shape)
         .extend(DashboardsPartialUpdateBody.shape)
-        .extend({ id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']) })
+        .extend({
+            id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']),
+            restriction_level: DashboardsPartialUpdateBody.shape['restriction_level'].describe(
+                'Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.'
+            ),
+        })
 }
 
 const dashboardUpdate = (): ToolBase<
@@ -876,6 +887,7 @@ const dashboardsGetAll = (): ToolBase<
                 folder: params.folder,
                 limit: params.limit,
                 offset: params.offset,
+                ordering: params.ordering,
                 pinned: params.pinned,
                 search: params.search,
             },

@@ -21,7 +21,7 @@ from posthog.scopes import (
 )
 from posthog.utils import get_instance_region
 
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 
@@ -115,6 +115,8 @@ McpScopePreset = Literal[
     "full",
     "signals_scout",
     "signals_scout_reports",
+    "signals_scout_experiment",
+    "signals_scout_judge",
     "signals_research",
     "signals_implementation",
 ]
@@ -254,8 +256,8 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          person to approve or reject. Deliberately not `hog_flow:write`, which
 #                          also publishes, updates and test-sends a workflow: this scope can put
 #                          nothing in front of anyone. Creates only; a suggestion is resolved by
-#                          a person. The workflows scout declares it in its SKILL.md
-#                          (`scout-write-scopes`), so no other scout holds it unless granted.
+#                          a person. A person grants it in the scout's write access settings, the
+#                          same way as every other scope here, so no scout holds it by default.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -338,6 +340,8 @@ MCP_SCOPE_PRESETS = (
     "full",
     "signals_scout",
     "signals_scout_reports",
+    "signals_scout_experiment",
+    "signals_scout_judge",
     "signals_research",
     "signals_implementation",
 )
@@ -442,6 +446,21 @@ def resolve_scopes(
             # `RESEARCH_WITHHELD_SCOPES` for why `task:write` comes back out.
             reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
             resolved = [*reads, *scratchpad]
+        elif scopes == "signals_scout_judge":
+            resolved = ["scout_experiment_internal:read"] if include_internal_scopes else []
+        elif scopes == "signals_scout_experiment":
+            # Trials use a separate private Go token; their tool credential must not reach the legacy gateway.
+            reads = [
+                scope
+                for scope in (*MCP_READ_SCOPES, *internal)
+                if scope not in RESEARCH_WITHHELD_SCOPES and scope != "llm_gateway:read"
+            ]
+            private_writes = (
+                [*SCOUT_INTERNAL_SCOPES, *SCOUT_REPORT_SCOPES, "scout_experiment_internal:read"]
+                if include_internal_scopes
+                else []
+            )
+            resolved = [*reads, *private_writes]
         elif scopes in SCOUT_SCOPE_PRESETS:
             # The scout sandbox: reads, the scout's own internal write scope, and a narrow
             # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`) for the durable
@@ -489,6 +508,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
             "full",
             "signals_scout",
             "signals_scout_reports",
+            "signals_scout_experiment",
             "signals_research",
             "signals_implementation",
         )
@@ -668,7 +688,7 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
         raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
 
     try:
-        security_shadow_check(
+        refused = security_access_refused(
             SecuritySubject(
                 email=user.email,
                 user_uuid=str(user.uuid),
@@ -678,7 +698,10 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
             call_site="wizard_mint",
         )
     except Exception:
-        logger.exception("security_shadow_check_site_failed", call_site="wizard_mint")
+        logger.exception("security_access_check_site_failed", call_site="wizard_mint")
+        refused = False
+    if refused:
+        raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
 
     app = get_wizard_app()
 

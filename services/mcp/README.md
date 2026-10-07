@@ -273,7 +273,6 @@ Available features:
 | `surveys`                | [Surveys](https://posthog.com/docs/surveys)                                                     |
 | `tasks`                  | [Tasks](https://posthog.com/docs/posthog-desktop/tasks)                                         |
 | `tracing`                | Tracing                                                                                         |
-| `user_interviews`        | User interview topics                                                                           |
 | `visual_review`          | Visual review                                                                                   |
 | `warehouse_sources`      | Warehouse sources                                                                               |
 | `web_analytics`          | [Web analytics](https://posthog.com/docs/web-analytics)                                         |
@@ -287,7 +286,7 @@ To view which tools are available per feature, see our [documentation](https://p
 ### Learning and skills in cli mode
 
 Claude web and desktop silently drop `exec` when its serialized `inputSchema` reaches 16,384 characters.
-In cli mode, the `posthog` tool keeps the guidance needed for routine calls in its schema.
+In cli mode, the `exec` tool keeps the guidance needed for routine calls in its schema.
 The compact tool-domain index stays inline in the `command` schema so Claude can discover relevant tools before making a call.
 Optional, task-specific guidance is served through the same tool:
 
@@ -343,7 +342,7 @@ The example above exposes all flag tools plus `dashboard-get`.
 
 ### Server mode (tools vs cli)
 
-The MCP server can register either every PostHog tool individually (**tools** mode) or wrap them all behind a single `posthog` CLI-like tool (**cli** mode).
+The MCP server can register either every PostHog tool individually (**tools** mode) or wrap them all behind a single `exec` CLI-like tool (**cli** mode).
 **cli is the default for all clients.**
 When the caller does not pin a mode, the server only auto-selects tools mode for a short allow-list of clients that are better served by the full per-tool roster — currently Cursor (matched by its self-reported client name or its `Cursor/…` User-Agent).
 Every OpenAI surface (ChatGPT, Codex, Agent Builder, Responses API) gets the cli default. OpenAI's `openai-mcp` client caches the roster it captures for a published plugin and serves that snapshot to every user of the plugin, so the mode a plugin listing should run in is pinned on the URL submitted to OpenAI rather than inferred from a User-Agent label.
@@ -360,10 +359,10 @@ x-posthog-mcp-mode: cli
 x-posthog-mcp-mode: tools
 ```
 
-| Value   | Behavior                                                |
-| ------- | ------------------------------------------------------- |
-| `tools` | Force tools mode (one MCP tool per PostHog tool).       |
-| `cli`   | Force cli mode (single `posthog` tool wraps all tools). |
+| Value   | Behavior                                             |
+| ------- | ---------------------------------------------------- |
+| `tools` | Force tools mode (one MCP tool per PostHog tool).    |
+| `cli`   | Force cli mode (single `exec` tool wraps all tools). |
 
 The header wins when both the header and the query parameter are set.
 An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
@@ -406,6 +405,12 @@ Or use `bin/start-mcp-server` from the repo root, which also bootstraps `.env` a
 Then replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in the MCP configuration.
 
 The server defaults to port **8787**, reads config from `.env` (see `.env.example`), and expects a local Redis on port `6379` for session state; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint.
+
+`render-ui` is available in production for Claude UI hosts and OpenAI's MCP transport used by ChatGPT and Codex. OpenAI's generic plugin-discovery client receives it too, so the cached plugin tool list includes the app tools.
+
+To test MCP Apps locally, run `pnpm run build:ui-apps`. Connect the client to `http://localhost:8787/mcp?mode=cli` and start a fresh chat so it discovers both `exec` and `render-ui`. Use `exec` to resolve an existing entity before calling `render-ui` with its read-only tool and input. Verify that the interactive app renders and fetches its data, as well as that the tool call succeeds. `MCP_APPS_BASE_URL` must point to the local MCP server so its UI assets can load. For ChatGPT web or desktop, expose the MCP server and local PostHog through HTTPS development tunnels. Set `MCP_APPS_BASE_URL` to the MCP tunnel, and `POSTHOG_PUBLIC_URL` to the PostHog tunnel. The local backend's `SITE_URL` must also use the PostHog tunnel so OAuth discovery advertises reachable endpoints. Its development frontend assets must be available over HTTPS. Create a custom MCP plugin in ChatGPT using the MCP tunnel's `/mcp?mode=cli&readonly=true` URL, complete OAuth, and start a fresh chat with that plugin selected. Keep `POSTHOG_API_BASE_URL` pointing to local PostHog. Stop the tunnels after testing. Refresh the plugin's tools after changing the advertised roster, then start a fresh chat.
+
+In single-exec mode, UI hosts also discover the connection's permitted read-only tools with `ui.visibility: ["app"]`. These tools load data and support drill-down inside the visualization; the model continues to use `exec` and `render-ui`. Refresh the custom plugin's tool list after changing these descriptors, then start a fresh chat.
 
 ### Session cache
 
@@ -452,7 +457,9 @@ Changes in the examples repo will be reflected on the next request.
 
 ### Adding New Tools
 
-See the [tools documentation](src/tools/README.md) for a guide on adding new tools to the MCP server.
+Most tools are generated from `products/<product>/mcp/tools.yaml`.
+Follow the [implementing MCP tools skill](../../.agents/skills/implementing-mcp-tools/SKILL.md) and the [handbook guide](../../docs/published/handbook/engineering/ai/implementing-mcp-tools.md) for that flow.
+Use [src/tools/README.md](src/tools/README.md) only for hand-written tools.
 
 ### Environment variables
 

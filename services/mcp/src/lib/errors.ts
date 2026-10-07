@@ -27,7 +27,8 @@ export class MCPToolError extends Error {
 export class MCPToolResultError extends Error {
     constructor(
         message: string,
-        public readonly errorType: NonNullable<Schemas.MCPToolResponse['error_type']>
+        public readonly errorType: NonNullable<Schemas.MCPToolResponse['error_type']>,
+        public readonly errorCode?: string
     ) {
         super(message)
         this.name = 'MCPToolResultError'
@@ -190,6 +191,7 @@ export interface PostHogApiErrorOptions {
     url: string
     method: string
     message?: string
+    retryAfterSeconds?: number | null
 }
 
 /**
@@ -210,6 +212,7 @@ export class PostHogApiError extends Error {
     public readonly body: string
     public readonly url: string
     public readonly method: string
+    public readonly retryAfterSeconds: number | null
 
     constructor(options: PostHogApiErrorOptions) {
         super(options.message ?? buildDefaultApiErrorMessage(options))
@@ -219,6 +222,7 @@ export class PostHogApiError extends Error {
         this.body = options.body
         this.url = options.url
         this.method = options.method
+        this.retryAfterSeconds = options.retryAfterSeconds ?? null
     }
 }
 
@@ -246,14 +250,10 @@ export interface PostHogRateLimitErrorOptions {
 }
 
 /**
- * Thrown when the PostHog API responds with HTTP 429. Never retried inside the
- * MCP server: sleeping here keeps the client's request open and lets pending
- * work pile up behind it, so the rate limit is surfaced immediately with the
- * server's Retry-After hint and the client decides when to retry.
+ * Thrown when an HTTP 429 reaches the caller, including after the JSON client's
+ * bounded retries. Preserves the server's Retry-After hint for the next attempt.
  */
 export class PostHogRateLimitError extends PostHogApiError {
-    public readonly retryAfterSeconds: number | null
-
     constructor(options: PostHogRateLimitErrorOptions) {
         const retryHint = options.retryAfterSeconds !== null ? ` Retry after ${options.retryAfterSeconds} seconds.` : ''
         super({
@@ -262,10 +262,10 @@ export class PostHogRateLimitError extends PostHogApiError {
             body: options.body,
             url: options.url,
             method: options.method,
+            retryAfterSeconds: options.retryAfterSeconds,
             message: `PostHog API rate limit exceeded (429) on ${options.method} ${options.url}.${retryHint}`,
         })
         this.name = 'PostHogRateLimitError'
-        this.retryAfterSeconds = options.retryAfterSeconds
     }
 }
 
@@ -313,14 +313,14 @@ export class PostHogTransportError extends Error {
 
 /**
  * Parses a Retry-After header into whole seconds. Returns null for missing
- * headers, HTTP-date values, and bogus negatives.
+ * headers, HTTP-date values, and invalid delay values.
  */
 export function parseRetryAfterSeconds(header: string | null): number | null {
-    if (!header) {
+    if (!header || !/^\d+$/.test(header.trim())) {
         return null
     }
-    const seconds = Number.parseInt(header, 10)
-    return Number.isNaN(seconds) || seconds < 0 ? null : seconds
+    const seconds = Number(header)
+    return Number.isSafeInteger(seconds) ? seconds : null
 }
 
 export interface PostHogPermissionErrorOptions {
@@ -495,7 +495,13 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
  *
  * @returns A structured error message.
  */
-export function handleToolError(error: any, tool?: string, distinctId?: string, sessionUuid?: string): CallToolResult {
+export function handleToolError(
+    error: any,
+    tool?: string,
+    distinctId?: string,
+    sessionUuid?: string,
+    suppressAnalytics = false
+): CallToolResult {
     const toolName = tool || 'unknown'
 
     // Recoverable: expected agent or user state, not a bug — no project picked,
@@ -551,6 +557,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             team: 'growth',
             tool: toolName,
             is_permission_error: true,
+            suppress_analytics: suppressAnalytics,
             missing_scope: permissionError.missingScope,
             $exception_fingerprint: `posthog-permission-error:${toolName}:${permissionError.missingScope ?? 'unknown'}`,
         }
@@ -585,6 +592,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         team: 'growth',
         tool: mcpError.tool,
         is_mcp_tool_error: error instanceof MCPToolError,
+        suppress_analytics: suppressAnalytics,
         $exception_fingerprint: mcpError.tool,
     }
 
@@ -606,7 +614,11 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
     // reach here (4xx short-circuited earlier).
     const recoveryHint =
         recoverableApiError instanceof PostHogApiError
-            ? getToolRecoveryHint({ url: recoverableApiError.url, status: recoverableApiError.status })
+            ? getToolRecoveryHint({
+                  url: recoverableApiError.url,
+                  status: recoverableApiError.status,
+                  retryAfterSeconds: recoverableApiError.retryAfterSeconds,
+              })
             : undefined
 
     return {

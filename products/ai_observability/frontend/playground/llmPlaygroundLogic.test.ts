@@ -621,6 +621,29 @@ describe('llmPlaygroundLogic', () => {
             ])
         })
 
+        it('should start an empty tool result per call so the user can mock answers and run again', () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Weather?' }])
+
+            llmPlaygroundPromptsLogic.actions.addResultToConversation('', [
+                { id: 'call_1', name: 'get_weather', arguments: '{"location": "Paris"}' },
+                { id: 'call_2', name: 'get_weather', arguments: '{"location": "Rome"}' },
+            ])
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Weather?' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    toolCalls: [
+                        { id: 'call_1', name: 'get_weather', arguments: '{"location": "Paris"}' },
+                        { id: 'call_2', name: 'get_weather', arguments: '{"location": "Rome"}' },
+                    ],
+                },
+                { role: 'tool', content: '', toolCallId: 'call_1', toolName: 'get_weather' },
+                { role: 'tool', content: '', toolCallId: 'call_2', toolName: 'get_weather' },
+            ])
+        })
+
         it('should append a result to the targeted prompt without changing other prompt columns', () => {
             llmPlaygroundPromptsLogic.actions.setPromptConfigs([
                 createPromptConfig({
@@ -633,7 +656,7 @@ describe('llmPlaygroundLogic', () => {
                 }),
             ])
 
-            llmPlaygroundPromptsLogic.actions.addResultToConversation('Second response', 'prompt-two')
+            llmPlaygroundPromptsLogic.actions.addResultToConversation('Second response', undefined, 'prompt-two')
 
             expect(llmPlaygroundPromptsLogic.values.promptConfigs).toMatchObject([
                 {
