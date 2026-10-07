@@ -2,6 +2,8 @@ import dataclasses
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 
+from django.conf import settings
+
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -23,7 +25,9 @@ from posthog.hogql.constants import (
     get_default_hogql_global_settings,
     get_default_limit_for_context,
 )
+from posthog.hogql.cost.estimate import estimate_scan
 from posthog.hogql.cost.fingerprint import fingerprint_query
+from posthog.hogql.cost.statistics import ClickHouseStatisticsProvider, StatisticsProvider
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.schema.duckdb_table_functions import (
@@ -137,6 +141,7 @@ class HogQLQueryExecutor:
     bypass_warehouse_access_control: bool = False
     user_access_control: Optional[UserAccessControl] = None
     resolver_factory: Optional[ResolverFactory] = None
+    statistics_provider: StatisticsProvider | None = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -614,6 +619,18 @@ class HogQLQueryExecutor:
         except Exception:
             return None
 
+    def _estimated_rows(self) -> int | None:
+        try:
+            with self.timings.measure("scan_estimate"):
+                resolved = resolve_types(clone_expr(self.select_query), self.context, dialect="clickhouse")
+                provider = self.statistics_provider or ClickHouseStatisticsProvider()
+                estimate = estimate_scan(resolved, self.context, provider)
+            if estimate is None or any(table.precision != "measured" for table in estimate.tables):
+                return None
+            return estimate.rows
+        except Exception:
+            return None
+
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_direct_sql_query")
     def _execute_direct_sql_query(self, adapter: DirectSQLAdapter | None = None) -> None:
         assert self.direct_sql is not None
@@ -902,6 +919,7 @@ class HogQLQueryExecutor:
                 hogql_features = extract_hogql_features(self.select_query)
             with self.timings.measure("plan_fingerprint"):
                 plan_fingerprint = self._plan_fingerprint()
+            estimated_rows = self._estimated_rows() if settings.HOGQL_SCAN_ESTIMATE_AT_EXECUTION else None
             self._detect_warehouse_sources()
             tag_queries(
                 team_id=self.team.pk,
@@ -911,6 +929,7 @@ class HogQLQueryExecutor:
                 hogql_features=hogql_features,
                 **self.context.read_tags(),
                 plan_fingerprint=plan_fingerprint,
+                estimated_rows=estimated_rows,
                 timings=timings_dict,
                 modifiers=(
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
