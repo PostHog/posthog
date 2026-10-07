@@ -439,6 +439,7 @@ class ExecuteSessionEvaluationInputs:
     # Upper bound of the fetch, ISO. Unset on a live run, which reads up to now; a backfilled run
     # sets it so an old unit is graded over the same span the live path would have covered.
     window_end: str | None = None
+    retry_maximum_attempts: int | None = None
 
     @property
     def window_end_datetime(self) -> datetime | None:
@@ -506,6 +507,7 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
         ),
         user_prompt=transcript,
         allows_na=allows_na,
+        retry_maximum_attempts=inputs.retry_maximum_attempts,
     )
 
 

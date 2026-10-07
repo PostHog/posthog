@@ -19,6 +19,8 @@ from posthog.temporal.ai_observability.evaluation_errors import (
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io, extract_event_tools
 from posthog.temporal.ai_observability.evaluation_hog import execute_hog_eval_activity, run_hog_eval
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
+    BACKFILL_ACTIVITY_RETRY_POLICY,
+    BACKFILL_ACTIVITY_TIMEOUT,
     DEFAULT_JUDGE_MODEL,
     LLM_JUDGE_RETRY_POLICY,
     BooleanEvalResult,
@@ -265,6 +267,9 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         temporalio.workflow.deprecate_patch("remove-trial-evals")
 
         start_time = temporalio.workflow.now()
+        recover_backfill = inputs.backfill_id is not None and temporalio.workflow.patched(
+            "evaluation-backfill-extended-retries"
+        )
 
         # A backfill dispatcher ships only a reference, because capture accepts an AI event up to
         # 8 MiB while a Temporal payload is capped near 2 MiB, so a large generation cannot cross
@@ -291,8 +296,10 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     # Total deadline including queue wait: without it a task stuck in the queue
                     # keeps the workflow RUNNING forever, and USE_EXISTING then blocks every later
                     # trigger for this (evaluation, event) pair.
-                    schedule_to_close_timeout=timedelta(minutes=8),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    schedule_to_close_timeout=BACKFILL_ACTIVITY_TIMEOUT if recover_backfill else timedelta(minutes=8),
+                    retry_policy=BACKFILL_ACTIVITY_RETRY_POLICY
+                    if recover_backfill
+                    else RetryPolicy(maximum_attempts=3),
                 )
             except temporalio.exceptions.ActivityError as e:
                 if isinstance(e.cause, ApplicationError) and e.cause.type == EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE:
@@ -332,9 +339,17 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 try:
                     result = await temporalio.workflow.execute_activity(
                         execute_llm_judge_activity,
-                        ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data),
-                        schedule_to_close_timeout=timedelta(minutes=6),
-                        retry_policy=LLM_JUDGE_RETRY_POLICY,
+                        ExecuteLLMJudgeInputs(
+                            evaluation=evaluation,
+                            event_data=event_data,
+                            retry_maximum_attempts=(
+                                BACKFILL_ACTIVITY_RETRY_POLICY.maximum_attempts if recover_backfill else None
+                            ),
+                        ),
+                        schedule_to_close_timeout=BACKFILL_ACTIVITY_TIMEOUT
+                        if recover_backfill
+                        else timedelta(minutes=6),
+                        retry_policy=BACKFILL_ACTIVITY_RETRY_POLICY if recover_backfill else LLM_JUDGE_RETRY_POLICY,
                     )
                 except temporalio.exceptions.ActivityError as e:
                     handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)

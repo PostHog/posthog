@@ -217,6 +217,7 @@ def _child_outcome(result: WorkflowResult) -> ChildOutcome:
         "parse_error",
         "unparsable_response",
         "output_limit_exceeded",
+        "host_unresolved",
     ) or (spec is not None and spec.disables_evaluation):
         return ChildOutcome.RETRYABLE
     return ChildOutcome.SKIPPED

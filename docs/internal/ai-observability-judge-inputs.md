@@ -139,6 +139,7 @@ Evaluation events retain model, usage, latency, and error telemetry.
 If retries fail, the run fails and the evaluation stays enabled.
 Blocked System One endpoints and redirects disable the evaluation and mark the connection for revalidation, without recording model usage.
 DNS failures and redirects at OpenRouter's fixed decision endpoint retry without disabling the evaluation or marking its key as failing. Redirects are never followed.
+DNS failures at custom System One endpoints also retry without disabling the evaluation or its key.
 Requests rejected because of an individual input skip that run without changing the shared connection.
 Invalid probabilities, missing answers, and mismatched answer types skip the item as an unparsable response.
 Inputs rejected for exceeding the model's context window are skipped.
@@ -153,6 +154,21 @@ Users do not need to include items that already have a result to retry them.
 
 A provider rejection of an invalid token setting does not count as a truncated reply.
 The playground keeps the provider's explanation so users can correct the setting before trying again.
+
+## Backfill recovery
+
+Backfills wait for evaluation outcomes before advancing progress and run at most four evaluations concurrently per backfill.
+The existing shared ClickHouse concurrency limiter still applies across background AI observability queries.
+Backfill fetch and judge activities retry temporary database, DNS, connection, and rate-limit failures for up to 30 minutes per activity.
+Backoff starts at 10 seconds and increases to at most one minute; successful requests do not wait for that interval.
+Live evaluation retry budgets remain unchanged.
+Authentication, quota, blocked-endpoint, and permanent request errors retain their existing handling.
+Result emission has a separate retry budget, so retrying emission does not repeat a completed judge call.
+
+An interrupted backfill preserves completed results.
+**Retry remaining** creates a new backfill with the original date range and filters, using the current evaluation settings.
+It preserves usable existing results and retries units without usable results, including recorded DNS failures.
+Persistent failures can still interrupt a backfill after its recovery budget; recovery does not guarantee a verdict for invalid or permanently rejected inputs.
 
 ## Result encoding
 

@@ -95,16 +95,29 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     backoff_coefficient=2.0,
 )
 
+# The deadline bounds recovery even when contention outlasts a few attempts.
+BACKFILL_ACTIVITY_TIMEOUT = timedelta(minutes=30)
+BACKFILL_ACTIVITY_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=0,
+    initial_interval=timedelta(seconds=10),
+    maximum_interval=timedelta(seconds=60),
+    backoff_coefficient=2.0,
+)
+
 
 # A retry can fix these client errors, so they stay on the retry policy like a 5xx.
 # 499 is a cancellation, which Gemini already maps to the transport lane.
 _RETRYABLE_CLIENT_ERROR_STATUSES = frozenset({408, 409, 429, 499})
 
 
-def _is_last_judge_attempt() -> bool:
+def _is_last_judge_attempt(maximum_attempts: int | None = None) -> bool:
     if not temporalio.activity.in_activity():
         return False
-    return temporalio.activity.info().attempt >= (LLM_JUDGE_RETRY_POLICY.maximum_attempts or 0)
+    info = temporalio.activity.info()
+    # boffin: keep the caller's retry policy when the server omits it.
+    if maximum_attempts is None:
+        maximum_attempts = (info.retry_policy or LLM_JUDGE_RETRY_POLICY).maximum_attempts
+    return bool(maximum_attempts) and info.attempt >= maximum_attempts
 
 
 class TransientJudgeError(NonReportableError):
@@ -271,10 +284,11 @@ def build_system_prompt(
 {config.instructions}"""
 
 
-@dataclass
+@dataclass(frozen=False)
 class ExecuteLLMJudgeInputs:
     evaluation: dict[str, Any]
     event_data: dict[str, Any]
+    retry_maximum_attempts: int | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -532,6 +546,7 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         allows_na=allows_na,
+        retry_maximum_attempts=inputs.retry_maximum_attempts,
     )
 
 
@@ -555,6 +570,7 @@ def call_llm_judge(
     system_prompt: str,
     user_prompt: str,
     allows_na: bool,
+    retry_maximum_attempts: int | None = None,
 ) -> EvaluationActivityResult:
     """Resolve the judge model/key for `evaluation` and run a single judge completion.
 
@@ -788,7 +804,9 @@ def call_llm_judge(
     except RetryableRateLimitError as e:
         increment_errors("rate_limit", provider=provider)
         # A retry usually gets through, so only an outage that outlasts every attempt reaches error tracking.
-        error_class = ApplicationError if _is_last_judge_attempt() else NonReportableApplicationError
+        error_class = (
+            ApplicationError if _is_last_judge_attempt(retry_maximum_attempts) else NonReportableApplicationError
+        )
         raise error_class(
             str(e),
             {"error_type": "provider_unavailable", "provider": provider},
@@ -950,7 +968,7 @@ def call_llm_judge(
         )
 
     except ProviderHostUnresolvedError as e:
-        if not _is_last_judge_attempt():
+        if not _is_last_judge_attempt(retry_maximum_attempts):
             increment_errors("connection_error", provider=provider)
             raise TransientJudgeError(str(e)) from e
         # The host did not resolve on any attempt, so the base URL is probably wrong. A failed

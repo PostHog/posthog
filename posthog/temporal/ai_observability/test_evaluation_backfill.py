@@ -12,10 +12,11 @@ from django.test import override_settings
 
 import temporalio
 from asgiref.sync import async_to_sync
+from temporalio.client import WorkflowFailureError
 from temporalio.common import WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError, CancelledError, WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError, WorkflowAlreadyStartedError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.models import Organization, Team
@@ -44,12 +45,19 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     measure_evaluation_backfill_remainder_activity,
     prepare_evaluation_backfill_tick_activity,
 )
+from posthog.temporal.ai_observability.evaluation_llm_judge import _is_last_judge_attempt
+from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
+    LocalEvaluationOutcome,
     RunEvaluationInputs,
+    RunLocalEvaluationInputs,
     backfill_verdict_timestamp,
 )
-from posthog.temporal.ai_observability.run_aggregate_evaluation import RunAggregateEvaluationInputs
-from posthog.temporal.ai_observability.run_evaluation import WorkflowResult
+from posthog.temporal.ai_observability.run_aggregate_evaluation import (
+    RunAggregateEvaluationInputs,
+    RunAggregateEvaluationWorkflow,
+)
+from posthog.temporal.ai_observability.run_evaluation import RunEvaluationWorkflow, WorkflowResult
 
 from products.ai_observability.backend.backfill_candidates import BackfillCandidate, BackfillScope, CandidatePage
 from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill, EvaluationBackfillStatus
@@ -168,12 +176,151 @@ def _advance_input(mocks: _BackfillMocks) -> AdvanceCursorInputs:
 
 
 class TestEvaluationBackfillWorkflow:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("target", ["generation", "trace", "session"])
+    @pytest.mark.parametrize(
+        "is_backfill,legacy,persistent",
+        [(False, False, False), (True, False, False), (True, True, False), (True, False, True)],
+    )
+    @pytest.mark.parametrize("failure_kind", ["capacity", "dns"])
+    async def test_transient_judge_failures_recover_for_backfills(
+        self,
+        target: str,
+        is_backfill: bool,
+        legacy: bool,
+        persistent: bool,
+        failure_kind: str,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        caplog.set_level("INFO", logger="temporalio.workflow")
+        caplog.set_level("INFO", logger="temporalio.activity")
+        attempts: list[int] = []
+        emitted: list[dict[str, Any]] = []
+        recovers = is_backfill and not legacy
+        evaluation = {
+            "id": "E",
+            "team_id": 42,
+            "evaluation_type": "llm_judge",
+            "output_type": "boolean",
+            "enabled": True,
+            "deleted": False,
+        }
+
+        @temporalio.activity.defn(name="run_local_evaluation_activity")
+        async def local(_: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
+            return LocalEvaluationOutcome(evaluation=evaluation, result=None, emitted=False)
+
+        @temporalio.activity.defn(name="fetch_evaluation_activity")
+        async def fetch(_: RunEvaluationInputs) -> dict[str, Any]:
+            return evaluation
+
+        @temporalio.activity.defn(
+            name={
+                "generation": "execute_llm_judge_activity",
+                "trace": "execute_trace_llm_judge_activity",
+                "session": "execute_session_llm_judge_activity",
+            }[target]
+        )
+        async def judge(payload: dict[str, Any]) -> EvaluationActivityResult:
+            info = temporalio.activity.info()
+            attempt = info.attempt
+            if recovers:
+                assert info.schedule_to_close_timeout == timedelta(minutes=30)
+            attempts.append(attempt)
+            if attempt <= 4 or persistent:
+                if failure_kind == "dns" and _is_last_judge_attempt(payload.get("retry_maximum_attempts")):
+                    return {
+                        "result_type": "boolean",
+                        "skipped": True,
+                        "skip_reason": "host_unresolved",
+                        "reasoning": "Example endpoint could not resolve",
+                        "allows_na": False,
+                    }
+                raise ApplicationError("Query capacity is temporarily unavailable", type="ConcurrencyLimitExceeded")
+            return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
+
+        @temporalio.activity.defn(
+            name="emit_evaluation_event_activity" if target == "generation" else "emit_trace_evaluation_event_activity"
+        )
+        async def emit(payload: dict[str, Any]) -> None:
+            emitted.append(payload)
+
+        @temporalio.activity.defn(name="emit_internal_telemetry_activity")
+        async def telemetry(_: dict[str, Any]) -> None:
+            return
+
+        inputs: RunEvaluationInputs | RunAggregateEvaluationInputs
+        backfill_id = "B" if is_backfill else None
+        if target == "generation":
+            inputs = RunEvaluationInputs(evaluation_id="E", event_data={"team_id": 42}, backfill_id=backfill_id)
+            workflow_name = "run-evaluation"
+        else:
+            inputs = RunAggregateEvaluationInputs(
+                evaluation_id="E",
+                team_id=42,
+                trace_id="example-trace",
+                distinct_id="example-user",
+                ai_session_id="example-session" if target == "session" else None,
+                target=target,
+                settle={"strategy": "fixed_window", "window_seconds": 10},
+                anchor_timestamp=UNIT_TIMESTAMP.isoformat() if is_backfill else None,
+                backfill_id=backfill_id,
+            )
+            workflow_name = "run-aggregate-evaluation"
+
+        task_queue = str(uuid.uuid4())
+        original_patched = temporalio.workflow.patched
+
+        def patched(patch_id: str) -> bool:
+            if legacy and patch_id == "evaluation-backfill-extended-retries":
+                return False
+            return original_patched(patch_id)
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow, RunAggregateEvaluationWorkflow],
+                activities=[local, fetch, judge, emit, telemetry],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                with patch("temporalio.workflow.patched", side_effect=patched):
+                    handle = await env.client.start_workflow(
+                        workflow_name,
+                        inputs,
+                        id=str(uuid.uuid4()),
+                        task_queue=task_queue,
+                        execution_timeout=timedelta(minutes=40),
+                    )
+                    if persistent or (not recovers and failure_kind == "capacity"):
+                        with pytest.raises(WorkflowFailureError):
+                            await handle.result()
+                    elif recovers:
+                        result = await handle.result()
+                        assert result["verdict"] is True
+                    else:
+                        result = await handle.result()
+                        assert result["skip_reason"] == "host_unresolved"
+                    history = await handle.fetch_history()
+
+        if persistent:
+            assert len(attempts) > 4
+            assert emitted == []
+        else:
+            assert attempts == ([1, 2, 3, 4, 5] if recovers else [1, 2, 3])
+            assert len(emitted) == int(recovers or failure_kind == "dns")
+        await Replayer(
+            workflows=[RunEvaluationWorkflow, RunAggregateEvaluationWorkflow],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ).replay_workflow(history)
+
     @pytest.mark.parametrize(
         "reason,outcome",
         [
             ("parse_error", ChildOutcome.RETRYABLE),
             ("unparsable_response", ChildOutcome.RETRYABLE),
             ("output_limit_exceeded", ChildOutcome.RETRYABLE),
+            ("host_unresolved", ChildOutcome.RETRYABLE),
             ("content_filtered", ChildOutcome.SKIPPED),
             ("request_rejected", ChildOutcome.SKIPPED),
         ],
