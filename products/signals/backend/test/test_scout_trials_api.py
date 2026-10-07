@@ -447,7 +447,31 @@ class TestScoutTrialLaunch(APIBaseTest):
         assert history["has_more"] is False
         assert "skill_body" not in history["results"][0]
 
-    def test_candidate_first_preserves_baseline_and_retry_identity(self) -> None:
+    @parameterized.expand([1, 2048])
+    def test_candidate_first_preserves_baseline_and_retry_identity(self, memory_entry_count: int) -> None:
+        self.user.first_name = "Synthetic"
+        self.user.last_name = "Operator"
+        self.user.save(update_fields=["first_name", "last_name"])
+        source_run = _make_run(self.team)
+        content = "Synthetic shared observation. " + "a" * 40_960
+        SignalScratchpad.objects.bulk_create(
+            [
+                SignalScratchpad(
+                    team=self.team,
+                    key=f"finding:synthetic-{index}",
+                    content=content,
+                    created_by_run=source_run,
+                )
+                for index in range(memory_entry_count)
+            ]
+        )
+        expired_note = SignalScoutNote.objects.create(
+            team=self.team,
+            skill_name=source_run.skill_name,
+            content="Synthetic historical guidance.",
+            created_by=self.user,
+            expires_at=timezone.now() - timedelta(days=1),
+        )
         launch_id = uuid4()
         candidate = create_trial_launch(
             config=self.config,
@@ -456,6 +480,17 @@ class TestScoutTrialLaunch(APIBaseTest):
             skill_body="Trace dependencies before reporting.",
             reasoning_effort="high",
         )
+        saved_context = load_trial_context(self.team.id, candidate.context_id)
+        assert len(saved_context.memory) == memory_entry_count
+        assert all(entry["content"] == content for entry in saved_context.memory)
+        assert all(entry["created_by_skill"] == source_run.skill_name for entry in saved_context.memory)
+        assert all(str(source_run.task_run_id) in str(entry["created_by_run_url"]) for entry in saved_context.memory)
+        assert saved_context.notes[0]["id"] == str(expired_note.id)
+        assert saved_context.notes[0]["created_by_name"] == "Synthetic Operator"
+        if memory_entry_count > 1:
+            assert len(saved_context.model_dump_json().encode()) > 80 * 1024 * 1024
+        SignalScratchpad.objects.for_team(self.team.id).filter(key="finding:synthetic-0").update(content="Live change.")
+        expired_note.delete()
         baseline = create_trial_launch(
             config=self.config, user=self.user, launch_id=uuid4(), context_id=candidate.context_id
         )
@@ -471,6 +506,12 @@ class TestScoutTrialLaunch(APIBaseTest):
             reasoning_effort="high",
         )
         assert retry == candidate
+        assert baseline.context_id == candidate.context_id
+        assert load_trial_context(self.team.id, baseline.context_id) == saved_context
+        trial_run = _make_run(
+            self.team, metadata={"scout_trial": {"version": 1, "context_id": str(candidate.context_id)}}
+        )
+        assert ScoutTrialStore(trial_run).search_memory(key="finding:synthetic-0")[0].content == content
         with self.assertRaisesMessage(ScoutTrialLaunchError, "different settings"):
             create_trial_launch(config=self.config, user=self.user, launch_id=launch_id, skill_body="Another prompt")
         self.skill.refresh_from_db()

@@ -37,7 +37,7 @@ from products.tasks.backend.facade.run_config import (
     get_runtime_adapter_for_model,
 )
 
-MAX_TRIAL_CONTEXT_BYTES = 16 * 1024 * 1024
+MAX_TRIAL_LAUNCH_BYTES = 16 * 1024 * 1024
 SCOUT_TRIAL_TASK_STATE_KEY = "scout_trial"
 
 
@@ -135,8 +135,9 @@ def _read_document(key: str, document_type: type[_Document]) -> _Document | None
 
 def _write_document_once(key: str, document: _Document) -> _Document:
     content = document.model_dump_json()
-    if len(content.encode()) > MAX_TRIAL_CONTEXT_BYTES:
-        raise ScoutTrialLaunchError("The saved scout context is too large for a live trial.")
+    # Shared project history stays in object storage; launches carry only its context ID.
+    if isinstance(document, TrialLaunch) and len(content.encode()) > MAX_TRIAL_LAUNCH_BYTES:
+        raise ScoutTrialLaunchError("The trial settings are too large to save.")
     existing = _read_document(key, type(document))
     if existing is not None:
         return existing
@@ -274,9 +275,34 @@ def _snapshot_context(
     memories = (
         SignalScratchpad.objects.for_team(team.id)
         .select_related("created_by_run", "created_by_run__task_run")
+        .only(
+            "team_id",
+            "key",
+            "content",
+            "created_at",
+            "updated_at",
+            "expires_at",
+            "created_by_identity",
+            "created_by_run__skill_name",
+            "created_by_run__task_run__task_id",
+        )
         .order_by("-updated_at", "-id")
     )
-    notes = SignalScoutNote.objects.for_team(team.id).select_related("created_by").order_by("-created_at", "-id")
+    notes = (
+        SignalScoutNote.objects.for_team(team.id)
+        .select_related("created_by")
+        .only(
+            "skill_name",
+            "content",
+            "created_at",
+            "expires_at",
+            "origin",
+            "created_by__first_name",
+            "created_by__last_name",
+            "created_by__is_active",
+        )
+        .order_by("-created_at", "-id")
+    )
     return TrialContext(
         id=identifier,
         team_id=team.id,
@@ -294,8 +320,8 @@ def _snapshot_context(
         reasoning_effort=runtime.reasoning_effort,
         service_tier=runtime.service_tier,
         note=note,
-        memory=[cast(dict[str, JsonValue], _to_entry(row).as_dict()) for row in memories],
-        notes=[cast(dict[str, JsonValue], _to_note(row).as_dict()) for row in notes],
+        memory=[cast(dict[str, JsonValue], _to_entry(row).as_dict()) for row in memories.iterator()],
+        notes=[cast(dict[str, JsonValue], _to_note(row).as_dict()) for row in notes.iterator()],
         recent_runs=[
             cast(dict[str, JsonValue], run.as_dict())
             for run in search_recent_runs(team_id=team.id, skill_name=skill.name, limit=100)
