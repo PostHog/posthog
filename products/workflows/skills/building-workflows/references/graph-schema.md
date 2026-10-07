@@ -112,7 +112,7 @@ Property conditions used in trigger/action `filters`, branch conditions, and con
 
 ## Transactional email from webhook data
 
-For the complete backend-authorized example, read [transactional-email.md](transactional-email.md). Webhook inputs use Hog expressions with single braces: `inputs.properties.value.recipient_email = "{request.body.recipient_email}"`. The email uses Liquid with double braces: `inputs.email.value.to.email = "{{ event.properties.recipient_email }}"`. Set `config.message_category_type` to `"transactional"` on the email action and use a verified sender's `from: {integrationId: ...}`. Set `inputs.auth_header.value` to the exact backend-only Authorization value, including the `Bearer` prefix when used. An empty value allows unauthenticated requests.
+For a backend-triggered email, read [transactional-email.md](transactional-email.md) before composing the trigger and email action. It supplies the complete graph, including the Authorization input, Hog request-body mapping, Liquid recipient, and verified sender.
 
 ## `function*` inputs
 

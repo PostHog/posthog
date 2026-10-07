@@ -52,6 +52,4 @@ The MCP tools for the workflows product, grouped by job. The lifecycle that stri
 
 ## Transactional webhook verification
 
-Use [transactional-email.md](transactional-email.md) to configure the backend-authorized trigger and recipient mapping. Keep async functions mocked during test runs. Test globals start at `event.properties.recipient_email`; they do not exercise `request.body` mapping or Authorization checks.
-
-A mock email result proves the rendered path only. A successful webhook response proves trigger acceptance and queueing, not provider acceptance or delivery. Inspect the invocation and logs for the send outcome, then delivery/bounce events when available. Provider acceptance still does not prove inbox delivery. The webhook has no caller-supplied idempotency contract or guaranteed retry protocol; an ambiguous response must not prompt blind retries.
+For a backend webhook, follow the mock-test criteria and send-stage proof in [transactional-email.md](transactional-email.md). Test globals contain the mapped event; webhook Authorization and request-body mapping require separate verification.

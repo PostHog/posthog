@@ -1,12 +1,27 @@
 # Backend-triggered transactional email
 
-Use a workflow for an application-triggered receipt or notification when the backend authorizes who receives it. A browser's public PostHog capture key is not authorization to send to an arbitrary email address. Do not expose the webhook secret in client code or turn a client-supplied recipient into a send without checking it against the application's authenticated user and business operation.
+Use this recipe for a receipt or application notification triggered by an authorized backend.
 
-## Configure a draft
+## 1. Authorize the notification
 
-Choose a verified email sender in the project and use its integration ID. The synthetic `123` below is a placeholder, not a usable sender. Store a generated webhook secret in backend secret storage and configure the trigger's `auth_header` with the same full value. `Authorization` must match exactly; leaving `auth_header` empty disables this check. Do not paste real secrets into chat, logs, or examples.
+Resolve the recipient and `distinct_id` from trusted application records. Verify that the authenticated user and business operation permit the notification. A browser's public PostHog capture key does not authorize arbitrary-recipient sending.
 
-The zero timestamps are authoring placeholders. Create this graph with `workflows-create`, replacing the sender ID and secret through the customer's secure configuration path:
+Classify the message before configuring the email action:
+
+- Transactional policy describes the message's purpose. Set `message_category_type: "transactional"` for genuine transactional messages.
+- Optional application notification preferences belong to the application. Check them before calling the webhook; transactional sends bypass PostHog marketing opt-outs.
+- Suppression protects addresses that should not receive mail, including bounces and complaints. It applies to transactional messages too.
+- Marketing messages use marketing categories, category/global opt-outs, and unsubscribe links. A backend trigger does not change their purpose.
+
+`recipient_email` can differ from the person's profile email. Send only the fields the workflow needs. PostHog may retain webhook payloads and invocation data even though a workflow webhook uses the mapped event as trigger data rather than capturing an analytics event. Keep sensitive receipt contents and credentials out of the body.
+
+Continue when the application has authorized the recipient and message purpose, including any optional notification preference.
+
+## 2. Configure a draft
+
+Choose a verified email sender in the project. Replace the synthetic integration ID `123` below with its ID. Store a generated webhook secret in backend secret storage and configure `auth_header` with the same full value. `Authorization` must match exactly; an empty `auth_header` allows unauthenticated requests. Keep the secret in backend configuration, outside client code, chat, and logs.
+
+Create this graph with `workflows-create`, replacing the sender ID and secret through the customer's secure configuration path. The zero timestamps are authoring placeholders.
 
 ```json
 {
@@ -104,13 +119,25 @@ The zero timestamps are authoring placeholders. Create this graph with `workflow
 }
 ```
 
-For an editable library design, use the `designing-email-templates` skill. Set the saved template's UUID in `config.template_uuid` and omit body keys from `inputs.email.value` so the server copies the saved content at creation. Keep `to` and `from` on the action. Later library edits do not update this snapshot.
+The webhook uses Hog expressions with single braces to map `request.body` into event properties. The email uses Liquid with double braces.
 
-The source uses Hog expressions with single braces to map `request.body` into event properties. The email uses Liquid with double braces. `recipient_email` need not be the person's profile email; `distinct_id` identifies the application subject. Send only necessary data. Webhook payloads and invocation data may be retained by PostHog even though a workflow webhook uses the mapped event as trigger data rather than capturing it as an analytics event. Avoid sensitive receipt contents or credentials in the body.
+For an editable library design, use the `designing-email-templates` skill. Set its UUID in `config.template_uuid` and omit body keys from `inputs.email.value` so the server copies the saved content at creation. Keep `to` and `from` on the action. Later library edits do not update this snapshot.
 
-## Call from the authorized backend
+The draft is configured when its sender is verified and its Authorization value matches backend secret storage.
 
-After mock testing and the user's explicit approval to enable, use the webhook URL shown on the saved workflow's trigger. Its path is `/public/webhooks/<workflow UUID>` on the deployment's webhook host, not the project API route. Keep the URL and Authorization value in backend configuration. A backend POST uses `Content-Type: application/json`, the configured `Authorization` value, and a body such as:
+## 3. Prove the mocked path
+
+Keep `mock_async_functions` at its default `true` in `workflows-test-run`. Use sample `globals.event` with `event: "receipt_ready"`, `distinct_id: "example-user-42"`, and `properties` containing `recipient_email: "recipient@example.com"` and `receipt_number: "EXAMPLE-42"`.
+
+Walk through `nextActionId` to the email and exit. Check that the trace selects the email step and renders the expected recipient and subject. This proves the mapped-event path without a real send. It does not exercise webhook Authorization or request-body mapping.
+
+Continue when every step on this path passes and the rendered recipient and subject match the sample event. Keep mocks enabled throughout this check.
+
+## 4. Enable and call from the backend
+
+Obtain the user's explicit approval before enabling. Use the webhook URL shown on the saved workflow's trigger. Its path is `/public/webhooks/<workflow UUID>` on the deployment's webhook host. Store the URL and Authorization value in backend configuration.
+
+POST with `Content-Type: application/json`, the configured `Authorization` value, and the authorized body:
 
 ```json
 {
@@ -120,24 +147,21 @@ After mock testing and the user's explicit approval to enable, use the webhook U
 }
 ```
 
-Resolve the recipient from trusted application records. Check that the operation permits this notification before making the request. For an optional application notification, check the application's notification preference too. A public endpoint that forwards arbitrary request bodies with the backend secret defeats this authorization boundary.
+Forward only the authorized fields from step 1. A public endpoint that forwards arbitrary request bodies with the backend secret defeats this boundary.
 
-In an existing Convex application, the same pattern can live in an `internalAction`: pass an application record ID, use `ctx.runQuery` with an internal query to load the authorized recipient and app-owned preference, then POST with `fetch`. Store the webhook URL and Authorization value in Convex deployment environment variables and read them only in backend code. Schedule the internal action from the authorized application mutation with `ctx.scheduler.runAfter`. This needs no new package or component and adds no delivery guarantee. Do not accept a raw recipient from a public action.
+### Optional Convex caller
 
-## Policy and verification
+In an existing Convex application, schedule an `internalAction` from the authorized mutation with `ctx.scheduler.runAfter`. Pass an application record ID. Use `ctx.runQuery` with an internal query to load the recipient and app-owned preference, then POST with `fetch`. Read the webhook URL and Authorization value from Convex deployment environment variables in backend code. This uses existing Convex functionality and adds no delivery guarantee.
 
-- Transactional policy describes the message's purpose. Set `message_category_type: "transactional"` explicitly for genuine transactional messages; triggering from the backend alone does not make marketing transactional.
-- Optional application notification preferences belong to the application. Transactional sends bypass PostHog marketing opt-outs, so check those app-owned preferences before the webhook request.
-- Suppression protects addresses that should not receive mail, including bounces and complaints. Transactional classification does not bypass suppression.
-- Marketing messages remain marketing, with category/global opt-outs and unsubscribe links. Do not relabel them to avoid preferences.
+## 5. Reconcile the outcome
 
-Keep `mock_async_functions` at its default `true` in `workflows-test-run`. Use sample `globals.event` with `event: "receipt_ready"`, `distinct_id: "example-user-42"`, and `properties` containing the synthetic recipient and receipt number. Walk through `nextActionId` to the email and exit. This checks the mapped-event path and rendering, not webhook Authorization or request mapping. Never disable mocks merely to validate this recipe.
-
-Distinguish each result when reporting proof:
+Report the stage supported by the evidence:
 
 - A mock test proves the selected path and rendered inputs, with no real send.
-- Webhook acceptance means the trigger accepted the request and queued the workflow, not that an email was sent.
-- Provider acceptance means the provider accepted a send request, not that the recipient received it.
-- Delivery events, when available, report delivery separately; provider acceptance is not proof of inbox placement.
+- Webhook acceptance means the trigger accepted the request and queued the workflow.
+- Provider acceptance means the provider accepted a send request.
+- Delivery events, when available, report delivery separately. Provider acceptance does not prove inbox placement.
 
-Use `workflows-list-invocations`, `workflows-get-invocation`, and `workflows-logs` to inspect failures. This webhook has no caller-supplied idempotency contract or guaranteed retry protocol. Repeating a request can create another run and another send. On timeout or an ambiguous response, reconcile the invocation before deciding whether to retry; do not promise exactly-once sending.
+Use `workflows-list-invocations`, `workflows-get-invocation`, and `workflows-logs` to inspect the send outcome or failure. The webhook has no caller-supplied idempotency contract or guaranteed retry protocol. Repeating a request can create another run and send. After a timeout or ambiguous response, reconcile the invocation before deciding whether to retry.
+
+Finish with the observed stage and any unresolved failure. Claim delivery only when delivery evidence supports it.

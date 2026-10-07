@@ -1,6 +1,6 @@
 ---
 name: building-workflows
-description: 'Build, edit, test, enable, and monitor PostHog workflows over MCP. Author the action/edge graph so it runs and opens cleanly in the visual editor, then change drafts surgically with patch operations. Use when asked to build, set up, automate, change, fix, or debug a workflow, campaign, broadcast, drip sequence, application-triggered transactional email, or event-triggered automation in the workflows product.'
+description: 'Build, edit, test, enable, and debug PostHog workflows over MCP. Use for application-triggered transactional email, marketing campaigns and broadcasts, drip sequences, or event-triggered automation.'
 ---
 
 # Building workflows
@@ -11,7 +11,7 @@ The single biggest failure mode is **getting the graph JSON structurally wrong**
 
 ## Application-triggered transactional email
 
-Workflows support backend-triggered transactional email, such as a receipt or an application notification, as well as marketing campaigns. Use an authenticated webhook and an explicit event-property recipient rather than relying on a person-profile email. Read [references/transactional-email.md](references/transactional-email.md) for the backend-authorized graph, policy boundaries, and verification steps. Compose the email with the `designing-email-templates` skill.
+For backend-triggered receipts or application notifications, read [references/transactional-email.md](references/transactional-email.md) before composing the graph. It covers authorization, recipient mapping, verified senders, preferences, and proof of each send stage.
 
 ## The lifecycle
 
