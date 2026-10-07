@@ -63,9 +63,6 @@ SIGNUP_BLOCKED_DETAIL = (
     "We couldn't complete your signup. If you think this is a mistake, contact support "
     f"and quote the code {SECURITY_REFUSAL_CODE}."
 )
-# Partner signup paths under ee/ raise their own error types with this code, and may not import
-# the security product directly.
-SIGNUP_REFUSAL_CODE = SECURITY_REFUSAL_CODE
 
 
 def _save_session_with_recovery(session: SessionBase) -> None:
