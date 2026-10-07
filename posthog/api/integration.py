@@ -139,6 +139,7 @@ from products.tasks.backend.facade.api import get_in_progress_runs_for_github_in
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
 from products.workflows.backend.facade.api import get_active_workflows_using_integration, lookup_existing_email_tools
 from products.workflows.backend.facade.contracts import EmailProviderUnavailableError
+from products.workflows.backend.facade.enums import EmailDomainSetupMethod
 
 logger = structlog.get_logger(__name__)
 
@@ -326,7 +327,7 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
     provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
     mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
     setup_method = serializers.ChoiceField(
-        choices=["auto", "manual"],
+        choices=EmailDomainSetupMethod.choices,
         required=False,
         help_text="How the DNS records are being published: `auto` through Domain Connect, `manual` by hand. "
         "Reported on the verification event.",
