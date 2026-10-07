@@ -1,6 +1,7 @@
 import json
 import uuid
 import datetime as dt
+import threading
 from decimal import Decimal
 from typing import Any
 
@@ -956,6 +957,19 @@ class TestComputeTableStatisticsSync:
 
 @pytest.mark.django_db(transaction=True)
 class TestComputeTableStatisticsActivity:
+    async def test_activity_uses_a_dedicated_executor(self) -> None:
+        thread_names: list[str] = []
+
+        def record_thread(*_args) -> dict[str, Any]:
+            thread_names.append(threading.current_thread().name)
+            return {"status": "done"}
+
+        with patch.object(comp, "compute_table_statistics_sync", side_effect=record_thread):
+            inputs = ComputeTableStatisticsInputs(team_id=1, schema_id=uuid.uuid4())
+            await ActivityEnvironment().run(compute_table_statistics_activity, inputs)
+
+        assert thread_names[0].startswith("warehouse-table-statistics")
+
     async def test_activity_returns_sync_result(self) -> None:
         with patch.object(
             comp, "compute_table_statistics_sync", return_value={"status": "done", "columns": 1, "row_count": 5}

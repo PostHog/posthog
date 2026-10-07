@@ -20,6 +20,7 @@ import json
 import uuid
 import dataclasses
 from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, localcontext
 from typing import Any
@@ -692,9 +693,12 @@ async def compute_table_statistics_activity(inputs: ComputeTableStatisticsInputs
     """Activity wrapper. Heartbeats and runs the (sync) computation off the event loop."""
     async with Heartbeater():
         try:
-            return await database_sync_to_async(compute_table_statistics_sync, thread_sensitive=False)(
-                inputs.team_id, inputs.schema_id
-            )
+            # The sync computation bridges back to async while opening the Delta table. Its own
+            # executor keeps the outer call from occupying the pool needed by that nested work.
+            with ThreadPoolExecutor(max_workers=1, thread_name_prefix="warehouse-table-statistics") as executor:
+                return await database_sync_to_async(
+                    compute_table_statistics_sync, thread_sensitive=False, executor=executor
+                )(inputs.team_id, inputs.schema_id)
         except Exception as e:
             # get_delta_table already re-raises known-transient object-store blips as
             # NonReportableError (see DeltaTableRef._capture_unless_transient) and intentionally
