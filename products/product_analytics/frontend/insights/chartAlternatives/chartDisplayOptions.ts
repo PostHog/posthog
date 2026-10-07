@@ -46,6 +46,12 @@ export interface ChartDisplayOptionEligibility {
     currentDisplay?: ChartDisplayType
 }
 
+/** Offer the flag-gated proportion bar when its flag is on, or when the chart already uses it, so a
+ *  saved chart keeps its own label and icon in the picker while the flag is off. */
+export function offersProportionBar(hasProportionBarChart: boolean, currentDisplay?: ChartDisplayType | null): boolean {
+    return hasProportionBarChart || currentDisplay === ChartDisplayType.ActionsProportionBar
+}
+
 const COUNTRY_PROPERTIES = new Set(['$geoip_country_code', '$geoip_country_name'])
 
 export function isCountryProperty(value: unknown): boolean {
@@ -207,7 +213,7 @@ export function getChartDisplayOptions({
                     description: 'Proportions of a whole as a ring.',
                     disabledReason: trendsOnlyDisabledReason,
                 },
-                ...(hasProportionBarChart || currentDisplay === ChartDisplayType.ActionsProportionBar
+                ...(offersProportionBar(hasProportionBarChart, currentDisplay)
                     ? [
                           {
                               display: ChartDisplayType.ActionsProportionBar,

@@ -98,11 +98,24 @@ describe('getChartDisplayOptions', () => {
     })
 
     it.each([
-        ['hasMetricInsight', ChartDisplayType.Metric, true],
-        ['hasMetricInsight', ChartDisplayType.Metric, false],
-        ['hasProportionBarChart', ChartDisplayType.ActionsProportionBar, true],
-        ['hasProportionBarChart', ChartDisplayType.ActionsProportionBar, false],
-    ] as const)('offers the %s chart type %s only behind its flag (%s)', (flag, display, flagEnabled) => {
-        expect(disabledReasons({ ...RENDERS_EVERYTHING, [flag]: flagEnabled }).has(display)).toBe(flagEnabled)
-    })
+        ['hasMetricInsight', ChartDisplayType.Metric, true, undefined, true],
+        ['hasMetricInsight', ChartDisplayType.Metric, false, undefined, false],
+        ['hasProportionBarChart', ChartDisplayType.ActionsProportionBar, true, undefined, true],
+        ['hasProportionBarChart', ChartDisplayType.ActionsProportionBar, false, undefined, false],
+        [
+            'hasProportionBarChart',
+            ChartDisplayType.ActionsProportionBar,
+            false,
+            ChartDisplayType.ActionsProportionBar,
+            true,
+        ],
+        ['hasProportionBarChart', ChartDisplayType.ActionsProportionBar, false, ChartDisplayType.ActionsPie, false],
+    ] as const)(
+        'behind %s, offers %s with the flag %s and current display %s: %s',
+        (flag, display, flagEnabled, currentDisplay, offered) => {
+            expect(disabledReasons({ ...RENDERS_EVERYTHING, [flag]: flagEnabled, currentDisplay }).has(display)).toBe(
+                offered
+            )
+        }
+    )
 })

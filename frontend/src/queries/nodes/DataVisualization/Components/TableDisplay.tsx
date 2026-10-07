@@ -17,6 +17,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ChartDisplayType } from '~/types'
 
+import { offersProportionBar } from 'products/product_analytics/frontend/insights/chartAlternatives/chartDisplayOptions'
+
 import { Column, dataVisualizationLogic } from '../dataVisualizationLogic'
 
 const DISPLAY_TYPE_LABELS: Record<ChartDisplayType, string> = {
@@ -229,7 +231,7 @@ export const TableDisplay = ({
                 autoVisualizationType,
                 disabledReasonFor,
                 !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT],
-                !!featureFlags[FEATURE_FLAGS.PROPORTION_BAR_CHART]
+                offersProportionBar(!!featureFlags[FEATURE_FLAGS.PROPORTION_BAR_CHART], visualizationType)
             )}
             renderButtonContent={() => renderDisplayTypeLabel(visualizationType, autoVisualizationType)}
             size="small"
