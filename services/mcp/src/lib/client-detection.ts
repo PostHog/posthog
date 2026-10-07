@@ -28,9 +28,6 @@
  * - `isClaudeUiHost()` matches Claude web/desktop and Cowork — MCP Apps hosts
  *   that render interactive UI (iframes).
  *
- * - `isRenderUiHost()` also includes OpenAI's MCP transport used by ChatGPT
- *   and Codex, including the shared plugin discovery client.
- *
  * - `isClaudeChatHost()` matches Claude web/desktop only — the chat surfaces that
  *   report `supportsInstructions` but never surface the `instructions` payload to
  *   the model. Used to keep the env-context on the exec command description for
@@ -335,8 +332,7 @@ export class MCPClientProfile {
     }
 
     isRenderUiHost(): boolean {
-        // OpenAI caches a shared plugin roster, so discovery must include render-ui
-        // even when the client has no ChatGPT/Codex surface suffix.
+        // OpenAI caches a shared roster, so generic discovery must also include render-ui.
         const isOpenAiTransport = (value: string | undefined): boolean => /^openai-mcp(?:[\s/(]|$)/i.test(value ?? '')
         return this.isClaudeUiHost() || isOpenAiTransport(this.clientName) || isOpenAiTransport(this.userAgent)
     }

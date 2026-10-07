@@ -164,7 +164,6 @@ export class ToolExecutor {
                     if (!Array.isArray(visibility) || visibility.length !== 1 || visibility[0] !== 'app') {
                         return tool
                     }
-                    // Apps may supply model metadata, but browser data fetches cannot require it.
                     return {
                         ...tool,
                         inputSchema: {
@@ -183,8 +182,7 @@ export class ToolExecutor {
     private buildAdvertisedTools(state: ResolvedState): ListToolsResult['tools'] {
         if (state.useSingleExec) {
             const renderUiEntry = state.renderUiEnabled ? this.instructionsBuilder.buildRenderUiToolEntry(state) : null
-            // Hosts build the app's trusted tool scope from tools/list, even when the
-            // server accepts direct calls to tools hidden behind exec.
+            // Hosts authorize app calls against tools/list, including tools hidden from the model.
             const appToolNames = new Set(
                 renderUiEntry
                     ? state.allTools.filter((tool) => tool.annotations.readOnlyHint).map((tool) => tool.name)
@@ -198,8 +196,7 @@ export class ToolExecutor {
                     return {
                         ...entry,
                         description: `Load ${entry.name} data for a PostHog app.`,
-                        // Apps already construct these arguments. Publishing every generated
-                        // query schema makes discovery enormous; calls still use the full validator.
+                        // Omit generated query schemas to limit discovery size; calls still use the full validator.
                         inputSchema: { type: 'object' as const, additionalProperties: true },
                         _meta: {
                             ...entry._meta,
