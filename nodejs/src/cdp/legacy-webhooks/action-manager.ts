@@ -133,23 +133,27 @@ export async function fetchAllActionsGroupedByTeam(
 ): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
     const restHooks = await fetchActionRestHooks(client)
     const restHookActionIds = restHooks.map(({ resource_id }) => resource_id)
-    const additionalActionIds = [...restHookActionIds]
 
-    const rawActions = (
-        await client.query<RawAction>(
+    // Two queries instead of one OR: an OR across two columns stops Postgres from using an index.
+    const [slackActions, hookActions] = await Promise.all([
+        client.query<RawAction>(
             PostgresUse.COMMON_READ,
-            `
-            SELECT ${ACTION_SELECT_FIELDS.join(',')}
-            FROM posthog_action
-            WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
-        `,
-            [additionalActionIds],
-            'fetchActions'
-        )
-    ).rows
+            `SELECT ${ACTION_SELECT_FIELDS.join(',')} FROM posthog_action WHERE post_to_slack = TRUE AND deleted = FALSE`,
+            undefined,
+            'fetchSlackActions'
+        ),
+        restHookActionIds.length > 0
+            ? client.query<RawAction>(
+                  PostgresUse.COMMON_READ,
+                  `SELECT ${ACTION_SELECT_FIELDS.join(',')} FROM posthog_action WHERE id = ANY($1) AND deleted = FALSE`,
+                  [restHookActionIds],
+                  'fetchHookActions'
+              )
+            : { rows: [] as RawAction[] },
+    ])
 
     const actions: Record<Team['id'], Record<Action['id'], Action>> = {}
-    for (const rawAction of rawActions) {
+    for (const rawAction of [...slackActions.rows, ...hookActions.rows]) {
         coerceActionIds(rawAction)
 
         if (!actions[rawAction.team_id]) {
