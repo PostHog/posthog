@@ -21,7 +21,7 @@ repo; the wizard's onboarding script lives in `PostHog/context-mill`:
 
 | Surface                       | What changes                                                                                                                                                                                                                                                            |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `posthog/posthog` (this repo) | New scout emitter + registry entry + `SignalSourceProduct` enum value (+ migration) + contract variant. **The data-warehouse source itself must already exist** (all Tier-1 sources do).                                                                                |
+| `posthog/posthog` (this repo) | New scout emitter + registry entry + `SignalSourceProduct` enum value + contract variant (no migration). **The data-warehouse source itself must already exist** (all Tier-1 sources do).                                                                               |
 | `posthog/code`                | ~8 UI/wiring files: the source-product unions, toggle card, setup form, hook maps, icon, filter option (+ OAuth service/router only for OAuth sources).                                                                                                                 |
 | `PostHog/context-mill`        | The `self-driving` skill's connected-tools list, so `npx @posthog/wizard self-driving` offers the source. **Optional** — skip it and the source still works everywhere else; the wizard just won't proactively suggest it. See "The self-driving wizard surface" below. |
 
@@ -158,7 +158,7 @@ generic; only the per-source emitter + registry entry are new.
 
 1. **Enum** — `products/signals/backend/enums.py`: add a `SignalSourceProduct` value + a `SIGNAL_SOURCE_PRODUCT_LABELS` entry. This regenerates `SIGNAL_SOURCE_PRODUCT_CHOICES` used by the model.
 2. **SourceType** — `products/signals/backend/models.py` `SignalSourceConfig.SourceType`: only add if the record type isn't already `ISSUE`/`TICKET`.
-3. **Migration** — `python manage.py makemigrations signals` → `NNNN_alter_signalsourceconfig_source_product`. **Batch all new enum values into ONE migration when doing several sources** — parallel PRs each adding a migration to this model collide in the merge queue.
+3. **No migration** — the model's `source_product` and `source_type` choices are callables (`signal_source_product_choices`, `signal_source_type_choices`), so a new enum value changes no migration state. Do not hand-write a migration or bump `migrations/max_migration.txt`. Run `hogli build:openapi` to regenerate the signals API schemas instead.
 4. **Emitter** — new module `products/signals/backend/emission/<source>_<table>.py` exporting a `SignalSourceTableConfig`: `partition_field` (incremental cursor column), `fields` (columns to SELECT), optional `where_clause`, `partition_field_is_datetime_string`, an `emitter(row) -> SignalEmitterOutput(source_product, source_type, source_id, description, weight, extra)`, and optional LLM `actionability_prompt`/`summarization_prompt`. **Copy `github_issues.py` and adapt to the warehouse table's columns** (read the source's `settings.py`/`canonical_descriptions.py` under `products/warehouse_sources/backend/temporal/data_imports/sources/<name>/` for exact column names).
 
    ⚠️ **Not every source stores flat columns.** GitHub/Linear expose `title`/`body`/`created_at` as top-level columns, so the generic `data_warehouse_record_fetcher` (`SELECT {fields} FROM {table} WHERE {partition_field} > cursor`) works directly. Others do **not**: e.g. **Jira's `issues` table has only `id`, `key`, `self`, `fields` (a nested JSON blob), `expand`** — `summary`/`description`/`status`/`created` all live inside `fields`. For such sources you must SELECT `fields` and `JSONExtractString(fields, '…')` in the emitter, and the `partition_field` must be a JSON expression (`JSONExtractString(fields, 'created')`, `partition_field_is_datetime_string=True`). **Verify the generic fetcher accepts a JSON-expression `partition_field`** (it interpolates it into HogQL `WHERE`) before assuming a clone works — this is the single most likely thing to be subtly wrong, and it can only be confirmed by running a sync, not by reading code. Inspect the real column shape via the source's `canonical_descriptions.py` first.
@@ -169,7 +169,7 @@ generic; only the per-source emitter + registry entry are new.
 
 ### Verify
 
-- Migration applies cleanly; `python manage.py makemigrations --check` is clean afterward.
+- `python manage.py makemigrations signals --check --dry-run` reports no changes.
 - The `ExternalDataSourceType` member exists in `products/warehouse_sources/backend/types.py`.
 
 ---
@@ -243,7 +243,7 @@ warehouse sources / signals. Clean up the worktree when merged:
 - One PR per source per repo (per the request). Title: `feat(data-warehouse): add <Source> as a self-driving inbox source`.
 - Base the PR body on the repo's PR template.
 - Backend PRs first (or the shared enum migration first); Code PR references the backend PR and the deploy-ordering dependency.
-- **Migration hygiene:** if opening several backend PRs, put all new `SignalSourceProduct` values in ONE prep PR's migration, and have the per-source emitter PRs carry no migration — otherwise they conflict.
+- **Backend and desktop PRs stay separate:** `.github/scripts/desktop/check-pr-backend-coupling.sh` fails a PR that touches both `products/signals/backend` and the desktop or agent-contracts paths, unless it has the `desktop-skip-backend-check` label.
 - Follow the `merging-prs` skill to land each PR through the Trunk queue.
 
 ## Gotchas

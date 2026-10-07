@@ -153,6 +153,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.bugsnag_errors import BUGSNAG_CONFIG
     from products.signals.backend.emission.canny_posts import CANNY_CONFIG
     from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
+    from products.signals.backend.emission.datadog_incidents import DATADOG_CONFIG
     from products.signals.backend.emission.dixa_conversations import DIXA_CONFIG
     from products.signals.backend.emission.featurebase_posts import FEATUREBASE_CONFIG
     from products.signals.backend.emission.freshdesk_tickets import FRESHDESK_CONFIG
@@ -206,12 +207,13 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.GITLAB, "issues", GITLAB_CONFIG)
     register_signal_source(ExternalDataSourceType.GITEA, "issues", GITEA_CONFIG)
     register_signal_source(ExternalDataSourceType.SHORTCUT, "stories", SHORTCUT_CONFIG)
-    # Tier-1 error tracking (record kind: issue)
+    # Tier-1 error tracking and incidents (record kind: issue)
     register_signal_source(ExternalDataSourceType.SENTRY, "issues", SENTRY_CONFIG)
     register_signal_source(ExternalDataSourceType.ROLLBAR, "items", ROLLBAR_CONFIG)
     register_signal_source(ExternalDataSourceType.BUGSNAG, "errors", BUGSNAG_CONFIG)
     register_signal_source(ExternalDataSourceType.HONEYBADGER, "faults", HONEYBADGER_CONFIG)
     register_signal_source(ExternalDataSourceType.RAYGUN, "error_groups", RAYGUN_CONFIG)
+    register_signal_source(ExternalDataSourceType.DATADOG, "incidents", DATADOG_CONFIG)
     # Tier-2 security scanners (record kind: scanner_finding)
     register_signal_source(ExternalDataSourceType.SNYK, "issues", SNYK_CONFIG)
     register_signal_source(ExternalDataSourceType.SONARQUBE, "issues", SONARQUBE_CONFIG)

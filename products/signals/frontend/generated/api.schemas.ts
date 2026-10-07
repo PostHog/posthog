@@ -1585,6 +1585,7 @@ export interface SignalReportSuggestedReviewersArtefactApi {
  * * `bugsnag` - bugsnag
  * * `honeybadger` - honeybadger
  * * `raygun` - raygun
+ * * `datadog` - datadog
  * * `snyk` - snyk
  * * `sonarqube` - sonarqube
  * * `semgrep` - semgrep
@@ -1639,6 +1640,7 @@ export const SignalSourceProductApi = {
     Bugsnag: 'bugsnag',
     Honeybadger: 'honeybadger',
     Raygun: 'raygun',
+    Datadog: 'datadog',
     Snyk: 'snyk',
     Sonarqube: 'sonarqube',
     Semgrep: 'semgrep',
@@ -2130,6 +2132,12 @@ export interface SentryIssueSignalExtraApi {
     firstSeen: string | null
 }
 
+export interface DatadogIncidentSignalExtraApi {
+    severity: string | null
+    state: string | null
+    created: string | null
+}
+
 export interface RollbarItemSignalExtraApi {
     level: string | null
     status: string | null
@@ -2332,6 +2340,7 @@ export type SignalExtraApi =
     | GiteaIssueSignalExtraApi
     | ShortcutStorySignalExtraApi
     | SentryIssueSignalExtraApi
+    | DatadogIncidentSignalExtraApi
     | RollbarItemSignalExtraApi
     | BugsnagErrorSignalExtraApi
     | HoneybadgerFaultSignalExtraApi
@@ -2424,6 +2433,7 @@ export interface SignalNodeApi {
      * * `bugsnag` - bugsnag
      * * `honeybadger` - honeybadger
      * * `raygun` - raygun
+     * * `datadog` - datadog
      * * `snyk` - snyk
      * * `sonarqube` - sonarqube
      * * `semgrep` - semgrep
@@ -7197,6 +7207,7 @@ export interface ScoutSuggestionRefreshApi {
  * * `hubspot` - HubSpot
  * * `engineering_analytics` - Engineering analytics
  * * `google_search_console` - Google Search Console
+ * * `datadog` - Datadog
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -7251,6 +7262,7 @@ export const SignalSourceProductEnumApi = {
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
     GoogleSearchConsole: 'google_search_console',
+    Datadog: 'datadog',
 } as const
 
 /**
