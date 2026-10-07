@@ -22,6 +22,7 @@ from django.conf import settings
 
 import structlog
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
 from posthog.schema_enums import AlertCalculationInterval
@@ -190,8 +191,10 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
         snapshot = replace(snapshot, state=unsnoozed.new_state, consecutive_failures=unsnoozed.consecutive_failures)
 
     # Production's tags, so ClickHouse workload management treats the query the way it treats
-    # production's and its cost is grouped the same way in the query log.
+    # production's and its cost is grouped the same way in the query log. The user is the
+    # platform's own, so the parallel run never takes from production's per-user budget.
     tag_queries(
+        ch_user=ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
         team_id=alert.team_id,
         client_query_id=f"{QUERY_ID_PREFIX}{evaluation_id}",
         alert_config_id=str(alert.id),
