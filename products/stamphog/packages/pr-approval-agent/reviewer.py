@@ -10,6 +10,7 @@ import json
 import shutil
 import asyncio
 import textwrap
+import dataclasses
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -129,7 +130,26 @@ def _keep_ends(items: list[dict], head: int, tail: int) -> tuple[list[dict], lis
     return items[:head], items[-tail:], len(items) - head - tail
 
 
-def _verdict_from_facts(output: dict) -> dict:
+def _cap_author_facts(facts: ReviewFacts, classification: dict) -> ReviewFacts:
+    """Keep an author fact only when the pipeline's own data backs it, read the way the prompt renders it.
+
+    The pipeline knows whether the author is on any owning team, and the model judges whether
+    that team owns the risky part, so both must hold. An injected claim or a misread can then
+    narrow assurance for a risky change but never create it.
+    """
+    on_owning_team = bool(classification.get("ownership", {}).get("teams")) and bool(
+        classification.get("author_on_owning_team", True)
+    )
+    familiarity = classification.get("familiarity")
+    strong = familiarity is not None and familiarity.band == "STRONG"
+    return dataclasses.replace(
+        facts,
+        owning_team_author=facts.owning_team_author and on_owning_team,
+        strong_familiarity=facts.strong_familiarity and strong,
+    )
+
+
+def _verdict_from_facts(output: dict, classification: dict) -> dict:
     """Turn the reviewer's structured facts into the verdict dict the pipeline consumes.
 
     The keys verdict, reasoning, risk, issues and change_summary keep the shape every
@@ -142,7 +162,7 @@ def _verdict_from_facts(output: dict) -> dict:
         "facts": {name: output.get(name) for name in FACT_FIELDS},
     }
     try:
-        ruled = derive_verdict(ReviewFacts.from_output(output))
+        ruled = derive_verdict(_cap_author_facts(ReviewFacts.from_output(output), classification))
     except InvalidFactsError as exc:
         return {
             **result,
@@ -556,7 +576,7 @@ class Reviewer:
                         status = f" (HTTP {api_status})" if api_status else ""
                         raise RuntimeError(f"Anthropic API error{status}: {message.result or message.subtype}")
                     if message.structured_output:
-                        result = _verdict_from_facts(message.structured_output)
+                        result = _verdict_from_facts(message.structured_output, classification)
                         props["stamphog_llm_verdict"] = result["verdict"]
                 elif isinstance(message, AssistantMessage):
                     for block in message.content:
