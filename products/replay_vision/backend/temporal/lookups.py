@@ -84,6 +84,7 @@ def run_lookups(plan: LookupPlan, *, events_index: EventsIndex, network_index: N
             result.update(found, requests=_unseen(found["requests"], seen))
         else:
             result["requests"] = []
+            result["note"] = "This session has no network requests to look up, so this says nothing about the network."
         results.append(result)
     return results
 
@@ -96,6 +97,11 @@ def _unseen(rows: list[dict[str, Any]], seen: set[int]) -> list[dict[str, Any]]:
 
 
 _ANSWER_NOW = "Now give your answer to the task above. There are no further lookups."
+
+
+def render_lookups_unavailable() -> str:
+    """The answer turn's instruction when the planned lookups could not be run."""
+    return f"Your lookups could not be run, so answer from the video and the context above. {_ANSWER_NOW}"
 
 
 def render_lookup_results(results: list[dict[str, Any]]) -> str:

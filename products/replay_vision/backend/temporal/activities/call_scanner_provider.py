@@ -49,6 +49,7 @@ from products.replay_vision.backend.temporal.gemini import classify_gemini_error
 from products.replay_vision.backend.temporal.lookups import (
     LookupPlan,
     render_lookup_results,
+    render_lookups_unavailable,
     render_plan_instruction,
     run_lookups,
 )
@@ -829,7 +830,7 @@ async def _run_lookup_round(
     except Exception:
         # A bug in our lookup code must not cost the provider calls already paid for.
         logger.exception("replay_vision.call_scanner_provider.lookups_failed", step=step.name)
-        results = []
+        return render_lookups_unavailable()
     return render_lookup_results(results)
 
 
