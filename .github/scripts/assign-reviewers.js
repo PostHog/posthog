@@ -144,6 +144,8 @@ async function getChangedFiles() {
                 additions: file.additions || 0,
                 deletions: file.deletions || 0,
                 status: file.status,
+                // Set for a rename, so that a move out of a sensitive path still reaches its owners.
+                previousFilename: file.previous_filename || null,
             })
         }
 
@@ -294,8 +296,50 @@ function computeAdditionOwners(resolutionByPath, changedFiles, config = CONFIG) 
     return Array.from(owners.values())
 }
 
+// A one-line edit to a sensitive path can turn a guard off, so `owners.yaml` marks such paths
+// with `sensitive: true` and their owners are requested whatever the size of the change. A rename
+// also checks the old path, because the old path is the one that the master checkout holds.
+// Generated status does not skip a sensitive path: a tool writes a ratchet baseline, but one added
+// line in it is a new exemption.
+// Returns one entry per owner with the sensitive paths that pulled it in.
+function computeSensitiveOwners(resolutionByPath, changedFiles, config = CONFIG) {
+    const owners = new Map()
+    for (const file of changedFiles) {
+        const paths = file.previousFilename ? [file.filename, file.previousFilename] : [file.filename]
+        for (const path of paths) {
+            const resolution = resolutionByPath[path]
+            if (!resolution || !resolution.sensitive || isExcludedFile(path, config.excludedPatterns)) {
+                continue
+            }
+            for (const rawOwner of resolution.owners || []) {
+                const resolved = mapResolvedOwner(rawOwner)
+                if (!resolved) {
+                    continue
+                }
+                let entry = owners.get(resolved.owner)
+                if (!entry) {
+                    entry = { ...resolved, sensitivePaths: [] }
+                    owners.set(resolved.owner, entry)
+                }
+                if (!entry.sensitivePaths.includes(path)) {
+                    entry.sensitivePaths.push(path)
+                }
+            }
+        }
+    }
+    return Array.from(owners.values())
+}
+
 function isSubstantive(footprint, config = CONFIG) {
     return footprint.lines >= config.substantiveLines || footprint.fileCount >= config.substantiveFiles
+}
+
+// An owner of a sensitive path with a substantive footprint is requested anyway, so the
+// comment only names the owners that the sensitive path alone pulled in.
+function sensitiveOwnersToExplain(sensitiveOwners, footprints, config = CONFIG) {
+    return sensitiveOwners.filter(
+        (entry) => !footprints.some((footprint) => footprint.owner === entry.owner && isSubstantive(footprint, config))
+    )
 }
 
 // Split matched owners into those we formally request review from vs those we
@@ -350,17 +394,24 @@ function classifyOwners(footprints, config = CONFIG) {
     return { requested, demoted }
 }
 
-// Owners of additions decide whether a new directory belongs where the PR puts it,
-// whatever the size of the change. So they are always requested, and the footprint
-// rules and the team cap apply only to the other owners. An owner of additions that
-// also owns changed files must not take one of the capped places.
-function classifyOwnersWithAdditions(footprints, additionOwners, config = CONFIG) {
-    const additionOwnerSet = new Set(additionOwners.map((entry) => entry.owner))
+// Owners of additions decide whether a new directory belongs where the PR puts it, and
+// owners of a sensitive path must see every change to it, whatever the size of the change.
+// So these pinned owners are always requested, and the footprint rules and the team cap
+// apply only to the other owners. A pinned owner that also owns changed files must not
+// take one of the capped places.
+function classifyOwnersWithPinned(footprints, pinnedOwners, config = CONFIG) {
+    const pinned = []
+    for (const entry of pinnedOwners) {
+        if (!pinned.some((other) => other.owner === entry.owner)) {
+            pinned.push(entry)
+        }
+    }
+    const pinnedOwnerSet = new Set(pinned.map((entry) => entry.owner))
     const { requested, demoted } = classifyOwners(
-        footprints.filter((footprint) => !additionOwnerSet.has(footprint.owner)),
+        footprints.filter((footprint) => !pinnedOwnerSet.has(footprint.owner)),
         config
     )
-    return { requested: [...requested, ...additionOwners], demoted }
+    return { requested: [...requested, ...pinned], demoted }
 }
 
 function formatPatterns(patterns, max = 3) {
@@ -387,16 +438,16 @@ function sanitizePathForComment(path) {
     return path.replace(/[`\u0000-\u001f\u007f]/g, '?')
 }
 
-function formatAdditionOwner(entry) {
-    return `- \`${entry.owner}\` (${formatPatterns(entry.additionPaths.map(sanitizePathForComment), 2)})`
+function formatPinnedOwner(entry, paths) {
+    return `- \`${entry.owner}\` (${formatPatterns(paths.map(sanitizePathForComment), 2)})`
 }
 
 // Produce the explanation comment body, or null if no owner was dropped and no
-// owner of additions was requested. We only post when a reviewer would otherwise
-// wonder why a team is (or is not) in GitHub's "Reviewers" sidebar, so the
-// comment carries signal, not noise.
-function buildReviewerComment(requested, demoted, additionOwners = [], config = CONFIG) {
-    if (demoted.length === 0 && additionOwners.length === 0) {
+// owner was pinned. We only post when a reviewer would otherwise wonder why a team
+// is (or is not) in GitHub's "Reviewers" sidebar, so the comment carries signal,
+// not noise.
+function buildReviewerComment(requested, demoted, additionOwners = [], sensitiveOwners = [], config = CONFIG) {
+    if (demoted.length === 0 && additionOwners.length === 0 && sensitiveOwners.length === 0) {
         return null
     }
 
@@ -407,7 +458,17 @@ function buildReviewerComment(requested, demoted, additionOwners = [], config = 
             'These owners were selected because this PR adds a new path where `owners.yaml` names owners of additions. ' +
                 'The path after each owner is the new path:',
             '',
-            ...additionOwners.map(formatAdditionOwner),
+            ...additionOwners.map((entry) => formatPinnedOwner(entry, entry.additionPaths)),
+            ''
+        )
+    }
+
+    if (sensitiveOwners.length > 0) {
+        lines.push(
+            'These owners were selected because this PR changes a path that `owners.yaml` marks as sensitive, ' +
+                'where a small change can matter. The path after each owner is the sensitive path:',
+            '',
+            ...sensitiveOwners.map((entry) => formatPinnedOwner(entry, entry.sensitivePaths)),
             ''
         )
     }
@@ -646,13 +707,14 @@ async function main() {
         // Resolve ownership for the files that actually count (excluded ones can't
         // pull in a reviewer, so don't waste a resolver round-trip on them).
         const relevantFilenames = changedFiles
-            .filter((file) => !isExcludedFile(file.filename))
-            .map((file) => file.filename)
-        const resolutionByPath = resolveOwners(relevantFilenames)
+            .flatMap((file) => [file.filename, file.previousFilename])
+            .filter((filename) => filename && !isExcludedFile(filename))
+        const resolutionByPath = resolveOwners([...new Set(relevantFilenames)])
 
         const footprints = computeOwnerFootprints(resolutionByPath, changedFiles)
         const additionOwners = computeAdditionOwners(resolutionByPath, changedFiles)
-        const { requested, demoted } = classifyOwnersWithAdditions(footprints, additionOwners)
+        const sensitiveOwners = computeSensitiveOwners(resolutionByPath, changedFiles)
+        const { requested, demoted } = classifyOwnersWithPinned(footprints, [...additionOwners, ...sensitiveOwners])
 
         const teams = requested.filter((f) => f.type === 'team').map((f) => f.name)
         const users = requested.filter((f) => f.type === 'user').map((f) => f.name)
@@ -665,6 +727,7 @@ async function main() {
         console.info(`Users to request: ${users.join(', ') || 'none'}`)
         console.info(`Demoted to comment: ${demoted.map((f) => f.owner).join(', ') || 'none'}`)
         console.info(`Owners of additions: ${additionOwners.map((entry) => entry.owner).join(', ') || 'none'}`)
+        console.info(`Owners of sensitive paths: ${sensitiveOwners.map((entry) => entry.owner).join(', ') || 'none'}`)
         console.info()
 
         if (!isExternal) {
@@ -675,7 +738,12 @@ async function main() {
             await assignReviewers(toRequest, users)
         }
 
-        const commentBody = buildReviewerComment(requested, demoted, additionOwners)
+        const commentBody = buildReviewerComment(
+            requested,
+            demoted,
+            additionOwners,
+            sensitiveOwnersToExplain(sensitiveOwners, footprints)
+        )
         if (commentBody) {
             await upsertReviewerComment(commentBody)
         }
@@ -697,9 +765,11 @@ module.exports = {
     partitionExternalTeams,
     computeOwnerFootprints,
     computeAdditionOwners,
+    computeSensitiveOwners,
+    sensitiveOwnersToExplain,
     isSubstantive,
     classifyOwners,
-    classifyOwnersWithAdditions,
+    classifyOwnersWithPinned,
     buildReviewerComment,
     fileMatchesPattern,
 }

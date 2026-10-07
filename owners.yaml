@@ -58,11 +58,14 @@ rules:
           - AGENTS.md
           - '/.coderabbit.yaml'
           - '/.greptile/'
-          # Every owners.yaml routes to devex (unanchored: matches at any depth)
-          # unless a nearer file or rule claims it — ownership-policy edits must
-          # never go out for review unassigned.
-          - owners.yaml
       owners: team-devex
+    # Every owners.yaml routes to devex (unanchored: matches at any depth)
+    # unless a nearer file or rule claims it — ownership-policy edits must
+    # never go out for review unassigned. A one-line edit changes who reviews
+    # later PRs, so the path is sensitive and its owner sees every change.
+    - match: owners.yaml
+      owners: team-devex
+      sensitive: true
     # Anchored: bare 'bin/' also matches Cargo's src/bin/, a crate's own binaries.
     - match:
           - '/bin/'
@@ -116,8 +119,10 @@ rules:
       owners: team-devex
     # The guards behind the house patterns: semgrep rules, ratchet baselines, invariant tests,
     # and the docs that state the rules. A small edit here can quietly reopen what a guard
-    # closed. Busy files that most PRs touch (lib/api.ts, pyproject.toml, the setup receivers
-    # and frozen dataclass baselines) stay out, so that the review requests stay rare.
+    # closed, so the paths are sensitive and the reviewer assigner requests devex for every
+    # change. Busy files that most PRs touch (lib/api.ts, pyproject.toml, the model crossing,
+    # setup receivers and frozen dataclass baselines) stay out, so that the review requests
+    # stay rare.
     - match:
           - '/.github/scripts/migration-deletion-allowlist.txt'
           - '/.semgrep/rules/devex/'
@@ -147,8 +152,10 @@ rules:
           - '/products/README.md'
           - '/products/architecture.md'
           - '/products/isolation_baseline.txt'
-          - '/products/model_crossing_uses_baseline.txt'
           - '/tools/openapi-codegen/'
+      owners: team-devex
+      sensitive: true
+    - match: '/products/model_crossing_uses_baseline.txt'
       owners: team-devex
     - match: '/posthog/management/commands/find_enum_collisions.py'
       owners: team-devex

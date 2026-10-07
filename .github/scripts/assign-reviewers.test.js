@@ -11,9 +11,11 @@ const {
     partitionExternalTeams,
     computeOwnerFootprints,
     computeAdditionOwners,
+    computeSensitiveOwners,
+    sensitiveOwnersToExplain,
     isSubstantive,
     classifyOwners,
-    classifyOwnersWithAdditions,
+    classifyOwnersWithPinned,
     buildReviewerComment,
     fileMatchesPattern,
 } = require('./assign-reviewers')
@@ -321,20 +323,75 @@ test('computeAdditionOwners: collects owners of additions per new path, skipping
     assertMatchObject(owners[1], { owner: '@someone', type: 'user', additionPaths: ['tools/new.py'] })
 })
 
-test('classifyOwnersWithAdditions: requests owners of additions on top of a full team cap', () => {
+test('computeSensitiveOwners: collects owners of sensitive paths, including generated ones and the old path of a rename', () => {
+    const sensitive = (owners, extra = {}) => ({ ...resolved(owners, 'owners.yaml'), sensitive: true, ...extra })
+    const resolution = {
+        'ci/allowlist.txt': sensitive(['team-devex']),
+        'ci/baseline.txt': sensitive(['team-devex'], { status: 'generated' }),
+        'guard/moved.py': sensitive(['team-guard', '@someone']),
+        'elsewhere/moved.py': resolved(['team-other'], 'owners.yaml'),
+        'posthog/api/survey.py': resolved(['team-surveys'], 'posthog/owners.yaml'),
+        'guard/pnpm-lock.yaml': sensitive(['team-lock']),
+    }
+    const files = [
+        file('ci/allowlist.txt', 1),
+        file('ci/baseline.txt', 1),
+        { ...file('elsewhere/moved.py'), status: 'renamed', previousFilename: 'guard/moved.py' },
+        file('posthog/api/survey.py', 50),
+        file('guard/pnpm-lock.yaml', 3),
+    ]
+
+    const owners = computeSensitiveOwners(resolution, files)
+
+    assert.deepEqual(
+        owners.map((entry) => [entry.owner, entry.type, entry.sensitivePaths]),
+        [
+            ['@PostHog/team-devex', 'team', ['ci/allowlist.txt', 'ci/baseline.txt']],
+            ['@PostHog/team-guard', 'team', ['guard/moved.py']],
+            ['@someone', 'user', ['guard/moved.py']],
+        ]
+    )
+})
+
+test('sensitiveOwnersToExplain: leaves out an owner that its footprint alone would request', () => {
+    const sensitiveOwners = [
+        { owner: '@PostHog/team-devex', sensitivePaths: ['ci/allowlist.txt'] },
+        { owner: '@PostHog/team-guard', sensitivePaths: ['guard/list.txt'] },
+    ]
+    const footprints = [fp('@PostHog/team-devex', CONFIG.substantiveLines), fp('@PostHog/team-guard', 1)]
+
+    assert.deepEqual(
+        sensitiveOwnersToExplain(sensitiveOwners, footprints).map((entry) => entry.owner),
+        ['@PostHog/team-guard']
+    )
+})
+
+test('classifyOwnersWithPinned: requests owners of additions and of sensitive paths on top of a full team cap', () => {
     const teams = Array.from({ length: CONFIG.maxTeamsRequested }, (_, i) => fp(`@PostHog/team-${i}`, 50 + i))
-    const footprints = [...teams, fp('@PostHog/team-devex', 200), fp('@PostHog/team-small', 1)]
+    const footprints = [
+        ...teams,
+        fp('@PostHog/team-devex', 200),
+        fp('@PostHog/team-guard', 1),
+        fp('@PostHog/team-small', 1),
+    ]
     const additionOwners = computeAdditionOwners(
         {
             'products/new/a.py': { ...resolved([], null), added: { path: 'products/new', additions: ['team-devex'] } },
         },
         [{ ...file('products/new/a.py'), status: 'added' }]
     )
+    const sensitiveOwners = computeSensitiveOwners(
+        {
+            'ci/allowlist.txt': { ...resolved(['team-guard', 'team-devex'], 'owners.yaml'), sensitive: true },
+        },
+        [file('ci/allowlist.txt', 1)]
+    )
 
-    const { requested, demoted } = classifyOwnersWithAdditions(footprints, additionOwners)
+    const { requested, demoted } = classifyOwnersWithPinned(footprints, [...additionOwners, ...sensitiveOwners])
 
-    assert.equal(requested.length, CONFIG.maxTeamsRequested + 1)
+    assert.equal(requested.length, CONFIG.maxTeamsRequested + 2)
     assert.equal(requested.filter((f) => f.owner === '@PostHog/team-devex').length, 1)
+    assert.equal(requested.filter((f) => f.owner === '@PostHog/team-guard').length, 1)
     for (const team of teams) {
         assert.ok(requested.some((f) => f.owner === team.owner))
     }
@@ -372,6 +429,14 @@ test('buildReviewerComment: names each owner of additions with its addition, eve
     const body = buildReviewerComment(requested, [], additionOwners)
     assert.ok(body.includes(CONFIG.commentMarker))
     assert.ok(body.includes('- `@PostHog/team-devex` (`products/new`)'))
+    assert.ok(!body.includes('soft owners were skipped'))
+})
+
+test('buildReviewerComment: names each owner of a sensitive path with that path, even when nobody was skipped', () => {
+    const sensitiveOwners = [{ owner: '@PostHog/team-devex', sensitivePaths: ['ci/allowlist.txt'] }]
+    const body = buildReviewerComment(requested, [], [], sensitiveOwners)
+    assert.ok(body.includes('marks as sensitive'))
+    assert.ok(body.includes('- `@PostHog/team-devex` (`ci/allowlist.txt`)'))
     assert.ok(!body.includes('soft owners were skipped'))
 })
 
