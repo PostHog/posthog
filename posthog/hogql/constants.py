@@ -184,6 +184,7 @@ class HogQLQuerySettings(BaseModel):
     force_data_skipping_indices: Optional[list[str]] = None
     force_optimize_projection: Optional[bool] = None
     optimize_use_projection_filtering: Optional[bool] = None
+    query_plan_max_limit_for_top_k_optimization: Optional[int] = None
     load_balancing: Optional[str] = None
     format_csv_allow_double_quotes: Optional[bool] = None
     optimize_skip_unused_shards: Optional[bool] = None

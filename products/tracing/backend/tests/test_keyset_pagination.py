@@ -299,3 +299,57 @@ class TestTraceSpansDurationRootScope(_TraceSpansTestBase):
     )
     def test_ranks_by_root_span_duration(self, _name, order_direction, expected):
         self.assertEqual(self._ordered_trace_indices(order_direction=order_direction, limit=10), expected)
+
+
+# Trace 1 started first but owns the newest span; trace 4 never got a root; trace 5 has 15 spans.
+RECENT_TRACE_SPANS: list[tuple[int, int, bool]] = [
+    (1, 0, True),
+    (1, 100, False),
+    (2, 50, True),
+    (3, 60, True),
+    (4, 70, False),
+    (4, 71, False),
+    (5, 80, True),
+    *[(5, 80 + n, False) for n in range(1, 15)],
+]
+
+
+class TestTraceSpansRecentTraceSelection(_TraceSpansTestBase):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls._recreate_trace_spans_tables()
+
+        base = dt.datetime(2026, 6, 2, 8, 0, 0)
+        rows = []
+        for n, (trace, offset_s, is_root) in enumerate(RECENT_TRACE_SPANS):
+            ts = (base + dt.timedelta(seconds=offset_s)).strftime("%Y-%m-%d %H:%M:%S.%f")
+            parent = "" if is_root else _b64((9999).to_bytes(8, "big"))
+            rows.append(
+                "("
+                f"'019e8755-0000-0000-0000-{n:012d}', {cls.team.id}, '{_b64(trace.to_bytes(16, 'big'))}', "
+                f"'{_b64((1000 + n).to_bytes(8, 'big'))}', '{parent}', 'op', 2, '{ts}', '{ts}', '{ts}', 0, 'web'"
+                ")"
+            )
+        sync_execute(
+            "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+            "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(rows)
+        )
+
+    @parameterized.expand(
+        [
+            ("all_spans_fit_in_the_recent_window", 3, {5, 4, 3}),
+            ("trace_started_earlier_is_not_ranked_by_its_newest_span", 2, {5, 4}),
+            ("too_few_complete_traces_falls_back_to_grouping", 1, {5}),
+        ]
+    )
+    def test_newest_traces_rank_by_their_earliest_span(self, _name, limit, expected):
+        query = TraceSpansQuery(
+            dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            orderBy="timestamp",
+            orderDirection="DESC",
+            limit=limit,
+            rootSpans=False,
+            prefetchSpans=20,
+        )
+        self.assertEqual({int(row[1], 16) for row in self._execute(query)}, expected)
