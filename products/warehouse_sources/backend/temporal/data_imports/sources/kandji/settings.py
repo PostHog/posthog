@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Any, Literal
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -7,6 +8,10 @@ from products.warehouse_sources.backend.types import IncrementalField
 
 # Kandji's List Devices endpoint caps `limit` at 300; the other list endpoints share the same cap.
 DEVICES_PAGE_SIZE = 300
+
+# "offset": limit/offset. "next_link": follow the query string of the body's `next` URL (library and
+# users endpoints). "single": the full list comes back in one response (per-device children).
+KandjiPagination = Literal["offset", "next_link", "single"]
 
 # Kandji exposes per-tenant, region-scoped base URLs. Both region and subdomain are user-supplied,
 # and the API lives under the `/api/v1` prefix on that host.
@@ -22,13 +27,12 @@ class KandjiEndpointConfig:
     # ("results", "apps", "library_items") for endpoints that nest their rows.
     data_selector: str
     primary_key: str | list[str]
-    # Top-level list endpoints paginate with limit/offset. Per-device children return the full
-    # list in one response, so they are fetched as a single page.
-    paginated: bool = True
+    pagination: KandjiPagination = "offset"
     # `total`-like count field in the response, used to terminate offset pagination. `None` when the
     # endpoint returns a bare array with no count (we then stop on the first empty/short page).
     total_path: str | None = None
     page_size: int = DEVICES_PAGE_SIZE
+    params: dict[str, Any] = field(default_factory=dict)
     fanout: DependentEndpointConfig | None = None
     # Kandji has no server-side updated-since filter on these endpoints, so every stream is
     # full-refresh; these stay empty but satisfy the fan-out helper's endpoint protocol.
@@ -59,7 +63,7 @@ KANDJI_ENDPOINTS: dict[str, KandjiEndpointConfig] = {
         # Details returns a single nested object per device; `$` selects that object.
         data_selector="$",
         primary_key="device_id",
-        paginated=False,
+        pagination="single",
         fanout=DependentEndpointConfig(
             parent_name="devices",
             resolve_param="device_id",
@@ -75,7 +79,7 @@ KANDJI_ENDPOINTS: dict[str, KandjiEndpointConfig] = {
         # App rows are unique per device; `bundle_id` identifies the app within a device. The parent
         # device id keeps the key unique across the table (this stream aggregates every device's apps).
         primary_key=["device_id", "bundle_id"],
-        paginated=False,
+        pagination="single",
         fanout=DependentEndpointConfig(
             parent_name="devices",
             resolve_param="device_id",
@@ -90,7 +94,7 @@ KANDJI_ENDPOINTS: dict[str, KandjiEndpointConfig] = {
         data_selector="library_items",
         # Library-item `id` is unique within a device; the parent device id keeps it unique table-wide.
         primary_key=["device_id", "id"],
-        paginated=False,
+        pagination="single",
         fanout=DependentEndpointConfig(
             parent_name="devices",
             resolve_param="device_id",
@@ -98,6 +102,60 @@ KANDJI_ENDPOINTS: dict[str, KandjiEndpointConfig] = {
             include_from_parent=["device_id"],
             parent_field_renames={"device_id": "device_id"},
         ),
+    ),
+    "device_parameters": KandjiEndpointConfig(
+        name="device_parameters",
+        # Device Status returns `library_items` and `parameters`. Only `parameters` is synced: the
+        # library-item half is a subset of what `device_library_items` already carries.
+        path="/devices/{device_id}/status",
+        data_selector="parameters",
+        # `item_id` identifies the parameter, which repeats across devices.
+        primary_key=["device_id", "item_id"],
+        pagination="single",
+        fanout=DependentEndpointConfig(
+            parent_name="devices",
+            resolve_param="device_id",
+            resolve_field="device_id",
+            include_from_parent=["device_id"],
+            parent_field_renames={"device_id": "device_id"},
+        ),
+    ),
+    "library_custom_apps": KandjiEndpointConfig(
+        name="library_custom_apps",
+        path="/library/custom-apps",
+        data_selector="results",
+        primary_key="id",
+        pagination="next_link",
+    ),
+    "library_custom_profiles": KandjiEndpointConfig(
+        name="library_custom_profiles",
+        path="/library/custom-profiles",
+        data_selector="results",
+        primary_key="id",
+        pagination="next_link",
+    ),
+    "library_custom_scripts": KandjiEndpointConfig(
+        name="library_custom_scripts",
+        path="/library/custom-scripts",
+        data_selector="results",
+        primary_key="id",
+        pagination="next_link",
+    ),
+    "library_in_house_apps": KandjiEndpointConfig(
+        name="library_in_house_apps",
+        path="/library/ipa-apps",
+        data_selector="results",
+        primary_key="id",
+        pagination="next_link",
+    ),
+    "users": KandjiEndpointConfig(
+        name="users",
+        path="/users",
+        # List Users pages with a `cursor` carried in the `next` URL; it has no `count`.
+        data_selector="results",
+        primary_key="id",
+        pagination="next_link",
+        params={"sizePerPage": DEVICES_PAGE_SIZE},
     ),
 }
 
