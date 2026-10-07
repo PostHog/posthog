@@ -34,6 +34,7 @@ const APP_KEYS: KeyId[] = [
   "super+b",
   "ctrl+k",
   "super+k",
+  "ctrl+;",
   "ctrl+q",
   "ctrl+r",
   "pageUp",
@@ -77,6 +78,7 @@ export const SLASH_COMMANDS = [
     description: "Open this chat full width, as All tasks does",
   },
   { name: "search", description: "Search your tasks" },
+  { name: "settings", description: "Open settings, like Ctrl+;" },
   { name: "clear", description: "Clear this local chat's conversation" },
   { name: "local", description: "Run new chats in this pane on this machine" },
   {
