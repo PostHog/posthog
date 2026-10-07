@@ -1376,11 +1376,16 @@ describe('batchExportConfigFormLogic', () => {
             expect(body.hogql_query).toEqual(fixture.hogql_query)
         })
 
-        it('does not send event filters for the HogQL model', async () => {
-            await initLogic({ service: null, id: HOGQL_BATCH_EXPORT.id })
-            logic.actions.setConfigurationValue('filters', [
-                { key: '$browser', operator: 'exact', type: 'event', value: ['Firefox'] },
-            ])
+        it.each([
+            { model: 'events', fixture: AWS_S3_BATCH_EXPORT, sendsFilters: true },
+            { model: 'persons', fixture: AWS_S3_BATCH_EXPORT, sendsFilters: false },
+            { model: 'sessions', fixture: AWS_S3_BATCH_EXPORT, sendsFilters: false },
+            { model: 'hogql', fixture: HOGQL_BATCH_EXPORT, sendsFilters: false },
+        ])('sends event filters only for the events model ($model)', async ({ model, fixture, sendsFilters }) => {
+            const filters = [{ key: '$browser', operator: 'exact', type: 'event', value: ['Firefox'] }]
+            await initLogic({ service: null, id: fixture.id })
+            logic.actions.setConfigurationValue('model', model)
+            logic.actions.setConfigurationValue('filters', filters)
 
             await expectLogic(logic, () => {
                 logic.actions.submitConfiguration()
@@ -1388,7 +1393,11 @@ describe('batchExportConfigFormLogic', () => {
                 .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
                 .toFinishAllListeners()
 
-            expect(patchBodiesById[HOGQL_BATCH_EXPORT.id]).not.toHaveProperty('filters')
+            if (sendsFilters) {
+                expect(patchBodiesById[fixture.id].filters).toEqual(filters)
+            } else {
+                expect(patchBodiesById[fixture.id]).not.toHaveProperty('filters')
+            }
         })
     })
 

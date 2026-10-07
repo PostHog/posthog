@@ -862,8 +862,8 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                         // The backend rejects `hogql_query` for every model but 'hogql'
                         hogql_query:
                             formValues.model === BatchExportModelEnumApi.Hogql ? formValues.hogql_query : undefined,
-                        // The backend rejects filters for 'hogql', and the form hides them for that model
-                        filters: formValues.model === BatchExportModelEnumApi.Hogql ? undefined : formValues.filters,
+                        // Filters only apply to the events model: the API rejects them for 'hogql' and runs ignore them otherwise
+                        filters: formValues.model === BatchExportModelEnumApi.Events ? formValues.filters : undefined,
                         destination: buildDestinationPayload(formValues),
                     } as any
 
@@ -1062,8 +1062,8 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 model: formdata.model,
                 // The backend rejects `hogql_query` for every model but 'hogql'
                 hogql_query: formdata.model === BatchExportModelEnumApi.Hogql ? formdata.hogql_query : undefined,
-                // The backend rejects filters for 'hogql', and the form hides them for that model
-                filters: formdata.model === BatchExportModelEnumApi.Hogql ? undefined : formdata.filters,
+                // Filters only apply to the events model: the API rejects them for 'hogql' and runs ignore them otherwise
+                filters: formdata.model === BatchExportModelEnumApi.Events ? formdata.filters : undefined,
                 destination: buildDestinationPayload(formdata) as any,
             } as any
 
