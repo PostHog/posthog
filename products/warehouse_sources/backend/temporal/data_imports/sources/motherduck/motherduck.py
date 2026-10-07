@@ -37,6 +37,14 @@ import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_operator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import (
+    needs_full_probe,
+    resolve_merge_keys,
+    should_probe_for_duplicates,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import AnsiIdentifierQuoter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SourceMetadata,
@@ -53,6 +61,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.query_builder import (
     ParamStyle,
     SelectQueryBuilder,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
+    ValidatedRowFilter,
+    is_multi_value_operator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.motherduck import (
@@ -75,6 +87,10 @@ _IDENTIFIER_QUOTER = AnsiIdentifierQuoter()
 
 # DuckDB binds `?` placeholders positionally from a list.
 _QUERY_BUILDER = SelectQueryBuilder(quoter=_IDENTIFIER_QUOTER, param_style=ParamStyle.QMARK)
+
+# (incremental field, comparison operator, last synced value): the rows a windowed
+# duplicate-key probe examines, mirroring the Redshift source's alias.
+type IncrementalProbeWindow = tuple[str, str, Any]
 
 # MotherDuck is a single global service — there is no per-account hostname to configure.
 MOTHERDUCK_SERVICE_HOST = "api.motherduck.com"
@@ -540,6 +556,134 @@ class MotherDuckImplementation(SQLSourceImplementation[MotherduckSourceConfig, A
                 return list(columns)
         return None
 
+    def _get_column_names(self, conn: Any, schema: str, table_name: str) -> list[str]:
+        """Column names in the table's stored casing, for merge-key resolution.
+
+        Permission-sensitive like `get_primary_keys_for_table` — a failing lookup reads as
+        no columns, so an `id` fallback simply does not happen rather than an unproven `id`
+        being assumed.
+        """
+        try:
+            rows = conn.execute(
+                "SELECT column_name FROM information_schema.columns"
+                " WHERE table_schema = ? AND table_name = ?",
+                [schema, table_name],
+            ).fetchall()
+        except Exception as e:
+            structlog.get_logger().warning(
+                "Failed to read columns for MotherDuck table",
+                schema=schema,
+                table_name=table_name,
+                exc_info=e,
+            )
+            return []
+        return [name for (name,) in rows]
+
+    def _render_row_filters(self, row_filters: list[ValidatedRowFilter] | None) -> tuple[str | None, list[Any]]:
+        """AND-able QMARK conditions for the probe, with the builder's parameter discipline."""
+        conditions: list[str] = []
+        params: list[Any] = []
+        for row_filter in row_filters or []:
+            quoted_column = _IDENTIFIER_QUOTER.quote(row_filter.column)
+            if is_multi_value_operator(row_filter.operator):
+                placeholders = []
+                for element in row_filter.value:
+                    params.append(element)
+                    placeholders.append("?")
+                conditions.append(f"{quoted_column} {row_filter.operator} ({', '.join(placeholders)})")
+            else:
+                params.append(row_filter.value)
+                conditions.append(f"{quoted_column} {row_filter.operator} ?")
+        if not conditions:
+            return None, []
+        return " AND ".join(conditions), params
+
+    def _duplicate_primary_keys_query(
+        self,
+        schema: str,
+        table_name: str,
+        primary_keys: list[str],
+        incremental_window: Optional["IncrementalProbeWindow"],
+        row_filters: list[ValidatedRowFilter] | None,
+    ) -> tuple[str, list[Any]]:
+        """The duplicate-key probe, parameterized like `_QUERY_BUILDER` (QMARK, bound values)."""
+        table_ref = _IDENTIFIER_QUOTER.quote_qualified(schema, table_name)
+        key_columns = [_IDENTIFIER_QUOTER.quote(key) for key in primary_keys]
+        filter_clause, filter_params = self._render_row_filters(row_filters)
+
+        params: list[Any] = []
+        conditions: list[str] = []
+        if filter_clause:
+            conditions.append(filter_clause)
+            params.extend(filter_params)
+
+        select_keys = ", ".join(key_columns)
+        if incremental_window is not None:
+            field, operator, last_value = incremental_window
+            # The candidate set is this run's rows; the count below spans the whole table.
+            candidate_conditions = [f"{_IDENTIFIER_QUOTER.quote(field)} {operator} ?"]
+            candidate_params = [last_value]
+            if filter_clause:
+                candidate_conditions.append(filter_clause)
+                candidate_params.extend(filter_params)
+            candidates = f"SELECT DISTINCT {select_keys} FROM {table_ref} WHERE {' AND '.join(candidate_conditions)}"
+            params.extend(candidate_params)
+            # `IN` never matches a key holding NULL, so a nullable key would go unprobed.
+            # GROUP BY treats NULLs as equal, and the merge sees them the same way.
+            key_matches = [f"(t.{key} = c.{key} OR (t.{key} IS NULL AND c.{key} IS NULL))" for key in key_columns]
+            conditions.append(f"EXISTS (SELECT 1 FROM ({candidates}) AS c WHERE {' AND '.join(key_matches)})")
+            sql = f"SELECT {select_keys} FROM {table_ref} AS t"
+        else:
+            sql = f"SELECT {select_keys} FROM {table_ref}"
+
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+        sql += f" GROUP BY {select_keys} HAVING COUNT(*) > 1 LIMIT 1"
+        return sql, params
+
+    def _has_duplicate_primary_keys(
+        self,
+        conn: Any,
+        schema: str,
+        table_name: str,
+        primary_keys: list[str] | None,
+        incremental_window: Optional["IncrementalProbeWindow"] = None,
+        row_filters: list[ValidatedRowFilter] | None = None,
+    ) -> bool:
+        """Whether the effective merge key repeats.
+
+        Only meaningful for a key DuckDB does not enforce — a declared primary key is
+        already unique, so callers gate this on `should_probe_for_duplicates`.
+
+        `incremental_window` narrows which keys are examined to the ones this run reads,
+        but each of those keys is still counted across the whole table: a row that repeats
+        a key synced by an earlier run is exactly the case a merge cannot resolve. Row
+        filters are applied on both sides, because a key only has to be unique among the
+        rows extraction actually reads.
+
+        Like the ClickHouse source's probe, an unexpected failure assumes duplicates: the
+        incremental merge cannot match rows on a non-unique key and would silently drop
+        them, so a loud refusal is the safe default when uniqueness is unproven.
+        """
+        if not primary_keys:
+            return False
+
+        sql, params = self._duplicate_primary_keys_query(
+            schema, table_name, primary_keys, incremental_window, row_filters
+        )
+        try:
+            row = conn.execute(sql, params).fetchone()
+        except Exception as e:
+            structlog.get_logger().warning(
+                "Failed to probe duplicate primary keys for MotherDuck table; assuming duplicates",
+                schema=schema,
+                table_name=table_name,
+                exc_info=e,
+            )
+            return True
+        return row is not None
+
+
     # ------------------------------------------------------------------
     # Pipeline build — the `SourceResponse` for a single table
     # ------------------------------------------------------------------
@@ -591,7 +735,55 @@ class MotherDuckImplementation(SQLSourceImplementation[MotherduckSourceConfig, A
         incremental_field_type = inputs.incremental_field_type if inputs.should_use_incremental_field else None
 
         with self.connect(config, catalog=catalog) as connection:
-            primary_keys = self.get_primary_keys_for_table(connection, schema, table_name)
+            declared_keys = self.get_primary_keys_for_table(connection, schema, table_name)
+            available_columns = self._get_column_names(connection, schema, table_name)
+
+            # Resolve the effective merge key before probing so the probe checks what the
+            # merge runs on: the stored key wins for the same reason it wins in the
+            # pipeline, and `resolve_merge_keys` keeps the column's stored casing when the
+            # `id` fallback matches case-insensitively.
+            primary_keys = resolve_merge_keys(inputs.primary_keys, declared_keys, available_columns)
+
+            # DuckDB enforces a declared primary key, so merging on it needs no probe. A
+            # key the customer picked, and the assumed `id`, carry no such guarantee: the
+            # Delta merge cannot match rows on a duplicated key and drops them, reporting
+            # success on a table that is quietly missing rows, so prove the key unique.
+            duplicate_primary_keys = False
+            verified_primary_keys: list[str] | None = None
+            if should_probe_for_duplicates(primary_keys, declared_keys, constraints_enforced=True):
+                assert primary_keys is not None
+                # A run with no stored cursor re-reads the whole table (a reset, a full
+                # refresh, or the first sync), so a window would describe rows the run is
+                # not limited to. Once a full scan proves the key, later runs only have to
+                # prove the rows they bring in.
+                full_probe = (
+                    needs_full_probe(primary_keys, inputs.verified_primary_keys)
+                    or not inputs.should_use_incremental_field
+                    or incremental_field is None
+                    or inputs.db_incremental_field_last_value is None
+                )
+                window: Optional[IncrementalProbeWindow] = (
+                    None
+                    if full_probe or incremental_field is None
+                    else (
+                        incremental_field,
+                        incremental_type_to_operator(incremental_field_type) if incremental_field_type else ">",
+                        inputs.db_incremental_field_last_value,
+                    )
+                )
+                logger.debug(f"Checking duplicate primary keys (full_probe={full_probe})...")
+                duplicate_primary_keys = self._has_duplicate_primary_keys(
+                    connection,
+                    schema,
+                    table_name,
+                    primary_keys,
+                    incremental_window=window,
+                    row_filters=inputs.row_filters,
+                )
+                # Only a full scan that ran clean proves anything.
+                if full_probe and not duplicate_primary_keys:
+                    verified_primary_keys = primary_keys
+
             query = _QUERY_BUILDER.select_all(
                 schema=schema,
                 table_name=table_name,
@@ -618,4 +810,6 @@ class MotherDuckImplementation(SQLSourceImplementation[MotherduckSourceConfig, A
             items=get_rows,
             primary_keys=primary_keys,
             rows_to_sync=rows_to_sync,
+            has_duplicate_primary_keys=duplicate_primary_keys,
+            verified_primary_keys=verified_primary_keys,
         )
