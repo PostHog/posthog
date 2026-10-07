@@ -48,7 +48,7 @@ export function BIToolbar(): JSX.Element {
                 type="primary"
                 onClick={responseLoading ? cancelQuery : runQuery}
                 disabledReason={
-                    !config.source
+                    !config.source && !config.querySnapshot
                         ? 'Select a table before running'
                         : !generatedQuery
                           ? 'Fix invalid worksheet fields before running'
@@ -58,83 +58,89 @@ export function BIToolbar(): JSX.Element {
             >
                 {responseLoading ? 'Cancel' : 'Run'}
             </LemonButton>
-            <LemonButton
-                icon={<IconSwapHoriz />}
-                size="small"
-                type="tertiary"
-                tooltip="Swap rows and columns"
-                aria-label="Swap rows and columns"
-                disabledReason={
-                    config.rows.length === 0 && config.columns.length === 0 ? 'No fields to swap' : undefined
-                }
-                onClick={swapRowsAndColumns}
-                data-attr="bi-editor-swap"
-            />
-            <LemonButton
-                icon={<IconArrowUp />}
-                size="small"
-                type="tertiary"
-                active={config.sort?.direction === 'asc'}
-                tooltip="Sort ascending"
-                aria-label="Sort ascending"
-                disabledReason={noSortReason}
-                onClick={() => quickSort('asc')}
-                data-attr="bi-editor-sort-ascending"
-            />
-            <LemonButton
-                icon={<IconArrowDown />}
-                size="small"
-                type="tertiary"
-                active={config.sort?.direction === 'desc'}
-                tooltip="Sort descending"
-                aria-label="Sort descending"
-                disabledReason={noSortReason}
-                onClick={() => quickSort('desc')}
-                data-attr="bi-editor-sort-descending"
-            />
-            <LemonSelect
-                value={config.sort?.key ?? null}
-                options={[
-                    {
-                        value: null,
-                        label: 'Auto',
-                        tooltip:
-                            'Sorts by the newest date or the highest value first, so the top rows stay within the limit.',
-                    },
-                    ...sortOptions.map((option) => ({ value: option.key, label: option.label })),
-                ]}
-                onChange={(key) => setSort(key === null ? null : { key, direction: config.sort?.direction ?? 'desc' })}
-                renderButtonContent={(option) => `Sort: ${option?.label ?? 'Auto'}`}
-                icon={<IconSort />}
-                aria-label="Sort results by"
-                size="small"
-                type="tertiary"
-                dropdownMatchSelectWidth={false}
-                disabledReason={sortOptions.length === 0 ? 'Add a field to rows or columns first' : undefined}
-                data-attr="bi-editor-sort"
-            />
-            <LemonSelect
-                value={config.limit}
-                options={LIMIT_OPTIONS}
-                onChange={setLimit}
-                renderButtonContent={(option) => `Limit: ${option?.label ?? config.limit}`}
-                aria-label="Query row limit"
-                size="small"
-                type="tertiary"
-                dropdownMatchSelectWidth={false}
-                data-attr="bi-editor-query-limit"
-            />
-            <LemonDivider vertical />
-            <BIDateControls />
-            {config.comparisonPeriod && (
-                <span className="text-xs text-secondary">Comparison window of this reference range</span>
+            {!config.querySnapshot && (
+                <>
+                    <LemonButton
+                        icon={<IconSwapHoriz />}
+                        size="small"
+                        type="tertiary"
+                        tooltip="Swap rows and columns"
+                        aria-label="Swap rows and columns"
+                        disabledReason={
+                            config.rows.length === 0 && config.columns.length === 0 ? 'No fields to swap' : undefined
+                        }
+                        onClick={swapRowsAndColumns}
+                        data-attr="bi-editor-swap"
+                    />
+                    <LemonButton
+                        icon={<IconArrowUp />}
+                        size="small"
+                        type="tertiary"
+                        active={config.sort?.direction === 'asc'}
+                        tooltip="Sort ascending"
+                        aria-label="Sort ascending"
+                        disabledReason={noSortReason}
+                        onClick={() => quickSort('asc')}
+                        data-attr="bi-editor-sort-ascending"
+                    />
+                    <LemonButton
+                        icon={<IconArrowDown />}
+                        size="small"
+                        type="tertiary"
+                        active={config.sort?.direction === 'desc'}
+                        tooltip="Sort descending"
+                        aria-label="Sort descending"
+                        disabledReason={noSortReason}
+                        onClick={() => quickSort('desc')}
+                        data-attr="bi-editor-sort-descending"
+                    />
+                    <LemonSelect
+                        value={config.sort?.key ?? null}
+                        options={[
+                            {
+                                value: null,
+                                label: 'Auto',
+                                tooltip:
+                                    'Sorts by the newest date or the highest value first, so the top rows stay within the limit.',
+                            },
+                            ...sortOptions.map((option) => ({ value: option.key, label: option.label })),
+                        ]}
+                        onChange={(key) =>
+                            setSort(key === null ? null : { key, direction: config.sort?.direction ?? 'desc' })
+                        }
+                        renderButtonContent={(option) => `Sort: ${option?.label ?? 'Auto'}`}
+                        icon={<IconSort />}
+                        aria-label="Sort results by"
+                        size="small"
+                        type="tertiary"
+                        dropdownMatchSelectWidth={false}
+                        disabledReason={sortOptions.length === 0 ? 'Add a field to rows or columns first' : undefined}
+                        data-attr="bi-editor-sort"
+                    />
+                    <LemonSelect
+                        value={config.limit}
+                        options={LIMIT_OPTIONS}
+                        onChange={setLimit}
+                        renderButtonContent={(option) => `Limit: ${option?.label ?? config.limit}`}
+                        aria-label="Query row limit"
+                        size="small"
+                        type="tertiary"
+                        dropdownMatchSelectWidth={false}
+                        data-attr="bi-editor-query-limit"
+                    />
+                    <LemonDivider vertical />
+                    <BIDateControls />
+                    {config.comparisonPeriod && (
+                        <span className="text-xs text-secondary">Comparison window of this reference range</span>
+                    )}
+                    <LemonDivider vertical />
+                </>
             )}
-            <LemonDivider vertical />
             <LemonButton
                 size="small"
                 type="tertiary"
                 onClick={resetConfig}
-                disabledReason={!config.source ? 'Nothing to clear' : undefined}
+                disabledReason={!config.source && !config.querySnapshot ? 'Nothing to clear' : undefined}
                 data-attr="bi-editor-clear"
             >
                 Clear sheet
@@ -159,7 +165,7 @@ export function BIToolbar(): JSX.Element {
                         Show me
                     </LemonButton>
                 </LemonDropdown>
-                {!showMeOpen ? (
+                {!showMeOpen && !config.querySnapshot ? (
                     <LemonButton
                         size="small"
                         type="secondary"

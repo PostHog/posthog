@@ -163,6 +163,10 @@ const meta: Meta = {
                 '/api/environments/:team_id/external_data_sources/wizard': () => [200, AVAILABLE_SOURCES],
                 '/api/:scope/:team_id/external_data_sources/connections/': [],
                 '/api/:scope/:team_id/external_data_sources/direct_connection_options/': [],
+                '/api/:scope/:team_id/data_catalog/metrics/': { results: [] },
+                '/api/:scope/:team_id/data_catalog/certifications/': { results: [] },
+                '/api/:scope/:team_id/warehouse_view_links/': { results: [] },
+                '/api/:scope/:team_id/data_catalog/relationship_proposals/': { count: 0, next: null, results: [] },
             },
             post: {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
@@ -1393,10 +1397,57 @@ export const BIPivotTotals: Story = {
     },
 }
 
-export const BICategoryGroups: Story = {
+export const BICatalogSource: Story = {
     ...BIModeWorksheet,
     parameters: {
         ...BIModeWorksheet.parameters,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/projects/:team_id/data_catalog/relationship_proposals/': {
+                        count: 1,
+                        next: null,
+                        results: [
+                            {
+                                id: 'proposal-example',
+                                source_table_name: 'events',
+                                source_table_key: 'account_id',
+                                joining_table_name: 'accounts',
+                                joining_table_key: 'id',
+                                field_name: 'account',
+                                status: 'proposed',
+                                reasoning: 'Connect each event to its account.',
+                            },
+                        ],
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+                        tables: {
+                            events: {
+                                id: 'events',
+                                name: 'events',
+                                type: 'posthog',
+                                fields: BI_EVENTS_FIELDS,
+                                certification: {
+                                    status: 'certified',
+                                    notes: 'Use this source for product activity worksheets.',
+                                },
+                            },
+                        },
+                        joins: [],
+                    },
+                },
+            },
+        },
+    },
+}
+
+export const BICategoryGroups: Story = {
+    ...BICatalogSource,
+    parameters: {
+        ...BICatalogSource.parameters,
         testOptions: { waitForSelector: '[data-attr="bi-local-field-modal"]', viewport: { width: 1050, height: 900 } },
     },
     play: async ({ canvasElement }) => {
@@ -1409,12 +1460,36 @@ export const BICategoryGroups: Story = {
 }
 
 export const BINumericBins: Story = {
-    ...BIModeWorksheet,
+    ...BICatalogSource,
     parameters: { ...BICategoryGroups.parameters },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByLabelText('Options for revenue', {}, { timeout: 15000 }))
         const body = within(canvasElement.ownerDocument.body)
         await userEvent.click(await body.findByText('Create numeric bins', { exact: true }))
+    },
+}
+
+export const BICatalogSnapshot: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.businessIntelligenceNew()}?metric=weekly_revenue`,
+        testOptions: { waitForSelector: '[data-attr="bi-catalog-snapshot"]' },
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/weekly_revenue/': {
+                        name: 'weekly_revenue',
+                        display_name: 'Weekly revenue',
+                        definition: {
+                            kind: NodeKind.HogQLQuery,
+                            query: "SELECT sum(revenue) FROM events WHERE timestamp >= toDateTime('2026-06-01') AND timestamp < toDateTime('2026-06-08')",
+                        },
+                    },
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                },
+            },
+        },
     },
 }

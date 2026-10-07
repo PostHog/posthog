@@ -7,6 +7,7 @@ import { BIConnections } from 'products/business_intelligence/frontend/BIConnect
 import { BIDataPaneSection } from 'products/business_intelligence/frontend/BIDataPaneSection'
 import { BIDataSourcePicker } from 'products/business_intelligence/frontend/BIDataSourcePicker'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
+import { BISourceContext } from 'products/business_intelligence/frontend/BISourceContext'
 
 import { BIConnectionSelector } from './BIConnectionSelector'
 
@@ -14,6 +15,8 @@ import { BIConnectionSelector } from './BIConnectionSelector'
 export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
     const {
         config,
+        allTables,
+        databaseConnectionId,
         dataPaneFields,
         dataPaneFieldsLoading,
         dataPaneFieldsError,
@@ -33,6 +36,12 @@ export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
             <div className="flex flex-col gap-1.5 p-2">
                 <BIConnectionSelector tabId={tabId} />
                 <BIDataSourcePicker />
+                {config.source &&
+                    !config.source.connectionId &&
+                    !databaseConnectionId &&
+                    allTables.find((table) => table.name === config.source?.table) && (
+                        <BISourceContext table={allTables.find((table) => table.name === config.source?.table)!} />
+                    )}
                 {config.source ? (
                     <LemonInput
                         type="search"

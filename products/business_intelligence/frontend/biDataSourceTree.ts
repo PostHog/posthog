@@ -29,7 +29,7 @@ export function buildBIDataSourceTree(
                     id: getBIDataSourceKey(source),
                     name: source.table,
                     icon: item.icon,
-                    record: { type: item.record?.type },
+                    record: { ...item.record, type: item.record?.type },
                 }
                 leaves.push(node)
                 return [node]
@@ -49,7 +49,11 @@ export function buildBIDataSourceTree(
 export function searchBIDataSourceTree(tree: TreeDataItem[], search: string): TreeDataItem[] {
     const term = search.trim().toLocaleLowerCase()
     return tree.flatMap((item) => {
-        if (item.name.toLocaleLowerCase().includes(term)) {
+        if (
+            [item.name, item.record?.certification?.status, item.record?.certification?.notes].some(
+                (value) => typeof value === 'string' && value.toLocaleLowerCase().includes(term)
+            )
+        ) {
             return [item]
         }
         const children = searchBIDataSourceTree(item.children ?? [], term)

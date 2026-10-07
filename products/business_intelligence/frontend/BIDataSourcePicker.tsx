@@ -10,6 +10,7 @@ import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { biDataSourcePickerLogic } from 'products/business_intelligence/frontend/biDataSourcePickerLogic'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 import { getBIDataSourceKey } from 'products/business_intelligence/frontend/biEditorTypes'
+import { TableCertificationIcon } from 'products/data_warehouse/frontend/shared/components/TableCertificationBadge'
 
 export function BIDataSourcePicker(): JSX.Element {
     const biLogic = useMountedLogic(biEditorLogic)
@@ -58,6 +59,12 @@ export function BIDataSourcePicker(): JSX.Element {
                                 expandedItemIds={visibleExpandedIds}
                                 onSetExpandedItemIds={setExpandedIds}
                                 onItemClick={(item) => item && selectSource(item.id)}
+                                renderItem={(item, label) => (
+                                    <span className="flex min-w-0 items-center gap-1">
+                                        <span className="truncate">{label}</span>
+                                        <TableCertificationIcon certification={item.record?.certification} />
+                                    </span>
+                                )}
                                 isItemActive={(item) =>
                                     !!config.source && item.id === getBIDataSourceKey(config.source)
                                 }

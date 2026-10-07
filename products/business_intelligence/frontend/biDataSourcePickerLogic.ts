@@ -154,7 +154,7 @@ export const biDataSourcePickerLogic: LogicWrapper<biDataSourcePickerLogicType> 
                     children.push({
                         id: table.name,
                         name: table.name,
-                        record: { type: table.type === 'view' ? 'view' : 'table' },
+                        record: { type: table.type === 'view' ? 'view' : 'table', certification: table.certification },
                     })
                     groups.set(group, children)
                 }

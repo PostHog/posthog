@@ -13,13 +13,13 @@ const SETTING_UP_DATA_CATALOG_SKILL = 'setting-up-data-catalog'
 // as trusted `instructions` items. The skill body and tool schemas are not embedded: product skills
 // are installed in the agent's sandbox, and the exec MCP tool already exposes the data-catalog
 // commands, so naming them is enough to skip discovery.
-const SKILL_CONTEXT_ITEMS: AttachedContextItem[] = [
+export const DATA_CATALOG_CAPABILITY_CONTEXT: AttachedContextItem[] = [
     {
         type: 'instructions',
         hidden: true,
         dismissGroup: SKILL_DISMISS_GROUP,
         value:
-            `The user has the PostHog data catalog open. Load the ${SETTING_UP_DATA_CATALOG_SKILL} skill before your ` +
+            `Use the PostHog data catalog for governed definitions and relationships. Load the ${SETTING_UP_DATA_CATALOG_SKILL} skill before your ` +
             'first tool call. Act through the data-catalog MCP tools (the exec `data-catalog-*` commands plus ' +
             'metric-list and metric-describe: discover metrics with metric-list and inspect one with ' +
             'metric-describe). Do not search for tools; use the exec `info <tool>` command when you need a full ' +
@@ -64,7 +64,7 @@ export const DATA_CATALOG_METRIC_AGENT_HEADLINES = [
 
 export function buildDataCatalogAgentContext(activeTab: DataCatalogTab): AttachedContextItem[] {
     return [
-        ...SKILL_CONTEXT_ITEMS,
+        ...DATA_CATALOG_CAPABILITY_CONTEXT,
         CATALOG_CONTEXT_ITEM,
         {
             type: 'text',
@@ -77,11 +77,11 @@ export function buildDataCatalogAgentContext(activeTab: DataCatalogTab): Attache
 
 export function buildDataCatalogMetricAgentContext(name: string, draftMarkdown: string | null): AttachedContextItem[] {
     if (validateMetricName(name)) {
-        return SKILL_CONTEXT_ITEMS
+        return DATA_CATALOG_CAPABILITY_CONTEXT
     }
 
     const contextItems: AttachedContextItem[] = [
-        ...SKILL_CONTEXT_ITEMS,
+        ...DATA_CATALOG_CAPABILITY_CONTEXT,
         METRIC_CONTEXT_ITEM,
         {
             type: 'data_catalog_metric',

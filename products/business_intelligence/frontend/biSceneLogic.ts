@@ -32,6 +32,8 @@ import { HogQLFilters, NodeKind, VisualizationNode } from '~/queries/schema/sche
 import { isBIVisualizationNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { validateMetricName } from 'products/data_catalog/frontend/common'
+import { dataCatalogMetricsRetrieve } from 'products/data_catalog/frontend/generated/api'
 import { warehouseSavedQueriesCreate } from 'products/data_warehouse/frontend/generated/api'
 import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
 import { connectionSelectorLogic } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
@@ -46,6 +48,7 @@ import { BIVisualizationNodeApi, InsightApi } from 'products/product_analytics/f
 import type { BIConfig } from '../../../frontend/src/queries/schema/schema-business-intelligence'
 import type { DataWarehouseSavedQueryApi } from '../../data_warehouse/frontend/generated/api.schemas'
 import type { ExternalDataSourceConnectionOptionApi } from '../../warehouse_sources/frontend/generated/api.schemas'
+import { catalogMetricWorksheet } from './biCatalog'
 import { captureBIEditorQueryRun, captureBIEditorQuerySaved, captureBIWorksheetAction } from './biEditorAnalytics'
 import { biEditorLogic } from './biEditorLogic'
 import {
@@ -164,6 +167,9 @@ export interface biSceneLogicActions {
     ) => {
         insight: InsightApi
         payload?: string
+    }
+    openCatalogMetric: (name: string) => {
+        name: string
     }
     openWorksheet: () => {
         value: true
@@ -302,6 +308,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         shareWorksheet: true,
         syncWorksheetUrl: true,
         openWorksheet: true,
+        openCatalogMetric: (name: string) => ({ name }),
         clearInsight: true,
         selectConnection: (connectionId: string | null) => ({ connectionId }),
         setExportViewName: (name: string) => ({ name }),
@@ -492,6 +499,34 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
+        openCatalogMetric: async ({ name }, breakpoint) => {
+            try {
+                if (validateMetricName(name)) {
+                    throw new Error('Invalid metric name')
+                }
+                const metric = await dataCatalogMetricsRetrieve(String(values.currentTeamId), name)
+                breakpoint()
+                if (router.values.searchParams.metric !== name || router.values.hashParams.q) {
+                    return
+                }
+                const worksheet = catalogMetricWorksheet(metric)
+                if (!worksheet) {
+                    throw new Error(
+                        'Explore in BI currently supports SQL metrics. Open this definition in the catalog.'
+                    )
+                }
+                actions.clearInsight()
+                actions.restoreWorksheet(worksheet)
+                actions.setLastRunQuery(null)
+                actions.setName(metric.display_name || metric.name)
+                actions.recordWorksheet(true)
+                actions.syncWorksheetUrl()
+                captureBIWorksheetAction('catalog_metric_opened', worksheet.config)
+            } catch (error) {
+                breakpoint()
+                lemonToast.error(error instanceof Error ? error.message : 'Could not load the catalog metric')
+            }
+        },
         recordWorksheet: ({ reset }) => {
             if (!cache.restoringHistory) {
                 actions.pushHistory(
@@ -700,6 +735,10 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         },
         openWorksheet: () => {
             const { searchParams, hashParams } = router.values
+            if (typeof searchParams.metric === 'string' && !hashParams.q) {
+                actions.openCatalogMetric(searchParams.metric)
+                return
+            }
             const pathId = router.values.location.pathname.match(/\/bi\/([^/]+)$/)?.[1]
             const insightShortId =
                 searchParams.open_insight || (pathId && pathId !== 'new' ? decodeURIComponent(pathId) : undefined)

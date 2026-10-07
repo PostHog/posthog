@@ -1,9 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, type ReactNode } from 'react'
 
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { IconTableChart } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
 
 import { BICalculatedMeasureModal } from 'products/business_intelligence/frontend/BICalculatedMeasureModal'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
@@ -50,6 +53,26 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
     }
     const { desiredSize: cardsDesiredSize } = useValues(resizerLogic(cardsResizerProps))
     const cardsWidth = Math.min(320, Math.max(160, cardsDesiredSize ?? 160))
+
+    if (config.querySnapshot) {
+        return (
+            <BindLogic logic={biEditorLogic} props={{ tabId }}>
+                <div className="@container/bi-editor flex min-h-0 flex-1 flex-col" data-attr="bi-catalog-snapshot">
+                    <LemonBanner type="info">
+                        Query snapshot: dates and dimensions are fixed by the metric definition. Changing the chart does
+                        not regroup the data. This copy does not track later catalog edits.
+                        {config.catalogMetric && (
+                            <LemonButton size="xsmall" to={urls.dataCatalogMetric(config.catalogMetric)}>
+                                View catalog definition
+                            </LemonButton>
+                        )}
+                    </LemonBanner>
+                    <BIToolbar />
+                    <div className="min-h-0 flex-1">{children}</div>
+                </div>
+            </BindLogic>
+        )
+    }
 
     return (
         <BindLogic logic={biEditorLogic} props={{ tabId }}>
