@@ -3,7 +3,7 @@ from django.db import models, transaction
 from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API, Comment
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.signals import mutable_receiver
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDModel
 
 # Gates creating new mirrors (fail-closed, in the send_to_slack action) and doubles as the
 # kill switch for syncing on existing mirrors (explicit-off, in the Celery tasks and the
@@ -11,7 +11,7 @@ from posthog.models.utils import UUIDModel
 DISCUSSIONS_SLACK_SYNC_FLAG = "discussions-slack-sync"
 
 
-class CommentSlackThread(TeamScopedRootMixin, UUIDModel):
+class CommentSlackThread(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     """Maps a discussion thread to a mirrored Slack thread so replies sync both ways.
 
     Keyed on the thread-root comment (``source_comment``), so a single item — e.g. an
@@ -47,13 +47,6 @@ class CommentSlackThread(TeamScopedRootMixin, UUIDModel):
     slack_thread_ts = models.CharField(max_length=255, blank=True, default="")
     # Slack workspace id, used to route inbound thread replies back to this mapping.
     slack_team_id = models.CharField(max_length=255, null=True, blank=True)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    # db_constraint=False: posthog_user is a hot table (see team above).
-    # nosemgrep: created-by-uses-created-meta-mixin -- db_index=False, and the mixin would add an index
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False, db_constraint=False
-    )
 
     class Meta:
         indexes = [
