@@ -167,7 +167,13 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
 
     const description =
         (definition && 'description' in definition && definition?.description) ||
-        (definition?.name ? getCoreFilterDefinition(definition.name, group.type)?.description : undefined)
+        (definition?.name && typeof definition.name === 'string'
+            ? getCoreFilterDefinition(definition.name, group.type)?.description
+            : undefined)
+
+    const rawExampleValue = group?.getValue?.(definition)
+    const exampleValue =
+        typeof rawExampleValue === 'string' || typeof rawExampleValue === 'number' ? String(rawExampleValue) : undefined
 
     const sharedComponents = (
         <>
@@ -176,7 +182,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             ) : (
                 <DefinitionPopover.DescriptionEmpty />
             )}
-            <DefinitionPopover.Example value={group?.getValue?.(definition)?.toString()} />
+            <DefinitionPopover.Example value={exampleValue} />
             {definition && 'tags' in definition && !!definition.tags?.length && (
                 <ObjectTags
                     className="definition-popover-tags"
