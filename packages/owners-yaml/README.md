@@ -196,7 +196,7 @@ $ uvx owners-yaml==0.3.0 lint
 `lint` fails on schema errors, a directory with two ownership files, `owners.yaml` files in reserved locations, and a rule that names a directory without the trailing `/`.
 Write `docs/` for a directory, because `docs` also matches a file called `docs`.
 It warns about rule patterns that match no tracked file, fields it does not know, and sensitive paths without owners, and it reports coverage.
-An unknown field is a warning and not an error, so a file that uses a field from a newer release still passes an older `lint`.
+From the release after 0.3.0, an unknown field is a warning and not an error, so a file that uses a field from a later release still passes that `lint`. Version 0.3.0 and earlier still fail on it.
 Pass the changed ownership files as arguments to check only those.
 
 Plain `lint` does not know which teams exist, so it accepts a slug for a team that was renamed or deleted.
