@@ -5,9 +5,14 @@ import {
     buildCodexDeepLink,
     buildCursorDeepLink,
     buildPostHogCodeDeepLink,
+    buildPostHogTaskUrl,
 } from './AgentPromptButton'
 
 describe('AgentPromptButton', () => {
+    it('builds a new web task url that carries the prompt in the ask param', () => {
+        expect(buildPostHogTaskUrl('fix this & that')).toBe('/tasks/new?ask=fix%20this%20%26%20that')
+    })
+
     it.each([
         [
             'PostHog Desktop with a repository',
