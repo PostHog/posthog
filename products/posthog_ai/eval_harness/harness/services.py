@@ -143,10 +143,15 @@ def start_mcp_server(
         # add-cell, update-cell, delete-cell, get, list-frames). It also *hides* the
         # legacy notebooks-create / notebooks-retrieve pair, which the two surfaces
         # being mutually exclusive makes unavoidable — an eval of the legacy tools
-        # needs its own lever, not this one. mcp-exec-skills follows the run's
+        # needs its own lever, not this one. workflows-email-domain-agent-setup gates
+        # the email sender and Domain Connect tools. mcp-exec-skills follows the run's
         # skill delivery mode.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
-            {"revamped-py-notebooks": True, MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled}
+            {
+                "revamped-py-notebooks": True,
+                "workflows-email-domain-agent-setup": True,
+                MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
+            }
         ),
     }
 

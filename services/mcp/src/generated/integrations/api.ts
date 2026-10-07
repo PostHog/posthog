@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 14 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -78,6 +78,20 @@ export const IntegrationsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+export const IntegrationsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const IntegrationsCreateBody = () => zod
+    .object({
+        config: zod.unknown().optional(),
+    })
+    .describe('Standard Integration serializer.')
+
 export const IntegrationsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
@@ -143,6 +157,57 @@ export const IntegrationsChannelsRetrieveQueryParams = () => zod.object({
         .string()
         .default(integrationsChannelsRetrieveQuerySearchDefault)
         .describe('Optional case-insensitive channel name or ID search query.'),
+})
+
+/**
+ * @summary Update an email sender
+ */
+export const IntegrationsEmailPartialUpdateParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const IntegrationsEmailPartialUpdateBody = () => zod.object({
+    config: zod
+        .object({
+            email: zod
+                .email()
+                .describe(
+                    'Sender address, for example `hello@mail.example.com`. Its domain is the sending domain that needs DNS records. Free and disposable mailbox domains such as gmail.com are rejected. Cannot be changed after creation; send the current address when updating.'
+                ),
+            name: zod.string().describe('Sender display name recipients see in their inbox, for example `Acme`.'),
+            provider: zod
+                .enum(['ses', 'maildev'])
+                .describe('\* `ses` - Amazon SES\n\* `maildev` - Maildev (local development only)')
+                .describe(
+                    'Sending provider. Always `ses`. `maildev` is only accepted in local development.\n\n\* `ses` - Amazon SES\n\* `maildev` - Maildev (local development only)'
+                ),
+            mail_from_subdomain: zod
+                .string()
+                .optional()
+                .describe(
+                    'Subdomain of the sending domain used as the custom MAIL FROM (bounce) domain. `feedback` gives `feedback.mail.example.com`. Defaults to `feedback`. Pick another value if that subdomain already has MX records.'
+                ),
+        })
+        .optional()
+        .describe('The full sender config. Only `name` and `mail_from_subdomain` change; `email` must stay the same.'),
+})
+
+/**
+ * Ask the email provider to check the sending domain's DNS records and return each record with its status. When every record is verified, all senders on the domain in this project become able to send.
+ * @summary Verify an email sender's domain
+ */
+export const IntegrationsEmailVerifyCreateParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })
 
 export const IntegrationsGithubReposRetrieveParams = () => zod.object({
@@ -252,6 +317,53 @@ export const IntegrationsUsersRetrieveQueryParams = () => zod.object({
         .describe(
             'Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.'
         ),
+})
+
+/**
+ * Build the signed URL that sends a person to their DNS host to approve the records for an email sending domain or a reverse proxy domain.
+ * @summary Generate a Domain Connect apply URL
+ */
+export const IntegrationsDomainConnectApplyUrlCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const IntegrationsDomainConnectApplyUrlCreateBody = () => zod.object({
+    integration_id: zod
+        .number()
+        .nullish()
+        .describe('ID of the email integration (sender). Required when `context` is `email`.'),
+    redirect_uri: zod
+        .string()
+        .nullish()
+        .describe('Where the DNS host sends the user after they approve. Omit it when handing the URL to a person.'),
+    provider_endpoint: zod
+        .string()
+        .nullish()
+        .describe(
+            "Provider endpoint from `available_providers` in the domain-connect check. Omit it to use the provider detected from the domain's DNS."
+        ),
+})
+
+/**
+ * @summary Check Domain Connect support for a domain
+ */
+export const IntegrationsDomainConnectCheckRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const IntegrationsDomainConnectCheckRetrieveQueryParams = () => zod.object({
+    domain: zod
+        .string()
+        .min(1)
+        .describe('Domain to check, for example `mail.example.com`. Subdomains resolve to their registrable domain.'),
 })
 
 /**

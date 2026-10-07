@@ -743,9 +743,10 @@ function composeToolSchema(
                 return optionalParamNames.has(paramName) ? `${wrapped}.optional()` : wrapped
             }
 
+            const overrideSuffix = override.required ? '' : optionalSuffix
             if (override.input_schema) {
                 toolInputsImports.push(override.input_schema)
-                schemaOverrides.push(`${paramName}: ${override.input_schema}${optionalSuffix}`)
+                schemaOverrides.push(`${paramName}: ${override.input_schema}${overrideSuffix}`)
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }
@@ -754,7 +755,7 @@ function composeToolSchema(
                 const zodCode = generateZodFromSchemaRef(getQuerySchema(), override.schema_ref, excludeProps)
                 schemaRefBlocks.push(zodCode)
                 const varName = getEntryVarName(override.schema_ref)
-                schemaOverrides.push(`${paramName}: ${varName}${optionalSuffix}`)
+                schemaOverrides.push(`${paramName}: ${varName}${overrideSuffix}`)
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }

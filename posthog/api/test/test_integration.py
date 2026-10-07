@@ -44,7 +44,7 @@ from posthog.api.github_callback.team_services import (
     list_org_github_installations,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
-from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
+from posthog.api.integration import EMAIL_DOMAIN_AGENT_SETUP_FLAG, IntegrationSerializer, IntegrationViewSet
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
@@ -92,6 +92,15 @@ from products.cdp.backend.models.hog_function_template import HogFunctionTemplat
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
 from products.workflows.backend.facade.contracts import EmailDomainVerification, WorkflowSummary
 from products.workflows.backend.facade.testing import create_workflow_for_test
+
+EMAIL_CONFIG = {"email": "hello@mail.example.com", "domain": "mail.example.com", "provider": "ses"}
+
+
+def patch_email_domain_agent_setup_flag(enabled: bool) -> Any:
+    return patch(
+        "posthoganalytics.feature_enabled",
+        side_effect=lambda key, *_args, **_kwargs: enabled and key == EMAIL_DOMAIN_AGENT_SETUP_FLAG,
+    )
 
 
 def _p256_public_pem() -> str:
@@ -1747,6 +1756,341 @@ class TestIntegrationAPIKeyAccess:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert expected_provider in response.json()["detail"]
+
+    @pytest.mark.parametrize(
+        "method,url_suffix,body,scope,level,expected_status,expected_json",
+        [
+            (
+                "get",
+                "domain-connect/check/?domain=mail.example.com",
+                None,
+                "integration:read",
+                OrganizationMembership.Level.MEMBER,
+                200,
+                {"supported": False, "provider_name": None},
+            ),
+            (
+                "post",
+                "domain-connect/apply-url/",
+                {"context": "email"},
+                "integration:read",
+                OrganizationMembership.Level.ADMIN,
+                403,
+                {"detail": "API key missing required scope 'integration:write'"},
+            ),
+            (
+                "post",
+                "domain-connect/apply-url/",
+                {"context": "email"},
+                "integration:write",
+                OrganizationMembership.Level.ADMIN,
+                400,
+                {"detail": "integration_id is required for email context"},
+            ),
+            (
+                "post",
+                "domain-connect/apply-url/",
+                {"context": "email", "integration_id": 999999999},
+                "integration:write",
+                OrganizationMembership.Level.ADMIN,
+                404,
+                {"detail": "No email sender with this integration_id exists in this project."},
+            ),
+            (
+                "post",
+                "domain-connect/apply-url/",
+                {"context": "email", "integration_id": "{twilio_id}"},
+                "integration:write",
+                OrganizationMembership.Level.ADMIN,
+                404,
+                {"detail": "No email sender with this integration_id exists in this project."},
+            ),
+            (
+                "post",
+                "domain-connect/apply-url/",
+                {"context": "proxy", "proxy_record_id": "6f1c1a52-3b7e-4c1e-9d0a-2f4b8e6c9a10"},
+                "integration:write",
+                OrganizationMembership.Level.ADMIN,
+                404,
+                {"detail": "No reverse proxy record with this proxy_record_id exists in this organization."},
+            ),
+            (
+                "post",
+                "{email_id}/email/verify/",
+                None,
+                "integration:read",
+                OrganizationMembership.Level.ADMIN,
+                403,
+                {"detail": "API key missing required scope 'integration:write'"},
+            ),
+            (
+                "post",
+                "{email_id}/email/verify/",
+                None,
+                "integration:write",
+                OrganizationMembership.Level.ADMIN,
+                200,
+                {"status": "pending", "dnsRecords": [ANY]},
+            ),
+            (
+                "post",
+                "{twilio_id}/email/verify/",
+                None,
+                "integration:write",
+                OrganizationMembership.Level.ADMIN,
+                400,
+                {"detail": "This endpoint is only supported for email integrations"},
+            ),
+            (
+                "patch",
+                "{email_id}/email/",
+                {"config": {}},
+                "integration:read",
+                OrganizationMembership.Level.ADMIN,
+                403,
+                {"detail": "API key missing required scope 'integration:write'"},
+            ),
+            (
+                "patch",
+                "{email_id}/email/",
+                {
+                    "config": {
+                        "email": "hello@mail.example.com",
+                        "name": "Acme",
+                        "mail_from_subdomain": "bounce",
+                        "provider": "ses",
+                    }
+                },
+                "integration:write",
+                OrganizationMembership.Level.ADMIN,
+                200,
+                {"kind": "email", "config": {**EMAIL_CONFIG, "name": "Acme", "mail_from_subdomain": "bounce"}},
+            ),
+            (
+                "patch",
+                "{email_id}/email/",
+                {"config": {"email": "team@mail.example.com", "name": "Acme", "provider": "ses"}},
+                "integration:write",
+                OrganizationMembership.Level.ADMIN,
+                400,
+                {"detail": "The sender address cannot change. Create a new sender for team@mail.example.com instead."},
+            ),
+        ],
+    )
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    @patch(
+        "products.workflows.backend.facade.api.verify_ses_email_domain",
+        return_value={
+            "status": "pending",
+            "dnsRecords": [
+                {
+                    "type": "dkim",
+                    "recordType": "CNAME",
+                    "recordHostname": "token._domainkey.mail.example.com",
+                    "recordValue": "token.dkim.amazonses.com",
+                    "status": "pending",
+                }
+            ],
+        },
+    )
+    @patch("posthog.api.integration.discover_domain_connect", return_value=None)
+    def test_email_domain_actions_with_scoped_api_key(
+        self,
+        _mock_discover: MagicMock,
+        _mock_verify: MagicMock,
+        _mock_update: MagicMock,
+        method: str,
+        url_suffix: str,
+        body: dict[str, Any] | None,
+        scope: str,
+        level: OrganizationMembership.Level,
+        expected_status: int,
+        expected_json: dict[str, Any],
+        client: HttpClient,
+    ) -> None:
+        OrganizationMembership.objects.filter(user=self.user).update(level=level)
+        email_integration = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id="hello@mail.example.com",
+            config=EMAIL_CONFIG,
+        )
+        key_value = "test_key_email_domain"
+        PersonalAPIKey.objects.create(
+            label="Test Key", user=self.user, secure_value=hash_key_value(key_value), scopes=[scope]
+        )
+        ids = {"{email_id}": email_integration.id, "{twilio_id}": self.twilio_integration.id}
+        path = url_suffix.format(email_id=email_integration.id, twilio_id=self.twilio_integration.id)
+        if body is not None:
+            body = {key: ids.get(value, value) if isinstance(value, str) else value for key, value in body.items()}
+
+        with patch_email_domain_agent_setup_flag(True):
+            response = getattr(client, method)(
+                f"/api/environments/{self.team.pk}/integrations/{path}",
+                data=json.dumps(body) if body is not None else None,
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+
+        assert response.status_code == expected_status, response.json()
+        assert response.json() == {**response.json(), **expected_json}
+
+    @pytest.mark.parametrize(
+        "method,url_suffix",
+        [
+            ("get", "domain-connect/check/?domain=mail.example.com"),
+            ("post", "domain-connect/apply-url/"),
+            ("post", "{email_id}/email/verify/"),
+            ("patch", "{email_id}/email/"),
+        ],
+    )
+    @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
+    @patch("posthog.api.integration.discover_domain_connect", return_value=None)
+    def test_email_domain_actions_reject_api_keys_while_the_agent_setup_flag_is_off(
+        self, _mock_discover: MagicMock, _mock_verify: MagicMock, method: str, url_suffix: str, client: HttpClient
+    ) -> None:
+        OrganizationMembership.objects.filter(user=self.user).update(level=OrganizationMembership.Level.ADMIN)
+        email_integration = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@mail.example.com", config=EMAIL_CONFIG
+        )
+        key_value = "test_key_email_domain"
+        PersonalAPIKey.objects.create(
+            label="Test Key", user=self.user, secure_value=hash_key_value(key_value), scopes=["integration:write"]
+        )
+
+        with patch_email_domain_agent_setup_flag(False):
+            response = getattr(client, method)(
+                f"/api/environments/{self.team.pk}/integrations/{url_suffix.format(email_id=email_integration.id)}",
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert response.json()["detail"] == "This action does not support personal API key access"
+
+    @pytest.mark.parametrize(
+        "flag_on,use_session,site_url,request_host,redirect_uri,expected_status",
+        [
+            (
+                True,
+                False,
+                "https://us.posthog.com",
+                "us.posthog.com",
+                "https://us.posthog.com/project/1/channels?dc=email",
+                200,
+            ),
+            (
+                True,
+                False,
+                "https://eu.posthog.com",
+                "eu.posthog.com",
+                "https://eu.posthog.com/project/1/channels?dc=email",
+                200,
+            ),
+            (
+                True,
+                False,
+                "http://posthog.internal:8010",
+                "posthog.internal:8010",
+                "http://posthog.internal:8010/channels",
+                200,
+            ),
+            (True, False, "https://us.posthog.com", "us.posthog.com", "https://attacker.example/landing", 400),
+            (True, False, "https://us.posthog.com", "attacker.example", "https://attacker.example/landing", 400),
+            (True, False, "https://us.posthog.com", "us.posthog.com", "//attacker.example/landing", 400),
+            (True, False, "https://us.posthog.com", "us.posthog.com", "javascript:alert(1)", 400),
+            (True, True, "https://us.posthog.com", "us.posthog.com", "https://us.posthog.com/channels", 200),
+            (False, True, "https://us.posthog.com", "us.posthog.com", "https://us.posthog.com/channels", 404),
+        ],
+    )
+    @patch("posthog.api.integration.generate_apply_url", return_value="https://dns.example/apply")
+    @patch(
+        "products.workflows.backend.facade.api.verify_ses_email_domain",
+        return_value={
+            "status": "pending",
+            "dnsRecords": [
+                {
+                    "type": "verification",
+                    "recordType": "TXT",
+                    "recordHostname": "_amazonses.mail.example.com",
+                    "recordValue": "verify-token",
+                },
+                *(
+                    {"type": "dkim", "recordType": "CNAME", "recordHostname": f"dkim{n}._domainkey.mail.example.com"}
+                    for n in range(3)
+                ),
+            ],
+        },
+    )
+    def test_domain_connect_apply_url_only_redirects_back_to_posthog(
+        self,
+        _mock_verify: MagicMock,
+        mock_generate_apply_url: MagicMock,
+        flag_on: bool,
+        use_session: bool,
+        site_url: str,
+        request_host: str,
+        redirect_uri: str,
+        expected_status: int,
+        client: HttpClient,
+    ) -> None:
+        OrganizationMembership.objects.filter(user=self.user).update(level=OrganizationMembership.Level.ADMIN)
+        email_integration = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@mail.example.com", config=EMAIL_CONFIG
+        )
+        key_value = "test_key_email_domain"
+        PersonalAPIKey.objects.create(
+            label="Test Key", user=self.user, secure_value=hash_key_value(key_value), scopes=["integration:write"]
+        )
+
+        if use_session:
+            client.force_login(self.user)
+        auth_headers = {} if use_session else {"HTTP_AUTHORIZATION": f"Bearer {key_value}"}
+
+        with patch_email_domain_agent_setup_flag(flag_on), override_settings(SITE_URL=site_url):
+            response = client.post(
+                f"/api/environments/{self.team.pk}/integrations/domain-connect/apply-url/",
+                data={"context": "email", "integration_id": email_integration.id, "redirect_uri": redirect_uri},
+                content_type="application/json",
+                **auth_headers,
+                HTTP_HOST=request_host,
+            )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 200:
+            assert mock_generate_apply_url.call_args.kwargs["redirect_uri"] == redirect_uri
+        elif expected_status == 400:
+            assert response.json()["detail"] == "redirect_uri must point back to PostHog."
+            mock_generate_apply_url.assert_not_called()
+        else:
+            mock_generate_apply_url.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "flag_on,stored_email,sent_email",
+        [
+            (True, "Hello@mail.example.com", "Hello@mail.example.com"),
+            (False, "hello@mail.example.com", "team@mail.example.com"),
+        ],
+    )
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    def test_email_update_from_the_app_keeps_the_sender_address(
+        self, _mock_update: MagicMock, flag_on: bool, stored_email: str, sent_email: str, client: HttpClient
+    ) -> None:
+        OrganizationMembership.objects.filter(user=self.user).update(level=OrganizationMembership.Level.ADMIN)
+        email_integration = Integration.objects.create(
+            team=self.team, kind="email", integration_id=stored_email, config={**EMAIL_CONFIG, "email": stored_email}
+        )
+        client.force_login(self.user)
+
+        with patch_email_domain_agent_setup_flag(flag_on):
+            response = client.patch(
+                f"/api/environments/{self.team.pk}/integrations/{email_integration.id}/email/",
+                data=json.dumps({"config": {"email": sent_email, "name": "Acme", "provider": "ses"}}),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["config"]["email"] == stored_email
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_cached_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):

@@ -6,6 +6,7 @@ import {
     aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax,
 } from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
+import { IntegrationsEmailPartialUpdateBody } from '../generated/integrations/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
@@ -117,6 +118,15 @@ export const BillingUsageTypesSchema = z
     .array(z.string().min(1))
     .nullish()
     .describe(BillingUsageRetrieveQueryParams().shape.usage_types.description!.replace('JSON-encoded array', 'Array'))
+
+// The create endpoint takes an untyped config for every integration kind, so the email
+// sender tools share the typed config of the email update endpoint.
+export const EmailSenderConfigSchema = IntegrationsEmailPartialUpdateBody()
+    .shape.config.unwrap()
+    .extend({
+        provider: z.literal('ses').default('ses').describe('Sending provider. Always `ses`.'),
+    })
+    .describe('Email sender config.')
 
 export const BillingSpendBreakdownsSchema = z
     .array(z.enum(['type', 'team']))

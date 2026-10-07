@@ -327,25 +327,126 @@ export interface SlackChannelsResponseApi {
 }
 
 /**
- * Standard Integration serializer.
+ * * `ses` - Amazon SES
+ * * `maildev` - Maildev (local development only)
  */
-export interface PatchedIntegrationConfigApi {
-    readonly id?: number
-    kind?: IntegrationKindEnumApi
-    config?: unknown
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    readonly errors?: string
-    readonly display_name?: string
-    /** Slack only: whether reconnecting can request the files:write scope. */
-    readonly files_write_requestable?: boolean
-    /**
-     * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
-     * @nullable
-     */
-    readonly installation_shared?: boolean | null
-    /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
-    readonly installation_status?: InstallationStatusEnumApi | null
+export type NativeEmailProviderEnumApi = (typeof NativeEmailProviderEnumApi)[keyof typeof NativeEmailProviderEnumApi]
+
+export const NativeEmailProviderEnumApi = {
+    Ses: 'ses',
+    Maildev: 'maildev',
+} as const
+
+export interface NativeEmailIntegrationApi {
+    /** Sender address, for example `hello@mail.example.com`. Its domain is the sending domain that needs DNS records. Free and disposable mailbox domains such as gmail.com are rejected. Cannot be changed after creation; send the current address when updating. */
+    email: string
+    /** Sender display name recipients see in their inbox, for example `Acme`. */
+    name: string
+    /** Sending provider. Always `ses`. `maildev` is only accepted in local development.
+     *
+     * * `ses` - Amazon SES
+     * * `maildev` - Maildev (local development only) */
+    provider: NativeEmailProviderEnumApi
+    /** Subdomain of the sending domain used as the custom MAIL FROM (bounce) domain. `feedback` gives `feedback.mail.example.com`. Defaults to `feedback`. Pick another value if that subdomain already has MX records. */
+    mail_from_subdomain?: string
+}
+
+export interface PatchedEmailSenderUpdateRequestApi {
+    /** The full sender config. Only `name` and `mail_from_subdomain` change; `email` must stay the same. */
+    config?: NativeEmailIntegrationApi
+}
+
+/**
+ * * `success` - Domain verified
+ * * `pending` - Verification pending
+ * * `failed` - Verification failed
+ */
+export type EmailDomainStatusEnumApi = (typeof EmailDomainStatusEnumApi)[keyof typeof EmailDomainStatusEnumApi]
+
+export const EmailDomainStatusEnumApi = {
+    Success: 'success',
+    Pending: 'pending',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `verification` - Domain ownership or SPF
+ * * `dkim` - DKIM signing
+ * * `mail_from` - Custom MAIL FROM
+ * * `dmarc` - DMARC policy
+ */
+export type EmailDomainRecordPurposeEnumApi =
+    (typeof EmailDomainRecordPurposeEnumApi)[keyof typeof EmailDomainRecordPurposeEnumApi]
+
+export const EmailDomainRecordPurposeEnumApi = {
+    Verification: 'verification',
+    Dkim: 'dkim',
+    MailFrom: 'mail_from',
+    Dmarc: 'dmarc',
+} as const
+
+/**
+ * * `TXT` - TXT record
+ * * `CNAME` - CNAME record
+ * * `MX` - MX record
+ */
+export type EmailDomainRecordTypeEnumApi =
+    (typeof EmailDomainRecordTypeEnumApi)[keyof typeof EmailDomainRecordTypeEnumApi]
+
+export const EmailDomainRecordTypeEnumApi = {
+    Txt: 'TXT',
+    Cname: 'CNAME',
+    Mx: 'MX',
+} as const
+
+/**
+ * * `success` - Record found
+ * * `pending` - Record not found yet
+ */
+export type EmailDomainRecordStatusEnumApi =
+    (typeof EmailDomainRecordStatusEnumApi)[keyof typeof EmailDomainRecordStatusEnumApi]
+
+export const EmailDomainRecordStatusEnumApi = {
+    Success: 'success',
+    Pending: 'pending',
+} as const
+
+export interface EmailDomainDnsRecordApi {
+    /** What the record is for: domain ownership or the sending domain's SPF, DKIM signing, the custom MAIL FROM domain, or DMARC.
+     *
+     * * `verification` - Domain ownership or SPF
+     * * `dkim` - DKIM signing
+     * * `mail_from` - Custom MAIL FROM
+     * * `dmarc` - DMARC policy */
+    type: EmailDomainRecordPurposeEnumApi
+    /** DNS record type.
+     *
+     * * `TXT` - TXT record
+     * * `CNAME` - CNAME record
+     * * `MX` - MX record */
+    recordType: EmailDomainRecordTypeEnumApi
+    /** Fully qualified record name, or `@` for the sending domain itself. Many DNS hosts append the zone, so enter only the part before it. */
+    recordHostname: string
+    /** Exact record value to publish. */
+    recordValue: string
+    /** `success` once the record is visible in DNS, `pending` until then.
+     *
+     * * `success` - Record found
+     * * `pending` - Record not found yet */
+    status: EmailDomainRecordStatusEnumApi
+    /** MX priority. Only present on MX records. */
+    priority?: number
+}
+
+export interface EmailDomainVerificationApi {
+    /** `success` when every record is verified and the sender can send. `pending` while DNS is not visible yet, which can take minutes and up to 72 hours. `failed` when the provider gave up on the records.
+     *
+     * * `success` - Domain verified
+     * * `pending` - Verification pending
+     * * `failed` - Verification failed */
+    status: EmailDomainStatusEnumApi
+    /** Every DNS record the sending domain needs, each with its own status. */
+    dnsRecords: EmailDomainDnsRecordApi[]
 }
 
 export interface IntegrationAssigneeApi {
@@ -479,6 +580,70 @@ export interface SlackUsersResponseApi {
     lastRefreshedAt?: string | null
     /** Whether more members match the current search beyond this page. */
     has_more?: boolean
+}
+
+/**
+ * * `email` - Email sending domain
+ * * `proxy` - Reverse proxy domain
+ */
+export type DomainConnectContextKindEnumApi =
+    (typeof DomainConnectContextKindEnumApi)[keyof typeof DomainConnectContextKindEnumApi]
+
+export const DomainConnectContextKindEnumApi = {
+    Email: 'email',
+    Proxy: 'proxy',
+} as const
+
+export interface DomainConnectApplyUrlRequestApi {
+    /** `email` to configure an email sending domain, `proxy` for a reverse proxy domain.
+     *
+     * * `email` - Email sending domain
+     * * `proxy` - Reverse proxy domain */
+    context: DomainConnectContextKindEnumApi
+    /**
+     * ID of the email integration (sender). Required when `context` is `email`.
+     * @nullable
+     */
+    integration_id?: number | null
+    /**
+     * ID of the reverse proxy record. Required when `context` is `proxy`.
+     * @nullable
+     */
+    proxy_record_id?: string | null
+    /**
+     * Where the DNS host sends the user after they approve. Omit it when handing the URL to a person.
+     * @nullable
+     */
+    redirect_uri?: string | null
+    /**
+     * Provider endpoint from `available_providers` in the domain-connect check. Omit it to use the provider detected from the domain's DNS.
+     * @nullable
+     */
+    provider_endpoint?: string | null
+}
+
+export interface DomainConnectApplyUrlResponseApi {
+    /** Signed Domain Connect URL. A person opens it, signs in at their DNS host and approves the records. The records do not change until they approve. */
+    url: string
+}
+
+export interface DomainConnectProviderApi {
+    /** Provider endpoint. Pass it as `provider_endpoint` to apply-url. */
+    endpoint: string
+    /** Provider display name, for example `Cloudflare`. */
+    name: string
+}
+
+export interface DomainConnectCheckResponseApi {
+    /** True when the domain's DNS host supports one-click setup with Domain Connect. */
+    supported: boolean
+    /**
+     * Detected DNS host, for example `Cloudflare`. Null when not supported.
+     * @nullable
+     */
+    provider_name: string | null
+    /** Providers the user can pick by hand when detection fails. Empty when detection succeeded. Only offer one if the user confirms their DNS is hosted there. */
+    available_providers: DomainConnectProviderApi[]
 }
 
 /**
@@ -1034,4 +1199,12 @@ export type IntegrationsUsersRetrieveParams = {
      * Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.
      */
     user_id?: string
+}
+
+export type IntegrationsDomainConnectCheckRetrieveParams = {
+    /**
+     * Domain to check, for example `mail.example.com`. Subdomains resolve to their registrable domain.
+     * @minLength 1
+     */
+    domain: string
 }

@@ -36636,6 +36636,70 @@ export namespace Schemas {
     }
 
     /**
+     * * `email` - Email sending domain
+     * * `proxy` - Reverse proxy domain
+     */
+    export type DomainConnectContextKindEnum = typeof DomainConnectContextKindEnum[keyof typeof DomainConnectContextKindEnum];
+
+
+    export const DomainConnectContextKindEnum = {
+      Email: 'email',
+      Proxy: 'proxy',
+    } as const;
+
+    export interface DomainConnectApplyUrlRequest {
+      /** `email` to configure an email sending domain, `proxy` for a reverse proxy domain.
+       *
+       * * `email` - Email sending domain
+       * * `proxy` - Reverse proxy domain */
+      context: DomainConnectContextKindEnum;
+      /**
+         * ID of the email integration (sender). Required when `context` is `email`.
+         * @nullable
+         */
+      integration_id?: number | null;
+      /**
+         * ID of the reverse proxy record. Required when `context` is `proxy`.
+         * @nullable
+         */
+      proxy_record_id?: string | null;
+      /**
+         * Where the DNS host sends the user after they approve. Omit it when handing the URL to a person.
+         * @nullable
+         */
+      redirect_uri?: string | null;
+      /**
+         * Provider endpoint from `available_providers` in the domain-connect check. Omit it to use the provider detected from the domain's DNS.
+         * @nullable
+         */
+      provider_endpoint?: string | null;
+    }
+
+    export interface DomainConnectApplyUrlResponse {
+      /** Signed Domain Connect URL. A person opens it, signs in at their DNS host and approves the records. The records do not change until they approve. */
+      url: string;
+    }
+
+    export interface DomainConnectProvider {
+      /** Provider endpoint. Pass it as `provider_endpoint` to apply-url. */
+      endpoint: string;
+      /** Provider display name, for example `Cloudflare`. */
+      name: string;
+    }
+
+    export interface DomainConnectCheckResponse {
+      /** True when the domain's DNS host supports one-click setup with Domain Connect. */
+      supported: boolean;
+      /**
+         * Detected DNS host, for example `Cloudflare`. Null when not supported.
+         * @nullable
+         */
+      provider_name: string | null;
+      /** Providers the user can pick by hand when detection fails. Empty when detection succeeded. Only offer one if the user confirms their DNS is hosted there. */
+      available_providers: DomainConnectProvider[];
+    }
+
+    /**
      * * `all` - All
      * * `selected` - Selected
      */
@@ -37773,6 +37837,100 @@ export namespace Schemas {
     export interface ElementValue {
       /** A distinct value of the requested element property */
       name: string;
+    }
+
+    /**
+     * * `verification` - Domain ownership or SPF
+     * * `dkim` - DKIM signing
+     * * `mail_from` - Custom MAIL FROM
+     * * `dmarc` - DMARC policy
+     */
+    export type EmailDomainRecordPurposeEnum = typeof EmailDomainRecordPurposeEnum[keyof typeof EmailDomainRecordPurposeEnum];
+
+
+    export const EmailDomainRecordPurposeEnum = {
+      Verification: 'verification',
+      Dkim: 'dkim',
+      MailFrom: 'mail_from',
+      Dmarc: 'dmarc',
+    } as const;
+
+    /**
+     * * `TXT` - TXT record
+     * * `CNAME` - CNAME record
+     * * `MX` - MX record
+     */
+    export type EmailDomainRecordTypeEnum = typeof EmailDomainRecordTypeEnum[keyof typeof EmailDomainRecordTypeEnum];
+
+
+    export const EmailDomainRecordTypeEnum = {
+      Txt: 'TXT',
+      Cname: 'CNAME',
+      Mx: 'MX',
+    } as const;
+
+    /**
+     * * `success` - Record found
+     * * `pending` - Record not found yet
+     */
+    export type EmailDomainRecordStatusEnum = typeof EmailDomainRecordStatusEnum[keyof typeof EmailDomainRecordStatusEnum];
+
+
+    export const EmailDomainRecordStatusEnum = {
+      Success: 'success',
+      Pending: 'pending',
+    } as const;
+
+    export interface EmailDomainDnsRecord {
+      /** What the record is for: domain ownership or the sending domain's SPF, DKIM signing, the custom MAIL FROM domain, or DMARC.
+       *
+       * * `verification` - Domain ownership or SPF
+       * * `dkim` - DKIM signing
+       * * `mail_from` - Custom MAIL FROM
+       * * `dmarc` - DMARC policy */
+      type: EmailDomainRecordPurposeEnum;
+      /** DNS record type.
+       *
+       * * `TXT` - TXT record
+       * * `CNAME` - CNAME record
+       * * `MX` - MX record */
+      recordType: EmailDomainRecordTypeEnum;
+      /** Fully qualified record name, or `@` for the sending domain itself. Many DNS hosts append the zone, so enter only the part before it. */
+      recordHostname: string;
+      /** Exact record value to publish. */
+      recordValue: string;
+      /** `success` once the record is visible in DNS, `pending` until then.
+       *
+       * * `success` - Record found
+       * * `pending` - Record not found yet */
+      status: EmailDomainRecordStatusEnum;
+      /** MX priority. Only present on MX records. */
+      priority?: number;
+    }
+
+    /**
+     * * `success` - Domain verified
+     * * `pending` - Verification pending
+     * * `failed` - Verification failed
+     */
+    export type EmailDomainStatusEnum = typeof EmailDomainStatusEnum[keyof typeof EmailDomainStatusEnum];
+
+
+    export const EmailDomainStatusEnum = {
+      Success: 'success',
+      Pending: 'pending',
+      Failed: 'failed',
+    } as const;
+
+    export interface EmailDomainVerification {
+      /** `success` when every record is verified and the sender can send. `pending` while DNS is not visible yet, which can take minutes and up to 72 hours. `failed` when the provider gave up on the records.
+       *
+       * * `success` - Domain verified
+       * * `pending` - Verification pending
+       * * `failed` - Verification failed */
+      status: EmailDomainStatusEnum;
+      /** Every DNS record the sending domain needs, each with its own status. */
+      dnsRecords: EmailDomainDnsRecord[];
     }
 
     /**
@@ -64692,6 +64850,32 @@ export namespace Schemas {
       value: unknown;
     }
 
+    /**
+     * * `ses` - Amazon SES
+     * * `maildev` - Maildev (local development only)
+     */
+    export type NativeEmailProviderEnum = typeof NativeEmailProviderEnum[keyof typeof NativeEmailProviderEnum];
+
+
+    export const NativeEmailProviderEnum = {
+      Ses: 'ses',
+      Maildev: 'maildev',
+    } as const;
+
+    export interface NativeEmailIntegration {
+      /** Sender address, for example `hello@mail.example.com`. Its domain is the sending domain that needs DNS records. Free and disposable mailbox domains such as gmail.com are rejected. Cannot be changed after creation; send the current address when updating. */
+      email: string;
+      /** Sender display name recipients see in their inbox, for example `Acme`. */
+      name: string;
+      /** Sending provider. Always `ses`. `maildev` is only accepted in local development.
+       *
+       * * `ses` - Amazon SES
+       * * `maildev` - Maildev (local development only) */
+      provider: NativeEmailProviderEnum;
+      /** Subdomain of the sending domain used as the custom MAIL FROM (bounce) domain. `feedback` gives `feedback.mail.example.com`. Defaults to `feedback`. Pick another value if that subdomain already has MX records. */
+      mail_from_subdomain?: string;
+    }
+
     export interface NoMatchMetadata {
       /** Why no existing report matched. */
       reason: string;
@@ -77031,6 +77215,11 @@ export namespace Schemas {
       order?: number | null;
     }
 
+    export interface PatchedEmailSenderUpdateRequest {
+      /** The full sender config. Only `name` and `mail_from_subdomain` change; `email` must stay the same. */
+      config?: NativeEmailIntegration;
+    }
+
     /**
      * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
      * @nullable
@@ -79147,28 +79336,6 @@ export namespace Schemas {
          * @nullable
          */
       values_query_connection_id?: string | null;
-    }
-
-    /**
-     * Standard Integration serializer.
-     */
-    export interface PatchedIntegrationConfig {
-      readonly id?: number;
-      kind?: IntegrationKindEnum;
-      config?: unknown;
-      readonly created_at?: string;
-      readonly created_by?: UserBasic;
-      readonly errors?: string;
-      readonly display_name?: string;
-      /** Slack only: whether reconnecting can request the files:write scope. */
-      readonly files_write_requestable?: boolean;
-      /**
-         * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
-         * @nullable
-         */
-      readonly installation_shared?: boolean | null;
-      /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
-      readonly installation_status?: InstallationStatusEnum | null;
     }
 
     export interface PatchedJsSnippetVersion {
@@ -122074,6 +122241,14 @@ export namespace Schemas {
      * Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.
      */
     user_id?: string;
+    };
+
+    export type IntegrationsDomainConnectCheckRetrieveParams = {
+    /**
+     * Domain to check, for example `mail.example.com`. Subdomains resolve to their registrable domain.
+     * @minLength 1
+     */
+    domain: string;
     };
 
     export type JsSnippetResolveRetrieve200 = { [key: string]: unknown };
