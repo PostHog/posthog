@@ -133,6 +133,13 @@ export interface commandKSearchLogicActions {
     ensureAllMembersLoaded: () => {
         value: true
     } // membersLogic
+    loadCurrentTeamSuccess: (
+        currentTeam: null | import('../../../types').TeamPublicType,
+        payload?: any
+    ) => {
+        currentTeam: null | import('../../../types').TeamPublicType
+        payload?: any
+    } // teamLogic
     activateRow: (
         row: CommandKRow,
         newTab: boolean,
@@ -359,7 +366,14 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             themeLogic,
             ['isDarkModeOn'],
         ],
-        actions: [commandLogic, ['closeCommand'], membersLogic, ['ensureAllMembersLoaded']],
+        actions: [
+            commandLogic,
+            ['closeCommand'],
+            membersLogic,
+            ['ensureAllMembersLoaded'],
+            teamLogic,
+            ['loadCurrentTeamSuccess'],
+        ],
     })),
     actions({
         inputChanged: (text: string, cursor: number, pasted: boolean) => ({ text, cursor, pasted }),
@@ -728,6 +742,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         }
 
         return {
+            // Remote searches wait for a project, so a project that loads mid-query starts them.
+            loadCurrentTeamSuccess: () => actions.syncRemote(),
             inputChanged: ({ text, cursor, pasted }) => {
                 if (pasted) {
                     const extracted = extractChips(text, values.chips, values.filterOptions)
