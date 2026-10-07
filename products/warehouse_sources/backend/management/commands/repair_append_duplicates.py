@@ -13,8 +13,9 @@ It takes the pipeline lock of the schema for the whole execution. After the chan
 query copy of the table again and updates the row count and the size of the table record. It does
 not repair external destinations. The DuckLake copy changes at the next completed sync.
 
-To undo an execution, restore the Delta table to the version that the command prints. The files stay
-in storage for the vacuum retention only.
+`--undo-to-version` restores the Delta table to the version that the execution printed. It is
+permitted only while the repair is the last commit of the table, because a restore also removes the
+rows of each later sync. The removed files stay in storage for the vacuum retention only.
 
 Usage:
     # Dry run (default): prints the plan, changes nothing
@@ -23,11 +24,14 @@ Usage:
 
     # Execution. --mode rows permits a rewrite of the files that a compaction made.
     python manage.py repair_append_duplicates ... --mode rows --execute
+
+    # Undo the execution
+    python manage.py repair_append_duplicates --team-id 1 --schema-id <uuid> --undo-to-version 42 --execute
 """
 
 from collections.abc import Callable
 from datetime import timedelta
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError
@@ -69,6 +73,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 
 logger = structlog.get_logger(__name__)
+
+T = TypeVar("T")
 
 # The loader records an unfinished append run under this key, and restores the table to the recorded
 # version at the next run. That restore puts back the files that a repair after it removed.
@@ -116,6 +122,15 @@ class SchemaAppendDuplicateRepair:
         self._write = write
 
     def run(self, request: RepairRequest, *, execute: bool, publish: bool = True) -> RepairPlan | RepairResult:
+        return self._with_lock(
+            execute, lambda token: self._run_locked(request, token, execute=execute, publish=publish)
+        )
+
+    def undo(self, version_before: int, *, execute: bool, publish: bool = True) -> int:
+        """Restore the table to the version before the last repair, then publish it again."""
+        return self._with_lock(execute, lambda token: self._undo_locked(version_before, token, execute, publish))
+
+    def _with_lock(self, execute: bool, action: Callable[[str], T]) -> T:
         token = str(uuid7())
         if execute:
             if not self._environment.acquire_lock(token):
@@ -128,29 +143,43 @@ class SchemaAppendDuplicateRepair:
             if holder is not None:
                 raise RepairRefused("sync_running", f"the pipeline lock of the schema is held by {holder}")
         try:
-            return self._run_locked(request, token, execute=execute, publish=publish)
+            return action(token)
         finally:
             if execute:
                 self._environment.release_lock(token)
 
+    def _open_idle_table(self) -> tuple[SchemaState, deltalake.DeltaTable]:
+        state = self._environment.schema_state()
+        if state.running_job_ids:
+            raise RepairRefused("sync_running", f"job {', '.join(state.running_job_ids)} of the schema is running")
+        table = self._environment.open_table()
+        if table is None:
+            raise RepairRefused("no_delta_table", "the schema has no Delta table")
+        return state, table
+
+    def _undo_locked(self, version_before: int, token: str, execute: bool, publish: bool) -> int:
+        _, table = self._open_idle_table()
+        rows = AppendDuplicateRepair(table).undo(version_before, execute=execute)
+        if not execute:
+            self._write(f"Dry run. The table has {rows} rows. Use --execute to restore it to version {version_before}.")
+            return rows
+        logger.info("append_duplicate_repair_undone", delta_version=version_before, rows=rows)
+        self._write(f"restored to version {version_before}: {rows} rows")
+        self._publish(token, publish)
+        return rows
+
     def _run_locked(
         self, request: RepairRequest, token: str, *, execute: bool, publish: bool
     ) -> RepairPlan | RepairResult:
-        state = self._environment.schema_state()
+        state, table = self._open_idle_table()
         if state.sync_type != ExternalDataSchema.SyncType.APPEND:
             raise RepairRefused("not_append", f"the sync type of the schema is {state.sync_type}")
-        if state.running_job_ids:
-            raise RepairRefused("sync_running", f"job {', '.join(state.running_job_ids)} of the schema is running")
         if state.pending_rollback_run_uuid is not None:
             raise RepairRefused(
                 "rollback_pending",
                 f"the loader will restore the table at the next sync to remove run {state.pending_rollback_run_uuid}. "
                 "That restore undoes a repair. Let that sync complete, then run the dry run again.",
             )
-
-        table = self._environment.open_table()
-        if table is None:
-            raise RepairRefused("no_delta_table", "the schema has no Delta table")
 
         repair = AppendDuplicateRepair(table)
         plan = repair.plan(
@@ -189,8 +218,12 @@ class SchemaAppendDuplicateRepair:
             f"rows {result.rows_before} -> {result.rows_after}, files removed {result.files_removed}, "
             f"files written {result.files_added}"
         )
-        self._write(f"To undo: restore the Delta table to version {result.version_before}.")
+        self._write(f"To undo, while no sync has run since: --undo-to-version {result.version_before} --execute")
 
+        self._publish(token, publish)
+        return result
+
+    def _publish(self, token: str, publish: bool) -> None:
         if not publish:
             self._write("Publish step skipped. The next completed sync publishes the table.")
         elif self._environment.lock_holder() != token:
@@ -203,7 +236,6 @@ class SchemaAppendDuplicateRepair:
                 f"published: folder {published.queryable_folder}, row count {published.row_count}, "
                 f"size {published.size_mib} MiB"
             )
-        return result
 
 
 class DjangoRepairEnvironment:
@@ -317,13 +349,13 @@ class Command(BaseCommand):
         parser.add_argument(
             "--run-uuid",
             action="append",
-            required=True,
+            default=None,
             help="Run that ended before its final batch (<workflow run id>-a<attempt>). Repeatable.",
         )
         parser.add_argument(
             "--expected-rows",
             type=int,
-            required=True,
+            default=None,
             help="Rows that the given runs loaded, from the queue data. The Delta log and the table must agree.",
         )
         parser.add_argument(
@@ -347,6 +379,13 @@ class Command(BaseCommand):
             default=None,
             help="Load id of the rows to remove, for a table whose Delta log no longer has the runs. Repeatable.",
         )
+        parser.add_argument(
+            "--undo-to-version",
+            type=int,
+            default=None,
+            help="Restore the table to this version, which the execution printed. Permitted only while the "
+            "repair is the last commit of the table.",
+        )
         parser.add_argument("--execute", action="store_true", help="Make the change (default is a dry run).")
         parser.add_argument(
             "--skip-publish",
@@ -355,6 +394,22 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
+        environment = DjangoRepairEnvironment(options["team_id"], str(options["schema_id"]))
+        repair = SchemaAppendDuplicateRepair(environment, self.stdout.write)
+        publish = not options["skip_publish"]
+        try:
+            if options["undo_to_version"] is not None:
+                repair.undo(options["undo_to_version"], execute=options["execute"], publish=publish)
+                return
+            if not options["run_uuid"] or options["expected_rows"] is None:
+                raise CommandError("Give --run-uuid and --expected-rows, or --undo-to-version")
+            self._repair(repair, options, publish)
+        except ExternalDataSchema.DoesNotExist as e:
+            raise CommandError("No such schema for this team") from e
+        except RepairRefused as e:
+            raise CommandError(f"REFUSED {e}") from e
+
+    def _repair(self, repair: SchemaAppendDuplicateRepair, options: dict[str, Any], publish: bool) -> None:
         mode: RepairMode = options["mode"]
         request = RepairRequest(
             run_uuids=tuple(dict.fromkeys(options["run_uuid"])),
@@ -363,12 +418,4 @@ class Command(BaseCommand):
             tolerance=options["tolerance"],
             load_ids=tuple(options["load_id"] or ()),
         )
-        environment = DjangoRepairEnvironment(options["team_id"], str(options["schema_id"]))
-        try:
-            SchemaAppendDuplicateRepair(environment, self.stdout.write).run(
-                request, execute=options["execute"], publish=not options["skip_publish"]
-            )
-        except ExternalDataSchema.DoesNotExist as e:
-            raise CommandError("No such schema for this team") from e
-        except RepairRefused as e:
-            raise CommandError(f"REFUSED {e}") from e
+        repair.run(request, execute=options["execute"], publish=publish)

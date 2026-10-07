@@ -233,3 +233,32 @@ class TestAppendDuplicateRepair:
 
             assert refused.value.reason == "table_changed"
             assert len(table.ids()) == 70
+
+    @parameterized.expand(
+        [
+            ("repair_is_the_last_commit", False, 0, None),
+            ("a_sync_wrote_after_the_repair", True, 0, "repair_is_not_the_last_commit"),
+            ("other_version_than_the_repair_recorded", False, -1, "version_mismatch"),
+        ]
+    )
+    def test_undo_restores_only_while_the_repair_is_the_last_commit(
+        self, _name: str, sync_after_repair: bool, version_offset: int, reason: str | None
+    ) -> None:
+        with _tmp_dir() as tmp_path:
+            table = _Table(tmp_path)
+            table.load_duplicates()
+            repair = AppendDuplicateRepair(table.open())
+            result = repair.execute(repair.plan(_request()))
+            if sync_after_repair:
+                table.load_run("wf2-a1", 4, [40])
+            rows_after_repair = len(table.ids())
+            undo = AppendDuplicateRepair(table.open())
+
+            if reason is None:
+                assert undo.undo(result.version_before, execute=True) == 60
+                assert len(table.ids()) == 60
+            else:
+                with pytest.raises(RepairRefused) as refused:
+                    undo.undo(result.version_before + version_offset, execute=True)
+                assert refused.value.reason == reason
+                assert len(table.ids()) == rows_after_repair

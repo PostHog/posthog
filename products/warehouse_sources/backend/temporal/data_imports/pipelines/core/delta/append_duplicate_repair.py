@@ -308,6 +308,35 @@ class AppendDuplicateRepair:
             files_added=files_added,
         )
 
+    def undo(self, version_before: int, *, execute: bool) -> int:
+        """Restore the table to the version before a repair, and return the row count of the table.
+
+        A restore removes each commit after the version. It is thus only permitted while the repair
+        is the last commit, because the watermark already covers the rows of a later sync.
+        """
+        self._table.update_incremental()
+        last_commit = self._table.history(1)[0]
+        recorded = _metadata_value(last_commit, VERSION_BEFORE_KEY)
+        if recorded is None:
+            raise RepairRefused(
+                "repair_is_not_the_last_commit",
+                f"the last commit (version {self._table.version()}) is not a repair. A restore removes each commit "
+                "after its target, and that includes the rows of a later sync.",
+            )
+        if recorded != str(version_before):
+            raise RepairRefused(
+                "version_mismatch", f"the last repair recorded version {recorded}, not {version_before}"
+            )
+        if execute:
+            self._table.restore(
+                version_before,
+                commit_properties=deltalake.CommitProperties(
+                    custom_metadata={RESTORED_KEY: str(self._table.version())}
+                ),
+            )
+            self._table.update_incremental()
+        return self._count_rows(None)
+
     @staticmethod
     def _commits_not_undone(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """The commits whose changes are still in the table. A restore undoes each commit after its target."""
