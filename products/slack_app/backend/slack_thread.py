@@ -1,5 +1,4 @@
 import re
-import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -502,10 +501,13 @@ class SlackThreadHandler:
             for piece in _markdown_text_pieces(self._with_leading_mention(final_markdown)):
                 answer_chunks.append({"type": "markdown_text", "text": piece})
         answer_delivered = self._append_chunks(ts, answer_chunks, "slack_app_status_stream_final_append_failed")
+        # A turn stopped before it answered still closes its stream, which then holds only status lines.
+        has_answer = bool(final_markdown) or mention_sent
         if self.stream_ended:
             if final_markdown:
                 answer_delivered = self._post_answer_outside_stream(final_markdown)
-            self.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
+            if has_answer:
+                self.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
             return
         if append_attachments is not None:
             try:
@@ -525,7 +527,8 @@ class SlackThreadHandler:
         if footer:
             self._append_trailing_blocks(ts)
         self._stop_stream(ts)
-        self.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
+        if has_answer:
+            self.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
 
     def _stop_stream(self, ts: str) -> None:
         if self.stream_ended:
@@ -789,7 +792,7 @@ class SlackThreadHandler:
         footer = self._footer_block() if with_footer and fits_in_a_block else None
         blocks = self._answer_blocks(text, footer, markdown=markdown)
         try:
-            self._post_in_thread(text=text, blocks=blocks)
+            posted = self._post_in_thread(text=text, blocks=blocks)
         except SlackApiError as e:
             # Slack rejects a request whose blocks are invalid outright — the `text`
             # fallback does not rescue it — so the answer would go down with its footer.
@@ -799,17 +802,16 @@ class SlackThreadHandler:
             if blocks and e.response.get("error") in _BLOCK_REJECTION_ERROR_CODES:
                 logger.warning("slack_app_answer_blocks_rejected", error=str(e))
                 try:
-                    self._post_in_thread(text=text)
+                    return self._post_in_thread(text=text) is not None
                 except Exception as retry_error:
                     logger.warning("slack_post_thread_message_failed", error=str(retry_error))
                     return False
-                return True
             logger.warning("slack_post_thread_message_failed", error=str(e))
             return False
         except Exception as e:
             logger.warning("slack_post_thread_message_failed", error=str(e))
             return False
-        return True
+        return posted is not None
 
     def post_completion(self, task_url: str | None) -> None:
         """Post the no-PR completion message.
@@ -909,42 +911,38 @@ class SlackThreadHandler:
                 blocks = [*blocks, footer]
         try:
             self.delete_progress()
-            self._post_in_thread(text=text, blocks=blocks)
+            return self._post_in_thread(text=text, blocks=blocks) is not None
         except Exception as e:
             logger.exception("slack_completion_post_failed", error=str(e))
             return False
-        return True
 
     def capture_reply_posted(self, reply_kind: ReplyKind, *, delivered: bool) -> None:
         """Capture a reply the run posted to this thread, so a mention can be followed to its answer.
 
-        ``slack_session_id`` and ``slack_message_ts`` have the same shape as on
-        ``posthog code slack mention received``, which is the join between the two events.
+        ``slack_session_id`` has the same shape as on ``posthog code slack mention received``, which
+        is the join between the two events. The reader is resolved the way the mention event resolves
+        it, so both events land on the same person.
         """
+        # Deferred: api.py imports the temporal.ai workflows, which this module's importers do not otherwise load.
+        from products.slack_app.backend.api import resolve_posthog_user_from_event  # noqa: PLC0415
+
         try:
             integration = self._get_integration()
+            actor = self.actor_slack_user_id
             capture_slack_event(
                 integration,
                 REPLY_POSTED_EVENT,
-                slack_user_id=self.actor_slack_user_id,
+                slack_user_id=actor,
+                posthog_user=resolve_posthog_user_from_event(
+                    slack_user_id=actor, probe_integration=integration, candidate_integrations=[integration]
+                )
+                if actor
+                else None,
                 reply_kind=str(reply_kind),
                 delivered=delivered,
                 slack_session_id=f"{integration.integration_id}:{self.context.channel}:{self.context.thread_ts}",
-                slack_message_ts=self.context.user_message_ts,
-                seconds_since_mention=_seconds_since_slack_ts(self.context.user_message_ts),
                 task_id=self.run_footer.task_id,
                 run_id=self.run_footer.run_id,
             )
         except Exception:
             logger.warning("slack_app_reply_posted_capture_failed", reply_kind=str(reply_kind), exc_info=True)
-
-
-def _seconds_since_slack_ts(slack_ts: str | None) -> float | None:
-    # A Slack message ts is the epoch time the message was posted, so it measures the wait
-    # from the triggering message to this reply.
-    if not slack_ts:
-        return None
-    try:
-        return round(time.time() - float(slack_ts), 1)
-    except ValueError:
-        return None

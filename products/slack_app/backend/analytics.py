@@ -90,7 +90,7 @@ def alias_slack_user(integration: Integration, slack_user_id: str, posthog_user:
         return
     try:
         ph_background_capture().alias(
-            previous_id=slack_distinct_id(integration, slack_user_id), distinct_id=posthog_user.distinct_id
+            previous_id=posthog_user.distinct_id, distinct_id=slack_distinct_id(integration, slack_user_id)
         )
     except Exception:
         logger.warning("slack_analytics_alias_failed", integration_id=integration.id, exc_info=True)

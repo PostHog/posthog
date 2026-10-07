@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from django.core.cache import cache
+
 import structlog
 from slack_sdk.errors import SlackApiError
 
@@ -46,6 +48,8 @@ EVENT_DM_SENT = "slack_onboarding_dm_sent"
 EVENT_STEP_COMPLETED = "slack_onboarding_step_completed"
 EVENT_COMPLETED = "slack_onboarding_completed"
 EVENT_SOURCE_ENABLED = "slack_onboarding_source_enabled"
+
+_GITHUB_STEP_DEDUPE_SECONDS = 60 * 60 * 24 * 7
 
 _REQUIRED_STEPS = (OnboardingStep.AI_APPROVAL, OnboardingStep.CHANNEL, OnboardingStep.GITHUB, OnboardingStep.SOURCES)
 
@@ -274,6 +278,10 @@ def record_github_step(integration: Integration) -> None:
         return
     _, status = _onboarding_status(integration, SlackIntegration(integration), installer)
     if not status[OnboardingStep.GITHUB]:
+        return
+    # One GitHub connect flow can create the team and the personal connection together, which queues
+    # this twice. The atomic add lets only the first run report the step.
+    if not cache.add(f"slack_onboarding_github_step:{integration.id}", True, timeout=_GITHUB_STEP_DEDUPE_SECONDS):
         return
     capture_slack_event(integration, EVENT_STEP_COMPLETED, slack_user_id=installer, step=str(OnboardingStep.GITHUB))
     if all(status[step] for step in _REQUIRED_STEPS):

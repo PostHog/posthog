@@ -572,45 +572,68 @@ class TestStreamClosedBySlack(SimpleTestCase):
 _STREAM_ENDED = SlackApiError("message_not_in_streaming_state", {"error": "message_not_in_streaming_state"})
 
 
+def _stop_with_answer(handler: SlackThreadHandler) -> None:
+    handler.stop_status_stream(ts="1.0", final_markdown="Done.")
+
+
 class TestReplyPostedCapture(SimpleTestCase):
     @parameterized.expand(
         [
-            (
-                "streamed_answer",
-                None,
-                None,
-                lambda h: h.stop_status_stream(ts="1.0", final_markdown="Done."),
-                "answer",
-                True,
-            ),
-            (
-                "closed_stream_answer_reposted",
-                _STREAM_ENDED,
-                None,
-                lambda h: h.stop_status_stream(ts="1.0", final_markdown="Done."),
-                "answer",
-                True,
-            ),
+            ("streamed_answer", None, None, False, _stop_with_answer, ("answer", True)),
+            ("closed_stream_answer_reposted", _STREAM_ENDED, None, False, _stop_with_answer, ("answer", True)),
             (
                 "closed_stream_repost_fails",
                 _STREAM_ENDED,
                 RuntimeError("slack down"),
-                lambda h: h.stop_status_stream(ts="1.0", final_markdown="Done."),
-                "answer",
                 False,
+                _stop_with_answer,
+                ("answer", False),
             ),
-            ("completion_card", None, None, lambda h: h.post_completion(task_url=None), "completion", True),
+            (
+                "answer_seeded_before_the_stop",
+                None,
+                None,
+                False,
+                lambda h: h.stop_status_stream(ts="1.0", mention_sent=True),
+                ("answer", True),
+            ),
+            ("turn_stopped_before_answering", None, None, False, lambda h: h.stop_status_stream(ts="1.0"), None),
+            (
+                "completion_card",
+                None,
+                None,
+                False,
+                lambda h: h.post_completion(task_url=None),
+                ("completion", True),
+            ),
             (
                 "completion_card_fails",
                 None,
                 RuntimeError("slack down"),
-                lambda h: h.post_completion(task_url=None),
-                "completion",
                 False,
+                lambda h: h.post_completion(task_url=None),
+                ("completion", False),
             ),
-            ("error_card", None, None, lambda h: h.post_error("boom", task_url=None), "error", True),
+            (
+                "completion_card_for_a_deleted_prompt",
+                None,
+                None,
+                True,
+                lambda h: h.post_completion(task_url=None),
+                ("completion", False),
+            ),
+            (
+                "error_card",
+                None,
+                None,
+                False,
+                lambda h: h.post_error("boom", task_url=None),
+                ("error", True),
+            ),
         ]
     )
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
+    @patch("products.slack_app.backend.services.slack_messages.slack_message_exists")
     @patch("products.slack_app.backend.slack_thread.capture_slack_event")
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "_get_integration")
@@ -620,39 +643,45 @@ class TestReplyPostedCapture(SimpleTestCase):
         _name: str,
         append_error: Exception | None,
         post_error: Exception | None,
+        prompt_deleted: bool,
         reply,
-        reply_kind: str,
-        delivered: bool,
+        expected: tuple[str, bool] | None,
         mock_get_client,
         mock_get_integration,
         _mock_delete_progress,
         mock_capture,
+        mock_message_exists,
+        mock_resolve_user,
     ) -> None:
         mock_client = MagicMock()
         mock_client.chat_appendStream.side_effect = append_error
         mock_client.chat_postMessage.side_effect = post_error
         mock_get_client.return_value = mock_client
+        mock_message_exists.return_value = not prompt_deleted
         integration = Integration(id=1, config={}, integration_id="T1")
         mock_get_integration.return_value = integration
-        context = SlackThreadContext(
-            integration_id=1, channel="C001", thread_ts="1234.5678", user_message_ts="1234.9999"
-        )
+        reader = MagicMock()
+        mock_resolve_user.return_value = reader
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
         handler = SlackThreadHandler(context, RunFooter(run_id="run-1", task_id="task-1"), actor_slack_user_id="U123")
 
         reply(handler)
 
+        if expected is None:
+            mock_capture.assert_not_called()
+            return
         mock_capture.assert_called_once()
         assert mock_capture.call_args.args == (integration, "slack app reply posted")
         kwargs = mock_capture.call_args.kwargs
-        assert {k: kwargs[k] for k in ("slack_user_id", "reply_kind", "delivered", "slack_session_id")} == {
+        assert kwargs == {
             "slack_user_id": "U123",
-            "reply_kind": reply_kind,
-            "delivered": delivered,
-            # The mention-received event carries the same id, which is what joins a mention to its reply.
+            "posthog_user": reader,
+            "reply_kind": expected[0],
+            "delivered": expected[1],
             "slack_session_id": "T1:C001:1234.5678",
+            "task_id": "task-1",
+            "run_id": "run-1",
         }
-        assert (kwargs["slack_message_ts"], kwargs["run_id"], kwargs["task_id"]) == ("1234.9999", "run-1", "task-1")
-        assert kwargs["seconds_since_mention"] > 0
 
 
 class TestRelayedAnswerFooter(SimpleTestCase):

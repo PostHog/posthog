@@ -58,7 +58,7 @@ def _dispatch_onboarding_github_step(slack_integration_ids: Iterable[int]) -> No
     # Deferred: tasks.py imports api.py, which a module-level import would load from AppConfig.ready().
     from products.slack_app.backend.tasks import record_onboarding_github_step  # noqa: PLC0415
 
-    transaction.on_commit(lambda: record_onboarding_github_step.delay(integration_ids=integration_ids))
+    transaction.on_commit(lambda: record_onboarding_github_step.delay(integration_ids=integration_ids), robust=True)
 
 
 @receiver(post_save, sender=Integration)
@@ -74,7 +74,8 @@ def onboard_slack_inbox_on_install(sender: Any, instance: Integration, created: 
     from products.slack_app.backend.inbox_channel import has_inbox_scopes  # noqa: PLC0415
 
     inbox_scopes = has_inbox_scopes(instance)
-    transaction.on_commit(lambda: _capture_install(instance, has_inbox_scopes=inbox_scopes))
+    # Robust, so a failed capture cannot stop the onboarding callback queued after it.
+    transaction.on_commit(lambda: _capture_install(instance, has_inbox_scopes=inbox_scopes), robust=True)
     if not inbox_scopes:
         return
 

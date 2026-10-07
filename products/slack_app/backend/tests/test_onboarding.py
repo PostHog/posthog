@@ -284,6 +284,7 @@ class TestOnboarding:
         mock_status.return_value = (7, status)
 
         onboarding.record_github_step(self.integration)
+        onboarding.record_github_step(self.integration)
 
         assert [(c.args[1], c.kwargs.get("step")) for c in mock_capture.call_args_list] == [
             (onboarding.EVENT_STEP_COMPLETED, "github"),

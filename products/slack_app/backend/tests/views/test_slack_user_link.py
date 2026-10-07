@@ -181,7 +181,7 @@ class TestCallbackView:
 
         self._assert_settings_redirect_success(response)
         mock_ph.return_value.alias.assert_called_once_with(
-            previous_id=f"slack:{SLACK_TEAM_ID}:{SLACK_USER_ID}", distinct_id=user.distinct_id
+            previous_id=user.distinct_id, distinct_id=f"slack:{SLACK_TEAM_ID}:{SLACK_USER_ID}"
         )
         link = UserIntegration.objects.get(user=user, kind=UserIntegration.IntegrationKind.SLACK)
         assert link.integration_id == SLACK_USER_ID
