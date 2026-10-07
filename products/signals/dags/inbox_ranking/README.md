@@ -69,7 +69,7 @@ The first four are report grain and land in one table. `inbox_signal_embeddings`
 
 ## The training dag
 
-`inbox_ranking_training_job` runs daily at 06:13 UTC on the same partition definition (gated like the dataset job) and writes:
+`inbox_ranking_training_job` runs daily at 05:00 UTC on the same partition definition (gated like the dataset job) and writes:
 
 ```text
 s3://<bucket>/<prefix>/
@@ -311,7 +311,7 @@ All reads route to the offline cluster replicas on Cloud (`etl_workload()`), car
 - A label column change needs a `FEATURE_SCHEMA_VERSION` bump, and no manual backfill. The labels asset stamps the version in each object's `feature-schema-version` metadata. Every hour, `inbox_ranking_labels_refresh_sensor` finds labels partitions in the training lookback whose stamp is missing or older, and runs `inbox_ranking_labels_refresh_job` on at most `INBOX_RANKING_LABELS_REFRESH_MAX_RUNS` (default 6) of them, newest first. A 60-day lookback is current again in about 10 hours. The sensor skips the newest day, which the daily schedule writes, and partitions with no labels object. It requests a partition at most once per schema version, so a failed refresh alerts and needs a person. The refresh covers labels only: report state reads current Postgres and embeddings have a TTL, so a rewrite of those is not point-in-time. `pairs_skipped_missing_label_columns` on `inbox_ranking_examples_built` counts the snapshot pairs each head lost to a missing label column while partitions are stale.
 - Do not materialize these assets in-process in the code-location pod. Its memory limit (2Gi) is too small; launch a run instead.
 - Failures alert `#alerts-self-driving` (owner `team-self-driving`); assets retry twice with a 60s delay before failing a run. A UI-launched materialization runs under Dagster's implicit `__ASSET_JOB`, which carries no owner tag, so alert routing falls back to matching the `inbox_report_`, `inbox_signal_`, and `inbox_ranking_` asset-name prefixes.
-- Runtime budgets are per job (`dagster/max_runtime`): 3h for the dataset and training jobs, 1h for the shadow job. The 3h figure is what the dataset needs — its seven label streams run sequentially, each allowed up to 600s, and the join and S3 writes come after them. The shadow read is one day of two event families plus the scores objects in its lookback, so it gets an hour.
+- Runtime budgets are per job (`dagster/max_runtime`): 2h for the dataset job, 3h for the training job, 1h for the shadow job. The dataset needs the 2h: its seven label streams run sequentially, each allowed up to 600s, and the join and S3 writes come after them. The dataset cap ends before training starts at 05:00 UTC, so a stuck dataset run fails before training reads its snapshots. The shadow read is one day of two event families plus the scores objects in its lookback, so it gets an hour.
 
 ## Training consent
 

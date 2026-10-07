@@ -213,6 +213,49 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 metrics={"realized": {"n_positive": n_positive, "lift_at_10": 0.0, "prediction_date": "2026-01-02"}},
             )
         self._make_pipeline(name="Untrained")
+        champion = AutoresearchModel.objects.get(pipeline=validated, role=AutoresearchModel.Role.CHAMPION)
+        finished = AutoresearchTrainingRun.objects.create(pipeline=validated, status="completed", iteration_budget=5)
+        AutoresearchIteration.objects.create(
+            pipeline=validated,
+            training_run=finished,
+            iteration_number=0,
+            recipe_hash="a",
+            recipe_snapshot={},
+            status="kept",
+        )
+        now = django_timezone.now()
+        for rows_scored, minutes_ago in [(100, 60), (250, 5)]:
+            AutoresearchRun.objects.create(
+                pipeline=validated,
+                run_type=AutoresearchRun.RunType.INFERENCE,
+                status="completed",
+                rows_scored=rows_scored,
+                completed_at=now - timedelta(minutes=minutes_ago),
+            )
+        for prediction_date, auc, minutes_ago in [
+            ("2026-01-02", 0.7, 30),
+            ("2026-01-01", 0.6, 20),
+            ("2026-01-02", 0.75, 10),
+        ]:
+            AutoresearchRun.objects.create(
+                pipeline=validated,
+                run_type=AutoresearchRun.RunType.VALIDATION,
+                status="completed",
+                completed_at=now - timedelta(minutes=minutes_ago),
+                metrics={"prediction_date": prediction_date, "per_model": {str(champion.pk): {"realized_auc": auc}}},
+            )
+        live = AutoresearchTrainingRun.objects.create(pipeline=preliminary, status="running", iteration_budget=8)
+        for number, holdout, description in [(0, 0.72, "baseline"), (1, 0.69, "try fewer features")]:
+            AutoresearchIteration.objects.create(
+                pipeline=preliminary,
+                training_run=live,
+                iteration_number=number,
+                recipe_hash=f"r{number}",
+                recipe_snapshot={},
+                holdout_score=holdout,
+                status="kept" if number == 0 else "discarded",
+                agent_description=description,
+            )
 
         with CaptureQueriesContext(connection) as queries:
             resp = self.client.get(f"{self.base_url}/")
@@ -220,6 +263,55 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK
         assert sum("autoresearchmodel" in q["sql"].lower() for q in queries.captured_queries) == 1
         by_name = {row["name"]: row for row in resp.json()["results"]}
+        assert {
+            name: (
+                row["people_scored"],
+                row["training_run_count"],
+                row["experiment_count"],
+                row["champion_realized_auc_trend"],
+                row["live_training_run"] and {k: v for k, v in row["live_training_run"].items() if k != "id"},
+            )
+            for name, row in by_name.items()
+        } == {
+            "Validated": (
+                250,
+                1,
+                1,
+                [
+                    {"prediction_date": "2026-01-01", "realized_auc": 0.6},
+                    {"prediction_date": "2026-01-02", "realized_auc": 0.75},
+                ],
+                None,
+            ),
+            "Preliminary": (
+                None,
+                1,
+                2,
+                [],
+                {
+                    "iteration_budget": 8,
+                    "experiment_count": 2,
+                    "best_holdout_score": 0.72,
+                    "latest_agent_description": "try fewer features",
+                },
+            ),
+            "No positives": (None, 0, 0, [], None),
+            "Zero lift": (None, 0, 0, [], None),
+            "Untrained": (None, 0, 0, [], None),
+        }
+
+        busy = self._make_pipeline(name="Busy")
+        busy_run = AutoresearchTrainingRun.objects.create(pipeline=busy, status="running", iteration_budget=3)
+        AutoresearchIteration.objects.create(
+            pipeline=busy, training_run=busy_run, iteration_number=0, recipe_hash="b", recipe_snapshot={}, status="kept"
+        )
+        with CaptureQueriesContext(connection) as more_queries:
+            self.client.get(f"{self.base_url}/")
+
+        def autoresearch_queries(captured: CaptureQueriesContext) -> int:
+            return sum('"autoresearch_' in q["sql"] for q in captured.captured_queries)
+
+        assert autoresearch_queries(more_queries) == autoresearch_queries(queries)
         assert {
             name: (
                 row["champion_holdout_auc"],

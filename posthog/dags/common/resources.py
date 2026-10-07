@@ -19,7 +19,6 @@ from posthog.clickhouse.backoff import ExponentialBackoff
 from posthog.clickhouse.client.connection import (
     ClickHouseCredentials,
     ClickHouseUser,
-    Workload,
     get_clickhouse_creds,
     is_file_backed_user,
 )
@@ -74,7 +73,7 @@ def _dedicated_user_connection_overrides(creds: ClickHouseCredentials) -> dict[s
     untouched, so the pool authenticates as this user with this user's credential.
     """
     overrides: dict[str, Any] = {"user": creds.user}
-    if is_file_backed_user(creds, Workload.DEFAULT, creds.user):
+    if is_file_backed_user(creds, creds.user):
         overrides["credential_provider"] = creds.read_password
     else:
         overrides["password"] = creds.password

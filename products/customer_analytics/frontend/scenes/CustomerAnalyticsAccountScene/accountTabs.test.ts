@@ -1,9 +1,11 @@
+import { listAvailableAccountViewComponents } from '../../components/Accounts/accountViewComponents'
 import type { AccountDetailTabsConfigApi, AccountViewApi } from '../../generated/api.schemas'
 import {
     getActiveAccountTabId,
     getDefaultAccountTabId,
     isAccountTabVisible,
     listOrderedAccountTabs,
+    listAccountTabs,
     listVisibleAccountTabs,
     reorderAccountTab,
     setAccountTabVisibility,
@@ -29,6 +31,11 @@ const tabs: AccountTabDefinition[] = [
 ]
 
 describe('account tabs', () => {
+    it('offers replay tiles without adding a system tab', () => {
+        expect(listAvailableAccountViewComponents({}).map((component) => component.kind)).toContain('session_replays')
+        expect(listAccountTabs({}, []).map((tab) => tab.routeKey)).not.toContain('session_replays')
+    })
+
     it('falls back from an unavailable system route but keeps an unknown view route', () => {
         expect(getActiveAccountTabId(tabs, emptyConfig, 'system:tasks', 1)).toBe('system:notes')
         expect(getActiveAccountTabId(tabs, emptyConfig, 'view:missing', 1)).toBe('view:missing')

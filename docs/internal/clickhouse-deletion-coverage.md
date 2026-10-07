@@ -95,7 +95,7 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 
 - `sharded_events` — all sweeps.
 - `sharded_events_json` — all sweeps, on the events cluster, through patch parts instead of mutations (`uses_patch_parts`). Optional: only present after the native-JSON migration.
-- `sharded_flag_evaluations` — person, team, queued-uuid and deferred event removal. Not immediate event removal or property removal (below). Optional.
+- `sharded_flag_evaluations` — person, team, queued-uuid, deferred event removal, and property removal of event `properties` (below). Not immediate event removal, and not property removal with a HogQL predicate. Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
 
 Native property-removal requests fail when the selected rows retain a requested permanent or temporary property, or a matching person `$set`/`$set_once` instruction.
@@ -146,59 +146,73 @@ So a run can mark requests verified without proving the rows are gone. What stop
 removing nothing is upstream of the count: `MutationRunner.reuse_since` keeps a run from adopting a
 mutation an earlier run enqueued, which is the failure the count was added to notice.
 
-### Property removal does not reach `flag_evaluations`
+### Property removal on `flag_evaluations`
+
+The property-removal job sweeps `sharded_flag_evaluations` with the same per-shard copy, delete, reingest and verify ops it runs on the events tables.
+The copy writes each shard's matching rows to S3 with the named keys dropped and each affected extracted column reset, the delete removes the originals, and the reingest inserts the cleaned copy back.
+That works because `materialize()` creates columns as `DEFAULT <expr>`, so an insert can set the column directly.
+`DeletionTarget.accepts_property_rewrite` marks each table the job sweeps, and the gate refuses while a table without it holds rows a request names.
 
 `person_properties` and `group0..group4_properties` no longer exist on the table: no Insight or Hog function used either as a breakdown or a filter, so the ClickHouse team dropped them directly on both prod clusters, and `posthog/models/flag_evaluations/sql.py` no longer declares them, so any environment built from the migrations matches. Event `properties` and `person_id` are still sent.
-Because the table can no longer hold person properties, only the event-`properties` half of a request can match rows here.
+Because the table can no longer hold person properties, only the event-`properties` half of a request applies here.
+`DeletionTarget.stores_person_properties` is `False` on `FLAG_EVALUATIONS`, so the job drops the `person_properties` half for this table, and a request that names only person properties does not touch it.
+That is accurate for rows written since the producer stopped sending `person_properties` (2026-09-05, #95693), and a deliberate blind spot for whatever a row written before then still carries: those values are out of reach until the row's TTL passes.
 
-The events property-removal path copies each shard's matching rows to S3 with the keys dropped and each affected materialized column reset (`NULL` when nullable, `''` otherwise), then deletes the originals and inserts the cleaned copy back.
-The staged files retain every physical row, while copy, reingest and verification progress counts each event UUID once so unmerged `ReplacingMergeTree` duplicates do not block the request.
-That works because `materialize()` creates columns as `DEFAULT <expr>`, so an insert can set the column directly.
+#### Typed columns
 
-All of that machinery (column discovery, staged rewrite, shard walk) is scoped to `events`; none of it reaches `flag_evaluations`.
-Until it does, `get_property_removal_shards` refuses to start when the table holds rows matching a request's event `properties`, so such a request cannot complete while data it named survives.
-The check costs nothing while the table is empty.
+Migration `0301_flag_evaluations_default_columns` recreated the nine typed columns as `DEFAULT <expr>`, computed from `properties` when an insert omits them.
+Each carries the `column_materializer::` comment the events columns carry, on both the shard and the proxy, so the job discovers them on the `flag_evaluations` read table the same way it discovers materialized columns on `events`.
+The copy writes each affected typed column as `''`, which is also what the column's expression computes for an absent key.
 
-The person-property half of a request is different, whether or not it also names event properties: `DeletionTarget.stores_person_properties` is `False` on `FLAG_EVALUATIONS`, so the gate does not build a `person_properties` predicate against the table at all, and that half of the request completes regardless of what the column holds.
-That is accurate for rows written since the producer stopped sending `person_properties` (2026-09-05, #95693), and a deliberate blind spot for whatever a row written before then still carries: those values are out of the gate's reach until the row's TTL passes.
+A request naming `$feature_flag` therefore completes: the cleaned row goes back with `flag_key = ''`, and per-flag queries stop counting it.
+`flag_key` is in the table's sort key, where ClickHouse refuses any `ALTER TABLE … UPDATE` (`Cannot UPDATE key column 'flag_key'`, measured on 26.6.2), but the copy replaces the value in a `SELECT`, so the sort key is no obstacle.
 
-The schema stopped being a second obstacle with migration `0301_flag_evaluations_default_columns`, which recreated the nine typed columns as `DEFAULT <expr>`, the kind `materialize()` mints on events; they were true ClickHouse `MATERIALIZED` before, which is not assignable at all.
-Measured against ClickHouse 26.6.2 on the `DEFAULT` shape:
+The same names on `sharded_events` (`$session_id`, `$window_id`, `$group_0..4`) are true `MATERIALIZED` columns with that comment.
+The copy reads the `SELECT *` shape of the table, which leaves `MATERIALIZED` columns out, and the reingest recomputes them from the cleaned `properties`.
 
-- `CREATE TABLE` accepts a `DEFAULT`-from-`properties` column (`flag_key`) in the sort key, and an insert that omits the typed columns computes them from `properties`.
-- Assigning to a non-key typed column is accepted: `ALTER TABLE … UPDATE session_id = ''` completes. Under `MATERIALIZED` it was rejected with `Cannot UPDATE materialized column 'session_id'`.
-- Updating `properties` is accepted, alone and in the events-path form that resets affected typed columns in the same mutation.
-  The `MATERIALIZED`-era rejection (`Updated column 'properties' affects MATERIALIZED column 'flag_key', which is a key column`) does not fire for `DEFAULT` dependents.
-- An `UPDATE` of `properties` does not recompute the typed columns; rows keep their stored values.
-  The rewrite must reset each affected column explicitly, exactly as the events path already does.
-- `flag_key` itself can never be reset: `ALTER TABLE … UPDATE flag_key = ''` is rejected with `Cannot UPDATE key column 'flag_key'` (`CANNOT_UPDATE_COLUMN`), whatever the column kind.
-  A request naming `$feature_flag` therefore still cannot be honored by mutation; that one property needs a refusal, or the heavier rewrite: `INSERT … SELECT` the cleaned rows omitting the typed columns so the shard recomputes them, then lightweight-delete the originals.
+#### Replay duplicates
 
-The switch also changed two behaviors, measured on the same shape:
+`sharded_flag_evaluations` is a plain `MergeTree` that keeps Kafka replay duplicates, so one uuid can have several identical rows.
+The staged files keep every physical row, so the reingest puts every duplicate back, cleaned.
+The copy, the delete's count, the reingest and the shard verify count each uuid once, so duplicates do not block the request.
+The same counting covers unmerged `ReplacingMergeTree` duplicates on events.
 
-- `SELECT *` on the shard now includes the nine typed columns, where `MATERIALIZED` hid them. Nothing in the repo depended on the hidden shape.
-- An insert that names a typed column stores the given value even when it contradicts `properties`, where `MATERIALIZED` rejected such inserts.
-  Producers must omit the columns; the Kafka path enforces that because `writable_flag_evaluations` does not declare them.
+#### Rows past the TTL
 
-The remaining fix is pointing the events rewrite machinery at this table, with the `$feature_flag` limitation above built into whatever it does here.
+A request window can reach rows past the 90-day TTL that a part still holds, because `ttl_only_drop_parts = 1` drops a part only once its newest row expires.
+The copy stages those rows like any others.
+A reingested part that holds only expired rows can then drop before the reingest or the shard verify counts it.
+`DeletionTarget.ttl_days` makes both checks compare only rows at least two days short of their TTL, on the table side and the staged side alike.
+A part that holds one of those rows cannot drop, so every counted row is still there.
+Each expired row that drops took its property with it.
 
-`flag_evaluations` stays deliberately absent from `MATERIALIZATION_VALID_TABLES` until that lands: new `materialize()`-minted columns would only widen what the unfixed path silently leaves behind.
+#### HogQL predicates
 
-#### If a request arrives before the fix lands
+`compile_hogql_predicate` compiles against the events schema only (see the HogQL section below), so the job cannot apply a request's predicate to this table.
+A property removal with a predicate leaves `flag_evaluations` out of the sweep, and `get_property_removal_shards` and `verify_property_removal` refuse the request while the table holds rows that match its other criteria.
+Sweeping the table without the predicate would erase rows the predicate excludes.
 
-Today the refusal costs nothing, because the table is empty.
-Once it holds rows, a property removal with `delete_all_events` refuses whenever a single flag-evaluation row carries the named event property, and the operator has no way through: `delete_all_events` and `events` are mutually exclusive on the model, so the request cannot be narrowed to exclude `$feature_flag_called`, and the admin Retry button replays the same failure.
-The only exits are waiting out the TTL or shipping the fix above. The table partitions by month with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real wait is up to about 120 days, not the 90-day TTL. `posthog/models/flag_evaluations/sql.py` says the same thing next to the partition clause.
-A person-property-only request is not stuck this way: as above, the gate does not check `flag_evaluations` for one at all.
+#### Late arrivals
 
-Refusing beats silently under-deleting, so the gate is the right default.
-If the fix has not landed by the time real traffic hits, the cheaper stopgaps are letting a request exclude event names so an operator can scope around the table, or recording an explicit, audited acknowledgement on the request so an operator can accept the residue rather than being stuck.
-Doing nothing means the first affected GDPR request becomes an escalation.
+`flag_evaluations_mv` stamps `inserted_at` with `now64()` when it processes a row, as the events MV does.
+A row that the consumer reads after the marker therefore falls outside the request, as on events.
+The stamp comes before the Distributed forward to the shards, so a row stamped just before the marker can still reach a shard after the copy has read it.
+That window is the forward delay that the events tables also have, not the consumer lag.
+
+#### Other readers
+
+Cleaned rows carry `inserted_at = marker`, as on events.
+A reader that checkpoints `flag_evaluations` on `inserted_at` sees a rewritten row again if the marker is later than its checkpoint.
+The copy carries every other column through unchanged.
+`flag_evaluations_backfill_job` does not copy a day while a data deletion request run is queued or executing, so it does not re-insert an original the job removed.
+
+`flag_evaluations` stays absent from `MATERIALIZATION_VALID_TABLES`.
+The job finds typed columns through their comments in `system.columns`, not through that set, and adding the table there enrolls it in `materialize()` and the HogQL property planner, which is a separate change.
 
 ### Immediate event removal skips `flag_evaluations`
 
 `get_event_removal_shards` leaves `flag_evaluations` out of its targets, so an immediate request neither sweeps the table nor checks it for matching rows.
-The rows age out with the table's TTL, which in practice is up to about 120 days (see above).
+The rows age out with the table's TTL. The table partitions by month with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real wait is up to about 120 days, not the 90-day TTL.
 Deferred event removal still queues the table's uuids, and `deletes_job` removes them.
 The skip exists because of the HogQL gap below: before it, the gate refused every immediate request with a predicate whose team had matching `$feature_flag_called` rows.
 
@@ -242,7 +256,7 @@ When one of those runs starts during a copy, the shard stops, and its error name
 
 ## Adding a table
 
-Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` needs the rewrite machinery to reach the table, not just assignable columns; `stores_person_properties` needs the table's `person_properties` column to actually hold reachable data, not just exist in the schema; see `FLAG_EVALUATIONS` for a table where those diverged.
+Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` makes the property-removal job sweep the table, so it needs a rewrite that cleans every copy the table keeps, not just assignable columns; `stores_person_properties` needs the table's `person_properties` column to actually hold reachable data, not just exist in the schema; see `FLAG_EVALUATIONS` for a table that rewrites event properties without person properties.
 Set `accepts_person_id_rewrite` unless you mean to leave the table out of the squash, which needs `person_id` outside the table's sorting and partition keys; skipping it is what stranded `flag_evaluations` rows on a merged-away person (#93035).
 A table you do leave out goes in `PERSON_ID_REWRITE_EXEMPT` with the reason.
 If it is not going to be swept, add it to `TTL_ONLY_TABLES` with the window you are accepting.
