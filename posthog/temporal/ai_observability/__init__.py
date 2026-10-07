@@ -98,7 +98,7 @@ from posthog.temporal.ai_observability.trace_summarization import (
     summarize_and_save_activity,
 )
 
-from products.signals.backend.temporal.emit_eval_signal import emit_eval_signal_activity
+from products.signals.backend.facade.temporal import emit_eval_signal_activity
 
 EVAL_WORKFLOWS = [
     RunEvaluationWorkflow,

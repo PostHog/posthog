@@ -49,7 +49,7 @@ from posthog.temporal.ai_observability.metrics import increment_errors
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
-from products.signals.backend.temporal.emit_eval_signal import (
+from products.signals.backend.facade.temporal import (
     EmitEvalSignalInputs,
     EmitEvalSignalWorkflow,
     emit_eval_signal_activity,
