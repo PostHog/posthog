@@ -2470,7 +2470,7 @@ Note: `Groups` covers all three group operations. `/v1/mgmt/group/all` returns e
 
 ## DevinAI — **thin**
 
-Today (9): `consumption_daily`, `consumption_daily_users`, `knowledge_notes`, `members`, `playbooks`, `secrets`, `session_insights`, `session_messages`, `sessions`
+Today (10): `automations`, `consumption_daily`, `consumption_daily_users`, `knowledge_notes`, `members`, `playbooks`, `secrets`, `session_insights`, `session_messages`, `sessions`
 
 Diffed against: <https://docs.devin.ai/llms.txt>
 
@@ -2486,6 +2486,7 @@ Diffed against: <https://docs.devin.ai/llms.txt>
 - [x] `/v3/organizations` — organization lookup for enterprises with multiple orgs under one key (medium) — does not exist at org scope. The listing is `/v3/enterprise/organizations` and needs `ViewOrganizations` at enterprise level, which this source's org-scoped service user does not hold.
 - [x] `/v3/organizations/{org_id}/guardrail-violations` — policy violations raised during sessions — compliance reporting (medium) — does not exist at org scope. The listing is `/v3beta1/enterprise/organizations/{org_id}/guardrail-violations` (beta) and needs both `ManageEnterpriseSettings` and `ViewAccountSessions` at enterprise level. It is otherwise a good fit — the standard `items`/`end_cursor` envelope, a `violation_id` key, and server-side `time_after`/`time_before` — so it becomes buildable if this source ever stores an enterprise service user.
 - [ ] `/v3/organizations/{org_id}/knowledge/folders` — folder lookup that gives the synced knowledge notes their hierarchy (low)
+- [x] `/v3/organizations/{org_id}/automations` — event-driven workflows that start Devin sessions, replacing the deprecated schedules endpoints (medium) — added as `automations`. Full refresh only: the listing returns newest first and has no server-side time filter.
 
 Note: docs.devin.ai/llms.txt enumerates every v1/v2/v3 API reference page; v3 alone spans sessions, consumption, metrics, users, repositories, pr-reviews, audit-logs, code-scans, guardrails and more, so 9 synced tables (one of which, secrets, is plumbing) is still a small fraction.
 That page count overstates what this source can reach, though: checked against the v3 OpenAPI spec (<https://docs.devin.ai/v3-openapi.json>), a large share of v3 lives under `/v3/enterprise/` or `/v3beta1/enterprise/` and needs an enterprise-level service user, while this source stores an org-level one.
