@@ -126,6 +126,16 @@ const isEnabledByFlag = (flag: string | undefined, featureFlags: FeatureFlagsSet
 
 const displayNameOf = (item: SearchItem): string => item.displayName || item.name
 
+const activitySearchSource = (liveEventsRetired: boolean): FileSystemImport => ({
+    path: 'Activity',
+    href: urls.activity(ActivityTab.ExploreEvents),
+    searchKeywords: ['event explorer', 'raw events', ...(liveEventsRetired ? ['live events'] : [])],
+    searchTabs: [
+        ...(liveEventsRetired ? [] : [{ name: 'Live events', href: urls.activity(ActivityTab.LiveEvents) }]),
+        { name: 'Explore sessions', href: urls.activity(ActivityTab.ExploreSessions) },
+    ],
+})
+
 const toSearchTabItems = (
     parents: SearchItem[],
     sources: FileSystemImport[],
@@ -961,15 +971,17 @@ export const searchLogic = kea<searchLogicType>([
                         iconColor: product.iconColor,
                     },
                 }))
+                const activity = activitySearchSource(isEnabledByFlag(FEATURE_FLAGS.LIVESTREAM_HOGQL, featureFlags))
                 items.push({
                     id: 'product-activity',
-                    name: 'Activity',
-                    displayName: 'Activity',
+                    name: activity.path,
+                    displayName: activity.path,
                     category: 'tools',
                     productCategory: null,
-                    href: urls.activity(ActivityTab.ExploreEvents),
+                    href: activity.href,
                     icon: <IconClock />,
                     itemType: null,
+                    searchKeywords: activity.searchKeywords,
                     lastViewedAt: sceneLogViewsByRef['Activity'] ?? null,
                     record: {
                         type: 'activity',
@@ -977,7 +989,7 @@ export const searchLogic = kea<searchLogicType>([
                         iconColor: undefined,
                     },
                 })
-                items.push(...toSearchTabItems(items, filteredProducts, featureFlags))
+                items.push(...toSearchTabItems(items, [...filteredProducts, activity], featureFlags))
 
                 // Sort by lastViewedAt (most recent first), items without lastViewedAt go to the end
                 return items.sort((a, b) => {
@@ -1149,6 +1161,7 @@ export const searchLogic = kea<searchLogicType>([
                     productCategory: item.category || null,
                     href: item.href || PLACEHOLDER_HREF,
                     itemType: item.iconType || item.type || null,
+                    searchKeywords: item.searchKeywords,
                     lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
                     record: {
                         type: item.type || item.iconType,
