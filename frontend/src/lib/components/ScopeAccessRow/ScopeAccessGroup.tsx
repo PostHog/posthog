@@ -13,7 +13,7 @@ import {
     scopeGroupTooltip,
 } from 'lib/scopes'
 
-import { ScopePickerRowItem } from './ScopePickerRowItem'
+import { ScopeAccessRow } from './ScopeAccessRow'
 
 interface ScopeAccessGroupProps {
     group: ScopePickerGroup
@@ -110,7 +110,7 @@ export function ScopeAccessGroup({
             {open && (
                 <div id={panelId} className="flex flex-col pb-2 pl-7">
                     {rows.map((row) => (
-                        <ScopePickerRowItem key={row.key} row={row} onChange={onChangeRow} />
+                        <ScopeAccessRow key={row.key} row={row} onChange={onChangeRow} />
                     ))}
                 </div>
             )}
