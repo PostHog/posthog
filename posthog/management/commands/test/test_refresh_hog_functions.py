@@ -256,16 +256,21 @@ class TestRefreshHogFunctions(BaseTest):
         assert "api_key" not in inputs
         assert "token" not in inputs
 
+    @parameterized.expand(
+        [("never_stamped", {}, 0), ("stamped_under_an_older_guard", {"bytecode_contract": RUNTIME_CONTRACT}, 1)]
+    )
     @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
-    def test_keeps_an_input_that_no_longer_compiles_and_leaves_it_unstamped(self, mock_reload):
-        # A template that today's guard refuses keeps running on its old bytecode. It must not get a
-        # stamp, or the runtime would read its failures as our change rather than the owner's.
+    def test_keeps_an_input_that_no_longer_compiles_and_leaves_it_unstamped(
+        self, _name, earlier_stamp, unstamped, mock_reload
+    ):
+        # A template that today's guard refuses keeps running on its old bytecode. It must not keep or
+        # get a stamp, or the runtime would read its failures as our change rather than the owner's.
         stale = ["_H", 1, 32, "thing", 32, "nosuch", 1, 2]
         good = json.loads(json.dumps(generate_template_bytecode("{event.uuid}", set())))
         fn = self._unstamped(
             inputs={
                 "url": {"value": "{event.uuid}", "bytecode": good},
-                "bad": {"value": "{nosuch.thing}", "bytecode": stale},
+                "bad": {"value": "{nosuch.thing}", "bytecode": stale, **earlier_stamp},
             },
             inputs_schema=[{"key": "url", "type": "string"}, {"key": "bad", "type": "string"}],
         )
@@ -280,6 +285,40 @@ class TestRefreshHogFunctions(BaseTest):
         assert (fn.filters or {})["bytecode_contract"] == RUNTIME_CONTRACT
         assert "Inputs stamped: 1" in out.getvalue()
         assert "Inputs skipped: 1" in out.getvalue()
+        assert f"Inputs unstamped: {unstamped}" in out.getvalue()
+
+    @parameterized.expand([("encrypted_input",), ("mapping_input",)])
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    def test_drops_the_stamp_from_a_refused_input_in_every_store(self, store, mock_reload):
+        # The encrypted store and each mapping's inputs are written back apart from the plain store.
+        refused = {"value": "{nosuch.thing}", "bytecode": ["_H", 1, 32, "thing", 32, "nosuch", 1, 2]}
+        stamped = {**refused, "bytecode_contract": RUNTIME_CONTRACT}
+        if store == "encrypted_input":
+            fn = self._unstamped(
+                inputs={},
+                inputs_schema=[{"key": "bad", "type": "string", "secret": True}],
+                encrypted_inputs={"bad": stamped},
+            )
+        else:
+            fn = self._unstamped(
+                inputs={},
+                inputs_schema=[],
+                mappings=[
+                    {"name": "Refused", "inputs_schema": [{"key": "bad", "type": "string"}], "inputs": {"bad": stamped}}
+                ],
+            )
+
+        out = StringIO()
+        call_command("refresh_hog_functions", hog_function_id=str(fn.id), stdout=out)
+
+        fn.refresh_from_db()
+        if store == "encrypted_input":
+            stored = (fn.encrypted_inputs or {})["bad"]
+            assert "bad" not in (fn.inputs or {})
+        else:
+            stored = (fn.mappings or [])[0]["inputs"]["bad"]
+        assert stored == refused
+        assert "Inputs unstamped: 1" in out.getvalue()
 
     @parameterized.expand([("dry_run", True), ("real_run", False)])
     @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
@@ -319,7 +358,7 @@ class TestRefreshHogFunctions(BaseTest):
                     "inputs": {"url": {"value": "{event.uuid}", "bytecode": template}},
                     "filters": {"events": [{"id": "$pageview", "type": "events"}], "bytecode": stale},
                 },
-                {"name": "Refused", "filters": refused_filters},
+                {"name": "Refused", "filters": {**refused_filters, "bytecode_contract": RUNTIME_CONTRACT}},
             ],
         )
 
@@ -335,6 +374,7 @@ class TestRefreshHogFunctions(BaseTest):
         assert "Inputs stamped: 1" in out.getvalue()
         assert "Mapping filters stamped: 1" in out.getvalue()
         assert "Mapping filters skipped: 1" in out.getvalue()
+        assert "Mapping filters unstamped: 1" in out.getvalue()
 
     @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_dry_run_reports_and_writes_nothing(self, mock_reload):
