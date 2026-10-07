@@ -38,12 +38,14 @@ class TestSourceConfig:
 
 
 class TestGetSchemas:
-    def test_api_requests_supports_incremental(self) -> None:
-        schemas = KongKonnectSource().get_schemas(_config(), team_id=1)
-        assert [s.name for s in schemas] == ["api_requests"]
-        schema = schemas[0]
-        assert schema.supports_incremental is True
-        assert [f["field"] for f in schema.incremental_fields] == ["request_start"]
+    def test_only_api_requests_supports_incremental(self) -> None:
+        schemas = {s.name: s for s in KongKonnectSource().get_schemas(_config(), team_id=1)}
+        assert schemas["api_requests"].supports_incremental is True
+        assert [f["field"] for f in schemas["api_requests"].incremental_fields] == ["request_start"]
+        # The lookup list endpoints have no server-side timestamp filter, so they must stay full refresh.
+        for name in ("control_planes", "services", "routes", "consumers"):
+            assert schemas[name].supports_incremental is False
+            assert schemas[name].supports_append is False
 
     def test_names_filter(self) -> None:
         assert KongKonnectSource().get_schemas(_config(), team_id=1, names=["nonexistent"]) == []
@@ -52,7 +54,7 @@ class TestGetSchemas:
         # Static catalog → public docs render the table list.
         assert KongKonnectSource.lists_tables_without_credentials is True
         tables = KongKonnectSource().get_documented_tables()
-        assert [t["name"] for t in tables] == ["api_requests"]
+        assert [t["name"] for t in tables] == ["api_requests", "control_planes", "services", "routes", "consumers"]
 
 
 class TestValidateCredentials:

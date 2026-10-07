@@ -133,24 +133,39 @@ class TestPagination:
 
     @parameterized.expand(
         [
-            ("users", {"users": [{"id": "u1"}, {"id": "u2"}], "date_updated": 1519413931}, "id", ["u1", "u2"]),
+            ("users", {"users": [{"id": "u1"}, {"id": "u2"}], "date_updated": 1519413931}, "id", ["u1", "u2"], {}),
             (
                 "workflows",
                 {"workflows": [{"id": 1, "status": [{"id": 2}]}], "sources": [{"JobSourceId": 9}]},
                 "id",
                 [1],
+                {},
             ),
             (
                 "lead_sources",
                 {"workflows": [{"id": 1, "status": [{"id": 2}]}], "sources": [{"JobSourceId": 9}]},
                 "JobSourceId",
                 [9],
+                {},
+            ),
+            (
+                "groups",
+                [{"name": "Sales", "managers": ["u1"], "members": ["u2"]}, {"name": "Crew A", "members": []}],
+                "name",
+                ["Sales", "Crew A"],
+                {"field": "groups"},
             ),
         ]
     )
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_account_lookups_are_fetched_in_one_unpaginated_request(
-        self, endpoint: str, body: dict[str, Any], key: str, expected: list[Any], MockSession: mock.MagicMock
+        self,
+        endpoint: str,
+        body: Any,
+        key: str,
+        expected: list[Any],
+        expected_params: dict[str, Any],
+        MockSession: mock.MagicMock,
     ) -> None:
         session = MockSession.return_value
         params = _wire(session, [_raw_response(body)])
@@ -160,7 +175,7 @@ class TestPagination:
 
         assert [r[key] for r in rows] == expected
         assert session.send.call_count == 1
-        assert "size" not in params[0] and "from" not in params[0]
+        assert params[0] == expected_params
         manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -203,19 +218,22 @@ class TestErrorHandling:
 
     @parameterized.expand(
         [
-            ("missing_results_key", {"count": 0}),
-            ("bare_list_body", [{"jnid": "1"}]),
+            ("missing_results_key", "contacts", {"count": 0}, "matched nothing"),
+            ("bare_list_body", "contacts", [{"jnid": "1"}], "matched nothing"),
+            ("groups_settings_object", "groups", {"workflows": [], "sources": []}, "Required a list response body"),
         ]
     )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_shape_change_fails_loud(self, _name: str, body: Any, MockSession: mock.MagicMock) -> None:
-        # A 200 body without a `results` list means the response shape changed — fail loud instead of
+    def test_shape_change_fails_loud(
+        self, _name: str, endpoint: str, body: Any, error: str, MockSession: mock.MagicMock
+    ) -> None:
+        # A 200 body without the expected list means the response shape changed — fail loud instead of
         # silently syncing 0 rows or wrapping a stray object as a row.
         session = MockSession.return_value
         _wire(session, [_raw_response(body)])
 
-        with pytest.raises(ValueError, match="matched nothing"):
-            _rows(_source(_make_manager()))
+        with pytest.raises(ValueError, match=error):
+            _rows(_source(_make_manager(), endpoint=endpoint))
 
 
 class TestValidateCredentials:

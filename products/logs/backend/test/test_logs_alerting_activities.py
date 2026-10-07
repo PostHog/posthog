@@ -299,8 +299,10 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
 
 class TestResolveNotificationDeliveries(unittest.TestCase):
     def _dispatched(self, produce_result, notification_failed=False):
+        evaluation = MagicMock(state_before=LogsAlertConfiguration.State.NOT_FIRING)
+        evaluation.outcome.new_state = AlertState.FIRING
         return _DispatchedAlert(
-            evaluation=MagicMock(),
+            evaluation=evaluation,
             notification_failed=notification_failed,
             produce_result=produce_result,
         )

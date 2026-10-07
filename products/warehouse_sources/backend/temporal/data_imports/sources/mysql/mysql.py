@@ -20,7 +20,7 @@ import time
 import socket
 import datetime
 import collections
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from typing import Any, TypeVar
 
@@ -86,6 +86,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     IncrementalFieldFilter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import (
+    KeysetPage,
     KeysetResumeState,
     iter_keyset_pages,
     keyset_last_key,
@@ -146,6 +147,13 @@ _OUT_OF_SORT_MEMORY_CODE = 1038
 # incremental-field index lets MySQL read rows in index order and skip the
 # filesort entirely, so the same FORCE INDEX fallback resolves it.
 _QUERY_EXECUTION_TIME_EXCEEDED_CODE = 3024
+
+# pymysql error code for MariaDB's "Query execution was interrupted (max_statement_time
+# exceeded)" — MariaDB's own `max_statement_time` session/global cap, the same bad plan
+# (full scan + filesort over the incremental field) seen from a fourth side. It's MariaDB's
+# equivalent of MySQL's `max_execution_time` (3024) above, so the same FORCE INDEX fallback
+# resolves it.
+_MAX_STATEMENT_TIME_EXCEEDED_CODE = 1969
 
 # Raised in place of the raw pymysql 2013 when a lost-connection bad plan can't be dodged by the
 # FORCE INDEX fallback because the incremental field has no usable index. The un-indexed full-table
@@ -340,7 +348,7 @@ def _is_bad_plan_error(e: pymysql.err.OperationalError) -> bool:
     """Return True if the error is a symptom of MySQL filesorting the incremental
     `ORDER BY` instead of using an index — recoverable via the FORCE INDEX fallback.
 
-    Matches three codes, all signalling the optimizer picked a full scan + filesort
+    Matches four codes, all signalling the optimizer picked a full scan + filesort
     over the incremental field:
 
     - `2013` (lost connection during query): the filesort preparation outran a
@@ -349,13 +357,21 @@ def _is_bad_plan_error(e: pymysql.err.OperationalError) -> bool:
       `sort_buffer_size`.
     - `3024` (query execution was interrupted): the server's own `max_execution_time`
       cap killed the query before the filesort could finish.
+    - `1969` (query execution was interrupted): MariaDB's own `max_statement_time`
+      cap killed the query before the filesort could finish — MariaDB's equivalent
+      of 3024.
 
     Forcing the incremental-field index makes MySQL read rows in index order and
-    skip the filesort, resolving all three. Other `OperationalError`s (access denied,
+    skip the filesort, resolving all four. Other `OperationalError`s (access denied,
     table missing, etc.) should propagate untouched.
     """
     code = e.args[0] if e.args else None
-    return code in (_LOST_CONNECTION_DURING_QUERY_CODE, _OUT_OF_SORT_MEMORY_CODE, _QUERY_EXECUTION_TIME_EXCEEDED_CODE)
+    return code in (
+        _LOST_CONNECTION_DURING_QUERY_CODE,
+        _OUT_OF_SORT_MEMORY_CODE,
+        _QUERY_EXECUTION_TIME_EXCEEDED_CODE,
+        _MAX_STATEMENT_TIME_EXCEEDED_CODE,
+    )
 
 
 # Number of times `connect` will open a fresh pymysql connection before giving up. Matches the
@@ -1914,7 +1930,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     arrow_schema = projection.table.to_arrow_schema()
                     plan_checked = False
 
-                    def _run_page(page_sql: SafeSQL) -> pa.Table | None:
+                    def _run_page(page_sql: SafeSQL) -> KeysetPage | None:
                         nonlocal plan_checked
                         with connection.cursor() as cursor:
                             # Check the first page that actually seeks — page 1 has no `pk >`
@@ -1928,8 +1944,10 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                             rows = cursor.fetchall()
                             if not rows:
                                 return None
-                            column_names = [column[0] for column in cursor.description or []]
-                            return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                            return KeysetPage(columns=[column[0] for column in cursor.description or []], rows=rows)
+
+                    def _to_table(column_names: list[str], rows: list[Sequence[Any]]) -> pa.Table:
+                        return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
                     def _checkpoint(last_key: Any) -> None:
                         manager.save_state(keyset_state((last_key,)))
@@ -1941,6 +1959,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         keyset_column=keyset_column,
                         chunk_size=chunk_size,
                         run_page=_run_page,
+                        to_table=_to_table,
                         initial_last_value=initial_last_value,
                         checkpoint=_checkpoint,
                         enabled_columns=projection.enabled_columns,
@@ -2102,9 +2121,9 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     )
                     # A lost connection here recurs every run: with no usable index the incremental
                     # sort is unavoidable and re-times-out. Re-raise it as a deterministic error so
-                    # the schema is paused with guidance instead of looping. Out-of-sort-memory (1038)
-                    # and query-execution-time-exceeded (3024) already carry their own stable, locale-
-                    # independent codes, so leave those raw.
+                    # the schema is paused with guidance instead of looping. Out-of-sort-memory (1038),
+                    # query-execution-time-exceeded (3024), and MariaDB's max_statement_time-exceeded
+                    # (1969) already carry their own stable, locale-independent codes, so leave those raw.
                     if e.args and e.args[0] == _LOST_CONNECTION_DURING_QUERY_CODE:
                         raise MySQLUnavoidableFilesortError() from e
                     raise
