@@ -50,7 +50,7 @@ def run_team(
     reads = read_team_reads(team_id, ReadWindow.ending(today, rules), rules, rollup_days)
     eligible = is_eligible(reads, rules.eligibility)
     status = TeamRunStatus.PROCESSED if eligible else TeamRunStatus.NOT_ELIGIBLE
-    if not eligible and not _has_open_suggestions(team_id):
+    if not eligible and not _has_suggestions_to_maintain(team_id):
         with transaction.atomic():
             _record_run(_locked_config(team_id), reads, eligible=False, now=now)
         return TeamRunResult(team_id=team_id, status=status)
@@ -88,8 +88,12 @@ def build_context(team: Team, reads: TeamReads, *, run_id: str, rules: Rules) ->
     return CandidateContext(team_id=team.pk, reads=reads, inventory=load_inventory(team), rules=rules, run_id=run_id)
 
 
-def _has_open_suggestions(team_id: int) -> bool:
-    return WarehouseSuggestion.objects.for_team(team_id).filter(status=WarehouseSuggestionStatus.PROPOSED).exists()
+def _has_suggestions_to_maintain(team_id: int) -> bool:
+    return (
+        WarehouseSuggestion.objects.for_team(team_id)
+        .filter(status__in=[WarehouseSuggestionStatus.PROPOSED, WarehouseSuggestionStatus.ACCEPTED])
+        .exists()
+    )
 
 
 def _locked_config(team_id: int) -> WarehouseSuggestionTeamConfig:

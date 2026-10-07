@@ -3,8 +3,14 @@ from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
-from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus
+from products.warehouse_suggestions.backend.facade.enums import (
+    WarehouseSuggestionAssetOutcome,
+    WarehouseSuggestionKind,
+    WarehouseSuggestionStatus,
+)
 from products.warehouse_suggestions.backend.logic.job import TeamRunStatus, run_team
 from products.warehouse_suggestions.backend.logic.reads import RollupDays
 from products.warehouse_suggestions.backend.logic.rules import RULES
@@ -88,18 +94,45 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
         assert (materialize.payload["refresh_interval_seconds"], materialize.run_id) == (24 * 60 * 60, "run-1")
         assert [source["name"] for source in materialize.payload["live_sources"]] == ["events"]
 
-    def test_a_team_without_view_reads_is_recorded_as_not_eligible_and_its_open_suggestions_still_resolve(
+    @parameterized.expand(
+        [
+            (
+                "open_suggestion_resolves",
+                WarehouseSuggestionStatus.PROPOSED,
+                None,
+                WarehouseSuggestionStatus.AUTO_RESOLVED,
+                None,
+            ),
+            (
+                "accepted_asset_is_reconciled",
+                WarehouseSuggestionStatus.ACCEPTED,
+                WarehouseSuggestionAssetOutcome.LIVE,
+                WarehouseSuggestionStatus.ACCEPTED,
+                WarehouseSuggestionAssetOutcome.DELETED,
+            ),
+        ]
+    )
+    def test_a_team_without_view_reads_is_recorded_as_not_eligible_and_its_suggestions_are_still_maintained(
         self,
+        _name: str,
+        status: WarehouseSuggestionStatus,
+        asset_outcome: WarehouseSuggestionAssetOutcome | None,
+        expected_status: WarehouseSuggestionStatus,
+        expected_asset_outcome: WarehouseSuggestionAssetOutcome | None,
     ) -> None:
         about_a_deleted_view = ingest_one(self.team.pk, make_draft(subject_id=uuid4()))
+        WarehouseSuggestion.objects.for_team(self.team.pk).filter(id=about_a_deleted_view.id).update(
+            status=status, asset_outcome=asset_outcome
+        )
 
         result = run_team(self.team.pk, run_id="run-1", today=TODAY, rollup_days=FULL_ROLLUP, now=NOW)
 
         config = WarehouseSuggestionTeamConfig.objects.get(team_id=self.team.pk)
         about_a_deleted_view.refresh_from_db()
-        assert (result.status, config.eligible, config.last_run_at is not None, about_a_deleted_view.status) == (
-            TeamRunStatus.NOT_ELIGIBLE,
-            False,
-            True,
-            WarehouseSuggestionStatus.AUTO_RESOLVED,
-        )
+        assert (
+            result.status,
+            config.eligible,
+            config.last_run_at is not None,
+            about_a_deleted_view.status,
+            about_a_deleted_view.asset_outcome,
+        ) == (TeamRunStatus.NOT_ELIGIBLE, False, True, expected_status, expected_asset_outcome)
