@@ -108,23 +108,22 @@ AUTH_BRAND_COOKIE = "ph_auth_brand"
 
 # Shown at login and on every request once a block rule refuses the account. It says nothing
 # about the rule that matched; the code is what lets support trace it to an access rule.
+ACCOUNT_BLOCKED_CODE = SECURITY_REFUSAL_CODE
 ACCOUNT_BLOCKED_DETAIL = (
     "We couldn't sign you in. If you think this is a mistake, contact support "
     f"and quote the code {SECURITY_REFUSAL_CODE}."
 )
 
 
-def refuse_blocked_account(
-    request: Union[HttpRequest, Request], user: User, *, call_site: str, impersonated: bool
-) -> None:
-    """Raise when an enforced access rule blocks this account on the app surface.
+def account_refused(request: Union[HttpRequest, Request], user: User, *, call_site: str, impersonated: bool) -> bool:
+    """Whether an enforced access rule blocks this account on the app surface. Never raises.
 
-    Every authenticator that resolves a user calls this, because DRF stops at the first one that
+    Every authenticator that resolves a user asks this, because DRF stops at the first one that
     succeeds, so a check in one of them alone leaves the others open. An impersonated request is
     never refused, so staff can investigate a blocked account; its match counts as a would-block.
     """
     try:
-        refused = security_access_refused(
+        return security_access_refused(
             SecuritySubject(
                 email=user.email,
                 user_uuid=str(user.uuid),
@@ -136,9 +135,15 @@ def refuse_blocked_account(
         )
     except Exception:
         structlog_logger.exception("security_access_check_site_failed", call_site=call_site)
-        return
-    if refused:
-        raise AuthenticationFailed(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
+        return False
+
+
+def refuse_blocked_account(
+    request: Union[HttpRequest, Request], user: User, *, call_site: str, impersonated: bool
+) -> None:
+    """Raise when an enforced access rule blocks this account on the app surface."""
+    if account_refused(request, user, call_site=call_site, impersonated=impersonated):
+        raise AuthenticationFailed(ACCOUNT_BLOCKED_DETAIL, code=ACCOUNT_BLOCKED_CODE)
 
 
 def get_auth_brand_for_client_id(client_id: str | None) -> str | None:

@@ -23,6 +23,15 @@ class TestDeepLinks(ProvisioningTestBase):
         assert "expires_at" in data
         assert "token=" in data["url"]
 
+    def test_deep_link_refused_when_an_access_rule_blocks_the_account(self):
+        token = self._get_bearer_token()
+        with patch("ee.api.agentic_provisioning.authentication.account_refused", return_value=True):
+            res = self._post_with_bearer(
+                "/api/agentic/provisioning/deep_links", data={"purpose": "dashboard"}, token=token
+            )
+        assert res.status_code == 403
+        assert res.json()["error"]["code"] == "access_blocked"
+
     def test_deep_link_url_contains_team_id(self):
         token = self._get_bearer_token()
         res = self._post_with_bearer(

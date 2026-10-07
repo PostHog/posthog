@@ -17,6 +17,7 @@ from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.request import Request
 
+from posthog.auth import ACCOUNT_BLOCKED_CODE, ACCOUNT_BLOCKED_DETAIL, account_refused
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.oauth import OAuthAccessToken, find_oauth_access_token
 from posthog.models.user import User
@@ -65,6 +66,13 @@ class StripeBearerAuthentication(ActivityCredentialMixin, BaseAuthentication):
         user = access_token.user
         if user is None or not user.is_active:
             raise SpecError("unauthorized", "Authentication failed", status=401)
+        if account_refused(
+            request,
+            user,
+            call_site="stripe_provisioning_token",
+            impersonated=access_token.impersonated_by_id is not None,
+        ):
+            raise SpecError(ACCOUNT_BLOCKED_CODE, ACCOUNT_BLOCKED_DETAIL, status=403)
 
         self.record_activity_actor(
             user, str(access_token.application_id), impersonated_by_id=access_token.impersonated_by_id

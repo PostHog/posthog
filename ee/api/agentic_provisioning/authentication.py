@@ -18,6 +18,7 @@ from posthog.api.oauth.client_assertion import (
     verify_client_assertion,
 )
 from posthog.api.oauth.client_auth import ClientCredentials, extract_client_credentials, verify_client_secret
+from posthog.auth import ACCOUNT_BLOCKED_CODE, ACCOUNT_BLOCKED_DETAIL, account_refused
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, find_oauth_access_token
 from posthog.models.user import User
@@ -238,6 +239,13 @@ class ProvisioningBearerAuthentication(ActivityCredentialMixin, BaseAuthenticati
         user = access_token.user
         if user is None or not user.is_active:
             raise ProvisioningError("unauthorized", "Authentication failed", status=401)
+        if account_refused(
+            request,
+            user,
+            call_site="agentic_provisioning_token",
+            impersonated=access_token.impersonated_by_id is not None,
+        ):
+            raise ProvisioningError(ACCOUNT_BLOCKED_CODE, ACCOUNT_BLOCKED_DETAIL, status=403)
 
         self.record_activity_actor(
             user, str(access_token.application_id), impersonated_by_id=access_token.impersonated_by_id

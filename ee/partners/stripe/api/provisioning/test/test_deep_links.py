@@ -77,6 +77,13 @@ class TestDeepLinks(StripeProvisioningTestBase):
         assert res.status_code == 302
         assert res["Location"] == f"/verify_email/{self.user.uuid}?reason=stripe_deep_link&email_sent=false"
 
+    def test_deep_link_refused_when_an_access_rule_blocks_the_account(self):
+        token = self._get_bearer_token()
+        with patch("ee.partners.stripe.api.provisioning.authentication.account_refused", return_value=True):
+            res = self._post_signed_with_bearer(DEEP_LINKS_URL, data={"purpose": "dashboard"}, token=token)
+        assert res.status_code == 403
+        assert res.json()["error"]["code"] == "access_blocked"
+
     def test_deep_link_refused_when_the_application_cannot_issue_them(self):
         self.stripe_app.update_provisioning(can_issue_deep_links=False)
         token = self._get_bearer_token()

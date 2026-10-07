@@ -20,7 +20,6 @@ from posthog.api.signup import (
     process_social_invite_signup,
     signup_refused,
 )
-from posthog.api.signup import process_social_domain_jit_provisioning_signup, process_social_invite_signup
 from posthog.models import Organization, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization_domain import OrganizationDomain
