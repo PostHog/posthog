@@ -620,13 +620,26 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
     def test_detail_reports_is_legacy(self) -> None:
         experiment, _ = self._create_experiment_with_action_metrics(0)
         Experiment.objects.filter(pk=experiment.pk).update(metrics=[{"kind": "ExperimentTrendsQuery"}])
-        ExperimentSavedMetric.objects.filter(experimenttosavedmetric__experiment=experiment).update(
-            query={"kind": "ExperimentFunnelsQuery"}
-        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["is_legacy"])
+
+    @parameterized.expand(
+        [
+            ("legacy_kind", {"kind": "ExperimentFunnelsQuery"}),
+            ("no_kind", {"metric_type": "mean", "source": {"kind": "EventsNode", "event": "$pageview"}}),
+            ("no_metric_type", {"kind": "ExperimentMetric", "source": {"kind": "EventsNode", "event": "$pageview"}}),
+        ]
+    )
+    def test_detail_serves_no_effective_query_for_a_query_outside_the_metric_union(
+        self, _name: str, saved_query: dict[str, Any]
+    ) -> None:
+        experiment, _ = self._create_experiment_with_action_metrics(0)
+        ExperimentSavedMetric.objects.filter(experimenttosavedmetric__experiment=experiment).update(query=saved_query)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.json()["saved_metrics"][0]["effective_query"])
 
     @parameterized.expand(

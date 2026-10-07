@@ -50,9 +50,9 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import reso
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
+from products.experiments.backend.metric_resolution import METRIC_BUILDERS
 from products.experiments.backend.metric_utils import apply_metric_date_range, refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
-    LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentHoldout,
     ExperimentMetricsRecalculation,
@@ -386,8 +386,8 @@ class ExperimentSavedMetricLinkSerializer(ExperimentToSavedMetricSerializer):
             "The metric this experiment calculates for this shared metric: `query` with the per-experiment "
             "overrides from `metadata` applied (breakdowns, breakdown_limit, and funnel breakdown attribution). "
             "Results, fingerprints and queries for this metric use this definition, not `query`. "
-            "Null for a legacy shared metric (kind ExperimentTrendsQuery or ExperimentFunnelsQuery), "
-            "which takes no overrides."
+            "Null when `query` is not an ExperimentMetric, such as a legacy shared metric "
+            "(kind ExperimentTrendsQuery or ExperimentFunnelsQuery), which takes no overrides."
         ),
     )
 
@@ -693,15 +693,18 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                         excluded_variants=instance.excluded_variants or [],
                     )
 
-        # Derived from the served query after the loop above, so that the effective definition carries the
-        # same fingerprint and refreshed action names. Clients send it to /query as is.
-        for saved_metric in saved_metrics:
-            query = saved_metric.get("query")
-            saved_metric["effective_query"] = (
-                resolve_saved_metric_definition(query, saved_metric.get("metadata"))
-                if query and query.get("kind") not in LEGACY_METRIC_KINDS
-                else None
-            )
+                    # Derived from the served query after the fingerprint is stamped, so that the effective
+                    # definition carries the same fingerprint and refreshed action names. Clients send it to
+                    # /query as is. The schema types it as the ExperimentMetric union, so a query outside the
+                    # union (a legacy kind, or a row without a known metric_type) keeps the null default.
+                    served_query = saved_metric["query"]
+                    if (
+                        served_query.get("kind") == "ExperimentMetric"
+                        and served_query.get("metric_type") in METRIC_BUILDERS
+                    ):
+                        saved_metric["effective_query"] = resolve_saved_metric_definition(
+                            served_query, saved_metric.get("metadata")
+                        )
 
         return data
 
