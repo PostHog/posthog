@@ -10,7 +10,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import DataTableNode, DataVisualizationNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
-from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
+from posthog.api.exposed_edit_gate import check_can_add_insight_to_exposed_dashboard
 from posthog.event_usage import EventSource, report_user_action
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
@@ -375,7 +375,7 @@ class UpsertDashboardTool(MaxTool):
                 if created:
                     created_insights.append((artifact, insight))
 
-            check_can_add_insight_to_shared_dashboard(self._user, dashboard, insight.query, self.user_access_control)
+            check_can_add_insight_to_exposed_dashboard(self._user, dashboard, insight.query, self.user_access_control)
 
             tile, created = DashboardTile.objects_including_soft_deleted.get_or_create(
                 dashboard=dashboard,
