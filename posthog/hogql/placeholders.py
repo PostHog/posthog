@@ -1,4 +1,5 @@
 import time
+from copy import deepcopy
 from datetime import timedelta
 from typing import Optional
 
@@ -8,7 +9,7 @@ from posthog.hogql.utils import deserialize_hx_ast, is_simple_value
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from common.hogvm.python.stl import BLOCKING_FUNCTIONS
-from common.hogvm.python.utils import MAX_MEMORY
+from common.hogvm.python.utils import MAX_MEMORY, HogVMMemoryExceededException, HogVMRuntimeExceededException
 
 # Placeholder expressions run through the Hog VM on the request thread. Bound the work per query,
 # not per expression: one deadline shared across all placeholders, and a cap on how many a single
@@ -99,6 +100,18 @@ class ReplacePlaceholders(CloningVisitor):
         if self._expansions > MAX_PLACEHOLDER_EXPANSIONS:
             raise QueryError("This query has too many placeholder expressions to expand. Simplify it and try again.")
 
+        # A bare lookup of an AST value needs no VM run. The copy matches what the VM returns.
+        if (
+            isinstance(node.expr, ast.Field)
+            and len(node.expr.chain) == 1
+            and self.placeholders
+            and isinstance(value := self.placeholders.get(str(node.expr.chain[0])), ast.Expr)
+        ):
+            expr = deepcopy(value)
+            expr.start = node.start
+            expr.end = node.end
+            return expr
+
         # This bytecode runs on the request thread before access control, so refuse blocking calls.
         # The static check gives a clear early error for the common `fn(...)` form; passing
         # disallowed_functions to the VM is the real guard, catching every indirect call path too.
@@ -116,13 +129,20 @@ class ReplacePlaceholders(CloningVisitor):
         if remaining <= 0:
             raise QueryError("Expanding this query's placeholders took too long. Simplify it and try again.")
 
-        response = execute_bytecode(
-            bytecode.bytecode,
-            self.placeholders,
-            timeout=timedelta(seconds=remaining),
-            disallowed_functions=BLOCKING_FUNCTIONS,
-            memory_limit=self._remaining_memory,
-        )
+        try:
+            response = execute_bytecode(
+                bytecode.bytecode,
+                self.placeholders,
+                timeout=timedelta(seconds=remaining),
+                disallowed_functions=BLOCKING_FUNCTIONS,
+                memory_limit=self._remaining_memory,
+            )
+        except HogVMRuntimeExceededException as e:
+            raise QueryError("Expanding this query's placeholders took too long. Simplify it and try again.") from e
+        except HogVMMemoryExceededException as e:
+            raise QueryError(
+                "Expanding this query's placeholders needs too much memory. Simplify it and try again."
+            ) from e
         # Charge temporary values too, even when the placeholder returns only a scalar.
         self._remaining_memory -= response.max_memory_used
 
