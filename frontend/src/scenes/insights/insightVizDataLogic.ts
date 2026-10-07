@@ -180,6 +180,19 @@ export const DISPLAYS_WITH_IN_CHART_LEGEND = [
     ChartDisplayType.ActionsProportionBar,
 ]
 
+/** The parts a proportion bar draws: one per result row, leaving out a previous period saved with compare on. */
+function proportionBarPartCount(query: InsightQueryNode, insightData: Record<string, any> | null): number | undefined {
+    const result = insightData?.result
+    if (
+        !isTrendsQuery(query) ||
+        query.trendsFilter?.display !== ChartDisplayType.ActionsProportionBar ||
+        !Array.isArray(result)
+    ) {
+        return undefined
+    }
+    return result.reduce((count: number, row) => (row?.compare_label === 'previous' ? count : count + 1), 0)
+}
+
 // Omit must distribute over the query-node union: a plain Omit would collapse the update type
 // to the keys shared by every insight kind, dropping fields like samplingFactor that only some have
 type DistributiveOmit<T, K extends keyof any> = T extends any ? Omit<T, K> : never
@@ -1897,16 +1910,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     | import('~/queries/schema/schema-general').WebOverviewQuery
                     | import('~/queries/schema/schema-general').WebStatsTableQuery,
                 insightData: Record<string, any> | null
-            ) =>
-                q
-                    ? getShowLegend(
-                          q,
-                          Array.isArray(insightData?.result)
-                              ? insightData.result.filter((r: Record<string, any>) => r?.compare_label !== 'previous')
-                                    .length
-                              : undefined
-                      )
-                    : null,
+            ) => (q ? getShowLegend(q, proportionBarPartCount(q, insightData)) : null),
         ],
         legendPosition: [
             (s) => [s.querySource],

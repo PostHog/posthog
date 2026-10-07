@@ -22,7 +22,7 @@ export function TrendsProportionBar(props: TrendsPartOfWholeChartProps): JSX.Ele
         valueFormatter,
         renderTooltip,
         onSliceClick,
-    } = useTrendsPartOfWholeChart({ ...props, currentPeriodOnly: true })
+    } = useTrendsPartOfWholeChart(props)
 
     const config: ProportionBarConfig = useChartConfig(() => ({ legend: legendConfig }), [legendConfig])
 

@@ -48,14 +48,12 @@ export interface TrendsPartOfWholeChart {
     onSliceClick: ((payload: RadialSlicePayload<TrendsSeriesMeta>) => void) | undefined
 }
 
-/** The data, legend, total, tooltip and click handling a trends pie, donut or proportion bar shares.
- *  `currentPeriodOnly` drops previous-period rows, for a chart whose parts must share one total. */
+/** The data, legend, total, tooltip and click handling a trends pie, donut or proportion bar shares. */
 export function useTrendsPartOfWholeChart({
     context,
     inSharedMode,
     showPersonsModal = true,
-    currentPeriodOnly = false,
-}: TrendsPartOfWholeChartProps & { currentPeriodOnly?: boolean }): TrendsPartOfWholeChart {
+}: TrendsPartOfWholeChartProps): TrendsPartOfWholeChart {
     const theme = useChartTheme()
 
     const { insightProps } = useValues(insightLogic)
@@ -66,7 +64,7 @@ export function useTrendsPartOfWholeChart({
     const { aggregationLabel } = useValues(groupsModel)
 
     const {
-        indexedResults: allResults,
+        indexedResults,
         trendsFilter,
         formula,
         pieChartVizOptions,
@@ -78,12 +76,6 @@ export function useTrendsPartOfWholeChart({
         getTrendsHidden,
         isSingleSeriesDefinition,
     } = useValues(trendsDataLogic(insightProps))
-
-    const indexedResults = useMemo(
-        () =>
-            (allResults ?? []).filter((r: IndexedTrendResult) => !currentPeriodOnly || r.compare_label !== 'previous'),
-        [allResults, currentPeriodOnly]
-    )
 
     const seriesIdentification = useMemo(
         () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),

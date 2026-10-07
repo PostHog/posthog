@@ -596,6 +596,11 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 const defaultLifecyclesOrder = ['new', 'resurrecting', 'returning', 'dormant']
                 let indexedResults = results.map((result, index) => ({ ...result, seriesIndex: index }))
 
+                // One bar has one total, so a previous period saved with compare on is left out.
+                if (display === ChartDisplayType.ActionsProportionBar) {
+                    indexedResults = indexedResults.filter((r) => r.compare_label !== 'previous')
+                }
+
                 // want the previous bars to show before current bars
                 if (display === ChartDisplayType.ActionsUnstackedBar && indexedResults.some((x) => x.compare)) {
                     indexedResults.sort((a, b) => {
