@@ -511,19 +511,26 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
         assert access_token.scoped_teams == [team.id]
         assert set(access_token.scope.split()) == set(scopes)
 
+    @parameterized.expand([("allowed", False), ("refused", True)])
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
-    @patch("posthog.temporal.oauth.security_shadow_check")
-    def test_mint_records_a_shadow_access_check(self, shadow: MagicMock) -> None:
+    @patch("posthog.temporal.oauth.security_access_refused")
+    def test_mint_asks_the_access_rules(self, _name: str, refused: bool, check: MagicMock) -> None:
+        check.return_value = refused
         self._create_wizard_app(scopes=["project:read", "llm_gateway:read"])
         user, team = self._create_user_and_team()
 
-        create_wizard_oauth_access_token_for_user(user, team.id)
+        if refused:
+            with pytest.raises(WizardIdentityBlockedError):
+                create_wizard_oauth_access_token_for_user(user, team.id)
+        else:
+            create_wizard_oauth_access_token_for_user(user, team.id)
 
-        shadow.assert_called_once()
-        subject, surface = shadow.call_args.args
+        check.assert_called_once()
+        subject, surface = check.call_args.args
         assert surface == SecuritySurface.AI_GATEWAY
         assert subject.organization_ids == (str(team.organization_id),)
-        assert shadow.call_args.kwargs == {"call_site": "wizard_mint"}
+        assert check.call_args.kwargs == {"call_site": "wizard_mint"}
+        assert OAuthAccessToken.objects.exists() is not refused
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
     def test_requires_existing_app(self) -> None:

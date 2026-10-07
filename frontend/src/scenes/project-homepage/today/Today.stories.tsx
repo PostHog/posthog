@@ -29,6 +29,7 @@ import {
 } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
 const ADA = {
@@ -537,6 +538,60 @@ function clearTodayStorage(
     return <Story />
 }
 
+function mockReportPage(reportId: string): ReportPageApi {
+    const report = REPORTS.find((candidate) => candidate.id === reportId) ?? REPORTS[0]
+    const signals = mockSignals(reportId, 6).map((signal) => {
+        const firstLine = signal.content.split('\n')[0]
+        return {
+            signal_id: signal.signal_id,
+            content: signal.content,
+            source_product: signal.source_product,
+            source_type: signal.source_type,
+            source_id: signal.source_id,
+            timestamp: signal.timestamp,
+            extra: { ...signal.extra },
+            headline: firstLine,
+            lead: firstLine,
+            meta: '',
+            cited: signal.source_product === 'signals_scout' ? ('code' as const) : null,
+            recording: null,
+            link: null,
+            preview: {
+                hint: 'Show the description',
+                code: [],
+                block: [],
+                text: signal.content,
+                facts: [],
+                link: null,
+                link_label: null,
+            },
+        }
+    })
+    return {
+        lead: report.summary_lead ?? '',
+        proposal: report.suggested_prompts?.[0] ?? '',
+        impact_sentence: '',
+        named_pull_request: null,
+        solution_names_pull_request: false,
+        evidence: signals.slice(0, 3),
+        source_count: signals.length,
+        impact_numbers:
+            report.id === 'report-1'
+                ? [
+                      {
+                          key: 'tickets',
+                          value: '4',
+                          sentence: 'support tickets over 3 days.',
+                          signal: signals[0],
+                          values: [],
+                          working: null,
+                      },
+                  ]
+                : [],
+        last_seen: null,
+    }
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Project Homepage/Today',
@@ -553,15 +608,11 @@ const meta: Meta = {
                     REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0],
                 ],
                 '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
-                '/api/projects/:team_id/signals/reports/:id/signals/': (req) => [
-                    200,
-                    // Error tracking signals fetch their issue, which these stories do not mock.
-                    {
-                        signals: mockSignals(String(req.params.id), 6).filter(
-                            (signal) => signal.source_product !== 'error_tracking'
-                        ),
-                    },
-                ],
+                '/api/projects/:team_id/today/reports/:id/page/': (req) => [200, mockReportPage(String(req.params.id))],
+                '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [], count: 0, next: null },
+                '/api/projects/:team_id/signals/reports/:id/checks/': { results: [], count: 0, next: null },
+                '/api/users/@me/integrations/': { results: [] },
+                '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
                 '/api/projects/:team_id/today/briefing/': () => [404, { detail: 'Not found.' }],
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [
@@ -745,13 +796,25 @@ export const ReportWithPullRequest: Story = {
     parameters: { pageUrl: urls.todayReport('report-1') },
 }
 
-export const ReportWithSuggestedPrompts: Story = {
+export const ReportProposingItsFirstPrompt: Story = {
     parameters: { pageUrl: urls.todayReport('report-2') },
 }
 
-// One chart placed in the summary, one trailing it. Charts resolve without the Inbox detail logic.
-export const ReportWithCharts: Story = {
+export const ReportWithAnImpactMetric: Story = {
     parameters: { pageUrl: urls.todayReport('report-4') },
+}
+
+export const ReportWithTicketsAndEvidenceDetail: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1') },
+}
+
+export const ReportThatFailsToLoad: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1') },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/reports/:id/page/': () => [500, {}] } })],
+}
+
+export const ReportInANarrowWindow: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1'), testOptions: { viewport: { width: 800, height: 900 } } },
 }
 
 export const SpacesPane: Story = {
@@ -901,7 +964,7 @@ export const LibraryAllObjects: Story = {
 }
 
 export const LibraryFeatureFlags: Story = {
-    parameters: { pageUrl: urls.library('feature_flag') },
+    parameters: { pageUrl: urls.featureFlags() },
 }
 
 export const ToolsPane: Story = {
@@ -930,6 +993,11 @@ export const PhoneWidthMorePane: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByRole('button', { name: 'More' }))
     },
+}
+
+// A root page: the phone header shows the title and a sidebar button, and the scene title row keeps only its actions.
+export const PhoneWidthListScene: Story = {
+    parameters: { pageUrl: urls.featureFlags(), testOptions: { viewport: { width: 390, height: 844 } } },
 }
 
 // The card opens on hover, which a static story can't hold, so these render its contents in the same frame.

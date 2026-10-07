@@ -26,6 +26,7 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.alerts.backend.facade.destinations import configured_destination_template_ids
 from products.alerts_platform.backend.facade.api import due_checks, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
@@ -48,6 +49,7 @@ from products.alerts_platform.backend.facade.lifecycle import (
     Outcome,
     apply_broken_config,
     decide_firing_episode,
+    decide_incident_action,
     evaluate_alert_check,
 )
 from products.alerts_platform.backend.facade.platform_metrics import (
@@ -360,18 +362,50 @@ def _delivery(
         ),
         disable=outcome.disable,
     )
-    if outcome.notification == NotificationAction.NONE:
-        return recorded, None
+    return recorded, _request(check, recorded, outcome, sends_messages=outcome.notification != NotificationAction.NONE)
 
-    return recorded, AlertDeliveryRequest(
+
+def _request(
+    check: PlatformAlertCheckInput, recorded: PlatformAlertOutcome, outcome: Outcome, *, sends_messages: bool
+) -> AlertDeliveryRequest | None:
+    """The delivery for a recorded outcome, or None when it neither announces nor moves a firing.
+
+    A firing that opens or closes needs a delivery even when cooldown or mute held the
+    announcement, because a paging destination needs one resolve for every trigger. An alert
+    with no such destination gets no incident action, so its edges start no delivery.
+    """
+    destination_alert_id = str(check.legacy_configuration_id or check.id)
+    incident_action = decide_incident_action(
+        AlertState(check.state), outcome.new_state, policy=PLATFORM_LOGS_ALERT_POLICY
+    )
+    if incident_action is not None and not _has_incident_destination(check.team_id, destination_alert_id):
+        incident_action = None
+    if not sends_messages and incident_action is None:
+        return None
+    return AlertDeliveryRequest(
         source=SourceKind.LOGS,
         team_id=check.team_id,
         configuration_id=str(check.id),
         # The recorded key unchanged, so a delivery can address the row the check wrote. The
         # workflow id that has to be unique across alerts joins this to the configuration itself.
         evaluation_key=recorded.evaluation_key,
-        destination_alert_id=str(check.legacy_configuration_id or check.id),
+        destination_alert_id=destination_alert_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
+        event_ids_by_incident_action=_EVENT_IDS_BY_INCIDENT_ACTION,
+        # Logs does not group, so its one row has the empty grouping key.
+        incident_actions={"": incident_action} if incident_action is not None else {},
+        sends_messages=sends_messages,
+    )
+
+
+def _has_incident_destination(team_id: int, destination_alert_id: str) -> bool:
+    """Whether a destination of this alert follows the incident events. Read only on a firing edge."""
+    return bool(
+        configured_destination_template_ids(
+            team_id=team_id,
+            alert_id=destination_alert_id,
+            allowed_event_ids=tuple(_EVENT_IDS_BY_INCIDENT_ACTION.values()),
+        )
     )
 
 
@@ -381,6 +415,11 @@ _EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
     kind.value: EVENT_KIND_CONFIG[cast(EventKind, kind.value)].event_id
     for kind in AlertEventKind
     if kind.value in EVENT_KIND_CONFIG
+}
+
+# Which event id an incident manager destination filters on for each incident action.
+_EVENT_IDS_BY_INCIDENT_ACTION: Final[dict[str, str]] = {
+    spec.incident_action.value: spec.event_id for spec in EVENT_KIND_CONFIG.values() if spec.incident_action
 }
 
 
@@ -444,7 +483,7 @@ def _held(
     _record_check_metrics(
         check, new_state=outcome.new_state.value, notification=NotificationAction.NONE, skip=skip, now=now
     )
-    return recorded, None
+    return recorded, _request(check, recorded, outcome, sends_messages=False)
 
 
 def _evaluate_cohort(

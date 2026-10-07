@@ -103,6 +103,21 @@ class BaseAction(ABC):
         pass
 
     @classmethod
+    def derive_owner_kind(
+        cls,
+        team,
+        resource_id: Optional[str],
+        intent_data: dict[str, Any],
+    ) -> Optional[str]:
+        """Classify which product owns the resource this change targets.
+
+        Called once when the change request is created and again before it applies, so the two
+        answers can be compared. Return None to opt out: the classification is then not recorded
+        and the apply path has nothing to compare.
+        """
+        return None
+
+    @classmethod
     def check_staleness(
         cls,
         intent_data: dict[str, Any],

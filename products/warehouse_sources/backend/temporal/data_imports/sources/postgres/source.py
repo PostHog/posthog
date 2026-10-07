@@ -94,6 +94,10 @@ _HOST_HAS_PORT_ERROR = (
     "in the port field instead."
 )
 
+_PORT_OUT_OF_RANGE_ERROR = (
+    "The port must be between 1 and 65535. Enter the port your database listens on, usually 5432."
+)
+
 # Railway's DATABASE_URL points at the service's private-network host, so it is the value customers
 # paste most often. The name only resolves inside Railway's own network, and the DNS failure that
 # follows asks them to check a spelling that is already correct, so name the public host instead.
@@ -1701,6 +1705,11 @@ class PostgresSource(
         if host_value.count(":") == 1 and not host_value.startswith("["):
             return False, _HOST_HAS_PORT_ERROR
 
+        # Out of range, the port reaches sshtunnel as a bare AssertionError or libpq as a connection
+        # failure, and both end in the generic "check all connection details" message.
+        if not 1 <= config.port <= 65535:
+            return False, _PORT_OUT_OF_RANGE_ERROR
+
         # A bastion inside the customer's Railway project can reach the private host, so only reject
         # it for a direct connection.
         if not self.ssh_tunnel_enabled(config) and host_value.lower().endswith(_RAILWAY_INTERNAL_HOST_SUFFIX):
@@ -1933,18 +1942,7 @@ class PostgresSource(
                 supports_resume=False,
             )
 
-        # Defense in depth for the v3-forcing invariant: a run that resolved its pipeline version
-        # before its table started streaming, or a worker one deploy behind, would consume this
-        # buffer on v2, which stamps no position on the rows it writes, so every later run would
-        # find nothing to resume from and re-merge the whole buffer. Fail the run loudly instead of
-        # degrading silently.
         job = ExternalDataJob.objects.filter(id=inputs.job_id, team_id=inputs.team_id).first()
-        if job is not None and job.pipeline_version != ExternalDataJob.PipelineVersion.V3:
-            raise ValueError(
-                f"Buffered CDC schema {schema.name} reached a {job.pipeline_version} pipeline run. "
-                "Buffered consumption requires v3, whose loader stamps each row with the position "
-                "the next run resumes from."
-            )
 
         # A CDC reset must travel through snapshot mode, which re-seeds the table before the buffer
         # replays over it; every reset writer does that. Merging the buffer into a wiped table

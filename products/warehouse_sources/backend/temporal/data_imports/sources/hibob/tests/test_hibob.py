@@ -147,6 +147,12 @@ class TestEmployeeHistoryTables:
             ("employee_lifecycle", "/v1/bulk/people/lifecycle"),
             ("employee_employment", "/v1/bulk/people/employment"),
             ("employee_salaries", "/v1/bulk/people/salaries"),
+            ("employee_deductions", "/v1/bulk/people/deduction"),
+            ("employee_entitlements", "/v1/bulk/people/entitlement"),
+            ("employee_variable_pay", "/v1/bulk/people/variable"),
+            ("employee_dependents", "/v1/bulk/people/dependents"),
+            ("employee_right_to_work", "/v1/bulk/people/right-to-work"),
+            ("employee_equities", "/v1/bulk/people/equities"),
         ],
     )
     @pytest.mark.parametrize(
@@ -211,16 +217,21 @@ class TestEmployeeHistoryTables:
             _rows(hibob_source("service-id", "token", "employee_lifecycle", team_id=1, job_id="j"))
 
 
-class TestHiringSearches:
+class TestSearchEndpoints:
     @pytest.mark.parametrize(
-        "endpoint, path, prefix",
+        "endpoint, path, prefix, requested_field",
         [
-            ("candidates", "/v1/hiring/candidates/search", "/candidate"),
-            ("applications", "/v1/hiring/applications/search", "/application"),
+            ("candidates", "/v1/hiring/candidates/search", "/candidate", "/candidate/modificationDate"),
+            ("applications", "/v1/hiring/applications/search", "/application", "/application/modificationDate"),
+            ("employers", "/v1/employers/search", "/employer", "/employer/legalName"),
+            # The default skill field set leaves proficiency levels out.
+            ("skills", "/v1/skills/search", "/skill", "/skill/proficiencyLevels"),
         ],
     )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_posts_body_cursor_and_normalizes_pointer_keys(self, MockSession, endpoint, path, prefix) -> None:
+    def test_posts_body_cursor_and_normalizes_pointer_keys(
+        self, MockSession, endpoint, path, prefix, requested_field
+    ) -> None:
         session = MockSession.return_value
         captured = _wire(
             session,
@@ -240,7 +251,7 @@ class TestHiringSearches:
         assert rows == [{"id": 7, "status": "active"}, {"id": 8}]
         assert [(c["method"], c["url"]) for c in captured] == [("POST", f"https://api.hibob.com{path}")] * 2
         assert "cursor" not in captured[0]["json"]
-        assert f"{prefix}/modificationDate" in captured[0]["json"]["fields"]
+        assert requested_field in captured[0]["json"]["fields"]
         # HiBob rejects a search asking for more than 50 fields.
         assert len(captured[0]["json"]["fields"]) <= 50
         assert captured[1]["json"]["cursor"] == "c2"
@@ -430,6 +441,62 @@ class TestTimeOffCalendars:
 
         with pytest.raises(Exception):
             _rows(hibob_source("service-id", "token", "time_off_calendars", team_id=1, job_id="j"))
+
+
+class TestWorkLocations:
+    @mock.patch(HIBOB_SESSION_PATCH)
+    def test_fans_out_employer_ids_and_follows_cursor(self, mock_make_session):
+        session = mock_make_session.return_value
+        session.post.side_effect = [
+            _response({"items": [{"/employer/id": "11"}], "response_metadata": {"next_cursor": "e2"}}),
+            _response({"items": [{"/employer/id": "12"}], "response_metadata": {"next_cursor": None}}),
+            _response(
+                {
+                    "items": [{"/workLocation/id": "1", "/workLocation/employerId": "11", "/workLocation/name": "HQ"}],
+                    "response_metadata": {"next_cursor": "w2"},
+                }
+            ),
+            _response(
+                {
+                    "items": [
+                        {"/workLocation/id": "2", "/workLocation/employerId": "11", "/workLocation/name": "Home"}
+                    ],
+                    "response_metadata": {"next_cursor": None},
+                }
+            ),
+            _response({"items": [], "response_metadata": {"next_cursor": None}}),
+        ]
+
+        response = hibob_source("service-id", "token", "work_locations", team_id=1, job_id="j")
+        rows = _rows(response)
+
+        assert rows == [
+            {"id": "1", "employerId": "11", "name": "HQ"},
+            {"id": "2", "employerId": "11", "name": "Home"},
+        ]
+        assert response.primary_keys == ["employerId", "id"]
+        calls = session.post.call_args_list
+        assert [call.args[0] for call in calls] == [
+            "https://api.hibob.com/v1/employers/search",
+            "https://api.hibob.com/v1/employers/search",
+            "https://api.hibob.com/v1/employers/11/work-locations/search",
+            "https://api.hibob.com/v1/employers/11/work-locations/search",
+            "https://api.hibob.com/v1/employers/12/work-locations/search",
+        ]
+        assert calls[1].kwargs["json"]["cursor"] == "e2"
+        assert "cursor" not in calls[2].kwargs["json"]
+        assert calls[3].kwargs["json"]["cursor"] == "w2"
+        assert "cursor" not in calls[4].kwargs["json"]
+        assert calls[2].kwargs["json"]["filters"] == []
+
+    @mock.patch(HIBOB_SESSION_PATCH)
+    def test_rejects_repeated_cursor(self, mock_make_session):
+        session = mock_make_session.return_value
+        stalled = {"items": [{"/employer/id": "11"}], "response_metadata": {"next_cursor": "stalled"}}
+        session.post.side_effect = [_response(stalled), _response(stalled)]
+
+        with pytest.raises(ValueError, match="repeated cursor"):
+            _rows(hibob_source("service-id", "token", "work_locations", team_id=1, job_id="j"))
 
 
 class TestHiBobSourceResponse:

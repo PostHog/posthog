@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -9,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.
     BRAINTREE_VERSION_2026_07_14,
     BRAINTREE_VERSION_2026_08_04,
     BRAINTREE_VERSION_2026_08_13,
+    BRAINTREE_VERSION_2026_10_06,
     MAX_PAGE_SIZE,
     BraintreeGraphQLError,
     BraintreeResumeConfig,
@@ -80,6 +82,14 @@ class TestBuildQuery:
         # declaration here fails GraphQL validation (VariableTypeMismatch).
         assert f"$input: {input_type}!" in query
         assert BRAINTREE_ENDPOINTS[endpoint].connection_field in query
+
+    @pytest.mark.parametrize("field", ["price", "balance", "nextBillingPeriodAmount"])
+    def test_subscription_amounts_are_selected_as_leaves(self, field):
+        # These are Braintree's `Amount` scalar; a subselection fails validation
+        # (SubselectionNotAllowed) and rejects the whole query.
+        query = _build_query(BRAINTREE_ENDPOINTS["recurring_billing_subscriptions"])
+        assert re.search(rf"\b{field}\b", query)
+        assert not re.search(rf"\b{field}\s*{{", query)
 
     def test_query_nests_connection_under_its_wrappers(self):
         # `merchantAccounts` hangs off `viewer.merchant`, not the `search` root.
@@ -298,6 +308,7 @@ class TestGetRows:
             BRAINTREE_VERSION_2026_07_14,
             BRAINTREE_VERSION_2026_08_04,
             BRAINTREE_VERSION_2026_08_13,
+            BRAINTREE_VERSION_2026_10_06,
         ],
     )
     @mock.patch(f"{_MODULE}.make_tracked_session")

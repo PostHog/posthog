@@ -8,14 +8,12 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { TaskExecutionStatus as ExecutionStatus } from '~/queries/schema/schema-assistant-messages'
 
-import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
-
 import { DebugMessage } from '../messages/DebugMessage'
 import { MarkdownMessage } from '../messages/MarkdownMessage'
 import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ProgressStep, ThreadItem, ToolInvocation } from '../types/streamTypes'
-import { resolveToolCall } from '../utils/toolResolver'
+import { toolInvocationToMessage } from '../utils/toolCallMessage'
 import { userMessageDisplayText } from '../utils/userMessageDisplay'
 import { Activity } from './ActivityPrimitives'
 import { QuillAssistantMessage, QuillHumanMessage } from './quill/QuillMessages'
@@ -25,31 +23,6 @@ import { RunErrorRow } from './RunErrorRow'
 import { ThreadAttachments } from './ThreadAttachments'
 import { CompactBoundaryItem, ConversationClearedItem, StatusItem, TaskNotificationItem } from './ThreadItems'
 import { ToolCallCard } from './tool/ToolCallCard'
-
-/** Maps a raw merged `ToolInvocation` into the flat `ToolCallMessage` the registry renderers read. */
-function toolInvocationToMessage(invocation: ToolInvocation | undefined): ToolCallMessage | null {
-    if (!invocation) {
-        return null
-    }
-    const resolved = resolveToolCall(invocation)
-    return {
-        id: invocation.toolCallId,
-        resolvedKey: resolved.resolvedKey,
-        rawServerName: invocation.rawServerName,
-        rawToolName: invocation.rawToolName,
-        innerToolName: resolved.innerToolName,
-        claudeToolName: resolved.claudeToolName,
-        rawInput: invocation.input,
-        innerInput: resolved.innerInput,
-        rawOutput: invocation.output,
-        content: invocation.contentBlocks,
-        status: invocation.status,
-        title: invocation.title,
-        kind: invocation.kind,
-        locations: invocation.locations,
-        error: invocation.error,
-    }
-}
 
 function progressStepText(step: ProgressStep): string {
     return step.detail ? `${step.label}\n\n${step.detail}` : step.label

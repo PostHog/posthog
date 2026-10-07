@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+import hashlib
 from collections.abc import Callable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Literal
@@ -96,9 +97,9 @@ WORKFLOW_MODULE = "products.signals.backend.temporal.agentic.scout_trial_evaluat
 
 
 @override_settings(
-    SCOUT_LIVE_TRIALS_ENABLED=True,
     SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
     AI_GATEWAY_URL="https://gateway.example/v1",
+    AI_GATEWAY_API_KEY="phs_synthetic_api_key",
     SANDBOX_AI_GATEWAY_URL="https://gateway.example",
     SANDBOX_AI_GATEWAY_MINT_KEY="phs_synthetic_mint_key",
 )
@@ -155,9 +156,9 @@ class TestScoutTrialEvaluationValidation(SimpleTestCase):
 
 
 @override_settings(
-    SCOUT_LIVE_TRIALS_ENABLED=True,
     SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
     AI_GATEWAY_URL="https://gateway.example/v1",
+    AI_GATEWAY_API_KEY="phs_synthetic_api_key",
     SANDBOX_AI_GATEWAY_URL="https://gateway.example",
     SANDBOX_AI_GATEWAY_MINT_KEY="phs_synthetic_mint_key",
 )
@@ -369,7 +370,7 @@ class TestScoutTrialEvaluation(BaseTest):
     def test_saved_report_remains_readable_when_launches_are_disabled(self) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         report = finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
-        with override_settings(SCOUT_LIVE_TRIALS_ENABLED=False, SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False):
+        with override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False):
             assert_evaluation_access(snapshot, config=self.config, user=self.user)
             assert read_trial_evaluation_report(snapshot) == report
             with self.assertRaises(ScoutTrialLaunchError):
@@ -749,8 +750,24 @@ class TestScoutTrialEvaluation(BaseTest):
             source.kind == "trace" and "The final saved measurement was read back." in source.text for source in sources
         )
 
-    @parameterized.expand(["duplicated", "edited"])
-    def test_full_logs_and_reports_are_saved_as_files_outside_the_snapshot(self, report_kind: str) -> None:
+    @parameterized.expand([("duplicated", 0), ("edited", 2000)])
+    def test_full_logs_and_reports_are_saved_as_files_outside_the_snapshot(
+        self, report_kind: str, memory_entry_count: int
+    ) -> None:
+        if memory_entry_count:
+            self.context = self.context.model_copy(
+                update={
+                    "memory": [
+                        {
+                            "key": f"finding:synthetic-{index}",
+                            "content": f"Synthetic observation {index}. " + "a" * 44_000,
+                        }
+                        for index in range(memory_entry_count)
+                    ]
+                }
+            )
+            self._save("contexts", self.context.id, self.context)
+            assert len(self.context.model_dump_json().encode()) > 80 * 1024 * 1024
         self.scout_run.summary = "Synthetic finding. " * 12000
         self.scout_run.save(update_fields=["summary"])
         final_summary = "Synthetic authored finding. " * 320
@@ -801,6 +818,15 @@ class TestScoutTrialEvaluation(BaseTest):
         sources = self._sources(snapshot)
         assert next(source.text for source in sources if source.kind == "summary") == self.scout_run.summary
         assert next(source.text for source in sources if source.kind == "trace") == log
+        saved_context = next(source.text for source in sources if source.kind == "context")
+        assert json.loads(saved_context) == {
+            "memory": self.context.memory,
+            "notes": self.context.notes,
+            "recent_runs": self.context.recent_runs,
+        }
+        context_file = next(file for file in snapshot.runs[0].files if file.kind == "context")
+        assert context_file.size_bytes == len(saved_context.encode())
+        assert context_file.sha256 == hashlib.sha256(saved_context.encode()).hexdigest()
         report = next(source for source in sources if source.kind == "report")
         packed = json.loads(report.text)["report"]
         assert packed["document"] == captured_report.document

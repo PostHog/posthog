@@ -21,7 +21,7 @@ use super::types::{Batch, Event, EventResult, OptionKeys, Options, WrappedEvent}
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::events::ai_byte_limit::charge_ai_bytes;
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
-use crate::v0_request::{exceeds_max_ai_event_bytes, AiLanePredicate};
+use crate::v0_request::{exceeds_max_ai_event_bytes, is_ai_event};
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
@@ -46,14 +46,14 @@ use common_ingestion_warnings::{
 /// (extractHeatmapDataStep) handles extraction when `skip_heatmap_processing` is unset
 /// in Kafka headers — removing that fallback would break scroll-depth heatmaps for v1.
 ///
-/// AI events (per the deployment's [`AiLanePredicate`]) are diverted to
-/// `Destination::AiEvents` on every deployment.
-fn destination_for_event_name(name: &str, ai_lane_predicate: AiLanePredicate) -> Destination {
+/// AI events (per [`is_ai_event`]) are diverted to `Destination::AiEvents` on
+/// every deployment.
+fn destination_for_event_name(name: &str) -> Destination {
     match name {
         "$exception" => Destination::ExceptionErrorTracking,
         "$$heatmap" => Destination::HeatmapMain,
         "$$client_ingestion_warning" => Destination::ClientIngestionWarning,
-        _ if ai_lane_predicate.is_ai_event(name) => Destination::AiEvents,
+        _ if is_ai_event(name) => Destination::AiEvents,
         _ => Destination::AnalyticsMain,
     }
 }
@@ -91,7 +91,7 @@ async fn run_pipeline(
     }
     context.set_batch_metadata(&batch);
 
-    let mut events = match validate_events(context, state.ai_lane_predicate, batch) {
+    let mut events = match validate_events(context, batch) {
         Ok(events) => events,
         Err(err) => {
             emit_batch_abort_warning(state, context, &err, batch_len);
@@ -150,20 +150,10 @@ async fn run_pipeline(
         .await;
     }
 
-    apply_ai_event_size_limit(
-        state.ai_max_event_bytes,
-        state.ai_lane_predicate,
-        &mut events,
-    );
+    apply_ai_event_size_limit(state.ai_max_event_bytes, &mut events);
 
     if let Some(ref limiter) = state.ai_byte_rate_limiter {
-        apply_ai_byte_limits(
-            limiter,
-            &context.api_token,
-            state.ai_lane_predicate,
-            &mut events,
-        )
-        .await;
+        apply_ai_byte_limits(limiter, &context.api_token, &mut events).await;
     }
 
     apply_historical_rerouting(&state.historical_cfg, context, &mut events);
@@ -525,11 +515,7 @@ fn validate_batch(batch: &Batch) -> Result<(), Error> {
     Ok(())
 }
 
-fn validate_events(
-    context: &RequestContext,
-    ai_lane_predicate: AiLanePredicate,
-    batch: Batch,
-) -> Result<Vec<WrappedEvent>, Error> {
+fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
     let batch_len = batch.batch.len();
     let mut events: Vec<WrappedEvent> = Vec::with_capacity(batch_len);
     let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch_len);
@@ -549,7 +535,7 @@ fn validate_events(
             ));
         }
 
-        let destination = destination_for_event_name(&event.event, ai_lane_predicate);
+        let destination = destination_for_event_name(&event.event);
 
         match validate_event(&event) {
             Ok(raw_ts) => {
@@ -818,7 +804,7 @@ fn apply_overflow_stamping(
         // overflow (never analytics overflow) and the per-key budgets are
         // isolated between the lanes. The AI lane only participates when its
         // limiter exists — setup builds it exactly when the AI overflow valve
-        // (CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC) is armed, so limiter
+        // (CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC) is armed, so limiter
         // presence encodes the valve here.
         let (overflow_destination, lane_limiter) = match event.destination {
             Destination::AnalyticsMain => (Destination::Overflow, analytics_limiter),
@@ -969,7 +955,7 @@ fn drop_non_ai_events(state: &router::State, context: &Context, events: &mut [Wr
         // cannot ride an analytics lane out of an AI deployment. Neither case
         // is reachable at this point today; both make the gate correct on its
         // own terms rather than on its position in the pipeline.
-        if !event.should_publish() || on_ai_lane(event, state.ai_lane_predicate) {
+        if !event.should_publish() || on_ai_lane(event) {
             continue;
         }
         event.result = EventResult::Drop;
@@ -1025,10 +1011,10 @@ fn drop_non_ai_events(state: &router::State, context: &Context, events: &mut [Wr
 /// operator redirected: `force_overflow` retargets an AI event to
 /// `AiEventsOverflow`, which is still the AI lane, and a `redirect_to_topic`
 /// or DLQ restriction moves it off `AiEvents` without taking it off the wire.
-/// The predicate is the same one v0 stamps `DataType::AiEvents` from, so both
+/// [`is_ai_event`] is the same rule v0 stamps `DataType::AiEvents` from, so both
 /// pipelines charge and measure the same set.
-fn on_ai_lane(event: &WrappedEvent, ai_lane_predicate: AiLanePredicate) -> bool {
-    ai_lane_predicate.is_ai_event(&event.event.event)
+fn on_ai_lane(event: &WrappedEvent) -> bool {
+    is_ai_event(&event.event.event)
 }
 
 /// Drop AI-lane events past the deployment's per-event size ceiling.
@@ -1041,11 +1027,7 @@ fn on_ai_lane(event: &WrappedEvent, ai_lane_predicate: AiLanePredicate) -> bool 
 ///
 /// Charged bytes are the event's properties, which dominate an AI event's wire
 /// size; the serialized envelope is not built until the sink.
-fn apply_ai_event_size_limit(
-    max_event_bytes: u64,
-    ai_lane_predicate: AiLanePredicate,
-    events: &mut [WrappedEvent],
-) {
+fn apply_ai_event_size_limit(max_event_bytes: u64, events: &mut [WrappedEvent]) {
     if max_event_bytes == 0 {
         return;
     }
@@ -1053,7 +1035,7 @@ fn apply_ai_event_size_limit(
     let mut dropped: u64 = 0;
 
     for event in events.iter_mut() {
-        if event.result != EventResult::Ok || !on_ai_lane(event, ai_lane_predicate) {
+        if event.result != EventResult::Ok || !on_ai_lane(event) {
             continue;
         }
         if exceeds_max_ai_event_bytes(event.event.properties.get().len(), max_event_bytes) {
@@ -1075,7 +1057,7 @@ fn apply_ai_event_size_limit(
 /// (`events::ai_byte_limit`), so a token's bytes count once no matter which
 /// pipeline carries them.
 ///
-/// Membership comes from the deployment's lane predicate, not the current
+/// Membership comes from the event name ([`is_ai_event`]), not the current
 /// destination: a restriction that retargets an AI event still spends the
 /// project's bytes, and `force_overflow` keeps it on the AI lane outright. The
 /// `EventResult::Ok` guard keeps every upstream drop — validation, quota, a
@@ -1087,13 +1069,12 @@ fn apply_ai_event_size_limit(
 async fn apply_ai_byte_limits(
     limiter: &GlobalRateLimiter,
     token: &str,
-    ai_lane_predicate: AiLanePredicate,
     events: &mut [WrappedEvent],
 ) {
     let mut dropped: u64 = 0;
 
     for event in events.iter_mut() {
-        if event.result != EventResult::Ok || !on_ai_lane(event, ai_lane_predicate) {
+        if event.result != EventResult::Ok || !on_ai_lane(event) {
             continue;
         }
         if charge_ai_bytes(limiter, token, event.event.properties.get().len()).await {
@@ -1566,7 +1547,7 @@ mod tests {
         let normal = valid_event();
         let normal_uuid = Uuid::parse_str(&normal.uuid).unwrap();
         let batch = valid_batch(vec![perf, normal]);
-        let events = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
         // Vec preserves input order: perf first, normal second.
         let p = &events[0];
@@ -1590,7 +1571,7 @@ mod tests {
             ..valid_event()
         };
         let batch = valid_batch(vec![p1, p2]);
-        let events = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
         for ev in &events {
             assert_eq!(ev.result, EventResult::Drop);
@@ -1606,7 +1587,7 @@ mod tests {
             illegal_event.distinct_id = id.to_string();
             let legal_event = valid_event();
             let batch = valid_batch(vec![illegal_event, legal_event]);
-            let events = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap();
+            let events = validate_events(&ctx, batch).unwrap();
             assert_eq!(events.len(), 2, "id={id:?}");
 
             let flagged = &events[0];
@@ -1631,7 +1612,7 @@ mod tests {
         let ctx = test_utils::test_context();
         let event = deserialized_event(&Uuid::new_v4().to_string(), "  NULL  ");
         let batch = valid_batch(vec![event]);
-        let events = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events[0].result, EventResult::Ok);
         assert!(events[0].force_disable_person_processing);
         assert_eq!(events[0].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
@@ -1644,7 +1625,7 @@ mod tests {
             let mut illegal_event = valid_event();
             illegal_event.distinct_id = id.to_string();
             let batch = valid_batch(vec![illegal_event]);
-            let events = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap();
+            let events = validate_events(&ctx, batch).unwrap();
             assert_eq!(events.len(), 1, "id={id:?}");
             assert!(events[0].should_publish(), "id={id:?}");
         }
@@ -1671,7 +1652,7 @@ mod tests {
                 },
             ],
         };
-        let err = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap_err();
+        let err = validate_events(&ctx, batch).unwrap_err();
         assert!(matches!(err, Error::DuplicateEventUuid(_)));
     }
 
@@ -1687,7 +1668,7 @@ mod tests {
                 ..valid_event()
             }],
         };
-        let err = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap_err();
+        let err = validate_events(&ctx, batch).unwrap_err();
         assert!(matches!(err, Error::InvalidEventUuid(_)));
     }
 
@@ -1703,7 +1684,7 @@ mod tests {
                 ..valid_event()
             }],
         };
-        let err = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap_err();
+        let err = validate_events(&ctx, batch).unwrap_err();
         assert!(matches!(err, Error::MissingEventUuid));
     }
 
@@ -1735,7 +1716,7 @@ mod tests {
 
         let count = dropped_count("duplicate_event_uuid", "validation_abort", || {
             assert!(matches!(
-                validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap_err(),
+                validate_events(&ctx, batch).unwrap_err(),
                 Error::DuplicateEventUuid(_)
             ));
         });
@@ -1757,7 +1738,7 @@ mod tests {
 
         let count = dropped_count("invalid_event_uuid", "validation_abort", || {
             assert!(matches!(
-                validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap_err(),
+                validate_events(&ctx, batch).unwrap_err(),
                 Error::InvalidEventUuid(_)
             ));
         });
@@ -1777,7 +1758,7 @@ mod tests {
 
         let count = dropped_count("missing_event_uuid", "validation_abort", || {
             assert!(matches!(
-                validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap_err(),
+                validate_events(&ctx, batch).unwrap_err(),
                 Error::MissingEventUuid
             ));
         });
@@ -1825,7 +1806,7 @@ mod tests {
         let event = deserialized_event(&padded_uuid, "user-42");
         assert_eq!(event.uuid, inner_uuid.to_string());
         let batch = valid_batch(vec![event]);
-        let events = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].uuid, inner_uuid);
     }
@@ -1844,7 +1825,7 @@ mod tests {
             capture_internal: None,
             batch: vec![bad_event],
         };
-        let events = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 1);
         let event = &events[0];
         assert_eq!(event.uuid, uuid);
@@ -1892,7 +1873,7 @@ mod tests {
                 ("result", "malformed"),
                 ("error", expected_drop.unwrap_or("none")),
             ],
-            || events = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap(),
+            || events = validate_events(&ctx, batch).unwrap(),
         );
 
         assert_eq!(events[0].result, EventResult::Ok);
@@ -1929,7 +1910,7 @@ mod tests {
             capture_internal: None,
             batch: vec![ev1, ev2],
         };
-        let result = validate_events(&ctx, AiLanePredicate::Allowlist, batch);
+        let result = validate_events(&ctx, batch);
         assert!(result.is_ok());
         let events = result.unwrap();
         assert_eq!(events[0].result, EventResult::Drop);
@@ -1951,7 +1932,7 @@ mod tests {
             capture_internal: None,
             batch: vec![ev],
         };
-        let events = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].options.disable_skew_correction, Some(true));
     }
@@ -1975,7 +1956,7 @@ mod tests {
             capture_internal: None,
             batch: vec![ev],
         };
-        let events = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events[0].result, EventResult::Drop);
         assert_eq!(events[0].details, Some("missing_event_name"));
     }
@@ -2246,7 +2227,7 @@ mod tests {
 
         let mut events = vec![oversized, small];
 
-        apply_ai_event_size_limit(700, AiLanePredicate::Allowlist, &mut events);
+        apply_ai_event_size_limit(700, &mut events);
 
         let big = find_by_did(&events, "user-big");
         assert_eq!(big.result, EventResult::Drop);
@@ -2271,7 +2252,7 @@ mod tests {
             test_utils::raw_obj(&format!(r#"{{"$ai_input":"{}"}}"#, "x".repeat(800)));
 
         let mut events = vec![oversized];
-        apply_ai_event_size_limit(0, AiLanePredicate::Allowlist, &mut events);
+        apply_ai_event_size_limit(0, &mut events);
 
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, Destination::AiEvents);
@@ -2288,7 +2269,7 @@ mod tests {
         oversized.destination = Destination::AiEventsOverflow;
 
         let mut events = vec![oversized];
-        apply_ai_event_size_limit(700, AiLanePredicate::Allowlist, &mut events);
+        apply_ai_event_size_limit(700, &mut events);
 
         assert_eq!(events[0].result, EventResult::Drop);
         assert_eq!(events[0].destination, Destination::Drop);
@@ -2318,13 +2299,7 @@ mod tests {
             event.destination = destination.clone();
         }
 
-        apply_ai_byte_limits(
-            &limiter,
-            "phc_token",
-            AiLanePredicate::Allowlist,
-            &mut events,
-        )
-        .await;
+        apply_ai_byte_limits(&limiter, "phc_token", &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, destination);
@@ -2343,13 +2318,7 @@ mod tests {
             wrapped_event("$pageview", "user-2"),
         ];
 
-        apply_ai_byte_limits(
-            &limiter,
-            "phc_token",
-            AiLanePredicate::Allowlist,
-            &mut events,
-        )
-        .await;
+        apply_ai_byte_limits(&limiter, "phc_token", &mut events).await;
 
         for event in &events {
             assert_eq!(event.result, EventResult::Ok);
@@ -2375,13 +2344,7 @@ mod tests {
 
         let mut events = vec![already_dropped, publishable];
 
-        apply_ai_byte_limits(
-            &limiter,
-            "phc_token",
-            AiLanePredicate::Allowlist,
-            &mut events,
-        )
-        .await;
+        apply_ai_byte_limits(&limiter, "phc_token", &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(
@@ -2520,67 +2483,30 @@ mod tests {
 
     // --- destination_for_event_name ---
 
-    /// Every non-AI row is identical in both modes; only `$ai_`-prefixed names
-    /// off the allowlist move, and only under `Prefix`.
     #[rstest::rstest]
-    #[case(
-        "$exception",
-        Destination::ExceptionErrorTracking,
-        Destination::ExceptionErrorTracking
-    )]
-    #[case("$$heatmap", Destination::HeatmapMain, Destination::HeatmapMain)]
-    #[case(
-        "$$client_ingestion_warning",
-        Destination::ClientIngestionWarning,
-        Destination::ClientIngestionWarning
-    )]
-    #[case("$pageview", Destination::AnalyticsMain, Destination::AnalyticsMain)]
-    #[case("custom_event", Destination::AnalyticsMain, Destination::AnalyticsMain)]
-    #[case("$autocapture", Destination::AnalyticsMain, Destination::AnalyticsMain)]
-    // Allowlisted AI events divert on every deployment in both modes.
-    #[case("$ai_generation", Destination::AiEvents, Destination::AiEvents)]
-    #[case("$ai_span", Destination::AiEvents, Destination::AiEvents)]
-    #[case("$ai_trace", Destination::AiEvents, Destination::AiEvents)]
-    #[case("$ai_generation_summary", Destination::AiEvents, Destination::AiEvents)]
-    // `$ai_`-prefixed names absent from the allowlist: Main under `Allowlist`
-    // (the AI pipeline of that era would DLQ them), AI lane under `Prefix`.
-    #[case("$ai_call", Destination::AnalyticsMain, Destination::AiEvents)]
-    #[case(
-        "$ai_generation_enriched",
-        Destination::AnalyticsMain,
-        Destination::AiEvents
-    )]
-    #[case(
-        "$ai_model_failover",
-        Destination::AnalyticsMain,
-        Destination::AiEvents
-    )]
+    #[case("$exception", Destination::ExceptionErrorTracking)]
+    #[case("$$heatmap", Destination::HeatmapMain)]
+    #[case("$$client_ingestion_warning", Destination::ClientIngestionWarning)]
+    #[case("$pageview", Destination::AnalyticsMain)]
+    #[case("custom_event", Destination::AnalyticsMain)]
+    #[case("$autocapture", Destination::AnalyticsMain)]
+    // Every `$ai_` name diverts on every deployment.
+    #[case("$ai_generation", Destination::AiEvents)]
+    #[case("$ai_span", Destination::AiEvents)]
+    #[case("$ai_trace", Destination::AiEvents)]
+    #[case("$ai_generation_summary", Destination::AiEvents)]
+    #[case("$ai_call", Destination::AiEvents)]
+    #[case("$ai_generation_enriched", Destination::AiEvents)]
+    #[case("$ai_model_failover", Destination::AiEvents)]
     // Prefix means `$ai_`, not `$ai`: a name without the underscore never diverts.
-    #[case("$ai", Destination::AnalyticsMain, Destination::AnalyticsMain)]
-    #[case(
-        "$aigeneration",
-        Destination::AnalyticsMain,
-        Destination::AnalyticsMain
-    )]
-    #[case(
-        "ai_generation",
-        Destination::AnalyticsMain,
-        Destination::AnalyticsMain
-    )]
-    fn destination_for_event_name_mapping(
-        #[case] event_name: &str,
-        #[case] under_allowlist: Destination,
-        #[case] under_prefix: Destination,
-    ) {
+    #[case("$ai", Destination::AnalyticsMain)]
+    #[case("$aigeneration", Destination::AnalyticsMain)]
+    #[case("ai_generation", Destination::AnalyticsMain)]
+    fn destination_for_event_name_mapping(#[case] event_name: &str, #[case] expected: Destination) {
         assert_eq!(
-            destination_for_event_name(event_name, AiLanePredicate::Allowlist),
-            under_allowlist,
-            "allowlist: {event_name}"
-        );
-        assert_eq!(
-            destination_for_event_name(event_name, AiLanePredicate::Prefix),
-            under_prefix,
-            "prefix: {event_name}"
+            destination_for_event_name(event_name),
+            expected,
+            "{event_name}"
         );
     }
 
@@ -3442,7 +3368,7 @@ mod tests {
         };
         let batch = valid_batch(vec![normal_a, perf, normal_b, normal_c]);
 
-        let events = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
 
         assert_eq!(
             distinct_id_sequence(&events),
@@ -3456,7 +3382,7 @@ mod tests {
         let ctx = test_utils::test_context();
         let (first, second) = test_utils::realistic_dup_uuid_pair();
         let batch = valid_batch(vec![first, second]);
-        let err = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap_err();
+        let err = validate_events(&ctx, batch).unwrap_err();
         assert!(matches!(err, Error::DuplicateEventUuid(_)));
     }
 
@@ -4159,7 +4085,7 @@ mod tests {
         });
     }
 
-    /// process_batch wiring: an allowlisted AI event lands on the AI topic.
+    /// process_batch wiring: an AI event lands on the AI topic.
     #[tokio::test]
     async fn process_batch_routes_ai_events_to_ai_topic() {
         let ts = TestStateBuilder::new().build();
@@ -4712,43 +4638,32 @@ mod tests {
         });
     }
 
-    /// Under `Allowlist` an unlisted `$ai_*` name drops like any non-AI event; under
-    /// `Prefix` it is admitted. Non-AI names drop in both modes.
+    /// Any `$ai_*` name is admitted; every other name drops.
     #[rstest::rstest]
-    #[case::allowlisted("$ai_generation", EventResult::Ok, EventResult::Ok)]
-    #[case::allowlisted_span("$ai_span", EventResult::Ok, EventResult::Ok)]
-    #[case::prefixed_but_unlisted("$ai_not_a_real_event", EventResult::Drop, EventResult::Ok)]
-    #[case::analytics("$pageview", EventResult::Drop, EventResult::Drop)]
-    #[case::exception("$exception", EventResult::Drop, EventResult::Drop)]
-    #[case::heatmap("$$heatmap", EventResult::Drop, EventResult::Drop)]
-    #[case::prefix_needs_underscore("$aigeneration", EventResult::Drop, EventResult::Drop)]
+    #[case::generation("$ai_generation", EventResult::Ok)]
+    #[case::span("$ai_span", EventResult::Ok)]
+    #[case::any_ai_prefixed("$ai_not_a_real_event", EventResult::Ok)]
+    #[case::analytics("$pageview", EventResult::Drop)]
+    #[case::exception("$exception", EventResult::Drop)]
+    #[case::heatmap("$$heatmap", EventResult::Drop)]
+    #[case::prefix_needs_underscore("$aigeneration", EventResult::Drop)]
     #[tokio::test]
-    async fn ai_mode_gates_on_the_ai_lane_predicate(
+    async fn ai_mode_gates_on_the_ai_prefix(
         #[case] event_name: &str,
-        #[case] under_allowlist: EventResult,
-        #[case] under_prefix: EventResult,
+        #[case] expected: EventResult,
     ) {
-        for (predicate, expected) in [
-            (AiLanePredicate::Allowlist, under_allowlist),
-            (AiLanePredicate::Prefix, under_prefix),
-        ] {
-            let ts = TestStateBuilder::new()
-                .with_capture_mode(CaptureMode::Ai)
-                .with_ai_lane_predicate(predicate)
-                .build();
-            let mut ctx = test_utils::test_analytics_context();
-            let batch = valid_batch(vec![named_event(event_name)]);
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = valid_batch(vec![named_event(event_name)]);
 
-            let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
 
-            let (_, entry) = &resp.entries()[0];
-            assert_eq!(
-                entry.result, expected,
-                "event={event_name} predicate={predicate:?}"
-            );
-            if expected == EventResult::Drop {
-                assert_eq!(entry.details, Some(DETAIL_MISROUTED_EVENT));
-            }
+        let (_, entry) = &resp.entries()[0];
+        assert_eq!(entry.result, expected, "event={event_name}");
+        if expected == EventResult::Drop {
+            assert_eq!(entry.details, Some(DETAIL_MISROUTED_EVENT));
         }
     }
 
@@ -4788,7 +4703,7 @@ mod tests {
         let batch = valid_batch(vec![
             named_event("$pageview"),
             named_event("$exception"),
-            named_event("$ai_not_a_real_event"),
+            named_event("$aigeneration"),
         ]);
 
         let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
@@ -4834,7 +4749,7 @@ mod tests {
         assert_eq!(
             events[0].result,
             EventResult::Ok,
-            "an allowlisted AI event stays on the lane wherever it was pointed"
+            "an AI event stays on the lane wherever it was pointed"
         );
         assert_eq!(events[0].destination, destination);
         assert_eq!(events[0].details, None);
