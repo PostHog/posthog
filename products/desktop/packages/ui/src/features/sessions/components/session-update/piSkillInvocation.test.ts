@@ -10,6 +10,19 @@ describe("collapsePiSkillInvocation", () => {
     ).toBe("/code-review\n\nReview this pull request.");
   });
 
+  it.each([
+    [
+      "/skill:code-review Review this pull request.",
+      "/code-review Review this pull request.",
+    ],
+    ["/skill:code-review", "/code-review"],
+  ])(
+    "shows the typed skill command %s as its slash command",
+    (typed, shown) => {
+      expect(collapsePiSkillInvocation(typed)).toBe(shown);
+    },
+  );
+
   it("keeps non-skill messages unchanged", () => {
     expect(collapsePiSkillInvocation("Review this pull request.")).toBe(
       "Review this pull request.",

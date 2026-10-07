@@ -13,6 +13,32 @@ import { getPiRpcClientProcess, type PiRpcClient } from "./rpc-client";
 import { sendPiRpcCommand } from "./rpc-transport";
 import type { PiExtensionEvent } from "./types";
 
+const PI_SKILL_COMMAND_PREFIX = "/skill:";
+
+/**
+ * Pi expands `/skill:name args` into a `<skill>` block before it echoes the
+ * user message, so the echo of a skill command never equals the sent text.
+ * The parse mirrors Pi's own `_expandSkillCommand`.
+ */
+function isEchoOfSentMessage(sent: string, echoed: string): boolean {
+  if (sent === echoed) {
+    return true;
+  }
+  if (!sent.startsWith(PI_SKILL_COMMAND_PREFIX)) {
+    return false;
+  }
+  const spaceIndex = sent.indexOf(" ");
+  const skillName = sent.slice(
+    PI_SKILL_COMMAND_PREFIX.length,
+    spaceIndex === -1 ? undefined : spaceIndex,
+  );
+  const args = spaceIndex === -1 ? "" : sent.slice(spaceIndex + 1).trim();
+  return (
+    echoed.startsWith(`<skill name="${skillName}" `) &&
+    echoed.endsWith(args ? `</skill>\n\n${args}` : "</skill>")
+  );
+}
+
 export class PiRuntime {
   readonly client: PiRpcClient;
 
@@ -162,8 +188,8 @@ export class PiRuntime {
           .filter((content) => content.type === "text")
           .map((content) => content.text)
           .join("");
-        const pendingIndex = this.pendingUserMessages.findIndex(
-          (pending) => pending.message === text,
+        const pendingIndex = this.pendingUserMessages.findIndex((pending) =>
+          isEchoOfSentMessage(pending.message, text),
         );
         if (pendingIndex >= 0) {
           const [pending] = this.pendingUserMessages.splice(pendingIndex, 1);
