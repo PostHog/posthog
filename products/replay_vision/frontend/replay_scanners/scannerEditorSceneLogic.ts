@@ -305,22 +305,24 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
         leaveEditor: ({ destination }) => {
             const history: EditorHistory | null = cache.editorHistory
             cache.editorHistory = null
-            const depth =
-                history?.enteredFromApp && history.counts[history.counts.length - 1] === currentHistoryCount()
-                    ? history.counts.length
-                    : 0
-            if (depth === 0) {
+            if (!history?.enteredFromApp || history.counts[history.counts.length - 1] !== currentHistoryCount()) {
                 router.actions.replace(destination)
                 return
             }
+            const depth = history.counts.length
             // Not a disposable, because the scene unmounts during this popstate and would remove it first.
             // The timeout drops the listener if the popstate never comes, so it can't fire on a later back.
             const landed = new AbortController()
+            // The entry before the editor holds the count just below the editor's first entry.
+            const preEditorCount = history.counts[0] - 1
             window.addEventListener(
                 'popstate',
                 () => {
                     landed.abort()
-                    if (removeProjectIdIfPresent(window.location.pathname) !== combineUrl(destination).pathname) {
+                    if (
+                        currentHistoryCount() === preEditorCount &&
+                        removeProjectIdIfPresent(window.location.pathname) !== combineUrl(destination).pathname
+                    ) {
                         router.actions.push(destination)
                     }
                 },

@@ -26,8 +26,8 @@ describe('firstErroredScannerStep', () => {
 })
 
 describe('isScannerEditorPath', () => {
-    it.each([
-        ...SCANNER_EDITOR_STEPS.map((step) => [scannerStepUrl(step, 'abc'), true] as const),
+    it.each<[string, boolean]>([
+        ...SCANNER_EDITOR_STEPS.map((step): [string, boolean] => [scannerStepUrl(step, 'abc'), true]),
         [scannerStepUrl('overview', 'new'), true],
         [`/project/123${urls.replayVisionScannerBudget('abc')}`, true],
         [urls.replayVisionScannerSelfDriving('abc'), true],
