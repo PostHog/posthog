@@ -1,5 +1,6 @@
 import uuid as uuid_module
 import contextlib
+from datetime import datetime
 from uuid import UUID
 
 import pytest
@@ -243,7 +244,7 @@ class TestDetachDistinctIdJob:
         assert override_rows[0][0] == TEAM_ID
         assert override_rows[0][1] == "$posthog_cookieless"
         assert override_rows[0][2] == DUMMY_OVERRIDE_UUID
-        assert override_rows[0][4] == PDI_VERSION + 1
+        assert override_rows[0][4] == PDI_VERSION + 2
 
     @patch("posthog.dags.detach_distinct_id.sync_execute")
     def test_uses_explicit_override_person_id(self, mock_sync_execute):
@@ -422,7 +423,7 @@ class TestDetachDistinctIdIntegration:
     @pytest.mark.parametrize(
         "clickhouse_table, expected_version",
         [
-            # (table holding a version-20 row for the distinct id, version the tombstone and override get)
+            # (table holding a version-20 row for the distinct id, version the tombstone gets)
             (None, 4),
             ("person_distinct_id2", 21),
             ("person_distinct_id_overrides", 21),
@@ -462,14 +463,36 @@ class TestDetachDistinctIdIntegration:
                 "is_deleted": 1,
             },
         )
+        # The overrides MV consumes the same topic, so the published tombstone also lands in the overrides
+        # table, after the direct insert.
+        tombstone = producer.produce.call_args.kwargs["data"]
+        sync_execute(
+            """
+            INSERT INTO person_distinct_id_overrides
+            (team_id, distinct_id, person_id, is_deleted, version, _timestamp, _offset, _partition)
+            VALUES
+            """,
+            [
+                (
+                    tombstone["team_id"],
+                    tombstone["distinct_id"],
+                    tombstone["person_id"],
+                    tombstone["is_deleted"],
+                    tombstone["version"],
+                    datetime.now(),
+                    0,
+                    0,
+                )
+            ],
+        )
         override = sync_execute(
             """
-            SELECT argMax(person_id, version), max(version) FROM person_distinct_id_overrides
+            SELECT person_id, is_deleted, version FROM person_distinct_id_overrides FINAL
             WHERE team_id = %(team_id)s AND distinct_id = %(distinct_id)s
             """,
             {"team_id": team.id, "distinct_id": pdi_detach.distinct_id},
         )
-        assert override == [(UUID(override_target), expected_version)]
+        assert override == [(UUID(override_target), 0, expected_version + 1)]
 
     def test_fails_without_tombstoning_when_the_distinct_id_moves_after_the_lookup(
         self, team, person_with_two_distinct_ids

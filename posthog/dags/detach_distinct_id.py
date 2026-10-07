@@ -282,7 +282,7 @@ def detach_distinct_id_op(
         team_id=config.team_id,
         distinct_id=config.distinct_id,
         override_person_uuid=override_target,
-        version=version,
+        version=version + 1,
     )
     log.info(f"Inserted person_distinct_id_overrides: {config.distinct_id!r} -> {override_target}")
 
