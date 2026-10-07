@@ -235,6 +235,7 @@ export interface broadcastWizardLogicValues {
     hasLoadedBatchJobs: boolean
     isReadOnly: boolean
     launching: boolean
+    linkAudienceRejected: boolean
     movingToDraft: boolean
     name: string
     rateLimitedSendDuration: string
@@ -363,6 +364,9 @@ export interface broadcastWizardLogicActions {
     prevStep: () => {
         value: true
     }
+    rejectLinkAudience: () => {
+        value: true
+    }
     replayDeferredEdit: () => {
         value: true
     }
@@ -376,6 +380,9 @@ export interface broadcastWizardLogicActions {
         broadcast: HogFlowApi | null
     }
     saveName: () => {
+        value: true
+    }
+    sendToEveryoneAfterRejectedLink: () => {
         value: true
     }
     setAudienceProperties: (properties: AnyPropertyFilter[]) => {
@@ -483,7 +490,8 @@ export interface broadcastWizardLogicMeta {
             sendAt: string | null,
             recurringStartsAt: string | null,
             integrations: IntegrationType[] | null,
-            integrationsLoading: boolean
+            integrationsLoading: boolean,
+            linkAudienceRejected: boolean
         ) => Record<BroadcastWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<BroadcastWizardStep, string[]>,
@@ -540,6 +548,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         prefillFromLink: (prefill: BroadcastPrefill) => ({ prefill }),
         saveName: true,
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
+        rejectLinkAudience: true,
+        sendToEveryoneAfterRejectedLink: true,
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
         setConversion: (conversion: HogFlowConversionApi) => ({ conversion }),
         setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => ({ emailRateLimit }),
@@ -663,6 +673,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             },
         ],
         // Kept for the launch event, so a launch counts toward the product it started from.
+        // Set when a link's audience couldn't be used, so the empty default (everyone) needs an explicit choice.
+        linkAudienceRejected: [
+            false,
+            {
+                rejectLinkAudience: () => true,
+                setAudienceProperties: () => false,
+                sendToEveryoneAfterRejectedLink: () => false,
+            },
+        ],
         entrySource: [
             null as string | null,
             {
@@ -959,6 +978,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 s.recurringStartsAt,
                 s.integrations,
                 s.integrationsLoading,
+                s.linkAudienceRejected,
             ],
             (
                 goalEnabled: boolean,
@@ -968,7 +988,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 sendAt: string | null,
                 recurringStartsAt: string | null,
                 integrations: IntegrationType[] | null,
-                integrationsLoading: boolean
+                integrationsLoading: boolean,
+                linkAudienceRejected: boolean
             ): Record<BroadcastWizardStep, string[]> => {
                 const errors: Record<BroadcastWizardStep, string[]> = {
                     recipients: [],
@@ -976,6 +997,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     content: [],
                     schedule: [],
                     review: [],
+                }
+
+                if (linkAudienceRejected) {
+                    errors.recipients.push('Choose who gets this email')
                 }
 
                 if (goalEnabled) {
@@ -1715,23 +1740,24 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             ...searchParams
         } = router.values.searchParams
         const properties = parseBroadcastAudiencePrefill(audience)
-        if (properties) {
+        if (audience !== undefined || name !== undefined || source !== undefined) {
             const prefill: BroadcastPrefill = {
-                properties,
+                properties: properties ?? [],
                 name: typeof name === 'string' ? name : undefined,
                 source: typeof source === 'string' ? source : undefined,
             }
             // Not setAudienceProperties: opening /broadcasts/new must not create a draft.
             actions.prefillFromLink(prefill)
-            // pinned: analytics event name
-            posthog.capture('broadcast prefilled from link', {
-                entry_source: prefill.source ?? null,
-                audience_filter_count: properties.length,
-            })
+            if (properties) {
+                // pinned: analytics event name
+                posthog.capture('broadcast prefilled from link', {
+                    entry_source: prefill.source ?? null,
+                    audience_filter_count: properties.length,
+                })
+            }
         }
         if (audience !== undefined && !properties) {
-            // Opening with no recipients would mean everyone, so say the link's audience was not used.
-            lemonToast.error("This link's recipients couldn't be read, so none were added. Choose who gets the email.")
+            actions.rejectLinkAudience()
         }
         if (audience !== undefined || name !== undefined || source !== undefined) {
             router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)

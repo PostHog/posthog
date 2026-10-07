@@ -147,6 +147,22 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.searchParams).toEqual({})
     })
 
+    it('blocks the recipients step until the person chooses, when a link has an audience it cannot use', async () => {
+        logic.unmount()
+        router.actions.push(
+            `/broadcasts/new?audience=${encodeURIComponent('[{"key":"email","type":"person","operator":"exact"}]')}&name=Fix%20shipped`
+        )
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['rejectLinkAudience']).toNotHaveDispatchedActions(['ensureDraft'])
+        expect(logic.values.name).toEqual('Fix shipped')
+        expect(logic.values.stepValidationErrors.recipients).toEqual(['Choose who gets this email'])
+
+        logic.actions.sendToEveryoneAfterRejectedLink()
+        expect(logic.values.stepValidationErrors.recipients).toEqual([])
+    })
+
     test.each([
         { edited: 'only the email', latestName: 'Spring sale', expectedName: 'Spring sale, final' },
         { edited: 'the name too', latestName: 'Spring promo', expectedName: 'Spring promo' },
