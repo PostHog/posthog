@@ -7,10 +7,11 @@ from uuid import UUID
 from django.conf import settings
 from django.db.models import Q
 
-from ..facade.contracts import SavedQuerySummary, UpstreamTableRef
+from ..facade.contracts import SavedQueryDefinition, SavedQuerySummary, UpstreamTableRef
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.edge import Edge
 from ..models.node import Node, NodeType
+from .node_frequency import declared_targets_by_saved_query
 from .saved_query_freshness import saved_query_materialized_at
 
 POSTHOG_TABLE_ORIGIN = "posthog"
@@ -94,6 +95,30 @@ def all_saved_query_names(team_id: int) -> dict[str, str]:
     """The current name of every saved query in this team that still resolves. One query."""
     rows = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).values_list("id", "name")
     return {str(saved_query_id): name for saved_query_id, name in rows}
+
+
+def saved_query_definitions(team_id: int) -> list[SavedQueryDefinition]:
+    """Every saved query in this team that still resolves, with its HogQL, materialization and DAG node interval."""
+    saved_queries = list(
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id)
+        .exclude(deleted=True)
+        .only("id", "name", "query", "is_materialized", "is_test", "managed_viewset_id", "created_at")
+        .order_by("created_at", "id")
+    )
+    intervals = declared_targets_by_saved_query(team_id, [saved_query.id for saved_query in saved_queries])
+    return [
+        SavedQueryDefinition(
+            id=saved_query.id,
+            name=saved_query.name,
+            hogql=(saved_query.query or {}).get("query") or "",
+            is_materialized=bool(saved_query.is_materialized),
+            sync_frequency_interval=intervals.get(str(saved_query.id)),
+            is_test=saved_query.is_test,
+            is_managed=saved_query.managed_viewset_id is not None,
+            created_at=saved_query.created_at,
+        )
+        for saved_query in saved_queries
+    ]
 
 
 def allowed_saved_query_ids(

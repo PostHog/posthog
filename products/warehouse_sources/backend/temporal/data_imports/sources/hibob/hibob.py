@@ -1,6 +1,7 @@
 from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import quote
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -15,9 +16,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.settings import (
+    BULK_PAGE_LIMIT,
+    EMPLOYERS,
     HIBOB_ENDPOINTS,
     NAMED_LISTS,
     TIME_OFF_CALENDARS,
+    WORK_LOCATIONS,
     HiBobEndpointConfig,
 )
 
@@ -185,6 +189,51 @@ def _named_lists_rows(
         yield rows
 
 
+def _iter_search_pages(session: Any, path: str, body: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
+    cursor: str | None = None
+    while True:
+        page_body = {**body, "cursor": cursor} if cursor else body
+        response = session.post(f"{HIBOB_BASE_URL}{path}", json=page_body, timeout=REQUEST_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        data = response.json()
+
+        items = data.get("items", [])
+        if items:
+            yield items
+
+        next_cursor = (data.get("response_metadata") or {}).get("next_cursor")
+        if next_cursor and next_cursor == cursor:
+            raise ValueError(f"HiBob returned a repeated cursor for {path}")
+        if not next_cursor:
+            break
+        cursor = next_cursor
+
+
+def _work_locations_rows(
+    service_user_id: str, service_user_token: str, config: HiBobEndpointConfig
+) -> Iterator[list[dict[str, Any]]]:
+    # Work locations are only searchable per employer, so list the employer ids first.
+    session = make_tracked_session(redact_values=(service_user_token,))
+    session.auth = (service_user_id, service_user_token)
+    try:
+        employer_ids = [
+            str(employer["/employer/id"])
+            for page in _iter_search_pages(
+                session,
+                HIBOB_ENDPOINTS[EMPLOYERS].path,
+                {"fields": ["/employer/id"], "filters": [], "limit": BULK_PAGE_LIMIT},
+            )
+            for employer in page
+            if employer.get("/employer/id") is not None
+        ]
+        for employer_id in employer_ids:
+            path = config.path.format(employerId=quote(employer_id, safe=""))
+            for page in _iter_search_pages(session, path, config.body or {}):
+                yield _leaf_keys_page(page)
+    finally:
+        session.close()
+
+
 def _since(days_ago: int) -> str:
     return (datetime.now(UTC) - timedelta(days=days_ago)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
@@ -212,6 +261,16 @@ def hibob_source(
         return SourceResponse(
             name=endpoint,
             items=lambda: _named_lists_rows(service_user_id, service_user_token, config),
+            primary_keys=list(config.primary_keys),
+            partition_count=1,
+            partition_size=1,
+            sort_mode="asc",
+        )
+
+    if endpoint == WORK_LOCATIONS:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _work_locations_rows(service_user_id, service_user_token, config),
             primary_keys=list(config.primary_keys),
             partition_count=1,
             partition_size=1,

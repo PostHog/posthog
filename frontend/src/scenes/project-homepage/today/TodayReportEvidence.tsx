@@ -1,56 +1,58 @@
 import { useValues } from 'kea'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { Button, Text } from '@posthog/quill'
 
-import { Link } from 'lib/lemon-ui/Link'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { SignalCard } from 'products/signals/frontend/inbox/SignalCard'
+import { SignalReport } from 'products/signals/frontend/inbox/types'
 
 import { todayReportLogic } from './todayReportLogic'
+import { TodayReportSectionTitle } from './TodayReportSectionTitle'
+import { TodayReportSignalRow } from './TodayReportSignalRow'
 import { isSampleReportId } from './todaySampleReports'
 
-const SHOWN_SIGNAL_COUNT = 3
+function EvidenceRows({ reportId }: { reportId: string }): JSX.Element {
+    const { shownEvidence } = useValues(todayReportLogic({ reportId }))
+    if (shownEvidence.length === 0) {
+        return (
+            <Text size="sm" variant="muted" render={<p />}>
+                No signals are attached to this report yet.
+            </Text>
+        )
+    }
+    return (
+        <div className="-mx-2 flex flex-col">
+            {shownEvidence.map((signal) => (
+                <TodayReportSignalRow key={signal.signal_id} reportId={reportId} signal={signal} />
+            ))}
+        </div>
+    )
+}
 
-/** The newest signals behind the report. The full list stays in the Inbox. */
-export function TodayReportEvidence({ reportId }: { reportId: string }): JSX.Element {
-    const { signals, reportSignals, reportSignalsLoading } = useValues(todayReportLogic({ reportId }))
-    const inboxUrl = urls.inboxReport('reports', reportId)
+export function TodayReportEvidence({ report }: { report: SignalReport }): JSX.Element {
+    const { shownEvidence, evidenceCount } = useValues(todayReportLogic({ reportId: report.id }))
+    const fullReport = urls.inboxReport('reports', report.id)
+    const showsSeeAll = evidenceCount > shownEvidence.length && !isSampleReportId(report.id)
 
     return (
-        <section className="TodayEvidence" aria-label="Evidence">
-            <div className="Today__label">
-                {reportSignals === null
-                    ? 'Evidence'
-                    : `Evidence · ${signals.length} ${signals.length === 1 ? 'signal' : 'signals'}`}
+        <section className="flex flex-col gap-0.5" aria-label="Evidence" data-attr="today-report-evidence">
+            <div className="flex items-baseline justify-between gap-3">
+                <TodayReportSectionTitle>Evidence</TodayReportSectionTitle>
+                {showsSeeAll && (
+                    <Button
+                        variant="link-muted"
+                        size="sm"
+                        className="-me-2"
+                        nativeButton={false}
+                        render={<LinkPrimitive to={fullReport} />}
+                        data-attr="today-report-evidence-all"
+                    >
+                        {`See all ${evidenceCount}`}
+                    </Button>
+                )}
             </div>
-            {reportSignals === null && reportSignalsLoading ? (
-                <div className="flex flex-col gap-3">
-                    <LemonSkeleton className="h-20" />
-                    <LemonSkeleton className="h-20" />
-                </div>
-            ) : reportSignals === null ? (
-                <p className="TodayEvidence__note">
-                    <span>Couldn’t load the evidence. </span>
-                    <Link to={inboxUrl} data-attr="today-evidence-inbox">
-                        Open the report in the Inbox
-                    </Link>
-                    <span> to see it there.</span>
-                </p>
-            ) : signals.length === 0 ? (
-                <p className="TodayEvidence__note">No signals are attached to this report yet.</p>
-            ) : (
-                <div className="flex flex-col gap-3">
-                    {signals.slice(0, SHOWN_SIGNAL_COUNT).map((signal) => (
-                        <SignalCard key={signal.signal_id} signal={signal} />
-                    ))}
-                    {signals.length > SHOWN_SIGNAL_COUNT && !isSampleReportId(reportId) && (
-                        <Link to={inboxUrl} className="text-sm" data-attr="today-evidence-inbox">
-                            {`See all ${signals.length} signals in the Inbox`}
-                        </Link>
-                    )}
-                </div>
-            )}
+            <EvidenceRows reportId={report.id} />
         </section>
     )
 }

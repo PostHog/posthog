@@ -10,7 +10,7 @@ Read the full guide at [docs/published/handbook/engineering/ai/implementing-mcp-
 ## Quick workflow
 
 ```sh
-# 1. Scaffold a starter YAML with all operations disabled.
+# 1. Only for a product with no YAML yet: create one with no tools.
 #    --product discovers endpoints via their x-product attribution.
 #    ViewSets in products/<name>/backend/ are auto-attributed via module
 #    path. ViewSets elsewhere need
@@ -18,22 +18,28 @@ Read the full guide at [docs/published/handbook/engineering/ai/implementing-mcp-
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
-# 2. Configure the YAML — enable tools, add descriptions, and annotations for PATCH/POST/PUT
+# 2. List the product's operations that have no YAML entry, then add the ones agents need.
+#    --add writes an enabled entry; title and description come from the API unless the YAML sets them.
+#    Add --file <path> to write to a YAML file other than the product's tools.yaml.
+pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product your_product
+pnpm --filter=@posthog/mcp run scaffold-yaml -- --add your_product_things_list --product your_product
+
+# 3. Configure the entry — description, and annotations for PATCH/POST/PUT
 #    (scopes come from the API when omitted)
 #    Place in products/<product>/mcp/*.yaml (preferred) or services/mcp/definitions/*.yaml
 
-# 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
+# 4. Add a HogQL system table in posthog/hogql/database/schema/system.py
 #    and a model reference in products/posthog_ai/skills/querying-posthog-data/references/
 
-# 4. Generate handlers and schemas
+# 5. Generate handlers and schemas
 hogli build:openapi
 
-# 5. Refresh the tool input schema snapshots (CI unit tests fail on a stale snapshot)
+# 6. Refresh the tool input schema snapshots (CI unit tests fail on a stale snapshot)
 pnpm --filter=@posthog/mcp exec vitest run tests/unit/tool-schema-snapshots.test.ts -u
 # A tool behind a new `feature_flag` needs that flag in the test's `featureFlags` map, set to the value that shows the tool:
 # true for a plain gate, the variant string for a variant gate, a non-true value for a `disable` gate.
 
-# 6. Only when the YAML uses ui_apps: regenerate the UI apps (CI checks they are current)
+# 7. Only when the YAML uses ui_apps: regenerate the UI apps (CI checks they are current)
 pnpm --filter=@posthog/mcp run generate:ui-apps
 ```
 
@@ -182,7 +188,9 @@ tools:
 
 When `scopes` is omitted, the generator uses the scopes the API requires, so the tool cannot drift from the endpoint.
 Set `scopes` by hand only when the API computes them per request (the generator fails and says so) or to gate a tool more tightly.
-A `scopes` list that misses a scope the API requires prints a warning, and a GitHub annotation on CI.
+A `scopes` list that misses a scope the API requires fails codegen, with a GitHub annotation on CI.
+When the API picks the scopes per request, list the action in the viewset's `request_dependent_scope_actions`.
+The spec then marks the operation with `x-request-dependent-scopes`, codegen skips the check for it, and its tools must declare `scopes`.
 `annotations` default to the HTTP method for GET (read-only) and DELETE (destructive).
 PATCH, POST and PUT vary too much (a PATCH can be a soft delete or non-idempotent), so declare `annotations` for them.
 
@@ -242,13 +250,20 @@ unattributable in MCP analytics, and you can no longer tell whether anything sti
 A tool that a feature flag removes is a different case. It keeps its definition, declares
 `superseded_by` in the YAML, and `flagGatedToolMessage` answers the call.
 
+### Keeping an operation off on purpose
+
+Tools are opt-in: an operation without a YAML entry is not exposed, and nothing writes entries for new endpoints.
+Write an entry with `enabled: false` only to record a decision, for example a tool superseded by another one.
+Such an entry needs `disabled_reason: <why>`. Sync removes an `enabled: false` entry without one as a leftover stub, and codegen rejects `disabled_reason` on an enabled tool.
+
 ### Syncing after endpoint changes
 
 ```sh
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 ```
 
-Idempotent and non-destructive — adds new operations as `enabled: false`, removes stale ones.
+Idempotent and never adds entries. It keeps every entry whose operation exists, updates renumbered `_N` operation IDs,
+drops a disabled entry whose operation is gone, and fails on an enabled tool whose operation is gone.
 
 ## Serializer descriptions
 

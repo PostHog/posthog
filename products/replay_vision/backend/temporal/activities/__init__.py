@@ -63,6 +63,7 @@ from products.replay_vision.backend.temporal.activities.refresh_scanner_estimate
 from products.replay_vision.backend.temporal.activities.resolve_experiment_variant import (
     resolve_experiment_variant_activity,
 )
+from products.replay_vision.backend.temporal.activities.start_launched_scanners import start_launched_scanners_activity
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
 
 __all__ = [
@@ -105,6 +106,7 @@ __all__ = [
     "reap_childless_inline_scanners_activity",
     "reap_orphaned_observations_activity",
     "resolve_experiment_variant_activity",
+    "start_launched_scanners_activity",
     "refresh_scanner_estimate_activity",
     "upload_video_to_gemini_activity",
     "upsert_scanner_schedule_activity",

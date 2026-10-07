@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kandji.kandji import (
+    KandjiNextLinkPaginator,
     build_base_url,
     get_resource,
     kandji_source,
@@ -165,15 +166,24 @@ class TestKandjiTransport:
         # bundle_id is only unique within a device, so the parent device id is part of the key.
         assert response.primary_keys == ["device_id", "bundle_id"]
 
+    @parameterized.expand(
+        [
+            ("library_items", "device_library_items", "library_items"),
+            # Device Status also returns `library_items`; only its `parameters` list is synced.
+            ("status_parameters", "device_parameters", "parameters"),
+        ]
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.kandji.kandji.build_dependent_resource")
-    def test_kandji_source_fanout_wires_single_page_children(self, mock_build_dependent_resource) -> None:
+    def test_kandji_source_fanout_wires_single_page_children(
+        self, _name, endpoint, expected_selector, mock_build_dependent_resource
+    ) -> None:
         mock_build_dependent_resource.return_value = iter([])
 
         kandji_source(
             api_token="tok",
             subdomain="accuhive",
             region="us",
-            endpoint="device_library_items",
+            endpoint=endpoint,
             team_id=1,
             job_id="job-1",
         )
@@ -182,8 +192,42 @@ class TestKandjiTransport:
         # Kandji is full-refresh only — the fan-out must not request incremental merge behavior.
         assert kwargs["should_use_incremental_field"] is False
         assert kwargs["db_incremental_field_last_value"] is None
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "library_items"
+        assert kwargs["child_endpoint_extra"]["data_selector"] == expected_selector
         assert isinstance(kwargs["child_endpoint_extra"]["paginator"], SinglePagePaginator)
         # The devices parent lists a bare array.
         assert kwargs["parent_endpoint_extra"]["data_selector"] == "$"
         assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], OffsetPaginator)
+
+
+class TestKandjiNextLinkPaginator:
+    def test_copies_next_query_onto_original_request(self) -> None:
+        paginator = KandjiNextLinkPaginator()
+        request = requests.Request(
+            method="GET", url="https://accuhive.api.kandji.io/api/v1/users", params={"sizePerPage": 300}
+        )
+        response = Mock()
+        # Kandji documents `next` links on the non-`api` host; the token must not follow them there.
+        response.json.return_value = {"next": "https://accuhive.kandji.io/api/v1/users?cursor=cD0yOTE0Mw%3D%3D"}
+
+        paginator.update_state(response, [{"id": "u1"}])
+        paginator.update_request(request)
+
+        assert paginator.has_next_page is True
+        assert request.url == "https://accuhive.api.kandji.io/api/v1/users"
+        assert request.params == {"sizePerPage": 300, "cursor": "cD0yOTE0Mw=="}
+
+    @parameterized.expand(
+        [
+            ("null_next", [{"next": None}]),
+            ("missing_next", [{"results": []}]),
+            ("repeated_next", [{"next": "https://x/api/v1/library/custom-apps?page=2"}] * 2),
+        ]
+    )
+    def test_stops_paging(self, _name, bodies) -> None:
+        paginator = KandjiNextLinkPaginator()
+        for body in bodies:
+            response = Mock()
+            response.json.return_value = body
+            paginator.update_state(response, [])
+
+        assert paginator.has_next_page is False

@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ACCESS_BLOCKED_ERROR_CODE } from 'lib/api-error'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -231,7 +232,10 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersRetrieve() from '~/generated/core/api' instead.
                     await api.get('api/users/@me/').catch((error: any) => {
                         if (error.status === 401) {
-                            userLogic.findMounted()?.actions.logout(true)
+                            // An access rule refusal is not an expired session, so the person is told why.
+                            const reason =
+                                error.code === ACCESS_BLOCKED_ERROR_CODE ? ACCESS_BLOCKED_ERROR_CODE : undefined
+                            userLogic.findMounted()?.actions.logout(true, undefined, reason)
                         }
                     })
                 }

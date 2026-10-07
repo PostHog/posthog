@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source import IntercomSource
 
-INCREMENTAL_ENDPOINTS = {"contacts", "conversations", "tickets", "activity_logs", "conversation_parts"}
+INCREMENTAL_ENDPOINTS = {"contacts", "conversations", "tickets", "activity_logs", "conversation_parts", "macros"}
 
 
 class TestIntercomSource:
@@ -131,6 +131,13 @@ class TestIntercomSource:
         for name, entry in descriptions.items():
             assert entry.get("description"), name
             assert entry.get("columns"), name
+
+    @pytest.mark.parametrize("pin", ["2.13", "2.15"])
+    def test_get_schemas_hides_tables_the_pinned_version_does_not_serve(self, pin: str):
+        names = {s.name for s in self.source.get_schemas(self.config, self.team_id, api_version=pin)}
+
+        assert names == {name for name, cfg in INTERCOM_ENDPOINTS.items() if cfg.api_versions is None}
+        assert "macros" not in names
 
     def test_get_schemas_names_filter(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["contacts", "companies"])
