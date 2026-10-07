@@ -217,8 +217,10 @@ def test_run_routes_through_the_engine(
         ) as create_client,
         patch("posthoganalytics.client.batch_post") as batch_post,
         patch("products.posthog_ai.eval_harness.harness.lifecycle.atexit.register"),
-        patch("products.posthog_ai.eval_harness.harness.lifecycle.get_git_commit_full", return_value="abc123"),
-        patch("products.posthog_ai.eval_harness.harness.lifecycle._worktree_dirty", return_value=False),
+        patch(
+            "products.posthog_ai.eval_harness.harness.lifecycle._git",
+            side_effect=lambda *args: "abc123" if args[0] == "rev-parse" else "",
+        ),
     ):
         with harness._stack:
             harness._bootstrap(frozenset())

@@ -18,7 +18,6 @@ from django.test import override_settings
 import posthoganalytics
 from posthoganalytics import Posthog
 
-from posthog.git import get_git_commit_full
 from posthog.ph_client import get_client
 
 from products.tasks.backend.constants import (
@@ -89,20 +88,19 @@ def eval_feature_enabled(
     return key not in FORCED_OFF_FEATURE_FLAGS
 
 
-def _worktree_dirty() -> bool | None:
-    """Whether tracked files differ from ``HEAD``; ``None`` when git can't tell."""
+def _git(*args: str) -> str | None:
+    """Stdout of a git command run in the checkout under test; ``None`` when git fails."""
     try:
-        status = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=no"],
-            cwd=REPO_ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
+        result = subprocess.run(["git", *args], cwd=REPO_ROOT, check=True, capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return None
-    return bool(status.stdout.strip())
+    return result.stdout.strip()
+
+
+def _worktree_dirty() -> bool | None:
+    """Whether tracked files differ from ``HEAD``; ``None`` when git can't tell."""
+    status = _git("status", "--porcelain", "--untracked-files=no")
+    return None if status is None else bool(status)
 
 
 class SandboxedEvalHarness:
@@ -421,7 +419,7 @@ class SandboxedEvalHarness:
             engine=self._engine,
             per_case_timeout_seconds=self.options.per_case_timeout_seconds,
             trials=self.options.trials,
-            git_sha=get_git_commit_full(),
+            git_sha=_git("rev-parse", "HEAD"),
             git_dirty=_worktree_dirty(),
         )
 
