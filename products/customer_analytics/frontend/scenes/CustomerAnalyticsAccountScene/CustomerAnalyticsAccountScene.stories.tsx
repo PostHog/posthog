@@ -248,6 +248,8 @@ export const ChurnedAndIgnored: Story = {
         testOptions: {
             waitForSelector: ['[data-attr="account-churned-tag"]', '[data-attr="account-ignored-tag"]'],
             viewport: { width: 1280, height: 900 },
+            // The scene's tab panel is its own <main>, so the default snapshot crops out the title tags.
+            includeNavigationInSnapshot: true,
         },
     },
 }
