@@ -3,22 +3,26 @@
 -- in the window. Personless events are excluded, because lifecycle needs a person profile.
 -- Reports 12 weeks, including the current week. The activity query reads one more week as a lookback,
 -- so the first reported week can be classified as returning.
+-- Events of one person can carry different person.created_at values. Take the earliest per person, as the
+-- native insight does, so that one person never counts in two buckets in the same week.
 WITH activity AS (
-    SELECT DISTINCT
+    SELECT
         person_id,
-        toStartOfWeek(timestamp)         AS week,
-        toStartOfWeek(person.created_at) AS created_week
+        toStartOfWeek(timestamp) AS week,
+        min(person.created_at)   AS created_at
     FROM events
     WHERE event = 'core_action'
       AND properties.$process_person_profile != 'false'
       AND timestamp >= toStartOfWeek(now()) - INTERVAL 12 WEEK
       AND timestamp < toStartOfWeek(now()) + INTERVAL 1 WEEK
+    GROUP BY person_id, week
 ),
 enriched AS (
     SELECT
         person_id,
         week,
-        created_week,
+        toStartOfWeek(min(created_at) OVER (PARTITION BY person_id
+                                            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)) AS created_week,
         lagInFrame(week) OVER (PARTITION BY person_id ORDER BY week
                                ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS prev_week
     FROM activity
