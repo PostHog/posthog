@@ -7,12 +7,14 @@ from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 import botocore.exceptions
+from fsspec.implementations.memory import MemoryFileSystem
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
     ObjectStorePermissionDeniedError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import (
+    ParquetCompression,
     S3BatchWriter,
     _write_parquet_to_s3,
     build_schema_dict,
@@ -119,38 +121,37 @@ class TestBuildSchemaDict:
 class TestBatchByteSize:
     @parameterized.expand(
         [
-            # s3fs spells the key in lowercase; reading S3's `Size` here recorded 0 bytes on every queue row.
-            ("s3fs_lowercase_size", {"size": 2048}, 2048),
-            ("raw_s3_head_shape", {"Size": 512}, 512),
-            ("numeric_string", {"size": "64"}, 64),
-            ("no_size_key", {"type": "file"}, 0),
-            ("not_a_dict", None, 0),
+            ("one_row", 1, "zstd"),
+            ("empty_table", 0, "zstd"),
+            # Several megabytes that do not compress, so the parquet writer makes many writes.
+            ("many_writes", 400_000, "none"),
         ]
-    )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer._write_parquet_to_s3"
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.ensure_bucket")
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.get_s3_client")
-    def test_byte_size_comes_from_the_written_object(
+    def test_byte_size_counted_while_writing_is_the_size_of_the_stored_object(
         self,
         _name: str,
-        file_info: dict | None,
-        expected: int,
+        rows: int,
+        compression: ParquetCompression,
         mock_get_s3_client,
         _mock_ensure_bucket,
-        _mock_write,
     ) -> None:
-        mock_get_s3_client.return_value.info.return_value = file_info
-
+        # The size is on each queue row and sets how many batches the loader joins into one write.
+        # A count that differs from the object, or a zero, changes that plan without an error.
+        store = MemoryFileSystem()
+        mock_get_s3_client.return_value = store
         job = MagicMock()
         job.team_id = 1
         job.created_at = datetime(2026, 8, 5, tzinfo=UTC)
-        writer = S3BatchWriter(MagicMock(), job, schema_id="schema-1", run_uuid="run-1")
+        writer = S3BatchWriter(MagicMock(), job, schema_id="schema-1", run_uuid=f"run-{_name}", compression=compression)
+        table = pa.table({"id": pa.array(range(rows), pa.int64()), "v": [f"{i:x}" * 3 for i in range(rows)]})
 
-        result = writer.write_batch(pa.table({"id": [1]}), 0)
+        result = writer.write_batch(table, 0)
 
-        assert result.byte_size == expected
+        stored_size = store.info(result.s3_path.split("://", 1)[-1])["size"]
+        assert result.byte_size == stored_size
+        assert result.byte_size > 0
 
 
 class TestWriteBatchPermissionDenied:
