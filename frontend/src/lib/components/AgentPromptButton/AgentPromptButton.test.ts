@@ -47,7 +47,7 @@ describe('AgentPromptButton', () => {
         expect(link.length).toBeGreaterThan(maxLength - 30)
     })
 
-    const MCP_LINE = `Use the PostHog MCP server in PostHog project 42. If the PostHog MCP server is not connected, stop and ask me to run \`${MCP_INSTALL_COMMAND}\` in a terminal, then try again.`
+    const MCP_LINE = `If working with PostHog data would help with this task, use the PostHog MCP server in PostHog project 42. If the server is not connected, ask me to install it by running \`${MCP_INSTALL_COMMAND}\` in a terminal.`
 
     it.each([
         ['an external agent', 'cursor', false, 42, `Fix it\n\n${MCP_LINE}`],

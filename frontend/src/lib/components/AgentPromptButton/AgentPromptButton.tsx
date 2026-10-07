@@ -266,7 +266,7 @@ export function buildAgentPrompt(
         return prompt
     }
     const project = projectId ? ` in PostHog project ${projectId}` : ''
-    return `${prompt.trimEnd()}\n\nUse the PostHog MCP server${project}. If the PostHog MCP server is not connected, stop and ask me to run \`${MCP_INSTALL_COMMAND}\` in a terminal, then try again.`
+    return `${prompt.trimEnd()}\n\nIf working with PostHog data would help with this task, use the PostHog MCP server${project}. If the server is not connected, ask me to install it by running \`${MCP_INSTALL_COMMAND}\` in a terminal.`
 }
 
 export function AgentPromptButton({
