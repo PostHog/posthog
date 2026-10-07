@@ -5,6 +5,10 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.source import FactorialSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.factorial import (
+    FactorialSourceConfig,
+)
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -27,6 +31,11 @@ def _make_inputs(**overrides: Any) -> SourceInputs:
 
 
 class TestFactorialSource:
+    def setup_method(self) -> None:
+        self.source = FactorialSource()
+        self.team_id = 123
+        self.config = FactorialSourceConfig(api_key="test-key")
+
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog (no I/O in get_schemas), so the public docs can render the
         # Supported tables section.
