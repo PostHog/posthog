@@ -4,6 +4,7 @@ import {
     actions,
     afterMount,
     connect,
+    getContext,
     kea,
     key,
     listeners,
@@ -243,12 +244,13 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
             if (!markViewed) {
                 return
             }
+            const mountedIn = getContext()
             try {
                 await markViewed
             } catch {
                 return
             }
-            if (!cache.disposables.isDisposed) {
+            if (getContext() === mountedIn && !cache.disposables.isDisposed) {
                 actions.markPickViewed(observation.id)
             }
         },

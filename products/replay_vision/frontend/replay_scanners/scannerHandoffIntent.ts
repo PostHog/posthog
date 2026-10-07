@@ -52,22 +52,34 @@ export function consumeScannerHandoffIntent(): ScannerHandoffIntent | null {
 }
 
 const SCANNER_GOAL_DRAFT_INTENT_KEY = 'replay-vision.scanner-goal-draft-intent'
+const SCANNER_GOAL_DRAFT_INTENT_TTL_MS = 60_000
 
 /** One-shot "draft this goal now" from an in-app click, kept out of the URL so a link cannot
- * start a draft on its own. */
-export function markScannerGoalDraftIntent(goal: string): void {
+ * start a draft on its own. Returns false when storage is unavailable. */
+export function markScannerGoalDraftIntent(goal: string): boolean {
     try {
-        sessionStorage.setItem(SCANNER_GOAL_DRAFT_INTENT_KEY, goal)
+        sessionStorage.setItem(SCANNER_GOAL_DRAFT_INTENT_KEY, JSON.stringify({ goal, at: Date.now() }))
+        return true
     } catch {
-        // Storage can be unavailable (private mode); the wizard then opens with the goal to click.
+        return false
     }
 }
 
 export function consumeScannerGoalDraftIntent(): string | null {
     try {
-        const goal = sessionStorage.getItem(SCANNER_GOAL_DRAFT_INTENT_KEY)
+        const raw = sessionStorage.getItem(SCANNER_GOAL_DRAFT_INTENT_KEY)
         sessionStorage.removeItem(SCANNER_GOAL_DRAFT_INTENT_KEY)
-        return goal?.trim() || null
+        if (!raw) {
+            return null
+        }
+        const parsed = JSON.parse(raw)
+        if (typeof parsed?.goal !== 'string' || typeof parsed.at !== 'number') {
+            return null
+        }
+        if (Date.now() - parsed.at > SCANNER_GOAL_DRAFT_INTENT_TTL_MS) {
+            return null
+        }
+        return parsed.goal.trim() || null
     } catch {
         return null
     }

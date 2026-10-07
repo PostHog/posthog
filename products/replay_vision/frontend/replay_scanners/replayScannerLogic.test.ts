@@ -411,6 +411,19 @@ describe('replayScannerLogic', () => {
             expect(draftSpy).toHaveBeenCalledTimes(1)
         })
 
+        it('a draft intent older than a minute is dropped', async () => {
+            const now = Date.now()
+            const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now)
+            markScannerGoalDraftIntent('tell me what to watch')
+            nowSpy.mockReturnValue(now + 61_000)
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            nowSpy.mockRestore()
+
+            expect(logic.values.goalDraftInput).toBeFalsy()
+            expect(draftSpy).not.toHaveBeenCalled()
+        })
+
         it('a bare ?goal= param prefills the input without auto-starting the draft', async () => {
             router.actions.push(urls.replayVisionScannerTemplate('new'), { goal: 'find rage clicks in checkout' })
 

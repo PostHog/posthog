@@ -45,8 +45,11 @@ export function WatchPicksEmptyState({ size }: { size: 'small' | 'large' }): JSX
                         size={large ? 'medium' : 'small'}
                         disabledReason={getReplayVisionEditDisabledReason()}
                         onClick={() => {
-                            markScannerGoalDraftIntent(DEFAULT_GOAL)
-                            push(urls.replayVisionTemplates())
+                            if (markScannerGoalDraftIntent(DEFAULT_GOAL)) {
+                                push(urls.replayVisionTemplates())
+                            } else {
+                                push(urls.replayVisionTemplates(), { goal: DEFAULT_GOAL })
+                            }
                         }}
                         data-attr="vision-watch-picks-draft-scanner"
                     >
