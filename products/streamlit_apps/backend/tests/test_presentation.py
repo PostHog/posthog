@@ -16,6 +16,7 @@ from rest_framework import status
 
 from posthog.models.scoping import team_scope
 
+from products.streamlit_apps.backend.facade.api import MAX_FILE_COUNT
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
 from products.streamlit_apps.backend.presentation.serializers import (
     CreateVersionFromSourceInputSerializer,
@@ -900,6 +901,7 @@ class TestEditVersionSourceInputSerializer(SimpleTestCase):
             ("empty_edits", {"file_edits": [{"path": "app.py", "edits": []}]}),
             ("unsafe_create_path", {"create_files": {"../x.py": ""}}),
             ("same_path_twice", {"create_files": {"x.py": ""}, "delete_files": ["x.py"]}),
+            ("too_many_deletes", {"delete_files": [f"f{i}.py" for i in range(MAX_FILE_COUNT + 1)]}),
             (
                 "too_many_edits_across_files",
                 {

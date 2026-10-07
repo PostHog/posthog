@@ -1,5 +1,6 @@
 import base64
 import binascii
+from collections import Counter
 from typing import TYPE_CHECKING, cast
 
 import posthoganalytics
@@ -308,12 +309,21 @@ class EditVersionSourceInputSerializer(DataclassSerializer):
     def validate(self, attrs: EditVersionSourceInput) -> EditVersionSourceInput:
         if not (attrs.file_edits or attrs.create_files or attrs.delete_files):
             raise serializers.ValidationError("Provide at least one of file_edits, create_files, or delete_files.")
+        for name, collection in (
+            ("file_edits", attrs.file_edits),
+            ("create_files", attrs.create_files),
+            ("delete_files", attrs.delete_files),
+        ):
+            if len(collection) > MAX_FILE_COUNT:
+                raise serializers.ValidationError(
+                    f"Too many files in {name} ({len(collection)}, max {MAX_FILE_COUNT})."
+                )
         if sum(len(file_edit.edits) for file_edit in attrs.file_edits) > _MAX_SOURCE_EDITS:
             raise serializers.ValidationError(
                 f"Send at most {_MAX_SOURCE_EDITS} edits per request. Split larger changes across several requests."
             )
         touched = [edit.path for edit in attrs.file_edits] + list(attrs.create_files) + list(attrs.delete_files)
-        duplicates = sorted({path for path in touched if touched.count(path) > 1})
+        duplicates = sorted(path for path, count in Counter(touched).items() if count > 1)
         if duplicates:
             raise serializers.ValidationError(f"Each path can appear in only one change: {', '.join(duplicates)}")
         return attrs
