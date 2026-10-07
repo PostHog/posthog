@@ -249,6 +249,8 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     identity: SessionIdentity = Field(default_factory=SessionIdentity)
     # Group keys by group type index, for the observation row's group attribution.
     group_keys: dict[int, str] = Field(default_factory=dict)
+    # `$geoip_*` of the recorded session, for the emitted event. Kept off `SessionIdentity` so it never reaches the LLM.
+    session_geoip: dict[str, str] = Field(default_factory=dict)
 
 
 class EnsureSessionAssetInputs(BaseModel, frozen=True):
