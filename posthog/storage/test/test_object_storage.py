@@ -309,6 +309,7 @@ class TestObjectStorageClientFactory(SimpleTestCase):
             ("unsubstituted_placeholder", "https://${POSTHOG_DOMAIN}", False),
             ("placeholder_in_path", "https://example.com/${BUCKET}", False),
             ("missing_scheme", "objectstorage:19000", False),
+            ("unclosed_ipv6_bracket", "http://[bad", False),
             ("empty", "", False),
             ("none", None, False),
         ]
