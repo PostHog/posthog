@@ -975,8 +975,8 @@ async def _run_step(
 
 
 _RUNAWAY_NUMBER_CORRECTION = (
-    "\n\nYour previous attempt failed: a number in it ran on for thousands of digits. Write every number as a "
-    "short value, such as whole seconds of video time. Respond with raw JSON only."
+    "\n\nYour previous answer could not be read: a number in it ran on for thousands of digits. Write every "
+    "number as a short value, such as whole seconds of video time. Respond with raw JSON only."
 )
 
 

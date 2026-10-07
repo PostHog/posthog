@@ -1,4 +1,3 @@
-import math
 from collections.abc import Callable, Sequence
 from typing import Any, cast
 
@@ -260,6 +259,15 @@ async def test_step_re_prompts_once_on_invalid_json(first: _Resp | Exception) ->
     out = await _run(client, steps)
     assert out["core"].verdict == "yes"
     assert len(client.models.calls) == 2  # initial + one re-prompt
+    assert "Respond with raw JSON only" in client.models.calls[1]["contents"][-1].text
+
+
+@pytest.mark.asyncio
+async def test_an_unrelated_value_error_still_fails_the_step() -> None:
+    steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
+    client = _FakeClient([ValueError("bad request config")])
+    with pytest.raises(ValueError, match="bad request config"):
+        await _run(client, steps)
 
 
 @pytest.mark.asyncio
@@ -275,25 +283,40 @@ async def test_non_required_step_failure_is_skipped_not_raised() -> None:
     assert "side" not in out
 
 
+# The render cut 10s-40s of the session, so video second 15 shows session second 45.
+_CUT_CLOCK = VideoClock(
+    spans=(
+        ActiveSpan(session_from_s=0, session_to_s=10, video_from_s=0, video_to_s=10),
+        ActiveSpan(session_from_s=40, session_to_s=60, video_from_s=10, video_to_s=30),
+    )
+)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "duration_seconds,end_times,expected_end",
+    "duration_seconds,clock,end_times,expected_end,limit",
     [
-        (10.9, [10], 10),
-        (10.0, [10], 10),
-        (0.9, [0], 0),
-        (10.9, [11, 11], None),
-        (10.9, [11, 10], 10),
-        (None, [0, 0], None),
-        (0.0, [0, 0], None),
-        (-1.0, [0, 0], None),
-        (float("nan"), [0, 0], None),
-        (float("inf"), [0, 0], None),
-        (None, [None], None),
+        (10.9, _IDENTITY_CLOCK, [10], 10, 10),
+        (10.0, _IDENTITY_CLOCK, [10], 10, 10),
+        (0.9, _IDENTITY_CLOCK, [0], 0, 0),
+        (10.9, _IDENTITY_CLOCK, [11, 11], None, 10),
+        (10.9, _IDENTITY_CLOCK, [11, 10], 10, 10),
+        (None, _IDENTITY_CLOCK, [0, 0], None, None),
+        (0.0, _IDENTITY_CLOCK, [0, 0], None, None),
+        (-1.0, _IDENTITY_CLOCK, [0, 0], None, None),
+        (float("nan"), _IDENTITY_CLOCK, [0, 0], None, None),
+        (float("inf"), _IDENTITY_CLOCK, [0, 0], None, None),
+        (None, _IDENTITY_CLOCK, [None], None, None),
+        # A cut render bounds signals by the video's length, not the longer session's.
+        (60.0, _CUT_CLOCK, [45, 30], 30, 30),
     ],
 )
 async def test_signal_timestamps_use_recording_duration(
-    duration_seconds: float | None, end_times: list[int | None], expected_end: int | None
+    duration_seconds: float | None,
+    clock: VideoClock,
+    end_times: list[int | None],
+    expected_end: int | None,
+    limit: int | None,
 ) -> None:
     scanner = MonitorScanner(prompt="Did the dialog block input?", emits_signals=True)
     snapshot = ScannerSnapshot(
@@ -339,7 +362,7 @@ async def test_signal_timestamps_use_recording_duration(
             scanner=scanner,
             snapshot=snapshot,
             video_part=_VIDEO,
-            video_clock=_IDENTITY_CLOCK,
+            video_clock=clock,
             preamble_text="PRE",
             team_id=1,
             llm_inputs=MagicMock(metadata=MagicMock(duration_seconds=duration_seconds)),
@@ -352,18 +375,7 @@ async def test_signal_timestamps_use_recording_duration(
     assert outcome.key_moment_video_s == 5
     assert len(client.models.calls) == 2 + len(end_times)
     signals_instruction = client.models.calls[2]["contents"][-1].text
-    positive = duration_seconds is not None and math.isfinite(duration_seconds) and duration_seconds > 0
-    limit = math.floor(duration_seconds) if positive and duration_seconds is not None else None
     assert (f"The video ends at second {limit}," in signals_instruction) is (limit is not None)
-
-
-# The render cut 10s-40s of the session, so video second 15 shows session second 45.
-_CUT_CLOCK = VideoClock(
-    spans=(
-        ActiveSpan(session_from_s=0, session_to_s=10, video_from_s=0, video_to_s=10),
-        ActiveSpan(session_from_s=40, session_to_s=60, video_from_s=10, video_to_s=30),
-    )
-)
 
 
 @pytest.mark.parametrize(
