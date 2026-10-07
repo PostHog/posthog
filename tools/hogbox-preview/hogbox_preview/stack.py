@@ -260,6 +260,7 @@ class PostHogPreviewStack:
         ("products", "/code/products"),
         ("packages/personhog-proto/personhog", "/code/personhog"),
         ("rust/persons_migrations", "/code/rust/persons_migrations"),
+        ("frontend/src/lib/constants.tsx", "/code/frontend/src/lib/constants.tsx"),
     ]
 
     def __init__(
