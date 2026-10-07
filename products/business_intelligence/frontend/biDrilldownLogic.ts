@@ -1,8 +1,9 @@
-import { MakeLogicType, actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, kea, key, path, props, reducers, selectors, listeners } from 'kea'
 
 import { VisualizationNode, NodeKind, DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 
 import { BIDrillSelection, getBIDrillQueries, getBIDrillSelection, getBIEffectiveQuery } from './biDrilldown'
+import { captureBIWorksheetAction } from './biEditorAnalytics'
 
 export interface BIDrilldownProps {
     key: string
@@ -87,4 +88,20 @@ export const biDrilldownLogic = kea<biDrilldownLogicType>([
                 selection ? getBIDrillQueries(query, selection) : null,
         ],
     }),
+    listeners(({ values }) => ({
+        inspect: () => {
+            if (values.query.kind === NodeKind.BIVisualizationNode && values.selection) {
+                captureBIWorksheetAction('drilldown_opened', values.query.config, {
+                    previous_period: values.selection.previous,
+                })
+            }
+        },
+        viewRows: () => {
+            if (values.query.kind === NodeKind.BIVisualizationNode) {
+                captureBIWorksheetAction('underlying_rows_viewed', values.query.config, {
+                    previous_period: values.selection?.previous,
+                })
+            }
+        },
+    })),
 ])

@@ -22,7 +22,10 @@ import {
 import { CompareFilter, DatabaseSchemaTable, DateRange } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { captureBIEditorModeSelected } from 'products/business_intelligence/frontend/biEditorAnalytics'
+import {
+    captureBIEditorModeSelected,
+    captureBIWorksheetAction,
+} from 'products/business_intelligence/frontend/biEditorAnalytics'
 import {
     BIChartFit,
     BIDataPaneFields,
@@ -943,7 +946,10 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setDateRange: () => actions.runAfterChange(),
         setCompareFilter: () => actions.runAfterChange(),
         setDateField: () => actions.runAfterChange(),
-        setDataSource: () => actions.runAfterChange(),
+        setDataSource: () => {
+            captureBIWorksheetAction('source_selected', values.config)
+            actions.runAfterChange()
+        },
         setValueAggregation: () => actions.runAfterChange(),
         setTableCalculation: () => actions.runAfterChange(),
         setTopN: () => actions.runAfterChange(),
