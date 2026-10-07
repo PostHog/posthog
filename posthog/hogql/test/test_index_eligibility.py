@@ -31,6 +31,7 @@ from posthog.hogql.index_eligibility import (
 )
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
+from posthog.hogql.partition_pruning import UNPRUNED_SCAN_MESSAGE
 from posthog.hogql.property_metadata import MaterializedColumnsByTable, PropertyMetadata
 from posthog.hogql.property_planner import (
     ComparisonCompatibility,
@@ -693,7 +694,7 @@ class TestIndexEligibilityAnalysis(BaseTest):
             response = self._metadata(query)
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert response.warnings == []
+            assert [warning.message for warning in response.warnings] == [UNPRUNED_SCAN_MESSAGE]
             [predicate] = response.index_usage or []
             assert predicate.quickfix is None
             return
