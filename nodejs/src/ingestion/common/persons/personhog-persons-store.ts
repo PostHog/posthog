@@ -44,7 +44,8 @@ export const personhogStoreMergeDrainCounter = new Counter({
 
 export const personhogStoreShadowShedCounter = new Counter({
     name: 'personhog_store_shadow_shed_segments_total',
-    help: 'Unwritten segments discarded at batch release in shadow mode, where a failed flush cannot fail the batch',
+    help: 'Unwritten segments discarded at batch release in shadow mode, by reason: sealed, a segment a Postgres decision closed that a failed or abandoned shadow flush left unwritten; open, a segment no seal reached before release, because no Postgres decision reached its entry or a shadow merge was still running past the batch',
+    labelNames: ['reason'],
 })
 
 export const personhogStoreFlushErrorCounter = new Counter({
@@ -151,6 +152,11 @@ interface OpsLaneEntry {
     lastResolvedAt?: number
 }
 
+/** The denylist gates property writes only: a denied op still advances identity and last-seen, as in Postgres. */
+function writesNothing(ops: EventOps): boolean {
+    return ops.denied && ops.isIdentified === undefined && ops.lastSeenAtMs === undefined
+}
+
 /** The lane for a distinct id with no known person; a numeric person id never starts with '?'. */
 function heldLaneKey(teamId: number, distinctId: string): string {
     return `${teamId}:?${distinctId}`
@@ -190,6 +196,19 @@ export class PersonhogPersonsStore implements PersonsStore {
      * shared across batches so one writer owns each person.
      */
     private entries: Map<string, OpsLaneEntry> = new Map()
+    /** Set by the first seal: from then on a flush writes only sealed segments. */
+    private sealing = false
+    /**
+     * Segments closed to folding and cleared for the next write: those a seal reached, and own segments from birth.
+     * A flush writes the sealed run at the front of each lane, in order.
+     */
+    private sealed = new WeakSet<EventOps>()
+    /**
+     * The Postgres entry each segment holds events for, by person uuid, which both stores derive alike. A fold never
+     * merges two entries' events into one segment, and a decision round seals the segments of the entries it
+     * decides, wherever they sit, so the seal does not depend on which ids still resolve.
+     */
+    private owner = new WeakMap<EventOps, string>()
     /** Person keys each open batch references, for the release refcount. */
     private batchEntryKeys: Map<number, Set<string>> = new Map()
     /**
@@ -615,14 +634,42 @@ export class PersonhogPersonsStore implements PersonsStore {
         distinctId: string,
         batchId: number
     ): Promise<[InternalPerson, PersonMessage[]]> {
-        // The denylist gates property writes only: a denied op still
-        // advances identity and last-seen, matching the Postgres store.
-        if (ops.denied && ops.isIdentified === undefined && ops.lastSeenAtMs === undefined) {
+        if (writesNothing(ops)) {
             return [person, []]
         }
         const generation = this.generationOf(person.team_id)
         const target = await this.personNow(person, distinctId, batchId)
-        return this.foldEventOps(target, ops, distinctId, batchId, generation)
+        return this.foldEventOps(target, ops, distinctId, batchId, generation, person.uuid)
+    }
+
+    /**
+     * Applies ops as a segment of their own, sealed from birth: nothing folds into them and the next flush writes
+     * them, so the leader judges them apart from the events around them, as Postgres judged the write they mirror.
+     */
+    async applyEventOpsAsOwnSegment(
+        person: InternalPerson,
+        ops: EventOps,
+        distinctId: string,
+        batchId: number
+    ): Promise<[InternalPerson, PersonMessage[]]> {
+        const generation = this.generationOf(person.team_id)
+        const target = await this.personNow(person, distinctId, batchId)
+        return this.foldEventOps(target, ops, distinctId, batchId, generation, person.uuid, true)
+    }
+
+    /**
+     * Folds ops for an id whose person this store holds as an update-grade view, without yielding, so the fold
+     * lands in the same step as the Postgres fold and no seal falls between the two; `owner` is the Postgres entry
+     * the event's lanes landed on. False when the id is not resolved yet, or known only through a check read whose
+     * document has no properties to refine against, for the caller to hold the ops.
+     */
+    applyEventOpsNow(teamId: number, distinctId: string, ops: EventOps, batchId: number, owner: string): boolean {
+        const target = this.getCachedPerson(teamId, distinctId, 'update')
+        if (target == null) {
+            return false
+        }
+        this.foldEventOps(target, ops, distinctId, batchId, this.generationOf(teamId), owner)
+        return true
     }
 
     /** The person this id belongs to now: a merge may have destroyed the caller's copy. */
@@ -641,19 +688,45 @@ export class PersonhogPersonsStore implements PersonsStore {
         return this.getCachedPerson(person.team_id, distinctId, 'check') ?? person
     }
 
+    /**
+     * The view with the ops applied, as Postgres would apply them; the leader's application at flush is the
+     * authoritative one.
+     */
+    private projectOnto(view: InternalPerson, ops: EventOps): InternalPerson {
+        const refined = refineEventOps(ops, view.properties ?? {}, this.options.updateAllProperties, false)
+        const [projected] = applyEventPropertyUpdates(refined, view)
+        Object.assign(projected, computeOpsScalarUpdates(ops, projected))
+        return projected
+    }
+
+    /**
+     * The leader kept its row and discarded a segment. The view asserted that segment, and a read that compares the
+     * two stores would count the difference, so the view is rebuilt from the row the leader returned with the lane's
+     * unwritten segments applied; with no view to rebuild, the next reader re-reads.
+     */
+    private reprojectFrom(personKey: string, row: InternalPerson, entry: OpsLaneEntry): void {
+        if (!this.projections.has(personKey)) {
+            return
+        }
+        let view = this.snapshot(row)
+        for (const segment of entry.segments) {
+            view = this.projectOnto(view, segment)
+        }
+        this.projections.set(personKey, view)
+    }
+
     private foldEventOps(
         person: InternalPerson,
         ops: EventOps,
         distinctId: string,
         batchId: number,
-        generation: number
+        generation: number,
+        owner: string,
+        ownSegment: boolean = false
     ): [InternalPerson, PersonMessage[]] {
-        // The caller's view, matching what Postgres would apply; the
-        // leader's application at flush is the authoritative one.
-        const refined = refineEventOps(ops, person.properties ?? {}, this.options.updateAllProperties, false)
-        const [projected] = applyEventPropertyUpdates(refined, person)
-        const scalarUpdates = computeOpsScalarUpdates(ops, projected)
-        Object.assign(projected, scalarUpdates)
+        // The view decides nothing about grouping: in shadow mode the router folds exactly the events Postgres
+        // landed.
+        const projected = this.projectOnto(person, ops)
 
         const personKey = `${person.team_id}:${person.id}`
         this.referenceEntry(batchId, personKey)
@@ -665,8 +738,15 @@ export class PersonhogPersonsStore implements PersonsStore {
                 distinctId,
                 segments: [ops],
             })
+            this.owner.set(ops, owner)
+        } else if (ownSegment) {
+            existing.segments.push(ops)
+            this.owner.set(ops, owner)
         } else {
-            this.appendSegment(existing, ops)
+            this.appendSegment(existing, ops, owner)
+        }
+        if (ownSegment) {
+            this.sealed.add(ops)
         }
         // Replaces the projection outright. A purge during personNow's read
         // outdates the view; the install declines and the next touch
@@ -679,16 +759,22 @@ export class PersonhogPersonsStore implements PersonsStore {
         return [this.snapshot(projected), []]
     }
 
-    private appendSegment(entry: OpsLaneEntry, ops: EventOps): void {
+    private appendSegment(entry: OpsLaneEntry, ops: EventOps, owner: string): void {
         const last = entry.segments.length - 1
         const lastSegment = entry.segments[last]
         // Folding into a segment already on the wire would change the
-        // payload underneath the write or lose this event.
-        const folded = lastSegment === undefined || entry.inFlight ? null : foldOps(lastSegment, ops)
+        // payload underneath the write or lose this event; a sealed one
+        // belongs to a decision already taken, and another entry's
+        // segment to a decision of its own.
+        const closed =
+            lastSegment !== undefined && (this.sealed.has(lastSegment) || this.owner.get(lastSegment) !== owner)
+        const folded = lastSegment === undefined || entry.inFlight || closed ? null : foldOps(lastSegment, ops)
         if (folded === null) {
             entry.segments.push(ops)
+            this.owner.set(ops, owner)
         } else {
             entry.segments[last] = folded
+            this.owner.set(folded, owner)
         }
     }
 
@@ -700,8 +786,8 @@ export class PersonhogPersonsStore implements PersonsStore {
      * window drops its ops, counted, rather than wait on a person that may
      * never come.
      */
-    holdEventOps(teamId: number, distinctId: string, ops: EventOps, batchId: number): void {
-        if (ops.denied && ops.isIdentified === undefined && ops.lastSeenAtMs === undefined) {
+    holdEventOps(teamId: number, distinctId: string, ops: EventOps, batchId: number, owner: string): void {
+        if (writesNothing(ops)) {
             return
         }
         const laneKey = heldLaneKey(teamId, distinctId)
@@ -716,6 +802,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 unresolved: true,
                 heldSince: Date.now(),
             })
+            this.owner.set(ops, owner)
             this.trackHeldLane(laneKey)
             return
         }
@@ -727,7 +814,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             existing.lastResolvedAt = undefined
             this.trackHeldLane(laneKey)
         }
-        this.appendSegment(existing, ops)
+        this.appendSegment(existing, ops, owner)
     }
 
     /** Records a new hold as the latest, then sheds the earliest-held lanes past the cap, counted. */
@@ -1156,6 +1243,37 @@ export class PersonhogPersonsStore implements PersonsStore {
     }
 
     /**
+     * Seals every segment holding events of these Postgres entries, by person uuid, in whatever lane it sits: later
+     * folds start a new segment, and the next flush writes the sealed ones. Shadow mode seals exactly the entries a
+     * Postgres decision round decides, in the same step, so both backends judge the same events; an open segment
+     * waits for the round that decides its entry.
+     */
+    sealDecided(owners: string[]): void {
+        this.sealing = true
+        const deciding = new Set(owners)
+        for (const entry of this.entries.values()) {
+            for (const segment of entry.segments) {
+                const owner = this.owner.get(segment)
+                if (owner !== undefined && deciding.has(owner)) {
+                    this.sealed.add(segment)
+                }
+            }
+        }
+    }
+
+    /** Leading segments a flush may write: all of them until the first seal, then the sealed run at the front. */
+    private writableSegments(entry: OpsLaneEntry): number {
+        if (!this.sealing) {
+            return entry.segments.length
+        }
+        let count = 0
+        while (count < entry.segments.length && this.sealed.has(entry.segments[count])) {
+            count += 1
+        }
+        return count
+    }
+
+    /**
      * Writes the batch's folded lanes to the leader, one call per segment;
      * nothing publishes, because the leader's changelog is the person feed.
      * A missing person redirects to whatever its distinct id resolves to
@@ -1229,8 +1347,12 @@ export class PersonhogPersonsStore implements PersonsStore {
                 pass.deferrals += 1
                 continue
             }
+            const segments = this.writableSegments(entry)
+            if (segments === 0) {
+                continue
+            }
             this.claimForWrite(entry)
-            captured.push({ personKey, entry, segments: entry.segments.length })
+            captured.push({ personKey, entry, segments })
         }
         const limit = pLimit(this.options.maxConcurrentUpdates)
         const outcomes = await Promise.allSettled(
@@ -1256,8 +1378,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 !this.entryHeldByAnyBatch(personKey) &&
                 this.entries.get(personKey) === entry
             ) {
-                personhogStoreShadowShedCounter.inc(entry.segments.length)
-                entry.segments.length = 0
+                this.shedSegments(entry)
                 this.entries.delete(personKey)
                 this.clearPersonCacheForPersonId(personKey, 'lane_retired')
             }
@@ -1371,7 +1492,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         const count = Math.min(progress.remaining, entry.segments.length)
         for (let written = 0; written < count; written++) {
             const ops = entry.segments[0]
-            const { person: answer } = await this.repository.updatePersonProperties(
+            const { person: answer, updated } = await this.repository.updatePersonProperties(
                 {
                     teamId: entry.teamId,
                     personId,
@@ -1387,11 +1508,15 @@ export class PersonhogPersonsStore implements PersonsStore {
             )
             entry.segments.shift()
             progress.remaining -= 1
-            // A null answer without a throw means the write applied and
-            // the leader moved past what we held. Redirect writes are
-            // excluded: the redirect purges the survivor itself.
-            if (personId === entry.personId && answer === null) {
+            // Redirect writes are excluded: the redirect purges the survivor itself.
+            if (personId !== entry.personId) {
+                continue
+            }
+            if (answer === null) {
+                // A null answer without a throw means the write applied and the leader moved past what we held.
                 this.clearPersonCacheForPersonId(`${entry.teamId}:${personId}`, 'stale_write_answer')
+            } else if (!updated) {
+                this.reprojectFrom(`${entry.teamId}:${personId}`, answer, entry)
             }
         }
     }
@@ -1542,10 +1667,21 @@ export class PersonhogPersonsStore implements PersonsStore {
         this.releaseBatchId(batchId)
     }
 
+    /** Drops a lane's unwritten segments, counted by whether a Postgres decision had sealed each. */
+    private shedSegments(entry: OpsLaneEntry): void {
+        for (const segment of entry.segments) {
+            personhogStoreShadowShedCounter.labels({ reason: this.sealed.has(segment) ? 'sealed' : 'open' }).inc()
+        }
+        entry.segments.length = 0
+    }
+
     /**
      * The shadow valve: a shadow flush failure cannot fail the batch, so
      * unwritten segments only this batch was keeping are shed and counted
-     * rather than growing without bound through an outage.
+     * rather than growing without bound through an outage. An open segment
+     * left at release is one no seal reached: no Postgres decision reached
+     * its entry, which only a divergent identity graph leaves, or a shadow
+     * merge was still running past the batch. It goes the same way, counted.
      */
     abandonBatch(batchId: number): void {
         this.prefetchingBatches.delete(batchId)
@@ -1568,8 +1704,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 continue
             }
             if (entry && entry.segments.length > 0) {
-                personhogStoreShadowShedCounter.inc(entry.segments.length)
-                entry.segments.length = 0
+                this.shedSegments(entry)
             }
             this.entries.delete(personKey)
             this.heldLaneOrder.delete(personKey)

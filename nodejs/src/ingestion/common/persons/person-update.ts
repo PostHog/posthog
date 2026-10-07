@@ -1,3 +1,4 @@
+import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 
 import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounter } from '~/common/persons/metrics'
@@ -174,7 +175,8 @@ export function refineEventOps(
     const changedProperties: Array<[string, unknown]> = []
 
     Object.entries(ops.set).forEach(([key, value]) => {
-        if (personProperties[key] !== value) {
+        // By value, as the leader compares: an object or array re-sent unchanged is not a change.
+        if (!isEqual(personProperties[key], value)) {
             changedProperties.push([key, value])
             const isNewProperty = typeof personProperties[key] === 'undefined'
             if (isNewProperty || shouldUpdatePersonIfOnlyChange(ops, key, updateAllProperties)) {
@@ -381,7 +383,7 @@ export function applyEventPropertyUpdates(
 
     // Apply properties to set
     Object.entries(propertyUpdates.toSet).forEach(([key, value]) => {
-        if (updatedPerson.properties[key] !== value) {
+        if (!isEqual(updatedPerson.properties[key], value)) {
             updated = true
         }
         updatedPerson.properties[key] = value

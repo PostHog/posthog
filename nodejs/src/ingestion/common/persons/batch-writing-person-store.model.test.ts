@@ -1093,19 +1093,25 @@ describe('BatchWritingPersonsStore against a row model', () => {
         expect((await store.fetchForUpdate(1, 'd2', 0))!.properties).toEqual({ k: 'A' })
     })
 
-    it('an unforced repeat of a pending value leaves the entry clean', async () => {
+    it('an ignored flush drops a filtered-only pending value, so a repeat is weighed afresh and ignored again', async () => {
         fake.addPerson('P', ['d1'], { [FILTERED_KEY]: 'old' })
         const person = await store.fetchForUpdate(1, 'd1', 0)
         await store.applyEventOps(person!, setOps({ [FILTERED_KEY]: 'x' }, false), 'd1', 0)
         await store.flush()
+        expect((await store.fetchForUpdate(1, 'd1', 0))!.properties).toEqual({ [FILTERED_KEY]: 'old' })
+
         await store.applyEventOps(
             (await store.fetchForUpdate(1, 'd1', 0))!,
             setOps({ [FILTERED_KEY]: 'x' }, false),
             'd1',
             0
         )
+        expect(store.getCachedPersonForUpdateByPersonId(1, person!.id)?.needs_write).toBe(true)
+        await store.flush()
 
+        expect(fake.rows.get('P')!.properties).toEqual({ [FILTERED_KEY]: 'old' })
         expect(store.getCachedPersonForUpdateByPersonId(1, person!.id)?.needs_write).toBe(false)
+        expect(cacheRowDisagreements(store, fake)).toEqual([])
     })
 
     it('a forced $set of a value an unforced event left pending writes it', async () => {
@@ -1153,6 +1159,79 @@ describe('BatchWritingPersonsStore against a row model', () => {
         await store.flush()
 
         expect(fake.updatePersonsBatch).toHaveBeenCalledTimes(1)
+        expect(cacheRowDisagreements(store, fake)).toEqual([])
+    })
+
+    it("a batch released while an entry's write is out defers the eviction until the answer lands", async () => {
+        fake.addPerson('P', ['d1'], {})
+        const person = await store.fetchForUpdate(1, 'd1', 0)
+        await store.updatePersonWithPropertiesDiffForUpdate(person!, { k: 'v' }, [], {}, 'd1')
+        fake.holdWrites = true
+        const flushing = store.flush()
+        await fake.settle(() => fake.labels().length === 1)
+        fake.holdWrites = false
+        store.releaseBatch(0)
+        expect(store.getCachedPersonForUpdateByPersonId(1, person!.id)).toBeDefined()
+
+        fake.releaseAll()
+        await flushing
+        await store.flush()
+        expect(store.getCachedPersonForUpdateByPersonId(1, person!.id)).toBeUndefined()
+        expect(cacheRowDisagreements(store, fake)).toEqual([])
+    })
+
+    it("a flush deciding while the previous write's answer is out waits for it, then judges only what arrived since", async () => {
+        fake.addPerson('P', ['d1'], { plan: 'free', $current_url: 'a' })
+        const person = await store.fetchForUpdate(1, 'd1', 0)
+        await store.updatePersonWithPropertiesDiffForUpdate(person!, { plan: 'pro' }, [], {}, 'd1')
+        fake.holdWrites = true
+        const flushing = store.flush()
+        await fake.settle(() => fake.labels().length === 1)
+        fake.holdWrites = false
+        // The same value again with a filtered change: against the landed row plan is unchanged and the filtered
+        // key is not worth a write; against the stale base, plan would promote it.
+        await store.updatePersonWithPropertiesDiffForUpdate(person!, { plan: 'pro', $current_url: 'b' }, [], {}, 'd1')
+        const second = store.flush()
+        fake.releaseAll()
+        await Promise.all([flushing, second])
+        expect(fake.updatePersonsBatch).toHaveBeenCalledTimes(1)
+
+        expect(fake.rows.get('P')!.properties).toEqual({ plan: 'pro', $current_url: 'a' })
+        expect(cacheRowDisagreements(store, fake)).toEqual([])
+    })
+
+    it("a source entry whose write is still out survives the merge's release until that write re-targets", async () => {
+        fake.addPerson('S', ['s1'], {})
+        fake.addPerson('T', ['t'], {})
+        const source = await store.fetchForUpdate(1, 's1', 0)
+        const target = await store.fetchForUpdate(1, 't', 0)
+        await store.updatePersonWithPropertiesDiffForUpdate(source!, { k: 'early' }, [], {}, 's1')
+        const read = store.pendingChanges(1, source!.id)
+        // A later change the merge does not carry: it is decided and sent after the source row is gone.
+        await store.updatePersonWithPropertiesDiffForUpdate(source!, { j: 'late' }, [], {}, 's1')
+        await store.moveDistinctIds(
+            source!,
+            target!,
+            't',
+            undefined,
+            fake as unknown as Parameters<typeof store.moveDistinctIds>[4],
+            0
+        )
+        const committed = await mergeInto(target!, { properties_to_set_once: read!.toSet, is_identified: true }, 't')
+        fake.rows.delete('S')
+        committed()
+        store.releaseMergedSource(1, source!.id, read)
+
+        fake.holdWrites = true
+        const flushing = store.flush()
+        await fake.settle(() => fake.labels().length === 1)
+        fake.holdWrites = false
+        // Another flush runs the deferred evictions while that write's answer is still out.
+        await store.flush()
+        fake.releaseAll()
+        await flushing
+
+        expect(fake.rows.get('T')!.properties).toEqual({ k: 'early', j: 'late' })
         expect(cacheRowDisagreements(store, fake)).toEqual([])
     })
 

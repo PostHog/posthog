@@ -196,6 +196,18 @@ export const personhogStoreShadowMergeRedriveCounter = new Counter({
     labelNames: ['outcome'],
 })
 
+export const personhogStoreShadowCreateRetriesCounter = new Counter({
+    name: 'personhog_store_shadow_create_retries_total',
+    help: 'Shadow create attempts past the first (retried) and creates that landed after a retry (recovered); one that misses its deadline counts under personhog_store_shadow_errors_total',
+    labelNames: ['outcome'],
+})
+
+export const personhogStoreShadowFoldHeldCounter = new Counter({
+    name: 'personhog_store_shadow_fold_held_total',
+    help: 'Shadow folds held for the next flush instead of folding alongside their Postgres fold: the id was not resolved yet, or ops already held for it queue this one behind them',
+    labelNames: ['reason'],
+})
+
 export const personhogStoreShadowCompareFailedCounter = new Counter({
     name: 'personhog_store_shadow_compare_failed_total',
     help: 'Shadow comparisons that threw, which is a fault in the comparison rather than in either backend',

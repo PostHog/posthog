@@ -1,13 +1,15 @@
-import { ConnectError } from '@connectrpc/connect'
+import { Code, ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
 import { errorClassLabel } from '~/common/personhog/metrics'
 import {
     personhogStoreShadowCompareFailedCounter,
     personhogStoreShadowComparedCounter,
+    personhogStoreShadowCreateRetriesCounter,
     personhogStoreShadowDivergenceCounter,
     personhogStoreShadowDurationSeconds,
     personhogStoreShadowErrorsCounter,
+    personhogStoreShadowFoldHeldCounter,
     personhogStoreShadowFoldRedriveCounter,
     personhogStoreShadowMergeRedriveCounter,
     personhogStoreShadowSkipsCounter,
@@ -16,11 +18,12 @@ import { PersonMessage } from '~/common/persons/person-message'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult } from '~/common/utils/db/db'
 import { logger } from '~/common/utils/logger'
-import { promiseRetry } from '~/common/utils/retries'
+import { promiseRetry, retryIfRetriable } from '~/common/utils/retries'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
 
+import { BatchWritingPersonsStore } from './batch-writing-person-store'
 import { PersonMergeCallFailedError, PersonMergeUnsettledError } from './person-merge-types'
 import { EventOps } from './person-update'
 import { CREATE_EVENT_NAME, PersonhogPersonsStore } from './personhog-persons-store'
@@ -128,6 +131,40 @@ const SHADOW_MERGE_DEFERRED_LIMIT = 1_000
 
 type DeferredShadowMerge = { request: MergePersonsRequest; batchId: number; notBefore: number; expiresAt: number }
 
+/**
+ * A failed shadow create retries in place; the event's distinct-id sequencing keeps later events behind it.
+ * The deadline is soft: the last attempt starts before it and may run two transport budgets past it, so the create
+ * ends under 40 s of the worker's 60 s sub-batch ack deadline. The batch's flush has its own ceiling after that.
+ */
+const SHADOW_CREATE_RETRY_SLEEP_MS = 1_000
+const SHADOW_CREATE_RETRY_MAX_SLEEP_MS = 8_000
+const SHADOW_CREATE_RETRY_DEADLINE_MS = 20_000
+
+/** Transient per the transport's own classification, or a stream reset; identity's get-or-create is safe to repeat. */
+function isTransientCreateFailure(error: unknown): boolean {
+    return (
+        (error as { isRetriable?: boolean } | null)?.isRetriable === true ||
+        (error instanceof ConnectError && error.code === Code.Canceled)
+    )
+}
+
+/**
+ * The creation properties as set-once ops, for a person that turned out to exist on the personhog side. Forced, as
+ * the leader drops an unforced set-once of a filtered key even onto a bare stub; they fold as a segment of their
+ * own, so the force stays with them.
+ */
+function creationOps(properties: Properties, isIdentified: boolean): EventOps {
+    return {
+        set: {},
+        setOnce: properties,
+        unset: [],
+        denied: false,
+        shouldForceUpdate: true,
+        eventName: CREATE_EVENT_NAME,
+        ...(isIdentified ? { isIdentified: true } : {}),
+    }
+}
+
 /** Raised when a shadow verb outruns its ceiling and the batch abandons it. */
 class ShadowVerbTimeoutError extends Error {
     constructor(verb: string) {
@@ -150,7 +187,7 @@ class ShadowVerbTimeoutError extends Error {
  */
 export class RoutingPersonsStore implements PersonsStore {
     constructor(
-        private pg: PersonsStore,
+        private pg: BatchWritingPersonsStore,
         private personhog: PersonhogPersonsStore,
         private mode: 'personhog' | 'shadow'
     ) {}
@@ -286,29 +323,17 @@ export class RoutingPersonsStore implements PersonsStore {
      * here (independent sequences), so a shadow write re-resolves by
      * distinct id. A person that does not exist here yet is usually one
      * another pod attached on the authoritative side while its shadow merge
-     * was still running, so a caller that can hold its ops for a resolve
-     * at flush does; the rest skip, counted. Memoized per batch.
+     * was still running; the write skips, counted. Memoized per batch.
      */
     private async withShadowPerson(
         verb: string,
         teamId: number,
         distinctId: string,
         batchId: number,
-        run: (person: InternalPerson) => Promise<unknown>,
-        hold?: () => void
+        run: (person: InternalPerson) => Promise<unknown>
     ): Promise<void> {
-        // Ops still held for this id were stated earlier, so later ops queue behind them, as the event's
-        // partition does when the authoritative store retries.
-        if (hold && this.personhog.hasHeldOps(teamId, distinctId)) {
-            hold()
-            return
-        }
         const shadowPerson = await this.personhog.fetchForUpdate(teamId, distinctId, batchId)
         if (shadowPerson === null) {
-            if (hold) {
-                hold()
-                return
-            }
             personhogStoreShadowSkipsCounter.labels({ verb }).inc()
             return
         }
@@ -390,35 +415,29 @@ export class RoutingPersonsStore implements PersonsStore {
                     batchId
                 ),
             {
-                shadow: (abandoned) =>
-                    this.shadowCreate(
-                        () =>
-                            this.personhog.createPerson(
-                                createdAt,
-                                properties,
-                                propertiesLastUpdatedAt,
-                                propertiesLastOperation,
-                                teamId,
-                                isUserId,
-                                isIdentified,
-                                uuid,
-                                primaryDistinctId,
-                                extraDistinctIds,
-                                tx,
-                                batchId
-                            ),
-                        teamId,
-                        properties,
-                        isIdentified,
-                        primaryDistinctId.distinctId,
-                        batchId,
-                        abandoned
+                shadow: () =>
+                    this.shadowCreate(() =>
+                        this.personhog.createPerson(
+                            createdAt,
+                            properties,
+                            propertiesLastUpdatedAt,
+                            propertiesLastOperation,
+                            teamId,
+                            isUserId,
+                            isIdentified,
+                            uuid,
+                            primaryDistinctId,
+                            extraDistinctIds,
+                            tx,
+                            batchId
+                        )
                     ),
                 after: (authoritative, shadow, abandoned) =>
                     this.reconcileShadowCreate(
                         authoritative,
                         shadow as CreatePersonResult,
                         properties,
+                        isIdentified,
                         primaryDistinctId.distinctId,
                         batchId,
                         abandoned
@@ -428,40 +447,38 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     /**
-     * A create the client gave up on may have left the person without its properties, and the event does not retry
-     * here, so its properties are held set-once for the distinct id. A deterministic rejection would fail again, and
-     * an abandoned create's batch may be released, so neither is held.
+     * A failed create retries in place, whatever failed: Postgres holds the person now, so no later event would
+     * create it on the personhog side. The deadline, not a try count, bounds the loop.
      */
-    private async shadowCreate(
-        create: () => Promise<CreatePersonResult>,
-        teamId: number,
-        properties: Properties,
-        isIdentified: boolean,
-        distinctId: string,
-        batchId: number,
-        abandoned: AbortSignal
-    ): Promise<CreatePersonResult> {
-        try {
-            return await create()
-        } catch (error) {
-            if (!abandoned.aborted && (error as { isRetriable?: boolean })?.isRetriable === true) {
-                this.personhog.holdEventOps(
-                    teamId,
-                    distinctId,
-                    {
-                        set: {},
-                        setOnce: properties,
-                        unset: [],
-                        denied: false,
-                        shouldForceUpdate: true,
-                        eventName: CREATE_EVENT_NAME,
-                        ...(isIdentified ? { isIdentified: true } : {}),
-                    },
-                    batchId
-                )
+    private async shadowCreate(create: () => Promise<CreatePersonResult>): Promise<CreatePersonResult> {
+        let attempts = 0
+        const result = await retryIfRetriable(
+            async () => {
+                attempts += 1
+                if (attempts > 1) {
+                    personhogStoreShadowCreateRetriesCounter.labels({ outcome: 'retried' }).inc()
+                }
+                try {
+                    return await create()
+                } catch (error) {
+                    if (isTransientCreateFailure(error)) {
+                        throw error
+                    }
+                    const failure = error instanceof Object ? error : new Error(String(error))
+                    throw Object.assign(failure, { isRetriable: false })
+                }
+            },
+            {
+                tries: Number.POSITIVE_INFINITY,
+                sleepMs: SHADOW_CREATE_RETRY_SLEEP_MS,
+                maxSleepMs: SHADOW_CREATE_RETRY_MAX_SLEEP_MS,
+                softDeadlineMs: SHADOW_CREATE_RETRY_DEADLINE_MS,
             }
-            throw error
+        )
+        if (attempts > 1) {
+            personhogStoreShadowCreateRetriesCounter.labels({ outcome: 'recovered' }).inc()
         }
+        return result
     }
 
     /** Postgres created the person and personhog only found it: apply the creation properties set-once. */
@@ -469,6 +486,7 @@ export class RoutingPersonsStore implements PersonsStore {
         authoritative: CreatePersonResult,
         shadow: CreatePersonResult,
         properties: Properties,
+        isIdentified: boolean,
         distinctId: string,
         batchId: number,
         abandoned: AbortSignal
@@ -480,15 +498,14 @@ export class RoutingPersonsStore implements PersonsStore {
         ) {
             return
         }
-        const ops: EventOps = {
-            set: {},
-            setOnce: properties,
-            unset: [],
-            denied: false,
-            shouldForceUpdate: true,
-            eventName: CREATE_EVENT_NAME,
-        }
-        await this.personhog.applyEventOps(shadow.person, ops, distinctId, batchId)
+        // A segment of its own: the leader judges the creation properties apart from the events around them, as
+        // the Postgres create was.
+        await this.personhog.applyEventOpsAsOwnSegment(
+            shadow.person,
+            creationOps(properties, isIdentified),
+            distinctId,
+            batchId
+        )
     }
 
     applyEventOps(
@@ -497,22 +514,48 @@ export class RoutingPersonsStore implements PersonsStore {
         distinctId: string,
         batchId: number
     ): Promise<[InternalPerson, PersonMessage[]]> {
-        return this.route(
-            'applyEventOps',
-            () => this.pg.applyEventOps(person, ops, distinctId, batchId),
-            () => this.personhog.applyEventOps(person, ops, distinctId, batchId),
-            {
-                shadow: () =>
-                    this.withShadowPerson(
-                        'applyEventOps',
-                        person.team_id,
-                        distinctId,
-                        batchId,
-                        (shadowPerson) => this.personhog.applyEventOps(shadowPerson, ops, distinctId, batchId),
-                        () => this.personhog.holdEventOps(person.team_id, distinctId, ops, batchId)
-                    ),
+        if (this.mode !== 'shadow') {
+            return this.personhog.applyEventOps(person, ops, distinctId, batchId)
+        }
+        // Ops already held for this id queue later ones behind them, as the event's partition does when the
+        // authoritative store retries.
+        const behindHeld = this.personhog.hasHeldOps(person.team_id, distinctId)
+        // Postgres groups the event: its fold runs without yielding and either lands the event's lanes on an entry
+        // or lands nothing. The shadow folds the event into that entry's segment in this same step, so no seal can
+        // fall between the two, and folds nothing when Postgres landed nothing, so the leader is handed exactly the
+        // groups Postgres decides. Which group an event joins is Postgres's call; what the group does to the row
+        // is the leader's.
+        const { result, landedOn } = this.pg.foldEventOps(person, ops, distinctId, batchId)
+        if (landedOn !== undefined) {
+            this.foldShadow(person.team_id, distinctId, ops, batchId, behindHeld, landedOn)
+        }
+        return Promise.resolve(result)
+    }
+
+    /**
+     * The shadow fold for an event, in the same synchronous step as its Postgres fold. An id not resolved yet, or
+     * behind held ops, holds the ops instead, as an unknown id always has, and the leader weighs that event with the
+     * next flush; the hold is counted because it is a grouping the two stores may not share. A fold that throws is
+     * counted as a shadow failure and not held, as a thrown shadow leg always was: the event is lost to the shadow
+     * side and shows as drift.
+     */
+    private foldShadow(
+        teamId: number,
+        distinctId: string,
+        ops: EventOps,
+        batchId: number,
+        behindHeld: boolean,
+        owner: string
+    ): void {
+        try {
+            const folded = behindHeld ? false : this.personhog.applyEventOpsNow(teamId, distinctId, ops, batchId, owner)
+            if (!folded) {
+                personhogStoreShadowFoldHeldCounter.labels({ reason: behindHeld ? 'behind_held' : 'unresolved' }).inc()
+                this.personhog.holdEventOps(teamId, distinctId, ops, batchId, owner)
             }
-        )
+        } catch (error) {
+            this.recordShadowFailure('applyEventOps', error)
+        }
     }
 
     updatePersonWithPropertiesDiffForUpdate(
@@ -576,17 +619,34 @@ export class RoutingPersonsStore implements PersonsStore {
      * request replays the whole merge against this backend's own graph.
      */
     mergePersons(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult> {
+        // The Postgres merge decides its sources' pending, so once the shadow merge has run, drained or deferred, the
+        // sources' segments are sealed: the next flush writes them and the redirect lands them on the survivor. The
+        // survivor's segments wait for its next round, as its remaining pending does on Postgres.
+        const sources = this.mode === 'shadow' ? this.sourceUuids(request) : []
         return this.route(
             'mergePersons',
             () => this.pg.mergePersons(request, batchId),
             () => this.personhog.mergePersons(request, batchId),
             {
-                shadow: (abandoned) => this.shadowMerge(request, batchId, abandoned),
+                shadow: async (abandoned) => {
+                    try {
+                        return await this.shadowMerge(request, batchId, abandoned)
+                    } finally {
+                        this.personhog.sealDecided(sources)
+                    }
+                },
                 compare: (authoritative, shadow) => this.compareMerge(request, authoritative, shadow),
                 after: (authoritative, shadow, abandoned) =>
                     this.redriveShadowFoldPairs(request, batchId, authoritative, shadow, abandoned),
             }
         )
+    }
+
+    /** The Postgres persons the request's sources map to before the merge moves them. */
+    private sourceUuids(request: MergePersonsRequest): string[] {
+        return request.sources
+            .map((source) => this.pg.landedUuid(request.teamId, source.distinctId))
+            .filter((uuid): uuid is string => uuid !== undefined)
     }
 
     /** Shadow merges whose retries ended unsettled or without a verdict, re-driven at a flush once their delay has passed. */
@@ -901,13 +961,15 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     flush(): Promise<FlushResult[]> {
+        // Shadow mode seals the personhog segments of exactly the entries each Postgres decision round decides, in
+        // the same step, so a segment groups exactly the events that round weighed.
+        const seal = this.mode === 'shadow' ? (deciding: string[]) => this.personhog.sealDecided(deciding) : undefined
         return this.route(
             'flush',
-            () => this.pg.flush(),
+            () => this.pg.flush(seal),
             () => this.personhog.flush(),
             {
                 shadow: async (abandoned) => {
-                    // The lanes first; the re-drives take what is left of the ceiling.
                     const flushed = await this.personhog.flush()
                     await this.redriveDeferredShadowMerges(abandoned)
                     return flushed

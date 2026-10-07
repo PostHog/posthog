@@ -49,7 +49,15 @@ import { PersonBatchWritingDbWriteMode } from '~/ingestion/config'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
-import { BatchWritingPersonsCache, hasLanes, retireCarried, takeRow } from './batch-writing-persons-cache'
+import {
+    BatchWritingPersonsCache,
+    beginWrite,
+    heldLanes,
+    holdsChanges,
+    retireCarried,
+    returnWrite,
+    takeRow,
+} from './batch-writing-persons-cache'
 import { MergeMappingDebounce } from './merge-mapping-debounce'
 import { PersonOutputs } from './person-context'
 import { PostgresMergePolicy, PostgresPersonMerge } from './person-merge-postgres'
@@ -162,10 +170,12 @@ const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
  *
  * **Cache model** (the cache itself is in `batch-writing-persons-cache.ts`):
  * - One entry per person per pod: a base row plus this pod's pending set, set-once and unset lanes. A read
- *   answers the base with the lanes applied.
+ *   answers the base with the in-flight and pending lanes applied.
+ * - A change a flush decides to write moves to the entry's in-flight lanes until its answer lands; a later
+ *   decision judges against the row as that write will leave it.
  * - The base moves only to a row with a strictly newer version.
  * - A pending change retires only when it equals what a committed write carried; a change made since stays.
- * - An entry with unwritten changes is detached or deferred, never evicted; it goes once a flush leaves it clean.
+ * - An entry with changes pending or in flight is detached or deferred, never evicted; it goes once it holds nothing.
  * - A read that began before an entry was dropped does not reinstall it.
  * - On a locked-outcome team, nothing from a merge reaches the cache before the merge commits.
  *
@@ -280,9 +290,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const ignoredProperties: string[] = []
 
         const hasPropertyTriggeringUpdate = Object.keys(update.properties_to_set).some((key) => {
-            // Check if this is a new property (not in current properties)
             const isNewProperty = !(key in update.properties)
-            const valueChanged = update.properties[key] !== update.properties_to_set[key]
+            const valueChanged = !isEqual(update.properties[key], update.properties_to_set[key])
 
             if (!valueChanged) {
                 return false
@@ -311,104 +320,50 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return 'changed'
     }
 
-    async flush(): Promise<FlushResult[]> {
+    /**
+     * Flushes every dirty entry. `beforeDecision` runs in the same synchronous step as each decision round, with
+     * the person uuids of the entries that round decides.
+     */
+    async flush(beforeDecision?: (deciding: string[]) => void): Promise<FlushResult[]> {
         const flushStartTime = performance.now()
-
-        // SYNCHRONOUS LINEARIZATION POINT for cross-batch correctness.
-        // Walk every dirty entry, decide whether it needs a DB write, and
-        // clear `needs_write` before any await below. Concurrent batches
-        // that mutate an entry between this clear and the async DB write
-        // will re-set `needs_write=true` and be picked up by the next flush.
-        // DO NOT introduce any `await` inside this block.
-        const updateEntries: [string, PersonUpdate][] = []
-        for (const [key, update] of this.personCache.getUpdateCacheEntries()) {
-            // Skip null entries - these are deleted persons or cleared cache entries
-            if (!update) {
-                continue
-            }
-
-            // Skip entries not marked for write - these are read-only cache entries from fetchForUpdate
-            // that were cached but never modified (no events tried to update their properties)
-            if (!update.needs_write) {
-                continue
-            }
-
-            // Determine outcome and track metrics for this person update
-            const outcome = this.getPersonUpdateOutcome(update)
-            personProfileBatchUpdateOutcomeCounter.labels({ outcome }).inc()
-
-            if (outcome === 'changed') {
-                // Track which property keys caused person updates
-                const metricsKeys = new Set<string>()
-                Object.keys({ ...update.properties_to_set, ...update.properties_to_set_once }).forEach(
-                    (propertyKey) => {
-                        metricsKeys.add(getMetricKey(propertyKey))
-                    }
-                )
-                update.properties_to_unset.forEach((propertyKey) => {
-                    metricsKeys.add(getMetricKey(propertyKey))
-                })
-                metricsKeys.forEach((propertyKey) => personPropertyKeyUpdateCounter.labels({ key: propertyKey }).inc())
-
-                // A copy, because the retire edits the live entry in place and compares it with what this write carried.
-                updateEntries.push([
-                    key,
-                    {
-                        ...update,
-                        properties_to_set: { ...update.properties_to_set },
-                        properties_to_set_once: { ...update.properties_to_set_once },
-                        properties_to_unset: [...update.properties_to_unset],
-                    },
-                ])
-            }
-
-            // Clear needs_write for every dirty entry we considered, including
-            // ones we decided not to write (ignored / no_change). This is the
-            // linearization point — concurrent batches that mutate the entry
-            // after this point will re-set needs_write=true and the next
-            // flush will pick those changes up.
-            update.needs_write = false
-        }
-        // END synchronous linearization point.
-
-        const batchSize = updateEntries.length
-        personFlushBatchSizeHistogram.observe({ db_write_mode: this.options.dbWriteMode }, batchSize)
-
-        if (batchSize === 0) {
-            personFlushLatencyHistogram.observe({ db_write_mode: this.options.dbWriteMode }, 0)
-            personFlushOperationsCounter.inc({ db_write_mode: this.options.dbWriteMode, outcome: 'success' })
-            this.personCache.processDeferredEvictions()
-            return []
-        }
-
+        const results: FlushResult[] = []
+        let decidedCount = 0
         try {
-            let allKafkaMessages: FlushResult[]
-
-            switch (this.options.dbWriteMode) {
-                case 'NO_ASSERT': {
-                    if (this.options.useBatchUpdates) {
-                        // Use batch update for NO_ASSERT mode - single query for all updates
-                        allKafkaMessages = await this.flushBatchNoAssert(updateEntries)
-                    } else {
-                        // Use individual updates for NO_ASSERT mode
-                        allKafkaMessages = await this.flushIndividualNoAssert(updateEntries)
+            for (;;) {
+                const { decided, waiting, settle, settled } = this.decideDirtyEntries(beforeDecision)
+                decidedCount += decided.length
+                if (decided.length > 0) {
+                    try {
+                        results.push(...(await this.writeDecided(decided)))
+                    } finally {
+                        // A record still out when its round ends got no answer to retire against: a shared uuid, a
+                        // size rejection or repair, an oversized message, a thrown batch. It goes back to pending
+                        // before the waiters wake, and this is the only hand-back; a re-targeted record that fails
+                        // for good is dropped, with the source entry that already was.
+                        for (const [, record] of decided) {
+                            const entry = this.personCache.getLiveUpdate(record.team_id, record.id)
+                            if (entry?.in_flight?.settled === settled) {
+                                returnWrite(entry)
+                            }
+                        }
+                        settle()
                     }
+                }
+                if (waiting.length === 0) {
                     break
                 }
-                case 'ASSERT_VERSION': {
-                    // Use individual updates for ASSERT_VERSION mode (requires per-person retry logic)
-                    allKafkaMessages = await this.flushIndividualAssertVersion(updateEntries)
-                    break
-                }
+                // An entry whose write is still out is decided once that write has answered, so no two writes to
+                // one person are out at once and each decision judges against the row as the last write left it.
+                await Promise.all(waiting.flatMap((entry) => (entry.in_flight ? [entry.in_flight.settled] : [])))
             }
 
-            // Record successful flush
+            personFlushBatchSizeHistogram.observe({ db_write_mode: this.options.dbWriteMode }, decidedCount)
             const flushLatency = (performance.now() - flushStartTime) / 1000
             personFlushLatencyHistogram.observe({ db_write_mode: this.options.dbWriteMode }, flushLatency)
             personFlushOperationsCounter.inc({ db_write_mode: this.options.dbWriteMode, outcome: 'success' })
 
             this.personCache.processDeferredEvictions()
-            return allKafkaMessages
+            return results
         } catch (error) {
             // Record failed flush
             const flushLatency = (performance.now() - flushStartTime) / 1000
@@ -424,14 +379,97 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
     }
 
+    /**
+     * The flush's synchronous decision over every dirty entry: each is written, ignored, or left waiting on the
+     * write it already has out. This is the linearization point for cross-batch correctness: a batch that changes
+     * an entry after it re-sets needs_write, and the next round or flush picks that up. No await may enter it.
+     */
+    private decideDirtyEntries(beforeDecision?: (deciding: string[]) => void): {
+        decided: [string, PersonUpdate][]
+        waiting: PersonUpdate[]
+        settle: () => void
+        settled: Promise<void>
+    } {
+        let settle: () => void = () => {}
+        const settled = new Promise<void>((resolve) => (settle = resolve))
+        const candidates: [string, PersonUpdate][] = []
+        const waiting: PersonUpdate[] = []
+        for (const [key, update] of this.personCache.getUpdateCacheEntries()) {
+            if (!update || !update.needs_write) {
+                continue
+            }
+            if (update.in_flight) {
+                waiting.push(update)
+            } else {
+                candidates.push([key, update])
+            }
+        }
+        // The seal closes exactly the segments of the entries this round decides, by person uuid; a waiting entry's
+        // segments stay open for the events the next round weighs together.
+        beforeDecision?.(candidates.map(([, update]) => update.uuid))
+
+        const decided: [string, PersonUpdate][] = []
+        for (const [key, update] of candidates) {
+            const outcome = this.getPersonUpdateOutcome(update)
+            personProfileBatchUpdateOutcomeCounter.labels({ outcome }).inc()
+
+            if (outcome === 'changed') {
+                const metricsKeys = new Set<string>()
+                Object.keys({ ...update.properties_to_set, ...update.properties_to_set_once }).forEach(
+                    (propertyKey) => {
+                        metricsKeys.add(getMetricKey(propertyKey))
+                    }
+                )
+                update.properties_to_unset.forEach((propertyKey) => {
+                    metricsKeys.add(getMetricKey(propertyKey))
+                })
+                metricsKeys.forEach((propertyKey) => personPropertyKeyUpdateCounter.labels({ key: propertyKey }).inc())
+
+                // The record this write carries; the entry keeps the same lanes as its write out until the answer.
+                decided.push([
+                    key,
+                    {
+                        ...update,
+                        properties_to_set: { ...update.properties_to_set },
+                        properties_to_set_once: { ...update.properties_to_set_once },
+                        properties_to_unset: [...update.properties_to_unset],
+                        issued: settled,
+                    },
+                ])
+                beginWrite(update, settled)
+            }
+
+            update.needs_write = false
+            // A force applies to this decision only, and an ignored flush drops the filtered-only sets it
+            // declined; the leader keeps nothing between segments either.
+            update.force_update = false
+            if (outcome === 'ignored') {
+                update.properties_to_set = {}
+            }
+        }
+        return { decided, waiting, settle, settled }
+    }
+
+    private writeDecided(updateEntries: [string, PersonUpdate][]): Promise<FlushResult[]> {
+        switch (this.options.dbWriteMode) {
+            case 'NO_ASSERT':
+                return this.options.useBatchUpdates
+                    ? this.flushBatchNoAssert(updateEntries)
+                    : this.flushIndividualNoAssert(updateEntries)
+            case 'ASSERT_VERSION':
+                return this.flushIndividualAssertVersion(updateEntries)
+        }
+    }
+
     getFlushStats(): BatchWritingStoreFlushStats {
         return this.personCache.getFlushStats()
     }
 
     /**
-     * An answer newer than the base replaces it with the row it returned; either way the pending change for
-     * each key the write carried retires, unless the entry holds a newer pending change for that key. A
-     * re-targeted write lands on another person's entry this way too.
+     * An answer newer than the base replaces it with the row it returned, and the entry's write out is done when it
+     * is this record's; an answer from a round that ended early finds another round's record and leaves it. A
+     * re-targeted write lands on another person's entry, which keeps its own write out and retires only what the
+     * record carried, unless it holds a newer change for that key.
      */
     private retireLandedChanges(record: PersonUpdate, landed: InternalPerson, version: number): void {
         const entry = this.personCache.getLiveUpdate(record.team_id, record.id)
@@ -443,7 +481,11 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (version > entry.version) {
             takeRow(entry, landed, version)
         }
-        retireCarried(entry, record)
+        if (record.retargeted) {
+            retireCarried(entry, record)
+        } else if (entry.in_flight?.settled === record.issued) {
+            entry.in_flight = undefined
+        }
     }
 
     /**
@@ -497,6 +539,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         for (const update of updates) {
             const result = batchResults.get(update.uuid)
             if (result?.success && result.kafkaMessage) {
+                // Without a row that says which entry's write it holds, the round's end hands the record back.
                 if (uuidCounts.get(update.uuid) === 1 && result.person && result.version !== undefined) {
                     this.retireLandedChanges(update, result.person, result.version)
                 }
@@ -1171,12 +1214,27 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return toInternalPerson(entry)
     }
 
-    async applyEventOps(
+    applyEventOps(
         person: InternalPerson,
         ops: EventOps,
         distinctId: string,
         batchId: number
     ): Promise<[InternalPerson, PersonMessage[]]> {
+        return Promise.resolve(this.foldEventOps(person, ops, distinctId, batchId).result)
+    }
+
+    /**
+     * The fold, which runs without yielding: the event's lanes land on the entry the distinct id maps to now, or
+     * nothing lands when the event changes nothing against the person and carries no identity or last-seen change.
+     * `landedOn` is that entry's uuid, or undefined when nothing landed, so the shadow store can group the event
+     * exactly as this store did.
+     */
+    foldEventOps(
+        person: InternalPerson,
+        ops: EventOps,
+        distinctId: string,
+        batchId: number
+    ): { result: [InternalPerson, PersonMessage[]]; landedOn: string | undefined } {
         person.properties ||= {}
 
         // Snapshot refinement is this store's write-shape preparation:
@@ -1185,12 +1243,13 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         // intents refine here too — identification only transitions
         // false→true, last-seen only advances.
         const refined = refineEventOps(ops, person.properties, this.options.updateAllProperties)
-        // The view shows a pending change before it lands, so a $set of that value refines away but must still
-        // write: a set-once as a set, and an unforced set when this event is forced. An unforced repeat of a
-        // pending set changes nothing and is left alone.
+        // The view shows a change still pending or in flight before it lands, so a $set of that value refines
+        // away but must still write: a set-once as a set, and an unforced set when this event is forced. An
+        // unforced repeat of a pending set changes nothing and is left alone.
         const live = this.personCache.getLiveUpdate(person.team_id, person.id)
-        const lanes = live
-            ? [live.properties_to_set_once, ...(ops.shouldForceUpdate ? [live.properties_to_set] : [])]
+        const held = live ? heldLanes(live) : undefined
+        const lanes = held
+            ? [held.properties_to_set_once, ...(ops.shouldForceUpdate ? [held.properties_to_set] : [])]
             : []
         for (const [key, value] of Object.entries(ops.set)) {
             if (lanes.some((lane) => Object.hasOwn(lane, key) && isEqual(lane[key], value))) {
@@ -1202,10 +1261,10 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         if (!refined.hasChanges && Object.keys(otherUpdates).length === 0) {
             const [updatedPerson] = applyEventPropertyUpdates(refined, person)
-            return [updatedPerson, []]
+            return { result: [updatedPerson, []], landedOn: undefined }
         }
 
-        const [updatedPerson, kafkaMessages] = await this.updatePersonWithPropertiesDiffForUpdate(
+        const result = this.addPersonPropertiesUpdateToBatch(
             person,
             refined.toSet,
             refined.toUnset,
@@ -1214,7 +1273,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             batchId,
             refined.shouldForceUpdate
         )
-        return [updatedPerson, kafkaMessages]
+        return { result, landedOn: result[0].uuid }
     }
 
     updatePersonWithPropertiesDiffForUpdate(
@@ -1329,16 +1388,24 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return await tx.readMergeRows(teamId, targetId, sourceIds)
     }
 
+    /** The uuid of the entry a distinct id's lanes land on now; the shadow merge seals the sources' segments by it. */
+    landedUuid(teamId: number, distinctId: string): string | undefined {
+        return this.personCache.uuidFor(teamId, distinctId)
+    }
+
+    /** Everything the entry still holds for the row, in flight and pending. */
     pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {
-        const cached = this.personCache.getCachedPersonForUpdateByPersonId(teamId, personId)
-        return cached
-            ? {
-                  toSet: cached.properties_to_set,
-                  toSetOnce: cached.properties_to_set_once,
-                  toUnset: cached.properties_to_unset,
-                  createdAt: cached.created_at,
-              }
-            : null
+        const entry = this.personCache.getLiveUpdate(teamId, personId)
+        if (!entry) {
+            return null
+        }
+        const held = heldLanes(entry)
+        return {
+            toSet: held.properties_to_set,
+            toSetOnce: held.properties_to_set_once,
+            toUnset: held.properties_to_unset,
+            createdAt: entry.created_at,
+        }
     }
 
     async fetchPersonsForUpdateByDistinctIds(
@@ -1657,7 +1724,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 properties_to_unset: carried.toUnset,
             })
         }
-        if (entry && hasLanes(entry)) {
+        if (entry && holdsChanges(entry)) {
             this.personCache.detachEntry(teamId, personId)
             return
         }
@@ -1880,8 +1947,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         personUpdate.needs_write = true
 
-        // Set force_update flag with || operator - once set to true by a $identify/$set event, it stays true
-        // This ensures that if any event in the batch requires forcing an update, the whole batch is written
+        // A forced event forces the next flush decision for this entry; the decision resets the flag.
         if (forceUpdate !== undefined) {
             personUpdate.force_update = personUpdate.force_update || forceUpdate
         }
@@ -1917,7 +1983,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
     /**
      * Trims and writes a row already over the size limit; rejects any other oversized write. The trim can drop keys
-     * this write carried, so nothing retires.
+     * this write carried, so nothing retires and the round's end hands the record back.
      */
     private async repairOversizedPerson(personUpdate: PersonUpdate, start: number): Promise<PersonUpdateResult> {
         const person = toInternalPerson(personUpdate)
@@ -2160,7 +2226,11 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         })
 
         if (!currentPerson) {
-            // Person truly doesn't exist anymore
+            // Nobody owns the id any more, so nothing can take this write; the entry has no write out from here on.
+            const orphaned = this.personCache.getLiveUpdate(personUpdate.team_id, personUpdate.id)
+            if (orphaned && !personUpdate.retargeted && orphaned.in_flight?.settled === personUpdate.issued) {
+                orphaned.in_flight = undefined
+            }
             return null
         }
 
@@ -2208,12 +2278,14 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             retargeted: true,
         }
         if (live) {
+            // The write out and pending alike: this write's own lanes are the entry's write out.
+            const carried = heldLanes(live)
             this.mergeUpdateIntoPersonUpdate(
                 updatedPersonUpdate,
                 {
-                    properties: live.properties_to_set,
-                    properties_to_set_once: live.properties_to_set_once,
-                    properties_to_unset: live.properties_to_unset,
+                    properties: carried.properties_to_set,
+                    properties_to_set_once: carried.properties_to_set_once,
+                    properties_to_unset: carried.properties_to_unset,
                     is_identified: live.is_identified,
                     created_at: live.created_at,
                     ...(live.last_seen_at ? { last_seen_at: live.last_seen_at } : {}),

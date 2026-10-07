@@ -24,6 +24,14 @@ import {
 const counterTotal = async (counter: { get: () => Promise<{ values: { value: number }[] }> }): Promise<number> =>
     (await counter.get()).values.reduce((sum, entry) => sum + entry.value, 0)
 
+const reasonTotal = async (
+    counter: { get: () => Promise<{ values: { value: number; labels: Partial<Record<string, string | number>> }[] }> },
+    reason: string
+): Promise<number> =>
+    (await counter.get()).values
+        .filter((entry) => entry.labels.reason === reason)
+        .reduce((sum, entry) => sum + entry.value, 0)
+
 describe('PersonhogPersonsStore', () => {
     let repository: jest.Mocked<PersonHogPersonWriteRepository>
     let store: PersonhogPersonsStore
@@ -183,11 +191,167 @@ describe('PersonhogPersonsStore', () => {
         expect(repository.updatePersonProperties.mock.calls[0][0].setProperties).toEqual({ b: '2' })
     })
 
+    it('a seal closes the open segment: later folds start a new one and a flush writes only the sealed ones', async () => {
+        const bound = store.forBatch(0)
+        await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+        store.sealDecided([person.uuid])
+        await bound.applyEventOps(person, ops({ $set: { b: '2' } }), 'd1')
+
+        await bound.flush()
+        expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+        expect(repository.updatePersonProperties.mock.calls[0][0].setProperties).toEqual({ a: '1' })
+
+        repository.updatePersonProperties.mockClear()
+        store.sealDecided([person.uuid])
+        await bound.flush()
+        expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+        expect(repository.updatePersonProperties.mock.calls[0][0].setProperties).toEqual({ b: '2' })
+    })
+
+    it('a lane first written after a seal waits for the next flush', async () => {
+        const bound = store.forBatch(0)
+        store.sealDecided([person.uuid])
+        await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+
+        await bound.flush()
+        expect(repository.updatePersonProperties).not.toHaveBeenCalled()
+
+        store.sealDecided([person.uuid])
+        await bound.flush()
+        expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+    })
+
+    it('a held lane emptied for want of an owner folds afresh once re-held', async () => {
+        jest.useFakeTimers()
+        try {
+            const bound = store.forBatch(0)
+            store.holdEventOps(1, 'nobody', ops({ $set: { a: '1' } }), 0, person.uuid)
+            store.sealDecided([person.uuid])
+            await jest.advanceTimersByTimeAsync(60_000)
+            await bound.flush()
+            expect(repository.updatePersonProperties).not.toHaveBeenCalled()
+
+            // Batch 0 still references the emptied entry, so the re-hold reuses it.
+            store.holdEventOps(1, 'nobody', ops({ $set: { b: '2' } }), 0, person.uuid)
+            store.holdEventOps(1, 'nobody', ops({ $set: { c: '3' } }), 0, person.uuid)
+            repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'nobody', person }])
+            await jest.advanceTimersByTimeAsync(5_000)
+            store.sealDecided([person.uuid])
+            await bound.flush()
+            expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+            expect(repository.updatePersonProperties.mock.calls[0][0].setProperties).toEqual({ b: '2', c: '3' })
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('an event that changes nothing against the view still folds, so the leader judges it by its own rule', async () => {
+        const bound = store.forBatch(0)
+        await bound.applyEventOps(person, ops({ $set: { a: '1' } }, '$pageview'), 'd1')
+        store.sealDecided([person.uuid])
+        await bound.flush()
+        expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+
+        // Whether an event belongs in a group is the caller's call, not the view's.
+        await bound.applyEventOps(person, ops({ $set: { a: '1' } }, '$pageview'), 'd1')
+        store.sealDecided([person.uuid])
+        await bound.flush()
+        expect(repository.updatePersonProperties).toHaveBeenCalledTimes(2)
+        expect(repository.updatePersonProperties.mock.calls[1][0].setProperties).toEqual({ a: '1' })
+    })
+
+    it('a discarded write rebuilds the view from the row the leader returned, so a read no longer asserts the declined value', async () => {
+        const bound = store.forBatch(0)
+        await bound.applyEventOps(person, ops({ $set: { $current_url: 'a' } }, '$pageview'), 'd1')
+        store.sealDecided([person.uuid])
+        repository.updatePersonProperties.mockResolvedValueOnce({ person, updated: false } as never)
+        await bound.flush()
+
+        expect((await bound.fetchForUpdate(1, 'd1'))?.properties).not.toHaveProperty('$current_url')
+    })
+
+    it('a synchronous fold holds for an id known only through a check read', async () => {
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
+        await store.forBatch(0).fetchForChecking(1, 'd1')
+
+        expect(store.applyEventOpsNow(1, 'd1', ops({ $set: { a: '1' } }), 0, person.uuid)).toBe(false)
+    })
+
+    it('a dirty lane whose id edge was evicted is still sealed by the round that decides its entry', async () => {
+        await store.forBatch(0).applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+        // The batch releases and takes the id's edge with it; the lane keeps its segment.
+        store.releaseBatch(0)
+
+        store.sealDecided([person.uuid])
+        await store.forBatch(1).flush()
+        expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+    })
+
+    it('an own segment is sealed from birth, so the next flush writes it with no round deciding its lane', async () => {
+        const bound = store.forBatch(0)
+        store.sealDecided([])
+        await store.applyEventOpsAsOwnSegment(person, ops({ $set_once: { plan: 'free' } }), 'd1', 0)
+
+        await bound.flush()
+        expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+        expect(repository.updatePersonProperties.mock.calls[0][0].setOnceProperties).toEqual({ plan: 'free' })
+    })
+
+    it('an own segment does not seal the open segment before it', async () => {
+        const bound = store.forBatch(0)
+        store.sealDecided([person.uuid])
+        await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+        await store.applyEventOpsAsOwnSegment(person, ops({ $set_once: { plan: 'free' } }), 'd1', 0)
+
+        await bound.flush()
+        expect(repository.updatePersonProperties).not.toHaveBeenCalled()
+
+        store.sealDecided([person.uuid])
+        await bound.flush()
+        const sent = repository.updatePersonProperties.mock.calls.map(([request]) => request)
+        expect(sent).toHaveLength(2)
+        expect(sent[0].setProperties).toEqual({ a: '1' })
+        expect(sent[1].setOnceProperties).toEqual({ plan: 'free' })
+    })
+
+    it('a denied op with no identity or last-seen change folds nothing', async () => {
+        const bound = store.forBatch(0)
+        const denied = {
+            set: { b: '2' },
+            setOnce: {},
+            unset: [],
+            denied: true,
+            shouldForceUpdate: false,
+            eventName: '$exception',
+        }
+        await bound.applyEventOps(person, denied, 'd1')
+
+        store.sealDecided([person.uuid])
+        await bound.flush()
+        expect(repository.updatePersonProperties).not.toHaveBeenCalled()
+    })
+
+    it('ops applied as their own segment neither fold into an open one nor take what follows', async () => {
+        const bound = store.forBatch(0)
+        await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+        await store.applyEventOpsAsOwnSegment(person, ops({ $set_once: { plan: 'free' } }), 'd1', 0)
+        await bound.applyEventOps(person, ops({ $set: { b: '2' } }), 'd1')
+
+        store.sealDecided([person.uuid])
+        await bound.flush()
+
+        const sent = repository.updatePersonProperties.mock.calls.map(([request]) => request)
+        expect(sent).toHaveLength(3)
+        expect(sent[0].setProperties).toEqual({ a: '1' })
+        expect(sent[1].setOnceProperties).toEqual({ plan: 'free' })
+        expect(sent[2].setProperties).toEqual({ b: '2' })
+    })
+
     it('folds a batch of ops into one leader call per person and publishes nothing', async () => {
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' }, $set_once: { first: 'x' } }), 'd1')
         await bound.applyEventOps(person, ops({ $set: { a: '2', first: 'shadowed' } }), 'd1')
-        await bound.applyEventOps(person, ops({ $unset: ['gone'] }), 'd1')
+        await bound.applyEventOps(person, ops({ $unset: ['plan'] }), 'd1')
 
         const results = await bound.flush()
 
@@ -196,7 +360,7 @@ describe('PersonhogPersonsStore', () => {
         expect(sent.personId).toEqual('7')
         expect(sent.setProperties).toEqual({ a: '2', first: 'shadowed' })
         expect(sent.setOnceProperties).toEqual({})
-        expect(sent.unsetProperties).toEqual(['gone'])
+        expect(sent.unsetProperties).toEqual(['plan'])
         // The changelog is this backend's ClickHouse feed: a flush writes
         // segments and publishes nothing.
         expect(results).toEqual([])
@@ -989,8 +1153,8 @@ describe('PersonhogPersonsStore', () => {
         it('writes held ops, folded, to whoever owns the distinct id at flush and drops a cached absence', async () => {
             const bound = store.forBatch(0)
             ;(store as any).resolutions.set('1:d1', null)
-            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0)
-            store.holdEventOps(1, 'd1', ops({ $set: { b: '2' } }), 0)
+            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0, person.uuid)
+            store.holdEventOps(1, 'd1', ops({ $set: { b: '2' } }), 0, person.uuid)
             repository.resolvePersonsByDistinctIds.mockResolvedValue([
                 { teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } },
             ] as never)
@@ -1006,7 +1170,7 @@ describe('PersonhogPersonsStore', () => {
         })
 
         it('keeps held ops nobody owns yet across the shadow release and writes them once the id resolves', async () => {
-            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0)
+            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0, person.uuid)
             repository.resolvePersonsByDistinctIds
                 .mockResolvedValueOnce([] as never)
                 .mockResolvedValue([{ teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } }] as never)
@@ -1039,7 +1203,7 @@ describe('PersonhogPersonsStore', () => {
 
         it('resolves every held lane due in one identity call per flush', async () => {
             for (const distinctId of ['d1', 'd2', 'd3']) {
-                store.holdEventOps(1, distinctId, ops({ $set: { a: distinctId } }), 0)
+                store.holdEventOps(1, distinctId, ops({ $set: { a: distinctId } }), 0, person.uuid)
             }
             repository.resolvePersonsByDistinctIds.mockResolvedValue([
                 { teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } },
@@ -1074,7 +1238,7 @@ describe('PersonhogPersonsStore', () => {
         it('a failed held resolve still writes the lanes with an owner and leaves the held lane for the next flush', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { b: '2' } }), 'd2')
-            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0)
+            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0, person.uuid)
             repository.resolvePersonsByDistinctIds
                 .mockRejectedValueOnce(new Error('identity unavailable') as never)
                 .mockResolvedValue([{ teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } }] as never)
@@ -1097,7 +1261,7 @@ describe('PersonhogPersonsStore', () => {
         it('sheds the earliest-held lane, counted, once held lanes pass the cap', async () => {
             personhogStoreFlushCounter.reset()
             for (let i = 0; i <= HELD_LANES_LIMIT; i++) {
-                store.holdEventOps(1, `held-${i}`, ops({ $set: { a: '1' } }), 0)
+                store.holdEventOps(1, `held-${i}`, ops({ $set: { a: '1' } }), 0, person.uuid)
             }
 
             expect(store.hasHeldOps(1, 'held-0')).toBe(false)
@@ -1111,8 +1275,8 @@ describe('PersonhogPersonsStore', () => {
 
         it('a lane that found its owner no longer counts toward the cap', async () => {
             // 'waiting' is held before 'owned', so only the owned lane leaving the count keeps 'waiting' under the cap.
-            store.holdEventOps(1, 'waiting', ops({ $set: { a: '1' } }), 0)
-            store.holdEventOps(1, 'owned', ops({ $set: { a: '1' } }), 0)
+            store.holdEventOps(1, 'waiting', ops({ $set: { a: '1' } }), 0, person.uuid)
+            store.holdEventOps(1, 'owned', ops({ $set: { a: '1' } }), 0, person.uuid)
             repository.resolvePersonsByDistinctIds.mockImplementation(((keys: { distinctId: string }[]) =>
                 Promise.resolve(
                     keys.map(({ distinctId }) => ({
@@ -1125,7 +1289,7 @@ describe('PersonhogPersonsStore', () => {
             personhogStoreFlushCounter.reset()
 
             for (let i = 0; i < HELD_LANES_LIMIT - 1; i++) {
-                store.holdEventOps(1, `held-${i}`, ops({ $set: { a: '1' } }), 0)
+                store.holdEventOps(1, `held-${i}`, ops({ $set: { a: '1' } }), 0, person.uuid)
             }
 
             expect(store.hasHeldOps(1, 'waiting')).toBe(true)
@@ -1136,7 +1300,7 @@ describe('PersonhogPersonsStore', () => {
         })
 
         it('drops held ops, counted, once nobody has owned the distinct id for the whole window', async () => {
-            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0)
+            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0, person.uuid)
             personhogStoreFlushCounter.reset()
             const now = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000)
             try {
@@ -1156,7 +1320,7 @@ describe('PersonhogPersonsStore', () => {
 
         it('a held write whose owner was merged away in between follows the redirect', async () => {
             const bound = store.forBatch(0)
-            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0)
+            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0, person.uuid)
             repository.resolvePersonsByDistinctIds
                 .mockResolvedValueOnce([{ teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } }] as never)
                 .mockResolvedValueOnce([{ teamId: 1, distinctId: 'd1', person: { ...person, id: '11' } }] as never)
@@ -1173,7 +1337,7 @@ describe('PersonhogPersonsStore', () => {
         })
 
         it('does not hold an op the denylist keeps off persons', () => {
-            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }, '$exception'), 0)
+            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }, '$exception'), 0, person.uuid)
             expect((store as any).entries.size).toBe(0)
         })
 
@@ -1189,7 +1353,7 @@ describe('PersonhogPersonsStore', () => {
         it('reports held ops until the flush writes them', async () => {
             const bound = store.forBatch(0)
             expect(store.hasHeldOps(1, 'd1')).toBe(false)
-            store.holdEventOps(1, 'd1', creation({ k: 'initial' }), 0)
+            store.holdEventOps(1, 'd1', creation({ k: 'initial' }), 0, person.uuid)
             expect(store.hasHeldOps(1, 'd1')).toBe(true)
             expect(store.hasHeldOps(1, 'd2')).toBe(false)
             repository.resolvePersonsByDistinctIds.mockResolvedValue([
@@ -1203,13 +1367,13 @@ describe('PersonhogPersonsStore', () => {
 
         it('ops held into a lane a flush already resolved and wrote resolve the owner afresh', async () => {
             const bound = store.forBatch(0)
-            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0)
+            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0, person.uuid)
             repository.resolvePersonsByDistinctIds
                 .mockResolvedValueOnce([{ teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } }] as never)
                 .mockResolvedValueOnce([{ teamId: 1, distinctId: 'd1', person: { ...person, id: '11' } }] as never)
             await bound.flush()
             // The batch still references the emptied lane, so it is the same entry the next hold lands in.
-            store.holdEventOps(1, 'd1', creation({ k: 'initial' }), 0)
+            store.holdEventOps(1, 'd1', creation({ k: 'initial' }), 0, person.uuid)
 
             await bound.flush()
 
@@ -2823,21 +2987,31 @@ describe('PersonhogPersonsStore', () => {
             expect(edgeOf('1:d2')).toBeUndefined()
         })
 
-        it('an abandoned batch sheds the unwritten lane it alone was keeping', async () => {
-            // The shadow valve: a failed shadow flush cannot fail the batch,
-            // so the release must not retain the lanes it left behind. The
-            // counter is the instrument the ledger names for reading a
-            // shed-correlated divergence spike.
-            const shedBefore = await counterTotal(personhogStoreShadowShedCounter)
-            const bound = store.forBatch(0)
-            await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+        it.each([
+            ['open', false],
+            ['sealed', true],
+        ])(
+            'an abandoned batch sheds the unwritten lane it alone was keeping, counted as %s',
+            async (reason, sealed) => {
+                // The shadow valve: a failed shadow flush cannot fail the batch,
+                // so the release must not retain the lanes it left behind. The
+                // counter is the instrument the ledger names for reading a
+                // shed-correlated divergence spike, and its reason says whether
+                // a Postgres decision had closed what was shed.
+                const shedBefore = await reasonTotal(personhogStoreShadowShedCounter, reason)
+                const bound = store.forBatch(0)
+                await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+                if (sealed) {
+                    store.sealDecided([person.uuid])
+                }
 
-            store.abandonBatch(0)
+                store.abandonBatch(0)
 
-            expect((store as any).entries.has('1:7')).toBe(false)
-            expect(projectionCount()).toBe(0)
-            expect(await counterTotal(personhogStoreShadowShedCounter)).toBe(shedBefore + 1)
-        })
+                expect((store as any).entries.has('1:7')).toBe(false)
+                expect(projectionCount()).toBe(0)
+                expect(await reasonTotal(personhogStoreShadowShedCounter, reason)).toBe(shedBefore + 1)
+            }
+        )
 
         it('an abandoned in-flight lane is left to its write, then shed when the write fails', async () => {
             const bound0 = store.forBatch(0)

@@ -46,6 +46,18 @@ describe('person-update', () => {
     })
     describe('computeEventPropertyUpdates', () => {
         describe('property changes', () => {
+            it('should not compute an update when an object or array value is re-sent unchanged', () => {
+                const event = {
+                    event: '$pageview',
+                    properties: { $set: { tags: ['a', 'b'], nested: { k: 1 } } },
+                } as unknown as PluginEvent
+
+                const result = computeEventPropertyUpdates(event, { tags: ['a', 'b'], nested: { k: 1 } })
+
+                expect(result.hasChanges).toBe(false)
+                expect(result.toSet).toEqual({})
+            })
+
             it('should compute updates when custom properties are updated', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
@@ -683,6 +695,15 @@ describe('person-update', () => {
             expect(wasUpdated).toBe(true)
             expect(updatedPerson.properties).toEqual({ name: 'John', email: 'john@example.com' })
             expect(updatedPerson.properties.old_prop).toBeUndefined()
+        })
+
+        it('reports no update when a set value equals the existing one by value', () => {
+            const person = { properties: { tags: ['a'] } } as unknown as InternalPerson
+            const updates = { toSet: { tags: ['a'] }, toUnset: [], hasChanges: true, shouldForceUpdate: false }
+
+            const [, updated] = applyEventPropertyUpdates(updates as never, person)
+
+            expect(updated).toBe(false)
         })
 
         it('should not modify original person object', () => {

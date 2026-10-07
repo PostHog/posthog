@@ -1,7 +1,7 @@
 import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 
-import { PersonUpdate } from '~/common/persons/person-update-batch'
+import { PendingLanes, PersonUpdate } from '~/common/persons/person-update-batch'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { InternalPerson } from '~/types'
 
@@ -13,7 +13,11 @@ interface CacheMetrics {
 }
 
 type PendingChange = { set: unknown } | { setOnce: unknown } | { unset: true }
-type Lanes = Pick<PersonUpdate, 'properties_to_set' | 'properties_to_set_once' | 'properties_to_unset'>
+type Lanes = PendingLanes
+
+function emptyLanes(): Lanes {
+    return { properties_to_set: {}, properties_to_set_once: {}, properties_to_unset: [] }
+}
 
 /** One key's pending change, tagged by lane, so two records compare by what each would send. */
 function pendingChangeFor(update: Lanes, name: string): PendingChange | undefined {
@@ -30,8 +34,8 @@ function pendingChangeFor(update: Lanes, name: string): PendingChange | undefine
 }
 
 /**
- * Removes from the entry each pending change equal to the one a write or a merge carried for that key; a
- * differing change made since stays pending.
+ * Removes from the entry, pending lanes and write out alike, each change equal to the one a write or a merge
+ * carried for that key; a differing change made since stays.
  */
 export function retireCarried(entry: PersonUpdate, carried: Lanes): void {
     const names = new Set([
@@ -39,15 +43,103 @@ export function retireCarried(entry: PersonUpdate, carried: Lanes): void {
         ...Object.keys(carried.properties_to_set_once),
         ...carried.properties_to_unset,
     ])
+    const held = entry.in_flight ? [entry, entry.in_flight.lanes] : [entry]
     for (const name of names) {
-        const pending = pendingChangeFor(entry, name)
-        if (pending !== undefined && !isEqual(pending, pendingChangeFor(carried, name))) {
-            continue
+        const landed = pendingChangeFor(carried, name)
+        for (const lanes of held) {
+            const pending = pendingChangeFor(lanes, name)
+            if (pending !== undefined && !isEqual(pending, landed)) {
+                continue
+            }
+            delete lanes.properties_to_set[name]
+            delete lanes.properties_to_set_once[name]
+            lanes.properties_to_unset = lanes.properties_to_unset.filter((unset) => unset !== name)
         }
-        delete entry.properties_to_set[name]
-        delete entry.properties_to_set_once[name]
-        entry.properties_to_unset = entry.properties_to_unset.filter((unset) => unset !== name)
     }
+}
+
+/** Later lanes win over earlier ones: a key set later is no longer unset, and one unset later is no longer set. */
+function mergeLanes(earlier: Lanes, later: Lanes): Lanes {
+    const properties_to_set = { ...earlier.properties_to_set, ...later.properties_to_set }
+    const properties_to_set_once = { ...earlier.properties_to_set_once }
+    // A set-once over an earlier unset of its key applies unconditionally, as the segment fold resolves it: the
+    // unset guarantees the key is absent when the set-once lands.
+    for (const [key, value] of Object.entries(later.properties_to_set_once)) {
+        if (earlier.properties_to_unset.includes(key) && !Object.hasOwn(later.properties_to_set, key)) {
+            properties_to_set[key] = value
+        } else {
+            properties_to_set_once[key] = value
+        }
+    }
+    for (const key of later.properties_to_unset) {
+        delete properties_to_set[key]
+        delete properties_to_set_once[key]
+    }
+    const setLater = new Set([...Object.keys(later.properties_to_set), ...Object.keys(later.properties_to_set_once)])
+    const properties_to_unset = [
+        ...new Set([...earlier.properties_to_unset.filter((key) => !setLater.has(key)), ...later.properties_to_unset]),
+    ]
+    return { properties_to_set, properties_to_set_once, properties_to_unset }
+}
+
+/**
+ * Takes the pending lanes as the entry's one write out and marks the scalars as judged, so the next decision
+ * weighs only what arrives afterwards. The flush decides no entry with a write out until that write has answered.
+ */
+export function beginWrite(entry: PersonUpdate, settled: Promise<void>): void {
+    entry.in_flight = {
+        lanes: {
+            properties_to_set: entry.properties_to_set,
+            properties_to_set_once: entry.properties_to_set_once,
+            properties_to_unset: entry.properties_to_unset,
+        },
+        originals: {
+            original_is_identified: entry.original_is_identified,
+            original_created_at: entry.original_created_at,
+            original_last_seen_at: entry.original_last_seen_at,
+        },
+        version: entry.version,
+        force: entry.force_update ?? false,
+        settled,
+    }
+    entry.properties_to_set = {}
+    entry.properties_to_set_once = {}
+    entry.properties_to_unset = []
+    entry.original_is_identified = entry.is_identified
+    entry.original_created_at = entry.created_at
+    entry.original_last_seen_at = entry.last_seen_at
+}
+
+/**
+ * Hands the write out back to pending when no answer can say whether it landed, so the next event's flush decision
+ * weighs it again if one arrives before the batch's release; otherwise the lanes leave with the entry, as pending
+ * lanes always have. A newer pending change for a key keeps precedence, and the force it judged with comes back.
+ */
+export function returnWrite(entry: PersonUpdate): void {
+    const write = entry.in_flight
+    if (!write) {
+        return
+    }
+    entry.in_flight = undefined
+    const pending = mergeLanes(write.lanes, entry)
+    entry.properties_to_set = pending.properties_to_set
+    entry.properties_to_set_once = pending.properties_to_set_once
+    entry.properties_to_unset = pending.properties_to_unset
+    // The originals belong to the base the decision judged from. A newer row taken since carries its own, which
+    // still show the unlanded scalar change, so they stay.
+    if (entry.version === write.version) {
+        Object.assign(entry, write.originals)
+    }
+    entry.force_update = entry.force_update || write.force
+}
+
+/** A copy of everything the entry still holds for the row, the write out and pending, the pending lanes winning. */
+export function heldLanes(entry: PersonUpdate): Lanes {
+    return mergeLanes(entry.in_flight?.lanes ?? emptyLanes(), entry)
+}
+
+export function holdsChanges(entry: PersonUpdate): boolean {
+    return entry.in_flight !== undefined || hasLanes(entry)
 }
 
 type RowScalars = Pick<InternalPerson, 'properties' | 'is_identified' | 'created_at' | 'last_seen_at'>
@@ -69,12 +161,20 @@ export function takeRow(entry: PersonUpdate, row: RowScalars, version: number): 
     entry.original_last_seen_at = row.last_seen_at
 }
 
-export function hasLanes(lanes: Lanes): boolean {
+function hasLanes(lanes: Lanes): boolean {
     return (
         Object.keys(lanes.properties_to_set).length > 0 ||
         Object.keys(lanes.properties_to_set_once).length > 0 ||
         lanes.properties_to_unset.length > 0
     )
+}
+
+/**
+ * An entry nothing holds: no change waits for a flush and no write is out. One with a write out stays until the
+ * answer lands or hands the write back; a re-target after a merge needs it as the carrier.
+ */
+function idle(update: PersonUpdate | null | undefined): boolean {
+    return !update || (!update.needs_write && !update.in_flight)
 }
 
 export class BatchWritingPersonsCache {
@@ -352,8 +452,7 @@ export class BatchWritingPersonsCache {
 
     processDeferredEvictions(): void {
         for (const personIdKey of this.detachedEntries) {
-            const update = this.personUpdateCache.get(personIdKey)
-            if (!update || !update.needs_write) {
+            if (idle(this.personUpdateCache.get(personIdKey))) {
                 this.dropEntry(personIdKey)
                 this.detachedEntries.delete(personIdKey)
             }
@@ -367,13 +466,21 @@ export class BatchWritingPersonsCache {
                 continue
             }
             const personIdKey = this.getPersonIdCacheKey(teamId, personId)
-            const update = this.personUpdateCache.get(personIdKey)
-            if (!update || !update.needs_write) {
+            if (idle(this.personUpdateCache.get(personIdKey))) {
                 this.dropEntry(personIdKey)
                 this.distinctIdToPersonId.delete(distinctKey)
                 this.deferredEvictions.delete(distinctKey)
             }
         }
+    }
+
+    /** The uuid of the person a distinct id maps to, from its live entry; undefined when the id is not mapped. */
+    uuidFor(teamId: number, distinctId: string): string | undefined {
+        const personId = this.distinctIdToPersonId.get(this.getDistinctCacheKey(teamId, distinctId))
+        if (personId === undefined) {
+            return undefined
+        }
+        return this.personUpdateCache.get(this.getPersonIdCacheKey(teamId, personId))?.uuid
     }
 
     trackBatchEntry(batchId: number, teamId: number, distinctId: string): void {
@@ -396,8 +503,7 @@ export class BatchWritingPersonsCache {
 
         if (personId !== undefined) {
             const personIdKey = this.getPersonIdCacheKey(teamId, personId)
-            const update = this.personUpdateCache.get(personIdKey)
-            if (!update || !update.needs_write) {
+            if (idle(this.personUpdateCache.get(personIdKey))) {
                 this.dropEntry(personIdKey)
                 this.distinctIdToPersonId.delete(distinctKey)
             } else {
@@ -428,27 +534,11 @@ export class BatchWritingPersonsCache {
             )
         }
 
-        // Pending holds only this pod's sets, never the fetched row.
-        mergedPersonUpdate.properties_to_set = {
-            ...existingPersonUpdate.properties_to_set,
-            ...person.properties_to_set,
-        }
-        mergedPersonUpdate.properties_to_set_once = {
-            ...existingPersonUpdate.properties_to_set_once,
-            ...person.properties_to_set_once,
-        }
-        for (const key of person.properties_to_unset) {
-            delete mergedPersonUpdate.properties_to_set[key]
-            delete mergedPersonUpdate.properties_to_set_once[key]
-        }
-
-        mergedPersonUpdate.properties_to_unset = [
-            ...new Set([...existingPersonUpdate.properties_to_unset, ...person.properties_to_unset]),
-        ]
-        const keysToSet = new Set(Object.keys(person.properties_to_set))
-        mergedPersonUpdate.properties_to_unset = mergedPersonUpdate.properties_to_unset.filter(
-            (key) => !keysToSet.has(key)
-        )
+        // Pending holds only this pod's sets, never the fetched row; the later record's lanes win.
+        const lanes = mergeLanes(existingPersonUpdate, person)
+        mergedPersonUpdate.properties_to_set = lanes.properties_to_set
+        mergedPersonUpdate.properties_to_set_once = lanes.properties_to_set_once
+        mergedPersonUpdate.properties_to_unset = lanes.properties_to_unset
 
         mergedPersonUpdate.created_at = DateTime.min(existingPersonUpdate.created_at, person.created_at)
         mergedPersonUpdate.needs_write = existingPersonUpdate.needs_write || person.needs_write

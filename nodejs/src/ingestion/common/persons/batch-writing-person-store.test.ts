@@ -11,11 +11,13 @@ import { fromInternalPerson, toInternalPerson } from '~/common/persons/person-up
 import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '~/common/utils/db/error'
 import { PostgresRouter } from '~/common/utils/db/postgres'
+import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { InternalPerson, TeamId } from '~/types'
 
 import { BatchWritingPersonsStore } from './batch-writing-person-store'
+import { beginWrite, heldLanes } from './batch-writing-persons-cache'
 import { EventOps } from './person-update'
 import { BatchBoundPersonsStore } from './persons-store-for-batch'
 
@@ -2271,6 +2273,83 @@ describe('BatchWritingPersonStore', () => {
             expect(mockPersonPropertyKeyUpdateCounter.labels({ key: 'other' }).inc).toHaveBeenCalledTimes(1)
         })
 
+        it('an ignored flush drops the filtered-only sets it declined, so a later write carries none of them', async () => {
+            const mockRepo = createMockRepository()
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
+            const personWithFiltered = { ...person, properties: { $browser: 'Firefox', name: 'Jane' } }
+
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { $browser: 'Chrome' },
+                [],
+                {},
+                'test'
+            )
+            await personStore.flush()
+            expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
+
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { name: 'John' },
+                [],
+                {},
+                'test'
+            )
+            await personStore.flush()
+
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith([
+                expect.objectContaining({ properties_to_set: { name: 'John' } }),
+            ])
+        })
+
+        it('a forced event forces one flush decision, not the next', async () => {
+            const mockRepo = createMockRepository()
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
+            const personWithFiltered = { ...person, properties: { $browser: 'Firefox' } }
+
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { $browser: 'Safari' },
+                [],
+                {},
+                'test',
+                true
+            )
+            await personStore.flush()
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { $browser: 'Chrome' },
+                [],
+                {},
+                'test'
+            )
+            await personStore.flush()
+
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenLastCalledWith({ outcome: 'ignored' })
+        })
+
+        it('a property re-sent with an equal object value is not a change, so it promotes nothing', async () => {
+            const mockRepo = createMockRepository()
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
+            const personWithArray = { ...person, properties: { tags: ['a'], $current_url: 'https://old.com' } }
+
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithArray,
+                { tags: ['a'], $current_url: 'https://new.com' },
+                [],
+                {},
+                'test'
+            )
+            await personStore.flush()
+
+            expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
+        })
+
         it('integration: chain of events - normal event (ignored), $identify event (forces update), then normal event (also written)', async () => {
             const mockRepo = createMockRepository()
             const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
@@ -3113,6 +3192,462 @@ describe('BatchWritingPersonStore', () => {
             const entry = personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)
             expect(entry?.properties_to_set).toEqual({ b: '2' })
             expect(entry?.properties).toEqual(expect.objectContaining({ a: '1' }))
+        })
+
+        it("a flush waits for the entry's write out, then judges only what arrived since", async () => {
+            const personStore = getPersonsStore()
+            await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { plan: 'pro', $current_url: 'https://example.com/a' },
+                [],
+                {},
+                'distinct_id_1'
+            )
+
+            const release = heldWrite()
+            const flushing = personStore.flush()
+            // The same value again with a filtered change: against the landed row plan is unchanged and the filtered
+            // key is not worth a write; against the stale base, plan would promote it.
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { plan: 'pro', $current_url: 'https://example.com/b' },
+                [],
+                {},
+                'distinct_id_1'
+            )
+            const second = personStore.flush()
+            await new Promise((resolve) => setImmediate(resolve))
+            // Undecided until the first write answers, and not left for a later flush either.
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)?.needs_write).toBe(true)
+
+            release()
+            await Promise.all([flushing, second])
+
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+            const entry = personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)
+            expect(entry?.needs_write).toBe(false)
+            expect(entry?.in_flight).toBeUndefined()
+            expect(entry?.properties).toEqual(
+                expect.objectContaining({ plan: 'pro', $current_url: 'https://example.com/a' })
+            )
+        })
+
+        it('applyEventOps lands its lanes before it yields', () => {
+            const personStore = getPersonsStore()
+            const pending = personStore.applyEventOps(
+                person,
+                {
+                    set: { plan: 'pro' },
+                    setOnce: {},
+                    unset: [],
+                    denied: false,
+                    shouldForceUpdate: false,
+                    eventName: '$set',
+                },
+                'distinct_id_1',
+                0
+            )
+
+            // A shadow fold in the same step relies on this: the lanes are in the entry before any await.
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)?.properties_to_set).toEqual({
+                plan: 'pro',
+            })
+            return pending
+        })
+
+        it('the fold reports the entry it landed on, and nothing for an event that changes nothing', () => {
+            const personStore = getPersonsStore()
+            const setPlan: EventOps = {
+                set: { plan: 'pro' },
+                setOnce: {},
+                unset: [],
+                denied: false,
+                shouldForceUpdate: false,
+                eventName: '$set',
+            }
+
+            expect(personStore.foldEventOps(person, setPlan, 'distinct_id_1', 0).landedOn).toBe(person.uuid)
+            // The same value against a view that already shows it lands nothing, so the shadow has nothing to group.
+            const seen = { ...person, properties: { ...person.properties, plan: 'pro' } }
+            expect(personStore.foldEventOps(seen, setPlan, 'distinct_id_1', 0).landedOn).toBeUndefined()
+        })
+
+        it('a set-once over a pending unset of its key is held as a set, since the unset guarantees the key is absent', () => {
+            const entry = fromInternalPerson(person, 'distinct_id_1')
+            entry.properties_to_unset = ['plan']
+            beginWrite(entry, Promise.resolve())
+            entry.properties_to_set_once = { plan: 'pro' }
+
+            expect(heldLanes(entry)).toEqual({
+                properties_to_set: { plan: 'pro' },
+                properties_to_set_once: {},
+                properties_to_unset: [],
+            })
+        })
+
+        it('the flush seals exactly the entries each round decides, before deciding them', async () => {
+            const personStore = getPersonsStore()
+            await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'pro' }, [], {}, 'distinct_id_1')
+            const sealed: string[][] = []
+            const pendingAtSeal: Record<string, unknown>[] = []
+            const seal = (deciding: string[]): void => {
+                sealed.push(deciding)
+                if (deciding.length > 0) {
+                    // Before the decision: the change is still pending, not yet the entry's write out.
+                    pendingAtSeal.push(
+                        personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)!.properties_to_set
+                    )
+                }
+            }
+            const release = heldWrite()
+            const flushing = personStore.flush(seal)
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'max' }, [], {}, 'distinct_id_1')
+            const second = personStore.flush(seal)
+
+            release()
+            await Promise.all([flushing, second])
+
+            // The first flush decides the person; the second waits a round, sealing nothing, then decides it.
+            expect(sealed).toEqual([[person.uuid], [], [person.uuid]])
+            expect(pendingAtSeal).toEqual([{ plan: 'pro' }, { plan: 'max' }])
+        })
+
+        it("a straggler answer from a round that ended early does not clear a later round's write out", async () => {
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
+                dbWriteMode: 'NO_ASSERT',
+                useBatchUpdates: false,
+                maxOptimisticUpdateRetries: 1,
+                optimisticUpdateRetryInterval: 0,
+            })
+            const other: InternalPerson = { ...person, id: 'other-id', uuid: 'other-uuid' }
+            const success = (updates: any[]) =>
+                new Map(
+                    updates.map((u: any) => [
+                        u.uuid,
+                        { success: true, version: u.version + 1, kafkaMessage: {}, person: toInternalPerson(u) },
+                    ])
+                )
+            const held: (() => void)[] = []
+            mockRepo.updatePersonsBatch = jest.fn().mockImplementation((updates: any[]) => {
+                if (updates[0].uuid === other.uuid) {
+                    return Promise.reject(new Error('boom'))
+                }
+                return new Promise((resolve) => held.push(() => resolve(success(updates))))
+            })
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'pro' }, [], {}, 'distinct_id_1')
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                other,
+                { plan: 'pro' },
+                [],
+                {},
+                'distinct_id_other'
+            )
+            // The other entry's write fails for good and ends the round while this entry's write is still out.
+            await expect(personStore.flush()).rejects.toThrow('boom')
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)?.in_flight).toBeUndefined()
+
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'max' }, [], {}, 'distinct_id_1')
+            const second = personStore.flush()
+            await new Promise((resolve) => setImmediate(resolve))
+            held[0]()
+            await new Promise((resolve) => setImmediate(resolve))
+            // The straggler landed; the second round's write is still out and still recorded.
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)?.in_flight).toBeDefined()
+
+            held[1]()
+            await second
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)?.in_flight).toBeUndefined()
+        })
+
+        it('a write whose message is too large hands its record back, so the next flush decides it instead of waiting', async () => {
+            const personStore = getPersonsStore()
+            mockRepo.updatePersonsBatch = jest
+                .fn()
+                .mockImplementationOnce((updates: any[]) =>
+                    Promise.resolve(
+                        new Map(updates.map((u: any) => [u.uuid, { success: false, error: new Error('batch failed') }]))
+                    )
+                )
+                .mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'pro' }, [], {}, 'distinct_id_1')
+            await personStore.flush()
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)?.in_flight).toBeUndefined()
+
+            mockRepo.updatePersonsBatch = jest.fn().mockImplementation((updates: any[]) =>
+                Promise.resolve(
+                    new Map(
+                        updates.map((u: any) => [
+                            u.uuid,
+                            {
+                                success: true,
+                                version: u.version + 1,
+                                kafkaMessage: {},
+                                person: toInternalPerson(u),
+                            },
+                        ])
+                    )
+                )
+            )
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'max' }, [], {}, 'distinct_id_1')
+            await personStore.flush()
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+        })
+
+        it('a size-rejected forced write hands its force back for the next decision', async () => {
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
+                dbWriteMode: 'NO_ASSERT',
+                useBatchUpdates: false,
+            })
+            mockRepo.updatePersonsBatch = jest
+                .fn()
+                .mockImplementationOnce((updates: any[]) =>
+                    Promise.resolve(
+                        new Map(
+                            updates.map((u: any) => [
+                                u.uuid,
+                                {
+                                    success: false,
+                                    error: new PersonPropertiesSizeViolationError('too large', u.team_id, u.id),
+                                },
+                            ])
+                        )
+                    )
+                )
+                .mockImplementation((updates: any[]) =>
+                    Promise.resolve(
+                        new Map(
+                            updates.map((u: any) => [
+                                u.uuid,
+                                {
+                                    success: true,
+                                    version: u.version + 1,
+                                    kafkaMessage: {},
+                                    person: toInternalPerson(u),
+                                },
+                            ])
+                        )
+                    )
+                )
+            mockRepo.handleOversizedPersonProperties = jest
+                .fn()
+                .mockRejectedValue(new PersonPropertiesSizeViolationError('too large', teamId, person.id))
+            const personWithBrowser = {
+                ...person,
+                properties: { ...person.properties, $browser: 'Firefox', $current_url: 'https://example.com/0' },
+            }
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithBrowser,
+                { $browser: 'Safari' },
+                [],
+                {},
+                'distinct_id_1',
+                0,
+                true
+            )
+            await personStore.flush()
+
+            // A filtered-only follow-up is not worth a write on its own; the force handed back with the rejected write is.
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithBrowser,
+                { $current_url: 'https://example.com/b' },
+                [],
+                {},
+                'distinct_id_1'
+            )
+            await personStore.flush()
+
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(2)
+            expect(mockRepo.updatePersonsBatch.mock.calls[1][0][0].properties_to_set).toEqual({
+                $browser: 'Safari',
+                $current_url: 'https://example.com/b',
+            })
+        })
+
+        it("a hand-back after a newer row read keeps the row's baselines", async () => {
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
+                dbWriteMode: 'NO_ASSERT',
+                useBatchUpdates: false,
+            })
+            let fail: () => void = () => {}
+            mockRepo.updatePersonsBatch = jest
+                .fn()
+                .mockImplementationOnce(
+                    (updates: any[]) =>
+                        new Promise((resolve) => {
+                            fail = () =>
+                                resolve(
+                                    new Map(
+                                        updates.map((u: any) => [
+                                            u.uuid,
+                                            {
+                                                success: false,
+                                                error: new PersonPropertiesSizeViolationError(
+                                                    'too large',
+                                                    u.team_id,
+                                                    u.id
+                                                ),
+                                            },
+                                        ])
+                                    )
+                                )
+                        })
+                )
+                .mockImplementation((updates: any[]) =>
+                    Promise.resolve(
+                        new Map(
+                            updates.map((u: any) => [
+                                u.uuid,
+                                {
+                                    success: true,
+                                    version: u.version + 1,
+                                    kafkaMessage: {},
+                                    person: toInternalPerson(u),
+                                },
+                            ])
+                        )
+                    )
+                )
+            mockRepo.handleOversizedPersonProperties = jest
+                .fn()
+                .mockRejectedValue(new PersonPropertiesSizeViolationError('too large', teamId, person.id))
+            const personWithUrl = {
+                ...person,
+                properties: { ...person.properties, $current_url: 'https://example.com/0' },
+            }
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithUrl,
+                {},
+                [],
+                { is_identified: true },
+                'distinct_id_1'
+            )
+            const flushing = personStore.flush()
+            await new Promise((resolve) => setImmediate(resolve))
+            // A newer row arrives under another distinct id of the person while the write is out.
+            mockRepo.fetchPerson.mockResolvedValueOnce({
+                ...personWithUrl,
+                is_identified: true,
+                version: person.version + 5,
+            })
+            await personStore.fetchForUpdate(teamId, 'distinct_id_other', 1)
+            fail()
+            await flushing
+
+            // The row already says identified, so a filtered-only follow-up is not worth a write.
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithUrl,
+                { $current_url: 'https://example.com/b' },
+                [],
+                {},
+                'distinct_id_1'
+            )
+            await personStore.flush()
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+        })
+
+        it("a re-targeted write landing on the survivor leaves the survivor's own write out in place", async () => {
+            const personStore = getPersonsStore()
+            const source: InternalPerson = { ...person, id: 'source-id', uuid: 'source-uuid', properties: {} }
+            const target: InternalPerson = { ...person, id: 'target-id', uuid: 'target-uuid', properties: {} }
+            mockRepo.fetchPerson.mockResolvedValueOnce(source).mockResolvedValueOnce(target)
+            await personStore.fetchForUpdate(teamId, 'distinct_id_source', 0)
+            await personStore.fetchForUpdate(teamId, 'distinct_id_target', 0)
+
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                target,
+                { plan: 'pro' },
+                [],
+                {},
+                'distinct_id_target'
+            )
+            const release = heldWrite()
+            const flushing = personStore.flush()
+
+            // The source row is gone, merged into the target by another pod, so its write re-targets and lands there.
+            await personStore.updatePersonWithPropertiesDiffForUpdate(source, { k: 'v' }, [], {}, 'distinct_id_source')
+            const noRows = (updates: any[]) =>
+                Promise.resolve(
+                    new Map(
+                        updates.map((u: any) => [u.uuid, { success: false, error: new NoRowsUpdatedError('gone') }])
+                    )
+                )
+            mockRepo.updatePersonsBatch.mockImplementationOnce(noRows).mockImplementationOnce(noRows)
+            mockRepo.fetchPerson.mockResolvedValueOnce(target)
+            await personStore.flush()
+
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, target.id)?.in_flight).toBeDefined()
+
+            release()
+            await flushing
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, target.id)?.in_flight).toBeUndefined()
+        })
+
+        it('a size-rejected identify keeps its identity change for the next decision', async () => {
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
+                dbWriteMode: 'NO_ASSERT',
+                useBatchUpdates: false,
+            })
+            mockRepo.updatePersonsBatch = jest
+                .fn()
+                .mockImplementationOnce((updates: any[]) =>
+                    Promise.resolve(
+                        new Map(
+                            updates.map((u: any) => [
+                                u.uuid,
+                                {
+                                    success: false,
+                                    error: new PersonPropertiesSizeViolationError('too large', u.team_id, u.id),
+                                },
+                            ])
+                        )
+                    )
+                )
+                .mockImplementation((updates: any[]) =>
+                    Promise.resolve(
+                        new Map(
+                            updates.map((u: any) => [
+                                u.uuid,
+                                {
+                                    success: true,
+                                    version: u.version + 1,
+                                    kafkaMessage: {},
+                                    person: toInternalPerson(u),
+                                },
+                            ])
+                        )
+                    )
+                )
+            mockRepo.handleOversizedPersonProperties = jest
+                .fn()
+                .mockRejectedValue(new PersonPropertiesSizeViolationError('too large', teamId, person.id))
+            // The filtered key already exists, so neither change to it is worth a write on its own.
+            const personWithUrl = {
+                ...person,
+                properties: { ...person.properties, $current_url: 'https://example.com/0' },
+            }
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithUrl,
+                { $current_url: 'https://example.com/a' },
+                [],
+                { is_identified: true },
+                'distinct_id_1'
+            )
+            await personStore.flush()
+
+            // The unwritten identity change still is.
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithUrl,
+                { $current_url: 'https://example.com/b' },
+                [],
+                {},
+                'distinct_id_1'
+            )
+            await personStore.flush()
+
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(2)
+            expect(mockRepo.updatePersonsBatch.mock.calls[1][0][0].is_identified).toBe(true)
         })
 
         it('a write that lands through the fallback retires what it carried', async () => {

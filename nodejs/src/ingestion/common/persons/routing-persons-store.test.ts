@@ -4,8 +4,10 @@ import { DateTime } from 'luxon'
 import {
     personhogStoreShadowCompareFailedCounter,
     personhogStoreShadowComparedCounter,
+    personhogStoreShadowCreateRetriesCounter,
     personhogStoreShadowDivergenceCounter,
     personhogStoreShadowErrorsCounter,
+    personhogStoreShadowFoldHeldCounter,
     personhogStoreShadowMergeRedriveCounter,
     personhogStoreShadowSkipsCounter,
 } from '~/common/persons/metrics'
@@ -13,6 +15,7 @@ import { logger } from '~/common/utils/logger'
 import { defaultRetryConfig } from '~/common/utils/retries'
 import { InternalPerson } from '~/types'
 
+import { BatchWritingPersonsStore } from './batch-writing-person-store'
 import { PersonMergeCallFailedError } from './person-merge-types'
 import { EventOps } from './person-update'
 import { PersonhogPersonsStore } from './personhog-persons-store'
@@ -29,6 +32,8 @@ jest.mock('~/common/persons/metrics', () => ({
     personhogStoreShadowCompareFailedCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowFoldRedriveCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowMergeRedriveCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+    personhogStoreShadowCreateRetriesCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+    personhogStoreShadowFoldHeldCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowDurationSeconds: {
         labels: jest.fn().mockReturnValue({ startTimer: jest.fn(() => mockShadowTimerStop) }),
     },
@@ -52,7 +57,7 @@ function mockStore(backend: PersonsBackend = 'postgres'): jest.Mocked<PersonsSto
         fetchForChecking: jest.fn().mockResolvedValue(null),
         fetchForUpdate: jest.fn().mockResolvedValue(null),
         createPerson: jest.fn().mockResolvedValue({ success: true }),
-        applyEventOps: jest.fn(),
+        applyEventOps: jest.fn().mockImplementation((person: InternalPerson) => Promise.resolve([person, []])),
         updatePersonWithPropertiesDiffForUpdate: jest.fn(),
         mergePersons: jest.fn().mockResolvedValue(emptyMergeResult()),
         personPropertiesSize: jest.fn().mockResolvedValue(0),
@@ -72,7 +77,7 @@ describe('RoutingPersonsStore', () => {
         ['shadow' as const, 'postgres'],
     ])('reports the authoritative backend in %s mode', (mode, expected) => {
         const store = new RoutingPersonsStore(
-            mockStore('postgres'),
+            mockStore('postgres') as unknown as BatchWritingPersonsStore,
             mockStore('personhog') as unknown as PersonhogPersonsStore,
             mode
         )
@@ -80,7 +85,7 @@ describe('RoutingPersonsStore', () => {
     })
 
     const person = (teamId: number, id = '1'): InternalPerson =>
-        ({ id, team_id: teamId, properties: {}, is_identified: false }) as unknown as InternalPerson
+        ({ id, uuid: `uuid-${id}`, team_id: teamId, properties: {}, is_identified: false }) as unknown as InternalPerson
 
     const ops: EventOps = {
         set: {},
@@ -92,7 +97,18 @@ describe('RoutingPersonsStore', () => {
     } as unknown as EventOps
 
     const makeStores = () => {
-        const pg = mockStore()
+        const pg = Object.assign(mockStore(), {
+            landedUuid: jest.fn().mockReturnValue(undefined),
+            // The Postgres fold lands by default, on the person the event read.
+            foldEventOps: jest
+                .fn()
+                .mockImplementation((found: InternalPerson) => ({ result: [found, []], landedOn: found.uuid })),
+        })
+        // The Postgres flush runs the seal it is given ahead of each decision round; the mock runs it once.
+        pg.flush.mockImplementation((seal?: (deciding: never[]) => void) => {
+            seal?.([])
+            return Promise.resolve([])
+        })
         // The personhog store implements PersonsStore, so the same
         // compile-checked factory serves; the cast to the concrete class
         // is the constructor's requirement, not an escape from checking.
@@ -100,13 +116,18 @@ describe('RoutingPersonsStore', () => {
             abandonBatch: jest.fn(),
             holdEventOps: jest.fn(),
             hasHeldOps: jest.fn().mockReturnValue(false),
+            sealDecided: jest.fn(),
+            applyEventOpsNow: jest.fn().mockReturnValue(false),
+            applyEventOpsAsOwnSegment: jest
+                .fn()
+                .mockImplementation((found: InternalPerson) => Promise.resolve([found, []])),
         })
         const personhog = personhogMock as unknown as PersonhogPersonsStore
         return { pg, personhogMock, personhog }
     }
 
     const makeStore = (stores: ReturnType<typeof makeStores>, mode: 'personhog' | 'shadow') =>
-        new RoutingPersonsStore(stores.pg, stores.personhog, mode)
+        new RoutingPersonsStore(stores.pg as unknown as BatchWritingPersonsStore, stores.personhog, mode)
 
     const mergeRequest = () => ({
         teamId: 1,
@@ -771,9 +792,10 @@ describe('RoutingPersonsStore', () => {
                     0
                 )
 
-                expect(stores.personhogMock.applyEventOps).toHaveBeenCalledTimes(applied)
+                // As a segment of its own, so later ops for the person do not fold onto the creation properties.
+                expect(stores.personhogMock.applyEventOpsAsOwnSegment).toHaveBeenCalledTimes(applied)
                 if (applied) {
-                    expect(stores.personhogMock.applyEventOps).toHaveBeenCalledWith(
+                    expect(stores.personhogMock.applyEventOpsAsOwnSegment).toHaveBeenCalledWith(
                         shadowPerson,
                         expect.objectContaining({ setOnce: { plan: 'pro' }, shouldForceUpdate: true }),
                         'd1',
@@ -805,65 +827,220 @@ describe('RoutingPersonsStore', () => {
             created: true,
         } as never
 
+        const retriable = (): Error =>
+            Object.assign(new ConnectError('timed out', Code.DeadlineExceeded), { isRetriable: true })
+        const createdByPersonhog = (created: boolean) =>
+            ({ success: true, person: person(1, '99'), messages: [], created }) as never
+        const shadowErrorsRecorded = (): number =>
+            (personhogStoreShadowErrorsCounter.labels as jest.Mock).mock.calls.length
+        const retriesRecorded = (): number =>
+            (personhogStoreShadowCreateRetriesCounter.labels as jest.Mock).mock.calls.length
+
         it.each([
-            [
-                'retriable, holds its properties set-once',
-                Object.assign(new ConnectError('timed out', Code.DeadlineExceeded), { isRetriable: true }),
-                false,
-                { set: {}, setOnce: { plan: 'pro' }, unset: [], denied: false, shouldForceUpdate: true },
-            ],
-            [
-                'retriable for an identified person, holds the identity too',
-                Object.assign(new ConnectError('timed out', Code.DeadlineExceeded), { isRetriable: true }),
-                true,
-                { setOnce: { plan: 'pro' }, isIdentified: true },
-            ],
-            ['deterministic, holds nothing', new ConnectError('rejected', Code.InvalidArgument), false, null],
-        ])('a shadow createPerson whose failure is %s', async (_case, failure, isIdentified, held) => {
+            ['retriable', retriable()],
+            ['cancelled', new ConnectError('canceled', Code.Canceled)],
+        ])(
+            'a shadow createPerson whose failure is %s retries in place and lands before the event returns',
+            async (_case, failure) => {
+                jest.useFakeTimers()
+                try {
+                    const stores = makeStores()
+                    stores.pg.createPerson.mockResolvedValue(createdByPg)
+                    stores.personhogMock.createPerson
+                        .mockRejectedValueOnce(failure)
+                        .mockResolvedValueOnce(createdByPersonhog(true))
+                    const store = makeStore(stores, 'shadow')
+                    const errorsBefore = shadowErrorsRecorded()
+
+                    const creating = createIn(store)
+                    await jest.advanceTimersByTimeAsync(1_000)
+                    const result = await creating
+
+                    expect(result).toBe(createdByPg)
+                    expect(stores.personhogMock.createPerson).toHaveBeenCalledTimes(2)
+                    expect(stores.personhogMock.holdEventOps).not.toHaveBeenCalled()
+                    expect(shadowErrorsRecorded()).toBe(errorsBefore)
+                    expect(personhogStoreShadowCreateRetriesCounter.labels).toHaveBeenCalledWith({ outcome: 'retried' })
+                    expect(personhogStoreShadowCreateRetriesCounter.labels).toHaveBeenCalledWith({
+                        outcome: 'recovered',
+                    })
+                } finally {
+                    jest.useRealTimers()
+                }
+            }
+        )
+
+        it('a shadow createPerson refused for a deterministic reason fails once, counted, with no retry', async () => {
             const stores = makeStores()
             stores.pg.createPerson.mockResolvedValue(createdByPg)
-            stores.personhogMock.createPerson.mockRejectedValue(failure)
+            stores.personhogMock.createPerson.mockRejectedValue(new ConnectError('rejected', Code.InvalidArgument))
             const store = makeStore(stores, 'shadow')
+            const errorsBefore = shadowErrorsRecorded()
+            const retriesBefore = retriesRecorded()
 
-            const result = await createIn(store, isIdentified)
+            expect(await createIn(store)).toBe(createdByPg)
 
-            expect(result).toBe(createdByPg)
-            expect(personhogStoreShadowErrorsCounter.labels).toHaveBeenCalledWith(
-                expect.objectContaining({ verb: 'createPerson' })
-            )
-            if (held === null) {
-                expect(stores.personhogMock.holdEventOps).not.toHaveBeenCalled()
-            } else {
-                expect(stores.personhogMock.holdEventOps).toHaveBeenCalledWith(
-                    1,
-                    'd1',
-                    expect.objectContaining({ ...held, eventName: '$create_person' }),
-                    0
-                )
-            }
+            expect(stores.personhogMock.createPerson).toHaveBeenCalledTimes(1)
+            expect(shadowErrorsRecorded()).toBe(errorsBefore + 1)
+            expect(retriesRecorded()).toBe(retriesBefore)
         })
 
-        it('a shadow createPerson that fails after the ceiling abandoned it holds nothing', async () => {
+        it.each([
+            [false, { setOnce: { plan: 'pro' }, shouldForceUpdate: true }],
+            [true, { setOnce: { plan: 'pro' }, shouldForceUpdate: true, isIdentified: true }],
+        ])(
+            'a retried create that finds the person (identified=%p) applies its creation properties set-once',
+            async (isIdentified, expected) => {
+                jest.useFakeTimers()
+                try {
+                    const stores = makeStores()
+                    stores.pg.createPerson.mockResolvedValue(createdByPg)
+                    const existing = createdByPersonhog(false) as { person: InternalPerson }
+                    stores.personhogMock.createPerson
+                        .mockRejectedValueOnce(retriable())
+                        .mockResolvedValueOnce(existing as never)
+                    const store = makeStore(stores, 'shadow')
+
+                    const creating = createIn(store, isIdentified)
+                    await jest.advanceTimersByTimeAsync(1_000)
+                    await creating
+
+                    // Under the event's own batch: the create is still inside the event when it lands.
+                    expect(stores.personhogMock.applyEventOpsAsOwnSegment).toHaveBeenCalledWith(
+                        existing.person,
+                        expect.objectContaining({ ...expected, eventName: '$create_person' }),
+                        'd1',
+                        0
+                    )
+                } finally {
+                    jest.useRealTimers()
+                }
+            }
+        )
+
+        it('a create still failing at the deadline is counted once', async () => {
             jest.useFakeTimers()
             try {
                 const stores = makeStores()
                 stores.pg.createPerson.mockResolvedValue(createdByPg)
-                let fail: (error: Error) => void = () => {}
-                stores.personhogMock.createPerson.mockReturnValue(
-                    new Promise<never>((_resolve, reject) => (fail = reject))
-                )
+                stores.personhogMock.createPerson.mockRejectedValue(retriable())
                 const store = makeStore(stores, 'shadow')
+                const errorsBefore = shadowErrorsRecorded()
 
                 const creating = createIn(store)
-                await jest.advanceTimersByTimeAsync(60_000)
-                await creating
-                fail(Object.assign(new ConnectError('timed out', Code.DeadlineExceeded), { isRetriable: true }))
-                await jest.advanceTimersByTimeAsync(1)
+                await jest.advanceTimersByTimeAsync(40_000)
+                expect(await creating).toBe(createdByPg)
 
-                expect(stores.personhogMock.holdEventOps).not.toHaveBeenCalled()
+                const attempts = stores.personhogMock.createPerson.mock.calls.length
+                // 1 s doubling to 8 s with 5% jitter fits five or six attempts in 20 s; a try count gives another number.
+                expect(attempts).toBeGreaterThanOrEqual(5)
+                expect(attempts).toBeLessThanOrEqual(6)
+                expect(shadowErrorsRecorded()).toBe(errorsBefore + 1)
+                expect(personhogStoreShadowErrorsCounter.labels).toHaveBeenLastCalledWith(
+                    expect.objectContaining({ verb: 'createPerson' })
+                )
             } finally {
                 jest.useRealTimers()
             }
+        })
+
+        it('in shadow mode the Postgres flush is given the seal to run ahead of each decision round', async () => {
+            const stores = makeStores()
+            const store = makeStore(stores, 'shadow')
+
+            await store.flush()
+
+            expect(stores.pg.flush).toHaveBeenCalledWith(expect.any(Function))
+            expect(stores.personhogMock.sealDecided).toHaveBeenCalledTimes(1)
+        })
+
+        it('a shadow fold lands in the same step as its Postgres fold', () => {
+            const stores = makeStores()
+            stores.personhogMock.applyEventOpsNow.mockReturnValue(true)
+            const store = makeStore(stores, 'shadow')
+
+            const folding = store.applyEventOps(person(1, '7'), ops, 'd1', 0)
+            // Before any await: a seal issued now could not fall between the two folds.
+            expect(stores.pg.foldEventOps).toHaveBeenCalledTimes(1)
+            expect(stores.personhogMock.applyEventOpsNow).toHaveBeenCalledWith(1, 'd1', ops, 0, 'uuid-7')
+            return folding
+        })
+
+        it('the shadow folds an event on the entry the Postgres fold landed it on, not the person the event read', () => {
+            const stores = makeStores()
+            stores.pg.foldEventOps.mockReturnValue({ result: [person(1, '7'), []], landedOn: 'uuid-9' })
+            stores.personhogMock.applyEventOpsNow.mockReturnValue(true)
+            const store = makeStore(stores, 'shadow')
+
+            const folding = store.applyEventOps(person(1, '7'), ops, 'd1', 0)
+
+            expect(stores.personhogMock.applyEventOpsNow).toHaveBeenCalledWith(1, 'd1', ops, 0, 'uuid-9')
+            return folding
+        })
+
+        it('an event the Postgres fold landed nothing for folds nothing on the shadow side, even behind held ops', async () => {
+            const stores = makeStores()
+            stores.pg.foldEventOps.mockReturnValue({ result: [person(1, '7'), []], landedOn: undefined })
+            stores.personhogMock.hasHeldOps.mockReturnValue(true)
+            const store = makeStore(stores, 'shadow')
+
+            const [result] = await store.applyEventOps(person(1, '7'), ops, 'd1', 0)
+
+            expect(result.id).toBe('7')
+            expect(stores.personhogMock.applyEventOpsNow).not.toHaveBeenCalled()
+            expect(stores.personhogMock.holdEventOps).not.toHaveBeenCalled()
+        })
+
+        it("a shadow merge seals its sources' segments once it has run, so the next flush writes them", async () => {
+            const stores = makeStores()
+            stores.pg.landedUuid.mockImplementation((_teamId: number, distinctId: string) =>
+                distinctId === 'anon-1' ? 'uuid-anon' : 'uuid-target'
+            )
+            stores.pg.mergePersons.mockResolvedValue({ survivor: person(1, '7'), results: [] })
+            const order: string[] = []
+            stores.personhogMock.mergePersons.mockImplementation(() => {
+                order.push('merge')
+                return Promise.resolve({ survivor: person(1, '7'), results: [] })
+            })
+            stores.personhogMock.sealDecided.mockImplementation(() => {
+                order.push('seal')
+            })
+            const store = makeStore(stores, 'shadow')
+
+            await store.mergePersons(mergeRequest() as never, 0)
+
+            expect(stores.personhogMock.sealDecided).toHaveBeenCalledWith(['uuid-anon'])
+            expect(order).toEqual(['merge', 'seal'])
+        })
+
+        it.each([
+            ['not resolved yet', false, 'unresolved'],
+            ['behind ops already held for its id', true, 'behind_held'],
+        ])('a shadow fold for an id %s holds the ops, counted', async (_case, behindHeld, reason) => {
+            const stores = makeStores()
+            stores.personhogMock.hasHeldOps.mockReturnValue(behindHeld)
+            const store = makeStore(stores, 'shadow')
+
+            await store.applyEventOps(person(1, '7'), ops, 'd1', 0)
+
+            expect(stores.personhogMock.holdEventOps).toHaveBeenCalledWith(1, 'd1', ops, 0, 'uuid-7')
+            expect(personhogStoreShadowFoldHeldCounter.labels).toHaveBeenCalledWith({ reason })
+            expect(stores.personhogMock.applyEventOpsNow).toHaveBeenCalledTimes(behindHeld ? 0 : 1)
+        })
+
+        it('a shadow fold that throws is counted and the event still returns the Postgres result', async () => {
+            const stores = makeStores()
+            stores.personhogMock.applyEventOpsNow.mockImplementation(() => {
+                throw new Error('leader down')
+            })
+            const store = makeStore(stores, 'shadow')
+
+            const [result] = await store.applyEventOps(person(1, '7'), ops, 'd1', 0)
+
+            expect(result.id).toBe('7')
+            expect(personhogStoreShadowErrorsCounter.labels).toHaveBeenCalledWith(
+                expect.objectContaining({ verb: 'applyEventOps' })
+            )
         })
 
         it('mergePersons replays the same request against the personhog backend, pg staying authoritative', async () => {
@@ -1186,36 +1363,21 @@ describe('RoutingPersonsStore', () => {
     })
 
     describe('shadow writes resolve the personhog backend person', () => {
-        it.each([
-            [
-                'applyEventOps',
-                (store: RoutingPersonsStore) => store.applyEventOps(person(1, '7'), ops, 'd1', 0),
-                (m: jest.Mocked<PersonsStore>) => m.applyEventOps,
-            ],
-            [
-                'updatePersonWithPropertiesDiffForUpdate',
-                (store: RoutingPersonsStore) =>
-                    store.updatePersonWithPropertiesDiffForUpdate(person(1, '7'), { a: '1' }, [], {}, 'd1', 0),
-                (m: jest.Mocked<PersonsStore>) => m.updatePersonWithPropertiesDiffForUpdate,
-            ],
-        ] as const)('%s writes the shadow backend id, not the pg id', async (_verb, call, member) => {
+        it('a direct diff update writes the shadow backend id, not the pg id', async () => {
             const stores = makeStores()
-            stores.pg.applyEventOps.mockResolvedValue([person(1, '7'), []])
             stores.pg.updatePersonWithPropertiesDiffForUpdate.mockResolvedValue([person(1, '7'), [], true])
             stores.personhogMock.fetchForUpdate.mockResolvedValue(person(1, '99'))
-            stores.personhogMock.applyEventOps.mockResolvedValue([person(1, '99'), []])
             stores.personhogMock.updatePersonWithPropertiesDiffForUpdate.mockResolvedValue([person(1, '99'), [], true])
             const store = makeStore(stores, 'shadow')
 
-            await call(store)
+            await store.updatePersonWithPropertiesDiffForUpdate(person(1, '7'), { a: '1' }, [], {}, 'd1', 0)
 
-            const shadowArgs = member(stores.personhogMock).mock.calls[0]
+            const shadowArgs = stores.personhogMock.updatePersonWithPropertiesDiffForUpdate.mock.calls[0]
             expect((shadowArgs[0] as InternalPerson).id).toBe('99')
         })
 
         it('holds the ops for a resolve at flush when the person does not exist in the personhog backend', async () => {
             const stores = makeStores()
-            stores.pg.applyEventOps.mockResolvedValue([person(1, '7'), []])
             stores.personhogMock.fetchForUpdate.mockResolvedValue(null)
             const store = makeStore(stores, 'shadow')
 
@@ -1223,13 +1385,12 @@ describe('RoutingPersonsStore', () => {
 
             expect(result.id).toBe('7')
             expect(stores.personhogMock.applyEventOps).not.toHaveBeenCalled()
-            expect(stores.personhogMock.holdEventOps).toHaveBeenCalledWith(1, 'd1', ops, 0)
+            expect(stores.personhogMock.holdEventOps).toHaveBeenCalledWith(1, 'd1', ops, 0, 'uuid-7')
             expect(personhogStoreShadowSkipsCounter.labels).not.toHaveBeenCalled()
         })
 
         it('holds the ops behind ops already held for the distinct id, without resolving the person', async () => {
             const stores = makeStores()
-            stores.pg.applyEventOps.mockResolvedValue([person(1, '7'), []])
             stores.personhogMock.hasHeldOps.mockReturnValue(true)
             stores.personhogMock.fetchForUpdate.mockResolvedValue(person(1, '99'))
             const store = makeStore(stores, 'shadow')
@@ -1239,7 +1400,7 @@ describe('RoutingPersonsStore', () => {
             expect(stores.personhogMock.hasHeldOps).toHaveBeenCalledWith(1, 'd1')
             expect(stores.personhogMock.fetchForUpdate).not.toHaveBeenCalled()
             expect(stores.personhogMock.applyEventOps).not.toHaveBeenCalled()
-            expect(stores.personhogMock.holdEventOps).toHaveBeenCalledWith(1, 'd1', ops, 0)
+            expect(stores.personhogMock.holdEventOps).toHaveBeenCalledWith(1, 'd1', ops, 0, 'uuid-7')
         })
 
         it('skips a direct diff update, counted, when the person does not exist in the personhog backend', async () => {

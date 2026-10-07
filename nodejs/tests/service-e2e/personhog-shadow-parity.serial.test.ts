@@ -9,6 +9,7 @@
 // `docker compose -f docker-compose.dev.yml --profile ingestion up`, or a
 // `hogli start` dev stack (the `personhog` capability). Addresses override
 // via PERSONHOG_E2E_ROUTER_ADDR / PERSONHOG_E2E_IDENTITY_ADDR.
+import { Code, ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 import { isDeepStrictEqual } from 'node:util'
 import { Pool } from 'pg'
@@ -33,6 +34,7 @@ import { createIdentityClients } from '~/common/personhog/identity-clients'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import {
     personhogStoreShadowComparedCounter,
+    personhogStoreShadowCreateRetriesCounter,
     personhogStoreShadowDivergenceCounter,
     personhogStoreShadowErrorsCounter,
 } from '~/common/persons/metrics'
@@ -109,13 +111,21 @@ describe('personhog shadow parity (e2e)', () => {
     /**
      * One ingestion pod: its own caches over the shared databases and the
      * shared personhog cluster, so two pods can interleave on one person.
+     * The personhog repository and the Postgres store can be wrapped, so a
+     * test can fail one personhog call or run code between the two flushes.
      */
-    const newPod = (): RoutingPersonsStore =>
+    const newPod = (
+        repository: PersonHogPersonWriteRepository = writeRepository,
+        wrapPg: (store: BatchWritingPersonsStore) => BatchWritingPersonsStore = (store) => store,
+        pgRepository: PostgresPersonRepository = new PostgresPersonRepository(hub.postgres)
+    ): RoutingPersonsStore =>
         new RoutingPersonsStore(
-            new BatchWritingPersonsStore(new PostgresPersonRepository(hub.postgres), outputs(), {
-                metricEmissionIntervalMs: 0,
-            }),
-            new PersonhogPersonsStore(writeRepository, {
+            wrapPg(
+                new BatchWritingPersonsStore(pgRepository, outputs(), {
+                    metricEmissionIntervalMs: 0,
+                })
+            ),
+            new PersonhogPersonsStore(repository, {
                 maxConcurrentUpdates: 10,
                 updateAllProperties: false,
                 syncMergeMoveLimit: 10_000,
@@ -344,6 +354,7 @@ describe('personhog shadow parity (e2e)', () => {
         personhogStoreShadowDivergenceCounter.reset()
         personhogStoreShadowComparedCounter.reset()
         personhogStoreShadowErrorsCounter.reset()
+        personhogStoreShadowCreateRetriesCounter.reset()
     })
 
     afterEach(() => {
@@ -732,5 +743,615 @@ describe('personhog shadow parity (e2e)', () => {
         expect(viaSource?.uuid).toBe(uuidFromDistinctId(teamId, target))
         expect(await divergences()).toBe(0)
         expect(await shadowErrors()).toBe(0)
+    })
+
+    /**
+     * The shapes behind a shadow run's end-of-run drift: creates the shadow lost, and filtered
+     * high-churn keys the two backends persisted under different rules.
+     */
+    describe('drift causes', () => {
+        /** A pageview-shaped event: never forced, so the filtered-key rules apply. */
+        const pageview = (properties: Record<string, unknown>) => ops(properties, '$pageview')
+
+        const nextHourMs = () => DateTime.utc().plus({ hours: 1 }).startOf('hour').toMillis()
+
+        /**
+         * Fails the first get-or-create for `distinctId`. With `after`, identity first commits a stub
+         * without its properties: what a cancellation between the stub commit and the property push leaves.
+         */
+        const failingCreateRepository = (
+            distinctId: string,
+            failure: () => Error,
+            after = false
+        ): PersonHogPersonWriteRepository => {
+            let failed = false
+            const real = writeRepository.getOrCreatePersonByDistinctId.bind(writeRepository)
+            return new Proxy(writeRepository, {
+                get(target, property, receiver) {
+                    if (property !== 'getOrCreatePersonByDistinctId') {
+                        return Reflect.get(target, property, receiver)
+                    }
+                    return async (entry: Parameters<typeof real>[0], callerTag?: string) => {
+                        if (failed || entry.distinctId !== distinctId) {
+                            return real(entry, callerTag)
+                        }
+                        failed = true
+                        if (after) {
+                            await real({ ...entry, setProperties: {}, setOnceProperties: {} }, callerTag)
+                        }
+                        throw failure()
+                    }
+                },
+            })
+        }
+
+        const retriableUnavailable = (): Error =>
+            Object.assign(new ConnectError('Server at capacity', Code.Unavailable), { isRetriable: true })
+
+        /** A Postgres repository whose next batch write waits to be released, so a flush is caught with a write out. */
+        const holdingPgRepository = () => {
+            let holdNextWrite = false
+            let releaseWrite: (() => void) | undefined
+            const real = new PostgresPersonRepository(hub.postgres)
+            const repository = new Proxy(real, {
+                get(target, property, receiver) {
+                    if (property !== 'updatePersonsBatch') {
+                        return Reflect.get(target, property, receiver)
+                    }
+                    return async (...args: Parameters<PostgresPersonRepository['updatePersonsBatch']>) => {
+                        if (holdNextWrite) {
+                            holdNextWrite = false
+                            await new Promise<void>((resolve) => (releaseWrite = resolve))
+                        }
+                        return real.updatePersonsBatch(...args)
+                    }
+                },
+            })
+            return {
+                repository,
+                holdNext: (): void => {
+                    holdNextWrite = true
+                },
+                held: async (): Promise<void> => {
+                    for (let waited = 0; releaseWrite === undefined && waited < 500; waited++) {
+                        await new Promise((resolve) => setTimeout(resolve, 10))
+                    }
+                    expect(releaseWrite).toBeDefined()
+                },
+                release: (): void => releaseWrite!(),
+            }
+        }
+
+        it.each([
+            ['refused before identity committed', false, retriableUnavailable],
+            ['cancelled after identity committed', true, () => new ConnectError('canceled', Code.Canceled)],
+        ])('a shadow create %s still lands the person and its creation properties', async (_name, after, failure) => {
+            const distinctId = id(`create-${after ? 'cancelled' : 'refused'}`)
+            const pod = newPod(failingCreateRepository(distinctId, failure, after))
+            await pod.createPerson(
+                DateTime.utc(),
+                { plan: 'free' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuidFromDistinctId(teamId, distinctId),
+                { distinctId },
+                undefined,
+                undefined,
+                batchId
+            )
+            // The retry lands inside the create, so nothing is recorded as a shadow failure.
+            expect(await shadowErrors()).toBe(0)
+            expect(await counterTotal(personhogStoreShadowCreateRetriesCounter)).toBe(2)
+            await pod.flush()
+            pod.releaseBatch(batchId)
+
+            // The next event for the id is an update, as Postgres already
+            // holds the person; the shadow has to catch up on its own.
+            batchId += 1
+            const person = await pod.fetchForUpdate(teamId, distinctId, batchId)
+            await pod.applyEventOps(person!, pageview({ $set: { visits: 2 } }), distinctId, batchId)
+            await pod.flush()
+            pod.releaseBatch(batchId)
+
+            await expectDurableRowParity(distinctId)
+        })
+
+        it.each([
+            ['a new key', (p: Record<string, unknown>) => pageview(p), { plan: 'pro' }],
+            [
+                'a last-seen advance',
+                (p: Record<string, unknown>) => {
+                    const advanced = pageview(p)
+                    advanced.lastSeenAtMs = nextHourMs()
+                    return advanced
+                },
+                {},
+            ],
+        ])(
+            'a filtered-only change pending across an overlapping batch settles identically when %s follows',
+            async (_name, trigger, triggerSet) => {
+                const distinctId = id(`carry-${Object.keys(triggerSet).length}`)
+                await createThroughBoth(distinctId, { $current_url: 'https://example.com/a' }, batchId)
+                const first = batchId
+                const person = await routing.fetchForUpdate(teamId, distinctId, first)
+                await routing.applyEventOps(
+                    person!,
+                    pageview({ $set: { $current_url: 'https://example.com/b' } }),
+                    distinctId,
+                    first
+                )
+                // A second batch reads the person before the first is
+                // released, so the cache entry outlives the first flush.
+                batchId += 1
+                const second = batchId
+                const held = await routing.fetchForUpdate(teamId, distinctId, second)
+                await routing.flush()
+                routing.releaseBatch(first)
+
+                await routing.applyEventOps(held!, trigger({ $set: triggerSet }), distinctId, second)
+                await routing.flush()
+                routing.releaseBatch(second)
+
+                await expectDurableRowParity(distinctId)
+            }
+        )
+
+        it('a forced event does not force later filtered-only flushes', async () => {
+            const distinctId = id('sticky-force')
+            await createThroughBoth(distinctId, { $browser_version: '1' }, batchId)
+            const first = batchId
+            const person = await routing.fetchForUpdate(teamId, distinctId, first)
+            await routing.applyEventOps(person!, ops({ $set: { plan: 'x' } }), distinctId, first)
+            batchId += 1
+            const second = batchId
+            const held = await routing.fetchForUpdate(teamId, distinctId, second)
+            await routing.flush()
+            routing.releaseBatch(first)
+
+            await routing.applyEventOps(held!, pageview({ $set: { $browser_version: '2' } }), distinctId, second)
+            await routing.flush()
+            routing.releaseBatch(second)
+
+            await expectDurableRowParity(distinctId)
+        })
+
+        it('a repeated array-valued property is not a change, so it promotes nothing', async () => {
+            const distinctId = id('array-equality')
+            await createThroughBoth(distinctId, { tags: ['a'], $current_url: 'https://example.com/a' }, batchId)
+            const person = await routing.fetchForUpdate(teamId, distinctId, batchId)
+            await routing.applyEventOps(
+                person!,
+                pageview({ $set: { tags: ['a'], $current_url: 'https://example.com/b' } }),
+                distinctId,
+                batchId
+            )
+            await routing.flush()
+            routing.releaseBatch(batchId)
+
+            await expectDurableRowParity(distinctId)
+        })
+
+        it('an event applied between the Postgres flush and the shadow flush is decided alike', async () => {
+            const distinctId = id('flush-race')
+            let betweenFlushes: (() => Promise<void>) | undefined
+            const pod = newPod(writeRepository, (store) => {
+                const flush = store.flush.bind(store)
+                store.flush = async (beforeDecision?: Parameters<typeof flush>[0]) => {
+                    const results = await flush(beforeDecision)
+                    const hook = betweenFlushes
+                    betweenFlushes = undefined
+                    await hook?.()
+                    return results
+                }
+                return store
+            })
+            await pod.createPerson(
+                DateTime.utc(),
+                { $current_url: 'https://example.com/a' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuidFromDistinctId(teamId, distinctId),
+                { distinctId },
+                undefined,
+                undefined,
+                batchId
+            )
+            const first = batchId
+            const person = await pod.fetchForUpdate(teamId, distinctId, first)
+            await pod.applyEventOps(person!, pageview({ $set: { plan: 'pro' } }), distinctId, first)
+            batchId += 1
+            const second = batchId
+            const held = await pod.fetchForUpdate(teamId, distinctId, second)
+            // A concurrent batch's filtered-only event lands after Postgres
+            // decided its write and before the shadow sent its segment.
+            betweenFlushes = async () => {
+                await pod.applyEventOps(
+                    held!,
+                    pageview({ $set: { $current_url: 'https://example.com/c' } }),
+                    distinctId,
+                    second
+                )
+            }
+            await pod.flush()
+            pod.releaseBatch(first)
+            await pod.flush()
+            pod.releaseBatch(second)
+
+            await expectDurableRowParity(distinctId)
+        })
+
+        it('a repeat landing between the Postgres decision and the shadow write rejoins the group the next change promotes', async () => {
+            const distinctId = id('declined-between')
+            let betweenFlushes: (() => Promise<void>) | undefined
+            const pod = newPod(writeRepository, (store) => {
+                const flush = store.flush.bind(store)
+                store.flush = async (beforeDecision?: Parameters<typeof flush>[0]) => {
+                    const results = await flush(beforeDecision)
+                    const hook = betweenFlushes
+                    betweenFlushes = undefined
+                    await hook?.()
+                    return results
+                }
+                return store
+            })
+            await pod.createPerson(
+                DateTime.utc(),
+                { $current_url: 'https://example.com/a' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuidFromDistinctId(teamId, distinctId),
+                { distinctId },
+                undefined,
+                undefined,
+                batchId
+            )
+            const first = batchId
+            let person = await pod.fetchForUpdate(teamId, distinctId, first)
+            await pod.applyEventOps(
+                person!,
+                pageview({ $set: { $current_url: 'https://example.com/b' } }),
+                distinctId,
+                first
+            )
+            batchId += 1
+            const second = batchId
+            // Postgres declined the filtered-only group and forgot the value. A concurrent batch re-sends it before
+            // the shadow has written its segment, and Postgres lands it again.
+            betweenFlushes = async () => {
+                const reread = await pod.fetchForUpdate(teamId, distinctId, second)
+                await pod.applyEventOps(
+                    reread!,
+                    pageview({ $set: { $current_url: 'https://example.com/b' } }),
+                    distinctId,
+                    second
+                )
+            }
+            await pod.flush()
+            pod.releaseBatch(first)
+            person = await pod.fetchForUpdate(teamId, distinctId, second)
+            await pod.applyEventOps(person!, pageview({ $set: { plan: 'pro' } }), distinctId, second)
+            await pod.flush()
+            pod.releaseBatch(second)
+
+            await expectDurableRowParity(distinctId)
+        })
+
+        it('a set-once right behind a create that failed after identity committed yields to the creation value', async () => {
+            const distinctId = id('create-order')
+            const pod = newPod(
+                failingCreateRepository(distinctId, () => new ConnectError('canceled', Code.Canceled), true)
+            )
+            await pod.createPerson(
+                DateTime.utc(),
+                { plan: 'free' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuidFromDistinctId(teamId, distinctId),
+                { distinctId },
+                undefined,
+                undefined,
+                batchId
+            )
+            // The event behind the create in its distinct id's sequence: Postgres ignores the set-once.
+            const person = await pod.fetchForUpdate(teamId, distinctId, batchId)
+            await pod.applyEventOps(person!, ops({ $set_once: { plan: 'pro' } }), distinctId, batchId)
+            await pod.flush()
+            pod.releaseBatch(batchId)
+
+            await expectDurableRowParity(distinctId)
+        })
+
+        it('a person first touched between the Postgres flush and the shadow flush waits for its own decision', async () => {
+            const distinctId = id('late-lane')
+            let betweenFlushes: (() => Promise<void>) | undefined
+            const pod = newPod(writeRepository, (store) => {
+                const flush = store.flush.bind(store)
+                store.flush = async (beforeDecision?: Parameters<typeof flush>[0]) => {
+                    const results = await flush(beforeDecision)
+                    const hook = betweenFlushes
+                    betweenFlushes = undefined
+                    await hook?.()
+                    return results
+                }
+                return store
+            })
+            const first = batchId
+            await pod.createPerson(
+                DateTime.utc(),
+                { $current_url: 'https://example.com/a' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuidFromDistinctId(teamId, distinctId),
+                { distinctId },
+                undefined,
+                undefined,
+                first
+            )
+            batchId += 1
+            const second = batchId
+            // A concurrent batch's first event for the person, a real change,
+            // lands after Postgres decided and before the shadow flush.
+            betweenFlushes = async () => {
+                const person = await pod.fetchForUpdate(teamId, distinctId, second)
+                await pod.applyEventOps(person!, pageview({ $set: { plan: 'pro' } }), distinctId, second)
+            }
+            await pod.flush()
+            pod.releaseBatch(first)
+
+            // That batch's filtered-only event follows before its own flush, so
+            // Postgres weighs the two together.
+            const person = await pod.fetchForUpdate(teamId, distinctId, second)
+            await pod.applyEventOps(
+                person!,
+                pageview({ $set: { $current_url: 'https://example.com/c' } }),
+                distinctId,
+                second
+            )
+            await pod.flush()
+            pod.releaseBatch(second)
+
+            await expectDurableRowParity(distinctId)
+        })
+
+        it("a flush deciding while another flush's Postgres write is still out judges only what arrived since", async () => {
+            const distinctId = id('in-flight-write')
+            const pg = holdingPgRepository()
+            const pod = newPod(writeRepository, (store) => store, pg.repository)
+            await pod.createPerson(
+                DateTime.utc(),
+                { plan: 'free', $current_url: 'https://example.com/a' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuidFromDistinctId(teamId, distinctId),
+                { distinctId },
+                undefined,
+                undefined,
+                batchId
+            )
+            const first = batchId
+            const person = await pod.fetchForUpdate(teamId, distinctId, first)
+            await pod.applyEventOps(person!, pageview({ $set: { plan: 'pro' } }), distinctId, first)
+            pg.holdNext()
+            const flushing = pod.flush()
+            await pg.held()
+
+            // Another batch's filtered-only event and flush land while that write is still out.
+            batchId += 1
+            const second = batchId
+            const held = await pod.fetchForUpdate(teamId, distinctId, second)
+            await pod.applyEventOps(
+                held!,
+                pageview({ $set: { $current_url: 'https://example.com/c' } }),
+                distinctId,
+                second
+            )
+            const secondFlush = pod.flush()
+            pg.release()
+            await Promise.all([flushing, secondFlush])
+            pod.releaseBatch(first)
+            pod.releaseBatch(second)
+
+            await expectDurableRowParity(distinctId)
+        })
+
+        it("an event arriving while a flush waits on the person's write out is judged with that flush's decision alike", async () => {
+            const distinctId = id('between-rounds')
+            const pg = holdingPgRepository()
+            const pod = newPod(writeRepository, (store) => store, pg.repository)
+            await pod.createPerson(
+                DateTime.utc(),
+                { plan: 'free', $current_url: 'https://example.com/a' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuidFromDistinctId(teamId, distinctId),
+                { distinctId },
+                undefined,
+                undefined,
+                batchId
+            )
+            const first = batchId
+            const person = await pod.fetchForUpdate(teamId, distinctId, first)
+            await pod.applyEventOps(person!, pageview({ $set: { plan: 'pro' } }), distinctId, first)
+            pg.holdNext()
+            const flushing = pod.flush()
+            await pg.held()
+
+            // Another batch's filtered-only event, then its flush, which waits on the write out.
+            batchId += 1
+            const second = batchId
+            const held = await pod.fetchForUpdate(teamId, distinctId, second)
+            await pod.applyEventOps(
+                held!,
+                pageview({ $set: { $current_url: 'https://example.com/b' } }),
+                distinctId,
+                second
+            )
+            const secondFlush = pod.flush()
+            // A real change lands while that flush waits; Postgres decides both events together in its next round.
+            await pod.applyEventOps(held!, pageview({ $set: { plan: 'max' } }), distinctId, second)
+            pg.release()
+            await Promise.all([flushing, secondFlush])
+            pod.releaseBatch(first)
+            pod.releaseBatch(second)
+
+            await expectDurableRowParity(distinctId)
+        })
+
+        it('a repeat of a filtered value between a filtered change and a real change leaves the group whole', async () => {
+            const distinctId = id('repeat-between')
+            await createThroughBoth(distinctId, { $current_url: 'https://example.com/a' }, batchId)
+            let person = await routing.fetchForUpdate(teamId, distinctId, batchId)
+            await routing.applyEventOps(
+                person!,
+                pageview({ $set: { $current_url: 'https://example.com/b' } }),
+                distinctId,
+                batchId
+            )
+            // A click on the same page repeats the URL; Postgres lands nothing for it and the group stays one.
+            person = await routing.fetchForUpdate(teamId, distinctId, batchId)
+            await routing.applyEventOps(
+                person!,
+                pageview({ $set: { $current_url: 'https://example.com/b' } }),
+                distinctId,
+                batchId
+            )
+            person = await routing.fetchForUpdate(teamId, distinctId, batchId)
+            await routing.applyEventOps(person!, pageview({ $set: { plan: 'pro' } }), distinctId, batchId)
+            await routing.flush()
+            routing.releaseBatch(batchId)
+
+            await expectDurableRowParity(distinctId)
+        })
+
+        it('a forced event that changes nothing does not force the group on either store', async () => {
+            const distinctId = id('forced-noop')
+            await createThroughBoth(distinctId, { $browser: 'Chrome', plan: 'free' }, batchId)
+            let person = await routing.fetchForUpdate(teamId, distinctId, batchId)
+            await routing.applyEventOps(person!, pageview({ $set: { $browser: 'Firefox' } }), distinctId, batchId)
+            // A server-side $set of a value the row already holds: Postgres lands nothing, so its force reaches no group.
+            person = await routing.fetchForUpdate(teamId, distinctId, batchId)
+            await routing.applyEventOps(person!, ops({ $set: { plan: 'free' } }), distinctId, batchId)
+            await routing.flush()
+            routing.releaseBatch(batchId)
+
+            await expectDurableRowParity(distinctId)
+        })
+
+        it('two distinct ids of one person interleaved in one batch judge a repeat alike', async () => {
+            const first = id('two-ids-1')
+            const second = id('two-ids-2')
+            await createThroughBoth(first, { $browser: 'Chrome' }, batchId, [second])
+            // The second id's event read the person before the first id's change landed, so Postgres sees its repeat
+            // as a change against that snapshot and lands it again.
+            const stale = await routing.fetchForUpdate(teamId, second, batchId)
+            const fresh = await routing.fetchForUpdate(teamId, first, batchId)
+            await routing.applyEventOps(fresh!, pageview({ $set: { $browser: 'Firefox' } }), first, batchId)
+            await routing.applyEventOps(stale!, pageview({ $set: { $browser: 'Firefox' } }), second, batchId)
+            const person = await routing.fetchForUpdate(teamId, second, batchId)
+            await routing.applyEventOps(person!, pageview({ $set: { plan: 'pro' } }), second, batchId)
+            await routing.flush()
+            routing.releaseBatch(batchId)
+
+            await expectDurableRowParity(first)
+        })
+
+        it('a forced repeat of a filtered value still pending is written by both stores', async () => {
+            const distinctId = id('forced-repeat')
+            await createThroughBoth(distinctId, { $browser: 'Firefox' }, batchId)
+            let person = await routing.fetchForUpdate(teamId, distinctId, batchId)
+            await routing.applyEventOps(person!, pageview({ $set: { $browser: 'Safari' } }), distinctId, batchId)
+            // Each event reads the view as its store holds it; the identify-shaped repeat changes nothing against it,
+            // and its force has to reach the pending group on both sides.
+            person = await routing.fetchForUpdate(teamId, distinctId, batchId)
+            await routing.applyEventOps(person!, ops({ $set: { $browser: 'Safari' } }), distinctId, batchId)
+            await routing.flush()
+            routing.releaseBatch(batchId)
+
+            await expectDurableRowParity(distinctId)
+        })
+
+        it('a filtered value an ignored flush declined is written when a real change follows it', async () => {
+            const distinctId = id('declined-then-promoted')
+            await createThroughBoth(distinctId, { $current_url: 'https://example.com/a' }, batchId)
+            let person = await routing.fetchForUpdate(teamId, distinctId, batchId)
+            await routing.applyEventOps(
+                person!,
+                pageview({ $set: { $current_url: 'https://example.com/b' } }),
+                distinctId,
+                batchId
+            )
+            // Both stores decline the filtered-only group; the batch still references the person.
+            await routing.flush()
+
+            // Both views must have reverted to the row, so the repeat is a change again that joins the pending group,
+            // and the real change that follows promotes it on both sides.
+            person = await routing.fetchForUpdate(teamId, distinctId, batchId)
+            await routing.applyEventOps(
+                person!,
+                pageview({ $set: { $current_url: 'https://example.com/b' } }),
+                distinctId,
+                batchId
+            )
+            person = await routing.fetchForUpdate(teamId, distinctId, batchId)
+            await routing.applyEventOps(person!, pageview({ $set: { plan: 'pro' } }), distinctId, batchId)
+            await routing.flush()
+            routing.releaseBatch(batchId)
+
+            await expectDurableRowParity(distinctId)
+        })
+
+        it('a filtered-only event right behind a retried create that found a stub is weighed alone', async () => {
+            const distinctId = id('reconcile-fold')
+            const pod = newPod(
+                failingCreateRepository(distinctId, () => new ConnectError('canceled', Code.Canceled), true)
+            )
+            await pod.createPerson(
+                DateTime.utc(),
+                { $current_url: 'https://example.com/a' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuidFromDistinctId(teamId, distinctId),
+                { distinctId },
+                undefined,
+                undefined,
+                batchId
+            )
+            // The creation properties were applied by the retry; Postgres judges this event on its own.
+            const person = await pod.fetchForUpdate(teamId, distinctId, batchId)
+            await pod.applyEventOps(
+                person!,
+                pageview({ $set: { $current_url: 'https://example.com/b' } }),
+                distinctId,
+                batchId
+            )
+            await pod.flush()
+            pod.releaseBatch(batchId)
+
+            await expectDurableRowParity(distinctId)
+        })
     })
 })
