@@ -18,6 +18,7 @@ from products.workflows.backend.providers.ses import (
     ISP_IDENTITY_TOTAL,
     ISP_OTHER,
     METRIC_QUERY_BUDGET_SECONDS,
+    EmailProviderUnavailable,
     SESProvider,
 )
 
@@ -53,17 +54,57 @@ class TestSESProvider(TestCase):
         if TEST_DOMAIN in ses_provider.ses_client.list_identities()["Identities"]:
             ses_provider.delete_identity(TEST_DOMAIN)
 
-    def test_init_with_valid_credentials(self):
+    @parameterized.expand(
+        [
+            ("local emulator", "http://localhost:4566", "http://localhost:4566"),
+            ("real ses", "", None),
+        ]
+    )
+    def test_init_points_every_client_at_the_configured_endpoint(self, _name, configured_endpoint, expected_endpoint):
+        assert self.mock_boto3_client is not None
+        self.mock_boto3_client.reset_mock()
         with override_settings(
             SES_ACCESS_KEY_ID="test_access_key",
             SES_SECRET_ACCESS_KEY="test_secret_key",
             SES_REGION="us-east-1",
-            SES_ENDPOINT="",
+            SES_ENDPOINT=configured_endpoint,
         ):
             provider = SESProvider()
-            assert provider.ses_client
-            assert provider.ses_v2_client
-            assert provider.sts_client
+
+        assert provider.ses_client
+        assert provider.ses_v2_client
+        assert provider.ses_v2_metrics_client
+        assert provider.sts_client
+        assert [c.kwargs.get("endpoint_url") for c in self.mock_boto3_client.call_args_list] == [expected_endpoint] * 4
+
+    @parameterized.expand(
+        [
+            ("identity setup", "verify_domain_identity", "InvalidClientTokenId"),
+            ("dkim setup", "verify_domain_dkim", "AccessDenied"),
+            ("mail from setup", "set_identity_mail_from_domain", "SignatureDoesNotMatch"),
+        ]
+    )
+    def test_verify_email_domain_reports_credential_failures_as_unavailable(self, _name, failing_operation, error_code):
+        provider = SESProvider()
+        with patch.object(provider, "ses_client") as mock_ses_client:
+            getattr(mock_ses_client, failing_operation).side_effect = ClientError(
+                {"Error": {"Code": error_code, "Message": "the security token is invalid"}}, failing_operation
+            )
+            with pytest.raises(EmailProviderUnavailable) as raised:
+                provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
+
+        assert raised.value.status_code == 503
+        assert "the security token is invalid" not in str(raised.value.detail)
+        assert "contact support" in str(raised.value.detail)
+
+    def test_verify_email_domain_propagates_a_failure_that_is_not_about_credentials(self):
+        provider = SESProvider()
+        with patch.object(provider, "ses_client") as mock_ses_client:
+            mock_ses_client.verify_domain_identity.side_effect = ClientError(
+                {"Error": {"Code": "ServiceFailure", "Message": "ses is down"}}, "VerifyDomainIdentity"
+            )
+            with pytest.raises(ClientError):
+                provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     def test_create_email_domain_success(self, mock_resolver_cls):
