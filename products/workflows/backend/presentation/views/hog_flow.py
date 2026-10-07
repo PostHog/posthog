@@ -864,14 +864,27 @@ def _existing_email_from_by_action(instance: "HogFlow") -> dict[str, list[dict]]
     result: dict[str, list[dict]] = {}
     draft = instance.draft if isinstance(instance.draft, dict) else {}
     for actions in (instance.actions, draft.get("actions")):
-        for stored_action in actions or []:
-            if not isinstance(stored_action, dict) or not stored_action.get("id"):
-                continue
-            email_input = ((stored_action.get("config") or {}).get("inputs") or {}).get("email")
-            value = email_input.get("value") if isinstance(email_input, dict) else None
-            from_value = value.get("from") if isinstance(value, dict) else None
-            if isinstance(from_value, dict):
-                result.setdefault(stored_action["id"], []).append(from_value)
+        for action_id, from_value in _email_from_by_action(actions).items():
+            result.setdefault(action_id, []).append(from_value)
+    return result
+
+
+def _live_email_from_by_action(instance: "HogFlow") -> dict[str, dict]:
+    if instance.status != HogFlow.State.ACTIVE:
+        return {}
+    return _email_from_by_action(instance.actions)
+
+
+def _email_from_by_action(actions: list | None) -> dict[str, dict]:
+    result: dict[str, dict] = {}
+    for stored_action in actions or []:
+        if not isinstance(stored_action, dict) or not stored_action.get("id"):
+            continue
+        email_input = ((stored_action.get("config") or {}).get("inputs") or {}).get("email")
+        value = email_input.get("value") if isinstance(email_input, dict) else None
+        from_value = value.get("from") if isinstance(value, dict) else None
+        if isinstance(from_value, dict):
+            result[stored_action["id"]] = from_value
     return result
 
 
@@ -1659,9 +1672,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                         ),
                         # Request-scoped: a drip sequence's steps share senders, and the actions
                         # list validates one action at a time (mirrors _message_template_cache).
-                        "email_integration_domain_cache": self.context.setdefault(
-                            "_email_integration_domain_cache", {}
-                        ),
+                        "email_sender_cache": self.context.setdefault("_email_sender_cache", {}),
+                        "require_verified_email_sender": not is_draft and not self.context.get("validates_test_run"),
+                        "live_email_from": (self.context.get("live_action_email_from") or {}).get(data.get("id")),
                     },
                 )
 
@@ -2835,6 +2848,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def _stages_draft(self) -> bool:
         # stage_draft rides the raw request body rather than being a serializer field, mirroring
         # base_updated_at (see perform_update, which does the actual draft routing off it).
+        # Endpoints that resolve their own routing (publish, graph, per-step email) set writes_live,
+        # so a stray stage_draft in their body cannot relax checks on a live write.
+        if self.context.get("writes_live"):
+            return False
         request = self.context.get("request")
         return bool(request is not None and getattr(request, "data", None) and request.data.get("stage_draft"))
 
@@ -2917,6 +2934,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.
             self.context["existing_action_email_from"] = _existing_email_from_by_action(instance)
+            self.context["live_action_email_from"] = _live_email_from_by_action(instance)
 
         # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
         # synced row. Flag it before child action validation so function-input compilation rewrites it.
@@ -5035,7 +5053,12 @@ class HogFlowViewSet(
 
             new_actions, new_edges = apply_graph_operations(base_actions, base_edges, operations)
 
-            serializer = self.get_serializer(locked, data={"actions": new_actions, "edges": new_edges}, partial=True)
+            serializer = self.get_serializer(
+                locked,
+                data={"actions": new_actions, "edges": new_edges},
+                partial=True,
+                context={**self.get_serializer_context(), "writes_live": not route_to_draft},
+            )
             # The surgical endpoint is the one path where structural corruption would be newly introduced,
             # so it enforces graph validation as a hard error (unlike the lenient full-save path).
             serializer.context["enforce_graph_structure"] = True
@@ -5130,7 +5153,12 @@ class HogFlowViewSet(
 
             new_actions = _apply_action_email_edit(base_actions, action_id, email_patch, rendered)
 
-            serializer = self.get_serializer(locked, data={"actions": new_actions}, partial=True)
+            serializer = self.get_serializer(
+                locked,
+                data={"actions": new_actions},
+                partial=True,
+                context={**self.get_serializer_context(), "writes_live": not route_to_draft},
+            )
             serializer.context["enforce_graph_structure"] = True
             serializer.is_valid(raise_exception=True)
 
@@ -5364,7 +5392,12 @@ class HogFlowViewSet(
             before_update = HogFlow.objects.get(pk=instance.pk)
             # The draft goes back through the normal serializer so publish revalidates strictly and
             # recompiles bytecode — a stored blob is never trusted to be execution-ready.
-            serializer = self.get_serializer(locked, data=dict(locked.draft), partial=True)
+            serializer = self.get_serializer(
+                locked,
+                data=dict(locked.draft),
+                partial=True,
+                context={**self.get_serializer_context(), "writes_live": True},
+            )
             serializer.is_valid(raise_exception=True)
             self._refresh_action_redirects(locked, before_update, serializer.validated_data.get("actions"))
             bump = self._stage_revision_bump(locked, before_update, serializer.validated_data)
@@ -5886,7 +5919,8 @@ class HogFlowViewSet(
             hog_flow = None
 
         serializer = HogFlowInvocationSerializer(
-            data=request.data, context={**self.get_serializer_context(), "instance": hog_flow}
+            data=request.data,
+            context={**self.get_serializer_context(), "instance": hog_flow, "validates_test_run": True},
         )
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)

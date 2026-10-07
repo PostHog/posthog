@@ -1,7 +1,7 @@
 import re
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 from django.db import models
 
@@ -91,6 +91,63 @@ def _validate_not_posthog_connection(integration_ids: list[int], context: dict) 
         )
 
 
+class _EmailSender(NamedTuple):
+    email: str
+    domain: str
+    verified: bool
+
+
+_UNKNOWN_EMAIL_SENDER = _EmailSender(email="", domain="", verified=False)
+
+
+def _sending_integration_ids(from_value: dict) -> set[int]:
+    rotation = _sender_integration_ids({"integrationIds": from_value.get("integrationIds")})
+    return rotation or _sender_integration_ids({"integrationId": from_value.get("integrationId")})
+
+
+def _email_senders(integration_ids: set[int], team_id: int, context: dict) -> dict[int, _EmailSender]:
+    shared_cache = context.get("email_sender_cache")
+    cache: dict[int, _EmailSender] = shared_cache if isinstance(shared_cache, dict) else {}
+    missing_ids = [integration_id for integration_id in integration_ids if integration_id not in cache]
+    if missing_ids:
+        for integration in Integration.objects.filter(team_id=team_id, id__in=missing_ids, kind="email"):
+            config = integration.config or {}
+            email = config.get("email") or ""
+            cache[integration.id] = _EmailSender(
+                email=email,
+                domain=(config.get("domain") or email.split("@")[-1]).lower(),
+                verified=config.get("verified") is True,
+            )
+        for integration_id in missing_ids:
+            cache.setdefault(integration_id, _UNKNOWN_EMAIL_SENDER)
+    return cache
+
+
+def _validate_email_sender_verified(from_value: dict, context: dict) -> None:
+    get_team = context.get("get_team")
+    if not context.get("require_verified_email_sender") or get_team is None:
+        return
+    new_sender_ids = _sending_integration_ids(from_value) - _sending_integration_ids(
+        context.get("live_email_from") or {}
+    )
+    if not new_sender_ids:
+        return
+    senders = _email_senders(new_sender_ids, get_team().id, context)
+    for integration_id in sorted(new_sender_ids):
+        sender = senders[integration_id]
+        if sender is _UNKNOWN_EMAIL_SENDER:
+            raise serializers.ValidationError(
+                {"input": "The email sender no longer exists. Choose a different sender for this step."}
+            )
+        if not sender.verified:
+            raise serializers.ValidationError(
+                {
+                    "input": f'The email sender "{sender.email}" is not verified yet. Verify its domain under '
+                    "Channels, or choose a verified sender."
+                }
+            )
+
+
 def _validate_email_sender_override(from_value: dict, context: dict) -> None:
     """Reject a literal custom sender address the send path would refuse.
 
@@ -137,20 +194,10 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
         return
 
     override_domain = override.split("@")[1].lower()
-    # An empty cached domain means the id resolved to no email integration for this team; the
-    # save is not blocked on it (there is no domain to compare), matching the uncached behavior.
-    shared_cache = context.get("email_integration_domain_cache")
-    domain_cache: dict[int, str] = shared_cache if isinstance(shared_cache, dict) else {}
-    missing_ids = [integration_id for integration_id in integration_ids if integration_id not in domain_cache]
-    if missing_ids:
-        for integration in Integration.objects.filter(team_id=get_team().id, id__in=missing_ids, kind="email"):
-            config = integration.config or {}
-            domain_cache[integration.id] = (config.get("domain") or (config.get("email") or "").split("@")[-1]).lower()
-        for integration_id in missing_ids:
-            domain_cache.setdefault(integration_id, "")
+    senders = _email_senders(integration_ids, get_team().id, context)
 
     for integration_id in sorted(integration_ids):
-        integration_domain = domain_cache.get(integration_id) or ""
+        integration_domain = senders[integration_id].domain
         if integration_domain and override_domain != integration_domain:
             raise serializers.ValidationError(
                 {
@@ -800,6 +847,7 @@ class InputsItemSerializer(serializers.Serializer):
                         )
 
                 _validate_email_sender_override(from_value, self.context)
+                _validate_email_sender_verified(from_value, self.context)
 
             if isinstance(value.get("html"), str) and value["html"] and not value.get("design"):
                 # Programmatically authored emails often supply html without a design, which the
