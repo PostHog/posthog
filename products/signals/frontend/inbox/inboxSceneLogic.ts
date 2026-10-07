@@ -1346,6 +1346,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 closeAllSurfaces()
             },
             [urls.inbox(':tab')]: ({ tab }: { tab?: string }, searchParams, hashParams) => {
+                if (tab === 'scout-trials') {
+                    return
+                }
                 // Tab segments from the other inbox layout still arrive from Slack messages, bookmarks,
                 // and a flag that flipped between visits: send them to the surface that replaced them.
                 const redirectPath = inboxTabRedirectPath(tab, values.isRedesign)

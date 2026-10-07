@@ -402,9 +402,10 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
         responses={200: FlakinessOverviewSerializer},
         description=(
-            "Snapshots in a repo whose rendering cannot be trusted: those that failed the gate or "
-            "were absorbed by a toleration on a recent default-branch run, and those under an "
-            "active quarantine. Everything else is omitted, so this is far smaller than the "
+            "Snapshots in a repo whose rendering cannot be trusted: those that failed the gate on a "
+            "recent default-branch run, those whose absorbed diff is close to the threshold, and those "
+            "under an active quarantine. Small absorbed diffs well under the threshold are omitted, as is "
+            "everything else, so this is far smaller than the "
             "baselines universe; `totals.tracked` gives the full denominator. Each entry carries "
             f"the share of the last {contracts.FLAKINESS_RATE_DAYS} days of default-branch runs "
             "that failed the gate (`hard_rate`) and the share a toleration absorbed "

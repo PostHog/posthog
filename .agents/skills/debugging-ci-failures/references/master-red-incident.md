@@ -110,7 +110,10 @@ These identify the incident without proving it is still active; the first-step l
 
 A name with a `(scheduled)` suffix is not a separate workflow.
 It is the cron-triggered master run of the workflow before the suffix, which the alerter tracks apart from that workflow's master-push runs because the two run different jobs.
-`Backend CI (scheduled)` means the hourly full test matrices, so use Backend CI's `schedule` runs in the first-step lookup rather than its push runs.
+`Backend CI (scheduled)` means the hourly full test matrices, which run on Depot CI, so GitHub has no `schedule` runs for it and the `gh api` lookup above does not apply.
+Its run ID is a Depot run ID and its URL is on depot.dev.
+List that lane with `python3 .github/scripts/depot_scheduled_runs.py gate-runs`, which prints the newest hourly runs in the same shape, and read a failed run with `depot ci diagnose --run <run-id>`.
+Apply the same six-hour freshness bound to the first entry.
 
 ## Verdict gates
 

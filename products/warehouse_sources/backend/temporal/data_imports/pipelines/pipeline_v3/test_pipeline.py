@@ -1,8 +1,9 @@
 import json
+import inspect
 from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,6 +14,10 @@ from asgiref.sync import async_to_sync
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.handoff_checkpoint import (
+    IncrementalBatchRangeReader,
+    IncrementalHandoffCheckpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.lanes import (
     LanedPipelineV3,
     _LaneWriter,
@@ -25,6 +30,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PostgresProducer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.tests.test_resume_checkpoints import (
+    paged_config,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     OutputLane,
@@ -34,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportJobModels,
 )
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _PIPELINE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
 _SAFE_POINT = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point"
@@ -93,6 +103,9 @@ def _make_pipeline() -> PipelineV3:
     pipeline._attempt = 1
     pipeline._uses_delta_write_column_selection = False
     pipeline._observed_columns = {}
+    pipeline._continues_incremental_handoff = False
+    pipeline._resumed_incremental_run_uuid = None
+    pipeline._sent_resumed_run_finalization = False
 
     return pipeline
 
@@ -137,7 +150,7 @@ class TestAttemptScopedRunUuid:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.current_activity_attempt",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.current_import_attempt",
                 return_value=3,
             ),
             patch(
@@ -267,7 +280,7 @@ class TestCDCSourceWiring:
 
         base = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
         with (
-            patch(f"{base}.current_activity_attempt", return_value=1),
+            patch(f"{base}.current_import_attempt", return_value=1),
             patch(f"{base}.current_workflow_id", return_value="wf-1"),
             patch(f"{base}.current_workflow_run_id", return_value="wfrun-abc"),
             patch(f"{base}.S3BatchWriter"),
@@ -382,7 +395,7 @@ def _build_laned(lanes) -> LanedPipelineV3:
         lanes=lanes,
     )
     with (
-        patch(f"{_PIPELINE}.current_activity_attempt", return_value=3),
+        patch(f"{_PIPELINE}.current_import_attempt", return_value=3),
         patch(f"{_PIPELINE}.current_workflow_id", return_value="wf-1"),
         patch(f"{_PIPELINE}.current_workflow_run_id", return_value="wfrun-abc"),
         patch(f"{_PIPELINE}.S3BatchWriter"),
@@ -768,6 +781,14 @@ class TestSingleTableRunIsUntouched:
         assert v3_pipeline_class(MagicMock(lanes=[])) is PipelineV3
         assert v3_pipeline_class(MagicMock(lanes=[OutputLane(name="users_cdc")])) is LanedPipelineV3
 
+    def test_the_laned_pipeline_takes_every_argument_the_base_takes(self) -> None:
+        # The activity builds both classes with one call, so an argument added to the base
+        # alone fails every run of a source with lanes.
+        base = inspect.signature(PipelineV3.__init__).parameters
+        laned = inspect.signature(LanedPipelineV3.__init__).parameters
+
+        assert set(base) - set(laned) == set()
+
 
 class TestFinalizeStagesTheWatermarkFirst:
     @pytest.mark.asyncio
@@ -856,6 +877,11 @@ class TestZeroBatchRunStampsTheFullRunMarker:
 @dataclass(frozen=True)
 class _Cursor:
     id: str
+
+
+@dataclass(frozen=True)
+class _PageCursor:
+    page: int
 
 
 def _manager() -> ResumableSourceManager[_Cursor]:
@@ -965,6 +991,50 @@ class TestResumeCursorCommit:
         assert cast(AsyncMock, pipeline._process_batch).await_count == 2
         assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == expected_committed
 
+    @pytest.mark.parametrize("wrapped", [False, True], ids=["rest_resource", "wrapped_rest_resource"])
+    @pytest.mark.asyncio
+    async def test_a_rest_source_handed_off_after_its_first_batch_resumes_without_losing_rows(
+        self, wrapped: bool
+    ) -> None:
+        redis = MagicMock()
+        inputs = cast(SourceInputs, SimpleNamespace(team_id=1, job_id="job-1", logger=MagicMock()))
+        manager = ResumableSourceManager[_PageCursor](inputs, _PageCursor)
+        pages = {"/items": [[{"id": 1}], [{"id": 2}], [{"id": 3}]]}
+
+        def rest_items(state: dict | None):
+            resource = rest_api_resource(
+                paged_config(pages, ["items"]),
+                1,
+                "job-1",
+                None,
+                resume_hook=lambda next_page: manager.save_state(_PageCursor(next_page["page"])) if next_page else None,
+                initial_paginator_state=state,
+            )
+            return (lambda: (page for page in resource)) if wrapped else (lambda: resource)
+
+        pipeline = _runnable_pipeline(cast(ResumableSourceManager[_Cursor], manager), rest_items(None))
+        pipeline._batcher = Batcher(MagicMock(), chunk_size=1, primary_keys=["id"])
+        cast(MagicMock, pipeline._shutdown_monitor).raise_if_is_worker_shutdown.side_effect = WorkerShuttingDownError(
+            "id", "type", "queue", 1, "workflow", "workflow_type"
+        )
+
+        await _run_expecting(pipeline, redis, WorkerShuttingDownError)
+
+        written = [
+            row_id
+            for call in cast(AsyncMock, pipeline._process_batch).await_args_list
+            for row_id in call.kwargs["pa_table"]["id"].to_pylist()
+        ]
+        committed = [json.loads(call.args[1]) for call in redis.set.call_args_list]
+        resumed = [row["id"] for page in rest_items(committed[-1] if committed else None)() for row in page]
+
+        assert written == [1]
+        if wrapped:
+            assert set(written + resumed) == {1, 2, 3}
+        else:
+            assert committed == [{"page": 1}]
+            assert written + resumed == [1, 2, 3]
+
     @pytest.mark.asyncio
     async def test_cursor_not_persisted_for_rows_the_batcher_still_holds(self) -> None:
         redis = MagicMock()
@@ -1050,7 +1120,7 @@ class TestResumeCursorCommit:
         assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == ["a", "b"]
 
 
-def _recording_producer(events: list[str] | None = None) -> PostgresProducer:
+def _recording_producer(events: list[str] | None = None, *, is_resume: bool = False) -> PostgresProducer:
     """A real producer over a mocked queue connection, so the rows it inserts can be read back."""
     with patch(f"{_PRODUCER}.psycopg") as mock_psycopg:
         conn = MagicMock()
@@ -1067,6 +1137,7 @@ def _recording_producer(events: list[str] | None = None) -> PostgresProducer:
             sync_type="full_refresh",
             run_uuid="run-1",
             logger=MagicMock(),
+            is_resume=is_resume,
         )
     return producer
 
@@ -1147,6 +1218,19 @@ class TestFinalMarkerIsTheLastDataRow:
             stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
             await pipeline.run()
 
+    @pytest.mark.asyncio
+    async def test_a_zero_batch_continuation_finalizes_the_earlier_queue_run(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._continues_incremental_handoff = True
+        pipeline._resumed_incremental_run_uuid = "workflow-run-a1"
+
+        await pipeline._finalize(row_count=0)
+
+        cast(MagicMock, pipeline._pg_producer.send_final_batch_for_resumed_run).assert_called_once_with(
+            "workflow-run-a1"
+        )
+        assert pipeline._consumer_finalizes_this_run() is True
+
     @pytest.mark.parametrize(
         "ids,expected_rows",
         [
@@ -1224,3 +1308,288 @@ class TestFinalMarkerIsTheLastDataRow:
             await self._run(pipeline)
 
         assert _queue_rows(producer) == [(0, False)]
+
+
+def _passthrough_pool(fn):
+    async def call(*args, **kwargs):
+        return fn(*args, **kwargs)
+
+    return call
+
+
+class TestIncrementalHandoffCheckpoint:
+    def _pipeline(self, items, events: list[Any], *, resumed_from: int | None = None) -> PipelineV3:
+        pipeline = _make_pipeline()
+        pipeline._pg_producer = _recording_producer(events)
+        pipeline._batcher = Batcher(MagicMock(), primary_keys=["id"])
+        pipeline._schema = MagicMock(
+            id="schema-1",
+            source_id="source-1",
+            is_incremental=True,
+            is_webhook=False,
+            is_append=False,
+            should_use_incremental_field=True,
+            incremental_field="n",
+            incremental_field_type=IncrementalFieldType.Integer,
+            table=None,
+        )
+        pipeline._schema.stage_handoff_resume_value.side_effect = lambda run_uuid, value, owner_run_uuid=None: (
+            events.append(("resume_value", value))
+        )
+        pipeline._s3_batch_writer = MagicMock(
+            write_batch=MagicMock(
+                side_effect=lambda table, index: BatchWriteResult(
+                    s3_path=f"s3://data/{index}.parquet",
+                    row_count=table.num_rows,
+                    byte_size=1,
+                    batch_index=index,
+                    timestamp_ns=0,
+                )
+            ),
+            get_run_uuid=MagicMock(return_value="run-1"),
+        )
+        pipeline._resource = SourceResponse(name="test_table", items=items, primary_keys=["id"])
+        pipeline._handoff_checkpoint = IncrementalHandoffCheckpoint(resumed_from)
+        pipeline._staged_handoff_resume_value = resumed_from
+        pipeline._batch_range_reader = IncrementalBatchRangeReader(pipeline._schema)
+
+        async def stage_and_checkpoint(pa_table: pa.Table, batch_index: int, row_count: int) -> None:
+            await pipeline._stage_batch(pa_table, batch_index, row_count)
+            events.append(("staged_rows", pa_table.column("n").to_pylist()))
+            await pipeline._advance_handoff_checkpoint(pa_table)
+
+        pipeline._process_batch = AsyncMock(side_effect=stage_and_checkpoint)  # type: ignore[method-assign]
+        return pipeline
+
+    async def _run(self, pipeline: PipelineV3, exc: type[BaseException]) -> None:
+        with ExitStack() as stack:
+            for name in (
+                "reset_rows_synced_if_needed",
+                "setup_row_tracking_with_billing_check",
+                "handle_reset_or_full_refresh",
+                "handle_corrupted_delta_log",
+            ):
+                stack.enter_context(patch(f"{_PIPELINE}.{name}", new_callable=AsyncMock))
+            for name in ("validate_incremental_sync", "record_source_item_stats"):
+                stack.enter_context(patch(f"{_PIPELINE}.{name}"))
+            stack.enter_context(patch(f"{_PIPELINE}.should_check_shutdown", return_value=True))
+            stack.enter_context(patch(f"{_PIPELINE}.database_sync_to_async_pool", new=_passthrough_pool))
+            stack.enter_context(patch(f"{_PRODUCER}.BatchQueue.supersede_other_runs", return_value=0))
+            stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
+            with pytest.raises(exc):
+                await pipeline.run()
+
+    def _shut_down_at_check(self, pipeline: PipelineV3, check: int) -> None:
+        monitor = cast(MagicMock, pipeline._shutdown_monitor)
+        calls = {"n": 0}
+        shutdown = WorkerShuttingDownError("id", "type", "queue", 1, "workflow", "workflow_type")
+
+        def is_shutdown() -> bool:
+            calls["n"] += 1
+            return calls["n"] >= check
+
+        def raise_if_shutdown() -> None:
+            if calls["n"] >= check:
+                raise shutdown
+
+        monitor.is_worker_shutdown.side_effect = is_shutdown
+        monitor.raise_if_is_worker_shutdown.side_effect = raise_if_shutdown
+
+    @pytest.mark.asyncio
+    async def test_an_inherited_value_keeps_the_earlier_owner_until_this_attempt_queues_a_batch(self) -> None:
+        # a2 inherits a1's value before extracting anything. If a2 hands off before queuing a batch
+        # of its own, a3 must still finalize a1 - the run whose queue rows the value describes.
+        events: list[Any] = []
+        pipeline = self._pipeline(lambda: iter(()), events, resumed_from=40)
+        pipeline._resumed_incremental_run_uuid = "run-0"
+
+        stage_mock = cast(MagicMock, pipeline._schema.stage_handoff_resume_value)
+
+        await pipeline._stage_handoff_resume_value(force=True)
+
+        assert stage_mock.call_args.args == ("run-1", 40, "run-0")
+
+        # Once a2 queues a batch of its own, it owns the queue rows: the owner is cleared so the
+        # model defaults it to this run, even though the resume value itself has not changed yet.
+        pipeline._queued_own_batch = True
+        await pipeline._stage_handoff_resume_value()
+
+        assert stage_mock.call_args.args == ("run-1", 40, None)
+
+        # A later write from this attempt's own progress keeps the owner cleared.
+        cast(IncrementalHandoffCheckpoint, pipeline._handoff_checkpoint)._resume_value = 55
+        await pipeline._stage_handoff_resume_value()
+
+        assert stage_mock.call_args.args == ("run-1", 55, None)
+
+    @pytest.mark.asyncio
+    async def test_ownership_follows_a_queue_row_only_once_it_is_actually_inserted(self) -> None:
+        # The first batch an attempt holds is not inserted yet, so a crash right there must not grant
+        # this attempt ownership of a queue row it does not yet have.
+        pipeline = self._pipeline(lambda: iter(()), [], resumed_from=40)
+        pipeline._resumed_incremental_run_uuid = "run-0"
+        pipeline._pg_producer = _recording_producer(is_resume=True)
+
+        await pipeline._stage_batch(pa.table({"id": ["a"], "n": [1]}), 0, 1)
+        assert pipeline._queued_own_batch is False
+
+        # Holding a second batch flushes the first one into the queue, so it is now this attempt's.
+        await pipeline._stage_batch(pa.table({"id": ["b"], "n": [2]}), 1, 2)
+        assert pipeline._queued_own_batch is True
+
+    @pytest.mark.asyncio
+    async def test_releasing_a_held_batch_also_grants_ownership(self) -> None:
+        pipeline = self._pipeline(lambda: iter(()), [], resumed_from=40)
+        pipeline._resumed_incremental_run_uuid = "run-0"
+        pipeline._pg_producer = _recording_producer(is_resume=True)
+
+        await pipeline._stage_batch(pa.table({"id": ["a"], "n": [1]}), 0, 1)
+        assert pipeline._queued_own_batch is False
+
+        pipeline._release_held_batches()
+
+        assert pipeline._queued_own_batch is True
+
+    @pytest.mark.asyncio
+    async def test_a_handoff_stages_the_buffered_rows_and_then_records_where_to_continue(self) -> None:
+        events: list[Any] = []
+
+        def items():
+            yield [{"id": 1, "n": 10}, {"id": 2, "n": 11}]
+            yield [{"id": 3, "n": 12}]
+            yield [{"id": 4, "n": 13}]
+
+        pipeline = self._pipeline(items, events)
+        self._shut_down_at_check(pipeline, check=2)
+
+        await self._run(pipeline, WorkerShuttingDownError)
+
+        # Neither item fills a chunk, so every row is still in the batcher at the shutdown check.
+        # The queue row must exist before the value that tells the next attempt to skip its rows.
+        assert events == [("staged_rows", [10, 11, 12]), "insert", ("resume_value", 11)]
+
+    @pytest.mark.parametrize(
+        "failure,expected_values",
+        [
+            # The source fails after three batches. The held row of the last batch is inserted on
+            # the way out, so the next attempt can continue after all three.
+            pytest.param("source_error", [10, 20, 29], id="every_batch_queued"),
+            # The row of the last batch never reaches the queue, so its rows stay ahead of the value.
+            pytest.param("held_row_not_inserted", [10, 20], id="held_batch_not_queued"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_recorded_value_never_passes_a_batch_without_a_queue_row(
+        self, failure: str, expected_values: list[int]
+    ) -> None:
+        events: list[Any] = []
+
+        def items():
+            yield pa.table({"id": [1, 2], "n": [10, 11]})
+            yield pa.table({"id": [3, 4], "n": [20, 21]})
+            yield pa.table({"id": [5, 6], "n": [29, 30]})
+            raise RuntimeError("source went away")
+
+        pipeline = self._pipeline(items, events)
+        cast(MagicMock, pipeline._shutdown_monitor).is_worker_shutdown.return_value = False
+        if failure == "held_row_not_inserted":
+            pipeline._pg_producer.release_held_batch = MagicMock(side_effect=RuntimeError("queue down"))  # type: ignore[method-assign]
+
+        await self._run(pipeline, RuntimeError)
+
+        assert [event[1] for event in events if event != "insert" and event[0] == "resume_value"] == expected_values
+
+    @pytest.mark.asyncio
+    async def test_a_queue_row_that_fails_to_insert_stops_the_value_from_advancing(self) -> None:
+        events: list[Any] = []
+
+        def items():
+            yield pa.table({"id": [1, 2], "n": [10, 11]})
+            yield pa.table({"id": [3, 4], "n": [20, 21]})
+            yield pa.table({"id": [5, 6], "n": [29, 30]})
+
+        pipeline = self._pipeline(items, events)
+        cast(MagicMock, pipeline._shutdown_monitor).is_worker_shutdown.return_value = False
+        inserts = {"n": 0}
+
+        def fail_second_insert(*_args, **_kwargs) -> None:
+            inserts["n"] += 1
+            if inserts["n"] == 2:
+                raise RuntimeError("queue down")
+
+        cast(MagicMock, pipeline._pg_producer._conn.execute).side_effect = fail_second_insert
+
+        await self._run(pipeline, RuntimeError)
+
+        # Batch 1's row is the insert that failed. The value 10 covers batch 0 only, whose row exists.
+        assert [event for event in events if event[0] == "resume_value"] == [("resume_value", 10)]
+
+    @pytest.mark.asyncio
+    async def test_rows_out_of_order_withdraw_the_recorded_value(self) -> None:
+        events: list[Any] = []
+
+        def items():
+            yield pa.table({"id": [1, 2], "n": [10, 11]})
+            yield pa.table({"id": [3, 4], "n": [20, 21]})
+            yield pa.table({"id": [5, 6], "n": [5, 6]})
+            raise RuntimeError("source went away")
+
+        pipeline = self._pipeline(items, events)
+        cast(MagicMock, pipeline._shutdown_monitor).is_worker_shutdown.return_value = False
+
+        await self._run(pipeline, RuntimeError)
+
+        assert [event[1] for event in events if event != "insert" and event[0] == "resume_value"] == [10, 20, None]
+
+    @pytest.mark.parametrize(
+        "resumed_incremental_value,expected_is_resume",
+        [pytest.param(None, False, id="fresh_attempt"), pytest.param(40, True, id="continues_after_a_queued_batch")],
+    )
+    def test_an_attempt_that_continues_keeps_the_queue_rows_of_earlier_attempts(
+        self, resumed_incremental_value: int | None, expected_is_resume: bool
+    ) -> None:
+        schema = MagicMock(
+            id="schema-1",
+            source_id="source-1",
+            is_incremental=True,
+            is_webhook=False,
+            is_xmin=False,
+            is_append=False,
+            table=None,
+            incremental_field="n",
+            incremental_field_type=IncrementalFieldType.Integer,
+            incremental_field_earliest_value=None,
+        )
+        resource = SourceResponse(name="orders", items=lambda: iter(()), primary_keys=["id"])
+
+        with (
+            patch(f"{_PIPELINE}.current_import_attempt", return_value=2),
+            patch(f"{_PIPELINE}.current_workflow_id", return_value="wf-1"),
+            patch(f"{_PIPELINE}.current_workflow_run_id", return_value="wfrun-abc"),
+            patch(f"{_PIPELINE}.S3BatchWriter"),
+            patch(f"{_PIPELINE}.PostgresProducer") as producer_cls,
+            patch(f"{_PIPELINE}.DeltaTableRef"),
+            patch(f"{_PIPELINE}.resolve_primary_keys", return_value=["id"]),
+        ):
+            pipeline: PipelineV3 = PipelineV3(
+                source_response=resource,
+                logger=_make_logger(),
+                job_id="job-1",
+                reset_pipeline=False,
+                shutdown_monitor=MagicMock(),
+                resumable_source_manager=None,
+                models=ImportJobModels(
+                    job=MagicMock(team_id=1, workflow_run_id="wfrun-abc", id="job-1", destination_ids=[]),
+                    schema=schema,
+                    source=MagicMock(source_type="Postgres"),
+                    table=None,
+                ),
+                incremental_checkpoints_allowed=True,
+                resumed_incremental_value=resumed_incremental_value,
+            )
+
+        # A fresh run replaces the queue rows of earlier attempts and overwrites on batch 0. A run that
+        # reads after their rows must not, or the rows it skipped are never loaded.
+        assert producer_cls.call_args.kwargs["is_resume"] is expected_is_resume
+        assert pipeline._handoff_checkpoint is not None
+        assert pipeline._handoff_checkpoint.resume_value == resumed_incremental_value

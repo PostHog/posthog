@@ -330,6 +330,30 @@ class TestAppleSearchAdsSource:
         assert config.auth_method.private_key == "pem"
         assert self.source.serialize_config(config)["private_key"] == "pem"
 
+    def test_the_ad_account_pickers_payload_authenticates_through_the_connected_account(self) -> None:
+        # The picker posts the one field it holds, with no auth branch around it. Read as key-pair
+        # material it carries no private key, so the listing signs an assertion from an empty PEM
+        # and the form answers "Could not sign the Apple Ads client secret" on a signed-in source.
+        integration = mock.MagicMock()
+        integration.kind = "apple-ads"
+        config = self.source.parse_config({"apple_ads_integration_id": "77"})
+
+        assert config.auth_method.selection == "oauth"
+        assert config.auth_method.apple_ads_integration_id == 77
+
+        with (
+            mock.patch.object(AppleSearchAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{SOURCE_MODULE}.apple_ads_access_token", return_value="bearer-1"),
+            mock.patch(f"{SOURCE_MODULE}.AppleSearchAdsClient") as mock_client,
+            mock.patch(f"{SOURCE_MODULE}.readable_ad_accounts") as mock_accounts,
+        ):
+            mock_accounts.return_value = [AppleAdAccount(id="1111111", name="Example Retail")]
+
+            accounts = self.source.get_credential_accounts(config, self.team_id)
+            assert mock_client.call_args.kwargs["token_provider"]() == "bearer-1"
+
+        assert [account.value for account in accounts] == ["1111111"]
+
     def test_validate_credentials_rejects_a_grant_against_the_retired_api_version(self) -> None:
         # Apple issues a service provider grant for the Platform API only. A v5-pinned source has
         # to stay on its own key pair, so accepting one here would connect and then fail on sync.

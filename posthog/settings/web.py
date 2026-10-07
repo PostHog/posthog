@@ -126,6 +126,7 @@ PRODUCTS_APPS = [
     "products.data_quality.backend.apps.DataQualityConfig",
     "products.security.backend.apps.SecurityConfig",
     "products.webmcp.backend.apps.WebmcpConfig",
+    "products.warehouse_suggestions.backend.apps.WarehouseSuggestionsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -317,6 +318,9 @@ SOCIAL_AUTH_PIPELINE = (
     # Must stay ahead of associate_by_email, which links an existing account by email with no check of its own
     "posthog.api.authentication.social_email_verified_by_provider",
     "social_core.pipeline.social_auth.associate_by_email",
+    # Must stay ahead of the end of the pipeline, where the session starts, and after the steps
+    # that resolve the existing account
+    "posthog.api.authentication.social_access_rules_allow",
     "posthog.api.signup.social_create_user",
     "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",
@@ -691,6 +695,7 @@ SPECTACULAR_SETTINGS = {
             "TraceNodeKindEnum": "products.ai_observability.backend.facade.contracts.TRACE_NODE_KINDS",
             "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
             "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
+            "DismissalReasonEnum": "products.signals.backend.views.SIGNAL_REPORT_DISMISSAL_REASON_CHOICES",
             "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],
             #
             # The choices come from a typing.Literal via get_args; there is no class.

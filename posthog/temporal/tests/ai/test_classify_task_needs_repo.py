@@ -199,6 +199,7 @@ class TestClassifyTaskNeedsRepo:
         build_client.assert_called_once_with(
             product="slack_app_routing",
             ai_product="slack_app_routing",
+            trace_id=None,
             properties={CLASSIFIER_PROPERTY: "task_needs_repo"},
         )
         kwargs = fake_client.messages.create.call_args.kwargs
