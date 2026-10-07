@@ -52,6 +52,7 @@
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
          "posthog_organization"."provisioning_source",
+         "posthog_organization"."provisioning_terms_accepted_at",
          "posthog_organization"."provisioning_application_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",

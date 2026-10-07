@@ -242,6 +242,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
     slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     logo_media = models.ForeignKey("posthog.UploadedMedia", on_delete=models.SET_NULL, null=True, blank=True)
     provisioning_source = models.CharField(max_length=32, choices=ProvisioningSource.choices, null=True, blank=True)
+    provisioning_terms_accepted_at = models.DateTimeField(null=True, blank=True)
     provisioning_application = models.ForeignKey(
         "posthog.OAuthApplication",
         on_delete=models.PROTECT,

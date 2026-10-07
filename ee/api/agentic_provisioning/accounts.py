@@ -253,6 +253,7 @@ def handle_new_user(
                 organization_fields={
                     "provisioning_source": Organization.ProvisioningSource.PROVISIONING_API,
                     "provisioning_application": partner,
+                    "provisioning_terms_accepted_at": data.get("terms_accepted_at"),
                 },
             )
             TeamProvisioningConfig.objects.get_or_create(team=team, defaults={"application": partner})
