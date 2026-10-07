@@ -226,7 +226,7 @@ from products.tasks.backend.presentation.serializers import (
     WizardCloudRunSerializer,
 )
 from products.tasks.backend.presentation.task_review_serializers import TaskReviewQuerySerializer, TaskReviewSerializer
-from products.tasks.backend.presentation.views.artifact_preview import create_artifact_preview_url, is_html_artifact
+from products.tasks.backend.presentation.views.artifact_preview import create_artifact_preview_url
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -3062,7 +3062,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise PermissionDenied("The analytics data in this task run is not available to you.")
         if version is None:
             artifact = tasks_facade.task_run_artifact_entry(pk, task_id, self.team_id, artifact_id=artifact_id)
-            if artifact is None or not is_html_artifact(
+            if artifact is None or not tasks_facade.is_html_artifact(
                 str(artifact.get("name") or ""), str(artifact.get("content_type") or "")
             ):
                 raise NotFound()
@@ -3070,11 +3070,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             content, error = tasks_facade.read_task_run_living_artifact_version(
                 pk, task_id, self.team_id, artifact_id=artifact_id, version=version
             )
-            if error is not None or content is None or not is_html_artifact(content.name, content.content_type):
+            if (
+                error is not None
+                or content is None
+                or not tasks_facade.is_html_artifact(content.name, content.content_type)
+            ):
                 raise NotFound()
-        scripts_available = tasks_facade.task_run_artifact_scripts_allowed(
+        script_digest = tasks_facade.task_run_artifact_script_digest(
             pk, task_id, self.team_id, artifact_id=artifact_id, version=version
         )
+        scripts_available = script_digest is not None
         if run_scripts and not scripts_available:
             raise PermissionDenied(
                 "Scripts can't run in this artifact because its task run has limited network access."
@@ -3085,7 +3090,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             run_id=str(pk),
             artifact_id=artifact_id,
             version=version,
-            scripts=run_scripts,
+            script_digest=script_digest if run_scripts else None,
         )
         if url is None:
             return Response({"error": "Artifact preview is unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)

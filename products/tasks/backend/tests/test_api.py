@@ -10236,6 +10236,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "content_type": "text/html",
                     "storage_path": f"tasks/artifacts/team_{self.team.id}/task_{task.id}/run_{uuid.uuid4().hex}/interactive.html",
                     "written_with_open_network": True,
+                    "content_sha256": hashlib.sha256(mock_read_bytes.return_value).hexdigest(),
                 },
                 {
                     "id": "unmarked-html",
@@ -10294,6 +10295,51 @@ class TestTaskRunAPI(BaseTaskAPITest):
             self.assertEqual(
                 self.client.get(preview_path, HTTP_HOST="usercontent.example").status_code, status.HTTP_404_NOT_FOUND
             )
+
+    @override_settings(
+        CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
+    )
+    @patch("posthog.storage.object_storage.read_bytes")
+    @patch("posthog.storage.object_storage.head_object")
+    @patch("posthog.storage.object_storage.tag")
+    def test_html_artifact_replaced_after_finalize_does_not_run_scripts(
+        self, _mock_tag, mock_head_object, mock_read_bytes
+    ):
+        approved = b"<p>Approved report</p>"
+        mock_head_object.return_value = {"ContentLength": len(approved), "ContentType": "text/html"}
+        mock_read_bytes.return_value = approved
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        artifact_id = uuid.uuid4().hex
+        finalized = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/finalize_upload/",
+            {
+                "artifacts": [
+                    {
+                        "id": artifact_id,
+                        "name": "report.html",
+                        "type": "output",
+                        "source": "agent_output",
+                        "storage_path": f"{run.get_artifact_s3_prefix()}/{artifact_id[:8]}_report.html",
+                        "content_type": "text/html",
+                    }
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(finalized.status_code, status.HTTP_200_OK)
+        api_path = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/preview/?scripts=true"
+
+        def served_csp() -> str:
+            minted = self.client.get(api_path)
+            self.assertEqual(minted.status_code, status.HTTP_200_OK)
+            served = self.client.get(urlsplit(minted.json()["url"]).path, HTTP_HOST="usercontent.example")
+            self.assertEqual(served.content, mock_read_bytes.return_value)
+            return served["Content-Security-Policy"]
+
+        self.assertIn("sandbox allow-scripts", served_csp())
+        mock_read_bytes.return_value = b"<script>location.replace('https://attacker.example/')</script>"
+        self.assertNotIn("allow-scripts", served_csp())
 
     @override_settings(
         CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
