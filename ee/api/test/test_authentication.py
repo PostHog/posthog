@@ -973,6 +973,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
         emails_status: int = 200,
         profile_email: str | None = None,
         login_query: str = "",
+        profile_status: int = 200,
     ) -> HttpResponse:
         with (
             self.settings(**GITHUB_MOCK_SETTINGS),
@@ -983,6 +984,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 responses.GET,
                 "https://api.github.com/user",
                 json={"id": github_id, "login": "octo", "name": "Octo Cat", "email": profile_email},
+                status=profile_status,
             )
             mock_github.add(responses.GET, "https://api.github.com/user/emails", json=emails, status=emails_status)
             self.client.get(f"/login/github/?{login_query}")
@@ -1074,6 +1076,19 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertNotIn("_auth_user_id", self.client.session)
         self.assertFalse(User.objects.filter(email=email).exists())
         self.assertFalse(UserSocialAuth.objects.filter(provider=provider).exists())
+
+    def test_github_login_refused_by_github_redirects_with_access_denied_error(self) -> None:
+        self.client.logout()
+
+        response = self._complete_github_login(
+            github_id=7171,
+            emails=[{"email": "blocked@example.com", "primary": True, "verified": True}],
+            profile_status=403,
+        )
+
+        self.assertRedirects(response, "/login?error_code=github_access_denied", fetch_redirect_response=False)
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(UserSocialAuth.objects.filter(provider="github").exists())
 
     @parameterized.expand(
         [

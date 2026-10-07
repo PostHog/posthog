@@ -19,6 +19,7 @@ from django.test import (
 )
 from django.urls import reverse
 
+import requests
 import structlog
 from loginas import settings as la_settings
 from parameterized import parameterized
@@ -53,6 +54,12 @@ from products.product_analytics.backend.facade.models import Insight
 
 def _social_auth_backend() -> BaseAuth:
     return cast(BaseAuth, MagicMock())
+
+
+def _http_error(status_code: int) -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = status_code
+    return requests.HTTPError(response=response)
 
 
 MANAGED_PROXY_KEY = "managed-proxy-test-key"
@@ -2376,6 +2383,12 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
                 AuthFailed(_social_auth_backend(), "sso_enforced"),
                 "/login?error_code=sso_enforced",
             ),
+            (
+                "github_access_denied",
+                "/complete/github/",
+                _http_error(403),
+                "/login?error_code=github_access_denied",
+            ),
         ]
     )
     def test_redirects_with_expected_url(self, _name, path, exception, expected_url):
@@ -2434,6 +2447,16 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
                 "auth_failed_on_non_oauth_path",
                 "/api/some-endpoint/",
                 AuthFailed(_social_auth_backend(), "some error"),
+            ),
+            (
+                "github_server_error",
+                "/complete/github/",
+                _http_error(502),
+            ),
+            (
+                "forbidden_from_other_provider",
+                "/complete/google-oauth2/",
+                _http_error(403),
             ),
         ]
     )
