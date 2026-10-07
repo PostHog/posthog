@@ -66610,6 +66610,11 @@ export namespace Schemas {
       readonly created_at: string;
       readonly updated_at: string;
       readonly membership_level: OrganizationMembershipLevelEnum;
+      /**
+         * When the requesting user joined this organization. Null if the user is not a member.
+         * @nullable
+         */
+      readonly membership_joined_at: string | null;
       readonly plugins_access_level: OrganizationPluginsAccessLevelEnum;
       readonly teams: readonly OrganizationTeamsItem[];
       readonly projects: readonly OrganizationProjectsItem[];
@@ -79593,6 +79598,11 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly updated_at?: string;
       readonly membership_level?: OrganizationMembershipLevelEnum;
+      /**
+         * When the requesting user joined this organization. Null if the user is not a member.
+         * @nullable
+         */
+      readonly membership_joined_at?: string | null;
       readonly plugins_access_level?: OrganizationPluginsAccessLevelEnum;
       readonly teams?: readonly PatchedOrganizationTeamsItem[];
       readonly projects?: readonly PatchedOrganizationProjectsItem[];
