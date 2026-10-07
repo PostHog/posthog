@@ -22,6 +22,7 @@ import { BIToolbar } from 'products/business_intelligence/frontend/components/BI
 
 import { BIAnalysisControls } from './BIAnalysisControls'
 import { BIMeasureSettingsModal } from './BIMeasureSettingsModal'
+import { BIResultFiltersCard } from './components/BIResultFiltersCard'
 
 /**
  * A worksheet laid out like desktop BI tools: data pane, filter and marks cards, rows and columns
@@ -92,6 +93,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                         >
                             <div className="min-h-0 overflow-y-auto">
                                 <BIFiltersCard />
+                                <BIResultFiltersCard />
                                 <BIMarksCard />
                                 <BIAnalysisControls />
                             </div>
@@ -130,7 +132,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                         <div className="hidden w-44 shrink-0 flex-col overflow-y-auto border-l bg-surface-primary @3xl/bi-editor:flex @6xl/bi-editor:w-80">
                             {config.filters.length > 0 && (
                                 <section className="border-b p-2" aria-label="Quick filters">
-                                    <h3 className="mb-2 text-xs font-semibold">Filters</h3>
+                                    <h3 className="mb-2 text-xs font-semibold">Row filters</h3>
                                     <div className="grid grid-cols-1 items-start gap-x-2 gap-y-2 @6xl/bi-editor:grid-cols-2">
                                         {config.filters.map((filter, index) => (
                                             <BIFilterControl key={filter.field.id} index={index} />

@@ -631,6 +631,11 @@ class BIAggregation(StrEnum):
     CUSTOM = "custom"
 
 
+class Operator1(StrEnum):
+    AND_ = "AND"
+    OR_ = "OR"
+
+
 class BIDateBucket(StrEnum):
     MINUTE = "minute"
     HOUR = "hour"
@@ -661,6 +666,18 @@ class BIQueryLimit(float, Enum):
     NUMBER_1000 = 1000
     NUMBER_10000 = 10000
     NUMBER_50000 = 50000
+
+
+class Operator2(StrEnum):
+    EQUALS = "equals"
+    NOT_EQUALS = "not_equals"
+    GREATER_THAN = "greater_than"
+    LESS_THAN = "less_than"
+    GREATER_THAN_OR_EQUAL = "greater_than_or_equal"
+    LESS_THAN_OR_EQUAL = "less_than_or_equal"
+    BETWEEN = "between"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
 
 
 class BISortDirection(StrEnum):
