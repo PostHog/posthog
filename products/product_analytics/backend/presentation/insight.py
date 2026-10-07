@@ -2525,7 +2525,9 @@ When set, the specified dashboard's filters and date range override will be appl
         # are served under /environments/. The per-insight access check below resolves rows team-scoped, which is
         # equivalent today because team_id == project_id, and asymmetric only under the deprecated
         # multi-team-per-project path being removed. Same trade-off as the feature flag bulk endpoint.
-        saved_insights = Insight.objects.filter(team__project_id=self.team.project_id, saved=True)
+        saved_insights = Insight.objects.filter(team__project_id=self.team.project_id, saved=True).select_related(
+            "team"
+        )
         # Counted rather than silently dropped: the toggle lives in the query, so a run that leaves these
         # behind has to say so instead of reporting that nothing needed changing.
         legacy_count = saved_insights.filter(query__isnull=True).count()

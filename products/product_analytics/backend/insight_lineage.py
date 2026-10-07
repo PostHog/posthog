@@ -142,7 +142,8 @@ def sync_insights_lineage(insights: Iterable[Insight]) -> InsightLineageBackfill
     failed = 0
     for insight in insights:
         seen += 1
-        if not sync_insight_lineage(insight, databases):
+        synced = sync_insight_lineage(insight, databases)
+        if not synced:
             failed += 1
     return InsightLineageBackfill(seen=seen, failed=failed)
 
