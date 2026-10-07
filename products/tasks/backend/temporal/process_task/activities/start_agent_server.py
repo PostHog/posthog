@@ -26,10 +26,10 @@ from products.tasks.backend.constants import SUBSCRIPTION_PLAN_NAMES
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
     ProcessTaskError,
-    ProcessTaskFatalError,
     SandboxControlPlaneError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
+    SubscriptionUnsupportedError,
 )
 from products.tasks.backend.logic.services.connection_token import (
     create_codex_subscription_run_token,
@@ -691,12 +691,11 @@ def _enforce_subscription_support(sandbox: SandboxBase, ctx: TaskProcessingConte
     flag = SUBSCRIPTION_CLI_FLAGS[adapter]
     result = sandbox.execute(f"grep -q -- {flag} /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
     if result.exit_code != 0:
-        raise ProcessTaskFatalError(
+        raise SubscriptionUnsupportedError(
             f"This sandbox build cannot use your {plan_name} yet. Start a new task. "
             f'To use PostHog credits instead, turn off "Use your {plan_name} for cloud tasks".',
             {"task_id": ctx.task_id, "run_id": ctx.run_id},
             cause=RuntimeError(f"agent-server lacks {flag}"),
-            capture=False,
         )
 
 

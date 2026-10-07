@@ -6,6 +6,8 @@ import time_machine
 
 from django.db import OperationalError
 
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
+
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
     OrganizationExecutionError,
@@ -895,8 +897,10 @@ def test_subscription_compatibility_is_checked_before_launch(mocker, access, exi
     )
     context = _context(claude_model_access=access)
     if access == "own-subscription" and exit_code != 0:
-        with pytest.raises(ProcessTaskFatalError, match="cannot use your Claude plan yet"):
+        with pytest.raises(ProcessTaskFatalError, match="cannot use your Claude plan yet") as exc_info:
             _invoke_start_agent_server(sandbox, context, params, repo_ready_file=None)
+        assert exc_info.value.non_retryable
+        assert is_expected_activity_failure(exc_info.value)
         sandbox.start_agent_server.assert_not_called()
     else:
         _invoke_start_agent_server(sandbox, context, params, repo_ready_file=None)

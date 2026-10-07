@@ -6,6 +6,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.errors import NonReportableError
 
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 
@@ -187,6 +188,18 @@ class SandboxControlPlaneUnavailableError(SandboxControlPlaneError):
     The activity's own retry policy is the right backoff here. Unlike a rate limit there is
     no window to wait out, so this does not set a delay of its own.
     """
+
+
+class SubscriptionUnsupportedError(ProcessTaskFatalError, NonReportableError):
+    """The sandbox's agent-server build lacks the CLI flag for the user's own model plan.
+
+    An expected state that the user resolves by starting a new task or by turning off the plan
+    toggle. `NonReportableError` keeps the Temporal activity interceptor from capturing it,
+    because `capture=False` only skips the capture in the constructor.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any], cause: Exception):
+        super().__init__(message, context, cause, capture=False)
 
 
 class SandboxMissingRepositoryError(ProcessTaskFatalError):
