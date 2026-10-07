@@ -15,9 +15,12 @@ import { brandedStarterLogic } from './brandedStarterLogic'
 import { NEW_TEMPLATE } from './constants'
 import { detectedBrandLogic } from './detectedBrandLogic'
 import { messageTemplateLogic } from './messageTemplateLogic'
+import { savedBrandLogic } from './savedBrandLogic'
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({ lemonToast: { error: jest.fn(), success: jest.fn() } }))
 jest.mock('posthog-js', () => ({ capture: jest.fn() }))
+
+const SAVED_BRAND_URL = '/api/projects/:team_id/email_brand/current/'
 
 describe('branded starter editor handoff', () => {
     let templateLogic: ReturnType<typeof messageTemplateLogic.build>
@@ -29,9 +32,20 @@ describe('branded starter editor handoff', () => {
         exportHtml: jest.Mock
         exportPlainText: jest.Mock
     }
+    let savedBrands: Record<string, unknown>[]
 
-    beforeEach(() => {
-        useMocks({})
+    beforeEach(async () => {
+        savedBrands = []
+        useMocks({
+            get: { [SAVED_BRAND_URL]: () => [404, { detail: 'This project has no saved Email brand yet.' }] },
+            patch: {
+                [SAVED_BRAND_URL]: async ({ request }) => {
+                    const saved = (await request.json()) as Record<string, unknown>
+                    savedBrands.push(saved)
+                    return [200, { id: 'brand-id', ...saved }]
+                },
+            },
+        })
         initKeaTests()
         jest.clearAllMocks()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EMAIL_BRANDED_STARTER], {
@@ -63,6 +77,8 @@ describe('branded starter editor handoff', () => {
         templater.actions.onEmailEditorReady()
         starter = brandedStarterLogic({ id: 'new' })
         starter.mount()
+        await expectLogic(savedBrandLogic).toDispatchActions(['loadSavedBrandSuccess'])
+        await expectLogic(detectedBrandLogic).toDispatchActions(['loadDetectedBrandSuccess'])
         starter.actions.setBrandValues({ name: 'Juniper Studio', primaryColor: '#ffd400' })
     })
 
@@ -88,6 +104,98 @@ describe('branded starter editor handoff', () => {
         expect(templateLogic.values.templateChanged).toBe(true)
         expect(templateLogic.values.templatePickerOpen).toBe(false)
         expect(templateLogic.values.originalTemplate).toEqual(NEW_TEMPLATE)
+        expect(savedBrands).toEqual([
+            { name: 'Juniper Studio', primary_color: '#ffd400', logo_url: null, source: 'manual' },
+        ])
+    })
+
+    it.each([
+        [500, { detail: 'Server error' }, 'Could not save your brand. Try again.'],
+        [
+            403,
+            { detail: 'You do not have editor access to this resource.' },
+            'You do not have editor access to this resource.',
+        ],
+    ])('stops before building the starter when the brand cannot be saved (%s)', async (status, body, toast) => {
+        useMocks({ patch: { [SAVED_BRAND_URL]: () => [status, body] } })
+        editor.loadDesign.mockClear()
+
+        await expectLogic(starter, () => starter.actions.submitBrand()).toDispatchActions(['submitBrandFailure'])
+
+        expect(editor.loadDesign).not.toHaveBeenCalled()
+        expect(templateLogic.values.templateChanged).toBe(false)
+        expect(lemonToast.error).toHaveBeenCalledWith(toast)
+    })
+
+    it('loads the saved brand when the starter opens after the flag arrived late', async () => {
+        starter.unmount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        savedBrandLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EMAIL_BRANDED_STARTER], {
+            [FEATURE_FLAGS.EMAIL_BRANDED_STARTER]: true,
+        })
+
+        starter = brandedStarterLogic({ id: 'new' })
+        starter.mount()
+        expect(starter.values.savedBrandBlockReason).toBe('Loading your saved brand')
+        await expectLogic(savedBrandLogic).toDispatchActions(['loadSavedBrandSuccess'])
+
+        expect(starter.values.savedBrandBlockReason).toBeNull()
+        savedBrandLogic.unmount()
+    })
+
+    it('ignores a saved-brand answer that arrives after a newer one', async () => {
+        starter.unmount()
+        let failStaleRequest!: (response: [number, Record<string, string>]) => void
+        useMocks({ get: { [SAVED_BRAND_URL]: () => new Promise((resolve) => (failStaleRequest = resolve)) } })
+        starter = brandedStarterLogic({ id: 'new' })
+        starter.mount()
+        starter.unmount()
+        useMocks({ get: { [SAVED_BRAND_URL]: () => [404, { detail: 'This project has no saved Email brand yet.' }] } })
+        starter = brandedStarterLogic({ id: 'new' })
+        starter.mount()
+        await expectLogic(savedBrandLogic).toDispatchActions(['loadSavedBrandSuccess'])
+
+        failStaleRequest([500, { detail: 'Server error' }])
+        await expectLogic(savedBrandLogic).toFinishAllListeners()
+
+        expect(starter.values.savedBrandBlockReason).toBeNull()
+    })
+
+    it.each([
+        [500, { detail: 'Server error' }, { message: 'Could not load your saved brand.', retryable: true }],
+        [
+            403,
+            { detail: 'You do not have viewer access to this resource.' },
+            { message: 'You do not have viewer access to this resource.', retryable: false },
+        ],
+    ])('never falls back to the website when the saved brand fails to load (%s)', async (status, body, loadError) => {
+        starter.unmount()
+        useMocks({
+            get: { [SAVED_BRAND_URL]: () => [status, body] },
+            ...answeringDetection(detectedJuniper),
+        })
+        starter = brandedStarterLogic({ id: 'new' })
+        starter.mount()
+        await loadDetection()
+        await expectLogic(savedBrandLogic).toFinishAllListeners()
+
+        expect(starter.values.brand).toEqual({ name: '', primaryColor: '#1d4aff', logo: null })
+        expect(savedBrandLogic.values.savedBrandLoadError).toEqual(loadError)
+        expect(starter.values.savedBrandBlockReason).toBe('Could not load your saved brand')
+        starter.actions.setBrandValues({ name: 'Juniper Studio', primaryColor: '#2e7d32' })
+        await expectLogic(starter, () => starter.actions.submitBrand()).toDispatchActions(['submitBrandFailure'])
+        expect(savedBrands).toEqual([])
+        expect(templateLogic.values.templateChanged).toBe(false)
+        starter.actions.resetBrand()
+
+        useMocks({ get: { [SAVED_BRAND_URL]: () => [404, { detail: 'This project has no saved Email brand yet.' }] } })
+        await expectLogic(savedBrandLogic, () => savedBrandLogic.actions.loadSavedBrand()).toDispatchActions([
+            'loadSavedBrandSuccess',
+        ])
+
+        expect(starter.values.savedBrandBlockReason).toBeNull()
+        expect(starter.values.prefilledFrom).toBe('website')
     })
 
     it.each([
@@ -149,6 +257,7 @@ describe('branded starter editor handoff', () => {
         expect(templateLogic.values.template.content.email.design!.body.rows[0].columns[0].contents[0].type).toBe(
             'image'
         )
+        expect(savedBrands.at(-1)).toMatchObject({ logo_url: 'https://example.com/juniper.png' })
 
         starter.actions.setBrandValue('logo', null)
         await expectLogic(starter, () => starter.actions.submitBrand()).toDispatchActions(['submitBrandSuccess'])
@@ -207,6 +316,7 @@ describe('branded starter editor handoff', () => {
             has_logo: true,
             logo_source: 'upload',
             brand_detection: 'none',
+            prefilled_from: 'none',
             prefilled: false,
             edited_prefill: false,
             reason: 'Logo upload timed out. Try again.',
@@ -258,10 +368,68 @@ describe('branded starter editor handoff', () => {
             has_logo: true,
             logo_source: 'website',
             brand_detection: 'found',
+            prefilled_from: 'website',
             prefilled: true,
             edited_prefill: false,
         })
+        expect(savedBrands).toEqual([
+            {
+                name: 'Juniper Studio',
+                primary_color: '#2e7d32',
+                logo_url: 'https://app.example.com/uploaded_media/juniper-logo',
+                source: 'website',
+            },
+        ])
     })
+
+    it.each([
+        [
+            'fills the form from the saved brand instead of the website',
+            [200, { name: 'Juniper', primary_color: '#123456', logo_url: null, source: 'github' }],
+            { name: 'Juniper', primaryColor: '#123456', logo: null },
+            'saved',
+            'github',
+        ],
+        [
+            'falls back to the website once it knows there is no saved brand',
+            [404, { detail: 'This project has no saved Email brand yet.' }],
+            {
+                name: 'Juniper Studio',
+                primaryColor: '#2e7d32',
+                logo: 'https://app.example.com/uploaded_media/juniper-logo',
+            },
+            'website',
+            'website',
+        ],
+    ] as const)(
+        '%s, waiting for the saved brand first',
+        async (_, savedBrandResponse, expectedBrand, prefilledFrom, source) => {
+            starter.unmount()
+            let answerSavedBrand!: (response: typeof savedBrandResponse) => void
+            useMocks({
+                get: { [SAVED_BRAND_URL]: () => new Promise((resolve) => (answerSavedBrand = resolve)) },
+                ...answeringDetection(detectedJuniper),
+            })
+            starter = brandedStarterLogic({ id: 'new' })
+            starter.mount()
+            await loadDetection()
+            expect(starter.values.brand).toEqual({ name: '', primaryColor: '#1d4aff', logo: null })
+            expect(starter.values.savedBrandBlockReason).toBe('Loading your saved brand')
+
+            answerSavedBrand(savedBrandResponse)
+            await expectLogic(savedBrandLogic).toDispatchActions(['loadSavedBrandSuccess'])
+
+            expect(starter.values.brand).toEqual(expectedBrand)
+            expect(starter.values.brandChanged).toBe(false)
+            expect(starter.values.prefilledFrom).toBe(prefilledFrom)
+            await expectLogic(starter, () => starter.actions.submitBrand()).toDispatchActions(['submitBrandSuccess'])
+            expect(savedBrands).toEqual([expect.objectContaining({ source })])
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'email branded starter generated',
+                expect.objectContaining({ prefilled_from: prefilledFrom })
+            )
+        }
+    )
 
     it('fills only what it detected', async () => {
         starter.actions.resetBrand()

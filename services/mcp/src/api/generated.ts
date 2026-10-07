@@ -37680,6 +37680,48 @@ export namespace Schemas {
     }
 
     /**
+     * * `manual` - Manual
+     * * `website` - Website
+     * * `github` - GitHub
+     */
+    export type EmailBrandSourceEnum = typeof EmailBrandSourceEnum[keyof typeof EmailBrandSourceEnum];
+
+
+    export const EmailBrandSourceEnum = {
+      Manual: 'manual',
+      Website: 'website',
+      Github: 'github',
+    } as const;
+
+    export interface EmailBrand {
+      /** Unique id of the Email brand. */
+      readonly id: string;
+      /**
+         * Brand name, shown in the email header and footer.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Main brand color as a six-digit hex color, like #1d4aff. Used for buttons. */
+      primary_color?: string;
+      /**
+         * Public http(s) URL of the logo shown in the email header. Null shows the brand name instead.
+         * @maxLength 2048
+         * @nullable
+         */
+      logo_url?: string | null;
+      /** How the brand was filled in before it was saved: detected from the team's website, detected from a GitHub repository, or entered by hand.
+       *
+       * * `manual` - Manual
+       * * `website` - Website
+       * * `github` - GitHub */
+      source?: EmailBrandSourceEnum;
+      /** When the Email brand was first saved. */
+      readonly created_at: string;
+      /** When the Email brand last changed. */
+      readonly updated_at: string;
+    }
+
+    /**
      * How much workflow email this project may send, and how much of that it has used.
      */
     export interface EmailSendingAllowance {
@@ -76735,6 +76777,34 @@ export namespace Schemas {
          * @nullable
          */
       order?: number | null;
+    }
+
+    export interface PatchedEmailBrand {
+      /** Unique id of the Email brand. */
+      readonly id?: string;
+      /**
+         * Brand name, shown in the email header and footer.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Main brand color as a six-digit hex color, like #1d4aff. Used for buttons. */
+      primary_color?: string;
+      /**
+         * Public http(s) URL of the logo shown in the email header. Null shows the brand name instead.
+         * @maxLength 2048
+         * @nullable
+         */
+      logo_url?: string | null;
+      /** How the brand was filled in before it was saved: detected from the team's website, detected from a GitHub repository, or entered by hand.
+       *
+       * * `manual` - Manual
+       * * `website` - Website
+       * * `github` - GitHub */
+      source?: EmailBrandSourceEnum;
+      /** When the Email brand was first saved. */
+      readonly created_at?: string;
+      /** When the Email brand last changed. */
+      readonly updated_at?: string;
     }
 
     /**

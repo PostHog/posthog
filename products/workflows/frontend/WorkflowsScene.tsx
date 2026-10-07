@@ -22,6 +22,7 @@ import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { MessagingTabActions } from './MessagingTabActions'
 import { messagingNavTabs } from './messagingTabs'
 import { detectedBrandLogic } from './TemplateLibrary/detectedBrandLogic'
+import { savedBrandLogic } from './TemplateLibrary/savedBrandLogic'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
@@ -67,7 +68,7 @@ export type workflowsSceneLogicType = MakeLogicType<
 export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
     props({} as WorkflowsSceneProps),
     path(() => ['scenes', 'workflows', 'workflowsSceneLogic']),
-    connect(() => [detectedBrandLogic]),
+    connect(() => [detectedBrandLogic, savedBrandLogic]),
     actions({
         setCurrentTab: (tab: WorkflowsSceneTab) => ({ tab }),
     }),

@@ -14,6 +14,7 @@ import type {
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
     DetectedBrandApi,
+    EmailBrandApi,
     GenerateLinkRequestApi,
     MessageCategoryApi,
     MessagePreferencesApi,
@@ -29,6 +30,7 @@ import type {
     PaginatedMessageTemplateListApi,
     PaginatedOptOutsApi,
     PatchedDesignPatchApi,
+    PatchedEmailBrandApi,
     PatchedMessageCategoryApi,
     PatchedMessageTemplateApi,
     PreferencesLinkApi,
@@ -52,6 +54,41 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getEmailBrandCurrentRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/current/`
+}
+
+/**
+ * @summary Get the project's Email brand
+ */
+export const emailBrandCurrentRetrieve = async (projectId: string, options?: RequestInit): Promise<EmailBrandApi> => {
+    return apiMutator<EmailBrandApi>(getEmailBrandCurrentRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEmailBrandCurrentPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/current/`
+}
+
+/**
+ * Only the provided fields change. The first save creates the Email brand with defaults for every field it leaves out.
+ * @summary Save the project's Email brand
+ */
+export const emailBrandCurrentPartialUpdate = async (
+    projectId: string,
+    patchedEmailBrandApi?: NonReadonly<PatchedEmailBrandApi>,
+    options?: RequestInit
+): Promise<EmailBrandApi> => {
+    return apiMutator<EmailBrandApi>(getEmailBrandCurrentPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedEmailBrandApi),
+    })
+}
 
 export const getMessagingCategoriesListUrl = (projectId: string, params?: MessagingCategoriesListParams) => {
     const normalizedParams = new URLSearchParams()

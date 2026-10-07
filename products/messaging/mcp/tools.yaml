@@ -9,6 +9,12 @@ feature: messaging
 url_prefix: /workflows
 ui_apps: {}
 tools:
+    email-brand-current-partial-update:
+        operation: email_brand_current_partial_update
+        enabled: false
+    email-brand-current-retrieve:
+        operation: email_brand_current_retrieve
+        enabled: false
     messaging-categories-create:
         operation: messaging_categories_create
         enabled: false
@@ -80,6 +86,9 @@ tools:
         enabled: false
     messaging-templates-destroy:
         operation: messaging_templates_destroy
+        enabled: false
+    messaging-templates-detect-brand-create:
+        operation: messaging_templates_detect_brand_create
         enabled: false
     messaging-templates-list:
         operation: messaging_templates_list

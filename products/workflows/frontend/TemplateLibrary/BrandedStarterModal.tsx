@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { LemonButton, LemonFileInput, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonFileInput, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonColorGlyph } from 'lib/lemon-ui/LemonColor/LemonColorGlyph'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -11,8 +11,10 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { urls } from 'scenes/urls'
 
 import { brandedStarterLogic } from './brandedStarterLogic'
+import type { brandedStarterLogicValues } from './brandedStarterLogic'
 import type { MessageTemplateLogicProps } from './messageTemplateLogic'
 import { messageTemplateSceneLogic } from './messageTemplateSceneLogic'
+import { savedBrandLogic } from './savedBrandLogic'
 
 export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Element {
     const logic = brandedStarterLogic(props)
@@ -23,18 +25,30 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
         brandValidationErrors,
         isBrandSubmitting,
         isEmailEditorReady,
+        prefilledFrom,
         prefilledFromHost,
         detectedBrandLoading,
+        savedBrandBlockReason,
+        savedBrandLoadError,
+        savedBrandLoading,
     } = useValues(logic)
     const { setBrandValue } = useActions(logic)
-    const busyReason = isBrandSubmitting ? 'Generating your starter' : undefined
+    const { loadSavedBrand } = useActions(savedBrandLogic)
+    const busyReason = (isBrandSubmitting ? 'Generating your starter' : savedBrandBlockReason) ?? undefined
+    const hostedLogoLabel = prefilledFrom === 'saved' ? 'Your saved logo' : 'Logo from your website'
     const chooseLogoRef = useRef<HTMLButtonElement>(null)
     const generateRef = useRef<HTMLButtonElement>(null)
+    const nameRef = useRef<HTMLInputElement>(null)
     useEffect(() => {
         if (isBrandSubmitting) {
             generateRef.current?.focus()
         }
     }, [isBrandSubmitting])
+    useEffect(() => {
+        if (!savedBrandBlockReason) {
+            nameRef.current?.focus()
+        }
+    }, [savedBrandBlockReason])
     const leaveStarter = (): void => router.actions.replace(urls.workflows('library'))
     const removeLogo = (): void => {
         setBrandValue('logo', null)
@@ -58,7 +72,9 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                         htmlType="submit"
                         form="branded-starter"
                         loading={isBrandSubmitting}
-                        disabledReason={!isEmailEditorReady ? 'Loading email editor' : undefined}
+                        disabledReason={
+                            !isEmailEditorReady ? 'Loading email editor' : (savedBrandBlockReason ?? undefined)
+                        }
                     >
                         Generate starter
                     </LemonButton>
@@ -77,16 +93,25 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                     Use your brand name and color as a starting point. You can edit the email before saving it as a
                     template.
                 </p>
+                {savedBrandLoadError && (
+                    <LemonBanner
+                        type="error"
+                        action={
+                            savedBrandLoadError.retryable
+                                ? { children: 'Try again', onClick: loadSavedBrand, loading: savedBrandLoading }
+                                : undefined
+                        }
+                        data-attr="email-branded-starter-saved-brand-unavailable"
+                    >
+                        {savedBrandLoadError.message}
+                    </LemonBanner>
+                )}
                 <p
                     className="text-secondary empty:hidden"
                     aria-live="polite"
                     data-attr="email-branded-starter-prefilled"
                 >
-                    {prefilledFromHost
-                        ? `We filled this in from ${prefilledFromHost}. You can change any field.`
-                        : detectedBrandLoading
-                          ? 'Checking your website for your brand.'
-                          : null}
+                    {prefillNotice({ prefilledFrom, prefilledFromHost, detectedBrandLoading, savedBrandBlockReason })}
                 </p>
                 <LemonField name="name" label="Brand name">
                     <LemonInput
@@ -94,6 +119,7 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                         onChange={(value) => setBrandValue('name', value)}
                         maxLength={255}
                         disabledReason={busyReason}
+                        inputRef={nameRef}
                         autoFocus
                     />
                 </LemonField>
@@ -145,7 +171,7 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                                     alt=""
                                     className="h-8 w-8 shrink-0 rounded border object-contain"
                                 />
-                                <span className="truncate">Logo from your website</span>
+                                <span className="truncate">{hostedLogoLabel}</span>
                             </>
                         )}
                         <LemonButton
@@ -162,4 +188,22 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
             </Form>
         </LemonModal>
     )
+}
+
+function prefillNotice({
+    prefilledFrom,
+    prefilledFromHost,
+    detectedBrandLoading,
+    savedBrandBlockReason,
+}: Pick<
+    brandedStarterLogicValues,
+    'prefilledFrom' | 'prefilledFromHost' | 'detectedBrandLoading' | 'savedBrandBlockReason'
+>): string | null {
+    if (prefilledFrom === 'saved') {
+        return 'This is your saved brand. Generating the starter saves any changes.'
+    }
+    if (prefilledFromHost) {
+        return `We filled this in from ${prefilledFromHost}. You can change any field.`
+    }
+    return detectedBrandLoading && !savedBrandBlockReason ? 'Checking your website for your brand.' : null
 }

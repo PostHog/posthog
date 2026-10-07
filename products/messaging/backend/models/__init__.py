@@ -1,3 +1,4 @@
+from .email_brand import EmailBrand
 from .message_category import MessageCategory, MessageCategoryType
 from .message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, MessageRecipientPreference, PreferenceStatus
 from .message_suppression import MessageSuppression, SuppressionSource
@@ -6,6 +7,7 @@ from .optout_sync_config import OptOutSyncConfig
 
 __all__ = [
     "ALL_MESSAGE_PREFERENCE_CATEGORY_ID",
+    "EmailBrand",
     "MessageCategory",
     "MessageCategoryType",
     "MessageRecipientPreference",

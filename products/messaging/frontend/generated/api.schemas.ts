@@ -8,6 +8,75 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `manual` - Manual
+ * * `website` - Website
+ * * `github` - GitHub
+ */
+export type EmailBrandSourceEnumApi = (typeof EmailBrandSourceEnumApi)[keyof typeof EmailBrandSourceEnumApi]
+
+export const EmailBrandSourceEnumApi = {
+    Manual: 'manual',
+    Website: 'website',
+    Github: 'github',
+} as const
+
+export interface EmailBrandApi {
+    /** Unique id of the Email brand. */
+    readonly id: string
+    /**
+     * Brand name, shown in the email header and footer.
+     * @maxLength 255
+     */
+    name?: string
+    /** Main brand color as a six-digit hex color, like #1d4aff. Used for buttons. */
+    primary_color?: string
+    /**
+     * Public http(s) URL of the logo shown in the email header. Null shows the brand name instead.
+     * @maxLength 2048
+     * @nullable
+     */
+    logo_url?: string | null
+    /** How the brand was filled in before it was saved: detected from the team's website, detected from a GitHub repository, or entered by hand.
+     *
+     * * `manual` - Manual
+     * * `website` - Website
+     * * `github` - GitHub */
+    source?: EmailBrandSourceEnumApi
+    /** When the Email brand was first saved. */
+    readonly created_at: string
+    /** When the Email brand last changed. */
+    readonly updated_at: string
+}
+
+export interface PatchedEmailBrandApi {
+    /** Unique id of the Email brand. */
+    readonly id?: string
+    /**
+     * Brand name, shown in the email header and footer.
+     * @maxLength 255
+     */
+    name?: string
+    /** Main brand color as a six-digit hex color, like #1d4aff. Used for buttons. */
+    primary_color?: string
+    /**
+     * Public http(s) URL of the logo shown in the email header. Null shows the brand name instead.
+     * @maxLength 2048
+     * @nullable
+     */
+    logo_url?: string | null
+    /** How the brand was filled in before it was saved: detected from the team's website, detected from a GitHub repository, or entered by hand.
+     *
+     * * `manual` - Manual
+     * * `website` - Website
+     * * `github` - GitHub */
+    source?: EmailBrandSourceEnumApi
+    /** When the Email brand was first saved. */
+    readonly created_at?: string
+    /** When the Email brand last changed. */
+    readonly updated_at?: string
+}
+
+/**
  * * `marketing` - Marketing
  * * `transactional` - Transactional
  */

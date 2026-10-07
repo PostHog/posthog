@@ -1,5 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
+from products.messaging.backend.api.email_brand import EmailBrandViewSet
 from products.messaging.backend.api.message_categories import MessageCategoryViewSet
 from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.api.message_suppression import MessageSuppressionViewSet
@@ -20,3 +21,4 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(
         r"messaging_suppressions", MessageSuppressionViewSet, "project_messaging_suppressions", ["team_id"]
     )
+    routers.projects.register(r"email_brand", EmailBrandViewSet, "project_email_brand", ["team_id"])

@@ -9,6 +9,38 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Only the provided fields change. The first save creates the Email brand with defaults for every field it leaves out.
+ * @summary Save the project's Email brand
+ */
+export const emailBrandCurrentPartialUpdateBodyNameMax = 255
+
+export const emailBrandCurrentPartialUpdateBodyLogoUrlMax = 2048
+
+export const EmailBrandCurrentPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(emailBrandCurrentPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Brand name, shown in the email header and footer.'),
+    primary_color: zod
+        .string()
+        .optional()
+        .describe('Main brand color as a six-digit hex color, like #1d4aff. Used for buttons.'),
+    logo_url: zod
+        .string()
+        .max(emailBrandCurrentPartialUpdateBodyLogoUrlMax)
+        .nullish()
+        .describe('Public http(s) URL of the logo shown in the email header. Null shows the brand name instead.'),
+    source: zod
+        .enum(['manual', 'website', 'github'])
+        .describe('\* `manual` - Manual\n\* `website` - Website\n\* `github` - GitHub')
+        .optional()
+        .describe(
+            "How the brand was filled in before it was saved: detected from the team's website, detected from a GitHub repository, or entered by hand.\n\n\* `manual` - Manual\n\* `website` - Website\n\* `github` - GitHub"
+        ),
+})
+
 export const messagingCategoriesCreateBodyKeyMax = 64
 
 export const messagingCategoriesCreateBodyNameMax = 128

@@ -1,8 +1,9 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { emailTemplaterLogic, exportEditorHtml } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
@@ -10,12 +11,19 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { uploadedMediaCreate } from '~/generated/core/api'
 
-import type { DetectedBrandApi } from 'products/messaging/frontend/generated/api.schemas'
+import { emailBrandCurrentPartialUpdate } from 'products/messaging/frontend/generated/api'
+import type {
+    DetectedBrandApi,
+    EmailBrandApi,
+    EmailBrandSourceEnumApi,
+} from 'products/messaging/frontend/generated/api.schemas'
 
 import type { EditorRef } from '../../../../frontend/src/scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { brandDisplayName, buildBrandedStarter } from './brandedStarter'
 import { BrandDetectionOutcome, detectedBrandLogic } from './detectedBrandLogic'
 import { messageTemplateLogic, MessageTemplateLogicProps } from './messageTemplateLogic'
+import { SavedBrand, savedBrandLogic } from './savedBrandLogic'
+import type { SavedBrandLoadError } from './savedBrandLogic'
 
 const LOGO_UPLOAD_TIMEOUT_MS = 120000
 const STARTER_EXPORT_TIMEOUT_MS = 30000
@@ -36,25 +44,28 @@ export interface BrandedStarterForm {
     logo: File | HostedLogoUrl | null
 }
 
+export type BrandPrefill = 'saved' | 'website'
+
 const DEFAULT_BRAND: BrandedStarterForm = { name: '', primaryColor: '#1d4aff', logo: null }
 
-function logoSource(logo: BrandedStarterForm['logo']): 'upload' | 'website' | 'none' {
-    return logo instanceof File ? 'upload' : logo ? 'website' : 'none'
+function logoSource(
+    logo: BrandedStarterForm['logo'],
+    prefilledFrom: BrandPrefill | null
+): 'upload' | BrandPrefill | 'none' {
+    return logo instanceof File ? 'upload' : logo ? (prefilledFrom ?? 'website') : 'none'
 }
 
 type BrandField = keyof BrandedStarterForm
+type BrandValues = { name?: string | null; primary_color?: string | null; logo_url?: string | null }
 
-function detectedFill(
-    detected: DetectedBrandApi,
-    editedFields: Partial<Record<BrandField, true>>
-): Partial<BrandedStarterForm> {
-    const detectedValues: Partial<BrandedStarterForm> = {
-        name: detected.name ?? undefined,
-        primaryColor: detected.primary_color ?? undefined,
-        logo: detected.logo_url ?? undefined,
+function brandFill(found: BrandValues, editedFields: Partial<Record<BrandField, true>>): Partial<BrandedStarterForm> {
+    const foundValues: Partial<BrandedStarterForm> = {
+        name: found.name ?? undefined,
+        primaryColor: found.primary_color ?? undefined,
+        logo: found.logo_url ?? undefined,
     }
     return Object.fromEntries(
-        Object.entries(detectedValues).filter(([field, value]) => value && !editedFields[field as BrandField])
+        Object.entries(foundValues).filter(([field, value]) => value && !editedFields[field as BrandField])
     )
 }
 
@@ -63,6 +74,11 @@ export interface brandedStarterLogicValues {
     brandDetectionOutcome: BrandDetectionOutcome // detectedBrandLogic
     detectedBrand: DetectedBrandApi | null // detectedBrandLogic
     detectedBrandLoading: boolean // detectedBrandLogic
+    brandedStarterEnabled: boolean // detectedBrandLogic
+    savedBrand: SavedBrand // savedBrandLogic
+    isSavedBrandKnown: boolean // savedBrandLogic
+    savedBrandLoading: boolean // savedBrandLogic
+    savedBrandLoadError: SavedBrandLoadError | null // savedBrandLogic
     emailEditorRef: EditorRef | null // emailTemplaterLogic
     isEmailEditorReady: boolean // emailTemplaterLogic
     currentTeamIdStrict: number | string // teamLogic
@@ -72,6 +88,7 @@ export interface brandedStarterLogicValues {
     brandErrors: DeepPartialMap<BrandedStarterForm, ValidationErrorType>
     brandHasErrors: boolean
     brandManualErrors: Record<string, any>
+    brandSource: EmailBrandSourceEnumApi
     brandTouched: boolean
     brandTouches: Record<string, boolean>
     brandValidationErrors: DeepPartialMap<BrandedStarterForm, ValidationErrorType>
@@ -79,7 +96,9 @@ export interface brandedStarterLogicValues {
     isBrandValid: boolean
     editedBrandFields: Partial<Record<BrandField, true>>
     prefilledFields: BrandField[]
+    prefilledFrom: BrandPrefill | null
     prefilledFromHost: string | null
+    savedBrandBlockReason: string | null
     showBrandErrors: boolean
 }
 
@@ -92,6 +111,16 @@ export interface brandedStarterLogicActions {
         detectedBrand: DetectedBrandApi | null
         payload?: any
     } // detectedBrandLogic
+    loadSavedBrandSuccess: (
+        savedBrand: SavedBrand,
+        payload?: any
+    ) => {
+        savedBrand: SavedBrand
+        payload?: any
+    } // savedBrandLogic
+    brandSaved: (savedBrand: EmailBrandApi) => {
+        savedBrand: EmailBrandApi
+    } // savedBrandLogic
     designLoaded: () => {
         value: true
     } // emailTemplaterLogic
@@ -125,15 +154,17 @@ export interface brandedStarterLogicActions {
             updated_at: string | null
         }>
     } // messageTemplateLogic
-    applyDetectedBrand: (detectedBrand: DetectedBrandApi | null) => {
-        detectedBrand: DetectedBrandApi | null
+    applyBrandPrefill: () => {
+        value: true
     }
     brandPrefilled: (
-        host: string,
-        fields: BrandField[]
+        prefilledFrom: BrandPrefill,
+        fields: BrandField[],
+        host?: string | null
     ) => {
-        host: string
+        prefilledFrom: BrandPrefill
         fields: BrandField[]
+        host: string | null
     }
     resetBrand: (values?: BrandedStarterForm) => {
         values?: BrandedStarterForm
@@ -172,10 +203,24 @@ export interface brandedStarterLogicActions {
     }
 }
 
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface brandedStarterLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        savedBrandBlockReason: (
+            isSavedBrandKnown: boolean,
+            savedBrandLoading: boolean,
+            savedBrandLoadError: SavedBrandLoadError | null,
+            brandedStarterEnabled: boolean
+        ) => string | null
+        brandSource: (prefilledFrom: BrandPrefill | null, savedBrand: SavedBrand) => EmailBrandSourceEnumApi
+    }
+}
+
 export type brandedStarterLogicType = MakeLogicType<
     brandedStarterLogicValues,
     brandedStarterLogicActions,
-    MessageTemplateLogicProps
+    MessageTemplateLogicProps,
+    brandedStarterLogicMeta
 >
 
 export const brandedStarterLogic = kea<brandedStarterLogicType>([
@@ -188,7 +233,9 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
             emailTemplaterLogic,
             ['emailEditorRef', 'isEmailEditorReady'],
             detectedBrandLogic,
-            ['detectedBrand', 'detectedBrandLoading', 'brandDetectionOutcome'],
+            ['detectedBrand', 'detectedBrandLoading', 'brandDetectionOutcome', 'brandedStarterEnabled'],
+            savedBrandLogic,
+            ['savedBrand', 'isSavedBrandKnown', 'savedBrandLoading', 'savedBrandLoadError'],
         ],
         actions: [
             messageTemplateLogic(props),
@@ -197,13 +244,25 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
             ['designLoaded'],
             detectedBrandLogic,
             ['loadDetectedBrandSuccess'],
+            savedBrandLogic,
+            ['loadSavedBrandSuccess', 'brandSaved'],
         ],
     })),
     actions({
-        applyDetectedBrand: (detectedBrand: DetectedBrandApi | null) => ({ detectedBrand }),
-        brandPrefilled: (host: string, fields: BrandField[]) => ({ host, fields }),
+        applyBrandPrefill: true,
+        brandPrefilled: (prefilledFrom: BrandPrefill, fields: BrandField[], host: string | null = null) => ({
+            prefilledFrom,
+            fields,
+            host,
+        }),
     }),
     reducers({
+        prefilledFrom: [
+            null as BrandPrefill | null,
+            {
+                brandPrefilled: (_, { prefilledFrom }) => prefilledFrom,
+            },
+        ],
         prefilledFromHost: [
             null as string | null,
             {
@@ -222,6 +281,31 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
                 setBrandValue: (state, { name }) => ({ ...state, [String(name)]: true }),
                 resetBrand: () => ({}),
             },
+        ],
+    }),
+    selectors({
+        savedBrandBlockReason: [
+            (s) => [s.isSavedBrandKnown, s.savedBrandLoading, s.savedBrandLoadError, s.brandedStarterEnabled],
+            (
+                isSavedBrandKnown: boolean,
+                savedBrandLoading: boolean,
+                savedBrandLoadError: SavedBrandLoadError | null,
+                brandedStarterEnabled: boolean
+            ): string | null =>
+                savedBrandLoadError
+                    ? 'Could not load your saved brand'
+                    : savedBrandLoading || (brandedStarterEnabled && !isSavedBrandKnown)
+                      ? 'Loading your saved brand'
+                      : null,
+        ],
+        brandSource: [
+            (s) => [s.prefilledFrom, s.savedBrand],
+            (prefilledFrom: BrandPrefill | null, savedBrand: SavedBrand): EmailBrandSourceEnumApi =>
+                prefilledFrom === 'saved'
+                    ? (savedBrand?.source ?? 'manual')
+                    : prefilledFrom === 'website'
+                      ? 'website'
+                      : 'manual',
         ],
     }),
     forms(({ actions, values, cache }) => {
@@ -257,6 +341,16 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
                 throw controller.signal.aborted ? new Error('Logo upload timed out. Try again.') : error
             } finally {
                 cache.disposables.dispose('starterUpload')
+            }
+        }
+
+        const saveBrand = async (
+            brand: Required<Omit<EmailBrandApi, 'id' | 'created_at' | 'updated_at'>>
+        ): Promise<EmailBrandApi> => {
+            try {
+                return await emailBrandCurrentPartialUpdate(String(values.currentTeamIdStrict), brand)
+            } catch (error) {
+                throw new Error(saveFailureMessage(error))
             }
         }
 
@@ -312,10 +406,20 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
                     if (!editor || !values.isEmailEditorReady) {
                         throw new Error('The email editor is loading. Try again in a moment.')
                     }
+                    if (values.savedBrandBlockReason) {
+                        throw new Error(values.savedBrandBlockReason)
+                    }
                     const logoUrl =
                         logo instanceof File
                             ? await uploadLogo(logo, values.currentTeamIdStrict).finally(() => breakpoint())
                             : logo || undefined
+                    const savedBrand = await saveBrand({
+                        name,
+                        primary_color: primaryColor,
+                        logo_url: logoUrl ?? null,
+                        source: values.brandSource,
+                    }).finally(() => breakpoint())
+                    actions.brandSaved(savedBrand)
                     const template = buildBrandedStarter({ name, primaryColor, logoUrl })
                     const email = await exportStarter(editor, template.content.email).finally(() => breakpoint())
                     actions.setTemplateValues({ ...template, content: { ...template.content, email } })
@@ -327,24 +431,45 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
         designLoaded: () => {
             cache.completeStarter?.()
         },
-        loadDetectedBrandSuccess: ({ detectedBrand }) => {
-            actions.applyDetectedBrand(detectedBrand)
+        loadDetectedBrandSuccess: () => {
+            actions.applyBrandPrefill()
         },
-        applyDetectedBrand: ({ detectedBrand }) => {
-            if (!detectedBrand?.website || values.isBrandSubmitting) {
+        loadSavedBrandSuccess: () => {
+            actions.applyBrandPrefill()
+        },
+        applyBrandPrefill: () => {
+            const { savedBrand, detectedBrand } = values
+            if (
+                values.isBrandSubmitting ||
+                !values.isSavedBrandKnown ||
+                values.savedBrandBlockReason ||
+                values.prefilledFrom === 'saved'
+            ) {
                 return
             }
-            const fill = detectedFill(detectedBrand, values.editedBrandFields)
+            const applyFill = (fill: Partial<BrandedStarterForm>): void => {
+                if (values.brandChanged) {
+                    actions.setBrandValues(fill)
+                } else {
+                    actions.resetBrand({ ...values.brand, ...fill })
+                }
+            }
+            if (savedBrand) {
+                const fill = brandFill(savedBrand, values.editedBrandFields)
+                applyFill(fill)
+                actions.brandPrefilled('saved', Object.keys(fill) as BrandField[])
+                return
+            }
+            if (!detectedBrand?.website) {
+                return
+            }
+            const fill = brandFill(detectedBrand, values.editedBrandFields)
             const fields = Object.keys(fill) as BrandField[]
             if (fields.length === 0) {
                 return
             }
-            if (values.brandChanged) {
-                actions.setBrandValues(fill)
-            } else {
-                actions.resetBrand({ ...values.brand, ...fill })
-            }
-            actions.brandPrefilled(new URL(detectedBrand.website).hostname, fields)
+            applyFill(fill)
+            actions.brandPrefilled('website', fields, new URL(detectedBrand.website).hostname)
         },
         submitBrandSuccess: ({ brand }) => {
             posthog.capture('email branded starter generated', starterProperties({ ...values, brand }))
@@ -358,8 +483,8 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values }) => {
-        actions.applyDetectedBrand(values.detectedBrand)
+    afterMount(({ actions }) => {
+        actions.applyBrandPrefill()
     }),
 ])
 
@@ -367,6 +492,7 @@ interface StarterProperties {
     has_logo: boolean
     logo_source: ReturnType<typeof logoSource>
     brand_detection: BrandDetectionOutcome
+    prefilled_from: BrandPrefill | 'none'
     prefilled: boolean
     edited_prefill: boolean
 }
@@ -374,14 +500,21 @@ interface StarterProperties {
 function starterProperties({
     brand,
     brandDetectionOutcome,
+    prefilledFrom,
     prefilledFields,
     editedBrandFields,
 }: brandedStarterLogicValues): StarterProperties {
     return {
         has_logo: !!brand.logo,
-        logo_source: logoSource(brand.logo),
+        logo_source: logoSource(brand.logo, prefilledFrom),
         brand_detection: brandDetectionOutcome,
+        prefilled_from: prefilledFrom ?? 'none',
         prefilled: prefilledFields.length > 0,
         edited_prefill: prefilledFields.some((field) => editedBrandFields[field]),
     }
+}
+
+function saveFailureMessage(error: unknown): string {
+    const isClientError = error instanceof ApiError && !!error.status && error.status < 500
+    return isClientError && error.detail ? error.detail : 'Could not save your brand. Try again.'
 }

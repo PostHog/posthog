@@ -4,9 +4,8 @@ from typing import Any, cast
 from django.db import models, transaction
 
 import structlog
-import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import exceptions, serializers, viewsets
+from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -20,6 +19,7 @@ from posthog.cdp.validation import build_html_wrap_design
 from posthog.event_usage import report_user_action
 from posthog.models import User
 
+from products.messaging.backend.api.branded_starter_flag import require_branded_starter
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.models.message_category import MessageCategory
@@ -303,9 +303,6 @@ class DetectedBrandSerializer(serializers.Serializer):
     )
 
 
-BRANDED_STARTER_FLAG = "email-branded-starter"
-
-
 class MessageTemplatesViewSet(
     TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
@@ -422,19 +419,5 @@ class MessageTemplatesViewSet(
     @action(detail=False, methods=["POST"])
     def detect_brand(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         user = cast(User, request.user)
-        self._require_branded_starter(user)
+        require_branded_starter(user, self.team)
         return Response(DetectedBrandSerializer(detected_brand(self.team, user)).data)
-
-    def _require_branded_starter(self, user: User) -> None:
-        try:
-            enabled = posthoganalytics.feature_enabled(
-                BRANDED_STARTER_FLAG,
-                str(user.distinct_id),
-                groups={"organization": str(self.organization_id), "project": str(self.team.uuid)},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        except Exception:
-            enabled = False
-        if enabled is not True:
-            raise exceptions.NotFound()
