@@ -28,7 +28,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.facade.enums import PrivilegeLevel
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.exports.backend.subscription_query_access import check_can_add_insight_to_subscribed_dashboard
+from products.exports.backend.facade.api import check_can_add_insight_to_subscribed_dashboard
 
 if TYPE_CHECKING:
     from products.product_analytics.backend.facade.models import Insight

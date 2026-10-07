@@ -9,16 +9,12 @@ delivery.
 
 from typing import Any
 
-from rest_framework import serializers
-
 from posthog.api.query_access_check import blocked_access_for_user
 from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.exports.backend.facade.api import dashboard_has_active_full_subscription
 from products.exports.backend.models.subscription import Subscription
 
 _RECIPIENT_FIELDS = ("target_type", "target_value", "integration_id")
@@ -102,30 +98,3 @@ def blocked_access_for_subscription(
     if user_access_control.is_organization_admin:
         return []
     return blocked_access_for_user(user, team, delivered_queries(instance, attrs))
-
-
-def check_can_add_insight_to_subscribed_dashboard(
-    user: User,
-    dashboard: Dashboard,
-    query: Any,
-    user_access_control: UserAccessControl | None = None,
-) -> None:
-    """Raise if binding an insight with this query to the dashboard would deliver, through a
-    subscription of the whole dashboard, a query the editor can't run themselves. No-op when no
-    such subscription exists, the org lacks the access control entitlement, or the editor is an
-    org admin. The public link counterpart is check_can_add_insight_to_shared_dashboard."""
-    if not isinstance(query, dict):
-        return
-    if not dashboard.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-        return
-    uac = user_access_control or UserAccessControl(user=user, team=dashboard.team)
-    if uac.is_organization_admin:
-        return
-    if not dashboard_has_active_full_subscription(team_id=dashboard.team_id, dashboard_id=dashboard.id):
-        return
-    blocked = blocked_access_for_user(user, dashboard.team, [query])
-    if blocked:
-        blocked_list = ", ".join(f"`{name}`" for name in blocked)
-        raise serializers.ValidationError(
-            f"Can't add this insight: you don't have access to {blocked_list}, and a subscription delivers this dashboard."
-        )
