@@ -21,6 +21,7 @@ import {
     HogQLFilters,
     HogQLQuery,
     HogQLVariable,
+    MetricsQuery,
     Node,
     NodeKind,
     ProductItemCategory,
@@ -1566,11 +1567,13 @@ export const productUrls = {
         sourceId,
         template,
         intent,
+        format,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
         template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
         intent?: 'local-eval' | 'first-page-load'
+        format?: 'rules_v2'
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -1584,6 +1587,9 @@ export const productUrls = {
         }
         if (intent) {
             params.set('intent', intent)
+        }
+        if (format) {
+            params.set('format', format)
         }
         return `/feature_flags/new?${params.toString()}`
     },
@@ -2077,6 +2083,17 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         sceneKeys: ['Insight'],
     },
     {
+        path: `Insight/Metrics`,
+        type: 'insight',
+        href: urls.insightNew({
+            query: { kind: NodeKind.MetricsQuery, clauses: [], dateRange: { date_from: '-1h' } } as MetricsQuery,
+        }),
+        flag: FEATURE_FLAGS.METRICS_INSIGHT_BUILDER,
+        iconType: 'metrics',
+        visualOrder: INSIGHT_VISUAL_ORDER.metrics,
+        sceneKeys: ['Insight'],
+    },
+    {
         path: `Insight/Retention`,
         type: 'insight',
         href: urls.insightNew({ type: InsightType.RETENTION }),
@@ -2360,7 +2377,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Relationships', href: urls.dataCatalog('relationships') },
             { name: 'Certifications', href: urls.dataCatalog('certifications') },
         ],
-        tags: ['beta'],
         sceneKey: 'DataCatalog',
         sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
     },

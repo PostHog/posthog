@@ -698,6 +698,8 @@ export type CachedHogQLQueryResponse = CachedQueryResponse<HogQLQueryResponse>
 export interface HogQLFilters {
     properties?: AnyPropertyFilter[]
     dateRange?: DateRange
+    /** Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}. */
+    compareFilter?: CompareFilter
     filterTestAccounts?: boolean
     /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
     interval?: IntervalType
@@ -2921,7 +2923,7 @@ export type QueryStatus = {
     /**  @default null */
     error_message: string | null
     /**
-     * Stable machine-readable code for the error (the DRF exception code), when known.
+     * Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.
      * @default null
      */
     error_code: string | null
@@ -5012,10 +5014,8 @@ export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
     clauses: MetricsQueryClause[]
     /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
     dateRange?: DateRange
-    /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
+    /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
     interval?: string
-    /** Finest bucket size the query may use, from the same set as `interval`; raises a finer interval or auto pick */
-    minInterval?: string
     /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
     formula?: string
     /** Chart presentation. A node without it renders as a line chart. */
@@ -6735,6 +6735,7 @@ export type MultipleBreakdownType =
     | 'person'
     | 'event'
     | 'event_metadata'
+    | 'element'
     | 'group'
     | 'session'
     | 'hogql'

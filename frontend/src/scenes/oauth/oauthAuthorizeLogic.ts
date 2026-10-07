@@ -16,6 +16,7 @@ import {
     getScopeDescription,
     getScopeGroupLabel,
     OTHER_SCOPE_GROUP_LABEL,
+    type ScopeAccessLevel,
 } from 'lib/scopes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { userLogic } from 'scenes/userLogic'
@@ -31,8 +32,6 @@ export type OAuthAuthorizationFormValues = {
 const IDENTITY_SCOPES = ['openid', 'profile', 'email', 'introspection']
 
 const scopeObjectKey = (scope: string): string => (scope === '*' ? '*' : scope.split(':')[0])
-
-export type ScopeAccessLevel = 'none' | 'read' | 'write'
 
 const ACCESS_LEVEL_ORDER: Record<ScopeAccessLevel, number> = { none: 0, read: 1, write: 2 }
 

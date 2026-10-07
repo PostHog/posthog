@@ -221,6 +221,10 @@ acts on it.
   to look at a change or to take a PR screenshot is scratch: keep it out of the commit.
   Flag-gated components use the `featureFlags` story parameter
   ([setting-feature-flags-in-storybook](../setting-feature-flags-in-storybook/SKILL.md)).
+  A story must render the same picture on every run: pin the clock, wait for readiness, and fix
+  the width of self-measuring content. Read
+  [Deterministic stories](../../../docs/published/handbook/engineering/conventions/frontend-coding.md#deterministic-stories)
+  before you write a story that loads data, measures itself, or uses timers, and when a story flakes.
 
 ## Anti-patterns
 

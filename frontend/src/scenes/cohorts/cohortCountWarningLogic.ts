@@ -86,7 +86,15 @@ export const cohortCountWarningLogic = kea<cohortCountWarningLogicType>([
     path(['scenes', 'cohorts', 'cohortCountWarningLogic']),
 
     connect((props: CohortCountWarningLogicProps) => ({
-        values: [dataNodeLogic({ key: props.dataNodeLogicKey, query: props.query }), ['response']],
+        values: [
+            dataNodeLogic({
+                key: props.dataNodeLogicKey,
+                query: props.query,
+                // A draft cohort has no id to filter on, so the query would list every person.
+                doNotLoad: typeof props.cohort.id !== 'number',
+            }),
+            ['response'],
+        ],
     })),
 
     selectors(({ props }) => ({
