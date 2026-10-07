@@ -88,28 +88,6 @@ describe("buildPosthogProvider", () => {
     ).toBe(true);
   });
 
-  it("sends Claude models straight to Anthropic on a Claude plan token", () => {
-    const config = buildPosthogProvider(models, {
-      apiKey: "proxy-key",
-      baseUrl: "http://127.0.0.1:1234",
-      headers: { "x-posthog-property-task_id": "t1" },
-      claudeOAuthToken: "sk-ant-oat01-token",
-    });
-
-    expect(config.apiKey).toBe("sk-ant-oat01-token");
-    expect(config.oauth).toBeUndefined();
-    expect(config.headers).toBeUndefined();
-    expect(config.models?.length).toBeGreaterThan(0);
-    expect(
-      config.models?.every(
-        (model) =>
-          model.id.startsWith("claude-") &&
-          model.baseUrl === "https://api.anthropic.com" &&
-          model.headers === undefined,
-      ),
-    ).toBe(true);
-  });
-
   it("omits apiKey entirely when none is provided", () => {
     const config = buildPosthogProvider(models);
     expect(config.apiKey).toBeUndefined();
