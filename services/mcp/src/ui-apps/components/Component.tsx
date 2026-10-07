@@ -1,8 +1,9 @@
-import type { ReactElement } from 'react'
+import { type ReactElement, useEffect } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Card, CardContent, Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
+import { captureInsightViewed } from '../analytics/posthog'
 import { ChartHeader } from './ChartHeader'
 import { FunnelVisualizer } from './FunnelVisualizer'
 import { inferVisualizationType } from './infer-visualization'
@@ -27,6 +28,7 @@ import type {
     TrendsQuery,
     TrendsResult,
 } from './types'
+import { insightQueryProperties } from './utils'
 
 /** Data payload from MCP tools */
 interface DataPayload {
@@ -46,6 +48,8 @@ interface DataPayload {
         | RetentionResult
         | PathsResult
         | HogQLResult
+    /** Saved insight from `insight-query`; its `query` keeps the wrapper node that `query` drops */
+    insight?: { query?: unknown }
     _posthogUrl?: string
 }
 
@@ -56,6 +60,19 @@ export interface ComponentProps {
 export function Component({ data }: ComponentProps): ReactElement {
     const payload = data as DataPayload
     const visualizationType = inferVisualizationType(data)
+    const { queryKind, querySourceKind, display, funnelVizType } = insightQueryProperties(
+        payload?.insight?.query ?? payload?.query
+    )
+
+    useEffect(() => {
+        captureInsightViewed({
+            queryKind,
+            querySourceKind,
+            display,
+            funnelVizType,
+            isSupported: visualizationType !== null,
+        })
+    }, [data, visualizationType, queryKind, querySourceKind, display, funnelVizType])
 
     if (!visualizationType) {
         return (

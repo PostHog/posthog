@@ -106,6 +106,7 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
             "credit": patch(f"{_VIEW}.team_credit_refusal", return_value=None),
             "blocked": patch(f"{_VIEW}.wizard_identity_blocked", return_value=False),
             "tier": patch(f"{_VIEW}.desktop_limit_tier", return_value="standard"),
+            "rules": patch(f"{_VIEW}.security_access_refused", return_value=False),
         }
         self.mocks = {name: patcher.start() for name, patcher in self.gates.items()}
         for patcher in self.gates.values():
@@ -204,6 +205,22 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
             team_ids=[self.team.id],
             surface="desktop_gateway_token",
         )
+
+    def test_an_access_rule_refusal_is_refused_before_the_rollout(self) -> None:
+        self.mocks["rules"].return_value = True
+        response, post = self._mint()
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == {
+            "enabled": False,
+            "reason": "blocked",
+            "detail": "This account cannot use the AI gateway.",
+        }
+        self.mocks["rollout"].assert_not_called()
+        post.assert_not_called()
+        subject, surface = self.mocks["rules"].call_args.args
+        assert surface.value == "ai_gateway"
+        assert subject.organization_ids == (str(self.organization.id),)
+        assert self.mocks["rules"].call_args.kwargs == {"call_site": "desktop_gateway_token"}
 
     @override_settings(DESKTOP_GATEWAY_MINT_KEY="")
     def test_unconfigured_is_disabled(self) -> None:

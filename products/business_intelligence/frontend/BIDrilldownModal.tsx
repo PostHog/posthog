@@ -46,7 +46,9 @@ export function BIDrilldownModal({ logicProps: props }: { logicProps: BIDrilldow
                             }
                             disabledReason={
                                 !queries.worksheet
-                                    ? 'Open comparison-period rows below to explore their original dates'
+                                    ? selection?.previous
+                                        ? 'Open comparison-period rows below to explore their original dates'
+                                        : 'Maximum filter group depth reached. View the underlying rows instead.'
                                     : undefined
                             }
                         >
