@@ -28,7 +28,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time[new_events_schema]
@@ -49,7 +50,8 @@
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
                    use_hive_partitioning=0,
-                   json_type_escape_dots_in_keys=1
+                   json_type_escape_dots_in_keys=1,
+                   output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_events_filtering_on_warehouse_person_property[new_events_schema.1]
@@ -67,7 +69,7 @@
         LEFT JOIN
           (SELECT posthog_test_test_table_1.id AS id,
                   posthog_test_test_table_1.prop_1 AS e__posthog_test_test_table_1___prop_1
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1) AS e__posthog_test_test_table_1 ON equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), if(isNull(nullIf(toString(e.person_properties.email), '')), NULL, if(and(in(ascii(toString(e.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.email), '[]'), '{}'), toString(e.person_properties.email)))), e__posthog_test_test_table_1.e__posthog_test_test_table_1___prop_1)
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1) AS e__posthog_test_test_table_1 ON equals(if(notEquals(toJSONString(e.person_properties.^email), '{}'), toJSONString(e.person_properties.^email), if(isNull(nullIf(toString(e.person_properties.email), '')), NULL, if(and(in(ascii(toString(e.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.email), '[]'), '{}'), toString(e.person_properties.email)))), e__posthog_test_test_table_1.e__posthog_test_test_table_1___prop_1)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.event, '$pageview'), equals(e__posthog_test_test_table_1.id, 'false'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -86,7 +88,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_events_filtering_on_warehouse_person_property[new_events_schema]
@@ -107,6 +110,7 @@
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
                    use_hive_partitioning=0,
-                   json_type_escape_dots_in_keys=1
+                   json_type_escape_dots_in_keys=1,
+                   output_format_json_escape_forward_slashes=0
   '''
 # ---

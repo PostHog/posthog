@@ -48,7 +48,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_breakdown_produces_one_two_point_line_per_value[new_events_schema]
@@ -69,7 +70,7 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^plan)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^plan)), if(isNull(nullIf(toString(e.properties.plan), '')), NULL, if(and(in(ascii(toString(e.properties.plan)), tuple(91, 123)), in(ascii(toJSONString(e.properties.plan)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.plan), '[]'), '{}'), toString(e.properties.plan))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^plan), '{}'), toJSONString(e.properties.^plan), if(isNull(nullIf(toString(e.properties.plan), '')), NULL, if(and(in(ascii(toString(e.properties.plan)), tuple(91, 123)), in(ascii(toJSONString(e.properties.plan)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.plan), '[]'), '{}'), toString(e.properties.plan))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC')))))
            GROUP BY day_start,
@@ -95,7 +96,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_formula_series[new_events_schema]
@@ -127,7 +129,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_groups_by_month_returning_first_and_last_month[new_events_schema]
@@ -159,7 +162,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_hour_interval_first_and_last_hour[new_events_schema]
@@ -191,7 +195,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_keeps_the_query_property_filter_alongside_the_bucket_restriction[new_events_schema]
@@ -206,7 +211,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^plan)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^plan)), if(isNull(nullIf(toString(e.properties.plan), '')), NULL, if(and(in(ascii(toString(e.properties.plan)), tuple(91, 123)), in(ascii(toJSONString(e.properties.plan)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.plan), '[]'), '{}'), toString(e.properties.plan)))), 'paid'), 0), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC'))))))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(CAST(e.properties.plan, 'Nullable(String)'), 'paid'), 0), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC'))))))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -223,7 +228,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_last_bucket_is_the_current_partial_period_not_trimmed[new_events_schema]
@@ -255,7 +261,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_monthly_active_math_keeps_its_trailing_window[new_events_schema]
@@ -307,7 +314,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_no_events_yields_zero_endpoints[new_events_schema]
@@ -339,7 +347,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_non_utc_team_timezone[new_events_schema]
@@ -371,7 +380,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_preserves_a_property_group_filter[new_events_schema]
@@ -386,7 +396,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^plan)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^plan)), if(isNull(nullIf(toString(e.properties.plan), '')), NULL, if(and(in(ascii(toString(e.properties.plan)), tuple(91, 123)), in(ascii(toJSONString(e.properties.plan)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.plan), '[]'), '{}'), toString(e.properties.plan)))), 'paid'), 0), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC'))))))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(CAST(e.properties.plan, 'Nullable(String)'), 'paid'), 0), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC'))))))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -403,7 +413,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_relative_date_range[new_events_schema]
@@ -435,7 +446,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_returns_first_and_last_day_buckets_ignoring_the_middle[new_events_schema]
@@ -467,7 +479,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_single_bucket_range_yields_a_one_point_series[new_events_schema]
@@ -499,7 +512,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_smoothing_does_not_starve_the_last_point[new_events_schema]
@@ -531,7 +545,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_unique_users_math_is_per_bucket[new_events_schema]
@@ -570,7 +585,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_week_interval_scan_filter_aligns_with_the_buckets[new_events_schema]
@@ -602,6 +618,7 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
