@@ -2119,6 +2119,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         original_text = Text.objects.get(id=original_text_tile["text"]["id"])
         original_text.agent_context = "source context"
         original_text.save(update_fields=["agent_context"])
+        _, dashboard_with_buttons = self.dashboard_api.create_button_tile(existing_dashboard.id)
+        original_button_tile = next(t for t in dashboard_with_buttons["tiles"] if t.get("button_tile"))
 
         viewer = User.objects.create_and_join(self.organization, "viewer@posthog.com", None)
         AccessControl.objects.create(
@@ -2172,6 +2174,18 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert duplicate_text_tile["text"]["id"] != original_text_tile["text"]["id"]
         assert duplicate_text_tile["text"]["body"] == "duplicate body"
         assert duplicate_text_tile["text"]["agent_context"] == "duplicate context"
+
+        button_tile = next(t for t in duplicate_response["tiles"] if t.get("button_tile"))
+        assert button_tile["button_tile"]["id"] == original_button_tile["button_tile"]["id"]
+        button_tile["button_tile"]["url"] = "https://example.com/duplicate"
+        self.dashboard_api.update_dashboard(duplicate_id, {"tiles": [button_tile]})
+
+        source_button = ButtonTile.objects.get(id=original_button_tile["button_tile"]["id"])
+        duplicate_button_tile = DashboardTile.objects.get(id=button_tile["id"])
+        assert source_button.url == "https://example.com"
+        assert duplicate_button_tile.button_tile_id != source_button.id
+        assert duplicate_button_tile.button_tile is not None
+        assert duplicate_button_tile.button_tile.url == "https://example.com/duplicate"
 
     def test_dashboard_duplication_without_tile_duplicate_excludes_soft_deleted_tiles(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
@@ -2965,6 +2979,49 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(
             tile.text_id, shared_text.id, "the tile must still point at the shared text, not an orphaned copy"
         )
+
+    @parameterized.expand([(False, False), (True, False), (False, True)])
+    def test_update_shared_button_tile_isolates_source(self, source_deleted: bool, foreign_team: bool) -> None:
+        source_team = (
+            Team.objects.create(organization=self.organization, project=self.project) if foreign_team else self.team
+        )
+        source = Dashboard.objects.create(team=source_team, name="Source", deleted=source_deleted)
+        destination = Dashboard.objects.create(team=self.team, name="Destination")
+        button = ButtonTile.objects.create(
+            team=source_team, url="https://example.com/source", text="Source", created_by=self.user
+        )
+        source_tile = DashboardTile.objects.create(dashboard=source, button_tile=button, deleted=source_deleted)
+        tile = DashboardTile.objects.create(dashboard=destination, button_tile=button)
+        button_count = ButtonTile.objects.count()
+        tile_data = {
+            "id": tile.id,
+            "button_tile": {"id": str(button.id), "url": "https://example.com/edited", "text": "Edited"},
+        }
+
+        invalid_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{destination.id}",
+            {"tiles": [{**tile_data, "layouts": {"sm": {"x": 0, "y": 0, "w": 0, "h": 1}}}]},
+            format="json",
+        )
+        assert invalid_response.status_code == status.HTTP_400_BAD_REQUEST
+        tile.refresh_from_db()
+        assert tile.button_tile_id == button.id
+        assert ButtonTile.objects.count() == button_count
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{destination.id}", {"tiles": [tile_data]}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        button.refresh_from_db()
+        tile.refresh_from_db()
+        source_tile.refresh_from_db()
+        assert button.url == "https://example.com/source"
+        assert source_tile.button_tile_id == button.id
+        assert tile.button_tile_id != button.id
+        assert tile.button_tile is not None
+        assert tile.button_tile.team_id == destination.team_id
+        assert tile.button_tile.url == "https://example.com/edited"
+        assert tile.button_tile.text == "Edited"
 
     def test_cannot_inject_insight_id_into_tile_update(self) -> None:
         other_org, _, other_team = Organization.objects.bootstrap(self.user, name="other org")

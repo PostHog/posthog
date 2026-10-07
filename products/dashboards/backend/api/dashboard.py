@@ -1512,6 +1512,30 @@ def _copy_text_if_shared(tile: DashboardTile) -> Text:
     return text_copy
 
 
+def _copy_button_if_shared(tile: DashboardTile) -> ButtonTile:
+    tile = DashboardTile.objects.select_for_update(of=("self",)).select_related("button_tile").get(pk=tile.pk)
+    button = cast(ButtonTile, tile.button_tile)
+    is_shared = (
+        DashboardTile.objects_including_soft_deleted.filter(button_tile_id=button.id).exclude(id=tile.id).exists()
+    )
+    if not is_shared and button.team_id == tile.team_id:
+        return button
+
+    button_copy = ButtonTile.objects.create(
+        url=button.url,
+        text=button.text,
+        placement=button.placement,
+        style=button.style,
+        created_by_id=button.created_by_id,
+        last_modified_at=button.last_modified_at,
+        last_modified_by_id=button.last_modified_by_id,
+        team_id=tile.team_id,
+    )
+    tile.button_tile = button_copy
+    tile.save(update_fields=["button_tile"])
+    return button_copy
+
+
 def _report_dashboard_tile_added(
     *,
     user: User,
@@ -2375,20 +2399,27 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["last_modified_by"] = last_modified_by
             validated_data["last_modified_at"] = now()
 
-            existing_button_id = button_tile_json.get("id", None)
-            if existing_button_id:
-                try:
-                    button_tile = ButtonTile.objects.get(id=existing_button_id, team_id=instance.team_id)
-                    if not DashboardTile.objects.filter(dashboard=instance, button_tile_id=existing_button_id).exists():
+            with transaction.atomic():
+                existing_button_id = button_tile_json.get("id", None)
+                if existing_button_id:
+                    tile_id = tile_data.get("id")
+                    if tile_id is None:
                         raise serializers.ValidationError({"button_tile": "Button tile not found."})
-                    for attr, val in validated_data.items():
-                        setattr(button_tile, attr, val)
-                    button_tile.save()
-                except ButtonTile.DoesNotExist:
-                    raise serializers.ValidationError({"button_tile": "Button tile not found in this team."})
-            else:
-                button_tile = ButtonTile.objects.create(**validated_data)
-            tile, created = DashboardSerializer._upsert_tile(instance, tile_data, button_tile=button_tile)
+                    try:
+                        existing_tile = DashboardTile.objects.get(
+                            id=tile_id,
+                            dashboard=instance,
+                            button_tile_id=existing_button_id,
+                        )
+                        button_tile = _copy_button_if_shared(existing_tile)
+                        for attr, val in validated_data.items():
+                            setattr(button_tile, attr, val)
+                        button_tile.save()
+                    except DashboardTile.DoesNotExist:
+                        raise serializers.ValidationError({"button_tile": "Button tile not found."})
+                else:
+                    button_tile = ButtonTile.objects.create(**validated_data)
+                tile, created = DashboardSerializer._upsert_tile(instance, tile_data, button_tile=button_tile)
             return tile, created
         elif tile_data.get("widget", None):
             widget_json: dict = tile_data.get("widget", {})
