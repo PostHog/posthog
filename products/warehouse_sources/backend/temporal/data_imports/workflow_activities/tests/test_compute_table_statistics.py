@@ -1,6 +1,7 @@
 import json
 import uuid
 import datetime as dt
+import tempfile
 from decimal import Decimal
 from typing import Any
 
@@ -12,6 +13,8 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import pyarrow as pa
+import deltalake
+import deltalite
 from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
@@ -33,6 +36,8 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     ComputeTableStatisticsInputs,
     ComputeTableStatisticsWorkflow,
     _aggregate_add_action_stats,
+    _LogSnapshot,
+    _open_log_snapshot,
     _parse_commit_actions,
     _parse_log_value,
     compute_table_statistics_activity,
@@ -177,6 +182,55 @@ class TestParseLogValue:
         assert _parse_log_value("decimal(10,2)", Decimal("1.505")) == Decimal("1.50")
 
 
+def _local_ref(uri: str) -> MagicMock:
+    ref = MagicMock()
+    ref.get_table_uri = AsyncMock(return_value=uri)
+    ref.get_storage_options.return_value = {}
+    return ref
+
+
+class TestOpenLogSnapshot:
+    @parameterized.expand([("one_commit", 1), ("checkpoint_and_later_commits", 14)])
+    def test_matches_the_delta_rs_snapshot(self, _name: str, commits: int) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            uri = f"{tmp}/table"
+            for index in range(commits):
+                deltalake.write_deltalake(
+                    uri,
+                    pa.table({"id": [index], "amount": [Decimal("1.50")]}),
+                    mode="append",
+                    configuration={"delta.checkpointInterval": "10"},
+                )
+
+            snapshot = _open_log_snapshot(_local_ref(uri))
+            expected = deltalake.DeltaTable(uri)
+
+            assert snapshot is not None
+            assert (snapshot.table_uri, snapshot.version) == (uri, expected.version())
+            assert json.loads(snapshot.schema_json) == json.loads(expected.schema().to_json())
+
+            deltalake.write_deltalake(uri, pa.table({"id": [99], "amount": [Decimal("2.50")]}), mode="append")
+            later = _open_log_snapshot(_local_ref(uri))
+            assert later is not None and later.version == expected.version() + 1
+
+    @parameterized.expand(
+        [
+            ("missing_table", None),
+            ("table_deltalite_does_not_support", deltalite.DeltaLiteUnsupportedTableError("deletion vectors")),
+            ("object_store_error", OSError("Generic S3 error: operation timed out")),
+        ]
+    )
+    def test_gives_no_snapshot_so_the_caller_opens_with_delta_rs(self, _name: str, error: Exception | None) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            uri = f"{tmp}/table"
+            if error is None:
+                assert _open_log_snapshot(_local_ref(uri)) is None
+                return
+            deltalake.write_deltalake(uri, pa.table({"id": [1]}))
+            with patch.object(deltalite.DeltaLiteTable, "open", side_effect=error):
+                assert _open_log_snapshot(_local_ref(uri)) is None
+
+
 @pytest.mark.django_db
 class TestComputeTableStatisticsSync:
     def _team(self, *, ai_approved: bool = False) -> Team:
@@ -294,6 +348,63 @@ class TestComputeTableStatisticsSync:
         assert stat.max_value == "60"
         assert stat.has_min_max is True
         assert stat.computed_for_delta_version == 9
+
+    @parameterized.expand(
+        [
+            # (name, stored statistics exist, snapshot version, commit files are readable,
+            #  expected status, expected basis, version the statistics are stored for, delta-rs opens)
+            ("fold_needs_no_delta_rs_open", True, 9, True, "done", "incremental", 9, 0),
+            ("unchanged_version_needs_no_delta_rs_open", True, 7, True, "skipped", None, 7, 0),
+            ("failed_fold_scans_the_delta_rs_snapshot", True, 9, False, "done", "full", 10, 1),
+            ("first_computation_opens_with_delta_rs_only", False, None, True, "done", "full", 10, 1),
+        ]
+    )
+    def test_table_opens_by_path(
+        self,
+        _name: str,
+        has_stored: bool,
+        snapshot_version: int | None,
+        commits_readable: bool,
+        expected_status: str,
+        expected_basis: str | None,
+        expected_version: int,
+        delta_rs_opens: int,
+    ) -> None:
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        if has_stored:
+            self._stored(team, table)
+        commits = {
+            8: [{"commitInfo": {"operation": "WRITE"}}, self._add(10, amount=(1, 60, 1))],
+            9: [{"commitInfo": {"operation": "WRITE"}}, self._add(5, amount=(3, 7, 0))],
+        }
+
+        def read_commit(_uri: str, _options: dict, version: int) -> list[dict[str, Any]]:
+            if not commits_readable:
+                raise FileNotFoundError("no commit")
+            return commits[version]
+
+        add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
+        helper = self._mock_delta(add_actions, version=10)
+        schema_json = json.dumps({"type": "struct", "fields": [{"name": "amount", "type": "long"}]})
+        snapshot = (
+            _LogSnapshot(table_uri="s3://bucket/data/stripe_charge", version=snapshot_version, schema_json=schema_json)
+            if snapshot_version is not None
+            else None
+        )
+        with (
+            patch.object(comp, "_read_commit_actions", side_effect=read_commit),
+            patch.object(comp, "_open_log_snapshot", return_value=snapshot) as open_snapshot,
+            patch(DELTA_HELPER_PATH, return_value=helper),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["status"] == expected_status
+        assert result.get("basis") == expected_basis
+        assert open_snapshot.call_count == int(has_stored)
+        assert helper.get_delta_table.await_count == delta_rs_opens
+        stat = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount")
+        assert stat.computed_for_delta_version == expected_version
 
     def test_a_fold_does_not_reset_the_full_scan_clock(self) -> None:
         # Regression: the fold gate must read the age of the last *full scan*, not the age of the
