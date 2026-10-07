@@ -78,6 +78,7 @@ const RECOVERABLE_SNAPSHOT_ERRORS = [
     'loadSnapshotsForSourceFailure',
     'loadSnapshotSourcesFailure',
     'snapshotSourceLoadExhausted',
+    'firstLoadBufferingTimeout',
 ]
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
@@ -135,6 +136,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         // A player frame that never loaded leaves nothing to draw into, so its message outranks any snapshot error.
         const isMissingFullSnapshot = !playerFrameDocumentFailed && playerError === 'noPlayableFullSnapshot'
         const isUnauthorized = !playerFrameDocumentFailed && playerError === 'snapshotUnauthorized'
+        const isFirstLoadTimeout = !playerFrameDocumentFailed && playerError === 'firstLoadBufferingTimeout'
         const isRecoverable =
             !playerFrameDocumentFailed && !!playerError && RECOVERABLE_SNAPSHOT_ERRORS.includes(playerError)
         content = (
@@ -143,9 +145,11 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                 <div className="font-bold text-text-3000 text-lg">
                     {playerFrameDocumentFailed
                         ? "We couldn't load the replay player"
-                        : isRecoverable
-                          ? "We couldn't load this recording"
-                          : "We're unable to play this recording"}
+                        : isFirstLoadTimeout
+                          ? 'This recording is taking too long to load'
+                          : isRecoverable
+                            ? "We couldn't load this recording"
+                            : "We're unable to play this recording"}
                 </div>
                 <div className="text-secondary text-sm text-center">
                     {playerFrameDocumentFailed
@@ -154,9 +158,11 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                           ? 'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.'
                           : isUnauthorized
                             ? 'Your session has expired. Sign in again to keep watching this recording.'
-                            : isRecoverable
-                              ? "We couldn't fetch the recording data. This is usually a temporary network problem. Retry, and if it keeps failing contact support."
-                              : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
+                            : isFirstLoadTimeout
+                              ? 'The player stopped waiting for this recording to start. Retry, and if it keeps happening, reload the page.'
+                              : isRecoverable
+                                ? "We couldn't fetch the recording data. This is usually a temporary network problem. Retry, and if it keeps failing contact support."
+                                : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
                 </div>
                 {isUnauthorized && (
                     <LemonButton data-attr="replay-overlay-sign-in" to={urls.login()} type="primary" fullWidth center>

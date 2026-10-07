@@ -388,6 +388,11 @@ const LATE_FULL_SNAPSHOT_THRESHOLD_MS = 20000
 // Safety-net cadence for re-running syncPlayerState while buffering, since neither backed-off source polling nor the non-reactive wall-clock grace check re-triggers verdict re-evaluation on its own.
 const BUFFERING_REEVALUATION_INTERVAL_MS = 120000
 
+// A healthy recording starts to play in a few seconds. A first load that still buffers after this
+// limit has stalled (for example, the replayer never started or every decode failed), so the
+// player stops and shows a retryable error. The timer pauses while the tab is hidden.
+const FIRST_LOAD_BUFFERING_TIMEOUT_MS = 20000
+
 // a stretch of the recording playback cannot render
 export interface UnplayableSpan {
     startTimestamp: number
@@ -719,6 +724,35 @@ function registerErrorListeners({
         iframeWindow.removeEventListener('error', resourceErrorListener, true)
         iframeWindow.removeEventListener('error', runtimeErrorListener)
         iframeWindow.document.removeEventListener('securitypolicyviolation', cspViolationListener)
+    }
+}
+
+function armFirstLoadBufferingTimeout(
+    cache: Record<string, any>,
+    actions: { firstLoadBufferingTimedOut: () => void }
+): void {
+    // Dispose first, so the old cleanup does not subtract its elapsed time from the new limit.
+    cache.disposables.dispose('firstLoadBufferingTimeout')
+    cache.firstLoadBufferingRemainingMs = FIRST_LOAD_BUFFERING_TIMEOUT_MS
+    // The plugin re-runs this setup when a hidden tab becomes visible, so keep the remaining time
+    // across tab switches instead of a fresh full limit.
+    cache.disposables.add(() => {
+        const startedAt = performance.now()
+        const timerId = setTimeout(() => actions.firstLoadBufferingTimedOut(), cache.firstLoadBufferingRemainingMs)
+        return () => {
+            clearTimeout(timerId)
+            cache.firstLoadBufferingRemainingMs = Math.max(
+                0,
+                cache.firstLoadBufferingRemainingMs - (performance.now() - startedAt)
+            )
+        }
+    }, 'firstLoadBufferingTimeout')
+}
+
+function completeFirstLoad(cache: Record<string, any>, values: { playerError: string | null }): void {
+    if (!cache.firstLoadCompleted && !values.playerError) {
+        cache.firstLoadCompleted = true
+        cache.disposables.dispose('firstLoadBufferingTimeout')
     }
 }
 
@@ -1080,6 +1114,9 @@ export interface sessionRecordingPlayerLogicActions {
     }
     fingerprintReported: (fingerprint: string) => {
         fingerprint: string
+    }
+    firstLoadBufferingTimedOut: () => {
+        value: true
     }
     flushDoctorDiagnostics: (diagnostics: DoctorDiagnostics) => {
         diagnostics: DoctorDiagnostics
@@ -1576,6 +1613,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlayerError: (reason: string) => ({ reason }),
         clearPlayerError: true,
         retryLoadingSnapshots: true,
+        firstLoadBufferingTimedOut: true,
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
         setSkippingToMatchingEvent: (
             isSkippingToMatchingEvent: boolean,
@@ -2907,6 +2945,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             )
         },
         setPlayer: ({ player }) => {
+            if (player?.replayer && !values.isBuffering) {
+                completeFirstLoad(cache, values)
+            }
             if (player) {
                 if (values.currentTimestamp !== undefined) {
                     actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
@@ -3244,7 +3285,45 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         retryLoadingSnapshots: () => {
             actions.clearPlayerError()
+            const retriesFirstLoad = !cache.firstLoadCompleted
+            if (retriesFirstLoad) {
+                // The first-load timeout ended the buffer, so re-enter it to let syncPlayerState
+                // resume the load, and give the retry its own time limit.
+                actions.startBuffer()
+                armFirstLoadBufferingTimeout(cache, actions)
+            }
             actions.retrySnapshotLoading()
+            if (retriesFirstLoad) {
+                if (!values.player) {
+                    actions.tryInitReplayer()
+                }
+                actions.syncPlayerState()
+            }
+        },
+        firstLoadBufferingTimedOut: () => {
+            if (cache.firstLoadCompleted || values.playerError) {
+                return
+            }
+            // The ingestion wait has its own message. Keep the limit armed for the load that follows it.
+            if (values.isWaitingForIngestion) {
+                armFirstLoadBufferingTimeout(cache, actions)
+                return
+            }
+            // syncPlayerState can end the buffer before the replayer exists, so a missing replayer also counts as a stall.
+            if (!values.isBuffering && values.player?.replayer) {
+                return
+            }
+            posthog.capture('player buffering timed out', {
+                watchedSessionId: values.sessionRecordingId,
+                timeoutMs: FIRST_LOAD_BUFFERING_TIMEOUT_MS,
+                snapshotsLoaded: values.snapshotsLoaded,
+                hasReplayer: !!values.player,
+                hasRootFrame: !!values.rootFrame,
+                currentTimestamp: values.currentTimestamp,
+            })
+            // Set the error before the buffer ends, so that the endBuffer listener does not mark the first load complete.
+            actions.setPlayerError('firstLoadBufferingTimeout')
+            actions.endBuffer()
         },
         setPlay: () => {
             if (values.recordingTooLargeToPlay) {
@@ -3326,6 +3405,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         startBuffer: () => {
             actions.stopAnimation()
+        },
+        endBuffer: () => {
+            if (values.player?.replayer) {
+                completeFirstLoad(cache, values)
+            }
         },
         setPlayerError: () => {
             actions.incrementErrorCount()
@@ -4056,6 +4140,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const intervalId = setInterval(() => actions.syncPlayerState(), BUFFERING_REEVALUATION_INTERVAL_MS)
             return () => clearInterval(intervalId)
         }, 'bufferingReevaluation')
+
+        armFirstLoadBufferingTimeout(cache, actions)
 
         if (props.sessionRecordingId) {
             actions.loadRecordingData()

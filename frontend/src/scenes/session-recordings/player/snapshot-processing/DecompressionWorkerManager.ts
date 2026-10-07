@@ -82,10 +82,19 @@ export class DecompressionWorkerManager {
             )
             this.workerInitFailed = true
             this.worker = null
-            await this.initSnappy()
-            if (this.posthog) {
-                this.posthog.capture('replay_worker_init_failed', {
-                    error: this.getErrorMessage(error),
+            // Capture before the fallback, so a fallback that also fails still leaves a record of the worker failure.
+            this.posthog?.capture('replay_worker_init_failed', {
+                error: this.getErrorMessage(error),
+            })
+            try {
+                await this.initSnappy()
+            } catch (fallbackError) {
+                // Do not reject readyPromise: a rejected promise fails every later decode for the life of
+                // the page. decompressMainThread tries the init again, so a retry can recover.
+                console.error('[DecompressionWorkerManager] Main-thread fallback failed to initialize:', fallbackError)
+                this.posthog?.capture('replay_decompression_fallback_init_failed', {
+                    error: this.getErrorMessage(fallbackError),
+                    workerError: this.getErrorMessage(error),
                 })
             }
         }
@@ -184,7 +193,11 @@ export class DecompressionWorkerManager {
     private async decompressMainThread(compressedData: Uint8Array): Promise<Uint8Array> {
         // The worker path leaves the main-thread WASM uninitialized, so a worker that reports
         // ready and then fails still has to init here before it can fall back.
-        await this.initSnappy()
+        try {
+            await this.initSnappy()
+        } catch (error) {
+            throw new Error(`Could not load the snappy decompression module: ${this.getErrorMessage(error)}`)
+        }
 
         try {
             return decompress_raw(compressedData)

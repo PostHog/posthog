@@ -352,6 +352,47 @@ describe('sessionRecordingPlayerLogic', () => {
         )
     })
 
+    describe('first load buffering timeout', () => {
+        it('turns a stalled first load into a retryable error that survives re-evaluation', () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            expect(logic.values.isBuffering).toBe(true)
+
+            logic.actions.firstLoadBufferingTimedOut()
+
+            expect(logic.values.playerError).toBe('firstLoadBufferingTimeout')
+            expect(logic.values.isBuffering).toBe(false)
+            expect(captureSpy).toHaveBeenCalledWith('player buffering timed out', expect.any(Object))
+            logic.actions.syncPlayerState()
+            expect(logic.values.playerError).toBe('firstLoadBufferingTimeout')
+
+            logic.actions.retryLoadingSnapshots()
+
+            expect(logic.values.playerError).toBeNull()
+            expect(logic.values.isBuffering).toBe(true)
+            captureSpy.mockRestore()
+        })
+
+        it('does nothing once the first load has left the buffering state with a replayer', () => {
+            const replayer = { pause: jest.fn(), play: jest.fn(), setConfig: jest.fn(), getCurrentTime: () => 0 }
+            logic.actions.setPlayer({ replayer: replayer as any, windowId: 1 })
+            logic.actions.endBuffer()
+            logic.actions.startBuffer()
+
+            logic.actions.firstLoadBufferingTimedOut()
+
+            expect(logic.values.playerError).toBeNull()
+            expect(logic.values.isBuffering).toBe(true)
+        })
+
+        it('still times out when the buffer ended but the replayer never started', () => {
+            logic.actions.endBuffer()
+
+            logic.actions.firstLoadBufferingTimedOut()
+
+            expect(logic.values.playerError).toBe('firstLoadBufferingTimeout')
+        })
+    })
+
     describe('currentPlayerTime clamping', () => {
         // Mock recording: start=1682952380877, end=1682952392745, durationMs=11868
         const START = 1682952380877
