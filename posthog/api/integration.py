@@ -24,7 +24,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_
 from prometheus_client import Counter
 from redis.exceptions import RedisError
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -123,6 +123,7 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     TimeSensitiveActionPermission,
 )
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
@@ -2670,6 +2671,20 @@ class IntegrationViewSet(
     )
     @action(methods=["GET"], detail=True, url_path="email/status")
     def email_status(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        if not any(
+            feature_enabled_or_false(
+                flag,
+                str(cast(User, request.user).distinct_id),
+                groups={"organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+                group_properties={
+                    "organization": {"id": str(self.team.organization_id)},
+                    "project": {"id": str(self.team.uuid)},
+                },
+                send_feature_flag_events=False,
+            )
+            for flag in ("workflows-email-domain-wizard", "workflows-email-domain-agent-setup")
+        ):
+            raise NotFound()
         instance = self.get_object()
         if instance.kind != "email":
             raise ValidationError("email/status is only supported for email integrations")
