@@ -2,6 +2,7 @@
 
 from collections.abc import Collection
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db.models import Q
@@ -9,10 +10,13 @@ from django.http.response import HttpResponseBase
 
 import structlog
 from asgiref.sync import async_to_sync
+from rest_framework import serializers
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.api.query_access_check import blocked_access_for_user
+from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
@@ -31,6 +35,9 @@ from products.exports.backend.tasks.failure_handler import (
     RetryableExportError as RetryableExportError,
 )
 from products.product_analytics.backend.facade.models import Insight
+
+if TYPE_CHECKING:
+    from products.dashboards.backend.models.dashboard import Dashboard
 
 logger = structlog.get_logger(__name__)
 
@@ -175,6 +182,33 @@ def dashboard_has_active_full_subscription(*, team_id: int, dashboard_id: int) -
     return Subscription.objects.filter(
         team_id=team_id, deleted=False, enabled=True, dashboard_id=dashboard_id, dashboard_export_insights__isnull=True
     ).exists()
+
+
+def check_can_add_insight_to_subscribed_dashboard(
+    user: User,
+    dashboard: "Dashboard",
+    query: Any,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
+    """Raise if binding an insight with this query to the dashboard would deliver, through a
+    subscription of the whole dashboard, a query the editor can't run themselves. No-op when no
+    such subscription exists, the org lacks the access control entitlement, or the editor is an
+    org admin. The public link counterpart is check_can_add_insight_to_shared_dashboard."""
+    if not isinstance(query, dict):
+        return
+    if not dashboard.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        return
+    uac = user_access_control or UserAccessControl(user=user, team=dashboard.team)
+    if uac.is_organization_admin:
+        return
+    if not dashboard_has_active_full_subscription(team_id=dashboard.team_id, dashboard_id=dashboard.id):
+        return
+    blocked = blocked_access_for_user(user, dashboard.team, [query])
+    if blocked:
+        blocked_list = ", ".join(f"`{name}`" for name in blocked)
+        raise serializers.ValidationError(
+            f"Can't add this insight: you don't have access to {blocked_list}, and a subscription delivers this dashboard."
+        )
 
 
 # The limit contexts an export writer can pin, keyed by the string it stores in export_context.

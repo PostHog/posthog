@@ -165,7 +165,7 @@ from products.dashboards.backend.widget_registry import (
     validate_widget_config,
 )
 from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
-from products.exports.backend.subscription_query_access import check_can_add_insight_to_subscribed_dashboard
+from products.exports.backend.facade.api import check_can_add_insight_to_subscribed_dashboard
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.notifications.backend.facade.api import (
     NotificationData,
