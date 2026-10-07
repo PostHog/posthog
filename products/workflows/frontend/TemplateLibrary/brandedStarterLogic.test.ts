@@ -13,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 
 import { brandedStarterLogic } from './brandedStarterLogic'
 import { NEW_TEMPLATE } from './constants'
+import { detectedBrandLogic } from './detectedBrandLogic'
 import { messageTemplateLogic } from './messageTemplateLogic'
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({ lemonToast: { error: jest.fn(), success: jest.fn() } }))
@@ -204,9 +205,112 @@ describe('branded starter editor handoff', () => {
         expect(lemonToast.error).toHaveBeenCalledWith('Logo upload timed out. Try again.')
         expect(posthog.capture).toHaveBeenCalledWith('email branded starter failed', {
             has_logo: true,
+            logo_source: 'upload',
+            brand_detection: 'none',
+            prefilled: false,
+            edited_prefill: false,
             reason: 'Logo upload timed out. Try again.',
         })
         expect(templateLogic.values.templateChanged).toBe(false)
         await submission
+    })
+
+    const detectedJuniper = {
+        website: 'https://juniper.example/',
+        name: 'Juniper Studio',
+        primary_color: '#2e7d32',
+        logo_url: 'https://app.example.com/uploaded_media/juniper-logo',
+    }
+
+    const answeringDetection = (brand: Record<string, string | null>): Parameters<typeof useMocks>[0] => ({
+        post: { '/api/projects/:team_id/messaging_templates/detect_brand/': () => [200, brand] },
+    })
+
+    async function loadDetection(): Promise<void> {
+        await expectLogic(detectedBrandLogic, () => detectedBrandLogic.actions.loadDetectedBrand()).toDispatchActions([
+            'loadDetectedBrandSuccess',
+        ])
+    }
+
+    it('prefills an untouched form and builds the starter around the hosted website logo', async () => {
+        let uploads = 0
+        useMocks({
+            post: { '/api/projects/:team_id/uploaded_media/': () => [201, { image_location: `${uploads++}` }] },
+        })
+        starter.actions.resetBrand()
+
+        useMocks(answeringDetection(detectedJuniper))
+        await loadDetection()
+
+        expect(starter.values.brand).toEqual({
+            name: 'Juniper Studio',
+            primaryColor: '#2e7d32',
+            logo: 'https://app.example.com/uploaded_media/juniper-logo',
+        })
+        expect(starter.values.brandChanged).toBe(false)
+        expect(starter.values.prefilledFromHost).toBe('juniper.example')
+        await expectLogic(starter, () => starter.actions.submitBrand()).toDispatchActions(['submitBrandSuccess'])
+        expect(uploads).toBe(0)
+        expect(
+            templateLogic.values.template.content.email.design!.body.rows[0].columns[0].contents[0].values.src
+        ).toMatchObject({ url: 'https://app.example.com/uploaded_media/juniper-logo' })
+        expect(posthog.capture).toHaveBeenCalledWith('email branded starter generated', {
+            has_logo: true,
+            logo_source: 'website',
+            brand_detection: 'found',
+            prefilled: true,
+            edited_prefill: false,
+        })
+    })
+
+    it('fills only what it detected', async () => {
+        starter.actions.resetBrand()
+        useMocks(answeringDetection({ ...detectedJuniper, primary_color: null, logo_url: null }))
+        await loadDetection()
+        expect(starter.values.brand).toEqual({ name: 'Juniper Studio', primaryColor: '#1d4aff', logo: null })
+        expect(starter.values.brandDetectionOutcome).toBe('partial')
+    })
+
+    it.each([
+        ['name', 'Juniper'],
+        ['name', ''],
+        ['primaryColor', '#1d4aff'],
+    ] as const)('keeps the %s the user set to "%s" before detection arrived', async (field, value) => {
+        starter.actions.resetBrand()
+        starter.actions.setBrandValue(field, value)
+        useMocks(answeringDetection(detectedJuniper))
+        await loadDetection()
+        expect(starter.values.brand[field]).toBe(value)
+        expect(starter.values.brand.logo).toBe(detectedJuniper.logo_url)
+    })
+
+    it('does not claim a fill when detection only found what the user already typed', async () => {
+        starter.actions.resetBrand()
+        starter.actions.setBrandValue('name', 'Juniper')
+        useMocks(answeringDetection({ ...detectedJuniper, primary_color: null, logo_url: null }))
+        await loadDetection()
+        expect(starter.values.prefilledFromHost).toBeNull()
+    })
+
+    it('leaves the form alone when detection lands while the starter generates', async () => {
+        editor.loadDesign.mockImplementationOnce(() => {})
+        const submission = starter.asyncActions.submitBrandRequest(starter.values.brand)
+        useMocks(answeringDetection(detectedJuniper))
+        await loadDetection()
+        expect(starter.values.brand).toEqual({ name: 'Juniper Studio', primaryColor: '#ffd400', logo: null })
+        starter.unmount()
+        await submission
+    })
+
+    it('reports an edit to a prefilled field', async () => {
+        starter.actions.resetBrand()
+        useMocks(answeringDetection(detectedJuniper))
+        await loadDetection()
+        starter.actions.setBrandValue('primaryColor', '#f54e00')
+        await expectLogic(starter, () => starter.actions.submitBrand()).toDispatchActions(['submitBrandSuccess'])
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'email branded starter generated',
+            expect.objectContaining({ prefilled: true, edited_prefill: true })
+        )
     })
 })

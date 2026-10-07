@@ -492,6 +492,29 @@ export interface PatchedDesignPatchApi {
     operations?: DesignOperationApi[]
 }
 
+export interface DetectedBrandApi {
+    /**
+     * The website the brand was read from: the first public host in the team's authorized URLs, else the most viewed public host of recent pageviews. Null when neither yields one.
+     * @nullable
+     */
+    website: string | null
+    /**
+     * Brand name from the site's og:site_name, application name, title or host.
+     * @nullable
+     */
+    name: string | null
+    /**
+     * Six-digit hex color the site declares as theme-color, in its web manifest, or as its tile color.
+     * @nullable
+     */
+    primary_color: string | null
+    /**
+     * URL of a copy of the site's raster logo, hosted in the team's email media library.
+     * @nullable
+     */
+    logo_url: string | null
+}
+
 export type MessagingCategoriesListParams = {
     /**
      * Number of results to return per page.

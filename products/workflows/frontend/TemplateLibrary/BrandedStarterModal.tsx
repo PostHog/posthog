@@ -17,7 +17,15 @@ import { messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Element {
     const logic = brandedStarterLogic(props)
     useAttachedLogic(logic, messageTemplateSceneLogic(props))
-    const { brand, brandChanged, brandValidationErrors, isBrandSubmitting, isEmailEditorReady } = useValues(logic)
+    const {
+        brand,
+        brandChanged,
+        brandValidationErrors,
+        isBrandSubmitting,
+        isEmailEditorReady,
+        prefilledFromHost,
+        detectedBrandLoading,
+    } = useValues(logic)
     const { setBrandValue } = useActions(logic)
     const busyReason = isBrandSubmitting ? 'Generating your starter' : undefined
     const chooseLogoRef = useRef<HTMLButtonElement>(null)
@@ -69,6 +77,17 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                     Use your brand name and color as a starting point. You can edit the email before saving it as a
                     template.
                 </p>
+                <p
+                    className="text-secondary empty:hidden"
+                    aria-live="polite"
+                    data-attr="email-branded-starter-prefilled"
+                >
+                    {prefilledFromHost
+                        ? `We filled this in from ${prefilledFromHost}. You can change any field.`
+                        : detectedBrandLoading
+                          ? 'Checking your website for your brand.'
+                          : null}
+                </p>
                 <LemonField name="name" label="Brand name">
                     <LemonInput
                         value={brand.name}
@@ -97,7 +116,7 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                     <LemonFileInput
                         multiple={false}
                         accept="image/png,image/jpeg,image/gif,image/webp"
-                        value={brand.logo ? [brand.logo] : []}
+                        value={brand.logo instanceof File ? [brand.logo] : []}
                         onChange={(files) => setBrandValue('logo', files[0] ?? null)}
                         showUploadedFiles={false}
                         disabledReason={busyReason}
@@ -115,9 +134,20 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                 </LemonField>
                 {brand.logo && (
                     <div className="flex items-center gap-2 min-w-0">
-                        <span className="truncate" title={brand.logo.name}>
-                            {brand.logo.name}
-                        </span>
+                        {brand.logo instanceof File ? (
+                            <span className="truncate" title={brand.logo.name}>
+                                {brand.logo.name}
+                            </span>
+                        ) : (
+                            <>
+                                <img
+                                    src={brand.logo}
+                                    alt=""
+                                    className="h-8 w-8 shrink-0 rounded border object-contain"
+                                />
+                                <span className="truncate">Logo from your website</span>
+                            </>
+                        )}
                         <LemonButton
                             data-attr="email-branded-starter-logo-remove"
                             type="tertiary"

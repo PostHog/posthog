@@ -13,6 +13,7 @@ import type {
     AddSuppressionRequestApi,
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
+    DetectedBrandApi,
     GenerateLinkRequestApi,
     MessageCategoryApi,
     MessagePreferencesApi,
@@ -719,5 +720,19 @@ export const messagingTemplatesDesignPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedDesignPatchApi),
+    })
+}
+
+export const getMessagingTemplatesDetectBrandCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_templates/detect_brand/`
+}
+
+export const messagingTemplatesDetectBrandCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DetectedBrandApi> => {
+    return apiMutator<DetectedBrandApi>(getMessagingTemplatesDetectBrandCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }

@@ -1,11 +1,12 @@
 from copy import deepcopy
-from typing import Any
+from typing import Any, cast
 
 from django.db import models, transaction
 
 import structlog
+import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import serializers, viewsets
+from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -17,11 +18,13 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.cdp.validation import build_html_wrap_design
 from posthog.event_usage import report_user_action
+from posthog.models import User
 
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.services.brand_detection import detected_brand
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
 
@@ -282,6 +285,27 @@ class DesignPatchSerializer(serializers.Serializer):
     )
 
 
+class DetectedBrandSerializer(serializers.Serializer):
+    website = serializers.CharField(
+        allow_null=True,
+        help_text="The website the brand was read from: the first public host in the team's authorized URLs, else the most viewed public host of recent pageviews. Null when neither yields one.",
+    )
+    name = serializers.CharField(
+        allow_null=True, help_text="Brand name from the site's og:site_name, application name, title or host."
+    )
+    primary_color = serializers.CharField(
+        allow_null=True,
+        help_text="Six-digit hex color the site declares as theme-color, in its web manifest, or as its tile color.",
+    )
+    logo_url = serializers.CharField(
+        allow_null=True,
+        help_text="URL of a copy of the site's raster logo, hosted in the team's email media library.",
+    )
+
+
+BRANDED_STARTER_FLAG = "email-branded-starter"
+
+
 class MessageTemplatesViewSet(
     TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
@@ -291,7 +315,7 @@ class MessageTemplatesViewSet(
     permission_classes = [IsAuthenticated]
     # `design` is a custom write action; list it so programmatic callers (MCP/personal API key) get
     # hog_flow:write checked instead of being rejected as an action with no declared scope.
-    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "design"]
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "design", "detect_brand"]
 
     serializer_class = MessageTemplateSerializer
     queryset = MessageTemplate.objects.all()
@@ -393,3 +417,24 @@ class MessageTemplatesViewSet(
 
         self._emit_resource_edited(locked)
         return Response(self.get_serializer(locked).data)
+
+    @extend_schema(request=None, responses={200: DetectedBrandSerializer})
+    @action(detail=False, methods=["POST"])
+    def detect_brand(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        user = cast(User, request.user)
+        self._require_branded_starter(user)
+        return Response(DetectedBrandSerializer(detected_brand(self.team, user)).data)
+
+    def _require_branded_starter(self, user: User) -> None:
+        try:
+            enabled = posthoganalytics.feature_enabled(
+                BRANDED_STARTER_FLAG,
+                str(user.distinct_id),
+                groups={"organization": str(self.organization_id), "project": str(self.team.uuid)},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        except Exception:
+            enabled = False
+        if enabled is not True:
+            raise exceptions.NotFound()
