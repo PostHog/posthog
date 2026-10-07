@@ -102,8 +102,8 @@ def _billing_blocked_since(source: ExternalDataSource, schema_id: uuid.UUID) -> 
     jobs = ExternalDataJob.objects.filter(team_id=source.team_id, pipeline_id=source.id, schema_id=schema_id).exclude(
         workflow_id__startswith=CDC_EXTRACTION_WORKFLOW_ID_PREFIX
     )
-    # One ordered lookup per status, because the (team, pipeline, status, created_at) index serves an
-    # equality on status and not an exclusion.
+    # One ordered lookup per status, because the (team, pipeline, schema, status, created_at) index
+    # serves an equality on status and not an exclusion.
     latest_by_outcome = [
         jobs.filter(status=outcome).order_by("-created_at").values_list("created_at", flat=True).first()
         for outcome in _OTHER_OUTCOMES
