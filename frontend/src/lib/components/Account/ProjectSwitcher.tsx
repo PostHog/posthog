@@ -35,6 +35,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         projectSearchValue: searchValue,
         filteredProjectItems: filteredItems,
         projectGroups,
+        hasProjectGroups,
     } = useValues(newAccountMenuLogic)
     const inputRef = useRef<HTMLInputElement>(null!)
     const createItem = filteredItems.find((p): p is CreateProjectItem => p.type === 'create')
@@ -162,9 +163,11 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                     >
                         {projectGroups.map(({ name, projects }) => (
                             <Combobox.Group key={name === null ? 'ungrouped' : `group:${name}`} items={projects}>
-                                <Combobox.GroupLabel className="px-2 pt-2 pb-1 text-xxs text-tertiary font-medium">
-                                    {name ? identifierToHuman(name, 'sentence') : 'Other projects'}
-                                </Combobox.GroupLabel>
+                                {hasProjectGroups && (
+                                    <Combobox.GroupLabel className="px-2 pt-2 pb-1 text-xxs text-tertiary font-medium">
+                                        {name ? identifierToHuman(name, 'sentence') : 'Other projects'}
+                                    </Combobox.GroupLabel>
+                                )}
                                 <Combobox.Collection>
                                     {(item: ProjectListItem) => (
                                         <Combobox.Item
