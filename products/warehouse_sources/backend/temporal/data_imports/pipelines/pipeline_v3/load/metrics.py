@@ -19,6 +19,12 @@ IDEMPOTENCY_HIT_TOTAL = Counter(
     labelnames=["team_id", "schema_id"],
 )
 
+APPEND_ROLLBACK_TOTAL = Counter(
+    "warehouse_load_append_rollback_total",
+    "Append rollback attempts by outcome",
+    labelnames=["outcome"],
+)
+
 PARQUET_READ_DURATION_SECONDS = Histogram(
     "warehouse_load_parquet_read_duration_seconds",
     "Duration of S3 parquet file reads",

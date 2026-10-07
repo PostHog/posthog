@@ -16,6 +16,15 @@ This page is the map; each package's own docstrings and READMEs carry the detail
    A run that fans out to several destinations finalizes differently - see [Destinations](#destinations).
 7. The post-import workflow (`../post_import_job.py`, `data-import-post-import`) runs the load-dependent step list (table size, DuckLake copy, signals, enrichment, statistics).
 
+## Append runs that end early
+
+An append run commits each batch to Delta, but its watermark moves only when the run completes.
+A run that ends before its final batch (a cancel, a failure, a retried attempt) would leave rows that the next run reads again, and an append has no key to merge them on.
+The loader records the table version at the first batch of each append run in `sync_type_config["append_run_in_progress"]`.
+The first batch of the next fresh run restores the table to that version when the recorded run never completed (`pipeline_v3/load/append_rollback.py`).
+A resumed attempt keeps the rows of the attempt before it.
+The restore covers the PostHog warehouse table only, not an external destination.
+
 ## Destinations
 
 A schema syncs to a set of destinations, of which the PostHog warehouse is one rather than a special case.
