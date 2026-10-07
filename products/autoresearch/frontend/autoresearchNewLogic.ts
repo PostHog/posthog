@@ -119,10 +119,15 @@ function populationRequestFields(values: NewPipelineFormValues): {
     inference_population: Record<string, unknown>
 } {
     const inference_population = populationBody(values.inference_population_kind, values.inference_population)
-    const training_population = values.separate_training_population
-        ? populationBody(values.training_population_kind, values.training_population)
-        : inference_population
-    return { training_population, inference_population }
+    if (!values.separate_training_population) {
+        return { training_population: inference_population, inference_population }
+    }
+    return {
+        training_population: populationBody(values.training_population_kind, values.training_population),
+        // The API replaces an empty scoring population with the training one. An empty filter list
+        // is not empty to the API, so the model still scores all identified users.
+        inference_population: Object.keys(inference_population).length > 0 ? inference_population : { properties: [] },
+    }
 }
 
 function kindPhrase(kind: PopulationKind | null): string | null {

@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
+import { PersonPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { autoresearchNewLogic } from './autoresearchNewLogic'
 import {
@@ -96,6 +97,32 @@ describe('autoresearchNewLogic', () => {
 
         expect(mockValidate).toHaveBeenCalledTimes(expectedCalls)
         expect(logic.values.validationFailed).toBe(false)
+    })
+
+    it('scores all identified users when only the separate training population has filters', async () => {
+        const trainingFilter: PersonPropertyFilter = {
+            key: 'plan',
+            value: 'pro',
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Person,
+        }
+        const logic = autoresearchNewLogic()
+        logic.mount()
+
+        logic.actions.setNewPipelineValues({
+            target_event: '$pageview',
+            separate_training_population: true,
+            training_population: [trainingFilter],
+        })
+        await settle(logic)
+
+        expect(mockValidate).toHaveBeenLastCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                training_population: { properties: [trainingFilter] },
+                inference_population: { properties: [] },
+            })
+        )
     })
 
     it('fills the form from an activity template, validates with its population, and lets an unedited name follow a template switch', async () => {
