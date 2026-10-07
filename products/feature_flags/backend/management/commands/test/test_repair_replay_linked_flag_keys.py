@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from io import StringIO
 from typing import Any
 
@@ -31,6 +32,24 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
             stdout=out,
         )
         return json.loads(out.getvalue())
+
+    def _run_live_with_edit_before_write(self, edit: Callable[[], object]) -> dict[str, Any]:
+        # The edit runs after the chunk read and before the team row lock. A concurrent rename or
+        # admin edit can land in that window.
+        real_save = repair_command.save_replay_gate_rewrites
+
+        def edit_then_save(team_id: int, compute: Any) -> None:
+            edit()
+            real_save(team_id, compute)
+
+        with patch.object(repair_command, "save_replay_gate_rewrites", side_effect=edit_then_save):
+            return self._run("--live-run", teams=[self.team])
+
+    def _create_unusable_flag(self, outcome: str) -> FeatureFlag:
+        if outcome == "flag_soft_deleted":
+            return FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2", deleted=True)
+        other_project_team = Team.objects.create(organization=self.organization)
+        return FeatureFlag.objects.create(team=other_project_team, created_by=self.user, key="replay-gate-v2")
 
     def test_repairs_a_stale_key_and_is_idempotent(self) -> None:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
@@ -99,17 +118,9 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
     ) -> None:
         self._assert_link_survives(linked_flag, outcome)
 
-    @parameterized.expand(
-        [
-            ("flag_soft_deleted", True, True, "flag_soft_deleted"),
-            ("flag_in_other_project", False, False, "flag_in_other_project"),
-        ]
-    )
-    def test_leaves_links_to_unusable_flags_alone(
-        self, _name: str, same_project: bool, deleted: bool, outcome: str
-    ) -> None:
-        flag_team = self.team if same_project else Team.objects.create(organization=self.organization)
-        flag = FeatureFlag.objects.create(team=flag_team, created_by=self.user, key="replay-gate-v2", deleted=deleted)
+    @parameterized.expand([("flag_soft_deleted",), ("flag_in_other_project",)])
+    def test_leaves_links_to_unusable_flags_alone(self, outcome: str) -> None:
+        flag = self._create_unusable_flag(outcome)
         self._assert_link_survives({"id": flag.id, "key": "replay-gate"}, outcome)
 
     def test_repairs_a_sibling_team_linking_another_teams_flag(self) -> None:
@@ -131,16 +142,12 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-b")
         set_linked_flag(self.team, {"id": flag.id, "key": "gate-a"})
 
-        real_save = repair_command.save_replay_gate_rewrites
-
-        def rename_then_save(team_id: int, compute: Any) -> None:
+        def rename() -> None:
             flag.key = "gate-c"
             with self.captureOnCommitCallbacks(execute=True):
                 flag.save()
-            real_save(team_id, compute)
 
-        with patch.object(repair_command, "save_replay_gate_rewrites", side_effect=rename_then_save):
-            report = self._run("--live-run", teams=[self.team])
+        report = self._run_live_with_edit_before_write(rename)
 
         self.team.refresh_from_db()
         assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "gate-c"}
@@ -153,26 +160,19 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         self, _name: str, repointed_key: str
     ) -> None:
         # An admin can send the gate to a different flag between the chunk read and the lock.
-        # That edit is not this command's to touch, and reporting a repair here would name a key
-        # the team does not hold, on a flag it no longer points at. It is reported all the same,
-        # and whether the key that lands happens to be current makes no difference: this run read
-        # it against no flag, so counting it correct would hide a team that is still not
+        # That edit is not this command's to touch. Reporting a repair here would name a key the
+        # team does not hold, on a flag it no longer points at. The report still lists the team.
+        # Whether the key that lands happens to be current makes no difference, because this run
+        # checked it against no flag. Counting it correct would hide a team that is still not
         # recording.
         stale_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-current")
         other_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-current")
         set_linked_flag(self.team, {"id": stale_flag.id, "key": "gate-stale"})
         repointed = {"id": other_flag.id, "key": repointed_key}
 
-        real_save = repair_command.save_replay_gate_rewrites
-
-        def repoint_then_save(team_id: int, compute: Any) -> None:
-            admin = Team.objects.get(pk=team_id)
-            admin.session_recording_linked_flag = repointed
-            admin.save()
-            real_save(team_id, compute)
-
-        with patch.object(repair_command, "save_replay_gate_rewrites", side_effect=repoint_then_save):
-            report = self._run("--live-run", teams=[self.team])
+        report = self._run_live_with_edit_before_write(
+            lambda: set_linked_flag(Team.objects.get(pk=self.team.pk), repointed)
+        )
 
         self.team.refresh_from_db()
         assert self.team.session_recording_linked_flag == repointed
@@ -187,14 +187,9 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-current")
         set_linked_flag(self.team, {"id": flag.id, "key": "gate-stale"})
 
-        real_save = repair_command.save_replay_gate_rewrites
-
-        def hard_delete_then_save(team_id: int, compute: Any) -> None:
-            FeatureFlag.objects_including_soft_deleted.filter(pk=flag.id).delete()
-            real_save(team_id, compute)
-
-        with patch.object(repair_command, "save_replay_gate_rewrites", side_effect=hard_delete_then_save):
-            report = self._run("--live-run", teams=[self.team])
+        report = self._run_live_with_edit_before_write(
+            lambda: FeatureFlag.objects_including_soft_deleted.filter(pk=flag.id).delete()
+        )
 
         self.team.refresh_from_db()
         assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "gate-stale"}
@@ -320,38 +315,35 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         self.team.refresh_from_db()
         assert self.team.session_recording_trigger_groups == stored
 
-    @parameterized.expand([("object_with_no_key", {"id": 1}), ("empty_key", "")])
-    def test_reports_a_trigger_group_reference_with_no_readable_key(self, _name: str, stored_flag: Any) -> None:
-        # The key is what the SDK resolves, so a reference without one gates nothing. Pinned
-        # because the ladder gives up here rather than falling back to the stored id.
+    @parameterized.expand(
+        [
+            # The key is what the SDK resolves, so a reference without one gates nothing. These
+            # cases pin that the scan gives up here and does not fall back to the stored id.
+            ("object_with_no_key", {"id": 1}, "malformed"),
+            ("empty_key", "", "malformed"),
+            # A bare key stores no id, so nothing records which flag it meant. Guessing a rewrite
+            # would move the gate onto an unrelated flag. Clearing it would record every session.
+            ("bare_key_naming_no_flag", "replay-gate", "key_unresolvable"),
+        ]
+    )
+    def test_reports_a_trigger_group_reference_it_cannot_resolve_without_touching_it(
+        self, _name: str, stored_flag: Any, outcome: str
+    ) -> None:
         set_trigger_groups(self.team, {"flag": stored_flag})
         stored_before = self.team.session_recording_trigger_groups
 
         report = self._run("--live-run", teams=[self.team])
 
-        assert report["outcomes"] == {"malformed": 1}
+        assert report["outcomes"] == {outcome: 1}
         assert report["unrepairable"][0]["location"] == "trigger_group"
-        self.team.refresh_from_db()
-        assert self.team.session_recording_trigger_groups == stored_before
-
-    def test_reports_a_bare_key_naming_no_flag_without_touching_it(self) -> None:
-        # A bare key stores no id, so nothing records which flag it meant. Guessing a rewrite would
-        # move the gate onto an unrelated flag, and clearing it would record every session.
-        set_trigger_groups(self.team, {"flag": "replay-gate"})
-        stored_before = self.team.session_recording_trigger_groups
-
-        report = self._run("--live-run", teams=[self.team])
-
-        assert report["outcomes"] == {"key_unresolvable": 1}
-        assert report["unrepairable"][0]["location"] == "trigger_group"
-        assert report["unrepairable"][0]["stored_flag"] == "replay-gate"
+        assert report["unrepairable"][0]["stored_flag"] == stored_flag
         self.team.refresh_from_db()
         assert self.team.session_recording_trigger_groups == stored_before
 
     @parameterized.expand(
         [
             ("bare_key_resolves", {"flag": "replay-gate"}, {"already_correct": 1}),
-            # Most groups gate on events or URLs. Counting those as references would bury the ones
+            # Most groups gate on events or URLs. Counting those as references would hide the ones
             # that actually need a human.
             ("group_gates_on_no_flag", {"events": ["$pageview"]}, {}),
         ]
@@ -384,7 +376,7 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
 
     def test_repairs_groups_sharing_a_stale_key_to_their_own_flags(self) -> None:
         # The groups' ids name different flags. Resolving the stale key once per team would point
-        # both gates at whichever flag was looked up first, silently retargeting the other.
+        # both gates at whichever flag the command looked up first and silently retarget the other.
         alpha = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="alpha-now")
         beta = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-now")
         set_trigger_groups(
@@ -402,19 +394,11 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         assert groups[0]["conditions"]["flag"] == {"id": alpha.id, "key": "alpha-now"}
         assert groups[1]["conditions"]["flag"] == {"id": beta.id, "key": "beta-now"}
 
-    @parameterized.expand(
-        [
-            ("flag_soft_deleted", True, True, "flag_soft_deleted"),
-            ("flag_in_other_project", False, False, "flag_in_other_project"),
-        ]
-    )
-    def test_leaves_trigger_groups_naming_unusable_flags_alone(
-        self, _name: str, same_project: bool, deleted: bool, outcome: str
-    ) -> None:
-        # Reached only once the stored key fails to resolve, so this is a different ladder from the
-        # linked flag column's and needs its own cover.
-        flag_team = self.team if same_project else Team.objects.create(organization=self.organization)
-        flag = FeatureFlag.objects.create(team=flag_team, created_by=self.user, key="replay-gate-v2", deleted=deleted)
+    @parameterized.expand([("flag_soft_deleted",), ("flag_in_other_project",)])
+    def test_leaves_trigger_groups_naming_unusable_flags_alone(self, outcome: str) -> None:
+        # The trigger group classifier checks the id only after the stored key fails to resolve.
+        # The linked flag column checks the id first, so this order needs its own test.
+        flag = self._create_unusable_flag(outcome)
         set_trigger_groups(self.team, {"flag": {"id": flag.id, "key": "replay-gate"}})
         stored_before = self.team.session_recording_trigger_groups
 
@@ -428,10 +412,10 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
     def test_a_group_added_mid_scan_does_not_shift_the_repair_onto_its_neighbour(
         self, _name: str, inserted_group_duplicates_the_reference: bool
     ) -> None:
-        # Groups are rewritten by index, and an admin can add one ahead of the repaired group
+        # The command rewrites groups by index. An admin can add a group ahead of the repaired one
         # between the chunk read and the lock. Writing the scanned index then would move the gate
-        # of a group this run never looked at. A sibling holding the same reference takes the
-        # rewrite while the report still names the scanned group, which stays stale.
+        # of a group this run never looked at. A sibling that holds the same reference would take
+        # the rewrite while the report still names the scanned group, which stays stale.
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
         stored_flag = {"id": flag.id, "key": "replay-gate"}
         set_trigger_groups(self.team, {"flag": stored_flag})
@@ -439,34 +423,30 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         inserted_conditions: dict[str, Any] = (
             {"flag": stored_flag} if inserted_group_duplicates_the_reference else {"events": ["$pageview"]}
         )
-        # Built by hand rather than through the fixture, because an admin inserting a group leaves
-        # the ids of the groups it pushes along alone.
+        # This builds the groups by hand rather than through the fixture, because an admin who
+        # inserts a group does not renumber the ids of the groups after it.
         after_insert = [
             {"id": "group-inserted", "sampleRate": 1, "conditions": {"matchType": "any", **inserted_conditions}},
             *scanned_groups,
         ]
 
-        real_save = repair_command.save_replay_gate_rewrites
-
-        def prepend_group_then_save(team_id: int, compute: Any) -> None:
-            admin = Team.objects.get(pk=team_id)
+        def prepend_group() -> None:
+            admin = Team.objects.get(pk=self.team.pk)
             admin.session_recording_trigger_groups = {"version": 2, "groups": after_insert}
             admin.save()
-            real_save(team_id, compute)
 
-        with patch.object(repair_command, "save_replay_gate_rewrites", side_effect=prepend_group_then_save):
-            report = self._run("--live-run", teams=[self.team])
+        report = self._run_live_with_edit_before_write(prepend_group)
 
         assert report["repairs"] == []
         assert report["outcomes"] == {"changed_mid_scan": 1}
         self.team.refresh_from_db()
-        # Every group still stale, and reported as untouched, so the next run repairs them where
-        # they now sit.
+        # Every group keeps its stale key, and the report marks the scanned group as untouched.
+        # The next run repairs each group where it now sits.
         assert self.team.session_recording_trigger_groups["groups"] == after_insert
 
     def test_repairs_both_kinds_of_reference_in_one_pass(self) -> None:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
-        self.team.session_recording_linked_flag = {"id": flag.id, "key": "replay-gate"}
+        set_linked_flag(self.team, {"id": flag.id, "key": "replay-gate"})
         set_trigger_groups(self.team, {"flag": {"id": flag.id, "key": "replay-gate"}})
 
         report = self._run("--live-run", teams=[self.team])

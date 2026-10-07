@@ -1,25 +1,26 @@
 """Repair a team's session replay recording gate when its stored flag key no longer resolves.
 
-A team can gate recording in two columns: `Team.session_recording_linked_flag`, which stores the
-flag id alongside its key, and the V2 trigger groups in `Team.session_recording_trigger_groups`,
-whose `conditions.flag` holds either a bare key or an object carrying one. The SDKs resolve both by
+A team can gate recording in two columns. `Team.session_recording_linked_flag` stores the flag id
+alongside its key. Each V2 trigger group in `Team.session_recording_trigger_groups` can store a
+`conditions.flag` that holds either a bare key or an object carrying one. The SDKs resolve both by
 key, so a stored key that no longer matches its flag silently stops the team recording.
 `relink_teams_on_key_change` in `session_recording_links` covers every rename that goes through
-`FeatureFlag.save()`; this command repairs the references that predate that receiver, plus any left
-behind by a writer that bypasses `save()`, such as the `bulk_update` in `bulk_delete`.
+`FeatureFlag.save()`. This command repairs the references that predate that receiver, plus any that
+a writer bypassing `save()` left behind, such as the `bulk_update` in `bulk_delete`.
 
-Only a reference whose stored id resolves to a live flag in the team's own project is rewritten. One
-naming a soft-deleted flag or a flag in another project is reported and left alone, because neither
-has a safe new key to adopt: a human has to decide whether the team still wants a recording gate at
-all. So is a bare key that names no live flag — with no id stored beside it, nothing records which
-flag it meant. A flag soft-deleted between the scan and the write is the one exception. The write
-reads each key under the team's row lock, so that team follows the flag onto its current key, which
-is the tombstone key when the soft delete freed the original for a new flag to claim.
+The command rewrites only a reference whose stored id resolves to a live flag in the team's own
+project. It reports a reference to a soft-deleted flag or to a flag in another project and leaves it
+alone, because neither has a safe new key to adopt. A human has to decide whether the team still
+wants a recording gate at all. A flag soft-deleted between the scan and the write is the one
+exception. The write reads each key under the team's row lock, so that team follows the flag onto
+its current key. That key is the tombstone key when the soft delete freed the original for a new
+flag to claim. The command also reports a bare key that names no live flag and leaves it alone,
+because with no id stored beside it, nothing records which flag it meant.
 """
 
 import json
 from collections import Counter
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from dataclasses import fields, replace
 from enum import Enum, StrEnum, auto
 from typing import Any, assert_never
@@ -35,6 +36,7 @@ from products.feature_flags.backend.session_recording_links import (
     STORES_A_REPLAY_GATE,
     ReplayGateRewrite,
     TriggerGroupFlagRef,
+    current_flag_keys,
     rewritten_linked_flag,
     rewritten_trigger_groups,
     save_replay_gate_rewrites,
@@ -134,7 +136,7 @@ class _Finding:
 
 
 def _iter_team_chunks(queryset: QuerySet[Team], chunk_size: int) -> Iterator[list[Team]]:
-    # `Team` is a wide model with several large JSONFields, and the scan reads four columns.
+    # `Team` is a wide model with several large JSONFields. The scan reads only four columns.
     base = queryset.only(
         "id", "project_id", "session_recording_linked_flag", "session_recording_trigger_groups"
     ).order_by("id")
@@ -189,7 +191,7 @@ class Command(BaseCommand):
                         repairs.append(finding)
                     elif finding.outcome != Outcome.ALREADY_CORRECT:
                         # already_correct rows need no follow-up and would dwarf the report, so
-                        # only their count is kept.
+                        # the report keeps only their count.
                         unrepairable.append(finding)
 
         report = {
@@ -221,8 +223,8 @@ class Command(BaseCommand):
 
         by_id: dict[int, _FlagRow] = {}
         if flag_ids:
-            # Soft-deleted flags included, so a reference to one is reported as such rather than as
-            # a dangling id.
+            # The query includes soft-deleted flags, so the report names a reference to one as
+            # soft-deleted rather than as a dangling id.
             rows = FeatureFlag.objects_including_soft_deleted.filter(id__in=flag_ids).values_list(
                 "id", "key", "deleted", "team__project_id"
             )
@@ -232,8 +234,8 @@ class Command(BaseCommand):
             }
 
         live_keys: set[tuple[int, str]] = set()
-        if keys and project_ids:
-            # Bounded by the keys this chunk actually names. Asking for every live key in these
+        if keys:
+            # The query asks only for the keys this chunk names. Asking for every live key in these
             # projects would pull tens of thousands of rows for a chunk spanning many of them.
             live_keys = set(
                 FeatureFlag.objects.filter(team__project_id__in=project_ids, key__in=keys).values_list(
@@ -280,8 +282,8 @@ class Command(BaseCommand):
     def _classify_linked_flag(
         self, linked_flag: Any, project_id: int, flags: _FlagIndex
     ) -> tuple[Outcome, dict[str, Any]]:
-        # Resolved by id: this column always stores one, and it names the flag the team meant even
-        # after the key has moved on.
+        # This column always stores an id, so the classification starts from it. The id names the
+        # flag the team meant even after the key has moved on.
         stored_id = stored_flag_id(linked_flag)
         if stored_id is None:
             return Outcome.MALFORMED, {}
@@ -299,7 +301,7 @@ class Command(BaseCommand):
         trigger_groups = team.session_recording_trigger_groups
         if not trigger_groups:
             # RemoteConfig ignores a falsy column and falls back to the V1 fields, so an empty one
-            # gates nothing and reporting it would only dilute the list a human has to work.
+            # gates nothing. Reporting it would only lengthen the list a human has to work through.
             return []
 
         if not trigger_groups_readable(trigger_groups):
@@ -337,8 +339,8 @@ class Command(BaseCommand):
 
         if ref.key is None:
             return Outcome.MALFORMED, resolved
-        # Key first, unlike the linked flag column: the key is what the SDK resolves, and most
-        # references are the bare string form with no id to fall back on.
+        # This checks the key first, unlike the linked flag column, because the SDK resolves the
+        # key. Most references are the bare string form and store no id to fall back on.
         if flags.resolves(project_id, ref.key):
             return Outcome.ALREADY_CORRECT, resolved
         if ref.flag_id is None:
@@ -347,25 +349,26 @@ class Command(BaseCommand):
             return blocked, resolved
 
         # Adopting the id's key moves the gate onto whatever that flag is called now, which can be
-        # a different flag than the stale key names today. The id is the stronger reference, and
-        # old_key/new_key below makes the move visible in the report.
+        # a different flag than the stale key names today. The id is the stronger reference. The
+        # old_key and new_key fields below make the move visible in the report.
         return Outcome.REPAIRED, {**resolved, "old_key": ref.key, "new_key": flags.by_id[ref.flag_id].key}
 
     def _write_repairs(self, team_id: int, findings: list[_Finding]) -> list[_Finding]:
         """Rewrite the references the scan classed as repairable, and report what the write did.
 
-        Both the stored reference and the key it should adopt are read again inside the team's row
-        lock, because `_load_flags` reads each key once per chunk and a whole page of teams can be
-        written after it. A rename landing in that window has already relinked this team, so
-        writing the key the chunk read would put back a key no flag holds, which is the failure
-        this command exists to repair. Reading inside the lock converges on the value
-        `relink_teams` writes, because that relink takes this same row lock.
+        The write reads both the stored reference and the key it should adopt again inside the
+        team's row lock, because `_load_flags` reads each key once per chunk and the command can
+        write a whole page of teams after that read. A rename that lands in that window has already
+        relinked this team. Writing the key the chunk read would then put back a key no flag holds,
+        which is the failure this command exists to repair. Reading inside the lock converges on
+        the value `relink_teams` writes, because that relink takes this same row lock.
 
-        A reference an admin has edited since the scan is left for the next run: the finding was
-        classified from a copy that is no longer what the column holds, so rewriting it would put
-        the pre-edit reference back and publish it to the SDKs. It is reported as
-        `changed_mid_scan` rather than counted correct, because the reference now stored has been
-        read against no flag key, and can be as stale as the one the scan classified.
+        The write leaves a reference that an admin edited since the scan for the next run. The scan
+        classified the finding from a copy that the column no longer holds, so rewriting it would
+        put the pre-edit reference back and publish it to the SDKs. The report files it as
+        `changed_mid_scan` rather than counting it correct, because this run has checked the newly
+        stored reference against no flag key. That reference can be as stale as the one the scan
+        classified.
         """
         repairs = [
             (index, finding, finding.flag_id)
@@ -377,12 +380,12 @@ class Command(BaseCommand):
         if not repairs:
             return findings
 
-        # `save_replay_gate_rewrites` skips `rewrite` when the team row is gone, so these stand
-        # until the lock is held.
+        # `save_replay_gate_rewrites` skips `rewrite` when the team row is gone, so these
+        # team_missing entries remain unless `rewrite` runs and replaces them.
         written = {index: finding.written(Outcome.TEAM_MISSING) for index, finding, _ in repairs}
 
         def rewrite(locked: Team) -> ReplayGateRewrite:
-            current_keys = self._current_keys(flag_id for _, _, flag_id in repairs)
+            current_keys = current_flag_keys(flag_id for _, _, flag_id in repairs)
             locked_refs = {
                 ref.group_index: ref for ref in trigger_group_flag_refs(locked.session_recording_trigger_groups)
             }
@@ -392,36 +395,30 @@ class Command(BaseCommand):
             for index, finding, flag_id in repairs:
                 current_key = current_keys.get(flag_id)
                 if current_key is None:
-                    # A hard delete landed in this window, leaving no key to adopt. Writing the one
+                    # A hard delete landed in this window and left no key to adopt. Writing the one
                     # the chunk read would store a gate the SDKs cannot resolve.
                     written[index] = finding.written(Outcome.FLAG_MISSING)
                     continue
 
-                # Only these two locations are ever classified repairable; a whole malformed
-                # trigger groups column is reported, never rewritten.
+                # The scan classifies only these two locations as repairable. It reports a whole
+                # malformed trigger groups column and never rewrites it.
                 if finding.location is Location.LINKED_FLAG:
-                    # Asked here rather than left to `rewritten_linked_flag`, which declines both
-                    # a column naming another flag and one already holding the new key. Only the
-                    # second is healthy, and collapsing them hides the edited column from the
-                    # report altogether.
-                    if stored_flag_id(locked.session_recording_linked_flag) != flag_id:
+                    locked_linked_flag = locked.session_recording_linked_flag
+                    if stored_flag_id(locked_linked_flag) != flag_id:
                         written[index] = finding.written(Outcome.CHANGED_MID_SCAN)
                         continue
-                    rewritten = rewritten_linked_flag(
-                        locked.session_recording_linked_flag, flag_id=flag_id, new_key=current_key
-                    )
-                    if rewritten is None:
-                        # Same flag, and the key is already the current one: the relink got here
-                        # first.
+                    if locked_linked_flag.get("key") == current_key:
+                        # A relink wrote the current key before this run took the lock.
                         written[index] = finding.written(Outcome.ALREADY_CORRECT)
                         continue
-                    linked_flag = rewritten
+                    linked_flag = rewritten_linked_flag(locked_linked_flag, flag_id=flag_id, new_key=current_key)
                 else:
                     ref = locked_refs.get(finding.group_index) if isinstance(finding.group_index, int) else None
-                    # Matched on the group id and the stored reference as well as the index, so a
-                    # group added, removed or reordered since the scan cannot shift a rewrite onto
-                    # its neighbour, even one holding a byte-identical reference. Neither field
-                    # stands alone: a group can store no id, and two can hold the same reference.
+                    # The match checks the group id and the stored reference as well as the index,
+                    # so a group added, removed or reordered since the scan cannot shift a rewrite
+                    # onto its neighbour. That holds even for a neighbour with a byte-identical
+                    # reference. Neither field is enough alone, because a group can store no id
+                    # and two groups can hold the same reference.
                     if ref is None or ref.group_id != finding.group_id or ref.stored_flag != finding.stored_flag:
                         written[index] = finding.written(Outcome.CHANGED_MID_SCAN)
                         continue
@@ -440,17 +437,6 @@ class Command(BaseCommand):
 
         save_replay_gate_rewrites(team_id, rewrite)
         return [written.get(index, finding) for index, finding in enumerate(findings)]
-
-    def _current_keys(self, flag_ids: Iterable[int]) -> dict[int, str]:
-        """Each flag's key as it stands right now, soft-deleted flags included.
-
-        `objects_including_soft_deleted` so a soft delete landing since the scan keeps the team on
-        the tombstone key that `_free_key_held_by_soft_deleted_flags` gives the flag. That rename
-        frees the original key for a new flag to claim, and a team left on it would gate recording
-        on a flag it never linked.
-        """
-        rows = FeatureFlag.objects_including_soft_deleted.filter(pk__in=set(flag_ids)).values_list("pk", "key")
-        return dict(rows)
 
     def _report(self, report: dict[str, Any], *, as_json: bool) -> None:
         repairs: list[_Finding] = report["repairs"]

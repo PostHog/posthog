@@ -14,7 +14,7 @@ matcher here is project-scoped.
 """
 
 from collections import defaultdict
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from typing import Any
 
 from django.db import transaction
@@ -37,8 +37,8 @@ REPLAY_GATE_DELETE_ERROR = (
     "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
 )
 
-# A team storing a recording gate in either column. Shared so a scan and a guard can't drift into
-# visiting different populations.
+# Matches a team that stores a recording gate in either column. The repair command and
+# `replay_gated_flags_for_projects` share it, so both always visit the same teams.
 STORES_A_REPLAY_GATE = Q(session_recording_linked_flag__isnull=False) | Q(
     session_recording_trigger_groups__isnull=False
 )
@@ -123,9 +123,9 @@ def trigger_group_flag_refs(trigger_groups: Any) -> list[TriggerGroupFlagRef]:
     """Every `conditions.flag` reference in a team's stored trigger groups.
 
     Empty for a column that gates on no flag and for one too malformed to read, since neither holds
-    a reference to act on; `trigger_groups_readable` separates those for the one caller that
-    reports on the stored shape. Groups carrying no `conditions.flag` yield nothing, since most gate
-    on events or URLs instead and counting them would bury the references that matter.
+    a reference to act on. `trigger_groups_readable` tells those two apart for the one caller that
+    reports on the stored shape. A group with no `conditions.flag` yields nothing. Most groups gate
+    on events or URLs instead. Counting them would hide the references that need attention.
     """
     if not trigger_groups_readable(trigger_groups):
         return []
@@ -227,6 +227,17 @@ def rewritten_linked_flag(linked_flag: Any, *, flag_id: int, new_key: str) -> di
     return {**linked_flag, "key": new_key}
 
 
+def current_flag_keys(flag_ids: Iterable[int]) -> dict[int, str]:
+    """Each flag's key as it stands right now. A flag absent from the result has been hard-deleted.
+
+    The query includes soft-deleted flags, so a team follows a soft delete onto the tombstone key
+    that `_free_key_held_by_soft_deleted_flags` gives the flag. That rename frees the original key
+    for a new flag to claim. A team left on the original key would gate recording on a flag it
+    never linked.
+    """
+    return dict(FeatureFlag.objects_including_soft_deleted.filter(pk__in=set(flag_ids)).values_list("pk", "key"))
+
+
 def rewritten_trigger_groups(trigger_groups: Any, renames: Mapping[int, str]) -> dict[str, Any] | None:
     """A team's named trigger groups with their flag keys rewritten, or None when nothing changes.
 
@@ -315,8 +326,8 @@ def relink_teams(feature_flag: FeatureFlag, *, old_key: str) -> None:
     except Exception:
         # This read runs after the rename has committed, so a fault here, such as a connection a
         # failover dropped, must not raise for the same reason a write failure below must not: it
-        # would fail a request that already succeeded. `repair_replay_linked_flag_keys` picks the
-        # linked flag column back up later.
+        # would fail a request that already succeeded. `repair_replay_linked_flag_keys` repairs
+        # the linked flag column and every trigger group that stores an id on its next run.
         logger.exception("replay_relink_lookup_failed", flag_id=feature_flag.pk)
         capture_exception()
         return
@@ -328,22 +339,17 @@ def relink_teams(feature_flag: FeatureFlag, *, old_key: str) -> None:
         # loop. Every relink holding this team's row lock reads the key at this point, so they
         # converge on the stored key instead of leaving later teams on the key this callback
         # started with. A Team API write takes no such lock and is not ordered against them.
-        # `objects_including_soft_deleted` also finds the tombstone that
-        # `_free_key_held_by_soft_deleted_flags` renames.
-        new_key = (
-            FeatureFlag.objects_including_soft_deleted.filter(pk=feature_flag.pk).values_list("key", flat=True).first()
-        )
+        new_key = current_flag_keys([feature_flag.pk]).get(feature_flag.pk)
         if new_key is None:
             # The row is gone entirely, not just soft-deleted, so there is no key to point this
             # team at. `repair_replay_linked_flag_keys` reports it as flag_missing on its next run.
             return ReplayGateRewrite()
         trigger_groups = team.session_recording_trigger_groups
         # Matched by id as well as by key, because `teams_gating_replay_on_flag` also selects a
-        # team whose group names this flag by id while holding a key the flag no longer has. The
-        # rename is the last moment that stored id still resolves to a key.
-        # `repair_replay_linked_flag_keys` does not read trigger groups, so a group skipped here
-        # keeps the stale key for good. A bare string reference carries no id, so it still moves
-        # on its key alone.
+        # team whose group names this flag by id while holding a key the flag no longer has. A
+        # bare string reference carries no id, so it moves on its key alone. A bare key skipped
+        # here keeps the stale key for good, because `repair_replay_linked_flag_keys` repairs only
+        # a group that stores an id.
         moving = {
             ref.group_index: new_key
             for ref in trigger_group_flag_refs(trigger_groups)
@@ -361,8 +367,9 @@ def relink_teams(feature_flag: FeatureFlag, *, old_key: str) -> None:
             save_replay_gate_rewrites(team_id, rewrite)
         except Exception:
             # This runs after the rename has committed, so raising would fail a request that
-            # already succeeded. `repair_replay_linked_flag_keys` picks the linked flag column back
-            # up later. It does not read trigger groups, so a group left here stays stale.
+            # already succeeded. `repair_replay_linked_flag_keys` repairs the linked flag column
+            # and every trigger group that stores an id on its next run. A bare key left here
+            # stays stale.
             logger.exception("replay_relink_failed", flag_id=feature_flag.pk, team_id=team_id)
             capture_exception()
 
