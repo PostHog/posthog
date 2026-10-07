@@ -82,6 +82,12 @@ REPLAY_VISION_TOOL_ROUNDS = Histogram(
     buckets=_TOOL_CALLS_PER_ROUND_BUCKETS,
 )
 
+REPLAY_VISION_LOOKUP_PLANS = Counter(
+    "replay_vision_lookup_plans_total",
+    "Lookup round outcomes per scan: planned, empty, or failed (the step answered without lookups)",
+    ["scanner_type", "model", "outcome"],
+)
+
 REPLAY_VISION_NETWORK_STATE = Counter(
     "replay_vision_network_state_total",
     "How each scan described network data to the model: available, clean, or none",
@@ -256,6 +262,12 @@ def record_tool_round(scanner_type: str, model: str, calls: int) -> None:
     labels = {"scanner_type": scanner_type, "model": model}
     REPLAY_VISION_TOOL_ROUNDS.labels(**labels).observe(calls)
     _otel.record_histogram_twin(REPLAY_VISION_TOOL_ROUNDS, calls, labels)
+
+
+def record_lookup_plan(scanner_type: str, model: str, outcome: str) -> None:
+    labels = {"scanner_type": scanner_type, "model": model, "outcome": outcome}
+    REPLAY_VISION_LOOKUP_PLANS.labels(**labels).inc()
+    _otel.record_counter_twin(REPLAY_VISION_LOOKUP_PLANS, 1, labels)
 
 
 def record_network_state(scanner_type: str, state: str) -> None:

@@ -79,7 +79,7 @@ class _FakeClient:
 async def _run(
     client: _FakeClient,
     steps: list[MissionStep],
-    look_up: Callable[[LookupPlan], list[dict[str, Any]]] = lambda plan: [],
+    look_up: Callable[[LookupPlan | None], list[dict[str, Any]]] = lambda plan: [],
     cache_name=None,
 ):
     return await _run_steps(
@@ -173,9 +173,9 @@ async def test_later_step_sees_the_earlier_answer() -> None:
 async def test_lookup_round_answers_the_whole_plan_in_one_turn_on_the_cache() -> None:
     # The answer turn has to stay on the cached prefix: an inline turn re-sends the whole video at full price.
     plan = LookupPlan(lookups=[Lookup(source="events", vid_t=12), Lookup(source="network", vid_t=40, window_s=5)])
-    planned: list[LookupPlan] = []
+    planned: list[LookupPlan | None] = []
 
-    def look_up(received: LookupPlan) -> list[dict[str, Any]]:
+    def look_up(received: LookupPlan | None) -> list[dict[str, Any]]:
         planned.append(received)
         return [{"source": "events", "vid_t": 12, "window_s": 30, "events": [{"event": "$rageclick"}]}]
 
@@ -199,7 +199,7 @@ async def test_a_failed_lookup_plan_answers_the_step_without_lookups() -> None:
     out = await _run(client, steps, look_up=look_up)
 
     assert out["core"].verdict == "yes"
-    look_up.assert_not_called()
+    look_up.assert_called_once_with(None)
     assert [getattr(item, "text", item) for item in client.models.calls[-1]["contents"]] == ["VIDEO", "PRE", "do core"]
 
 

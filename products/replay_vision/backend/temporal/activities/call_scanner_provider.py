@@ -54,6 +54,7 @@ from products.replay_vision.backend.temporal.lookups import (
 )
 from products.replay_vision.backend.temporal.metrics import (
     record_events_tool_call,
+    record_lookup_plan,
     record_mission_pass,
     record_network_state,
     record_network_tool_call,
@@ -628,7 +629,11 @@ async def _run_mission(
     scanner_type = snapshot.scanner_type.value
     record_network_state(scanner_type, network_index.state())
 
-    def look_up(plan: LookupPlan) -> list[dict[str, Any]]:
+    def look_up(plan: LookupPlan | None) -> list[dict[str, Any]]:
+        if plan is None:
+            record_lookup_plan(scanner_type, snapshot.model, "failed")
+            return []
+        record_lookup_plan(scanner_type, snapshot.model, "planned" if plan.lookups else "empty")
         if plan.lookups:
             record_tool_round(scanner_type, snapshot.model, len(plan.lookups))
         for lookup in plan.lookups:
@@ -643,7 +648,10 @@ async def _run_mission(
     for step in scanner.mission_steps():
         if step.name == STEP_CORE:
             step = replace(
-                step, plan_instruction=render_plan_instruction(step.instruction, network_available=network_available)
+                step,
+                plan_instruction=render_plan_instruction(
+                    step.instruction, network_available=network_available, emits_signals=scanner.emits_signals
+                ),
             )
         elif step.name == STEP_SIGNALS:
             step = replace(
@@ -751,7 +759,7 @@ async def _run_steps(
     team_id: int,
     metric_labels: dict[str, str],
     trace_id: str,
-    look_up: Callable[[LookupPlan], list[dict[str, Any]]],
+    look_up: Callable[[LookupPlan | None], list[dict[str, Any]]],
 ) -> dict[str, BaseModel]:
     """Run the ordered steps over one growing conversation; return the validated output keyed by step name."""
     # The video + preamble lead the conversation inline unless they're already cached as the prefix.
@@ -800,27 +808,29 @@ async def _run_lookup_round(
     step: MissionStep,
     plan_instruction: str,
     convo: list[Any],
-    look_up: Callable[[LookupPlan], list[dict[str, Any]]],
+    look_up: Callable[[LookupPlan | None], list[dict[str, Any]]],
 ) -> str:
     """Ask the model which moments to look up for `step`, answer them, and return the instruction for `step`'s turn.
 
-    A failed plan costs the lookups, not the scan: the conversation rolls back and `step` runs without them.
+    A plan that fails validation costs the lookups, not the scan: the conversation rolls back and `step` runs
+    without them. A provider error propagates, because the answer turn would send the same request.
     """
     plan_step = MissionStep(name=STEP_LOOKUPS, instruction=plan_instruction, response_model=LookupPlan)
     checkpoint = len(convo)
     convo.append(types.Part(text=plan_step.instruction))
-    try:
-        result = await run_step(step=plan_step, convo=convo)
-    except Exception as exc:
-        if classify_gemini_error(exc) is FailureKind.PROVIDER_TRANSIENT:
-            # The answer turn would hit the same outage, so let the activity retry own it.
-            raise
-        logger.warning("replay_vision.call_scanner_provider.lookup_plan_failed", error=str(exc))
-        result = _StepResult(output=None)
+    result = await run_step(step=plan_step, convo=convo)
     if not isinstance(result.output, LookupPlan):
+        logger.warning("replay_vision.call_scanner_provider.lookup_plan_failed", step=step.name)
+        look_up(None)
         del convo[checkpoint:]
         return step.instruction
-    return render_lookup_results(look_up(result.output))
+    try:
+        results = look_up(result.output)
+    except Exception:
+        # A bug in our lookup code must not cost the provider calls already paid for.
+        logger.exception("replay_vision.call_scanner_provider.lookups_failed", step=step.name)
+        results = []
+    return render_lookup_results(results)
 
 
 def _exhausted_step_error(step: MissionStep, result: "_StepResult") -> ScannerFailureError:

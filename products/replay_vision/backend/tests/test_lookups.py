@@ -24,7 +24,7 @@ def test_overlapping_lookups_return_each_event_once() -> None:
     first, second, network = run_lookups(plan, events_index=_INDEX, network_index=_NO_NETWORK)
     assert [event["event"] for event in first["events"]] == ["e10", "e20"]
     assert [event["event"] for event in second["events"]] == ["e30"]
-    assert network == {"requests": []}
+    assert network == {"source": "network", "vid_t": 25, "window_s": 30, "requests": []}
 
 
 def test_a_plan_past_the_cap_is_cut_rather_than_rejected() -> None:
