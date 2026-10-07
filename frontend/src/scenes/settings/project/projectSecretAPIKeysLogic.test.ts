@@ -22,13 +22,12 @@ describe('projectSecretAPIKeysLogic', () => {
         logic.mount()
     })
 
-    it('offers no llm_gateway scope or preset', () => {
-        const scopeKeys = logic.values.filteredScopes.map(({ key }) => key)
+    it('offers the llm_gateway scope read-only, labelled "AI gateway", with its preset', () => {
+        const gatewayScope = logic.values.filteredScopes.find(({ key }) => key === 'llm_gateway')
         const presetValues = PROJECT_SECRET_API_KEY_SCOPE_PRESETS.map(({ value }) => value)
 
-        expect(scopeKeys).not.toContain('llm_gateway')
-        expect(presetValues).not.toContain('llm_gateway')
-        expect(scopeKeys).toContain('endpoint')
-        expect(presetValues).toContain('endpoint_execution')
+        expect(gatewayScope?.label).toBe('AI gateway')
+        expect(gatewayScope?.disabledActions).toEqual(['write'])
+        expect(presetValues).toContain('llm_gateway')
     })
 })

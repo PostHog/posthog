@@ -134,35 +134,16 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert response.status_code == 400
         assert "Invalid scope" in response.json()["detail"]
 
-    def test_create_llm_gateway_scope_rejected(self):
+    def test_create_llm_gateway_scope(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
             {"label": "my key", "scopes": ["llm_gateway:read"]},
         )
-        assert response.status_code == 400, response.json()
-        assert "Scope 'llm_gateway:read' can not be assigned" in response.json()["detail"]
-
-    def test_update_keeps_existing_llm_gateway_scope(self):
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="existing",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["llm_gateway:read"],
-            created_by=self.user,
-        )
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
-            {"label": "renamed", "scopes": ["llm_gateway:read"]},
-        )
-        assert response.status_code == 200
-        assert response.json()["label"] == "renamed"
+        assert response.status_code == 201, response.json()
         assert response.json()["scopes"] == ["llm_gateway:read"]
 
-    @parameterized.expand(
-        [("other_scope", ["endpoint:read"]), ("null_scopes", None), ("gateway_write_only", ["llm_gateway:write"])]
-    )
-    def test_update_adding_llm_gateway_scope_rejected(self, _name, existing_scopes):
+    @parameterized.expand([("other_scope", ["endpoint:read"]), ("null_scopes", None)])
+    def test_update_adding_llm_gateway_scope(self, _name, existing_scopes):
         key = ProjectSecretAPIKey.objects.create(
             team=self.team,
             label="existing",
@@ -173,10 +154,18 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
-            {"scopes": ["llm_gateway:read"]},
+            {"scopes": [*(existing_scopes or []), "llm_gateway:read"]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["scopes"] == [*(existing_scopes or []), "llm_gateway:read"]
+
+    def test_llm_gateway_write_scope_rejected(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "my key", "scopes": ["llm_gateway:write"]},
         )
         assert response.status_code == 400
-        assert "Scope 'llm_gateway:read' can not be assigned" in response.json()["detail"]
+        assert "Scope 'llm_gateway:write' can not be assigned" in response.json()["detail"]
 
     def test_update_label(self):
         create_response = self.client.post(
