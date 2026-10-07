@@ -1,6 +1,6 @@
 import json
-from collections.abc import Iterator
-from typing import Any
+from collections.abc import Iterable, Iterator
+from typing import Any, cast
 
 import pytest
 import time_machine
@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.arcade.set
 from products.warehouse_sources.backend.temporal.data_imports.sources.arcade.source import ArcadeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.arcade import ArcadeSourceConfig
 
 
@@ -67,6 +68,10 @@ def body(request: PreparedRequest) -> dict[str, Any]:
     return json.loads(request.body)
 
 
+def sync_items(source: SourceResponse) -> Iterable[list[dict[str, Any]]]:
+    return cast(Iterable[list[dict[str, Any]]], source.items())
+
+
 @pytest.mark.parametrize("resume_page", [None, 3])
 def test_flow_pages_and_resume(
     config: ArcadeSourceConfig, manager: MagicMock, transport: MagicMock, resume_page: int | None
@@ -83,7 +88,7 @@ def test_flow_pages_and_resume(
     ]
     source = arcade_source(config, "flow_engagement", 1, "job-example", manager)
     with activate_safe_point(lambda: None, covers_framework_checkpoints=True):
-        pages = iter(source.items())
+        pages = iter(sync_items(source))
         first = next(pages)
         assert manager.save_state.call_args.args[0].page == (resume_page or 1) + 1
         remaining = list(pages)
@@ -138,7 +143,7 @@ def test_single_page_tables(
 ) -> None:
     transport.return_value = response(payload)
     source = arcade_source(config, name, 1, "job-example", manager)
-    assert [row for page in source.items() for row in page] == expected_rows
+    assert [row for page in sync_items(source) for row in page] == expected_rows
     transport.assert_called_once()
     request = transport.call_args.args[0]
     assert request.method == method
@@ -156,7 +161,7 @@ def test_completed_resume_does_not_repeat_rows(
     manager.load_state.return_value = ArcadeResumeConfig(
         page=1, period_start="2025-01-01T00:00:00+00:00", period_end="2025-01-31T00:00:00+00:00", completed=True
     )
-    assert list(arcade_source(config, name, 1, "job-example", manager).items()) == []
+    assert list(sync_items(arcade_source(config, name, 1, "job-example", manager))) == []
     transport.assert_not_called()
 
 
@@ -178,7 +183,7 @@ def test_auth_error_mapping(
     assert validate_credentials(config, 1, "teams") == (False, message)
     transport.assert_called_once()
     with pytest.raises(ValueError) as raised:
-        list(arcade_source(config, "teams", 1, "job-example", manager).items())
+        list(sync_items(arcade_source(config, "teams", 1, "job-example", manager)))
     assert str(raised.value) == message
     assert ArcadeSource().get_non_retryable_errors()[str(raised.value)] == message
     assert transport.call_count == 2
@@ -197,7 +202,7 @@ def test_transient_errors_retry(
     config: ArcadeSourceConfig, manager: MagicMock, transport: MagicMock, status: int
 ) -> None:
     transport.side_effect = [response({"error": "Temporary failure"}, status), response({"teams": []})]
-    assert list(arcade_source(config, "teams", 1, "job-example", manager).items()) == []
+    assert list(sync_items(arcade_source(config, "teams", 1, "job-example", manager))) == []
     assert transport.call_count == 2
 
 
@@ -231,5 +236,5 @@ def test_missing_list_fails_instead_of_deleting_rows(
 ) -> None:
     transport.return_value = response({"unexpected": []})
     with pytest.raises(ValueError):
-        list(arcade_source(config, "teams", 1, "job-example", manager).items())
+        list(sync_items(arcade_source(config, "teams", 1, "job-example", manager)))
     manager.save_state.assert_not_called()

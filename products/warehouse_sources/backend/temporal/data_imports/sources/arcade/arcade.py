@@ -88,9 +88,10 @@ def get_resource(
     }
     if definition.insight_type:
         endpoint["method"] = "POST"
-        endpoint["json"] = {"type": definition.insight_type, "teamId": config.team_id}
+        payload: dict[str, Any] = {"type": definition.insight_type, "teamId": config.team_id}
+        endpoint["json"] = payload
         if name == "flow_engagement":
-            endpoint["json"].update({"from": period_start, "to": period_end, "size": 1 if probe else PAGE_SIZE})
+            payload.update({"from": period_start, "to": period_end, "size": 1 if probe else PAGE_SIZE})
             endpoint["paginator"] = cast(
                 PaginatorConfig,
                 {
