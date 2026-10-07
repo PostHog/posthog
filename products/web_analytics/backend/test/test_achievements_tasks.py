@@ -183,11 +183,29 @@ class TestRecomputeTask(BaseTest):
             with patch.object(tasks, "create_notification") as mock_notify:
                 with self.captureOnCommitCallbacks(execute=True):
                     self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
+                first_computed_at = self._progress("loyalty").last_computed_at
                 with self.captureOnCommitCallbacks(execute=True):
                     self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
         progress = self._progress("loyalty")
         self.assertEqual(progress.state["pending_celebrations"], [1])
         self.assertEqual(mock_notify.call_count, 1)
+        self.assertEqual(progress.last_computed_at, first_computed_at)
+
+    def test_unchanged_streak_value_still_records_new_visit_date(self) -> None:
+        today = timezone.now().date()
+        WebAnalyticsVisit(team=self.team, user=self.user, visit_date=today).save()
+        WebAnalyticsAchievementProgress(
+            team=self.team,
+            user=self.user,
+            track_key="streak",
+            current_stage=0,
+            progress_value=0,
+            state={"streak": {"last_visit_date": (today - timedelta(days=1)).isoformat()}},
+            last_computed_at=timezone.now() - timedelta(days=1),
+        ).save()
+
+        self._run_user(make_evaluators())
+        self.assertEqual(self._progress("streak").state["streak"]["last_visit_date"], today.isoformat())
 
     def test_recompute_does_not_resurrect_concurrent_ack(self) -> None:
         yesterday = timezone.now() - timedelta(days=1)
