@@ -4399,6 +4399,19 @@ Diffed against: <https://instatus.com/help/api>
 
 Note: Existing 'team' table maps to the teammates endpoint (GET /v1/{page_id}/team) and 'pages' to GET /v2/pages, so those are covered. Metric data points are POST/DELETE only — there is no GET for metric datapoints, so metric time series is not fetchable. escalation-policies, monitors, on-call-schedules, routing-rules and monitoring-integrations doc pages expose no GET list endpoints.
 
+## Intercom — gaps
+
+Today (25): `activity_logs`, `admins`, `articles`, `audiences`, `collections`, `companies`, `company_attributes`, `company_segments`, `contact_attributes`, `contacts`, `content_snippets`, `conversation_attributes`, `conversation_parts`, `conversations`, `help_centers`, `macros`, `news_items`, `newsfeeds`, `segments`, `subscription_types`, `tags`, `teams`, `ticket_states`, `ticket_types`, `tickets`
+
+Diffed against: <https://github.com/intercom/Intercom-OpenAPI/blob/main/descriptions/2.16/api.intercom.io.yaml>
+
+The main spec-verified diff is in [COVERAGE_GAPS.md](COVERAGE_GAPS.md#intercom--spec-verified). These endpoints were announced in the 2.16 changelog and are not in the 2.13 or 2.15 descriptions, so the tables only show for sources pinned to 2.16.
+
+- [x] `GET /conversations/attributes` — conversation attribute definitions with list options, which decode the custom attribute values on `conversations` (medium). Added as `conversation_attributes`, including archived attributes.
+- [x] `GET /macros` — saved replies teammates use in the inbox (medium). Added as `macros`, incremental on `updated_at` through the `updated_since` filter.
+- [x] `GET /audiences` — saved audience definitions that content and messages target (low). Added as `audiences`.
+- [x] `GET /content_snippets` — snippets that feed Fin and Copilot answers (medium). Added as `content_snippets`.
+
 ## Intruder — adequate
 
 Today (7): `fixed_occurrences`, `issues`, `occurrences`, `scan_schedules`, `scans`, `tags`, `targets`
@@ -4716,11 +4729,11 @@ Today (18): `customers`, `inventory`, `inventory_movements`, `locations`, `manuf
 
 Diffed against: <https://api.katanamrp.com/v1/openapi.json>
 
-- [ ] `sales_order_rows` — line items behind sales_orders — required for any revenue-by-product or product-mix analysis (high)
-- [ ] `purchase_order_rows` — line items behind purchase_orders, with quantities and purchase prices (high)
+- [x] `sales_order_rows` — line items behind sales_orders — required for any revenue-by-product or product-mix analysis (high)
+- [x] `purchase_order_rows` — line items behind purchase_orders, with quantities and purchase prices (high)
 - [ ] `bom_rows` — bill-of-materials linking products/variants to the materials they consume (high)
-- [ ] `manufacturing_order_recipe_rows` — actual ingredient consumption per manufacturing order — yield and material-variance analysis (high)
-- [ ] `manufacturing_order_productions` — completed production output per manufacturing order; manufacturing_orders alone only carries planned state (high)
+- [x] `manufacturing_order_recipe_rows` — actual ingredient consumption per manufacturing order — yield and material-variance analysis (high)
+- [x] `manufacturing_order_productions` — completed production output per manufacturing order; manufacturing_orders alone only carries planned state (high)
 - [ ] `sales_order_fulfillments` — shipment/fulfillment records — the transition from order to delivered (high)
 - [ ] `sales_return_rows` — line items behind sales_returns, needed to attribute returns to products (medium)
 - [ ] `manufacturing_order_operation_rows` — per-operation timings and assigned operators, for throughput and labor cost (medium)
@@ -6497,6 +6510,15 @@ Diffed against: <https://raw.githubusercontent.com/PaystackOSS/openapi/main/dist
 
 Note: paystack.com/docs/api is behind Cloudflare (403 to curl), so I used the vendor's own published OpenAPI repo PaystackOSS/openapi (dist/paystack.yaml, 125 paths). Coverage of the classic payments objects is good; the gaps are ledger/reconciliation and commerce.
 
+## PeecAI — gaps
+
+Today (9): `actions`, `archived_prompts`, `brands`, `chats`, `model_channels`, `prompts`, `tag_groups`, `tags`, `topics`
+
+Diffed against: <https://api.peec.ai/customer/v1/openapi/json>
+
+- [x] `/actions/list` — Peec-generated and customer-written actions per project, with status, impact and assignee (high)
+- [x] `/tag-groups` — lookup resolving the user-defined `group` values on the tags we already sync, with their shared color (low)
+
 ## Pendo — **thin**
 
 Today (5): `accounts`, `features`, `guides`, `pages`, `visitors`
@@ -6836,6 +6858,17 @@ Diffed against: <https://docs.useplunk.com/openapi.json>
 No material gaps found.
 
 Note: The entire published Plunk API is seven operations: four listable collections (contacts, campaigns, templates, segments) plus three write-only actions (POST /v1/send, POST /v1/track, POST /v1/verify). PostHog already exposes all four listable collections, so there is nothing left to sync. Workflows and events are documented as product concepts but have no REST endpoints in the spec or in the API reference section of https://docs.useplunk.com/llms.txt.
+
+## Polymarket — gaps
+
+Today (5): `biggest_winners`, `events`, `markets`, `series`, `tags`
+
+Diffed against: <https://data-api.polymarket.com/v2/openapi.json>
+
+- [x] `/v2/biggest-winners` — the all-time board of the biggest single winning positions (medium)
+- [ ] `/v2/resolutions` — resolution lifecycle state per market (low)
+
+Note: `/v2/resolutions` only looks up up to 20 condition or event ids per call and has no list mode, so syncing it as a table means fanning out across the whole Gamma event catalog on every full refresh. The markets table already carries each market's resolution status.
 
 ## PrefectCloud — gaps
 
