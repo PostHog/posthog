@@ -15,7 +15,6 @@ from typing import Any, Literal
 from products.replay_vision.backend.temporal.network_capture import NetworkRequest, SessionNetworkPayload
 from products.replay_vision.backend.temporal.video_clock import VideoClock
 
-_DEFAULT_WINDOW_S = 10
 _MAX_WINDOW_S = 60
 _MAX_REQUESTS_RETURNED = 20
 
@@ -102,7 +101,7 @@ def _as_tool_dict(request: NetworkRequest, offset_s: int) -> dict[str, Any]:
     return entry
 
 
-def get_network_around(index: NetworkIndex, vid_t: int, window_s: int = _DEFAULT_WINDOW_S) -> dict[str, Any]:
+def get_network_around(index: NetworkIndex, vid_t: int, window_s: int) -> dict[str, Any]:
     """Return the captured requests within ±`window_s` seconds of `vid_t`, chronological and capped."""
     vid_t = max(0, vid_t)
     window_s = max(1, min(window_s, _MAX_WINDOW_S))
@@ -118,6 +117,4 @@ def get_network_around(index: NetworkIndex, vid_t: int, window_s: int = _DEFAULT
     result: dict[str, Any] = {"requests": window}
     if index.truncated or index.partial:
         result["note"] = "Some of this session's requests could not be read, so this window may be incomplete."
-    elif not window:
-        result["note"] = "No failed or slow requests in this window. Requests that succeeded quickly are not recorded."
     return result

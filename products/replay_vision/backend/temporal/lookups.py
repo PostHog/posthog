@@ -9,12 +9,12 @@ round, and it keeps the cached prefix free of tools, so no turn ever has to fall
 import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from products.replay_vision.backend.temporal.events_tool import EventsIndex, get_events_around
 from products.replay_vision.backend.temporal.network_tool import NetworkIndex, get_network_around
+from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
 
-# Extra lookups are dropped rather than rejected, because a re-prompt would cost more than the lookups it saves.
 MAX_LOOKUPS = 8
 DEFAULT_LOOKUP_WINDOW_S = 30
 MAX_LOOKUP_WINDOW_S = 60
@@ -42,25 +42,40 @@ class LookupPlan(BaseModel, frozen=True):
         description=f"Every lookup you want, at most {MAX_LOOKUPS}. Empty when the video alone settles the answer.",
     )
 
+    @field_validator("lookups", mode="after")
+    @classmethod
+    def _drop_past_the_cap(cls, value: list[Lookup]) -> list[Lookup]:
+        # Extra lookups are dropped rather than rejected, because a re-prompt would cost more than they save.
+        return value[:MAX_LOOKUPS]
+
+
+def render_plan_instruction(task_instruction: str, *, network_available: bool) -> str:
+    """The plan turn's instruction: the task first, so the model plans against what it must answer."""
+    lookups_instruction = render_prompt(
+        "lookups_step.jinja",
+        network_available=network_available,
+        max_lookups=MAX_LOOKUPS,
+        default_window_s=DEFAULT_LOOKUP_WINDOW_S,
+        max_window_s=MAX_LOOKUP_WINDOW_S,
+    )
+    return f"{task_instruction}\n\n{lookups_instruction}"
+
 
 def run_lookups(plan: LookupPlan, *, events_index: EventsIndex, network_index: NetworkIndex) -> list[dict[str, Any]]:
-    """Answer each planned lookup, leaving out any event or request an earlier lookup in the plan already returned.
+    """Answer each planned lookup in plan order, leaving out any row an earlier lookup in the plan already returned.
 
     Wide windows overlap often, and a repeated row costs uncached input tokens on this turn and every later one.
     """
     seen: set[int] = set()
     results: list[dict[str, Any]] = []
-    for lookup in plan.lookups[:MAX_LOOKUPS]:
-        window_s = max(1, min(lookup.window_s, MAX_LOOKUP_WINDOW_S))
-        result: dict[str, Any] = {"source": lookup.source, "vid_t": lookup.vid_t, "window_s": window_s}
+    for lookup in plan.lookups:
         if lookup.source == "events":
-            result["events"] = _unseen(get_events_around(events_index, lookup.vid_t, window_s), seen)
+            results.append({"events": _unseen(get_events_around(events_index, lookup.vid_t, lookup.window_s), seen)})
         elif network_index.has_requests():
-            found = get_network_around(network_index, lookup.vid_t, window_s)
-            result.update(found, requests=_unseen(found["requests"], seen))
+            found = get_network_around(network_index, lookup.vid_t, lookup.window_s)
+            results.append({**found, "requests": _unseen(found["requests"], seen)})
         else:
-            result["note"] = "This recording has no failed or slow network requests to look up."
-        results.append(result)
+            results.append({"requests": []})
     return results
 
 
@@ -79,7 +94,7 @@ def render_lookup_results(results: list[dict[str, Any]]) -> str:
     if not results:
         return f"You asked for no lookups, so answer from the video and the context above. {_ANSWER_NOW}"
     # Escaping `<` keeps a recorded URL or exception value from closing the block early.
-    payload = json.dumps(results, ensure_ascii=False, default=str).replace("<", "\\u003c")
+    payload = json.dumps(results, ensure_ascii=False, separators=(",", ":"), default=str).replace("<", "\\u003c")
     return (
         "<lookup_results>\n"
         "The results of your lookups, in the order you asked for them. A row an earlier lookup already returned "

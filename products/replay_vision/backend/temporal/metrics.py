@@ -73,11 +73,11 @@ REPLAY_VISION_NETWORK_TOOL_CALLS = Counter(
 )
 
 # A scan has one lookup round, so this is the size of the model's lookup plan when the plan asks for anything.
-_TOOL_CALLS_PER_ROUND_BUCKETS = (1, 2, 3, 4, 5, 6, 8, 10, 15)
+_TOOL_CALLS_PER_ROUND_BUCKETS = (1, 2, 3, 4, 5, 6, 7, 8)
 
 REPLAY_VISION_TOOL_ROUNDS = Histogram(
     "replay_vision_tool_calls_per_round",
-    "Lookups the scanner model asked for in one provider turn",
+    "Lookups in the scan's lookup plan, recorded when the plan asks for any",
     ["scanner_type", "model"],
     buckets=_TOOL_CALLS_PER_ROUND_BUCKETS,
 )

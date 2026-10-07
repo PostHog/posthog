@@ -14,10 +14,10 @@ import asyncio
 import functools
 import dataclasses
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar
 from uuid import UUID, uuid4
 
 from django.utils import timezone
@@ -46,7 +46,12 @@ from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import build_events_index
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
-from products.replay_vision.backend.temporal.lookups import MAX_LOOKUPS, LookupPlan, render_lookup_results, run_lookups
+from products.replay_vision.backend.temporal.lookups import (
+    LookupPlan,
+    render_lookup_results,
+    render_plan_instruction,
+    run_lookups,
+)
 from products.replay_vision.backend.temporal.metrics import (
     record_events_tool_call,
     record_mission_pass,
@@ -624,27 +629,27 @@ async def _run_mission(
     record_network_state(scanner_type, network_index.state())
 
     def look_up(plan: LookupPlan) -> list[dict[str, Any]]:
-        lookups = plan.lookups[:MAX_LOOKUPS]
-        if lookups:
-            record_tool_round(scanner_type, snapshot.model, len(lookups))
-        for lookup in lookups:
+        if plan.lookups:
+            record_tool_round(scanner_type, snapshot.model, len(plan.lookups))
+        for lookup in plan.lookups:
             record = record_network_tool_call if lookup.source == "network" else record_events_tool_call
             record(scanner_type, snapshot.model)
         return run_lookups(plan, events_index=events_index, network_index=network_index)
 
     cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text)
-    steps = [
-        replace(
-            step,
-            validate=functools.partial(
-                _validate_signal_timestamps,
-                duration_seconds=video_clock.citable_duration_s(llm_inputs.metadata.duration_seconds),
-            ),
-        )
-        if step.name == STEP_SIGNALS
-        else step
-        for step in scanner.mission_steps()
-    ]
+    signal_duration_s = video_clock.citable_duration_s(llm_inputs.metadata.duration_seconds)
+    network_available = network_index.has_requests()
+    steps: list[MissionStep] = []
+    for step in scanner.mission_steps():
+        if step.name == STEP_CORE:
+            step = replace(
+                step, plan_instruction=render_plan_instruction(step.instruction, network_available=network_available)
+            )
+        elif step.name == STEP_SIGNALS:
+            step = replace(
+                step, validate=functools.partial(_validate_signal_timestamps, duration_seconds=signal_duration_s)
+            )
+        steps.append(step)
 
     run = functools.partial(
         _run_steps,
@@ -656,7 +661,6 @@ async def _run_mission(
         team_id=team_id,
         metric_labels=metric_labels,
         trace_id=trace_id,
-        lookups_instruction=scanner.lookups_instruction(network_available=network_index.has_requests()),
         look_up=look_up,
     )
     try:
@@ -747,7 +751,6 @@ async def _run_steps(
     team_id: int,
     metric_labels: dict[str, str],
     trace_id: str,
-    lookups_instruction: str,
     look_up: Callable[[LookupPlan], list[dict[str, Any]]],
 ) -> dict[str, BaseModel]:
     """Run the ordered steps over one growing conversation; return the validated output keyed by step name."""
@@ -767,9 +770,9 @@ async def _run_steps(
         checkpoint = len(convo)
         try:
             instruction = step.instruction
-            if step.plan_lookups:
+            if step.plan_instruction:
                 instruction = await _run_lookup_round(
-                    run_step, step=step, convo=convo, lookups_instruction=lookups_instruction, look_up=look_up
+                    run_step, step=step, plan_instruction=step.plan_instruction, convo=convo, look_up=look_up
                 )
             convo.append(types.Part(text=instruction))
             result = await run_step(step=step, convo=convo)
@@ -792,24 +795,18 @@ async def _run_steps(
 
 
 async def _run_lookup_round(
-    run_step: Callable[..., Any],
+    run_step: Callable[..., Awaitable["_StepResult"]],
     *,
     step: MissionStep,
+    plan_instruction: str,
     convo: list[Any],
-    lookups_instruction: str,
     look_up: Callable[[LookupPlan], list[dict[str, Any]]],
 ) -> str:
     """Ask the model which moments to look up for `step`, answer them, and return the instruction for `step`'s turn.
 
-    The plan turn carries `step`'s own instruction, so the model plans against the task it is about to answer.
     A failed plan costs the lookups, not the scan: the conversation rolls back and `step` runs without them.
     """
-    plan_step = MissionStep(
-        name=STEP_LOOKUPS,
-        instruction=f"{step.instruction}\n\n{lookups_instruction}",
-        response_model=LookupPlan,
-        required=False,
-    )
+    plan_step = MissionStep(name=STEP_LOOKUPS, instruction=plan_instruction, response_model=LookupPlan)
     checkpoint = len(convo)
     convo.append(types.Part(text=plan_step.instruction))
     try:
@@ -820,10 +817,10 @@ async def _run_lookup_round(
             raise
         logger.warning("replay_vision.call_scanner_provider.lookup_plan_failed", error=str(exc))
         result = _StepResult(output=None)
-    if result.output is None:
+    if not isinstance(result.output, LookupPlan):
         del convo[checkpoint:]
         return step.instruction
-    return render_lookup_results(look_up(cast(LookupPlan, result.output)))
+    return render_lookup_results(look_up(result.output))
 
 
 def _exhausted_step_error(step: MissionStep, result: "_StepResult") -> ScannerFailureError:

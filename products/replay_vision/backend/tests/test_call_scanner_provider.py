@@ -92,7 +92,6 @@ async def _run(
         team_id=1,
         metric_labels=_LABELS,
         trace_id="trace-1",
-        lookups_instruction="PLAN",
         look_up=look_up,
     )
 
@@ -180,7 +179,7 @@ async def test_lookup_round_answers_the_whole_plan_in_one_turn_on_the_cache() ->
         planned.append(received)
         return [{"source": "events", "vid_t": 12, "window_s": 30, "events": [{"event": "$rageclick"}]}]
 
-    steps = [MissionStep(name="core", instruction="do core", response_model=_Core, plan_lookups=True)]
+    steps = [MissionStep(name="core", instruction="do core", response_model=_Core, plan_instruction="plan core")]
     client = _FakeClient([_Resp(text=plan.model_dump_json()), _Resp(text='{"verdict":"yes"}')])
     out = await _run(client, steps, look_up=look_up, cache_name="caches/abc")
 
@@ -188,14 +187,14 @@ async def test_lookup_round_answers_the_whole_plan_in_one_turn_on_the_cache() ->
     assert planned == [plan]
     plan_turn, answer_turn = client.models.calls
     assert [call["config"].cached_content for call in client.models.calls] == ["caches/abc", "caches/abc"]
-    assert plan_turn["contents"][-1].text.startswith("do core")
+    assert plan_turn["contents"][-1].text == "plan core"
     assert "$rageclick" in answer_turn["contents"][-1].text
 
 
 @pytest.mark.asyncio
 async def test_a_failed_lookup_plan_answers_the_step_without_lookups() -> None:
     look_up = MagicMock(return_value=[])
-    steps = [MissionStep(name="core", instruction="do core", response_model=_Core, plan_lookups=True)]
+    steps = [MissionStep(name="core", instruction="do core", response_model=_Core, plan_instruction="plan core")]
     client = _FakeClient([_Resp(text="bad"), _Resp(text="still bad"), _Resp(text='{"verdict":"yes"}')])
     out = await _run(client, steps, look_up=look_up)
 

@@ -24,12 +24,14 @@ def test_overlapping_lookups_return_each_event_once() -> None:
     first, second, network = run_lookups(plan, events_index=_INDEX, network_index=_NO_NETWORK)
     assert [event["event"] for event in first["events"]] == ["e10", "e20"]
     assert [event["event"] for event in second["events"]] == ["e30"]
-    assert "requests" not in network
+    assert network == {"requests": []}
 
 
 def test_a_plan_past_the_cap_is_cut_rather_than_rejected() -> None:
-    plan = LookupPlan(lookups=[Lookup(source="events", vid_t=90)] * (MAX_LOOKUPS + 3))
-    assert len(run_lookups(plan, events_index=_INDEX, network_index=_NO_NETWORK)) == MAX_LOOKUPS
+    plan = LookupPlan.model_validate_json(
+        LookupPlan(lookups=[Lookup(source="events", vid_t=90)] * (MAX_LOOKUPS + 3)).model_dump_json()
+    )
+    assert len(plan.lookups) == MAX_LOOKUPS
 
 
 def test_recorded_values_cannot_close_the_results_block() -> None:

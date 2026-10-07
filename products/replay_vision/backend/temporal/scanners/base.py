@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from posthog.dataclasses import frozen
 
-from products.replay_vision.backend.temporal.lookups import DEFAULT_LOOKUP_WINDOW_S, MAX_LOOKUP_WINDOW_S, MAX_LOOKUPS
 from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
 
 if TYPE_CHECKING:
@@ -151,7 +150,7 @@ class MissionStep:
     `required` steps abort the scan when they can't be satisfied; non-required steps (signals) are
     best-effort and simply contribute nothing on failure. `validate` runs an extra semantic check on the parsed
     response and, when it returns an error string, triggers the same re-prompt path as a schema failure.
-    `plan_lookups` gives the step the scan's one lookup round before it answers.
+    `plan_instruction`, when set, runs a lookup round with that instruction before the step answers.
     """
 
     name: str
@@ -159,7 +158,7 @@ class MissionStep:
     response_model: type[BaseModel]
     required: bool = True
     validate: Callable[[BaseModel], str | None] | None = field(default=None)
-    plan_lookups: bool = False
+    plan_instruction: str | None = None
 
 
 _CONFIDENCE_DESCRIPTION = (
@@ -344,19 +343,8 @@ class BaseScanner(BaseModel, frozen=True):
                 instruction=instruction,
                 response_model=self.llm_response_schema,
                 validate=self._validate_core,
-                plan_lookups=True,
             )
         ]
-
-    def lookups_instruction(self, *, network_available: bool) -> str:
-        """The plan turn's instruction, which follows the step's own task so the model plans against what it must answer."""
-        return render_prompt(
-            "lookups_step.jinja",
-            network_available=network_available,
-            max_lookups=MAX_LOOKUPS,
-            default_window_s=DEFAULT_LOOKUP_WINDOW_S,
-            max_window_s=MAX_LOOKUP_WINDOW_S,
-        )
 
     def mission_steps(self) -> list[MissionStep]:
         """The full ordered turn list: the core task, then the signals side mission when enabled."""

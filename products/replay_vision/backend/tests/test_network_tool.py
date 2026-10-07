@@ -35,7 +35,7 @@ class TestGetNetworkAround:
         # moments in the two lookups.
         index = build_network_index(_payload(30), _SESSION_START, _IDENTITY_CLOCK)
         assert index.offsets == [30]
-        assert get_network_around(index, 30)["requests"][0]["vid_t"] == 30
+        assert get_network_around(index, 30, 10)["requests"][0]["vid_t"] == 30
 
     def test_projects_across_a_stretch_the_rasterizer_cut(self) -> None:
         # The render drops inactive stretches, so a request's session time runs ahead of its video time.
@@ -53,19 +53,14 @@ class TestGetNetworkAround:
         index = build_network_index(_payload(0, 20, 21, 40), _SESSION_START, _IDENTITY_CLOCK)
         assert [entry["vid_t"] for entry in get_network_around(index, 20, 5)["requests"]] == [20, 21]
 
-    def test_an_empty_window_says_so(self) -> None:
-        result = get_network_around(build_network_index(_payload(500), _SESSION_START, _IDENTITY_CLOCK), 10)
-        assert result["requests"] == []
-        assert "No failed or slow requests" in result["note"]
-
-    def test_an_incomplete_read_never_claims_the_window_was_clean(self) -> None:
-        # Truncation is what produces wrongly empty windows, so the affirmative note must not win there.
+    def test_an_incomplete_read_says_the_window_may_be_incomplete(self) -> None:
+        # Truncation is what produces wrongly empty windows, so the model must not read one as clean.
         payload = SessionNetworkPayload(
             requests=[NetworkRequest(timestamp_ms=_start_ms(), url="https://app.test/x", status=500)],
             captured=True,
             truncated=True,
         )
-        result = get_network_around(build_network_index(payload, _SESSION_START, _IDENTITY_CLOCK), 400)
+        result = get_network_around(build_network_index(payload, _SESSION_START, _IDENTITY_CLOCK), 400, 10)
         assert result["requests"] == []
         assert "may be incomplete" in result["note"]
 

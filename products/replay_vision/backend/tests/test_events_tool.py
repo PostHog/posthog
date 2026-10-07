@@ -62,6 +62,7 @@ class TestGetEventsAround:
                 window_mapping={"window_1": "win-abc"},
             ),
             vid_t=30,
+            window_s=10,
         )
         (event,) = out
         assert event["$current_url"] == "https://app.x/cart"

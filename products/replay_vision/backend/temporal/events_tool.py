@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from products.replay_vision.backend.temporal.types import ScannerLlmInputs
 from products.replay_vision.backend.temporal.video_clock import VideoClock
 
-_DEFAULT_WINDOW_S = 10
 _MAX_WINDOW_S = 60
 # A busy window can hold a lot of events; bound the response and keep the ones nearest `vid_t`.
 _MAX_EVENTS_RETURNED = 50
@@ -69,7 +68,7 @@ def build_events_index(llm_inputs: ScannerLlmInputs, clock: VideoClock) -> Event
     return EventsIndex(offsets=[offset for offset, _ in entries], events=[event for _, event in entries])
 
 
-def get_events_around(index: EventsIndex, vid_t: int, window_s: int = _DEFAULT_WINDOW_S) -> list[dict[str, Any]]:
+def get_events_around(index: EventsIndex, vid_t: int, window_s: int) -> list[dict[str, Any]]:
     """Return the events within ±`window_s` seconds of `vid_t`, chronological, capped to the nearest `_MAX_EVENTS_RETURNED`."""
     vid_t = max(0, vid_t)
     window_s = max(1, min(window_s, _MAX_WINDOW_S))
