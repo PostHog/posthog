@@ -142,6 +142,7 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
         [
             ("total_calls", BaseMathType.TOTAL, {"test": 3, "control": 1}),
             ("unique_users", BaseMathType.DAU, {"test": 1, "control": 1}),
+            ("unique_sessions", BaseMathType.UNIQUE_SESSION, {"test": 2, "control": 1}),
         ]
     )
     def test_trend_by_variant(self, _name: str, math: BaseMathType, expected: dict[str, int]):
