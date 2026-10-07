@@ -7,6 +7,7 @@ import pyarrow.compute as pc
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
@@ -43,6 +44,15 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 LOGGER = get_logger(__name__)
+
+
+@frozen
+class PostLoadResult:
+    #: The query folder the table now serves from. None when there is no Delta table.
+    queryable_folder: str | None
+    #: True when post-load recorded the table size from the Delta log. When False, the caller has
+    #: to get the size measured in another way.
+    table_size_written: bool = False
 
 
 async def update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
@@ -409,7 +419,8 @@ async def _register_table(
     resource: "Optional[SourceResponse]",
     queryable_folder: str,
     logger: FilteringBoundLogger,
-) -> None:
+) -> bool:
+    """Returns True when the table size from the Delta log went to the registration."""
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
         validate_schema_and_update_table,
     )
@@ -423,6 +434,9 @@ async def _register_table(
     live_row_count = (
         await delta_table_ref.get_live_row_count() if schema.table_row_count_is_cumulative or row_count == 0 else None
     )
+    # Same handle, so the size is the size of the files the query folder now holds. Maintenance ran
+    # before the publish step, so a compaction in this run is already in the number.
+    live_size_mib = await delta_table_ref.get_live_size_mib()
 
     logger.debug("Validating schema and updating table")
     with POST_LOAD_DURATION_SECONDS.labels(operation="validate_schema").time():
@@ -437,8 +451,10 @@ async def _register_table(
             primary_keys=resource.primary_keys if resource is not None else None,
             delta_schema_json=delta_schema_json,
             live_row_count=live_row_count,
+            live_size_mib=live_size_mib,
         )
     logger.debug("Finished validating schema and updating table")
+    return live_size_mib is not None
 
 
 @recorded_phase("cdc_post_load")
@@ -474,6 +490,7 @@ async def _run_cdc_post_load(
                 table_schema_dict=table_schema_dict,
                 set_as_schema_table=schema.cdc_table_mode == "cdc_only",
                 live_row_count=await delta_table_ref.get_live_row_count(),
+                live_size_mib=await delta_table_ref.get_live_size_mib(),
             )
         logger.debug("Finished registering CDC companion table")
         return
@@ -628,7 +645,7 @@ async def run_post_load_operations(
     last_incremental_field_value: Any = None,
     resource: "Optional[SourceResponse]" = None,
     cdc_write_mode: Optional[str] = None,
-) -> Optional[str]:
+) -> PostLoadResult:
     """
     Orchestrator that runs all post-load operations, in order:
         1. Delta maintenance (compact when fragmented, otherwise vacuum on commit cadence)
@@ -639,7 +656,8 @@ async def run_post_load_operations(
         6. POST_LOAD_STEPS: product side effects (revenue notification, revenue/engineering
            analytics views, repartition detection)
 
-    Returns the queryable folder the table now serves from, or None when there is no delta table.
+    Returns the queryable folder the table now serves from (None when there is no delta table), and
+    whether the register step recorded the table size.
     """
     if delta_table_ref is None or await delta_table_ref.get_delta_table() is None:
         # A clean run that wrote zero rows creates no delta table, so there is nothing to publish or
@@ -648,7 +666,7 @@ async def run_post_load_operations(
         # initial-synced" on every subsequent run.
         logger.debug("No deltalake table; finalizing bookkeeping for a zero-row run")
         await _finalize_sync_bookkeeping(job, schema, resource, last_incremental_field_value, logger)
-        return None
+        return PostLoadResult(queryable_folder=None)
 
     # Detect CDC companion writes — scd2_append writes always go to the companion _cdc resource.
     # In this case we must NOT touch schema.table (the snapshot table) and must register the companion
@@ -672,8 +690,9 @@ async def run_post_load_operations(
     # The DeltaLake files still exist on S3 for the seeding step to read from.
     is_cdc_only_initial = cdc_write_mode is None and is_cdc_schema and schema.cdc_table_mode == "cdc_only"
 
+    table_size_written = False
     if not is_cdc_companion and not is_cdc_only_initial:
-        await _register_table(
+        table_size_written = await _register_table(
             job, schema, delta_table_ref, row_count, table_schema_dict, resource, queryable_folder, logger
         )
 
@@ -695,4 +714,4 @@ async def run_post_load_operations(
 
     await _run_post_load_steps(job, schema, source, delta_table_ref, is_cdc_companion, logger)
 
-    return queryable_folder
+    return PostLoadResult(queryable_folder=queryable_folder, table_size_written=table_size_written)
