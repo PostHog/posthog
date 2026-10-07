@@ -7,6 +7,8 @@ import path from 'path'
 
 import type { Mocks } from '~/mocks/utils'
 
+import { domainConnectBrowserTests } from './domain-connect-browser-tests'
+
 // Storybook 10 loads this config as a native ES module, where `__dirname` is
 // not defined — derive it from the module URL instead.
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -308,6 +310,11 @@ export default {
         // screenshot). Don't run the snapshot flow then: its selector waits can outlast the jest
         // timeout, which would bury the real error under an opaque "Exceeded timeout of 60000 ms".
         if (context.hasFailure) {
+            return
+        }
+        const browserTest = domainConnectBrowserTests[context.id]
+        if (browserTest) {
+            await browserTest(page)
             return
         }
         const storyContext = await getStoryContext(page, context)

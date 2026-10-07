@@ -83,3 +83,15 @@ Error: locator.click: Error: strict mode violation: locator('text=Set a billing 
 1) <span class="LemonButton__content">Set a billing limit</span> aka getByTestId('billing-limit-input-wrapper-product_analytics').getByRole('button', { name: 'Set a billing limit' })
 2) <span class="LemonButton__content">Set a billing limit</span> aka getByTestId('billing-limit-input-wrapper-session_replay').getByRole('button', { name: 'Set a billing limit' })
 ```
+
+## Mobile Domain Connect checks in Storybook
+
+Domain Connect's focused stories run in the existing WebKit Storybook lane, using an iPhone browser context. They hold the apply response until a real popup opens, then verify provider navigation. A second case denies popups and verifies same-tab fallback.
+
+With Storybook running, run only these checks:
+
+```bash
+pnpm --filter=@posthog/storybook exec test-storybook --url http://localhost:6006 --browsers webkit --no-index-json --maxWorkers=1 DomainConnectBanner
+```
+
+The provider and API responses use invented data. No Cloudflare account or live DNS changes are required.
