@@ -115,7 +115,17 @@ export function ReadinessChecklist(): JSX.Element {
             {validation ? (
                 <>
                     {validation.error && (
-                        <LemonBanner type="error">Couldn't check this model: {validation.error}</LemonBanner>
+                        <LemonBanner
+                            type="error"
+                            action={{
+                                children: 'Retry',
+                                onClick: () => runValidate(null),
+                                loading: validationLoading,
+                                'data-attr': 'autoresearch-new-validate-retry',
+                            }}
+                        >
+                            Couldn't check this model: {validation.error}
+                        </LemonBanner>
                     )}
                     {readinessChecks.length > 0 && (
                         <ul className="flex flex-col gap-3 text-sm">
