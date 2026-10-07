@@ -108,6 +108,7 @@ class TestSavedQueryReads(BaseTest):
                 sync_frequency_interval=timedelta(hours=6),
                 is_test=False,
                 is_managed=False,
+                origin=None,
                 created_at=live.created_at,
             )
         ]

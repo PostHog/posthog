@@ -59,6 +59,7 @@ class SavedQueryDefinition:
     sync_frequency_interval: timedelta | None
     is_test: bool
     is_managed: bool
+    origin: str | None
     created_at: datetime
 
 

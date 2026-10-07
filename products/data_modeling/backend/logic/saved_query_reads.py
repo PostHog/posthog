@@ -102,7 +102,7 @@ def saved_query_definitions(team_id: int) -> list[SavedQueryDefinition]:
     saved_queries = list(
         DataWarehouseSavedQuery.objects.filter(team_id=team_id)
         .exclude(deleted=True)
-        .only("id", "name", "query", "is_materialized", "is_test", "managed_viewset_id", "created_at")
+        .only("id", "name", "query", "is_materialized", "is_test", "managed_viewset_id", "origin", "created_at")
         .order_by("created_at", "id")
     )
     intervals = declared_targets_by_saved_query(team_id, [saved_query.id for saved_query in saved_queries])
@@ -115,6 +115,7 @@ def saved_query_definitions(team_id: int) -> list[SavedQueryDefinition]:
             sync_frequency_interval=intervals.get(str(saved_query.id)),
             is_test=saved_query.is_test,
             is_managed=saved_query.managed_viewset_id is not None,
+            origin=saved_query.origin,
             created_at=saved_query.created_at,
         )
         for saved_query in saved_queries
