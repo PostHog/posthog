@@ -10,6 +10,7 @@ import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 
+import { applyVisualizationType, columnsFromResponse } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { Query } from '~/queries/Query/Query'
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
@@ -220,10 +221,10 @@ const Component = ({
 
     // The stored viz config wins, but the source always tracks the node's current code — and the
     // connection it runs on, so anything the viz layer re-queries lands on the same engine.
-    const vizQuery = useMemo(
-        (): DataVisualizationNode => ({
+    const vizQuery = useMemo((): DataVisualizationNode => {
+        const query: DataVisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
-            display: ChartDisplayType.ActionsLineGraph,
+            display: ChartDisplayType.Auto,
             ...attributes.vizQuery,
             source: {
                 kind: NodeKind.HogQLQuery,
@@ -231,9 +232,17 @@ const Component = ({
                 connectionId: attributes.connectionId ?? undefined,
                 sendRawQuery: attributes.connectionId ? !!attributes.sendRawQuery || undefined : undefined,
             },
-        }),
-        [attributes.vizQuery, attributes.code, attributes.connectionId, attributes.sendRawQuery]
-    )
+        }
+        if (cachedResults) {
+            query.chartSettings = applyVisualizationType(
+                query,
+                query.display ?? ChartDisplayType.Auto,
+                columnsFromResponse(cachedResults),
+                cachedResults.results.length
+            ).chartSettings
+        }
+        return query
+    }, [attributes.vizQuery, attributes.code, attributes.connectionId, attributes.sendRawQuery, cachedResults])
 
     // Grow a still-too-short node to fit the result each run lands, so output is readable without
     // a manual resize. Sized to the rows that came back — a scalar stays compact, a wide result

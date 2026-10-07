@@ -148,15 +148,22 @@ export const JupyterMode: Story = {
             if (!canvasElement.querySelector('.DataVisualization')) {
                 throw new Error('SQL chart has not rendered by default')
             }
+            canvas.getByText('Pageview')
+            canvas.getByText('Autocapture')
         })
         fireEvent.click(canvas.getByRole('button', { name: 'Show table' }))
         await waitFor(() => {
             canvas.getByRole('button', { name: 'Show chart' })
+            canvas.getByRole('cell', { name: '$pageview' })
             if (canvasElement.querySelector('.DataVisualization')) {
                 throw new Error('SQL chart is still visible after switching to the table')
             }
         })
         fireEvent.click(canvas.getByRole('button', { name: 'Show chart' }))
-        await waitFor(() => canvas.getByRole('button', { name: 'Show table' }))
+        await waitFor(() => {
+            canvas.getByRole('button', { name: 'Show table' })
+            canvas.getByText('Pageview')
+            canvas.getByText('Autocapture')
+        })
     },
 }
