@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { ComponentPropsWithoutRef, forwardRef } from 'react'
 
 import { IconSearch, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
-import { Button, Separator, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Button, Kbd, Separator, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { Logomark } from 'lib/brand'
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
@@ -10,6 +10,7 @@ import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
 import { PendingInviteDot } from 'lib/components/Account/ProjectMenu'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
+import { isMac } from 'lib/utils/dom'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { TODAY_RAIL_ITEMS } from './todayRailItems'
@@ -18,8 +19,8 @@ import { TODAY_RAIL_WIDTH, railPaneHref, todayShellLogic } from './todayShellLog
 
 const RailUtility = forwardRef<
     HTMLButtonElement,
-    { label: string; children: JSX.Element } & ComponentPropsWithoutRef<typeof Button>
->(function RailUtility({ label, children, ...props }, ref): JSX.Element {
+    { label: string; children: JSX.Element; shortcut?: string } & ComponentPropsWithoutRef<typeof Button>
+>(function RailUtility({ label, children, shortcut, ...props }, ref): JSX.Element {
     return (
         <Tooltip>
             <TooltipTrigger
@@ -37,7 +38,10 @@ const RailUtility = forwardRef<
             >
                 {children}
             </TooltipTrigger>
-            <TooltipContent side="right">{label}</TooltipContent>
+            <TooltipContent side="right">
+                {label}
+                {shortcut && <Kbd>{shortcut}</Kbd>}
+            </TooltipContent>
         </Tooltip>
     )
 })
@@ -105,6 +109,7 @@ export function TodayRail(): JSX.Element {
                 </RailUtility>
                 <RailUtility
                     label={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
+                    shortcut={isMac() ? '⌘B' : 'Ctrl+B'}
                     data-attr="today-rail-toggle-sidebar"
                     onClick={toggleSidebar}
                 >
