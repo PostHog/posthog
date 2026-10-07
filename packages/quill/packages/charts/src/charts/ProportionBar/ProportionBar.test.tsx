@@ -50,6 +50,19 @@ describe('ProportionBar', () => {
         expect(payload.series.color).toBe(THEME.colors[1])
     })
 
+    it('does not fire onSliceClick for a part with no value, like a pie draws no slice for it', async () => {
+        const onSliceClick = jest.fn()
+        const zeroParts: Series[] = [
+            { key: 'a', label: 'a', data: [0] },
+            { key: 'b', label: 'b', data: [0] },
+        ]
+        const { chart } = renderHogChart(<ProportionBar series={zeroParts} theme={THEME} onSliceClick={onSliceClick} />)
+
+        fireEvent.click(chart.element)
+
+        expect(onSliceClick).not.toHaveBeenCalled()
+    })
+
     it('recomputes the legend shares over the parts left visible', () => {
         const { chart } = renderHogChart(<ProportionBar series={PARTS} theme={THEME} />)
         expect(chart.proportionLegendItems().map((item) => item.secondaryLabel)).toEqual([
