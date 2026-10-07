@@ -56,8 +56,7 @@ describe('AccountSessionReplays', () => {
         render(<AccountSessionReplays accountId="example-account" externalId="example-account-key" />)
         await screen.findByLabelText('Open recording')
         fireEvent.click(screen.getByLabelText('Filter recordings by user'))
-        const menu = await screen.findByRole('menu')
-        const option = within(menu).getByText('example-user@example.com')
+        const option = await screen.findByText('example-user@example.com')
         expect(option.closest('.ph-no-capture')).not.toBeNull()
         fireEvent.click(option)
         await waitFor(() =>
@@ -69,11 +68,11 @@ describe('AccountSessionReplays', () => {
     })
 
     it('keeps every paged row in the scrollport with filters, description, and Load more outside', async () => {
-        const names = Array.from({ length: 12 }, (_, index) => `Example user ${index + 1}`)
-        const loadedRecordings = names.map((name, index) => ({
+        const names = Array.from({ length: 12 }, (_, index) => `example-user-${index + 1}`)
+        const loadedRecordings = names.map((distinctId, index) => ({
             ...recording,
             id: `example-loaded-recording-${index}`,
-            person: { ...recording.person!, name },
+            person: { ...recording.person!, distinct_ids: [distinctId] },
         }))
         mockList.mockResolvedValue({
             results: loadedRecordings.slice(0, 11),
@@ -83,13 +82,13 @@ describe('AccountSessionReplays', () => {
         const { container } = render(
             <AccountSessionReplays accountId="example-account" externalId="example-account-key" />
         )
-        await screen.findByText('Example user 11')
+        await screen.findByText('example-user-11')
         const scrollport = container.querySelector('[data-attr="account-replays-list"]')
         const getRowNames = (): (string | null)[] =>
             Array.from(
                 scrollport?.querySelectorAll<HTMLButtonElement>('button[data-attr="account-replays-open-recording"]') ??
                     []
-            ).map((row) => within(row).getByText(/^Example user \d+$/).textContent)
+            ).map((row) => within(row).getByText(/^example-user-\d+$/).textContent)
         expect(getRowNames()).toEqual(names.slice(0, 11))
         const dateFilter = container.querySelector('[data-attr="date-filter"]')
         expect(dateFilter).not.toBeNull()

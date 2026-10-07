@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { ApiError } from 'lib/api'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { RecordingsQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -122,7 +123,7 @@ describe('accountSessionReplaysLogic', () => {
         }
     )
 
-    it('does not request recordings when the group mapping is missing, even if tile config supplies one', async () => {
+    it('waits for a group mapping, ignoring tile config, then shows loading instead of stale setup', async () => {
         initKeaTests(true, {
             ...MOCK_DEFAULT_TEAM,
             customer_analytics_config: {
@@ -134,6 +135,13 @@ describe('accountSessionReplaysLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.replayList?.status).toBe('setup')
         expect(mockList).not.toHaveBeenCalled()
+        mockList.mockReturnValueOnce(createDeferred<RecordingsQueryResponse>().promise)
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            customer_analytics_config: { ...MOCK_DEFAULT_TEAM.customer_analytics_config, account_group_type_index: 0 },
+        })
+        expect(mockList).toHaveBeenCalledTimes(1)
+        expect(logic.values).toMatchObject({ replayList: null, replayListLoading: true })
     })
 
     it.each([AccessControlResourceType.CustomerAnalytics, AccessControlResourceType.SessionRecording])(

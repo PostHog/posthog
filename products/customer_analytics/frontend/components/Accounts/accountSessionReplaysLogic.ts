@@ -209,7 +209,11 @@ export const accountSessionReplaysLogic: LogicWrapper<accountSessionReplaysLogic
                 { setDateRange: (_, { dateFrom, dateTo }) => ({ date_from: dateFrom, date_to: dateTo }) },
             ],
             selectedUser: [null as AccountReplayUserOption | null, { setUser: (_, { user }) => user }],
-            replayList: { setDateRange: () => null, setUser: () => null },
+            replayList: {
+                loadReplayList: (state, { append }) => (append ? state : null),
+                setDateRange: () => null,
+                setUser: () => null,
+            },
             availableUsers: [
                 [] as AccountReplayUserOption[],
                 {
