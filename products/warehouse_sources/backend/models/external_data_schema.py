@@ -25,6 +25,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
+from products.warehouse_sources.backend.facade.contracts import UnsupportedSyncTypeError
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
     MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
@@ -49,6 +50,32 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 type IncrementalFieldValue = str | int | float | None
+
+# Sync type strings that early clients wrote to the column. They name a real mode, so they map to it.
+LEGACY_SYNC_TYPE_ALIASES: dict[str, ExternalDataSchemaSyncType] = {
+    "full": ExternalDataSchemaSyncType.FULL_REFRESH,
+}
+
+# Matched by `Any_Source_Errors`, so the exception text must keep this prefix.
+UNSUPPORTED_SYNC_TYPE_ERROR = "Unsupported sync type"
+UNSUPPORTED_SYNC_TYPE_DISABLED_MESSAGE = (
+    "This table has a sync type that PostHog does not support. Choose a sync type in the table's "
+    "sync settings, then re-enable the sync."
+)
+
+
+def resolve_sync_type(value: str | None) -> ExternalDataSchemaSyncType | None:
+    """Turn a stored `sync_type` into the enum. The column does not enforce its choices."""
+    if value is None:
+        return None
+    try:
+        return ExternalDataSchemaSyncType(value)
+    except ValueError:
+        alias = LEGACY_SYNC_TYPE_ALIASES.get(value)
+        if alias is not None:
+            return alias
+        raise UnsupportedSyncTypeError(f"{UNSUPPORTED_SYNC_TYPE_ERROR}: '{value}'") from None
+
 
 # Recorded as the job's latest_error, which the syncs UI shows to the customer.
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
@@ -277,7 +304,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     # See `sources/common/history_window.py`. A column rather than a `sync_type_config` key
     # because it has to outlive a reset, and clearing that blob is what a reset is for.
     history_start = models.DateTimeField(null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "source_cursor": { "kind": str, "data": dict }, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict }, "query_folder_state": { "<table>__query": { "active": str, "active_since": iso8601 str, "active_job_id": str, "history_since": iso8601 str, "inactive_since": { str: iso8601 str } } }, "registered_schema_fingerprint": str }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "source_cursor": { "kind": str, "data": dict }, "max_partition_bytes": int, "partition_measurement": { "job_id": str, "phase": "pre_extraction" | "post_load", "budget": int, "healthy": bool }, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict }, "query_folder_state": { "<table>__query": { "active": str, "active_since": iso8601 str, "active_job_id": str, "history_since": iso8601 str, "inactive_since": { str: iso8601 str } } }, "registered_schema_fingerprint": str }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -785,6 +812,14 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         return None
 
     @property
+    def partition_measurement(self) -> dict[str, Any] | None:
+        if self.sync_type_config:
+            measurement = self.sync_type_config.get("partition_measurement", None)
+            if isinstance(measurement, dict):
+                return measurement
+        return None
+
+    @property
     def last_repartition_at(self) -> str | None:
         if self.sync_type_config:
             return self.sync_type_config.get("last_repartition_at", None)
@@ -883,16 +918,15 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             lambda: self.save(update_fields=["sync_type_config", "updated_at"], skip_activity_log=True)
         )
 
-    def record_partition_measurement(self, max_partition_bytes: int) -> None:
+    def record_partition_measurement(self, max_partition_bytes: int, measurement: dict[str, Any] | None = None) -> None:
         # Deferred: this module loads during django.setup() and the util pulls in temporalio.
         from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
 
+        updates: dict[str, Any] = {"max_partition_bytes": max_partition_bytes}
+        if measurement is not None:
+            updates["partition_measurement"] = measurement
         self.sync_type_config = retry_on_db_connection_drop(
-            lambda: update_sync_type_config_keys(
-                self.id,
-                self.team_id,
-                updates={"max_partition_bytes": max_partition_bytes},
-            )
+            lambda: update_sync_type_config_keys(self.id, self.team_id, updates=updates)
         )
 
     def set_repartition_pending(self, target: dict[str, Any]) -> None:
@@ -1206,6 +1240,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             "partitioning_keys",
             "partition_mode",
             "backfilled_partition_format",
+            "partition_measurement",
             SOURCE_CURSOR_KEY,
             # Cursor keys from before `source_cursor`. A source still reads them when it has no
             # `source_cursor`, so a reset has to drop them too.
@@ -1777,6 +1812,7 @@ def finalize_repartition_scheme(
             "repartition_swap",
             "repartition_pending",
             "repartition_rewrite",
+            "partition_measurement",
         ):
             config.pop(key, None)
         wrote = True

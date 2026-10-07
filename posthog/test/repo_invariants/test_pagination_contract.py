@@ -252,6 +252,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.visual_review.backend.presentation.views.RunViewSet",
     "products.warehouse_sources.backend.presentation.views.column_statistics.WarehouseColumnStatisticsViewSet",
     "products.warehouse_sources.backend.presentation.views.public_source_configs.PublicSourceConfigViewSet",
+    "products.warehouse_suggestions.backend.presentation.views.WarehouseSuggestionViewSet",
     "products.web_analytics.backend.api.custom_bot_rules.CustomBotRuleViewSet",
     "products.web_analytics.backend.api.heatmaps_api.HeatmapViewSet",
     "products.web_analytics.backend.api.heatmaps_api.LegacyHeatmapViewSet",

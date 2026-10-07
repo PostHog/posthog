@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     handle_reset_or_full_refresh,
     persist_primary_keys,
     reset_rows_synced_if_needed,
+    resets_table_before_extraction,
     resolve_primary_keys,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
@@ -559,7 +560,15 @@ class PipelineV3(Generic[ResumableData]):
             if self._attempt <= 1:
                 # Revive a corrupt-`_delta_log` table before extraction so it self-heals in this run
                 # instead of looping forever (an interrupted repartition swap or OOM-crashed merge).
-                await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_ref, self._logger)
+                await handle_corrupted_delta_log(
+                    self._schema,
+                    self._job,
+                    self._delta_table_ref,
+                    self._logger,
+                    table_will_be_reset=resets_table_before_extraction(
+                        self._reset_pipeline, should_resume, self._schema, self._resource.webhook_only
+                    ),
+                )
 
                 await handle_reset_or_full_refresh(
                     self._reset_pipeline,
@@ -573,6 +582,9 @@ class PipelineV3(Generic[ResumableData]):
             is_fresh_sync = self._delta_table_ref.is_first_sync or self._schema.table is None
             if is_fresh_sync:
                 self._mark_first_ever_sync()
+                # No pre-write maintenance runs, so nothing here reads the handle that the corruption
+                # check opened. Release it before extraction.
+                self._delta_table_ref.pop_cached_table()
 
             # Defensive pre-write compaction so a sync that arrived at a fragmented Delta
             # target cleans up before adding more small files; see DeltaMaintenance.run_scheduled.

@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
@@ -12,6 +13,7 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
     JSONResponsePaginator,
+    PageNumberPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom import intercom as intercom_module
@@ -33,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.i
     _make_intercom_session,
     _rate_limit_backoff_seconds,
     _substream_items,
+    _to_unix_seconds,
     get_resource,
     intercom_source,
     validate_credentials,
@@ -186,6 +189,7 @@ class TestBuildPaginator:
             ("cursor", JSONResponseCursorPaginator),
             ("next_url", JSONResponsePaginator),
             ("pages", IntercomPagesPaginator),
+            ("page_number", PageNumberPaginator),
             ("single", SinglePagePaginator),
         ],
     )
@@ -195,7 +199,11 @@ class TestBuildPaginator:
         assert isinstance(_build_paginator(cfg), expected_type)
 
 
-PAGES_ENDPOINTS = [name for name, cfg in INTERCOM_ENDPOINTS.items() if cfg.paginator_kind == "pages"]
+PAGES_ENDPOINTS = [
+    name
+    for name, cfg in INTERCOM_ENDPOINTS.items()
+    if cfg.paginator_kind == "pages" and cfg.incremental_query_param is None
+]
 
 
 class TestPagesPaginator:
@@ -325,6 +333,32 @@ class TestGetResource:
         assert resource["write_disposition"] == expected_disposition
 
     @pytest.mark.parametrize(
+        "should_use_incremental,last_value,expected_disposition,expected_since",
+        [
+            # Macro timestamps are ISO strings, so the watermark arrives as a datetime.
+            (
+                True,
+                datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC),
+                {"disposition": "merge", "strategy": "upsert"},
+                1700000000,
+            ),
+            (False, None, "replace", 0),
+        ],
+    )
+    def test_macros_send_the_watermark_as_unix_seconds(
+        self, should_use_incremental: bool, last_value: Any, expected_disposition: Any, expected_since: int
+    ):
+        resource = get_resource(
+            "macros",
+            should_use_incremental_field=should_use_incremental,
+            incremental_field="updated_at" if should_use_incremental else None,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert _endpoint(resource)["params"]["updated_since"] == expected_since
+        assert resource["write_disposition"] == expected_disposition
+
+    @pytest.mark.parametrize(
         "endpoint_name,expected_model",
         [("company_attributes", "company"), ("contact_attributes", "contact")],
     )
@@ -372,6 +406,20 @@ class TestGetResource:
         assert resource["name"] == name
         assert resource["table_name"] == name
         assert resource["table_format"] == "delta"
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (1700000000, 1700000000),
+        ("1700000000", 1700000000),
+        (datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC), 1700000000),
+        (datetime(2023, 11, 14, 22, 13, 20), 1700000000),
+        ("2023-11-14T22:13:20.000Z", 1700000000),
+    ],
+)
+def test_to_unix_seconds(value: Any, expected: int):
+    assert _to_unix_seconds(value) == expected
 
 
 class TestNoSourceLevelTypeCoercion:
@@ -834,7 +882,7 @@ class TestIntercomSource:
                 endpoint=endpoint,
                 team_id=1,
                 job_id="job-1",
-                api_version="2.15",
+                api_version="2.16",
                 resumable_source_manager=_manager(),
             )
 
@@ -844,6 +892,20 @@ class TestIntercomSource:
         assert response.sort_mode == cfg.sort_mode
         # A companies scroll expires within a minute and cannot restart mid-walk.
         assert response.supports_resume is (cfg.paginator_kind != "scroll")
+
+    @pytest.mark.parametrize(
+        "endpoint", [name for name, cfg in INTERCOM_ENDPOINTS.items() if cfg.api_versions is not None]
+    )
+    def test_endpoint_unavailable_on_the_pinned_version_raises(self, endpoint: str):
+        with pytest.raises(ValueError, match="requires Intercom API version"):
+            intercom_source(
+                access_token="token",
+                endpoint=endpoint,
+                team_id=1,
+                job_id="job-1",
+                api_version="2.13",
+                resumable_source_manager=_manager(),
+            )
 
     def test_companies_routes_through_scroll_api(self):
         # `companies` must walk the un-capped Scroll API, never `POST /companies/list`
@@ -1111,6 +1173,33 @@ class TestResumableRestEndpoints:
         assert len(sent) == 1
         assert sent[0]["url"] == expected_url
         assert sent[0]["params"] == expected_params
+
+
+def _numbered_page(ids: list[int], page: int, total_pages: int) -> Response:
+    return _make_response(
+        {"type": "list", "data": [{"id": i} for i in ids], "page": page, "per_page": 50, "total_pages": total_pages}
+    )
+
+
+class TestPageNumberEndpoints:
+    @pytest.mark.parametrize("endpoint", ["audiences", "content_snippets"])
+    def test_fresh_run_walks_every_page_and_stops_at_total_pages(self, endpoint: str):
+        manager = _manager()
+        responses = [_numbered_page([1], 1, 2), _numbered_page([2], 2, 2)]
+
+        rows, sent = _run_rest(endpoint, manager, responses)
+
+        assert rows == [1, 2]
+        # The last page is known from `total_pages`, so no trailing empty-page request goes out.
+        assert [req["params"] for req in sent] == [{"per_page": 50, "page": 1}, {"per_page": 50, "page": 2}]
+        assert _staged(manager) == [IntercomResumeConfig(page=2)]
+
+    def test_resumed_run_starts_at_the_saved_page(self):
+        rows, sent = _run_rest("audiences", _manager(IntercomResumeConfig(page=3)), [_numbered_page([7], 3, 3)])
+
+        assert rows == [7]
+        assert len(sent) == 1
+        assert sent[0]["params"] == {"per_page": 50, "page": 3}
 
 
 def _segments_session(scroll_ids: list[str], segments: dict[str, Any]) -> mock.MagicMock:

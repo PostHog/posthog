@@ -48,6 +48,8 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     AUTO_DISABLED_JOB_ERROR,
     DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
     MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
+    UNSUPPORTED_SYNC_TYPE_DISABLED_MESSAGE,
+    UNSUPPORTED_SYNC_TYPE_ERROR,
     ExternalDataSchema,
     update_should_sync,
 )
@@ -189,6 +191,7 @@ Any_Source_Errors: dict[str, str | None] = {
         "configuration, then re-enable the sync."
     ),
     MISSING_PRIMARY_KEYS_ERROR: MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
+    UNSUPPORTED_SYNC_TYPE_ERROR: UNSUPPORTED_SYNC_TYPE_DISABLED_MESSAGE,
     DUPLICATE_PRIMARY_KEYS_ERROR: DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
     "Integration matching query does not exist": MISSING_INTEGRATION_MESSAGE,
     # `OAuthMixin.get_oauth_integration` catches `Integration.DoesNotExist` and re-raises these
@@ -298,7 +301,31 @@ SYNC_RUN_STALLED_MESSAGE = (
 # Unlike `Any_Source_Errors` above, matching here only rewrites the stored message: the error stays
 # retryable and the schema stays enabled. Keys are the same stable, host-free fragments the sources
 # already classify these conditions by, so they can't collide with a customer value.
+# A source reached over Railway's TCP proxy. A driver names the endpoint it dialled in the
+# connection-drop message, as the host it resolved and the address behind it, so the proxy is
+# identifiable from the error text without reading the source config. Both markers belong to the
+# TCP proxy alone: `.rlwy.net` is the domain it hands out, and `66.33.22.0/24` is the address range
+# it resolved to as of October 2026, matched because customers paste the address as often as the
+# host name. A Railway-hosted HTTP API is `*.up.railway.app` and matches neither, so a REST source
+# behind one keeps the copy for its own failure.
+RAILWAY_PROXY_ENDPOINT_MARKERS = (".rlwy.net", "66.33.22.")
+
+
+# Specialises TRANSIENT_SOURCE_CONNECTION_MESSAGE for that proxy. The generic copy asks the customer
+# to look for a pooler, a firewall or an SSH tunnel ending the connection, and on Railway the thing
+# in front of the source is none of those, so it sends them looking for something they cannot find.
+RAILWAY_PROXY_CONNECTION_MESSAGE = (
+    "PostHog's connection to your source kept closing before the sync could finish. This host is "
+    "Railway's TCP proxy, which closes connections when the service behind it is asleep or out of "
+    "connection slots. In Railway, check that the service is running, and check its connection "
+    "limit. This sync is still enabled and will run again on its next schedule."
+)
+
+
 Transient_Error_Messages: dict[str, str] = {
+    # Before the generic connection-drop copy below, because first match wins and this one names
+    # the cause. Railway's own host strings, which libpq prints in the connection-drop message.
+    **dict.fromkeys(RAILWAY_PROXY_ENDPOINT_MARKERS, RAILWAY_PROXY_CONNECTION_MESSAGE),
     # libpq/psycopg losing an established connection, at connect or mid-stream, in every wording
     # `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` (postgres.py) retries in-process first.
     "server closed the connection unexpectedly": TRANSIENT_SOURCE_CONNECTION_MESSAGE,

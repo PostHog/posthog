@@ -4,6 +4,7 @@ import asyncio
 import datetime as dt
 import functools
 import dataclasses
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
 from django.conf import settings
@@ -33,9 +34,11 @@ from posthog.temporal.common.utils import is_stale_connection_read_only_error
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
+    UnsupportedSyncTypeError,
     apply_incremental_lookback,
     get_schema_if_exists,
     process_incremental_value,
+    resolve_sync_type,
     staged_handoff_resume_point,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -591,9 +594,16 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 new_source, schema.sync_type_config if use_stored_cursors else None, logger
             )
 
+            try:
+                resolved_sync_type = resolve_sync_type(schema.sync_type)
+            except UnsupportedSyncTypeError as e:
+                await handle_non_retryable_error(
+                    job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(e), logger, e
+                )
+
             source_inputs = SourceInputs(
                 schema_name=schema.name,
-                sync_type=ExternalDataSchema.SyncType(schema.sync_type) if schema.sync_type is not None else None,
+                sync_type=resolved_sync_type,
                 schema_id=str(schema.id),
                 source_id=str(inputs.source_id),
                 team_id=inputs.team_id,
@@ -669,19 +679,25 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
             resumable_source_manager: ResumableSourceManager | None = None
             try:
-                if isinstance(new_source, ResumableSource):
-                    resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
-                    source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
-                        config, resumable_source_manager, source_inputs
-                    )
-                elif isinstance(new_source, SimpleSource):
-                    source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
-                        config, source_inputs
-                    )
-                else:
-                    raise TypeError(
-                        f"{new_source.__class__.__name__} does not implement either SimpleSource or ResumableSource"
-                    )
+                # Some source setup functions bridge back to async code. Keep their outer blocking
+                # call off the shared default executor so that nested work cannot deadlock behind it.
+                executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="warehouse-source-setup")
+                try:
+                    if isinstance(new_source, ResumableSource):
+                        resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
+                        source_response = await database_sync_to_async_pool(
+                            new_source.source_for_pipeline, executor=executor
+                        )(config, resumable_source_manager, source_inputs)
+                    elif isinstance(new_source, SimpleSource):
+                        source_response = await database_sync_to_async_pool(
+                            new_source.source_for_pipeline, executor=executor
+                        )(config, source_inputs)
+                    else:
+                        raise TypeError(
+                            f"{new_source.__class__.__name__} does not implement either SimpleSource or ResumableSource"
+                        )
+                finally:
+                    executor.shutdown(wait=False, cancel_futures=True)
             except SourceExtractionNotImplementedError as e:
                 # Web refuses to create a source whose implementation it does not have, so the
                 # stub is only reachable while this worker still runs the build from before the
