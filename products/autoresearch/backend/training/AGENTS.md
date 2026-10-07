@@ -53,7 +53,7 @@ The other half is `../inference/`, which consumes what this package produces and
 - `realized_context.py`
   `build_realized_context(pipeline)` reads the validation history through `latest_validation_runs()` in `../evaluation/history.py`, the same read as the `online_performance` API.
   For each shadow-set member (champion, previous champion, shadow challengers) it keeps at most `REALIZED_DATES_PER_MODEL` (14) dates: realized AUC with its interval, positives, mean score against base rate, and the gap to holdout.
-  It also picks at most `RELATED_PIPELINES_LIMIT` (5) pipelines of the same team with a realized result: the same target at another horizon first, then the same training population with another target, nearest horizon first. For those the brief shows only the gap and calibration of the model that served each date, because AUCs at another horizon or for another target do not compare.
+  It also picks at most `RELATED_PIPELINES_LIMIT` (5) pipelines of the same team with a realized result: the same target at another horizon first, then the same training population with another target, nearest horizon first. For those the brief shows only the gap and calibration of the model that served each date, because AUCs at another horizon or for another target do not compare. A population that `ever_performed_target` or `active_not_performed_target` defines resolves against each pipeline's own target, so it never counts as the same population.
 - `artifacts.py`
   Object storage for the bundle: `features.sql`, `train.py`, `predict.py`, plus the fitted `model.pkl` written at completion.
   Keys are prefixed by team / pipeline / training-run (`bundle_prefix()`), so history is preserved naturally and bundles can never collide across tenants.

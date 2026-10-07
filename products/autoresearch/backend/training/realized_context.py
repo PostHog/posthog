@@ -15,6 +15,7 @@ from django.db.models.fields.json import KT
 
 from posthog.dataclasses import frozen
 
+from products.autoresearch.backend.dataset.labeling import TARGET_RELATIVE_KINDS
 from products.autoresearch.backend.evaluation.history import latest_validation_runs
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 from products.autoresearch.backend.training.shadow_set import shadow_set
@@ -114,7 +115,7 @@ def _related_pipelines(pipeline: AutoresearchPipeline) -> list[RelatedPipeline]:
     for other in AutoresearchPipeline.objects.for_team(pipeline.team_id).exclude(pk=pipeline.pk):
         if _target_key(other) == _target_key(pipeline):
             candidates.append((other, RELATION_SAME_TARGET))
-        elif (other.training_population or None) == (pipeline.training_population or None):
+        elif _shares_population(other, pipeline):
             candidates.append((other, RELATION_SAME_POPULATION))
     if not candidates:
         return []
@@ -160,6 +161,14 @@ def _target_key(pipeline: AutoresearchPipeline) -> tuple[str, str]:
     if definition.get("type") == "action":
         return ("action", str(definition.get("action_id")))
     return ("event", pipeline.target_event)
+
+
+def _shares_population(other: AutoresearchPipeline, pipeline: AutoresearchPipeline) -> bool:
+    """A target-relative population resolves against each pipeline's own target, so equal specs select other people."""
+    population = pipeline.training_population or None
+    if (population or {}).get("kind") in TARGET_RELATIVE_KINDS:
+        return False
+    return (other.training_population or None) == population
 
 
 def _champion_dates(pipeline: AutoresearchPipeline) -> list[RealizedDate]:

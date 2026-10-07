@@ -219,9 +219,22 @@ class TestBuildAgentDescription(TeamScopedTestMixin, BaseTest):
             },
         )
 
-    def _related(self, team: Team, name: str, *, horizon_days: int, target_event: str = "$pageview") -> None:
+    def _related(
+        self,
+        team: Team,
+        name: str,
+        *,
+        horizon_days: int,
+        target_event: str = "$pageview",
+        training_population: dict[str, object] | None = None,
+    ) -> None:
         pipeline = AutoresearchPipeline.objects.create(
-            team=team, created_by=self.user, name=name, target_event=target_event, horizon_days=horizon_days
+            team=team,
+            created_by=self.user,
+            name=name,
+            target_event=target_event,
+            horizon_days=horizon_days,
+            training_population=training_population or {},
         )
         model = AutoresearchModel.objects.create(
             pipeline=pipeline,
@@ -274,6 +287,29 @@ class TestBuildAgentDescription(TeamScopedTestMixin, BaseTest):
         assert len(related) == RELATED_PIPELINES_LIMIT
         outside = re.split(rf"<{UNTRUSTED_DATA_TAG}>.*?</{UNTRUSTED_DATA_TAG}>", prompt, flags=re.DOTALL)
         assert all(injection not in segment and "| date |" not in segment for segment in outside)
+
+    @parameterized.expand(
+        [
+            (
+                "target_independent",
+                {"kind": "performed_event_within_days", "days": 30},
+                ["same target", "other target"],
+            ),
+            ("target_relative", {"kind": "ever_performed_target"}, ["same target"]),
+        ]
+    )
+    def test_related_population_match_skips_target_relative_populations(
+        self, _name: str, population: dict[str, object], expected: list[str]
+    ) -> None:
+        pipeline = self._make_pipeline()
+        pipeline.training_population = population
+        pipeline.save(update_fields=["training_population"])
+        self._related(self.team, "same target", horizon_days=14, training_population=population)
+        self._related(
+            self.team, "other target", horizon_days=7, target_event="uploaded_file", training_population=population
+        )
+
+        assert [related.name for related in build_realized_context(pipeline).related] == expected
 
     def test_realized_block_without_history_is_one_line(self) -> None:
         pipeline = self._make_pipeline()
