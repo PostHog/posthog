@@ -38,6 +38,24 @@ FINALIZE_QUEUE_SWEEP_ERRORS = Counter(
 )
 
 
+def _move_failure_streak(
+    schema: ExternalDataSchema, status: ExternalDataJobStatus, *, counts_as_source_failure: bool
+) -> bool:
+    """Move the schema's failure streak for one run's outcome. Returns whether it changed.
+
+    Only the first terminal write of a run may call this. A run is finalized more than once: the
+    load consumer and the workflow both write, and an auto-disable teardown re-fails still-running
+    jobs, so each repeat would otherwise charge the same run again.
+    """
+    if status == ExternalDataJobStatus.FAILED and counts_as_source_failure:
+        schema.note_failed_run(dt.datetime.now(dt.UTC))
+        return True
+    if status == ExternalDataJobStatus.COMPLETED:
+        schema.clear_failure_streak()
+        return True
+    return False
+
+
 def update_external_job_status(
     job_id: str,
     team_id: int,
@@ -143,17 +161,10 @@ def update_external_job_status(
             if not billing_limited_run:
                 schema.latest_error = error_to_persist
             schema_update_fields = ["status", "latest_error", "updated_at"]
-
-            # Only the first terminal write of a run counts. A run is finalized more than once:
-            # the load consumer and the workflow both write, and an auto-disable teardown re-fails
-            # still-running jobs, so each repeat would otherwise charge the same run again.
-            if is_first_terminal_transition:
-                if status == ExternalDataJobStatus.FAILED and counts_as_source_failure:
-                    schema.note_failed_run(dt.datetime.now(dt.UTC))
-                    schema_update_fields.append("sync_type_config")
-                elif status == ExternalDataJobStatus.COMPLETED:
-                    schema.clear_failure_streak()
-                    schema_update_fields.append("sync_type_config")
+            if is_first_terminal_transition and _move_failure_streak(
+                schema, status, counts_as_source_failure=counts_as_source_failure
+            ):
+                schema_update_fields.append("sync_type_config")
 
             schema.save(update_fields=schema_update_fields)
 
