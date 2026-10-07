@@ -220,3 +220,5 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
                 date_from=dashboard_filter.date_from,
                 date_to=dashboard_filter.date_to,
             )
+        if dashboard_filter.metricFilters:
+            self.query.filters = [*(self.query.filters or []), *dashboard_filter.metricFilters]

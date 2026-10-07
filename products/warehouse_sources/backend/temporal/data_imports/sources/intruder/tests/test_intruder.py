@@ -116,6 +116,7 @@ class TestSourceResponseShape:
             ("scan_schedules", ["id"], None, None),
             ("issues", ["id"], None, None),
             ("occurrences", ["issue_id", "id"], "datetime", "first_seen_at"),
+            ("issue_targets", ["issue_id", "id"], None, None),
             ("fixed_occurrences", ["id"], "datetime", "first_seen_at"),
             ("tags", ["name"], None, None),
         ]
@@ -203,17 +204,18 @@ class TestStandardPagination:
 
 
 class TestOccurrencesFanOut:
-    def test_injects_parent_issue_id_into_every_row(self) -> None:
-        # The occurrences response has no issue reference; without the injected issue_id the composite
+    @parameterized.expand([("occurrences", "occurrences"), ("issue_targets", "targets")])
+    def test_injects_parent_issue_id_into_every_row(self, endpoint: str, child_path: str) -> None:
+        # The child response has no issue reference; without the injected issue_id the composite
         # primary key [issue_id, id] collapses to id and duplicate rows accumulate across issues.
         responses = {
             f"{BASE}/issues/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 10}, {"id": 20}], "next": None})],
-            f"{BASE}/issues/10/occurrences/?limit={PAGE_SIZE}": [
+            f"{BASE}/issues/10/{child_path}/?limit={PAGE_SIZE}": [
                 _resp({"results": [{"id": 1}, {"id": 2}], "next": None})
             ],
-            f"{BASE}/issues/20/occurrences/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 3}], "next": None})],
+            f"{BASE}/issues/20/{child_path}/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 3}], "next": None})],
         }
-        rows, _params = _run("occurrences", responses, _make_manager())
+        rows, _params = _run(endpoint, responses, _make_manager())
         assert rows == [
             {"id": 1, "issue_id": 10},
             {"id": 2, "issue_id": 10},

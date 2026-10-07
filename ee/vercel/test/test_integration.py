@@ -1,6 +1,7 @@
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import pytest
 from unittest import mock
 from unittest.mock import Mock, patch
 
@@ -779,6 +780,19 @@ class TestVercelIntegration(TestCase):
 
         new_user = User.objects.get(email=payload_without_name["account"]["contact"]["email"])
         assert new_user.first_name == payload_without_name["account"]["contact"]["email"].split("@")[0]
+
+    @patch("ee.vercel.integration.signup_refused", return_value=True)
+    @patch("ee.vercel.integration.report_user_signed_up")
+    def test_upsert_installation_refused_by_an_access_rule_creates_no_user(self, mock_report, _refused):
+        new_user_claims = self._create_user_claims("refused_user_789")
+        new_user_claims.installation_id = self.NEW_INSTALLATION_ID
+        new_user_claims.sub = "account:test:user:refused"
+
+        with pytest.raises(exceptions.PermissionDenied) as raised:
+            VercelIntegration.upsert_installation(self.NEW_INSTALLATION_ID, self.payload, new_user_claims)
+
+        assert raised.value.get_codes() == "access_blocked"
+        assert not User.objects.filter(email=self.payload["account"]["contact"]["email"]).exists()
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_upsert_installation_does_not_reactivate_inactive_user(self, mock_report):

@@ -20,6 +20,79 @@ const config: BIConfig = {
 }
 
 describe('BI analysis queries', () => {
+    it.each([false, true])(
+        'filters aggregated and calculated results before the final limit (comparison: %s)',
+        (compare) => {
+            const worksheet: BIConfig = {
+                ...config,
+                dateRange: { date_from: '-7d' },
+                compareFilter: { compare },
+                values: [
+                    config.values[0],
+                    { field: field('event'), aggregation: 'count' },
+                    {
+                        field: field('calculation', 'float'),
+                        aggregation: 'custom',
+                        customExpression: 'sum(properties.amount) / count(*)',
+                        label: 'Revenue per purchase',
+                        tableCalculation: { type: 'running_total' },
+                    },
+                ],
+                resultFilters: [
+                    { id: 'revenue', measureIndex: 0, operator: 'greater_than', value: '1000' },
+                    { id: 'purchases', measureIndex: 1, operator: 'greater_than_or_equal', value: '5' },
+                    { id: 'calculation', measureIndex: 2, operator: 'between', value: '20', valueTo: '100' },
+                ],
+                resultFilterGroup: {
+                    operator: 'AND',
+                    filters: ['revenue'],
+                    groups: [{ operator: 'OR', filters: ['purchases', 'calculation'], groups: [] }],
+                },
+            }
+            const parsed = parseBIEditorState(BIEditorView.BI, worksheet)!.config
+            expect(parsed.resultFilters).toEqual(worksheet.resultFilters)
+            expect(parsed.resultFilterGroup).toEqual(worksheet.resultFilterGroup)
+            const query = buildBIQuery(parsed)!.query
+            expect(query).toContain('sum_properties_amount > 1000')
+            expect(query).toContain('count_event_2 >= 5')
+            expect(query).toContain('"Revenue per purchase_3" >= 20 AND "Revenue per purchase_3" <= 100')
+            expect(query).toMatch(/bi_filtered AS \(SELECT \* FROM bi_calculated WHERE .* AND .* OR /)
+            expect(query).toContain('OVER (PARTITION BY bi_column_event')
+            expect(query.match(/LIMIT/g)).toHaveLength(1)
+            expect(query.indexOf('bi_filtered AS')).toBeGreaterThan(query.indexOf('bi_calculated AS'))
+            expect(query.endsWith('LIMIT 1000')).toBe(true)
+            if (compare) {
+                expect(query).toContain('FROM bi_previous')
+                expect(query).toContain('UNION ALL')
+            }
+        }
+    )
+
+    it.each(['1 OR 1=1', 'Infinity', '1; DROP TABLE events', '1e999'])(
+        'rejects invalid result values instead of interpolating them: %s',
+        (value) => {
+            const worksheet: BIConfig = {
+                ...config,
+                resultFilters: [{ id: 'measure', measureIndex: 0, operator: 'greater_than', value }],
+            }
+            expect(buildBIQuery(worksheet)).toBeNull()
+            expect(
+                buildBIQuery({ ...worksheet, resultFilters: [{ ...worksheet.resultFilters![0], enabled: false }] })
+            ).not.toBeNull()
+        }
+    )
+
+    it('keeps totals independent of result filters and filters before reserving the summary row budget', () => {
+        const query = buildBIQuery({
+            ...config,
+            chartType: ChartDisplayType.ActionsTable,
+            totals: { rows: true },
+            resultFilters: [{ id: 'measure', measureIndex: 0, operator: 'greater_than', value: '100' }],
+        })!.query
+        expect(query).toContain('FROM bi_calculated WHERE bi_grouping != 0 OR ((sum_properties_amount > 100))')
+        expect(query).toContain('AS bi_rank FROM bi_filtered)')
+    })
+
     it.each(BI_TABLE_CALCULATIONS)('persists and calculates $value before limiting results', ({ value: type }) => {
         const worksheet: BIConfig = {
             ...config,

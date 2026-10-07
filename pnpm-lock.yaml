@@ -532,6 +532,9 @@ importers:
       mockdate:
         specifier: ^3.0.5
         version: 3.0.5
+      posthog-js-lite:
+        specifier: 4.12.1
+        version: 4.12.1
       sass:
         specifier: ^1.26.2
         version: 1.56.0

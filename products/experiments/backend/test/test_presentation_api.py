@@ -627,6 +627,23 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
+            ("legacy_kind", {"kind": "ExperimentFunnelsQuery"}),
+            ("no_kind", {"metric_type": "mean", "source": {"kind": "EventsNode", "event": "$pageview"}}),
+            ("no_metric_type", {"kind": "ExperimentMetric", "source": {"kind": "EventsNode", "event": "$pageview"}}),
+        ]
+    )
+    def test_detail_serves_no_effective_query_for_a_query_outside_the_metric_union(
+        self, _name: str, saved_query: dict[str, Any]
+    ) -> None:
+        experiment, _ = self._create_experiment_with_action_metrics(0)
+        ExperimentSavedMetric.objects.filter(experimenttosavedmetric__experiment=experiment).update(query=saved_query)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["saved_metrics"][0]["effective_query"])
+
+    @parameterized.expand(
+        [
             # (name, flag enabled for team, start_date offset from cutoff in days, expected event)
             ("before_cutoff", True, -7, "$feature_flag_called"),
             ("after_cutoff", True, 7, "$experiment_exposure"),
@@ -1242,11 +1259,20 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             {"id": holdout_2_id, "exclusion_percentage": 5},
         )
 
-    @parameterized.expand([("event_source", False), ("action_source_renamed_after_the_save", True)])
-    def test_saved_metric_fingerprint_is_stamped_from_the_merged_query(self, _name: str, rename_action: bool):
+    @parameterized.expand(
+        [
+            ("event_source", False, True),
+            ("action_source_renamed_after_the_save", True, True),
+            ("limit_without_link_breakdowns", False, False),
+        ]
+    )
+    def test_saved_metric_fingerprint_is_stamped_from_the_merged_query(
+        self, _name: str, rename_action: bool, link_has_breakdowns: bool
+    ):
         """The stamped fingerprint tells the frontend which timeseries rows to read. It must be computed on
         the saved query with the link overrides applied, the same dict the daily workflow files its rows
         under, or the chart reads an empty series for an override-configured saved metric."""
+        breakdowns = [{"type": "event", "property": "$os_name"}] if link_has_breakdowns else []
         action = Action.objects.create(team=self.team, name="Stored name", steps_json=[{"event": "$pageview"}])
         source = (
             {"kind": "ActionsNode", "id": action.id, "name": action.name}
@@ -1262,11 +1288,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         if rename_action:
             Action.objects.filter(pk=action.pk).update(name="Current name")
-        metadata = {
-            "type": "primary",
-            "breakdowns": [{"type": "event", "property": "$os_name"}],
-            "breakdown_limit": 20,
-        }
+        metadata = {"type": "primary", "breakdowns": breakdowns, "breakdown_limit": 20}
         experiment_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
@@ -1281,9 +1303,20 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
 
         detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_response.json()['id']}/")
-        stamped = detail.json()["saved_metrics"][0]["query"]["fingerprint"]
+        served = detail.json()["saved_metrics"][0]
+        stamped = served["query"]["fingerprint"]
         if rename_action:
-            self.assertEqual(detail.json()["saved_metrics"][0]["query"]["source"]["name"], "Current name")
+            self.assertEqual(served["query"]["source"]["name"], "Current name")
+        # The link limit applies only together with link breakdowns.
+        self.assertEqual(
+            served["effective_query"],
+            {
+                **served["query"],
+                "breakdownFilter": (
+                    {"breakdowns": breakdowns, "breakdown_limit": 20} if link_has_breakdowns else {"breakdowns": []}
+                ),
+            },
+        )
 
         experiment = Experiment.objects.get(pk=experiment_response.json()["id"])
         saved_query = experiment.saved_metrics.first().query  # type: ignore[union-attr]
@@ -1301,17 +1334,18 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             excluded_variants=experiment.excluded_variants or [],
         )
         self.assertEqual(stamped, expected)
-        # The raw query hashes differently when real breakdowns exist, so a stamp computed on it would
-        # point the chart at rows that do not exist.
-        self.assertNotEqual(
-            stamped,
-            compute_metric_fingerprint(
-                saved_query,
-                *fingerprint_args,
-                only_count_matured_users=experiment.only_count_matured_users,
-                excluded_variants=experiment.excluded_variants or [],
-            ),
-        )
+        if link_has_breakdowns:
+            # The raw query hashes differently when real breakdowns exist, so a stamp computed on it would
+            # point the chart at rows that do not exist.
+            self.assertNotEqual(
+                stamped,
+                compute_metric_fingerprint(
+                    saved_query,
+                    *fingerprint_args,
+                    only_count_matured_users=experiment.only_count_matured_users,
+                    excluded_variants=experiment.excluded_variants or [],
+                ),
+            )
 
     def test_saved_metrics(self):
         response = self.client.post(

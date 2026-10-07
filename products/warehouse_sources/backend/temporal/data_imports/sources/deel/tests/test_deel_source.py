@@ -16,6 +16,7 @@ class TestDeelSource:
         [
             "401 Client Error: Unauthorized for url: https://api.letsdeel.com/rest/v2/people?limit=50",
             "403 Client Error: Forbidden for url: https://api.letsdeel.com/rest/v2/contracts",
+            "410 Client Error: Gone for url: https://api.letsdeel.com/rest/people?limit=50",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):
@@ -32,6 +33,22 @@ class TestDeelSource:
     def test_non_retryable_errors_does_not_match_unrelated(self, other_vendor_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_vendor_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "api_version, dated_tables_listed",
+        [
+            ("v2", False),
+            ("2026-01-01", True),
+            # No pin is a source being created, which lands on the default version.
+            (None, True),
+        ],
+    )
+    def test_get_schemas_lists_dated_tables_only_on_the_dated_pin(self, api_version, dated_tables_listed):
+        dated_tables = {"it_seats", "it_clearance_requests", "time_off_policies", "equity_awards"}
+
+        names = {schema.name for schema in self.source.get_schemas(self.config, self.team_id, api_version=api_version)}
+
+        assert names == (set(ENDPOINTS) if dated_tables_listed else set(ENDPOINTS) - dated_tables)
 
     def test_get_schemas_are_full_refresh_only(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
