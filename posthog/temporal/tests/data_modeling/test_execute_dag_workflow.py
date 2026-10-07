@@ -955,7 +955,6 @@ class TestTrinoDependencyOutcomes:
                 temporal_workflow, "execute_activity", new=AsyncMock(side_effect=execute_activity)
             ) as activities,
             patch.object(temporal_workflow, "start_child_workflow", new=AsyncMock(side_effect=start_child)),
-            patch.object(temporal_workflow, "deprecate_patch"),
             patch.object(temporal_workflow, "now", return_value=dt.datetime(2026, 1, 1, tzinfo=dt.UTC)),
             patch.object(temporal_workflow, "info", return_value=info),
             patch.object(temporal_workflow, "metric_meter", return_value=MagicMock()),
