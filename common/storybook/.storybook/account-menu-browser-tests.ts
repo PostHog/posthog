@@ -18,12 +18,12 @@ async function testProjectCreation(page: Page, storyId: string, dialogText: stri
         })
         const account = mobilePage.locator('[data-attr="new-account-menu-button"]')
         if (!(await account.isVisible())) {
-            await mobilePage.getByRole('button', { name: 'Open navigation', exact: true }).click()
+            await mobilePage.getByRole('button', { name: 'Open navigation', exact: true }).tap()
         }
-        await account.click()
+        await account.tap()
         const create = mobilePage.locator('[data-attr="new-account-menu-create-project-icon-button"]')
         await expect(create).toBeVisible()
-        await create.click()
+        await create.tap()
         await expect(create).not.toBeVisible()
         await expect(mobilePage.getByRole('dialog').filter({ hasText: dialogText })).toBeVisible()
     } finally {
