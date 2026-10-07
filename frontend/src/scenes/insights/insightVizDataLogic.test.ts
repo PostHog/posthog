@@ -1232,6 +1232,30 @@ describe('insightVizDataLogic', () => {
         })
     })
 
+    describe('showLegend', () => {
+        const rows = (count: number, compare_label?: string): Record<string, any>[] =>
+            Array.from({ length: count }, (_, i) => ({ breakdown_value: `part ${i}`, compare_label }))
+
+        it.each([
+            ['a proportion bar with few parts', rows(15), true],
+            ['a proportion bar with many parts', rows(25), undefined],
+            [
+                'a proportion bar saved with compare on, counting only the current period',
+                [...rows(15, 'current'), ...rows(15, 'previous')],
+                true,
+            ],
+        ])('%s', async (_name, result, expected) => {
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                ...trendsQueryDefault,
+                trendsFilter: { display: ChartDisplayType.ActionsProportionBar },
+            } as TrendsQuery)
+
+            await expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadDataSuccess({ result })
+            }).toMatchValues({ showLegend: expected })
+        })
+    })
+
     describe('supportsCompare', () => {
         const setFunnelVizType = (funnelVizType: FunnelVizType): void => {
             builtInsightVizDataLogic.actions.updateQuerySource({

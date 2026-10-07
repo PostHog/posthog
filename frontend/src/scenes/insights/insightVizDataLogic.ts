@@ -1898,7 +1898,15 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     | import('~/queries/schema/schema-general').WebStatsTableQuery,
                 insightData: Record<string, any> | null
             ) =>
-                q ? getShowLegend(q, Array.isArray(insightData?.result) ? insightData.result.length : undefined) : null,
+                q
+                    ? getShowLegend(
+                          q,
+                          Array.isArray(insightData?.result)
+                              ? insightData.result.filter((r: Record<string, any>) => r?.compare_label !== 'previous')
+                                    .length
+                              : undefined
+                      )
+                    : null,
         ],
         legendPosition: [
             (s) => [s.querySource],
