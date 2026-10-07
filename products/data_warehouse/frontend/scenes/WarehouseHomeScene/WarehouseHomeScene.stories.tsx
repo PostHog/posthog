@@ -158,7 +158,6 @@ const meta: Meta<typeof WarehouseHomeScene> = {
             FEATURE_FLAGS.TODAY_RAIL_NAV,
             FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE,
             FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
-            FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
         ],
     },
 }

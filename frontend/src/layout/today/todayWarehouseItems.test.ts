@@ -18,7 +18,6 @@ describe('todayWarehouseItems', () => {
         ['/data-catalog', true],
         ['/data-management/variables', true],
         ['/sql?open_query=abc', true],
-        ['/notebooks', false],
         ['/etl', false],
         ['/data-management/destinations?tab=all', false],
     ])('treats the %s tool as a warehouse tool: %s', (href, expected) => {

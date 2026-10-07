@@ -13,7 +13,6 @@ export type WarehouseItemKey =
     | 'business_intelligence'
     | 'models'
     | 'warehouse_destinations'
-    | 'notebooks'
     | 'sql_variables'
     | 'data_ops'
 
@@ -26,8 +25,6 @@ export interface WarehouseItem {
     sceneKey: string
     group: 'home' | 'primary' | 'secondary'
     flag?: FeatureFlagKey
-    /** False for pages that belong to another pane and only appear here as a shortcut. */
-    ownsRoute: boolean
 }
 
 export const WAREHOUSE_ITEMS: WarehouseItem[] = [
@@ -38,7 +35,6 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         iconType: 'data_warehouse',
         sceneKey: 'WarehouseHome',
         group: 'home',
-        ownsRoute: true,
     },
     {
         key: 'sql_editor',
@@ -47,7 +43,6 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         iconType: 'sql_editor',
         sceneKey: 'SQLEditor',
         group: 'primary',
-        ownsRoute: true,
     },
     {
         key: 'data_catalog',
@@ -56,7 +51,6 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         iconType: 'data_catalog',
         sceneKey: 'DataCatalog',
         group: 'primary',
-        ownsRoute: true,
     },
     {
         key: 'sources',
@@ -65,7 +59,6 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         iconType: 'data_source',
         sceneKey: 'Sources',
         group: 'primary',
-        ownsRoute: true,
     },
     {
         key: 'business_intelligence',
@@ -75,7 +68,6 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         sceneKey: 'BusinessIntelligence',
         group: 'primary',
         flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
-        ownsRoute: true,
     },
     {
         key: 'models',
@@ -84,7 +76,6 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         iconType: 'data_modeling',
         sceneKey: 'Models',
         group: 'primary',
-        ownsRoute: true,
     },
     {
         key: 'warehouse_destinations',
@@ -94,16 +85,6 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         sceneKey: 'WarehouseDestinations',
         group: 'primary',
         flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
-        ownsRoute: true,
-    },
-    {
-        key: 'notebooks',
-        label: 'Notebooks',
-        href: urls.notebooks(),
-        iconType: 'notebook',
-        sceneKey: 'Notebooks',
-        group: 'primary',
-        ownsRoute: false,
     },
     {
         key: 'sql_variables',
@@ -112,7 +93,6 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         iconType: 'sql_variable',
         sceneKey: 'DataManagement',
         group: 'secondary',
-        ownsRoute: true,
     },
     {
         key: 'data_ops',
@@ -122,7 +102,6 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         sceneKey: 'DataOps',
         group: 'secondary',
         flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
-        ownsRoute: true,
     },
 ]
 
@@ -138,10 +117,7 @@ function isUnder(path: string, root: string): boolean {
 }
 
 const WAREHOUSE_ROUTE_ROOTS = [
-    ...new Set([
-        ...WAREHOUSE_ITEMS.filter((item) => item.ownsRoute).map((item) => hrefPath(item.href)),
-        ...EXTRA_WAREHOUSE_PATHS,
-    ]),
+    ...new Set([...WAREHOUSE_ITEMS.map((item) => hrefPath(item.href)), ...EXTRA_WAREHOUSE_PATHS]),
 ]
 
 export function isWarehousePath(path: string): boolean {
@@ -149,7 +125,7 @@ export function isWarehousePath(path: string): boolean {
 }
 
 const WAREHOUSE_TOOL_PATHS = new Set(
-    WAREHOUSE_ITEMS.filter((item) => item.ownsRoute && item.key !== 'home').map((item) => hrefPath(item.href))
+    WAREHOUSE_ITEMS.filter((item) => item.key !== 'home').map((item) => hrefPath(item.href))
 )
 
 export function isWarehouseToolHref(href: string): boolean {

@@ -16,14 +16,12 @@ import {
     Text,
 } from '@posthog/quill'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { warehouseHomeLogic, WarehouseStepState } from './warehouseHomeLogic'
 
-type WarehouseStep = 'connect_source' | 'create_view' | 'explore'
+type WarehouseStep = 'connect_source' | 'create_view'
 
 interface StepAction {
     label: string
@@ -83,15 +81,6 @@ function StepRow({ step, index, state, title, description, actions }: StepRowPro
 
 export function WarehouseGettingStarted(): JSX.Element {
     const { sourceStep, viewStep } = useValues(warehouseHomeLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const biMode = !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE]
-
-    const exploreActions: StepAction[] = [
-        { label: 'Open notebooks', to: urls.notebooks(), dataAttr: 'warehouse-home-open-notebooks' },
-    ]
-    if (biMode) {
-        exploreActions.push({ label: 'Open BI', to: urls.businessIntelligence(), dataAttr: 'warehouse-home-open-bi' })
-    }
 
     return (
         <section aria-labelledby="warehouse-getting-started" className="flex flex-col gap-2">
@@ -122,15 +111,6 @@ export function WarehouseGettingStarted(): JSX.Element {
                     actions={[
                         { label: 'Open SQL editor', to: urls.sqlEditor(), dataAttr: 'warehouse-home-create-view' },
                     ]}
-                />
-                <StepRow
-                    step="explore"
-                    index={3}
-                    // Exploring has no completion signal, so it is always open.
-                    state="todo"
-                    title="Explore your data"
-                    description={`Analyze your tables in a notebook${biMode ? ' or with BI' : ''}.`}
-                    actions={exploreActions}
                 />
             </ItemGroup>
         </section>
