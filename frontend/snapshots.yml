@@ -204,6 +204,26 @@ snapshots:
         hash: v1.k794b7964.8e7770037014d788ef5b7299b6b2f834c2afcad14dd6c6033ddd8ac885faa1c6.buSflXKIcQC5dcm7fbQWsczrZY8TleOkvO86ugYW8yw
     charts-heatmap--linear-color-scale--light:
         hash: v1.k794b7964.c94c02704b7f9b4972f811336d019e15b77cff047551902ca74d65c1571ea6ff.PA6k_wyPYr-SNYm1-Mv8sa0DFCLb2-8QxOVNlDn4hE8
+    charts-sankeychart--controlled-highlight--dark:
+        hash: v1.k794b7964.eba0651fe51c58db0efb22be780f9c3312770910860cf3c1c0ebc899677af34d.y1waF2MLNvKZONNX977TQ_wQE4cB_YRyddAMgZrBdBk
+    charts-sankeychart--controlled-highlight--light:
+        hash: v1.k794b7964.037b47557a521539baf510394e37a3947590d6e4f37158823c58d5a0009ee614.ROQipQPqSPpPTPDgQMtDB1xrv3R05qoKQ6KijSSsHgE
+    charts-sankeychart--hovered-link--dark:
+        hash: v1.k794b7964.e50f64b0a2556e240047944407ec800fb78ffc2ad3eca93219f235d64883327d.X8189N1MHu1yKO4xcQgIglRR8DdqCLFhNfcqHuspBNE
+    charts-sankeychart--hovered-link--light:
+        hash: v1.k794b7964.3d80ddb75942d750e8966a762b6605b9780e848478da52fbfc853336f1e1602f._wg3_fRbuh-eGfRO8WO8V6touEXs3l1g1ReCIzOYp7o
+    charts-sankeychart--left-aligned-with-values--dark:
+        hash: v1.k794b7964.1feb41fa4c6017593646eff1e33c11eb8ef9e224e5776a2bca43c97ff2390f9b.OQ83mEQIk1BTINe94sYI5ByoXnLHMvRo8W_9an60lrI
+    charts-sankeychart--left-aligned-with-values--light:
+        hash: v1.k794b7964.71b32f628496dd8801855184c3ea3d3f0b47312041f148137107b7a48632b21d.3AfY_JFLCbBv12AAbc_xFpoqjxTK4XIZoKQJD1nc-Gw
+    charts-sankeychart--narrow--dark:
+        hash: v1.k794b7964.c0a92bc5346237079d7aa76591ef95866a0027554600de68d00488ec576ab34e.rae6pJ76-lo4OAFw2I21f4RwAfpkvPMce_DdY9MKzwQ
+    charts-sankeychart--narrow--light:
+        hash: v1.k794b7964.1f36bc77ab15bef2f717ba801cb66cb03cfe83d0deedffc0e69b0448302bb56c.1uAAAcF-jsEeS7JkUg0VbDHHQ1YZAdpwXiMG_8X9TRM
+    charts-sankeychart--tool-call-journeys--dark:
+        hash: v1.k794b7964.e50f64b0a2556e240047944407ec800fb78ffc2ad3eca93219f235d64883327d.9_vvmCGYMQ1aMSvgEOizcAf1tRGe7r0-FwNnrD3cHMo
+    charts-sankeychart--tool-call-journeys--light:
+        hash: v1.k794b7964.3d80ddb75942d750e8966a762b6605b9780e848478da52fbfc853336f1e1602f.-Pdh9g0MEEZjcHHMAB5swPyzQpd8gsqrUd6SN3sCM1w
     charts-scatterchart--best-fit--dark:
         hash: v1.k794b7964.0e422af020ee282c07fb513987159483cf8bc1ae701a576ba4e224f7d97bf355.f3zUaa87P5UbRRWD0X8BsZv-kDBKL422D_fxJJpUUd0
     charts-scatterchart--best-fit--light:
@@ -3816,6 +3836,10 @@ snapshots:
         hash: v1.k794b7964.63b1b171e7a383ea613ae033e9455f932b4ecd23f2f2a9c8cea6ad172b7320c3.m4N1HRS9A1bcQK8FtoM5drv-4DLmsvWeXRVgReHzG0g
     insights-paths--user-paths--light:
         hash: v1.k794b7964.e0757ba6f44ade516787a8e68989216fcadd06f26a9f4bc4b9a91686a3173e4a.899TyMHHv2cx-QfVpz7xFZu72QNf_Ro_KOur0BZwq-M
+    insights-paths--user-paths-sankey-chart--dark:
+        hash: v1.k794b7964.08416361f74f936778d6bf316b3490c2b17889f8e4f845ab35eb54a2d184f9fb.4QIVsxjS5d-PXsbopqXzdBzYeMYiDUwW3oln8UuW-xk
+    insights-paths--user-paths-sankey-chart--light:
+        hash: v1.k794b7964.81f8b343ebbb9b039bf7907067bec981243ff77c7c0fac176652d6f25b131885.ilAVRrwxK7zxNHtEP8bwL_cT_XzXa4V9ndg-b1KjLbo
     insights-regionmap--default--dark:
         hash: v1.k794b7964.27f645d497cc1af88387932b1f580fff796596ea0cea520c6c3ce745a2625612.DbzWk3NIbbjDzeeJvLUlooVLALtBzLDZ02gl6S6mllk
     insights-regionmap--default--light:

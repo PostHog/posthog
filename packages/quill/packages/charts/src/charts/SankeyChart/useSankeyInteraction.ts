@@ -1,0 +1,262 @@
+import React, { useCallback, useEffect, useMemo, useRef } from 'react'
+
+import { originatesInInteractiveOverlay } from '../../core/dom-events'
+import { useLatest } from '../../core/hooks/useLatest'
+import { useTapTracking } from '../../core/hooks/useTapTracking'
+import { useTooltipLifecycle } from '../../core/hooks/useTooltipLifecycle'
+import type { Series, TooltipContext } from '../../core/types'
+import { hitToHoverIndex, hoverIndexToHit, sankeyHitAt } from './sankey-data'
+import type { SankeyChartLayout, SankeyHit, SankeyLinkDatum, SankeyNodeDatum } from './sankey-data'
+import type { SankeyTooltipContext, SankeyTooltipHit } from './types'
+
+interface UseSankeyInteractionOptions<NodeMeta, LinkMeta> {
+    layout: SankeyChartLayout<NodeMeta, LinkMeta>
+    canvasRef: React.RefObject<HTMLCanvasElement>
+    wrapperRef: React.RefObject<HTMLDivElement>
+    showTooltip: boolean
+    onNodeClick?: (node: SankeyNodeDatum<NodeMeta>) => void
+    onLinkClick?: (link: SankeyLinkDatum<NodeMeta, LinkMeta>) => void
+    onHoverChange?: (hit: SankeyTooltipHit<NodeMeta, LinkMeta> | null) => void
+}
+
+function hitKey(hit: SankeyHit | null): string | null {
+    return hit ? `${hit.kind}:${hit.index}` : null
+}
+
+interface UseSankeyInteractionResult<NodeMeta, LinkMeta> {
+    hoverIndex: number
+    hoverPosition: { x: number; y: number } | null
+    tooltipCtx: SankeyTooltipContext<NodeMeta, LinkMeta> | null
+    handlers: {
+        onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
+        onMouseLeave: () => void
+        onClick: (e: React.MouseEvent<HTMLDivElement>) => void
+        onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void
+    }
+}
+
+function resolveHit<NodeMeta, LinkMeta>(
+    layout: SankeyChartLayout<NodeMeta, LinkMeta>,
+    hit: SankeyHit
+): SankeyTooltipHit<NodeMeta, LinkMeta> {
+    return hit.kind === 'node'
+        ? { kind: 'node', node: layout.nodes[hit.index] }
+        : { kind: 'link', link: layout.links[hit.index] }
+}
+
+function buildTooltipCtx<NodeMeta, LinkMeta>(
+    layout: SankeyChartLayout<NodeMeta, LinkMeta>,
+    hit: SankeyHit,
+    cursor: { x: number; y: number } | null,
+    canvasBounds: DOMRect
+): SankeyTooltipContext<NodeMeta, LinkMeta> {
+    const resolved = resolveHit(layout, hit)
+    const label =
+        resolved.kind === 'node' ? resolved.node.label : `${resolved.link.source.label} → ${resolved.link.target.label}`
+    const value = resolved.kind === 'node' ? resolved.node.value : resolved.link.value
+    const color = resolved.kind === 'node' ? resolved.node.color : resolved.link.color
+    const meta: NodeMeta | LinkMeta | undefined = resolved.kind === 'node' ? resolved.node.meta : resolved.link.meta
+    const anchor =
+        resolved.kind === 'node'
+            ? { x: resolved.node.x1, y: (resolved.node.y0 + resolved.node.y1) / 2 }
+            : {
+                  x: (resolved.link.source.x1 + resolved.link.target.x0) / 2,
+                  y: (resolved.link.y0 + resolved.link.y1) / 2,
+              }
+    // One synthetic series row keeps the shared tooltip plumbing (equivalence checks, the
+    // default renderer fallback) working on a chart that has no series.
+    const series: Series<NodeMeta | LinkMeta> = { key: `${hit.kind}:${hit.index}`, label, data: [value], color, meta }
+    const fraction = layout.total > 0 ? value / layout.total : 0
+    return {
+        dataIndex: hitToHoverIndex(layout, hit),
+        label,
+        seriesData: [{ series, value, color, fraction }],
+        position: anchor,
+        hoverPosition: cursor,
+        canvasBounds,
+        isPinned: false,
+        hit: resolved,
+        total: layout.total,
+    }
+}
+
+export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
+    layout,
+    canvasRef,
+    wrapperRef,
+    showTooltip,
+    onNodeClick,
+    onLinkClick,
+    onHoverChange,
+}: UseSankeyInteractionOptions<NodeMeta, LinkMeta>): UseSankeyInteractionResult<NodeMeta, LinkMeta> {
+    type Ctx = SankeyTooltipContext<NodeMeta, LinkMeta>
+    const layoutRef = useLatest(layout)
+    const onHoverChangeRef = useLatest(onHoverChange)
+    // The last hit reported to the host, so a cursor sweep inside one ribbon reports it once.
+    const reportedHitRef = useRef<string | null>(null)
+
+    // A new layout rebuilds nodes/links with fresh objects, so a stale key can coincidentally
+    // match the next real hit and suppress the hover callback the consumer needs to update. The
+    // reported hit is gone with the old layout, so the host hears that too.
+    useEffect(() => {
+        if (reportedHitRef.current !== null) {
+            reportedHitRef.current = null
+            onHoverChangeRef.current?.(null)
+        }
+    }, [layout, onHoverChangeRef])
+
+    const reportHover = useCallback(
+        (hit: SankeyHit | null) => {
+            const key = hitKey(hit)
+            if (key === reportedHitRef.current) {
+                return
+            }
+            reportedHitRef.current = key
+            onHoverChangeRef.current?.(hit ? resolveHit(layoutRef.current, hit) : null)
+        },
+        [onHoverChangeRef, layoutRef]
+    )
+
+    const rebuildPinnedCtx = useCallback(
+        (prev: TooltipContext<NodeMeta | LinkMeta>): Ctx | null => {
+            const hit = hoverIndexToHit(layoutRef.current, prev.dataIndex)
+            if (!hit) {
+                return null
+            }
+            const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
+            return buildTooltipCtx(layoutRef.current, hit, prev.hoverPosition, canvasBounds)
+        },
+        [layoutRef, canvasRef]
+    )
+
+    const { hoverIndex, hoverPosition, tooltipCtx, isPinned, setHover, setTooltipCtx, clearTooltip } =
+        useTooltipLifecycle<NodeMeta | LinkMeta>({
+            wrapperRef,
+            rebuildPinnedCtx,
+            rebuildDeps: [layout],
+        })
+
+    useEffect(() => {
+        if (!isPinned) {
+            clearTooltip()
+        }
+    }, [layout, isPinned, clearTooltip])
+
+    // Hidden content must not survive to reappear when tooltips are switched back on.
+    useEffect(() => {
+        if (!showTooltip) {
+            setTooltipCtx(null)
+        }
+    }, [showTooltip, setTooltipCtx])
+
+    const hoverIndexRef = useLatest(hoverIndex)
+
+    const showHit = useCallback(
+        (hit: SankeyHit, cursor: { x: number; y: number }) => {
+            setHover(hitToHoverIndex(layoutRef.current, hit), cursor)
+            if (showTooltip) {
+                const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
+                setTooltipCtx(buildTooltipCtx(layoutRef.current, hit, cursor, canvasBounds))
+            } else {
+                setTooltipCtx(null)
+            }
+            reportHover(hit)
+        },
+        [layoutRef, showTooltip, setHover, setTooltipCtx, canvasRef, reportHover]
+    )
+
+    const onMouseMove = useCallback(
+        (e: React.MouseEvent<HTMLDivElement>) => {
+            const current = layoutRef.current
+            if (current.nodes.length === 0) {
+                reportHover(null)
+                return
+            }
+            if (originatesInInteractiveOverlay(e)) {
+                clearTooltip()
+                reportHover(null)
+                return
+            }
+            const rect = e.currentTarget.getBoundingClientRect()
+            const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+            const hit = sankeyHitAt(current, cursor)
+            if (!hit) {
+                clearTooltip()
+                reportHover(null)
+                return
+            }
+            showHit(hit, cursor)
+        },
+        [layoutRef, showHit, clearTooltip]
+    )
+
+    const onMouseLeave = useCallback(() => {
+        clearTooltip()
+        reportHover(null)
+    }, [clearTooltip, reportHover])
+
+    // As on the cartesian charts, the first tap on a node or ribbon shows its tooltip and only a
+    // tap on the element already showing one fires the click handler.
+    const { lastPointerTypeRef, tapDownTooltipIndexRef, onPointerDown } = useTapTracking(tooltipCtx)
+
+    const onClick = useCallback(
+        (e: React.MouseEvent<HTMLDivElement>) => {
+            // A click or tap meant for an overlay control must not act on the node behind it.
+            if (originatesInInteractiveOverlay(e)) {
+                if (lastPointerTypeRef.current === 'touch') {
+                    clearTooltip()
+                    reportHover(null)
+                }
+                return
+            }
+            const current = layoutRef.current
+            const rect = e.currentTarget.getBoundingClientRect()
+            const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+            let hit = sankeyHitAt(current, cursor) ?? hoverIndexToHit(current, hoverIndexRef.current)
+            if (lastPointerTypeRef.current === 'touch') {
+                hit = sankeyHitAt(current, cursor)
+                if (!hit) {
+                    clearTooltip()
+                    reportHover(null)
+                    return
+                }
+                if (hitToHoverIndex(current, hit) !== tapDownTooltipIndexRef.current) {
+                    showHit(hit, cursor)
+                    if (showTooltip) {
+                        return
+                    }
+                }
+            }
+            if (!hit) {
+                return
+            }
+            const resolved = resolveHit(current, hit)
+            if (resolved.kind === 'node') {
+                onNodeClick?.(resolved.node)
+            } else {
+                onLinkClick?.(resolved.link)
+            }
+        },
+        [
+            layoutRef,
+            hoverIndexRef,
+            lastPointerTypeRef,
+            tapDownTooltipIndexRef,
+            clearTooltip,
+            reportHover,
+            showHit,
+            showTooltip,
+            onNodeClick,
+            onLinkClick,
+        ]
+    )
+
+    const handlers = useMemo(
+        () => ({ onMouseMove, onMouseLeave, onClick, onPointerDown }),
+        [onMouseMove, onMouseLeave, onClick, onPointerDown]
+    )
+
+    // The lifecycle stores the base context; every value it holds was built by `buildTooltipCtx`,
+    // so the extra Sankey fields are present.
+    return { hoverIndex, hoverPosition, tooltipCtx: tooltipCtx as Ctx | null, handlers }
+}

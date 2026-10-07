@@ -2079,6 +2079,9 @@ importers:
       '@floating-ui/react':
         specifier: ^0.27.19
         version: 0.27.19(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/d3-shape':
+        specifier: ^3.1.6
+        version: 3.1.8
       d3-array:
         specifier: ^3.2.4
         version: 3.2.4
@@ -2125,9 +2128,6 @@ importers:
       '@types/d3-scale':
         specifier: ^4.0.8
         version: 4.0.9
-      '@types/d3-shape':
-        specifier: ^3.1.6
-        version: 3.1.8
       '@types/jest':
         specifier: 'catalog:'
         version: 29.5.14
