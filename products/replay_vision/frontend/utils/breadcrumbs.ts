@@ -40,8 +40,9 @@ export function safeReturnPath(value: unknown): string | null {
 }
 
 /** The current in-app path, without the project prefix, for an observation link's `return_to`. */
-export function currentReturnPath(location: { pathname: string; search: string }): string {
-    return removeProjectIdIfPresent(location.pathname) + location.search
+export function currentReturnPath(location: { pathname: string; search: string; hash: string }): string {
+    // The hash matters: the player modal keeps the open recording there.
+    return removeProjectIdIfPresent(location.pathname) + location.search + location.hash
 }
 
 export function observationFromOriginUrl(observationId: string, origin: ReturnOrigin, returnPath?: string): string {

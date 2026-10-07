@@ -86,6 +86,7 @@ import {
     SCANNER_EDITOR_STEPS,
     ScannerEditorStep,
     firstErroredScannerStep,
+    isScannerEditorPath,
     scannerEditorSceneLogic,
     scannerStepErrors,
     scannerStepUrl,
@@ -2727,6 +2728,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 ])
 
 export function leaveScannerEditor(destination: string): void {
+    // A save can finish after the user has left the editor, and must not pull them back.
+    if (!isScannerEditorPath(router.values.location.pathname)) {
+        return
+    }
     const editor = scannerEditorSceneLogic.findMounted()
     if (editor) {
         editor.actions.leaveEditor(destination)
