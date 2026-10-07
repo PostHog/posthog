@@ -46,6 +46,16 @@ def _raised_from(error: BaseException, cause: BaseException) -> BaseException:
         ),
         (OperationalError("connection failed: FATAL: password authentication failed for user"), False),
         (OperationalError("no such database"), False),
+        (OperationalError("[Errno -3] Temporary failure in name resolution"), True),
+        (
+            OperationalError(
+                'connection failed: could not translate host name "db.example.com" to address: '
+                "Temporary failure in name resolution"
+            ),
+            True,
+        ),
+        (OperationalError("[Errno -2] Name or service not known"), False),
+        (OperationalError("[Errno -5] No address associated with hostname"), False),
         # psycopg raises this straight off local state (no new network I/O) when a connection
         # already marked dead by an earlier operation is reused — the same dropped-connection
         # condition as "server closed the connection unexpectedly", just discovered later.

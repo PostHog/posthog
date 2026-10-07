@@ -46,6 +46,11 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     # instead of on the read/write that first found it dead. close_old_connections() at the top of
     # the next activity attempt discards the broken connection, so a retry self-heals.
     "the connection is closed",
+    # getaddrinfo EAI_AGAIN (errno -3): the resolver could not get an answer now, for example during
+    # a short cluster DNS outage. It clears when DNS comes back, so a retry self-heals. EAI_NONAME
+    # (errno -2, "Name or service not known") and EAI_NODATA (errno -5, "No address associated with
+    # hostname") stay unmatched, because both can mean a host that never resolves.
+    "Temporary failure in name resolution",
 )
 
 # SQLSTATE class 57P (operator intervention): the server is shutting down or restarting and
