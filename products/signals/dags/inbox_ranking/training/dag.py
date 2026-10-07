@@ -25,7 +25,7 @@ was promoted from so a loader can tell a re-run apart from the version it pinned
 graded on the candidate's holdout through its `<head>.holdout.ubj` (the train-only fit), so the
 promotion rule compares both models on one set of reports. Every model object sits under its
 family's `model_name`, and promotion stays inside a family: a richer family is a second candidate
-graded on the same rows, not a competitor for the tabular family's pointer.
+graded on the same rows, not a competitor for another family's pointer.
 
 Both the candidate and the champion asset walk `MODEL_FAMILIES`, so each family trains on the
 examples of the feature set it declares and decides against its own pointer. A family whose
@@ -151,6 +151,7 @@ from products.signals.dags.inbox_ranking.training.train import (
 from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
     CHAMPION_ROLE,
+    FEATURE_INPUT_COLUMNS,
     MODEL_FAMILIES,
     SERVED_SCORES_TABLE,
     UNSEEN_SCORES_TABLE,
@@ -197,12 +198,13 @@ _LABEL_COLUMNS = (
     *PROVENANCE_LABEL_COLUMNS,
 )
 # Every registered feature set's columns in one read: the state snapshot is loaded once and every
-# set builds its examples from it.
+# set builds its examples from it. The scored events copy the report-state inputs, so they are read too.
 _STATE_READ_COLUMNS = tuple(
     dict.fromkeys(
         (
             *BASE_STATE_COLUMNS,
             *(column for feature_set in FEATURE_SETS.values() for column in feature_set.state_columns),
+            *FEATURE_INPUT_COLUMNS,
             *PROVENANCE_STATE_COLUMNS,
             "features_observed_at",
         )
@@ -1392,6 +1394,11 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
                 skipped[f"{skip_prefix}{scoring_partition}"] = f"no {kind} scores"
                 continue
             scores = with_model_names(table.to_pandas())
+            if len(scores) < table.num_rows:
+                context.log.warning(
+                    f"dropped {table.num_rows - len(scores)} {kind} score rows of {scoring_partition} with no model_name "
+                    "or a retired one"
+                )
             pool = scored_pool(scores)
             graded_by_head: dict[str, pd.DataFrame] = {}
             for head in heads:
@@ -1462,15 +1469,14 @@ inbox_ranking_training_job = dagster.define_asset_job(
         **owner_tags,
         # The report-embeddings family fits 1536-column heads, and each head costs a fit per
         # permutation draw on top of the two it ships, so the wall clock is now the trainer's
-        # rather than the ETL's. Matched to the dataset job's budget.
+        # rather than the ETL's.
         "dagster/max_runtime": str(3 * 60 * 60),
         # The examples asset holds every snapshot of the lookback window in pandas at once (state
         # plus labels per day) before the per-head builders run, plus one rendering's vectors as
         # the side input the embedding set being built reads, so the peak grows with the lookback
         # and the inventory. It is one rendering at a time rather than one per family, so a further
-        # embedding family costs runtime and not peak. The limit sits above the dataset job's
-        # because that vector table is only one of the things held here; growth should surface as a
-        # slow run, not an OOMKilled pod.
+        # embedding family costs runtime and not peak. Growth should surface as a slow run, not an
+        # OOMKilled pod.
         "dagster-k8s/config": {
             "container_config": {
                 "resources": {
@@ -1483,9 +1489,9 @@ inbox_ranking_training_job = dagster.define_asset_job(
 )
 
 
-# Runs after the dataset job's 3h budget (02:30 UTC start) so dt=D-1's snapshots exist.
+# Runs after the dataset job's 2h budget (02:30 UTC start) so dt=D-1's snapshots exist.
 @dagster.schedule(
-    cron_schedule="13 6 * * *",
+    cron_schedule="0 5 * * *",
     job=inbox_ranking_training_job,
     execution_timezone="UTC",
     default_status=dagster.DefaultScheduleStatus.RUNNING

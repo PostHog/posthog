@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product autoresearch
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product autoresearch
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Autoresearch
 feature: autoresearch
 url_prefix: /autoresearch
@@ -12,6 +10,7 @@ tools:
     autoresearch-archive-create:
         operation: autoresearch_archive_create
         enabled: false
+        disabled_reason: Pipeline lifecycle stays in the UI; see products/autoresearch/mcp/AGENTS.md
         scopes:
             - autoresearch:write
         annotations:
@@ -54,9 +53,6 @@ tools:
             - status
             - iteration_budget_remaining
         feature_flag: autoresearch
-    autoresearch-destroy:
-        operation: autoresearch_destroy
-        enabled: false
     autoresearch-list:
         operation: autoresearch_list
         enabled: true
@@ -103,8 +99,11 @@ tools:
             train_labels_path, holdout_features_path, holdout_labels_path), row counts, and the feature column list —
             the feature rows never pass through your context and there is NO 500-row cap. Then pd.read_parquet the
             returned paths and iterate in Python. Use this to pull training data instead of execute-sql, and re-call it
-            whenever you change features.sql. Works only for a run that autoresearch-train-create opened in a PostHog
-            sandbox; an agent training outside PostHog pulls its data with execute-sql instead.
+            whenever you change features.sql. Also returns what the feature query cost (elapsed_s and rows_read) and
+            hints about features.sql shapes that scale badly. A promoted model must score its inference population under
+            batch limits before it serves, so a slow or heavy query here is a warning. Works only for a run that
+            autoresearch-train-create opened in a PostHog sandbox; an agent training outside PostHog pulls its data with
+            execute-sql instead.
         feature_flag: autoresearch
     autoresearch-models-list:
         operation: autoresearch_models_list
@@ -170,12 +169,10 @@ tools:
             the date had few positives. Rows exist only after a prediction horizon has elapsed and online validation has
             run. Use limit to bound the number of dates (default 60).
         feature_flag: autoresearch
-    autoresearch-partial-update:
-        operation: autoresearch_partial_update
-        enabled: false
     autoresearch-pause-create:
         operation: autoresearch_pause_create
         enabled: false
+        disabled_reason: Pipeline lifecycle stays in the UI; see products/autoresearch/mcp/AGENTS.md
         scopes:
             - autoresearch:write
         annotations:
@@ -221,6 +218,7 @@ tools:
     autoresearch-resume-create:
         operation: autoresearch_resume_create
         enabled: false
+        disabled_reason: Pipeline lifecycle stays in the UI; see products/autoresearch/mcp/AGENTS.md
         scopes:
             - autoresearch:write
         annotations:
@@ -277,9 +275,6 @@ tools:
                 - started_at
                 - completed_at
                 - created_at
-    autoresearch-runs-retrieve:
-        operation: autoresearch_runs_retrieve
-        enabled: false
     autoresearch-score-create:
         operation: autoresearch_score_create
         enabled: true
@@ -386,6 +381,7 @@ tools:
     autoresearch-suggestions-retrieve:
         operation: autoresearch_suggestions_retrieve
         enabled: false
+        disabled_reason: Duplicates autoresearch-suggestions-list; the family stays at or below 25 tools
         scopes:
             - autoresearch:read
         annotations:
@@ -399,6 +395,7 @@ tools:
     autoresearch-templates-list:
         operation: autoresearch_templates_list
         enabled: false
+        disabled_reason: Replaced by autoresearch-resolve-template-create, which names every template key
         scopes:
             - autoresearch:read
         annotations:
@@ -443,6 +440,7 @@ tools:
     autoresearch-training-runs-artifacts-delete-create:
         operation: autoresearch_training_runs_artifacts_delete_create
         enabled: false
+        disabled_reason: Duplicative for the training agent; the family stays at or below 25 tools
         scopes:
             - autoresearch:write
         annotations:
@@ -640,12 +638,6 @@ tools:
                 - started_at
                 - completed_at
                 - created_at
-    autoresearch-training-runs-retrieve:
-        operation: autoresearch_training_runs_retrieve
-        enabled: false
-    autoresearch-update:
-        operation: autoresearch_update
-        enabled: false
     autoresearch-validate-create:
         operation: autoresearch_validate_create
         enabled: true
@@ -675,6 +667,7 @@ tools:
     autoresearch-validate-online-create:
         operation: autoresearch_validate_online_create
         enabled: false
+        disabled_reason: The daily validation workflow runs it; autoresearch-online-performance-retrieve reads results
         scopes:
             - autoresearch:write
             - query:read

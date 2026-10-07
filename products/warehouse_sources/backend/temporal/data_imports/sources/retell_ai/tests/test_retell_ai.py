@@ -48,13 +48,17 @@ def test_cursor_pages_and_terminal_page(
     result = source.source_for_pipeline(RetellAISourceConfig(api_key="fake-key"), manager, inputs)
     iterator = iter(cast(Iterable[Any], result.items()))
     assert next(iterator) == [{key: "record-one"}]
+    manager.confirm()
     assert not manager.has_staged_state()
     assert next(iterator) == [{key: "record-two"}]
+    manager.confirm()
     assert manager.has_staged_state()
+    manager.confirm()
     manager.commit()
     assert manager.load_state() == RetellAIResumeConfig(cursor="next-page")
     with pytest.raises(StopIteration):
         next(iterator)
+    manager.confirm()
     manager.commit()
     assert manager.load_state() == RetellAIResumeConfig(completed=True)
     assert result.primary_keys == [key]
@@ -131,6 +135,7 @@ def test_resume_skips_written_pages(
     inputs = replace(inputs, schema_name=name)
     manager = source.get_resumable_source_manager(inputs)
     manager.save_state(RetellAIResumeConfig(cursor="saved-cursor", completed=completed))
+    manager.confirm()
     manager.commit()
     http.return_value = response({"items": [{"record": "remaining"}], "has_more": False})
     result = source.source_for_pipeline(RetellAISourceConfig(api_key="fake-key"), manager, inputs)

@@ -27,6 +27,7 @@ model_activity:products.alerts.backend.activity_logging.handle_threshold_change
 model_activity:products.annotations.backend.activity_logging.handle_annotation_change
 model_activity:products.batch_exports.backend.activity_logging.handle_batch_export_change
 model_activity:products.business_knowledge.backend.signals.handle_knowledge_source_change
+model_activity:products.cross_project_dashboards.backend.activity_logging.handle_cross_project_dashboard_change
 model_activity:products.customer_analytics.backend.activity_logging.handle_account_view_change
 model_activity:products.dashboards.backend.activity_logging.handle_dashboard_change
 model_activity:products.dashboards.backend.activity_logging.handle_dashboard_widget_change
@@ -50,6 +51,7 @@ model_activity:products.tasks.backend.activity_logging.handle_loop_change
 model_activity:products.tracing.backend.activity_logging.handle_traces_retention_rule_activity
 model_activity:products.warehouse_sources.backend.activity_logging.handle_external_data_schema_change
 model_activity:products.warehouse_sources.backend.activity_logging.handle_external_data_source_change
+model_activity:products.warehouse_suggestions.backend.activity_logging.handle_warehouse_suggestion_activity
 post_delete:ee.vercel.receivers.delete_experiment_experimentation_item
 post_delete:ee.vercel.receivers.delete_resource_experimentation_item
 post_delete:posthog.caching.organization_serializer_cache._connect_invalidation.<locals>.receiver_fn
@@ -82,6 +84,7 @@ post_delete:products.actions.backend.models.action.action_deleted
 post_delete:products.ai_observability.backend.models.llm_prompt.invalidate_llm_prompt_cache
 post_delete:products.ai_observability.backend.models.llm_prompt.invalidate_llm_prompt_label_cache
 post_delete:products.ai_observability.backend.models.provider_keys.provider_key_deleted
+post_delete:products.canvas.backend.search_sync.canvas_deleted
 post_delete:products.cdp.backend.models.hog_functions.hog_function.team_inject_web_apps_changd
 post_delete:products.cdp.backend.models.hook.hook_deleted
 post_delete:products.cdp.backend.models.plugin.plugin_attachement_reload_needed
@@ -111,7 +114,6 @@ post_delete:products.signals.backend.receivers.tombstone_report_embedding_on_har
 post_delete:products.slack_app.backend.signals.invalidate_repo_list_on_user_github_change
 post_delete:products.surveys.backend.models.survey_changed
 post_delete:products.tasks.backend.models.delete_task_session_object
-post_delete:products.tasks.backend.search_index.canvas_deleted
 post_delete:products.tasks.backend.search_index.channel_deleted
 post_delete:products.workflows.backend.models.hog_flow.hog_flow.hog_flow_deleted
 post_init:posthog.storage.gateway_credential_signal_handlers._snapshot_oauth
@@ -172,6 +174,7 @@ post_save:products.ai_observability.backend.models.provider_keys.provider_key_sa
 post_save:products.ai_observability.backend.models.taggers.tagger_saved
 post_save:products.annotations.backend.activity_logging.annotation_created
 post_save:products.autoresearch.backend.signals.on_task_run_saved
+post_save:products.canvas.backend.search_sync.canvas_saved
 post_save:products.cdp.backend.models.hog_functions.hog_function.action_saved
 post_save:products.cdp.backend.models.hog_functions.hog_function.cohort_saved
 post_save:products.cdp.backend.models.hog_functions.hog_function.enabled_default_hog_functions_for_new_team
@@ -240,7 +243,6 @@ post_save:products.tasks.backend.models.bump_task_activity_on_run
 post_save:products.tasks.backend.models.bump_task_activity_on_thread_message
 post_save:products.tasks.backend.models.project_task_created_activity
 post_save:products.tasks.backend.models.track_task_run_completion
-post_save:products.tasks.backend.search_index.canvas_saved
 post_save:products.tasks.backend.search_index.channel_saved
 post_save:products.tasks.backend.search_index.task_artifact_saved
 post_save:products.tasks.backend.search_index.task_run_saved

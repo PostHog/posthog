@@ -1,6 +1,6 @@
 # Inference
 
-Scoring a population with the champion model and writing the result back into PostHog as `autoresearch_prediction` events.
+Scoring a population with the champion model and writing the result back into PostHog as `autoresearch_prediction` events, then scoring the same people with every other model in the shadow set.
 
 This is the cheap, boring, high-frequency half of the product — it runs on the pipeline's cadence (default daily) for every active pipeline, forever.
 `../training/` is the expensive half that produces what this package consumes.
@@ -12,6 +12,7 @@ The cardinal rule: **inference never refits a persisted model.** A bundle is fit
 - `sandbox.py`
   The current path. Runs the agent-authored bundle in a Tasks sandbox, split by run type because train and predict have genuinely different data contracts:
   - `fit_champion_model()` — **train run**, called once at training completion. Materializes the _labeled_ training population, runs the bundle's `train.py`, runs `predict.py` once against the holdout features as a smoke test, and only then persists the fitted `model.pkl` next to the bundle. A bundle whose two scripts disagree fails here, not on the first cadence.
+  - `check_scorability()` — called once after the champion fit. Runs the anchor count and the feature query of a scoring run against today's inference anchors under `BATCH_QUERY`, with no sandbox, and returns their `QueryCost` (`measure_queries()` in `../query.py`). Promotion rolls back a champion that fails it or runs over its time budget.
   - `score_via_sandbox()` — **predict run**, called every cadence. Loads the persisted `model.pkl`, materializes _only_ the inference population (cutoff at the start of the prediction date, no labels, no holdout, no fold), runs `predict.py`, and hands scores to the emitter. A missing `model.pkl` fails the run.
 
   Both entry points validate the bundle's `features.sql` with `validate_feature_sql()` (plus no trailing `LIMIT`/`OFFSET`/`SETTINGS`) before any query runs, and run every HogQL query as the pipeline's creator (`_resolve_acting_user()`, or the explicit `user` a management command passes), with `CALCULATE_BLOCKING_ALWAYS` so a cadence never reuses a cached population, and with `LABELER_QUERY_MODIFIERS`, so `person_id` resolves the same way in the anchors and the feature SQL, and a `person.*` column in feature SQL resolves through the persons table. The anchor SQL itself reads identity from `raw_persons`, not from `person.*`.
@@ -39,6 +40,7 @@ Every HogQL query goes through `run_hogql()` in `../query.py` with a `QueryConte
 | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------- |
 | Scoring from `activity_run_inference` (sweep and manual `/score`), both routes, with their anchor and population counts | `BATCH_QUERY`                     | `QUERY_ASYNC` (`HOGQL_INCREASED_MAX_EXECUTION_TIME`, 600 s), `OFFLINE` |
 | Online validation from `activity_run_validation`                                                                        | `BATCH_QUERY`                     | `QUERY_ASYNC`, `OFFLINE`                                               |
+| `check_scorability()` after the champion fit at training completion                                                     | `BATCH_QUERY`                     | `QUERY_ASYNC`, `OFFLINE`                                               |
 | `fit_champion_model()` at training completion, `materialize-features`, `/validate`, `/validate_online`                  | `INTERACTIVE_QUERY` (the default) | `QUERY` (60 s), `DEFAULT`                                              |
 | Management commands                                                                                                     | `INTERACTIVE_QUERY` (the default) | `QUERY`, `DEFAULT`                                                     |
 
@@ -54,6 +56,17 @@ distinct_id: <person distinct_id>
 properties:  $autoresearch_pipeline_id, $autoresearch_p_y, $autoresearch_p_y_raw,
              $autoresearch_negative_sample_rate, ...
 ```
+
+### Shadow scoring
+
+After a live champion run completes, `_score_shadow_set()` in `scoring.py` scores every other model in `shadow_set()` (`../training/shadow_set.py`). A backfill does not shadow-score.
+
+- **Same people.** Each shadow model scores exactly the persons the champion's run scored, including a rolling subset. Its anchors bind the same cutoff, and a feature result that keys a different set of persons fails that model, because unpaired scores do not compare.
+- **One feature query per distinct `features.sql`.** The digest of the bundle's SQL (`features_sql_digest()`) keys the materialized rows. The champion's rows serve a shadow model with the same SQL, and each other SQL runs once. A failed materialization is cached too. A result is released after the last model that uses it, so the phase does not hold one result per distinct SQL.
+- **Person-less events.** A shadow event has `$autoresearch_model_role` `shadow`, no `$set`, and no person processing, and its `distinct_id` is unique per model and person (`_shadow_distinct_id()`), because ingestion deduplicates on timestamp, distinct_id, token, and event name, not on the UUID. Validation keys on `$autoresearch_person_id`. A shadow score never reaches the output person property. Right before its batch goes out, a shadow model checks that it is still in the set (`_require_still_in_shadow_set()`), in place of `_require_still_champion()`.
+- **Isolated runs.** Each shadow model records its own inference run, with `metrics["shadow"]` set and `scheduled` false, so `find_unscorable_champion()` never reads it, even after the model becomes the champion. A shadow failure fails only that run. The champion's run records `metrics["shadow_models"]`: the models that completed, failed, or were skipped.
+- **The rolling ranking ignores shadow events.** `build_inference_anchors_sql()` counts only non-shadow predictions as scores, so shadow scoring does not change who the champion scores next.
+- **Cost bound.** No new shadow model starts after `SHADOW_TIME_BUDGET_S` (20 minutes). The rest are skipped for that cadence. The inference activity timeout covers the champion's worst case, the budget, and one more model.
 
 **Scores are prior-corrected once, in `score_population()`.** A model fitted on a case-control sample (see `../dataset/AGENTS.md`) overstates the odds by `1 / r`, so `corrected_probability()` applies `logit(p) + log(r)`. `$autoresearch_p_y` and the output person property carry the corrected value, `$autoresearch_p_y_raw` the model's own score, and the run records `r` in `AutoresearchRun.negative_sample_rate`.
 A bundle's `r` is `AutoresearchModel.negative_sample_rate`, which `fit_champion_model()` saves before it writes `model.pkl`. A recipe-only champion measures its sample at each fit and uses that rate. The stub formula never saw a sample, so its `r` is 1.0. Never correct in a scoring route; a second correction would shrink every probability again.
@@ -72,7 +85,8 @@ The prediction event is itself an event on the person, so every live cadence add
 2. Resolve the inference population and build anchors at the cutoff, the start of the prediction date in UTC (`../dataset/labeling.py`).
 3. If the champion has an `artifact_prefix`, materialize features into a sandbox and run `predict.py`. Otherwise compile the recorded recipe and score in-process.
 4. Map `person_id` → `distinct_id` and emit one event each.
-5. Record an `AutoresearchRun` for the execution.
+5. Record an `AutoresearchRun` for the execution. A run the daily sweep starts has `scheduled` set. A failed run records `metrics["failure_kind"]` from `classify_failure()` in `failures.py`: `limit_exceeded`, `query_failed` and `model_load_failed` fail again with the same champion, and `other` (transport, capture, cluster capacity, anything unknown) can pass on a retry. Promotion reads the scheduled runs to decide that a champion cannot score.
+6. On a live run that completed, score the other shadow-set models on the same people, each with its own run (see Shadow scoring above).
 
 Both model shapes are live and must stay that way: bundle-backed champions take the sandbox path, older recipe-only champions take the in-process path.
 
@@ -89,7 +103,7 @@ Before suspecting the model, check that features, labels, and population all key
 
 - **Scheduled by** — `AutoresearchInferenceWorkflow` and `activity_run_inference` in `../temporal/workflows.py`.
 - **Run headlessly by** — `autoresearch_score` (see `../management/AGENTS.md`), which calls the same functions directly.
-- **Called by training** — `fit_champion_model()` is invoked from the completion path in `../training/promotion.py`, for a promoted champion and for a challenger that enters the shadow set (`../training/shadow_set.py`). Scoring still reads the champion only. It lives here because it shares the materialization and sandbox machinery with scoring, not because it is part of the inference loop.
+- **Called by training** — `fit_champion_model()` is invoked from the completion path in `../training/promotion.py`, for a promoted champion and for a challenger that enters the shadow set (`../training/shadow_set.py`). Scoring then loads the fitted challengers for shadow scoring. It lives here because it shares the materialization and sandbox machinery with scoring, not because it is part of the inference loop.
 - **Reads** — `AutoresearchModel` (champion role) and the bundle in object storage via `../training/artifacts.py`.
 - **Feeds** — `../evaluation/online_validation.py`, which reads the emitted events back once their horizon has elapsed.
 - **Population and anchors** — `../dataset/labeling.py`, shared with training so the cutoff contract cannot drift.

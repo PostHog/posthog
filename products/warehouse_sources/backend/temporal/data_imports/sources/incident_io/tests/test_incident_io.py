@@ -5,6 +5,7 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+import time_machine
 from unittest import mock
 
 from requests import Response
@@ -20,7 +21,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.incident_i
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.settings import (
     ENDPOINTS,
+    INCIDENT_IO_API_VERSION_V1,
+    INCIDENT_IO_API_VERSION_V3,
+    INCIDENT_IO_DEFAULT_API_VERSION,
     INCIDENT_IO_ENDPOINTS,
+    endpoints_for_version,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -73,6 +78,7 @@ def _wire(session: mock.MagicMock, responses: list[Response], urls: list[str] | 
 
 def _source(session: mock.MagicMock, responses: list[Response], endpoint: str, manager: mock.MagicMock, **kwargs):
     params = _wire(session, responses)
+    kwargs.setdefault("api_version", INCIDENT_IO_DEFAULT_API_VERSION)
     response = incident_io_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
     rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
     return rows, params
@@ -160,7 +166,7 @@ class TestValidateCredentials:
     def test_status_mapping_at_source_create(self, mock_session, status_code, expected_valid):
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
 
-        is_valid, _ = validate_credentials("key")
+        is_valid, _ = validate_credentials("key", INCIDENT_IO_DEFAULT_API_VERSION)
 
         assert is_valid is expected_valid
 
@@ -177,7 +183,7 @@ class TestValidateCredentials:
     def test_status_mapping_with_schema_name(self, mock_session, status_code, expected_valid):
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
 
-        is_valid, error = validate_credentials("key", schema_name="alerts")
+        is_valid, error = validate_credentials("key", INCIDENT_IO_DEFAULT_API_VERSION, schema_name="alerts")
 
         assert is_valid is expected_valid
         if status_code == 403:
@@ -187,22 +193,24 @@ class TestValidateCredentials:
     def test_probes_incidents_with_minimal_page_at_source_create(self, mock_session):
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
 
-        validate_credentials("key")
+        validate_credentials("key", INCIDENT_IO_DEFAULT_API_VERSION)
 
         url = mock_session.return_value.get.call_args.args[0]
         assert url == "https://api.incident.io/v2/incidents?page_size=1"
 
     @pytest.mark.parametrize(
-        "schema_name, expected_url",
+        "api_version, schema_name, expected_url",
         [
-            ("severities", "https://api.incident.io/v1/severities"),
+            (INCIDENT_IO_API_VERSION_V3, "severities", "https://api.incident.io/v1/severities"),
+            (INCIDENT_IO_API_VERSION_V1, "follow_ups", "https://api.incident.io/v2/follow_ups?page_size=1"),
+            (INCIDENT_IO_API_VERSION_V3, "follow_ups", "https://api.incident.io/v3/follow_ups?page_size=1"),
         ],
     )
     @mock.patch(INCIDENT_IO_SESSION_PATCH)
-    def test_probe_url_per_schema(self, mock_session, schema_name, expected_url):
+    def test_probe_url_per_schema(self, mock_session, api_version, schema_name, expected_url):
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
 
-        validate_credentials("key", schema_name=schema_name)
+        validate_credentials("key", api_version, schema_name=schema_name)
 
         url = mock_session.return_value.get.call_args.args[0]
         assert url == expected_url
@@ -234,6 +242,19 @@ class TestValidateCredentials:
                 ],
                 True,
             ),
+            # Schedule entries take no page-size param, so the child probe sends only the parent id.
+            (
+                "schedule_entries",
+                "schedules",
+                [{"id": "S1"}],
+                200,
+                [
+                    "https://api.incident.io/v2/schedules?page_size=1",
+                    "https://api.incident.io/v2/schedules",
+                    "https://api.incident.io/v2/schedule_entries?schedule_id=S1",
+                ],
+                True,
+            ),
             # No parent row to bind, so the child scope can't be probed and the parent probe decides.
             (
                 "catalog_entries",
@@ -253,7 +274,7 @@ class TestValidateCredentials:
         parent.json.return_value = {parent_key: parent_rows}
         mock_session.return_value.get.side_effect = [parent, parent, mock.MagicMock(status_code=child_status)]
 
-        is_valid, error = validate_credentials("key", schema_name=schema_name)
+        is_valid, error = validate_credentials("key", INCIDENT_IO_DEFAULT_API_VERSION, schema_name=schema_name)
 
         assert [call.args[0] for call in mock_session.return_value.get.call_args_list] == expected_urls
         assert is_valid is expected_valid
@@ -264,7 +285,7 @@ class TestValidateCredentials:
     def test_sends_bearer_auth_header(self, mock_session):
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
 
-        validate_credentials("secret-key")
+        validate_credentials("secret-key", INCIDENT_IO_DEFAULT_API_VERSION)
 
         headers = mock_session.return_value.get.call_args.kwargs["headers"]
         assert headers["Authorization"] == "Bearer secret-key"
@@ -273,7 +294,7 @@ class TestValidateCredentials:
     def test_swallows_network_exceptions(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
 
-        is_valid, error = validate_credentials("key")
+        is_valid, error = validate_credentials("key", INCIDENT_IO_DEFAULT_API_VERSION)
 
         assert is_valid is False
         assert error is not None
@@ -300,6 +321,46 @@ class TestGetRows:
         # State is saved only while a next page exists, after the batch was yielded.
         manager.save_state.assert_called_once()
         assert "after=01B" in manager.save_state.call_args.args[0].next_url
+
+    @pytest.mark.parametrize(
+        "api_version, expected_path, pages",
+        [
+            # v2 returns every follow-up in one unpaginated response.
+            (INCIDENT_IO_API_VERSION_V1, "/v2/follow_ups", [{"follow_ups": [{"id": "01A"}, {"id": "01B"}]}]),
+            (
+                INCIDENT_IO_API_VERSION_V3,
+                "/v3/follow_ups",
+                [
+                    _page_body("follow_ups", [{"id": "01A", "category": {"id": "C1"}}], "01A"),
+                    _page_body("follow_ups", [{"id": "01B", "category": None}], None),
+                ],
+            ),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follow_ups_path_per_version(self, MockSession, api_version, expected_path, pages):
+        session = MockSession.return_value
+        urls: list[str] = []
+        _wire(session, [_response(page) for page in pages], urls)
+
+        response = incident_io_source(
+            "key",
+            "follow_ups",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+            api_version=api_version,
+        )
+        rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
+
+        assert [r["id"] for r in rows] == ["01A", "01B"]
+        assert {urlsplit(url).path for url in urls} == {expected_path}
+
+    def test_unknown_api_version_raises(self):
+        with pytest.raises(ValueError, match="Unsupported incident.io API version"):
+            incident_io_source(
+                "key", "follow_ups", team_id=1, job_id="j", resumable_source_manager=_make_manager(), api_version="v2"
+            )
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_request_includes_filter_and_sort(self, MockSession):
@@ -372,6 +433,16 @@ class TestGetRows:
         manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_alert_sources_drop_secret_token(self, MockSession):
+        session = MockSession.return_value
+        body = {"alert_sources": [{"id": "01A", "name": "Datadog", "secret_token": "not-a-real-token"}]}
+        rows, _ = _source(session, [_response(body)], "alert_sources", _make_manager())
+
+        assert rows == [{"id": "01A", "name": "Datadog"}]
+        # The raw body still carries the token, so it must never reach HTTP sample capture.
+        assert MockSession.call_args.kwargs["capture"] is False
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_response_yields_no_rows(self, MockSession):
         session = MockSession.return_value
         manager = _make_manager()
@@ -427,7 +498,12 @@ class TestGetRows:
         _wire(session, [_response({}, status_code=404)])
 
         response = incident_io_source(
-            "key", "incidents", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            "key",
+            "incidents",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+            api_version=INCIDENT_IO_DEFAULT_API_VERSION,
         )
         with pytest.raises(Exception):
             [row for page in cast("Iterable[Any]", response.items()) for row in page]
@@ -435,14 +511,23 @@ class TestGetRows:
 
 class TestFanout:
     @pytest.mark.parametrize(
-        "endpoint, parent_key, child_path, parent_id_param",
+        "endpoint, parent_key, child_path, parent_id_param, parent_params",
         [
-            ("catalog_entries", "catalog_types", "/v3/catalog_entries", "catalog_type_id"),
-            ("custom_field_options", "custom_fields", "/v1/custom_field_options", "custom_field_id"),
+            ("catalog_entries", "catalog_types", "/v3/catalog_entries", "catalog_type_id", {}),
+            ("custom_field_options", "custom_fields", "/v1/custom_field_options", "custom_field_id", {}),
+            (
+                "status_page_incidents",
+                "status_pages",
+                "/v2/status_page_incidents",
+                "status_page_id",
+                {"page_size": 250},
+            ),
         ],
     )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fetches_child_pages_per_parent(self, MockSession, endpoint, parent_key, child_path, parent_id_param):
+    def test_fetches_child_pages_per_parent(
+        self, MockSession, endpoint, parent_key, child_path, parent_id_param, parent_params
+    ):
         session = MockSession.return_value
         manager = _make_manager()
         urls: list[str] = []
@@ -457,17 +542,111 @@ class TestFanout:
             urls,
         )
 
-        response = incident_io_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+        response = incident_io_source(
+            "key",
+            endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=manager,
+            api_version=INCIDENT_IO_DEFAULT_API_VERSION,
+        )
         rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
         assert [(r["id"], r[parent_id_param]) for r in rows] == [("C1", "P1"), ("C2", "P1"), ("C3", "P2")]
-        # The unpaginated parent list takes no params; each child request is bound to its parent.
-        assert params[0] == {}
+        assert params[0] == parent_params
         assert [urlsplit(url).path for url in urls[1:]] == [child_path] * 3
         assert [parse_qs(urlsplit(url).query)[parent_id_param] for url in urls[1:]] == [["P1"], ["P1"], ["P2"]]
         assert [p.get("page_size") for p in params[1:]] == [250, 250, 250]
         assert [p.get("after") for p in params[1:]] == [None, "C1", None]
         assert manager.save_state.call_args.args[0].fanout_state is not None
+
+    @time_machine.travel(datetime(2026, 3, 1, 12, 0, tzinfo=UTC), tick=False)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_schedule_entries_page_through_window_per_schedule(self, MockSession):
+        session = MockSession.return_value
+        urls: list[str] = []
+
+        def _entries_body(final: list[dict[str, Any]], after: str | None) -> dict[str, Any]:
+            body: dict[str, Any] = {
+                "schedule_entries": {"final": final, "scheduled": [{"fingerprint": "raw"}], "overrides": []}
+            }
+            if after is not None:
+                body["pagination_meta"] = {"after": after, "after_url": "https://api.incident.io/next"}
+            return body
+
+        manager = _make_manager()
+        params = _wire(
+            session,
+            [
+                _response({"schedules": [{"id": "S1"}, {"id": "S2"}], "pagination_meta": {"page_size": 250}}),
+                _response(_entries_body([{"fingerprint": "F1", "start_at": "2026-01-01T00:00:00Z"}], "opaque-1")),
+                _response(_entries_body([{"fingerprint": "F2", "start_at": "2026-01-08T00:00:00Z"}], None)),
+                _response(_entries_body([{"fingerprint": "F3", "start_at": "2026-01-02T00:00:00Z"}], None)),
+            ],
+            urls,
+        )
+
+        response = incident_io_source(
+            "key",
+            "schedule_entries",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=manager,
+            api_version=INCIDENT_IO_DEFAULT_API_VERSION,
+        )
+        rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
+
+        assert [(r["schedule_id"], r["fingerprint"]) for r in rows] == [("S1", "F1"), ("S1", "F2"), ("S2", "F3")]
+        assert params[0] == {"page_size": 250}
+        assert [parse_qs(urlsplit(url).query)["schedule_id"] for url in urls[1:]] == [["S1"], ["S1"], ["S2"]]
+        # The cursor replaces the window start; the window end stays fixed across pages.
+        assert [p.get("entry_window_start") for p in params[1:]] == [
+            "2025-03-01T12:00:00Z",
+            "opaque-1",
+            "2025-03-01T12:00:00Z",
+        ]
+        assert {p.get("entry_window_end") for p in params[1:]} == {"2026-03-31T12:00:00Z"}
+        assert all("page_size" not in p for p in params[1:])
+        assert manager.save_state.call_args.args[0].window_params == {
+            "entry_window_start": "2025-03-01T12:00:00Z",
+            "entry_window_end": "2026-03-31T12:00:00Z",
+        }
+
+    @time_machine.travel(datetime(2026, 3, 2, 12, 0, tzinfo=UTC), tick=False)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_schedule_entries_resume_keeps_original_window(self, MockSession):
+        session = MockSession.return_value
+        window = {"entry_window_start": "2025-03-01T12:00:00Z", "entry_window_end": "2026-03-31T12:00:00Z"}
+        manager = _make_manager(
+            IncidentIoResumeConfig(
+                fanout_state={
+                    "completed": [],
+                    "current": "/v2/schedule_entries?schedule_id=S1",
+                    "child_state": {"cursor": "opaque-1"},
+                },
+                window_params=window,
+            )
+        )
+        params = _wire(
+            session,
+            [
+                _response({"schedules": [{"id": "S1"}], "pagination_meta": {"page_size": 250}}),
+                _response({"schedule_entries": {"final": [{"fingerprint": "F1"}]}}),
+            ],
+        )
+
+        response = incident_io_source(
+            "key",
+            "schedule_entries",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=manager,
+            api_version=INCIDENT_IO_DEFAULT_API_VERSION,
+        )
+        list(cast("Iterable[Any]", response.items()))
+
+        assert params[1]["entry_window_start"] == "opaque-1"
+        assert params[1]["entry_window_end"] == "2026-03-31T12:00:00Z"
 
 
 class TestIncidentIoSourceResponse:
@@ -475,7 +654,14 @@ class TestIncidentIoSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, MockSession, endpoint):
         config = INCIDENT_IO_ENDPOINTS[endpoint]
-        response = incident_io_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        response = incident_io_source(
+            "key",
+            endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+            api_version=INCIDENT_IO_DEFAULT_API_VERSION,
+        )
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
@@ -490,8 +676,15 @@ class TestIncidentIoSourceResponse:
     @pytest.mark.parametrize("config", list(INCIDENT_IO_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:
-            assert config.partition_key == "created_at"
+            assert config.partition_key in {"created_at", "start_at", "published_at"}
 
-    @pytest.mark.parametrize("config", list(INCIDENT_IO_ENDPOINTS.values()))
+    @pytest.mark.parametrize(
+        "config",
+        [
+            config
+            for version in (INCIDENT_IO_API_VERSION_V1, INCIDENT_IO_API_VERSION_V3)
+            for config in endpoints_for_version(version).values()
+        ],
+    )
     def test_endpoint_paths_are_versioned(self, config):
         assert config.path.startswith(("/v1/", "/v2/", "/v3/"))

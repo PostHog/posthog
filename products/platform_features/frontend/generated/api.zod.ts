@@ -9,6 +9,32 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Send feedback about an element or page of the PostHog web app to the team's Slack channel.
+ */
+export const internalFeedbackCreateBodyCommentMax = 4000
+
+export const internalFeedbackCreateBodyPageUrlMax = 2000
+
+export const internalFeedbackCreateBodyElementIdentifierMax = 1000
+
+export const InternalFeedbackCreateBody = /* @__PURE__ */ zod.object({
+    comment: zod
+        .string()
+        .max(internalFeedbackCreateBodyCommentMax)
+        .describe('What the person wants to tell the developers.'),
+    page_url: zod.url().max(internalFeedbackCreateBodyPageUrlMax).describe('URL of the page the feedback is about.'),
+    element_identifier: zod
+        .string()
+        .max(internalFeedbackCreateBodyElementIdentifierMax)
+        .optional()
+        .describe('CSS selector of the element the person selected. Empty for feedback about the whole page.'),
+    screenshot: zod
+        .instanceof(File)
+        .optional()
+        .describe('JPEG screenshot of the page, with the selected element outlined when there is one.'),
+})
+
 export const createBodyNameMax = 64
 
 export const createBodyMemberNoticeOneMessageMax = 1000

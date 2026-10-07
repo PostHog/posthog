@@ -53,6 +53,140 @@ _CSRF_TRUSTED_ORIGINS = ",".join(f"https://*.boxes.hogland.{env}.posthog.dev" fo
 # runs unchanged. Not importable here — the tool runs in an SDK-only env with no
 # posthog Django on the path — so they're duplicated with that source named. If
 # the seed defaults ever change, change these too.
+_STATIC_PROXY_CADDYFILE = """\
+:8000 {
+	@capture path /e /e/* /i/v0 /i/v0/* /i/v1/analytics/events /batch /batch/* /capture /capture/*
+	handle @capture {
+		reverse_proxy capture:3000
+	}
+	@flags path /flags /flags/* /api/feature_flag/local_evaluation /api/feature_flag/local_evaluation/*
+	handle @flags {
+		reverse_proxy feature-flags:3001
+	}
+	@otlp path /i/v1/logs /i/v1/logs/* /i/v1/traces /i/v1/traces/* /i/v1/metrics /i/v1/metrics/*
+	handle @otlp {
+		reverse_proxy capture-logs:4318
+	}
+	@static {
+		path /static/*
+		file {
+			root /srv
+		}
+	}
+	handle @static {
+		root * /srv
+		header Cache-Control "public, max-age=3600"
+		file_server {
+			precompressed br gzip
+		}
+	}
+	handle {
+		reverse_proxy web:8000
+	}
+}
+"""
+_TELEMETRY_PIPELINE = ("otel-collector", "capture-logs", "ingestion-logs", "ingestion-traces", "ingestion-metrics")
+
+_OTEL_COLLECTOR_CONFIG = """\
+extensions:
+    docker_observer:
+    health_check:
+
+receivers:
+    receiver_creator:
+        watch_observers: [docker_observer]
+        receivers:
+            filelog:
+                rule: type == "container" and labels["com.docker.compose.project"] == "${{env:COMPOSE_PROJECT}}" and not (name matches "{pipeline}")
+                config:
+                    include:
+                        - '`"/var/lib/docker/containers/" + container_id + "/*.log"`'
+                    operators:
+                        - type: regex_replace
+                          regex_name: ansi_control_sequences
+                          field: body
+                        - type: json_parser
+                          timestamp:
+                              parse_from: attributes.time
+                              layout: '%Y-%m-%dT%H:%M:%S.%LZ'
+                          on_error: drop
+                        - type: move
+                          from: attributes["log"]
+                          to: body
+                        - type: add
+                          field: resource["service.name"]
+                          value: '`labels["com.docker.compose.service"]`'
+                        - type: add
+                          field: resource["container.name"]
+                          value: '`name`'
+                        - type: json_parser
+                          parse_from: body
+                          on_error: send_quiet
+                          if: "hasPrefix(body, '{{')"
+    otlp:
+        protocols:
+            grpc:
+                endpoint: 0.0.0.0:4317
+            http:
+                endpoint: 0.0.0.0:4318
+    prometheus:
+        config:
+            scrape_configs:
+                - job_name: plugins
+                  scrape_interval: 15s
+                  metrics_path: /_metrics
+                  static_configs:
+                      - targets: ['plugins:6738']
+                - job_name: ingestion-general
+                  scrape_interval: 15s
+                  metrics_path: /_metrics
+                  static_configs:
+                      - targets: ['ingestion-general:6738']
+
+exporters:
+    otlphttp:
+        endpoint: http://capture-logs:4318
+        compression: none
+        tls:
+            insecure: true
+        headers:
+            authorization: Bearer {token}
+        retry_on_failure:
+            max_elapsed_time: 30s
+
+processors:
+    memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+        spike_limit_mib: 128
+    batch:
+
+service:
+    pipelines:
+        traces:
+            receivers: [otlp]
+            processors: [memory_limiter, batch]
+            exporters: [otlphttp]
+        logs:
+            receivers: [otlp, receiver_creator]
+            processors: [memory_limiter, batch]
+            exporters: [otlphttp]
+        metrics:
+            receivers: [otlp, prometheus]
+            processors: [memory_limiter, batch]
+            exporters: [otlphttp]
+    extensions: [docker_observer, health_check]
+"""
+
+_OTEL_ENV = [
+    "      - OTEL_SDK_DISABLED=false",
+    "      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317",
+    "      - OTEL_TRACES_SAMPLER=parentbased_traceidratio",
+    "      - OTEL_TRACES_SAMPLER_ARG=1",
+    "      - OTEL_METRICS_EXPORT_URL=http://otel-collector:4318/v1/metrics",
+    "      - OTEL_METRICS_EXPORT_TOKEN=collector-adds-the-project-token",
+]
+
 _DEMO_EMAIL = "test@posthog.com"
 _DEMO_PASSWORD = "12345678"
 
@@ -74,6 +208,14 @@ class PostHogPreviewStack:
     # Pass image=None to fall back to the build-from-checkout escape hatch.
     IMAGE = "ghcr.io/posthog/posthog:master"
     CDP_IMAGE = "ghcr.io/posthog/posthog-node:master"
+    STATIC_PROXY_IMAGE = "caddy:2-alpine"
+    STATIC_PROXY_CADDYFILE = "preview-static.Caddyfile"
+    OTEL_COLLECTOR_CONFIG = "preview-otel-collector.yaml"
+    COMPOSE_PROJECT = "posthog"
+    SELF_CAPTURE_SERVICES = ["capture", "feature-flags", "property-defs-rs", "ingestion-general"]
+    TELEMETRY_SERVICES = ["capture-logs", "ingestion-logs", "ingestion-traces", "ingestion-metrics", "otel-collector"]
+    CELERY_SERVICES = ["worker"]
+    CELERY_CONCURRENCY = 2
     REPO_DIR = "/home/hog/posthog"
     COMPOSE = "docker-compose.dev-full.yml"
     OVERRIDE = "docker-compose.preview.yml"
@@ -119,6 +261,8 @@ class PostHogPreviewStack:
         ("ee", "/code/ee"),
         ("products", "/code/products"),
         ("packages/personhog-proto/personhog", "/code/personhog"),
+        ("rust/persons_migrations", "/code/rust/persons_migrations"),
+        ("frontend/src/lib/constants.tsx", "/code/frontend/src/lib/constants.tsx"),
     ]
 
     def __init__(
@@ -180,6 +324,10 @@ class PostHogPreviewStack:
         self.migrate()
         self.start_cdp_service()
         self.sync_hog_function_templates()
+        try:
+            self.sync_feature_flags()
+        except Exception as e:  # noqa: BLE001
+            sys.stderr.write(f"[hogbox-preview] feature flag sync skipped (preview still usable): {e}\n")
         if self.seed_demo_data:
             # Best-effort: a transient build/model issue shouldn't sink an
             # otherwise-good preview — it just opens empty.
@@ -192,9 +340,12 @@ class PostHogPreviewStack:
             # run before up_web so the fresh web container reads the new index
             # template + collected statics.
             self.swap_frontend()
+        if self.image:
+            self.export_image_files(static=not self.frontend_dist_tar)
         self.up_web()
         self.wait_for_health()
         self.deep_health()
+        self.report_pipeline_health()
         return url
 
     def swap_frontend_only(self) -> str:
@@ -326,9 +477,11 @@ class PostHogPreviewStack:
         # (JS_URL=""), not removing it. Keeping the env constant means web only
         # ever recreates for the mount, never for config drift.
         timing.stage("write compose override (backend mount)")
+        self.backend.write_file(f"{self.repo_dir}/{self.STATIC_PROXY_CADDYFILE}", _STATIC_PROXY_CADDYFILE)
         lines = ["# Generated by tools/hogbox-preview.", "services:", "  web:"]
         if self.image:
             lines.append(f"    image: {self.image}")
+        lines.append("    ports: !reset []")
         if self.image and self.mount:
             # Bind-mount PR backend source over the image's /code — no rebuild.
             # Compose concatenates volume lists across files, so dev-full's
@@ -361,9 +514,12 @@ class PostHogPreviewStack:
             # a public preview URL can't be used to forge sessions on another.
             f"      - SECRET_KEY={self.secret_key}",
             f"      - OIDC_RSA_PRIVATE_KEY={self.oidc_private_key}",
-            # A preview serves one user, and each worker costs a full Django import
-            # at boot, so one worker reaches a serving /_health much sooner.
+            # Each worker costs a full Django import at boot, so a preview runs one.
+            # Under ASGI one worker serves one sync request at a time, and a page
+            # load fires dozens in parallel. WSGI serves them from a thread pool.
             "      - GRANIAN_WORKERS=1",
+            "      - GRANIAN_INTERFACE=wsgi",
+            "      - GRANIAN_BLOCKING_THREADS=16",
             # master's Django hard-requires the personhog service for group-type
             # lookups (require_personhog_client() raises "personhog client not
             # configured" without it — #65968). Same addr the dev/hobby composes
@@ -387,6 +543,22 @@ class PostHogPreviewStack:
             # split-DNS), and the seeded demo user is staff, so /admin is as exposed
             # as the rest of the preview and no more.
             "      - ADMIN_PORTAL_ENABLED=1",
+            "      - SELF_CAPTURE=1",
+            "      - SELF_CAPTURE_HOST=http://static-proxy:8000",
+            "      - OTEL_SERVICE_NAME=posthog-web",
+            *_OTEL_ENV,
+        ]
+        lines += [
+            "  static-proxy:",
+            f"    image: {self.STATIC_PROXY_IMAGE}",
+            "    restart: always",
+            "    ports:",
+            f"      - {self.backend.web_port}:8000",
+            "    volumes:",
+            f"      - ./{self.STATIC_PROXY_CADDYFILE}:/etc/caddy/Caddyfile:ro",
+            "      - ./staticfiles:/srv/static:ro",
+            "    depends_on:",
+            "      - web",
         ]
         lines += [
             "  plugins:",
@@ -401,7 +573,9 @@ class PostHogPreviewStack:
             "      - ENCRYPTION_SALT_KEYS=00beef0000beef0000beef0000beef00",
             "      - PERSONHOG_ADDR=personhog-router:50052",
             "      - PERSONHOG_ENABLED=true",
+            *_OTEL_ENV,
         ]
+        lines += self._self_capture_services() + self._telemetry_services() + self._celery_worker_service()
         # Mirror the bake script's personhog service definitions (hogland
         # scripts/posthog-preview-setup.sh): dev-full.yml carries NO personhog
         # services (dev runs them via hogli), so define them here the way HOBBY
@@ -523,8 +697,122 @@ class PostHogPreviewStack:
             # doesn't start. Values mirror the bake.
             "      - TEMPORAL_HEALTH_PORT=7999",
             "      - TEMPORAL_HEALTH_MAX_IDLE_SECONDS=86400",
+            "      - OTEL_SERVICE_NAME=posthog-temporal-worker",
+            "      - TEMPORAL_OTEL_PLUGIN_ENABLED=true",
+            *_OTEL_ENV,
         ]
         self.backend.write_file(f"{self.repo_dir}/{self.OVERRIDE}", "\n".join(lines) + "\n")
+
+    def _celery_worker_service(self) -> list[str]:
+        lines = ["  worker:"]
+        if self.image:
+            lines.append(f"    image: {self.image}")
+        lines.append("    command: ./bin/docker-worker-celery")
+        if self.image and self.mount:
+            lines.append("    volumes:")
+            lines += [f"      - ./{src}:{dst}" for src, dst in self.MOUNTS]
+        return [
+            *lines,
+            "    environment:",
+            f"      - SITE_URL={self.backend.web_url}",
+            "      - DEBUG=0",
+            f"      - SECRET_KEY={self.secret_key}",
+            f"      - OIDC_RSA_PRIVATE_KEY={self.oidc_private_key}",
+            "      - PERSONHOG_ADDR=personhog-router:50052",
+            "      - USE_LOCAL_SETUP=1",
+            "      - SELF_CAPTURE=1",
+            "      - SELF_CAPTURE_HOST=http://static-proxy:8000",
+            f"      - WEB_CONCURRENCY={self.CELERY_CONCURRENCY}",
+            "      - OTEL_SERVICE_NAME=posthog-celery-worker",
+            *_OTEL_ENV,
+        ]
+
+    def _self_capture_services(self) -> list[str]:
+        return [
+            "  ingestion-general:",
+            "    extends:",
+            "      file: docker-compose.base.yml",
+            "      service: ingestion-general",
+            f"    image: {self.CDP_IMAGE}",
+            "    environment:",
+            "      - PERSONHOG_ADDR=personhog-router:50052",
+            "      - PERSONHOG_ENABLED=true",
+            *_OTEL_ENV,
+            "    depends_on:",
+            "      - db",
+            "      - redis7",
+            "      - clickhouse",
+            "      - kafka",
+            "      - objectstorage",
+            "      - personhog-router",
+        ]
+
+    def _telemetry_services(self) -> list[str]:
+        node_consumer = ["    depends_on:", "      - db", "      - redis7", "      - kafka"]
+        return [
+            "  capture-logs:",
+            "    extends:",
+            "      file: docker-compose.base.yml",
+            "      service: capture-logs",
+            "    depends_on:",
+            "      - kafka",
+            "  ingestion-logs:",
+            "    extends:",
+            "      file: docker-compose.base.yml",
+            "      service: ingestion-logs",
+            f"    image: {self.CDP_IMAGE}",
+            "    environment:",
+            "      - LOGS_REDIS_TLS=false",
+            *node_consumer,
+            "  ingestion-traces:",
+            "    extends:",
+            "      file: docker-compose.base.yml",
+            "      service: ingestion-traces",
+            f"    image: {self.CDP_IMAGE}",
+            "    environment:",
+            "      - TRACES_REDIS_TLS=false",
+            *node_consumer,
+            "  ingestion-metrics:",
+            f"    image: {self.CDP_IMAGE}",
+            "    command: node nodejs/dist/index.js",
+            "    restart: on-failure",
+            "    environment:",
+            "      - PLUGIN_SERVER_MODE=ingestion-metrics",
+            "      - DATABASE_URL=postgres://posthog:posthog@db:5432/posthog",
+            "      - KAFKA_HOSTS=kafka:9092",
+            "      - REDIS_URL=redis://redis7:6379/",
+            "      - METRICS_REDIS_HOST=redis7",
+            "      - METRICS_REDIS_TLS=false",
+            *node_consumer,
+            "  otel-collector:",
+            "    depends_on: !reset []",
+            "    volumes:",
+            f"      - ./{self.OTEL_COLLECTOR_CONFIG}:/etc/otel-collector-config.yaml:ro",
+            "    environment:",
+            f"      - COMPOSE_PROJECT={self.COMPOSE_PROJECT}",
+            "    networks:",
+            "      - default",
+            "      - otel_network",
+        ]
+
+    def _demo_project_token(self) -> str:
+        query = (
+            "SELECT api_token FROM posthog_team ORDER BY "
+            f"id = (SELECT current_team_id FROM posthog_user WHERE email = '{_DEMO_EMAIL}') DESC NULLS LAST, id LIMIT 1"
+        )
+        result = self.backend.exec(
+            self._compose(f'exec -T db psql -U posthog -d posthog -tAc "{query}"'),
+            timeout=120,
+        )
+        token = result.stdout.strip()
+        if not token:
+            sys.stderr.write(f"[hogbox-preview] demo project token lookup returned nothing: {result.stderr.strip()}\n")
+        return token
+
+    def write_otel_collector_config(self) -> None:
+        token = self._demo_project_token()
+        config = _OTEL_COLLECTOR_CONFIG.format(pipeline="|".join(_TELEMETRY_PIPELINE), token=token)
+        self.backend.write_file(f"{self.repo_dir}/{self.OTEL_COLLECTOR_CONFIG}", config)
 
     def build_app(self) -> None:
         # `build: .` from the checkout — bakes the PR's code (front + back) into
@@ -598,7 +886,18 @@ class PostHogPreviewStack:
         # mounts — the frontend mounts are web-only), so it just costs one more
         # container recreate on the deferred-swap path.
         timing.stage("start web + temporal worker containers")
-        self.backend.run_long(self._compose("up -d --no-build web temporal-django-worker"), name="up-web", timeout=900)
+        self.write_otel_collector_config()
+        services = " ".join(
+            [
+                "web",
+                "temporal-django-worker",
+                "static-proxy",
+                *self.CELERY_SERVICES,
+                *self.SELF_CAPTURE_SERVICES,
+                *self.TELEMETRY_SERVICES,
+            ]
+        )
+        self.backend.run_long(self._compose(f"up -d --no-build {services}"), name="up-web", timeout=1800)
 
     def migrate(self) -> None:
         # PostHog needs both: Postgres (schema) and ClickHouse (events DB +
@@ -609,6 +908,17 @@ class PostHogPreviewStack:
             self._compose("run --rm -T web python manage.py migrate --noinput"),
             name="migrate",
             timeout=1800,
+        )
+        self.backend.run_long(
+            self._compose("run --rm -T web python manage.py apply_persons_migrations --hobby"),
+            name="migrate-persons",
+            timeout=900,
+        )
+        index = "CREATE UNIQUE INDEX IF NOT EXISTS posthog_person_team_id_uuid_uniq ON posthog_person (team_id, uuid)"
+        self.backend.run_long(
+            self._compose(f'exec -T db psql -U posthog -d posthog -v ON_ERROR_STOP=1 -c "{index}"'),
+            name="person-uuid-index",
+            timeout=900,
         )
         self.backend.run_long(
             self._compose("run --rm -T web python manage.py migrate_clickhouse"),
@@ -659,6 +969,14 @@ class PostHogPreviewStack:
             timeout=900,
         )
 
+    def sync_feature_flags(self) -> None:
+        timing.stage("sync feature flags")
+        self.backend.run_long(
+            self._compose("run --rm -T web python manage.py sync_feature_flags"),
+            name="sync-flags",
+            timeout=600,
+        )
+
     def generate_demo_data(self) -> None:
         # Same command hobby-ci uses (bin/hobby-ci.py). Seeds a demo org + the
         # test@posthog.com / 12345678 login so the preview opens populated.
@@ -702,11 +1020,45 @@ class PostHogPreviewStack:
         self.backend.run_long(script, name="frontend", timeout=900)
         timing.stage("frontend swap done (collectstatic done)")
 
+    def export_image_files(self, *, static: bool) -> None:
+        assert self.image is not None
+        timing.stage("export image files for the static proxy and feature-flags")
+        copies = ['docker cp "$cid":/code/share/GeoLite2-City.mmdb ./share/GeoLite2-City.mmdb']
+        if static:
+            copies.insert(0, 'rm -rf staticfiles && docker cp "$cid":/code/staticfiles ./staticfiles')
+        self.backend.run_long(
+            f"cd {self.repo_dir} && mkdir -p share && cid=$(docker create {self.image}) && "
+            f"{{ {' && '.join(copies)}; }}; status=$?; "
+            'docker rm "$cid" >/dev/null; exit $status',
+            name="export-image-files",
+            timeout=600,
+        )
+
     def wait_for_health(self) -> None:
         # up_services already brought web up cleanly — just wait for it to serve.
         # Django is a heavy import; first health can take ~7 min.
         with timing.span("health-poll"):
             self.backend.wait_http_ok("/_health", expect=200, timeout=900)
+
+    def report_pipeline_health(self, settle_seconds: int = 90) -> None:
+        services = " ".join([*self.CELERY_SERVICES, *self.SELF_CAPTURE_SERVICES, *self.TELEMETRY_SERVICES])
+        compose = f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE}"
+        report = "/tmp/hogbox-pipeline-health.txt"
+        script = (
+            f"cd {self.repo_dir} && sleep {settle_seconds}; exec > {report} 2>&1; "
+            f"for svc in {services}; do "
+            f'cid=$({compose} ps -aq "$svc"); '
+            'if [ -z "$cid" ]; then echo "PIPELINE $svc missing"; continue; fi; '
+            "state=$(docker inspect -f '{{.State.Status}} restarts={{.RestartCount}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}' \"$cid\"); "
+            'echo "PIPELINE $svc $state"; '
+            'case "$state" in "running restarts=0 "*) ;; *) docker logs --tail 25 "$cid" 2>&1 | cut -c1-400 | sed "s/^/  $svc | /";; esac; '
+            "done; free -m | sed 's/^/  memory | /'"
+        )
+        try:
+            self.backend.run_long(script, name="pipeline-health", timeout=settle_seconds + 300)
+            sys.stderr.write(f"{self.backend.exec(f'cat {report}', timeout=60).stdout}\n")
+        except RuntimeError as e:
+            sys.stderr.write(f"[hogbox-preview] pipeline health report failed: {e}\n")
 
     def deep_health(self) -> None:
         # /_health is UNAUTHENTICATED — it passed the whole time previews were

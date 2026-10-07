@@ -153,6 +153,22 @@ class PostHogSCIMUser(SCIMUser):
 
         return base_dict
 
+    @staticmethod
+    def _ensure_organization_membership(user: User, organization: Organization) -> None:
+        with transaction.atomic():
+            membership, created = OrganizationMembership.objects.get_or_create(
+                user=user,
+                organization=organization,
+                defaults={"level": OrganizationMembership.Level.MEMBER},
+            )
+            if created and organization.default_role_id:
+                role = organization.roles.filter(id=organization.default_role_id).first()
+                if role is None:
+                    raise ValueError("The default role must belong to this organization")
+                RoleMembership.objects.filter(role__organization=organization).update_or_create(
+                    role=role, user=user, defaults={"organization_member": membership}
+                )
+
     @classmethod
     def from_dict(
         cls,
@@ -198,11 +214,7 @@ class PostHogSCIMUser(SCIMUser):
                 )
 
             # Ensure user has membership in this organization
-            OrganizationMembership.objects.get_or_create(
-                user=user,
-                organization=config.organization,
-                defaults={"level": OrganizationMembership.Level.MEMBER},
-            )
+            cls._ensure_organization_membership(user, config.organization)
 
             # Set current org/team if this is their first org
             if not user.current_organization:
@@ -263,11 +275,7 @@ class PostHogSCIMUser(SCIMUser):
 
             if is_active:
                 # Adding org membership to reactivate the user
-                OrganizationMembership.objects.get_or_create(
-                    user=self.obj,
-                    organization=self._config.organization,
-                    defaults={"level": OrganizationMembership.Level.MEMBER},
-                )
+                self._ensure_organization_membership(self.obj, self._config.organization)
             else:
                 self.deactivate()
 
@@ -298,11 +306,7 @@ class PostHogSCIMUser(SCIMUser):
 
     def _activate(self) -> None:
         """Give the user back their organization membership and mark the SCIM record active."""
-        OrganizationMembership.objects.get_or_create(
-            user=self.obj,
-            organization=self._config.organization,
-            defaults={"level": OrganizationMembership.Level.MEMBER},
-        )
+        self._ensure_organization_membership(self.obj, self._config.organization)
         SCIMProvisionedUser.objects.upsert(
             user=self.obj,
             config=self._config,

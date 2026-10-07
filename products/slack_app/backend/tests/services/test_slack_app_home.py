@@ -1170,6 +1170,18 @@ class TestHandleAppHomeOpened:
         handle_app_home_opened({}, SLACK_WORKSPACE_ID, integration=slack_integration)
         assert not mock_slack_client.views_publish.called
 
+    def test_home_opened_is_attributed_to_the_resolved_posthog_user(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
+        SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=opener.email)
+
+        with patch("products.slack_app.backend.services.slack_app_home.capture_slack_event") as mock_capture:
+            handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        assert mock_capture.call_args.args[1] == "slack app home opened"
+        assert mock_capture.call_args.kwargs["posthog_user"] == opener
+
     def _github_row(self, user: User, login: str) -> UserIntegration:
         return UserIntegration.objects.create(
             user=user,

@@ -305,6 +305,7 @@ export interface ComposerTextareaProps {
     onKeyDown?: KeyboardEventHandler<HTMLTextAreaElement>
     /** Lets a host claim a paste before the textarea takes it — used to attach pasted files. */
     onPaste?: ClipboardEventHandler<HTMLTextAreaElement>
+    'aria-label'?: string
     'data-attr'?: string
 }
 

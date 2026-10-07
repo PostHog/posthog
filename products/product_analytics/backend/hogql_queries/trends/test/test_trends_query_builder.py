@@ -1,10 +1,15 @@
 from datetime import datetime
 
 import time_machine
-from posthog.test.base import BaseTest, _create_event, _create_person
+from posthog.test.base import BaseTest, QueryMatchingTest, _create_action, _create_event, _create_person
+from unittest.mock import patch
+
+from parameterized import parameterized
 
 from posthog.schema import (
+    ActionsNode,
     BaseMathType,
+    Breakdown,
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
@@ -12,12 +17,13 @@ from posthog.schema import (
     DateRange,
     EventsNode,
     HogQLQueryResponse,
+    IntervalType,
     TrendsFilter,
     TrendsQuery,
 )
 
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -25,7 +31,9 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
 
 
-class TestTrendsQueryBuilder(BaseTest):
+class TestTrendsQueryBuilder(QueryMatchingTest, BaseTest):
+    allow_dual_schema_snapshots = True
+
     def setUp(self):
         super().setUp()
 
@@ -67,12 +75,11 @@ class TestTrendsQueryBuilder(BaseTest):
 
         query = query_builder.build_query()
 
-        return execute_hogql_query(
-            query_type="TrendsQuery",
+        return HogQLQueryExecutor(
             query=query,
             team=self.team,
             timings=timings,
-        )
+        ).execute()
 
     def test_column_names(self):
         trends_query = TrendsQuery(
@@ -85,6 +92,94 @@ class TestTrendsQueryBuilder(BaseTest):
 
         assert response.columns is not None
         assert set(response.columns).issubset({"date", "total", "breakdown_value"})
+
+    @parameterized.expand(
+        [
+            ("hour", "UTC", "total", None, None, "$pageview", False),
+            ("day", "Pacific/Auckland", "total", None, None, "$pageview", False),
+            ("hour", "UTC", "total", None, None, "missing_event", False),
+            ("hour", "UTC", "dau", None, None, "$pageview", False),
+            ("hour", "UTC", "total", 3, None, "$pageview", False),
+            ("hour", "UTC", "total", None, "ActionsLineGraphCumulative", "$pageview", False),
+            ("hour", "UTC", "total", None, None, "$pageview", True),
+            ("hour", "UTC", "total", None, None, "$pageview", False, True),
+        ]
+    )
+    @time_machine.travel("2023-02-03", tick=False)
+    def test_rank_before_arrays_preserves_results(
+        self,
+        interval: IntervalType,
+        project_timezone: str,
+        math: BaseMathType,
+        smoothing: int | None,
+        display: ChartDisplayType | None,
+        event: str,
+        multiple: bool,
+        action: bool = False,
+    ) -> None:
+        self.team.timezone = project_timezone
+        self.team.save()
+        for bucket, count in [("a", 4), ("b", 3), ("c", 3), ("d", 2), (None, 6), ("", 1)]:
+            for index in range(count):
+                _create_event(
+                    event="$pageview",
+                    team=self.team,
+                    distinct_id="some_id",
+                    timestamp=f"2023-02-{1 + index % 2:02d}T{index % 2:02d}:00:00Z",
+                    properties={"bucket": bucket},
+                )
+        series: EventsNode | ActionsNode = EventsNode(event=event, math=math)
+        if action:
+            saved_action = _create_action(team=self.team, name=event)
+            series = ActionsNode(id=saved_action.id, math=math)
+        query = TrendsQuery(
+            dateRange=DateRange(date_from="2023-02-01", date_to="2023-02-02"),
+            interval=interval,
+            series=[series],
+            breakdownFilter=(
+                BreakdownFilter(breakdowns=[Breakdown(property="bucket", type="event")], breakdown_limit=2)
+                if multiple
+                else BreakdownFilter(breakdown="bucket", breakdown_type="event", breakdown_limit=2)
+            ),
+            trendsFilter=TrendsFilter(smoothingIntervals=smoothing, display=display),
+        )
+        flag_path = (
+            "products.product_analytics.backend.hogql_queries.trends.trends_query_builder.feature_enabled_or_false"
+        )
+        with patch(flag_path, return_value=False):
+            original = self.get_response(query)
+        with patch(flag_path, side_effect=lambda flag, *args, **kwargs: flag == "trends-breakdown-rank-before-arrays"):
+            optimized = self.get_response(query)
+        assert optimized.results == original.results
+        assert optimized.columns == original.columns
+        assert optimized.types == original.types
+        if math == "total" and smoothing is None and display is None:
+            assert optimized.clickhouse is not None
+            assert "dense_rank()" in optimized.clickhouse
+            assert "arrayFold" not in optimized.clickhouse
+            if event == "$pageview":
+                assert len(optimized.results) == 3
+                assert optimized.results[0][2] == (["a"] if multiple else "a")
+                assert optimized.results[1][2] == (["b"] if multiple else "b")
+                if interval == "day":
+                    assert len(optimized.results[1][1]) == 2
+                    assert optimized.results[1][1][0] > optimized.results[1][1][1] > 0
+        else:
+            assert optimized.clickhouse == original.clickhouse
+
+    @time_machine.travel("2023-02-03", tick=False)
+    def test_rank_before_arrays_sql(self) -> None:
+        query = TrendsQuery(
+            dateRange=DateRange(date_from="2023-02-01", date_to="2023-02-02"),
+            series=[EventsNode(event="$pageview", math="total")],
+            breakdownFilter=BreakdownFilter(breakdown="bucket", breakdown_type="event", breakdown_limit=2),
+        )
+        with patch(
+            "products.product_analytics.backend.hogql_queries.trends.trends_query_builder.feature_enabled_or_false",
+            side_effect=lambda flag, *args, **kwargs: flag == "trends-breakdown-rank-before-arrays",
+        ):
+            response = self.get_response(query)
+        self.assertQueryMatchesSnapshot(response.clickhouse)
 
     def assert_column_names_with_display_type(self, display_type: ChartDisplayType):
         trends_query = TrendsQuery(

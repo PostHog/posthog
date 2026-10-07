@@ -195,6 +195,7 @@ class TestPartitioning:
             # No stable non-null creation timestamp, so partitioning would rewrite partitions.
             ("project_phases", None),
             ("templates", None),
+            ("task_deliverables", None),
         ],
     )
     def test_partitions_only_on_a_stable_field(self, endpoint: str, expected_keys: list[str] | None) -> None:

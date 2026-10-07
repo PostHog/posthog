@@ -23,7 +23,11 @@ from posthog.models.oauth import OAuthAccessToken
 from posthog.permissions import APIScopePermission
 from posthog.storage.gateway_credential_cache import GATEWAY_CREDENTIAL_REQUIRED_SCOPE, oauth_credential_authorized
 from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
+from posthog.utils import get_trusted_client_ip
 
+from products.security.backend.facade.api import access_refused as security_access_refused
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 from products.tasks.backend.facade.access import (
     DesktopAccessResolutionError,
     compute_quota_limit_response,
@@ -38,6 +42,7 @@ from products.tasks.backend.facade.desktop_gateway import (
     DesktopGatewayMintError,
     desktop_gateway_base_url,
     desktop_gateway_configured,
+    desktop_limit_tier,
     desktop_rollout_enabled,
     desktop_token_ttl_seconds,
     mint_desktop_gateway_token,
@@ -236,10 +241,27 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             surface="desktop_gateway_token",
         ):
             return _disabled("blocked", status.HTTP_403_FORBIDDEN, detail="This account cannot use the AI gateway.")
+        try:
+            refused = security_access_refused(
+                SecuritySubject(
+                    email=user.email,
+                    user_uuid=str(user.uuid),
+                    organization_ids=(str(organization.id),),
+                    ip=get_trusted_client_ip(getattr(request, "_request", request)),
+                ),
+                SecuritySurface.AI_GATEWAY,
+                call_site="desktop_gateway_token",
+            )
+        except Exception as e:
+            capture_exception(e)
+            refused = False
+        if refused:
+            # The flag's refusal, word for word, so a client cannot tell which blocklist matched.
+            return _disabled("blocked", status.HTTP_403_FORBIDDEN, detail="This account cannot use the AI gateway.")
 
         if not desktop_gateway_configured():
             return _disabled("unconfigured")
-        if not desktop_rollout_enabled(organization, team, distinct_id):
+        if not desktop_rollout_enabled(organization, team, distinct_id, user.email):
             return _disabled("not_rolled_out")
 
         try:
@@ -281,7 +303,14 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         plan = posthog_code_plan(team)
         allowed_models = plan_allowed_models(plan)
         try:
-            minted = mint_desktop_gateway_token(team_id=team.id, user=distinct_id, allowed_models=allowed_models)
+            minted = mint_desktop_gateway_token(
+                team_id=team.id,
+                user=distinct_id,
+                allowed_models=allowed_models,
+                limit_tier=desktop_limit_tier(
+                    organization=organization, team=team, distinct_id=distinct_id, email=user.email
+                ),
+            )
         except DesktopGatewayMintError as e:
             if e.rate_limited:
                 # The shared mint ceiling is counted and logged at the mint, so skip the per-session capture.

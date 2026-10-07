@@ -95,8 +95,11 @@ func isTemporaryProperty(key string) bool {
 		"$debug_first_full_snapshot_timestamp", "$snapshot_max_depth_exceeded",
 		"$sess_rec_flush_size", "$session_recording_remote_config",
 		"$session_recording_network_payload_capture", "$session_recording_canvas_recording",
-		"$replay_script_config", "$sent_at", "$lib_rate_limit_remaining_tokens", "$lib_custom_api_host":
+		"$replay_script_config", "$lib_rate_limit_remaining_tokens", "$lib_custom_api_host":
 		return true
+	case "$sdk_debug_current_session_duration":
+		// Customers read it over windows longer than the temporary retention, so it stays permanent.
+		return false
 	}
 	return strings.HasPrefix(key, "$sdk_debug_")
 }
