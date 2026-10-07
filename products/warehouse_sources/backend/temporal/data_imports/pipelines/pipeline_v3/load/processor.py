@@ -1078,6 +1078,8 @@ def _process_message_reported(
             job=job,
             logger=logger,
             is_first_sync=export_signal.is_first_ever_sync,
+            # Batch 0 of a first sync writes the table, so only that batch expects to find none.
+            expect_missing=export_signal.is_first_ever_sync and export_signal.batch_index == 0,
         )
 
         if not warehouse_is_a_destination(export_signal):
