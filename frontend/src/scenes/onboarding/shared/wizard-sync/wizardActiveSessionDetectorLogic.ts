@@ -145,6 +145,12 @@ export interface wizardActiveSessionDetectorLogicActions {
     check: () => {
         value: true
     }
+    endExpectedRun: () => {
+        value: true
+    }
+    expectRun: (workflowId: string) => {
+        workflowId: string
+    }
     markActive: (workflowId: string) => {
         workflowId: string
     }
@@ -170,12 +176,6 @@ export interface wizardActiveSessionDetectorLogicActions {
         error: string | null
     }
     unwatchWorkflow: (workflowId: string) => {
-        workflowId: string
-    }
-    endExpectedRun: () => {
-        value: true
-    }
-    expectRun: (workflowId: string) => {
         workflowId: string
     }
     watchWorkflow: (workflowId: string) => {
