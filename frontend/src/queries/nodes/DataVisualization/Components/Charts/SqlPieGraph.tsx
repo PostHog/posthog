@@ -21,7 +21,7 @@ import { DonutCenterLabel } from 'products/product_analytics/frontend/insights/t
 
 import { SqlChartProps } from './SqlChart'
 import { formatSqlSeriesValue } from './sqlLineGraphAdapter'
-import { buildPieSeries, buildPieSlices, formatPieSliceCount } from './sqlPieGraphAdapter'
+import { buildPieSeries, buildPieSlices, formatPieSliceCount, showsLegendByDefault } from './sqlPieGraphAdapter'
 
 const handleChartError = makeChartErrorHandler('sql-pie-chart')
 
@@ -51,7 +51,7 @@ export const SqlPieGraph = ({
     // is controlled anyway so the total and the tooltip shares track the slices actually drawn.
     const [hiddenKeys, setHiddenKeys] = useState<string[]>([])
     // A proportion bar has no axis to read a size from, so its legend carries the shares.
-    const showLegend = chartSettings.showLegend ?? isProportionBar
+    const showLegend = chartSettings.showLegend ?? showsLegendByDefault(isProportionBar, series.length)
     const visibleHiddenKeySet = useMemo(() => new Set(showLegend ? hiddenKeys : []), [showLegend, hiddenKeys])
     const total = useMemo(
         () => series.reduce((sum, s) => (visibleHiddenKeySet.has(s.key) ? sum : sum + (s.data[0] ?? 0)), 0),

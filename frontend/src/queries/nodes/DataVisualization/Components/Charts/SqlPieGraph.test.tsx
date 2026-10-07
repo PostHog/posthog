@@ -53,6 +53,12 @@ const baseProps = (
     chartSettings,
 })
 
+// Equal parts that add up to 100, one category each.
+const proportionBarWithParts = (count: number): SqlChartProps => ({
+    ...baseProps({}, Array(count).fill(100 / count), ChartDisplayType.ActionsProportionBar),
+    xData: { ...xData, data: Array.from({ length: count }, (_, i) => `part ${i}`) },
+})
+
 // On-slice labels are static overlay nodes (not pointer-driven), so they steer clear of the
 // quill PieChart's flaky hover/click interaction tests. Each slice renders one <div> per line
 // (label and/or value), so we read the lines per slice rather than the concatenated text.
@@ -130,10 +136,18 @@ describe('SqlPieGraph', () => {
             expectedShares: ['40% · 40', '30% · 30', '20% · 20', '10% · 10'],
             showsTotal: true,
         },
-    ])('$name', ({ chartSettings, expectedShares, showsTotal }) => {
-        const { container } = render(
-            <SqlPieGraph {...baseProps(chartSettings, [40, 30, 20, 10], ChartDisplayType.ActionsProportionBar)} />
-        )
+        {
+            name: 'a proportion bar with many parts starts with its legend off',
+            chartSettings: {},
+            partCount: 25,
+            expectedShares: [],
+            showsTotal: true,
+        },
+    ])('$name', ({ chartSettings, partCount, expectedShares, showsTotal }) => {
+        const props = partCount
+            ? proportionBarWithParts(partCount)
+            : baseProps(chartSettings, [40, 30, 20, 10], ChartDisplayType.ActionsProportionBar)
+        const { container } = render(<SqlPieGraph {...props} />)
 
         const legendRows = getHogChart(container).legendItems()
         expect(legendRows.map((row) => row.secondaryLabel)).toEqual(expectedShares)

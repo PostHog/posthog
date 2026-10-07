@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import {
@@ -27,7 +28,9 @@ import { ChartDisplayType } from '~/types'
 
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 import { displayLogic } from '../displayLogic'
+import { buildPieSlices, partOfWholeChartData, showsLegendByDefault } from './Charts/sqlPieGraphAdapter'
 import { SQL_METRIC_SUMMARY_DEFAULT } from './Charts/useSqlMetricModel'
+import { seriesBreakdownLogic } from './seriesBreakdownLogic'
 
 const PIE_SLICE_CONTENT_OPTIONS: { value: 'labels' | 'values' | 'none'; label: string }[] = [
     { value: 'labels', label: 'Labels' },
@@ -59,7 +62,8 @@ const LINE_STYLE_OPTIONS: { value: 'smooth' | 'linear'; label: string }[] = [
 ]
 
 export const DisplayTab = (): JSX.Element => {
-    const { effectiveVisualizationType, xData } = useValues(dataVisualizationLogic)
+    const { effectiveVisualizationType, xData, yData, dataVisualizationProps } = useValues(dataVisualizationLogic)
+    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines, chartSettings } = useValues(displayLogic)
     const { addGoalLine, updateGoalLine, removeGoalLine, updateChartSettings } = useActions(displayLogic)
 
@@ -70,7 +74,14 @@ export const DisplayTab = (): JSX.Element => {
     const isPartOfWholeChart = PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)
     // A proportion bar has no axis to read a size from, so its legend carries the shares and
     // shows unless the user turns it off.
-    const showLegend = chartSettings.showLegend ?? isProportionBar
+    const proportionBarPartCount = useMemo(() => {
+        if (!isProportionBar) {
+            return 0
+        }
+        const pieData = partOfWholeChartData(seriesBreakdownData, xData, yData)
+        return buildPieSlices(pieData.xData, pieData.yData).length
+    }, [isProportionBar, seriesBreakdownData, xData, yData])
+    const showLegend = chartSettings.showLegend ?? showsLegendByDefault(isProportionBar, proportionBarPartCount)
     const isScatterPlot = effectiveVisualizationType === ChartDisplayType.ScatterPlot
     const isBoxPlot = effectiveVisualizationType === ChartDisplayType.BoxPlot
     const isMetric = effectiveVisualizationType === ChartDisplayType.Metric

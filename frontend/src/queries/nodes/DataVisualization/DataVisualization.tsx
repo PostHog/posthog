@@ -39,6 +39,7 @@ import { PieChart } from './Components/Charts/PieChart'
 import { SqlBoxPlot } from './Components/Charts/SqlBoxPlot'
 import { isSqlChartVisualizationType, SqlChart } from './Components/Charts/SqlChart'
 import { SqlMetricCard } from './Components/Charts/SqlMetricCard'
+import { partOfWholeChartData } from './Components/Charts/sqlPieGraphAdapter'
 import { SqlScatterGraph } from './Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
@@ -284,16 +285,13 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             </BindLogic>
         )
     } else if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
-        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        // Pie charts can consume breakdown series totals directly, even when there isn't
-        // a matching breakdown x-axis to swap in like the line/bar path expects.
-        const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
+        const pieData = partOfWholeChartData(seriesBreakdownData, xData, yData)
 
         component = (
             <PieChart
                 className="p-3"
-                xData={_xData}
-                yData={_yData}
+                xData={pieData.xData}
+                yData={pieData.yData}
                 visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}

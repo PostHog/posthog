@@ -3,7 +3,7 @@ import { type Series } from '@posthog/quill-charts'
 import { getSeriesColor } from 'lib/colors'
 
 import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
-import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
+import { AxisBreakdownSeries, BreakdownSeriesData } from '../seriesBreakdownLogic'
 import { formatSqlSeriesValue } from './sqlLineGraphAdapter'
 
 export interface PieSlice {
@@ -91,6 +91,25 @@ export const buildPieSeries = (slices: PieSlice[]): Series[] => {
         data: [slice.value],
     }))
 }
+
+/** The data a part-of-whole chart draws. Pie charts can consume breakdown series totals directly,
+ *  even when there isn't a matching breakdown x-axis to swap in like the line/bar path expects. */
+export const partOfWholeChartData = (
+    breakdown: BreakdownSeriesData<number | null>,
+    xData: AxisSeries<string> | null,
+    yData: AxisSeries<number | null>[]
+): { xData: AxisSeries<string> | null; yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number | null>[] } => ({
+    xData: breakdown.xData.data.length ? breakdown.xData : xData,
+    yData: breakdown.seriesData.length ? breakdown.seriesData : yData,
+})
+
+/** Past this many parts, one legend row per part costs more than it helps, so the legend starts off. */
+export const MAX_DEFAULT_PROPORTION_LEGEND_PARTS = 20
+
+/** The legend default when the user has not set one. A proportion bar has no axis to read a size
+ *  from, so its legend carries the shares and shows while the part count stays small. */
+export const showsLegendByDefault = (isProportionBar: boolean, partCount: number): boolean =>
+    isProportionBar && partCount <= MAX_DEFAULT_PROPORTION_LEGEND_PARTS
 
 export const formatPieSliceCount = (
     value: number,
