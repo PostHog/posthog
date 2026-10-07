@@ -14810,7 +14810,7 @@
         }
     },
     "visual-review-repos-flakiness-retrieve": {
-        "description": "Snapshots in a repo whose rendering is untrusted: a live tolerated variant, a gate failure on a recent default-branch run, or an active quarantine. Start here to decide what to quarantine or lift. Each entry has `flakiness_state`, `hard_rate` (share of recent default-branch runs that failed the gate), `soft_rate` (share a toleration absorbed), `window_runs`, `headroom` and `needs_decision`. `totals` covers every snapshot; `listed` stops at the cap. Takes no filters: filter the entries yourself, and pass `fields` to trim the response.",
+        "description": "Snapshots in a repo whose rendering is untrusted: a gate failure on a recent default-branch run, an absorbed diff close to the threshold, or an active quarantine. A snapshot that is not listed may still render small absorbed differences from its baseline; those stay under the diff thresholds and block nobody. Start here to decide what to quarantine or lift. Each entry has `flakiness_state`, `hard_rate` (share of recent default-branch runs that failed the gate), `soft_rate` (share a toleration absorbed), `window_runs`, `headroom` and `needs_decision`. `totals.tracked` counts every baselined snapshot, the state counts cover the reportable rows, and `listed` stops at the cap. Takes no filters: filter the entries yourself, and pass `fields` to trim the response.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Visual review flakiness overview",
