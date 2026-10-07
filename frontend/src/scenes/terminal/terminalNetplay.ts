@@ -433,7 +433,7 @@ export class TerminalNetplay {
         if (error instanceof NetplayError) {
             return error.message
         }
-        if (error instanceof ApiError && error.status === 404 && error.detail) {
+        if (error instanceof ApiError && (error.status === 404 || error.status === 429) && error.detail) {
             return error.detail
         }
         return fallback

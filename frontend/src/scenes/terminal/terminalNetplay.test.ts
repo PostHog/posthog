@@ -263,6 +263,14 @@ describe('terminal Doom netplay', () => {
                 ),
             'error No deathmatch room has this code.',
         ],
+        [
+            'too many connection attempts',
+            () =>
+                signal.mockRejectedValueOnce(
+                    new ApiError('Throttled', 429, undefined, { detail: 'Try again in 30 seconds.' })
+                ),
+            'error Try again in 30 seconds.',
+        ],
         ['a host that never answers', () => {}, 'error The host did not answer. Check the room code and try again.'],
     ])('reports %s to Doom', async (_name, setup, message) => {
         setup()

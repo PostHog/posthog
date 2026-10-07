@@ -13,6 +13,7 @@ from rest_framework import status
 from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
 from posthog.redis import get_client
+from posthog.token_bucket import BucketUnavailable
 
 if TYPE_CHECKING:
     from rest_framework.response import _MonkeyPatchedResponse
@@ -163,14 +164,52 @@ class TestTerminalNetplay(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_mailbox_keeps_only_recent_descriptions(self) -> None:
+    def test_offer_limit_cannot_be_bypassed_with_new_peer_ids_or_tokens(self) -> None:
+        with time_machine.travel(timezone.now(), tick=False) as clock:
+            self._mailbox("ROOM42", "host")
+            self._mailbox("OTHER42", "host")
+            for index in range(4):
+                self.assertEqual(self._signal("ROOM42", f"p{index}", "host", OFFER).status_code, 204)
+
+            response = self._signal("ROOM42", "newpeer", "host", OFFER, token="f" * 64)
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertEqual(response["Retry-After"], "30")
+            self.assertEqual(self._signal("OTHER42", "abc", "host", OFFER).status_code, 204)
+            self.assertEqual(self._signal("ROOM42", "host", "p0", ANSWER).status_code, 204)
+
+            teammate = User.objects.create_and_join(self.organization, "teammate@example.com", "password")
+            self.client.force_login(teammate)
+            self.assertEqual(self._signal("ROOM42", "teammate", "host", OFFER).status_code, 204)
+            self.client.force_login(self.user)
+            clock.shift(25)
+            self._mailbox("ROOM42", "host")
+            clock.shift(5)
+            self.assertEqual(self._signal("ROOM42", "retry", "host", OFFER).status_code, 204)
+
+    @parameterized.expand([("room_rate", False), ("mailbox_capacity", True)])
+    def test_flooding_cannot_evict_queued_offers(self, _name: str, allow_refill: bool) -> None:
+        with time_machine.travel(timezone.now(), tick=False) as clock:
+            self._mailbox("ROOM42", "host")
+            for index in range(17):
+                if index % 4 == 0:
+                    teammate = User.objects.create_and_join(self.organization, f"player{index}@example.com", "password")
+                    self.client.force_login(teammate)
+                response = self._signal("ROOM42", f"p{index}", "host", OFFER)
+                self.assertEqual(response.status_code, 204 if index < 16 else 429)
+                if allow_refill:
+                    clock.shift(1)
+
+            self.client.force_login(self.user)
+            signals = self._mailbox("ROOM42", "host").json()["signals"]
+            self.assertEqual([signal["sender"] for signal in signals], [f"p{index}" for index in range(16)])
+            self.client.force_login(teammate)
+            self.assertEqual(self._signal("ROOM42", "retry", "host", OFFER).status_code, 204 if allow_refill else 429)
+
+    def test_signaling_fails_closed_when_the_rate_limiter_is_unavailable(self) -> None:
         self._mailbox("ROOM42", "host")
-        for index in range(20):
-            self._signal("ROOM42", f"p{index}", "host", OFFER)
-
-        senders = [signal["sender"] for signal in self._mailbox("ROOM42", "host").json()["signals"]]
-
-        self.assertEqual(senders, [f"p{index}" for index in range(4, 20)])
+        with patch("posthog.api.terminal_netplay.consume", return_value=BucketUnavailable(error="unavailable")):
+            self.assertEqual(self._signal("ROOM42", "abc", "host", OFFER).status_code, 429)
+        self.assertEqual(self._mailbox("ROOM42", "host").json(), {"signals": []})
 
     @parameterized.expand(
         [

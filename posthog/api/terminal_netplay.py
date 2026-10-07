@@ -7,7 +7,7 @@ from django.http import HttpResponse
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -17,6 +17,7 @@ from posthog.auth import SessionAuthentication
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.redis import get_client
+from posthog.token_bucket import BucketUnavailable, Budget, consume
 
 if TYPE_CHECKING:
     from redis.client import Pipeline
@@ -27,6 +28,8 @@ HOST = "host"
 ROOM_TTL_SECONDS = 30
 MAILBOX_TTL_SECONDS = 60
 MAILBOX_LIMIT = 16
+OFFER_BUDGET = Budget(burst=4, per_hour=120)
+ROOM_SIGNAL_BUDGET = Budget(burst=16, per_hour=3600)
 PEER_PATTERN = r"^[a-z0-9]{1,32}$"
 ROOM_PATTERN = r"^[A-Z0-9]{4,12}$"
 TOKEN_HEADER = "X-Terminal-Netplay-Token"
@@ -41,9 +44,10 @@ TOKEN_PARAMETER = OpenApiParameter(
 
 
 class TerminalNetplayRoom:
-    def __init__(self, team_id: int, room: str, owner: str) -> None:
+    def __init__(self, team_id: int, room: str, owner: str, user_id: int) -> None:
         self.key = f"terminal_netplay:{team_id}:{room}"
         self.owner = owner.encode()
+        self.user_id = user_id
         self.client = get_client()
 
     def _host(self, pipeline: Pipeline) -> bytes:
@@ -67,13 +71,26 @@ class TerminalNetplayRoom:
         pipeline.watch(key)
         return cast(bytes | None, pipeline.get(key))
 
+    def _consume_budget(self, key: str, budget: Budget) -> None:
+        decision = consume(key, budget, client=self.client)
+        if isinstance(decision, BucketUnavailable):
+            raise Throttled(wait=1, detail="Signaling is temporarily unavailable. Try again.")
+        if not decision.allowed:
+            raise Throttled(wait=decision.retry_after, detail="Too many connection attempts. Wait and try again.")
+
     def send(self, sender: str, recipient: str, description: dict[str, str]) -> None:
         is_offer = sender != HOST and recipient == HOST and description["type"] == "offer"
         is_answer = sender == HOST and recipient != HOST and description["type"] == "answer"
         if not (is_offer or is_answer):
             raise ValidationError("Send offers to the host and answers to the joining player.")
+        direction = description["type"]
+        self._consume_budget(
+            f"{self.key}:rate:{direction}:user:{self.user_id}", OFFER_BUDGET if is_offer else ROOM_SIGNAL_BUDGET
+        )
+        room_charged = False
 
         def deliver(pipeline: Pipeline) -> None:
+            nonlocal room_charged
             host = self._host(pipeline)
             registered_owner = self._peer_owner(pipeline, host, sender)
             if is_answer or registered_owner is not None:
@@ -82,6 +99,12 @@ class TerminalNetplayRoom:
             if is_answer and recipient_owner is None:
                 raise NotFound("This player is no longer in the room. Ask them to join again.")
             key = self._mailbox_key(host, recipient)
+            pipeline.watch(key)
+            if cast(int, pipeline.llen(key)) >= MAILBOX_LIMIT:
+                raise Throttled(wait=1, detail="This player's connection mailbox is full. Try again shortly.")
+            if not room_charged:
+                self._consume_budget(f"{self.key}:rate:{direction}", ROOM_SIGNAL_BUDGET)
+                room_charged = True
             message = json.dumps({"sender": sender, "description": description})
             pipeline.multi()
             if is_offer:
@@ -89,7 +112,6 @@ class TerminalNetplayRoom:
             elif recipient_owner is not None:
                 pipeline.set(f"{key}:owner", recipient_owner, ex=MAILBOX_TTL_SECONDS)
             pipeline.rpush(key, message)
-            pipeline.ltrim(key, -MAILBOX_LIMIT, -1)
             pipeline.expire(key, MAILBOX_TTL_SECONDS)
 
         self.client.transaction(deliver, self.key)
@@ -161,7 +183,7 @@ class TerminalNetplayViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise PermissionDenied("The game token is missing or invalid. Start a new game and try again.")
         user = cast(User, request.user)
         owner = hashlib.sha256(f"{user.pk}:{token}".encode()).hexdigest()
-        return TerminalNetplayRoom(self.team_id, room, owner)
+        return TerminalNetplayRoom(self.team_id, room, owner, user.pk)
 
     @extend_schema(
         tags=["core"],
