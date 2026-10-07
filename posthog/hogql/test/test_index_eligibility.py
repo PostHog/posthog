@@ -693,12 +693,18 @@ class TestIndexEligibilityAnalysis(BaseTest):
         ):
             response = self._metadata(query)
 
+        unpruned_warnings = [
+            warning for warning in response.warnings if warning.message.startswith(UNPRUNED_SCAN_MESSAGE)
+        ]
+        assert len(unpruned_warnings) == 1
+        taxonomy_warnings = [warning for warning in response.warnings if warning not in unpruned_warnings]
+
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert [warning.message for warning in response.warnings] == [UNPRUNED_SCAN_MESSAGE]
+            assert taxonomy_warnings == []
             [predicate] = response.index_usage or []
             assert predicate.quickfix is None
             return
-        [warning] = response.warnings
+        [warning] = taxonomy_warnings
         assert warning.fix == "'120'"
         assert query[warning.start : warning.end] == "120"
         [predicate] = response.index_usage or []
