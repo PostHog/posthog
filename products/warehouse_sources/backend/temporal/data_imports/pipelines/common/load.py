@@ -1,3 +1,4 @@
+import asyncio
 from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol
 
 from django.db.models import F
@@ -320,6 +321,22 @@ def _stored_sync_type_config(schema_id: Any, team_id: int) -> Any:
     )
 
 
+async def _live_file_sizes(delta_table_ref: "DeltaTableRef") -> dict[str, int]:
+    """The size of each live file from the Delta log, keyed by its path relative to the table folder.
+
+    Read from the same cached handle as the file URIs, so the two describe one snapshot. Empty when
+    the log cannot give the sizes; the publish step then reads each size from S3 as before.
+    """
+    delta_table = await delta_table_ref.get_delta_table()
+    if delta_table is None:
+        return {}
+    try:
+        sizes = await asyncio.to_thread(delta_table._table.get_add_file_sizes)
+    except Exception:
+        return {}
+    return {path: size for path, size in sizes.items() if isinstance(size, int)}
+
+
 @recorded_phase("publish")
 async def _publish_queryable_files(
     job: ExternalDataJob,
@@ -366,8 +383,17 @@ async def _publish_queryable_files(
 
     # File URIs are listed after delta maintenance so the queryable folder serves the compacted
     # layout rather than the pre-compaction small files.
+    file_sizes: dict[str, int] = {}
+
+    async def _list_live_files() -> list[str]:
+        uris = await delta_table_ref.get_file_uris()
+        sizes = await _live_file_sizes(delta_table_ref)
+        file_sizes.clear()
+        file_sizes.update(sizes)
+        return uris
+
     with post_load_phase("list_live_files"):
-        file_uris = await delta_table_ref.get_file_uris()
+        file_uris = await _list_live_files()
         note_post_load_phase(live_files=len(file_uris))
     logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
     with POST_LOAD_DURATION_SECONDS.labels(operation="prepare_s3").time():
@@ -378,9 +404,10 @@ async def _publish_queryable_files(
             delete_existing=True,
             existing_queryable_folder=existing_queryable_folder,
             logger=logger,
-            refresh_file_uris=delta_table_ref.get_file_uris,
+            refresh_file_uris=_list_live_files,
             double_buffer=True,
             pointer_history=pointer_history,
+            file_sizes=file_sizes,
         )
     return folder
 
