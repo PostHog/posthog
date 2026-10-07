@@ -38,6 +38,7 @@ from products.tasks.backend.facade.run_config import (
 )
 
 MAX_TRIAL_LAUNCH_BYTES = 16 * 1024 * 1024
+MAX_EVIDENCE_BYTES = 128 * 1024 * 1024
 SCOUT_TRIAL_TASK_STATE_KEY = "scout_trial"
 
 
@@ -169,6 +170,12 @@ def assert_trial_environment_ready() -> None:
         raise ScoutTrialLaunchError(str(error)) from None
     if not settings.AI_GATEWAY_API_KEY:
         raise ScoutTrialLaunchError("Scout trials require AI_GATEWAY_API_KEY for private report checks.")
+
+
+def trial_context_evidence(context: TrialContext) -> str:
+    return json.dumps(
+        {"memory": context.memory, "notes": context.notes, "recent_runs": context.recent_runs}, ensure_ascii=False
+    )
 
 
 def load_trial_context(team_id: int, context_id: UUID | str) -> TrialContext:
@@ -412,6 +419,16 @@ def create_trial_launch(
     effort_error = get_reasoning_effort_error(adapter, selected_model, selected_effort)
     if model_error or effort_error:
         raise ScoutTrialLaunchError(model_error or effort_error or "The model settings are invalid.")
+    selected_skill_body = skill_body if skill_body is not None else context.skill_body
+    # Judging attaches these inputs to every completed run, so reject them before the paid runs start.
+    if (
+        sum(len(text.encode()) for text in (selected_skill_body, context.note, trial_context_evidence(context)))
+        > MAX_EVIDENCE_BYTES
+    ):
+        raise ScoutTrialLaunchError(
+            "The saved scout history and instructions exceed the 128 MiB judge attachment limit. "
+            "Shorten the instructions or remove old scout memory."
+        )
     launch = TrialLaunch(
         id=launch_id,
         team_id=config.team_id,
@@ -421,7 +438,7 @@ def create_trial_launch(
         created_at=timezone.now(),
         skill_name=context.skill_name,
         skill_version=context.skill_version,
-        skill_body=skill_body if skill_body is not None else context.skill_body,
+        skill_body=selected_skill_body,
         runtime_adapter=cast(Literal["claude", "codex"], adapter.value),
         model=selected_model,
         reasoning_effort=selected_effort,

@@ -39,8 +39,10 @@ from products.signals.backend.scout_harness.trial_launch import (
     create_trial_launch,
     load_trial_context,
     load_trial_launch,
+    read_trial_launch,
     resolve_trial_source_model,
     scout_trials_enabled,
+    trial_context_evidence,
 )
 from products.signals.backend.scout_harness.trial_result import TrialWorkflowStatus, export_trial_result
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport, memory_snapshot
@@ -525,6 +527,25 @@ class TestScoutTrialLaunch(APIBaseTest):
             create_trial_launch(config=self.config, user=self.user, launch_id=rejected_id, reasoning_effort="invented")
         with self.assertRaisesMessage(ScoutTrialLaunchError, "different comparison note"):
             create_trial_launch(config=self.config, user=self.user, launch_id=rejected_id, note="A changed note")
+        context = load_trial_context(
+            self.team.id, create_trial_launch(config=self.config, user=self.user, launch_id=uuid4()).context_id
+        )
+        evidence_bytes = sum(
+            len(text.encode()) for text in (context.skill_body, context.note, trial_context_evidence(context))
+        )
+        oversized_id = uuid4()
+        with patch("products.signals.backend.scout_harness.trial_launch.MAX_EVIDENCE_BYTES", evidence_bytes):
+            create_trial_launch(config=self.config, user=self.user, launch_id=uuid4(), context_id=context.id)
+            with self.assertRaisesMessage(ScoutTrialLaunchError, "judge attachment limit"):
+                create_trial_launch(
+                    config=self.config,
+                    user=self.user,
+                    launch_id=oversized_id,
+                    context_id=context.id,
+                    skill_body=f"{context.skill_body} Check one more source.",
+                )
+        with self.assertRaisesMessage(ScoutTrialLaunchError, "was not found"):
+            read_trial_launch(self.team.id, oversized_id)
         self.config.write_scopes = ["dashboard:write"]
         self.config.save()
         with self.assertRaisesMessage(ScoutTrialLaunchError, "do not support"):
