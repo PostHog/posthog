@@ -1,6 +1,10 @@
+import json
+import hashlib
+from collections import Counter
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from functools import partial
+from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
 import requests
@@ -24,8 +28,17 @@ KERNEL_BASE_URL = "https://api.onkernel.com"
 # Kernel caps list page size at 100 (1-100, default 20).
 PAGE_SIZE = 100
 
+AUDIT_LOGS_ENDPOINT = "audit_logs"
+AUDIT_LOG_MAX_WINDOW = timedelta(days=28)
+AUDIT_LOG_MIN_WINDOW = timedelta(hours=1)
+AUDIT_LOG_RETENTION = timedelta(days=365)
+
 
 class KernelRetryableError(Exception):
+    pass
+
+
+class KernelResourceDisabledError(Exception):
     pass
 
 
@@ -72,7 +85,43 @@ def _extract_items(body: Any) -> list[dict[str, Any]]:
     raise KernelUnexpectedResponseError(f"Unexpected Kernel list response shape: {type(body).__name__}")
 
 
-def _redact_sensitive_fields(item: Any) -> Any:
+def _error_code(response: requests.Response) -> Optional[str]:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    code = body.get("code") if isinstance(body, dict) else None
+    return code if isinstance(code, str) else None
+
+
+def _parse_datetime(value: Any) -> Optional[datetime]:
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    if not isinstance(value, datetime):
+        return None
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _format_datetime(value: datetime) -> str:
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _add_audit_log_ids(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Give each audit record a deterministic id, including duplicate copies."""
+    seen: Counter[str] = Counter()
+    for row in rows:
+        if "id" in row:
+            continue
+        digest = hashlib.sha256(json.dumps(row, sort_keys=True, default=str).encode()).hexdigest()
+        row["id"] = f"{digest}-{seen[digest]}"
+        seen[digest] += 1
+    return rows
+
+
+def _redact_sensitive_fields(item: Any, nested_sensitive_fields: Optional[dict[str, frozenset[str]]] = None) -> Any:
     """Drop credential-bearing fields (see SENSITIVE_FIELDS) before a row is batched.
 
     Kernel objects are written to the warehouse verbatim, so env vars and token-bearing
@@ -81,7 +130,12 @@ def _redact_sensitive_fields(item: Any) -> Any:
     """
     if not isinstance(item, dict):
         return item
-    return {key: value for key, value in item.items() if key.lower() not in SENSITIVE_FIELDS}
+    redacted = {key: value for key, value in item.items() if key.lower() not in SENSITIVE_FIELDS}
+    for parent, keys in (nested_sensitive_fields or {}).items():
+        nested = redacted.get(parent)
+        if isinstance(nested, dict):
+            redacted[parent] = {key: value for key, value in nested.items() if key.lower() not in keys}
+    return redacted
 
 
 def _next_page(headers: Any, current_offset: int, page_len: int) -> tuple[bool, int]:
@@ -121,6 +175,7 @@ def _fetch_page(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     allow_not_found: bool = False,
+    empty_on_error_code: Optional[str] = None,
 ) -> requests.Response:
     response = session.get(url, headers=headers, timeout=60)
 
@@ -130,6 +185,9 @@ def _fetch_page(
 
     if allow_not_found and response.status_code == 404:
         return response
+
+    if empty_on_error_code is not None and response.status_code == 404 and _error_code(response) == empty_on_error_code:
+        raise KernelResourceDisabledError(empty_on_error_code)
 
     if not response.ok:
         logger.error(f"Kernel API error: status={response.status_code}, body={response.text}, url={url}")
@@ -150,6 +208,71 @@ def validate_credentials(api_key: str) -> tuple[bool, int | None]:
     return response.status_code == 200, response.status_code
 
 
+def _fetch_audit_log_page(
+    session: requests.Session,
+    headers: dict[str, str],
+    start: datetime,
+    end: datetime,
+    page_token: Optional[str],
+    logger: FilteringBoundLogger,
+) -> tuple[list[dict[str, Any]], Optional[str]]:
+    params: dict[str, Any] = {"start": _format_datetime(start), "end": _format_datetime(end), "limit": PAGE_SIZE}
+    if page_token:
+        params["page_token"] = page_token
+    response = _fetch_page(session, _build_url(KERNEL_ENDPOINTS[AUDIT_LOGS_ENDPOINT].path, params), headers, logger)
+    items = _extract_items(response.json())
+    has_more = str(response.headers.get("X-Has-More", "")).strip().lower()
+    next_token = response.headers.get("X-Next-Page-Token")
+    if has_more == "false" or not next_token:
+        return items, None
+    return items, str(next_token)
+
+
+def _iter_audit_log_windows(
+    session: requests.Session, headers: dict[str, str], start: datetime, end: datetime, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    windows: list[tuple[datetime, datetime]] = []
+    window_start = start
+    while window_start < end:
+        windows.append((window_start, min(window_start + AUDIT_LOG_MAX_WINDOW, end)))
+        window_start += AUDIT_LOG_MAX_WINDOW
+    pending = list(reversed(windows))
+    while pending:
+        window_start, window_end = pending.pop()
+        rows, next_token = _fetch_audit_log_page(session, headers, window_start, window_end, None, logger)
+        if next_token is not None and window_end - window_start > AUDIT_LOG_MIN_WINDOW:
+            midpoint = window_start + (window_end - window_start) / 2
+            pending.append((midpoint, window_end))
+            pending.append((window_start, midpoint))
+            continue
+        while next_token is not None:
+            page, next_token = _fetch_audit_log_page(session, headers, window_start, window_end, next_token, logger)
+            rows.extend(page)
+        if rows:
+            rows.sort(key=lambda row: _parse_datetime(row.get("timestamp")) or datetime.min.replace(tzinfo=UTC))
+            yield _add_audit_log_ids(rows)
+
+
+def get_audit_log_rows(
+    api_key: str, logger: FilteringBoundLogger, db_incremental_field_last_value: Optional[Any] = None
+) -> Iterator[Any]:
+    headers = _get_headers(api_key)
+    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+    session = make_tracked_session(capture=False)
+    end = datetime.now(UTC)
+    start = end - AUDIT_LOG_RETENTION
+    last_value = _parse_datetime(db_incremental_field_last_value)
+    if last_value is not None and last_value > start:
+        start = last_value
+    for rows in _iter_audit_log_windows(session, headers, start, end, logger):
+        for row in rows:
+            batcher.batch(row)
+            if batcher.should_yield():
+                yield batcher.get_table()
+    if batcher.should_yield(include_incomplete_chunk=True):
+        yield batcher.get_table()
+
+
 def _iter_list_items(
     session: requests.Session,
     headers: dict[str, str],
@@ -163,7 +286,10 @@ def _iter_list_items(
     while True:
         params: dict[str, Any] = {"limit": PAGE_SIZE, "offset": offset, **config.extra_params}
         url = _build_url(config.path, params)
-        response = _fetch_page(session, url, headers, logger)
+        try:
+            response = _fetch_page(session, url, headers, logger, empty_on_error_code=config.empty_on_error_code)
+        except KernelResourceDisabledError:
+            break
         items = _extract_items(response.json())
 
         has_more, next_offset = _next_page(response.headers, offset, len(items))
@@ -304,7 +430,10 @@ def get_rows(
     if endpoint == BROWSER_TELEMETRY_EVENTS:
         items: Iterator[Any] = _iter_browser_telemetry_events(session, headers, logger)
     else:
-        items = (_redact_sensitive_fields(item) for item in _iter_list_items(session, headers, config, logger))
+        items = (
+            _redact_sensitive_fields(item, config.nested_sensitive_fields)
+            for item in _iter_list_items(session, headers, config, logger)
+        )
 
     for item in items:
         batcher.batch(item)
@@ -319,20 +448,25 @@ def kernel_source(
     api_key: str,
     endpoint: str,
     logger: FilteringBoundLogger,
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     endpoint_config: KernelEndpointConfig = KERNEL_ENDPOINTS[endpoint]
-
+    items = (
+        partial(
+            get_audit_log_rows,
+            api_key=api_key,
+            logger=logger,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+        )
+        if endpoint == AUDIT_LOGS_ENDPOINT
+        else partial(get_rows, api_key=api_key, endpoint=endpoint, logger=logger)
+    )
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-        ),
+        items=items,
         primary_keys=endpoint_config.primary_keys,
-        # Full refresh for every endpoint (see settings.py) - no incremental watermark to order,
-        # so the default ascending sort_mode is fine. Partitioning is left to the pipeline's
-        # auto-detection (falls back to created_at when present); revisit once the live schema is
-        # confirmed and a stable partition key per endpoint can be verified.
         sort_mode="asc",
+        partition_mode="datetime" if endpoint_config.partition_key else None,
+        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        partition_format="month" if endpoint_config.partition_key else None,
     )
