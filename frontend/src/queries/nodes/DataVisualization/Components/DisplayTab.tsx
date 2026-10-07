@@ -326,8 +326,11 @@ export const DisplayTab = (): JSX.Element => {
                                         <LemonSwitch
                                             className="flex-1 w-full"
                                             label={isDonutChart ? 'Show total in center' : 'Show total below chart'}
+                                            // Matches the renderer's precedence in `SqlPieGraph.tsx`, including the
+                                            // legacy top-level `showPieTotal` toggle saved before `pie.showTotal`.
                                             checked={
                                                 chartSettings.pie?.showTotal ??
+                                                chartSettings.showPieTotal ??
                                                 (chartSettings.pie?.sliceContent ?? 'values') === 'values'
                                             }
                                             onChange={(value) => {
