@@ -421,21 +421,19 @@ class Command(BaseCommand):
                     linked_flag = rewritten_linked_flag(locked_linked_flag, flag_id=flag_id, new_key=current_key)
                 else:
                     ref = locked_refs.get(finding.group_index) if isinstance(finding.group_index, int) else None
-                    if (
-                        ref is not None
-                        and ref.group_id == finding.group_id
-                        and ref.flag_id == flag_id
-                        and ref.key == current_key
-                    ):
-                        # A relink rewrites the stored reference, so this check runs before the match below.
-                        written[index] = finding.written(Outcome.ALREADY_CORRECT)
-                        continue
                     # The match checks the group id and the stored reference as well as the index,
                     # so a group added, removed or reordered since the scan cannot shift a rewrite
                     # onto its neighbour. That holds even for a neighbour with a byte-identical
                     # reference. Neither field is enough alone, because a group can store no id
                     # and two groups can hold the same reference.
-                    if ref is None or ref.group_id != finding.group_id or ref.stored_flag != finding.stored_flag:
+                    if ref is None or ref.group_id != finding.group_id or ref.flag_id != flag_id:
+                        written[index] = finding.written(Outcome.CHANGED_MID_SCAN)
+                        continue
+                    if ref.key == current_key:
+                        # A relink rewrites the stored reference, so this check runs before the comparison below.
+                        written[index] = finding.written(Outcome.ALREADY_CORRECT)
+                        continue
+                    if ref.stored_flag != finding.stored_flag:
                         written[index] = finding.written(Outcome.CHANGED_MID_SCAN)
                         continue
                     renames[ref.group_index] = current_key

@@ -169,9 +169,9 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
 
     @parameterized.expand(
         [
-            (f"{location}_to_{name}", location, repointed_key)
-            for location in ("linked_flag", "trigger_group")
-            for name, repointed_key in (("a_current_key", "other-current"), ("a_stale_key", "other-stale"))
+            ("linked_flag_to_a_current_key", "linked_flag", "other-current"),
+            ("linked_flag_to_a_stale_key", "linked_flag", "other-stale"),
+            ("trigger_group_to_a_current_key", "trigger_group", "other-current"),
         ]
     )
     def test_a_repoint_mid_scan_is_reported_as_changed_rather_than_repaired(
@@ -428,8 +428,8 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
 
     @parameterized.expand([("flag_soft_deleted",), ("flag_in_other_project",)])
     def test_leaves_trigger_groups_naming_unusable_flags_alone(self, outcome: str) -> None:
-        # The trigger group classifier checks the id only after the stored key fails to resolve.
-        # The linked flag column checks the id first, so this order needs its own test.
+        # The group stores the unusable flag's own key, so a check that compared keys before it
+        # checked the flag would count this group correct.
         flag = self._create_unusable_flag(outcome)
         set_trigger_groups(self.team, {"flag": {"id": flag.id, "key": flag.key}})
         stored_before = self.team.session_recording_trigger_groups
