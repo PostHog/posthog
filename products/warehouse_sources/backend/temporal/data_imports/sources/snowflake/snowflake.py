@@ -782,5 +782,11 @@ class SnowflakeImplementation(
                         yield batch
 
         return SourceResponse(
-            name=location.response_name, items=get_rows, primary_keys=primary_keys, rows_to_sync=rows_to_sync
+            name=location.response_name,
+            items=get_rows,
+            primary_keys=primary_keys,
+            rows_to_sync=rows_to_sync,
+            # `supports_resume` defaults to True. A run with no order column saves no checkpoint,
+            # so a hand-off would start it again from the first row, on each attempt.
+            supports_resume=order_column is not None,
         )

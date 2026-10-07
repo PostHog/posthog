@@ -11,7 +11,7 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { HeatmapSettings } from '~/queries/schema/schema-general'
 
 import { getContrastingTextClass } from '../../colorUtils'
-import { dataVisualizationLogic } from '../../dataVisualizationLogic'
+import { dataVisualizationLogic, formatDataWithSettings } from '../../dataVisualizationLogic'
 import {
     buildFallbackGradientStops,
     formatHeatmapLabel,
@@ -168,6 +168,7 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
 
     const heatmapSettings = chartSettings.heatmap ?? {}
     const { xAxisColumn, yAxisColumn, valueColumn, nullLabel, nullValue } = heatmapSettings
+    const valueSettings = chartSettings.yAxis?.find((axis) => axis.column === valueColumn)?.settings
     const sorting = useMemo(
         () => getSortingFromHeatmapSettings(heatmapSettings),
         [heatmapSettings.sortColumn, heatmapSettings.sortOrder, heatmapSettings]
@@ -388,7 +389,15 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
                                             )}
                                             style={{ backgroundColor: cellColor }}
                                         >
-                                            {formatHeatmapValue(cellValue, nullValueDisplay)}
+                                            {typeof cellValue === 'number' && valueSettings
+                                                ? String(
+                                                      formatDataWithSettings(
+                                                          cellValue *
+                                                              (valueSettings.formatting?.style === 'percent' ? 100 : 1),
+                                                          valueSettings
+                                                      )
+                                                  )
+                                                : formatHeatmapValue(cellValue, nullValueDisplay)}
                                         </td>
                                     )
                                 })}

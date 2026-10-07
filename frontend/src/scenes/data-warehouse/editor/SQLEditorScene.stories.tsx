@@ -14,7 +14,11 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
-import { NodeKind } from '~/queries/schema/schema-general'
+import {
+    DatabaseSchemaMaterializedViewTable,
+    DatabaseSchemaTableCertificationStatus,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import type { DataWarehouseSavedQuery, InsightShortId } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
@@ -392,6 +396,91 @@ export const MaterializationSettings: StoryObj = {
             },
         }),
     ],
+}
+
+const sidebarStatusView = (
+    id: string,
+    name: string,
+    status: string,
+    latestError: string | null,
+    suspended: DataWarehouseSavedQuery['suspended'] = {}
+): Partial<DataWarehouseSavedQuery> => ({
+    id,
+    name,
+    is_materialized: true,
+    status,
+    latest_error: latestError,
+    suspended,
+    columns: [],
+    managed_viewset_kind: null,
+    user_access_level: AccessControlLevel.Editor,
+})
+
+const sidebarSchemaView = (
+    name: string,
+    certification: DatabaseSchemaTableCertificationStatus
+): DatabaseSchemaMaterializedViewTable => ({
+    type: 'materialized_view',
+    id: name,
+    name,
+    fields: {},
+    query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+    certification: { status: certification },
+})
+
+export const SidebarMaterializationStatus: Story = {
+    parameters: {
+        testOptions: {
+            waitForSelector: ['.monaco-editor', '[data-attr="menu-item-weekly_revenue"]'],
+            viewport: { width: 1600, height: 900 },
+        },
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': [
+                        200,
+                        {
+                            tables: {
+                                daily_signups: sidebarSchemaView('daily_signups', 'certified'),
+                                orders_by_region: sidebarSchemaView('orders_by_region', 'deprecated'),
+                                weekly_revenue: sidebarSchemaView('weekly_revenue', 'certified'),
+                            },
+                        },
+                    ],
+                },
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': [200, { results: [] }],
+                    '/api/projects/:team_id/warehouse_saved_queries/': [
+                        200,
+                        {
+                            results: [
+                                sidebarStatusView('healthy-view', 'daily_signups', 'Completed', null),
+                                sidebarStatusView(
+                                    'failed-view',
+                                    'orders_by_region',
+                                    'Failed',
+                                    'QueryError: Unable to resolve field: region_code'
+                                ),
+                                sidebarStatusView(
+                                    'paused-view',
+                                    'weekly_revenue',
+                                    'Failed',
+                                    'This model has been suspended after 5 consecutive failed materializations. Error: QueryError: Unable to resolve field: net_amount',
+                                    {
+                                        clickhouse: {
+                                            at: '2026-06-06T12:00:00Z',
+                                            reason: 'QueryError: Unable to resolve field: net_amount',
+                                            job_id: 'job-paused',
+                                        },
+                                    }
+                                ),
+                            ],
+                        },
+                    ],
+                },
+            },
+        },
+    },
 }
 
 export const BIModeWorksheet: Story = {
@@ -1109,5 +1198,69 @@ export const BITableAnalysis: Story = {
         await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible())
         await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
         await waitFor(() => expect(canvas.getAllByText('Total').length).toBeGreaterThan(0))
+    },
+}
+
+const BI_COMBO_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsBar,
+    columns: [],
+    values: [
+        {
+            field: biEventsField('revenue', 'float'),
+            aggregation: 'sum',
+            formatting: { style: 'number', prefix: '$', decimalPlaces: 2 },
+            display: { label: 'Revenue', displayType: 'bar', yAxisPosition: 'left' },
+        },
+        {
+            field: biEventsField('revenue', 'float'),
+            aggregation: 'average',
+            formatting: { style: 'number', prefix: '$', decimalPlaces: 2 },
+            display: { label: 'Average order', displayType: 'line', yAxisPosition: 'right' },
+        },
+    ],
+}
+
+export const BICombinedMeasures: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_COMBO_CONFIG)!.query, mode: 'bi', bi: JSON.stringify(BI_COMBO_CONFIG) })}`,
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters?.msw.mocks,
+                post: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: ['toStartOfDay(timestamp)', 'sum_revenue', 'average_revenue_2'],
+                        types: [
+                            ['toStartOfDay(timestamp)', 'DateTime'],
+                            ['sum_revenue', 'Float64'],
+                            ['average_revenue_2', 'Float64'],
+                        ],
+                        results: [
+                            ['2026-06-01', 1200, 12.5],
+                            ['2026-06-02', 2100, 15.2],
+                            ['2026-06-03', 1800, 13.4],
+                            ['2026-06-04', 2450, 16.8],
+                        ],
+                        hasMore: false,
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible())
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await waitFor(() => expect(canvasElement.querySelector('canvas')).not.toBeNull())
+    },
+}
+
+export const BIMeasureDisplay: Story = {
+    ...BICombinedMeasures,
+    play: async ({ canvasElement }) => {
+        await userEvent.click((await within(canvasElement).findAllByRole('button', { name: 'Format and display' }))[0])
     },
 }

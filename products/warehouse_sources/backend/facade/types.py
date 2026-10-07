@@ -1437,6 +1437,12 @@ class ExternalDataSourceType(LabeledStrEnum):
     SUPERMETRICS = "Supermetrics", "Supermetrics"
     SQLITE = "SQLite", "SQLite"
     MODAL = "Modal", "Modal"
+    VIMEO = "Vimeo", "Vimeo"
+    SCRUNCH = "Scrunch", "Scrunch"
+    LOOM = "Loom", "Loom"
+    ARCADE = "Arcade", "Arcade"
+    NEO4J = "Neo4j", "Neo4j"
+    TESTDINO = "TestDino", "TestDino"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:

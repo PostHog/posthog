@@ -21,6 +21,7 @@ import { BIShowMe } from 'products/business_intelligence/frontend/components/BIS
 import { BIToolbar } from 'products/business_intelligence/frontend/components/BIToolbar'
 
 import { BIAnalysisControls } from './BIAnalysisControls'
+import { BIMeasureSettingsModal } from './BIMeasureSettingsModal'
 
 /**
  * A worksheet laid out like desktop BI tools: data pane, filter and marks cards, rows and columns
@@ -60,6 +61,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
             >
                 <BIToolbar />
                 <BICalculatedMeasureModal />
+                <BIMeasureSettingsModal />
                 <div className="flex min-h-0 flex-1">
                     <div
                         className="relative flex w-[var(--bi-side-pane-width)] shrink-0 flex-col border-r @5xl/bi-editor:w-[calc(var(--bi-side-pane-width)+10rem)] @5xl/bi-editor:flex-row"

@@ -182,7 +182,10 @@ export const formatDataWithSettings = (
         dataAsString = `${decimalPlaces != null ? data.toFixed(decimalPlaces) : data}`
 
         if (settings?.formatting?.style === 'number') {
-            dataAsString = data.toLocaleString(undefined, { maximumFractionDigits: decimalPlaces })
+            dataAsString = data.toLocaleString(undefined, {
+                minimumFractionDigits: decimalPlaces,
+                maximumFractionDigits: decimalPlaces,
+            })
         }
 
         if (settings?.formatting?.style === 'short') {
@@ -190,7 +193,7 @@ export const formatDataWithSettings = (
         }
 
         if (settings?.formatting?.style === 'percent') {
-            dataAsString = `${data.toLocaleString(undefined, { maximumFractionDigits: decimalPlaces })}%`
+            dataAsString = `${data.toLocaleString(undefined, { minimumFractionDigits: decimalPlaces, maximumFractionDigits: decimalPlaces })}%`
         }
     }
 
