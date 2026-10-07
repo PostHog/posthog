@@ -913,3 +913,16 @@ export const IntentClustering: Story = {
         featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
     },
 }
+
+// The journey chart is the last section of a pane sized to the viewport, so the default 720px
+// snapshot ends above it. A taller viewport brings it into the snapshot.
+export const IntentClusteringJourney: Story = {
+    parameters: {
+        pageUrl: urls.mcpAnalyticsIntentClustering(),
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+        testOptions: {
+            viewport: { width: 1280, height: 1800 },
+            waitForSelector: '[data-attr=mcp-cluster-journey-sankey] [data-attr=hog-chart-sankey-node-label]',
+        },
+    },
+}
