@@ -1,15 +1,24 @@
+from uuid import UUID, uuid4
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import grpc
+from parameterized import parameterized
+
 from posthog.models.person.util import (
+    PERSONHOG_BATCH_SIZE,
+    VERSION_FLOOR_ATTEMPTS,
+    PersonVersionFloor,
     _fetch_person_by_distinct_id_via_personhog,
     _fetch_person_by_id_via_personhog,
     _fetch_person_by_uuid_via_personhog,
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
     _validate_uuids_via_personhog,
+    ensure_person_version_floors,
     get_person_by_pk_or_uuid,
     get_person_ids_and_uuids_by_uuids,
     get_person_uuids_by_distinct_ids,
@@ -591,3 +600,55 @@ class TestGetPersonUuidsByDistinctIdsFieldMask(BaseTest):
         assert "id" in mask
         assert "team_id" in mask
         assert "properties" not in mask
+
+
+def _rpc_error(code: grpc.StatusCode) -> grpc.RpcError:
+    error = grpc.RpcError()
+    error.code = MagicMock(return_value=code)
+    return error
+
+
+def _ensure_persons(uuids: list[UUID]) -> list[UUID]:
+    floors = [PersonVersionFloor(uuid=u, min_version=3) for u in uuids]
+    return [r.uuid for r in ensure_person_version_floors(1, floors)]
+
+
+class TestVersionRpcHelpers(SimpleTestCase):
+    @patch("posthog.models.person.util.time.sleep")
+    def test_a_lost_race_is_retried_until_the_call_commits(self, _sleep):
+        uuids = [uuid4(), uuid4()]
+        with fake_personhog_client() as fake:
+            real = fake.ensure_person_version_floors
+            lost = [_rpc_error(grpc.StatusCode.FAILED_PRECONDITION)] * (VERSION_FLOOR_ATTEMPTS - 1)
+
+            def flaky(request):
+                if lost:
+                    raise lost.pop()
+                return real(request)
+
+            with patch.object(fake, "ensure_person_version_floors", side_effect=flaky) as rpc:
+                assert _ensure_persons(uuids) == uuids
+            assert rpc.call_count == VERSION_FLOOR_ATTEMPTS
+
+    @parameterized.expand(
+        [
+            (grpc.StatusCode.FAILED_PRECONDITION, VERSION_FLOOR_ATTEMPTS),
+            (grpc.StatusCode.INTERNAL, 1),
+            (grpc.StatusCode.INVALID_ARGUMENT, 1),
+        ]
+    )
+    @patch("posthog.models.person.util.time.sleep")
+    def test_gives_up_after_the_attempt_budget_and_never_retries_other_errors(self, code, attempts, _sleep):
+        with fake_personhog_client() as fake:
+            with patch.object(fake, "ensure_person_version_floors", side_effect=_rpc_error(code)) as rpc:
+                with self.assertRaises(grpc.RpcError) as raised:
+                    _ensure_persons([uuid4()])
+            assert raised.exception.code() == code
+            assert rpc.call_count == attempts
+
+    def test_splits_requests_at_the_replica_key_cap(self):
+        uuids = [uuid4() for _ in range(PERSONHOG_BATCH_SIZE + 1)]
+        with fake_personhog_client() as fake:
+            results = _ensure_persons(uuids)
+            fake.assert_called("ensure_person_version_floors", times=2)
+        assert results == uuids
