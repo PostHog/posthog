@@ -39,8 +39,9 @@ export function BatchExportHogQLQueryEditor(): JSX.Element {
                 />
             </div>
             <p className="text-xs text-secondary mb-0">
-                When you run the query here, the placeholders cover the last complete interval: '{previewStart}' to '
-                {previewEnd}' ({projectTimezone}). Each export run fills them with its own interval.
+                When you run the query here, the placeholders cover the last complete interval:{' '}
+                <span translate="no">{`'${previewStart}'`}</span> to <span translate="no">{`'${previewEnd}'`}</span>{' '}
+                <span translate="no">{`(${projectTimezone})`}</span>. Each export run fills them with its own interval.
             </p>
         </div>
     )

@@ -204,6 +204,9 @@ export function lastCompleteDataInterval({
     offsetHour: number | null
 }): BatchExportDataInterval {
     const zonedNow = now.tz(timezone)
+    // Day.js arithmetic keeps the UTC offset, which is wrong after a DST change. Daily and weekly
+    // boundaries are local times, so each one is read again in the timezone.
+    const atLocalTime = (date: Dayjs): Dayjs => dayjs.tz(date.format('YYYY-MM-DDTHH:mm:ss'), timezone)
     let end: Dayjs
     let size: 'minute' | 'hour' | 'day' | 'week'
     let step = 1
@@ -221,20 +224,26 @@ export function lastCompleteDataInterval({
             break
         case 'day':
             size = 'day'
-            end = zonedNow.startOf('day').add(offsetHour ?? 0, 'hour')
+            end = atLocalTime(zonedNow.startOf('day').hour(offsetHour ?? 0))
             break
         case 'week':
             size = 'week'
-            end = zonedNow
-                .startOf('day')
-                .subtract(zonedNow.day(), 'day')
-                .add(offsetDay ?? 0, 'day')
-                .add(offsetHour ?? 0, 'hour')
+            end = atLocalTime(
+                zonedNow
+                    .startOf('day')
+                    .subtract(zonedNow.day(), 'day')
+                    .add(offsetDay ?? 0, 'day')
+                    .hour(offsetHour ?? 0)
+            )
             break
     }
 
-    if (end.isAfter(zonedNow)) {
-        end = end.subtract(step, size)
+    const previous = (boundary: Dayjs): Dayjs => {
+        const moved = boundary.subtract(step, size)
+        return size === 'day' || size === 'week' ? atLocalTime(moved) : moved
     }
-    return { start: end.subtract(step, size), end }
+    if (end.isAfter(zonedNow)) {
+        end = previous(end)
+    }
+    return { start: previous(end), end }
 }

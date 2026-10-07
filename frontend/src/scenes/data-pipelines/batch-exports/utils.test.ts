@@ -25,8 +25,9 @@ describe('batch export utils', () => {
         expect([paused, ended, active].sort(compareBatchExportScheduleStatus)).toEqual([active, ended, paused])
     })
 
-    // `now` is a Wednesday at 14:37 UTC. The SQL editor previews a HogQL export over this interval.
-    it.each<[BatchExportInterval, string, number | null, number | null, string, string]>([
+    // `now` is a Wednesday at 14:37 UTC unless a row sets its own. The SQL editor previews a HogQL export over this
+    // interval. The Los Angeles rows sit on DST changes, where a boundary must stay at the same local hour.
+    it.each<[BatchExportInterval, string, number | null, number | null, string, string, string?]>([
         ['hour', 'UTC', null, null, '2026-09-30T13:00:00.000Z', '2026-09-30T14:00:00.000Z'],
         ['every 5 minutes', 'UTC', null, null, '2026-09-30T14:30:00.000Z', '2026-09-30T14:35:00.000Z'],
         ['every 15 minutes', 'UTC', null, null, '2026-09-30T14:15:00.000Z', '2026-09-30T14:30:00.000Z'],
@@ -35,12 +36,39 @@ describe('batch export utils', () => {
         ['day', 'UTC', null, 23, '2026-09-28T23:00:00.000Z', '2026-09-29T23:00:00.000Z'],
         ['week', 'UTC', 1, 5, '2026-09-21T05:00:00.000Z', '2026-09-28T05:00:00.000Z'],
         ['week', 'UTC', 5, 0, '2026-09-18T00:00:00.000Z', '2026-09-25T00:00:00.000Z'],
+        [
+            'day',
+            'America/Los_Angeles',
+            null,
+            3,
+            '2025-03-08T11:00:00.000Z',
+            '2025-03-09T10:00:00.000Z',
+            '2025-03-09T15:00:00Z',
+        ],
+        [
+            'week',
+            'America/Los_Angeles',
+            1,
+            3,
+            '2025-03-03T11:00:00.000Z',
+            '2025-03-10T10:00:00.000Z',
+            '2025-03-11T15:00:00Z',
+        ],
+        [
+            'day',
+            'America/Los_Angeles',
+            null,
+            3,
+            '2025-11-01T10:00:00.000Z',
+            '2025-11-02T11:00:00.000Z',
+            '2025-11-02T15:00:00Z',
+        ],
     ])(
         'finds the last complete %s interval in %s with day offset %s and hour offset %s',
-        (interval, timezone, offsetDay, offsetHour, expectedStart, expectedEnd) => {
+        (interval, timezone, offsetDay, offsetHour, expectedStart, expectedEnd, now = '2026-09-30T14:37:12Z') => {
             const { start, end } = lastCompleteDataInterval({
                 interval,
-                now: dayjs('2026-09-30T14:37:12Z'),
+                now: dayjs(now),
                 timezone,
                 offsetDay,
                 offsetHour,

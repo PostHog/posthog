@@ -1375,6 +1375,21 @@ describe('batchExportConfigFormLogic', () => {
             // The backend rejects this field for every model but 'hogql', so other models must not send it
             expect(body.hogql_query).toEqual(fixture.hogql_query)
         })
+
+        it('does not send event filters for the HogQL model', async () => {
+            await initLogic({ service: null, id: HOGQL_BATCH_EXPORT.id })
+            logic.actions.setConfigurationValue('filters', [
+                { key: '$browser', operator: 'exact', type: 'event', value: ['Firefox'] },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+                .toFinishAllListeners()
+
+            expect(patchBodiesById[HOGQL_BATCH_EXPORT.id]).not.toHaveProperty('filters')
+        })
     })
 
     describe('HogQL query validation', () => {

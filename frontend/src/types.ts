@@ -87,6 +87,7 @@ import { QueryContext } from '~/queries/types'
 
 import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
+import type { BatchExportApi } from 'products/batch_exports/frontend/generated/api.schemas'
 import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
 import {
     type LineageIssueApi,
@@ -7010,7 +7011,7 @@ export type BatchExportConfiguration = {
     end_at: string | null
     paused: boolean
     model: string
-    hogql_query?: string | null
+    hogql_query?: BatchExportApi['hogql_query']
     filters: AnyPropertyFilter[]
     latest_runs?: BatchExportRun[]
 }
