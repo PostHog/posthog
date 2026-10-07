@@ -43,6 +43,30 @@ describe('buildWorkflowTree', () => {
         ).toBe(false)
     })
 
+    it('falls back when early exits make rejoining routes repeat every later step', () => {
+        const depth = 30
+        const actions = [action('trigger', 'trigger'), action('end', 'exit')]
+        const edges = [edge('trigger', 'condition-0')]
+        for (let level = 0; level < depth; level++) {
+            const next = level + 1 < depth ? `condition-${level + 1}` : 'end'
+            actions.push(
+                action(`condition-${level}`, 'conditional_branch'),
+                action(`yes-${level}`),
+                action(`no-${level}`),
+                action(`exit-${level}`, 'exit')
+            )
+            edges.push(
+                edge(`condition-${level}`, `yes-${level}`, 'branch', 0),
+                edge(`condition-${level}`, `exit-${level}`, 'branch', 1),
+                edge(`condition-${level}`, `no-${level}`),
+                edge(`yes-${level}`, next),
+                edge(`no-${level}`, next)
+            )
+        }
+
+        expect(isWorkflowTreeComplete(workflow(actions, edges))).toBe(false)
+    })
+
     it('renders converging routes before one shared continuation', () => {
         const tree = buildWorkflowTree(
             workflow(
