@@ -75,6 +75,45 @@ Statement timeouts are set via `SET statement_timeout = {ms}` on each new connec
 
 The same hook also increments the `db_connection_created_total` counter when `pool_name` is set, providing visibility into connection churn per pool.
 
+### Persons DB deadline
+
+`PERSONS_DB_DEADLINE_MS` (default 2500ms) bounds all persons DB work in one flag evaluation.
+The hash key override check, write, and read, the group type mapping lookup, and the person, cohort, and group properties fetch share one deadline, so sequential calls cannot add up past it.
+The deadline starts when the matcher is built, just before evaluation.
+Postgres `statement_timeout` cannot cancel a query on a database that has stopped answering, so once a query is in flight this client-side timer is the only bound.
+When the pool has no free connection, the pool acquire timeout (`ACQUIRE_TIMEOUT_SECS`) can fire first, and the call fails with `timeout:pool_timeout` instead.
+
+When the deadline passes, the call fails with `FlagError::TimeoutError("persons_db_deadline")` and the existing degrade path runs:
+
+- Flags that need persons data return `reason.code = "timeout:persons_db_deadline"`. Experience continuity flags return `hash_key_override_error`.
+- The other flags evaluate normally.
+- The request returns a 200 with `errorsWhileComputingFlags: true`.
+
+A call that would start after the deadline fails without taking a connection.
+The group type mapping cache runs its coalesced fetch in a separate task.
+A cache hit still succeeds after the deadline, each request stops waiting at its own deadline, and a request that stops waiting does not cancel the fetch for the others.
+The shared fetch has its own 5s cap instead of any request's deadline.
+Without the cap, a fetch stuck on an unreachable database keeps running.
+Every later request for the team then waits on that fetch instead of starting a new one.
+A slow group type lookup uses up the shared deadline, so the properties fetch after it can fail even when person queries are fast.
+When the group type lookup stops at the deadline, a flag whose answer depends on a group condition also returns `timeout:persons_db_deadline`, unless another of its conditions settles the answer.
+A condition that aggregates by a group depends on the lookup when the request sends a usable group key, which is a non-empty string or a number.
+A condition that filters on a group property depends on the lookup when the request sends a usable group key or a group property override.
+That includes a flag that skips DB preparation because its only group filter has no resolved group type.
+See [Unfetched properties fail closed](flag-evaluation-engine.md#unfetched-properties-fail-closed).
+Each stopped call increments `flags_database_error_total` with `timeout_type="persons_db_deadline"` and the call's `operation`.
+The canonical log line records the first stopped call in `persons_db_deadline_exceeded`.
+The internal batch evaluation endpoint does not apply the deadline. When a person's evaluation returns an error, Django leaves that person out of the static cohort and still reports the run as a success.
+The batch endpoint shares the group type mapping cache with `/flags`, so its group type lookup still stops at the 5s shared fetch cap.
+Set `PERSONS_DB_DEADLINE_MS=0` to disable the deadline.
+
+A query that the deadline drops mid-flight keeps its connection until sqlx's on-release ping finishes.
+The ping waits for the dropped query.
+If the query completes, the connection goes back to the pool.
+If `statement_timeout` cancels the query, the ping fails and sqlx closes the connection.
+If the database never answers, the connection stays checked out.
+Keep the persons statement timeouts below the deadline so that Postgres cancels ordinary slow queries before the deadline drops them.
+
 ### Total connection count
 
 ```text
@@ -292,33 +331,34 @@ let retry_strategy = ExponentialBackoff::from_millis(100)
 
 ### Prometheus metrics
 
-| Metric                                     | Labels                 | Purpose                                                                                                |
-| ------------------------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------ |
-| `flags_db_connection_time`                 | `pool`, `operation`    | Connection acquisition latency (sub-ms precision, bucket floor 0.05ms)                                 |
-| `flags_person_query_time`                  | -                      | Person lookup query duration                                                                           |
-| `flags_definition_query_time`              | -                      | Flag definition query duration                                                                         |
-| `flags_pool_utilization_ratio`             | `pool`                 | Pool utilization (0.0-1.0)                                                                             |
-| `flags_connection_hold_time_ms`            | `pool`, `operation`    | How long connections are held                                                                          |
-| `flags_hash_key_retries_total`             | `team_id`, `operation` | Retries that started. A failed attempt counts only when its retry starts                               |
-| `flags_flag_evaluation_error_total`        | `error_type`           | Error counter                                                                                          |
-| `db_connection_created_total`              | `pool`                 | Connection creation events (physical TCP/TLS, not pool reuse)                                          |
-| `flags_db_connection_pool_size`            | `pool`                 | Total pool size (should equal active + idle)                                                           |
-| `flags_db_connection_pool_active_total`    | `pool`                 | Active (in-use) connections                                                                            |
-| `flags_db_connection_pool_idle_total`      | `pool`                 | Idle (available) connections                                                                           |
-| `flags_db_connection_pool_max_total`       | `pool`                 | Configured maximum connections                                                                         |
-| `flags_queue_time_ms`                      | `team_id`              | Request queue wait time (bucket ceiling 30000ms)                                                       |
-| `flags_pre_handler_time_ms`                | `team_id`              | Pre-handler work timing (UA parse, rate limit checks, token extract)                                   |
-| `flags_rate_limit_check_ms`                | `kind`                 | Rate limit check duration (`kind="ip"` or `kind="token"`)                                              |
-| `flags_token_extract_ms`                   | -                      | Token extraction timing                                                                                |
-| `flags_concurrency_limit_wait_ms`          | -                      | Concurrency limit permit wait time (pod-level, no `team_id`)                                           |
-| `flags_realtime_cohort_query_time`         | `team_id`              | Realtime cohort lookup at the evaluation site, including cache hits (sub-ms precision)                 |
-| `flags_realtime_cohort_query_error_total`  | `team_id`              | Realtime cohort lookups that failed and degraded to non-membership                                     |
-| `flags_realtime_cohort_db_query_time`      | `outcome`              | Behavioral cohorts DB query latency (`success`, `error`, `timeout`; sub-ms precision, 20ms SLO bucket) |
-| `flags_db_cohort_membership_reads_total`   | -                      | Successful behavioral cohorts DB reads                                                                 |
-| `flags_db_cohort_membership_errors_total`  | -                      | Failed or timed-out behavioral cohorts DB reads                                                        |
-| `flags_cohort_membership_cache_hit_total`  | -                      | Membership lookups fully served from the Moka cache                                                    |
-| `flags_cohort_membership_cache_miss_total` | -                      | Membership lookups that issued a behavioral cohorts DB query                                           |
-| `flags_cohort_membership_cache_entries`    | -                      | Current entries in the membership cache (one per team + person pair)                                   |
+| Metric                                     | Labels                                               | Purpose                                                                                                                                                                       |
+| ------------------------------------------ | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `flags_db_connection_time`                 | `pool`, `operation`                                  | Connection acquisition latency (sub-ms precision, bucket floor 0.05ms)                                                                                                        |
+| `flags_person_query_time`                  | -                                                    | Person lookup query duration                                                                                                                                                  |
+| `flags_definition_query_time`              | -                                                    | Flag definition query duration                                                                                                                                                |
+| `flags_pool_utilization_ratio`             | `pool`                                               | Pool utilization (0.0-1.0)                                                                                                                                                    |
+| `flags_connection_hold_time_ms`            | `pool`, `operation`                                  | How long connections are held                                                                                                                                                 |
+| `flags_hash_key_retries_total`             | `team_id`, `operation`                               | Retries that started. A failed attempt counts only when its retry starts                                                                                                      |
+| `flags_flag_evaluation_error_total`        | `error_type`                                         | Error counter                                                                                                                                                                 |
+| `flags_database_error_total`               | `error_type`, `operation`, `retried`, `timeout_type` | Database errors by operation. `timeout_type="persons_db_deadline"` counts persons DB calls stopped by `PERSONS_DB_DEADLINE_MS`, including calls skipped because it had passed |
+| `db_connection_created_total`              | `pool`                                               | Connection creation events (physical TCP/TLS, not pool reuse)                                                                                                                 |
+| `flags_db_connection_pool_size`            | `pool`                                               | Total pool size (should equal active + idle)                                                                                                                                  |
+| `flags_db_connection_pool_active_total`    | `pool`                                               | Active (in-use) connections                                                                                                                                                   |
+| `flags_db_connection_pool_idle_total`      | `pool`                                               | Idle (available) connections                                                                                                                                                  |
+| `flags_db_connection_pool_max_total`       | `pool`                                               | Configured maximum connections                                                                                                                                                |
+| `flags_queue_time_ms`                      | `team_id`                                            | Request queue wait time (bucket ceiling 30000ms)                                                                                                                              |
+| `flags_pre_handler_time_ms`                | `team_id`                                            | Pre-handler work timing (UA parse, rate limit checks, token extract)                                                                                                          |
+| `flags_rate_limit_check_ms`                | `kind`                                               | Rate limit check duration (`kind="ip"` or `kind="token"`)                                                                                                                     |
+| `flags_token_extract_ms`                   | -                                                    | Token extraction timing                                                                                                                                                       |
+| `flags_concurrency_limit_wait_ms`          | -                                                    | Concurrency limit permit wait time (pod-level, no `team_id`)                                                                                                                  |
+| `flags_realtime_cohort_query_time`         | `team_id`                                            | Realtime cohort lookup at the evaluation site, including cache hits (sub-ms precision)                                                                                        |
+| `flags_realtime_cohort_query_error_total`  | `team_id`                                            | Realtime cohort lookups that failed and degraded to non-membership                                                                                                            |
+| `flags_realtime_cohort_db_query_time`      | `outcome`                                            | Behavioral cohorts DB query latency (`success`, `error`, `timeout`; sub-ms precision, 20ms SLO bucket)                                                                        |
+| `flags_db_cohort_membership_reads_total`   | -                                                    | Successful behavioral cohorts DB reads                                                                                                                                        |
+| `flags_db_cohort_membership_errors_total`  | -                                                    | Failed or timed-out behavioral cohorts DB reads                                                                                                                               |
+| `flags_cohort_membership_cache_hit_total`  | -                                                    | Membership lookups fully served from the Moka cache                                                                                                                           |
+| `flags_cohort_membership_cache_miss_total` | -                                                    | Membership lookups that issued a behavioral cohorts DB query                                                                                                                  |
+| `flags_cohort_membership_cache_entries`    | -                                                    | Current entries in the membership cache (one per team + person pair)                                                                                                          |
 
 ### Example PromQL queries
 
@@ -374,6 +414,7 @@ Queries exceeding 500ms are logged at WARN level with timing information.
 | `WRITER_STATEMENT_TIMEOUT_MS`               | 2000     | Statement timeout for writes                                     |
 | `BEHAVIORAL_COHORTS_READ_DATABASE_URL`      | empty    | Behavioral cohorts database (enables realtime cohort evaluation) |
 | `BATCH_FLAG_EVAL_SCAN_STATEMENT_TIMEOUT_MS` | 10000    | Statement timeout for the batch evaluation person scan           |
+| `PERSONS_DB_DEADLINE_MS`                    | 2500     | Deadline shared by all persons DB calls in one evaluation        |
 
 ### Tuning guidance
 

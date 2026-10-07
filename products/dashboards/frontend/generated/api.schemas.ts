@@ -275,7 +275,7 @@ export interface DashboardBasicApi {
     readonly deleted: boolean
     readonly creation_mode: DashboardCreationModeEnumApi
     tags?: unknown[]
-    /** Controls who can edit the dashboard.
+    /** Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
      *
      * * `21` - Everyone in the project can edit
      * * `37` - Only those invited to this dashboard can edit */
@@ -304,24 +304,24 @@ export interface PaginatedDashboardBasicListApi {
     results: DashboardBasicApi[]
 }
 
-export type DashboardApiFilters = { [key: string]: unknown }
+export type DashboardWriteOpenApiApiFilters = { [key: string]: unknown }
 
 /**
  * @nullable
  */
-export type DashboardApiVariables = { [key: string]: unknown } | null
+export type DashboardWriteOpenApiApiVariables = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type DashboardApiPersistedFilters = { [key: string]: unknown } | null
+export type DashboardWriteOpenApiApiPersistedFilters = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
+export type DashboardWriteOpenApiApiPersistedVariables = { [key: string]: unknown } | null
 
-export type DashboardApiTilesItem = { [key: string]: unknown }
+export type DashboardWriteOpenApiApiTilesItem = { [key: string]: unknown }
 
 /**
  * * `auto` - auto
@@ -411,6 +411,131 @@ export interface DashboardCustomizationApi {
 /**
  * Serializer mixin that handles tags for objects.
  */
+export interface DashboardWriteOpenApiApi {
+    readonly id: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    description?: string
+    pinned?: boolean
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly last_accessed_at: string | null
+    /** @nullable */
+    readonly last_viewed_at: string | null
+    /**
+     * Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.
+     * @nullable
+     */
+    readonly folder: string | null
+    /**
+     * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
+     * @nullable
+     */
+    readonly file_system_id: string | null
+    /**
+     * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
+     * @nullable
+     */
+    readonly file_system_path: string | null
+    readonly is_shared: boolean
+    deleted?: boolean
+    readonly creation_mode: DashboardCreationModeEnumApi
+    readonly filters: DashboardWriteOpenApiApiFilters
+    /** @nullable */
+    readonly variables: DashboardWriteOpenApiApiVariables
+    /**
+     * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
+     * @nullable
+     */
+    breakdown_colors?: BreakdownColorConfigApi[] | null
+    /**
+     * ID of the color theme used for chart visualizations.
+     * @nullable
+     */
+    data_color_theme_id?: number | null
+    tags?: unknown[]
+    /**
+     * Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
+     * @minimum 21
+     * @maximum 21
+     */
+    restriction_level?: number
+    readonly effective_restriction_level: RestrictionLevelEnumApi
+    readonly effective_privilege_level: PrivilegeLevelEnumApi
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    readonly access_control_version: string
+    /** @nullable */
+    last_refresh?: string | null
+    /** @nullable */
+    readonly persisted_filters: DashboardWriteOpenApiApiPersistedFilters
+    /** @nullable */
+    readonly persisted_variables: DashboardWriteOpenApiApiPersistedVariables
+    readonly team_id: number
+    /**
+     * List of quick filter IDs associated with this dashboard
+     * @nullable
+     */
+    quick_filter_ids?: string[] | null
+    /** Dashboard display settings. */
+    readonly customization: DashboardCustomizationApi
+    /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
+     *
+     * * `tight` - tight
+     * * `condensed` - condensed
+     * * `standard` - standard
+     * * `relaxed` - relaxed
+     * * `wide` - wide */
+    grid_spacing?: TileSpacingEnumApi
+    /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+     *
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal
+     * * `stable` - stable */
+    layout_compaction?: LayoutCompactionEnumApi
+    /** @nullable */
+    readonly tiles: readonly DashboardWriteOpenApiApiTilesItem[] | null
+    /** Template key to create the dashboard from a predefined template. */
+    use_template?: string
+    /**
+     * ID of an existing dashboard to duplicate.
+     * @nullable
+     */
+    use_dashboard?: number | null
+    /** When deleting, also delete insights that are only on this dashboard. */
+    delete_insights?: boolean
+    _create_in_folder?: string
+}
+
+export type DashboardApiFilters = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type DashboardApiVariables = { [key: string]: unknown } | null
+
+/**
+ * @nullable
+ */
+export type DashboardApiPersistedFilters = { [key: string]: unknown } | null
+
+/**
+ * @nullable
+ */
+export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
+
+export type DashboardApiTilesItem = { [key: string]: unknown }
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface DashboardApi {
     readonly id: number
     /**
@@ -423,7 +548,7 @@ export interface DashboardApi {
     readonly created_at: string
     readonly created_by: UserBasicApi
     /** @nullable */
-    last_accessed_at?: string | null
+    readonly last_accessed_at: string | null
     /** @nullable */
     readonly last_viewed_at: string | null
     /**
@@ -458,6 +583,10 @@ export interface DashboardApi {
      */
     data_color_theme_id?: number | null
     tags?: unknown[]
+    /** Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
+     *
+     * * `21` - Everyone in the project can edit
+     * * `37` - Only those invited to this dashboard can edit */
     restriction_level?: RestrictionLevelEnumApi
     readonly effective_restriction_level: RestrictionLevelEnumApi
     readonly effective_privilege_level: PrivilegeLevelEnumApi
@@ -1110,11 +1239,12 @@ export interface PatchedPatchedDashboardOpenApiApi {
      */
     data_color_theme_id?: number | null
     tags?: string[]
-    /** Who can edit this dashboard.
-     *
-     * * `21` - Everyone in the project can edit
-     * * `37` - Only those invited to this dashboard can edit */
-    restriction_level?: RestrictionLevelEnumApi
+    /**
+     * Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
+     * @minimum 21
+     * @maximum 21
+     */
+    restriction_level?: number
     /**
      * List of quick filter IDs associated with this dashboard.
      * @nullable
@@ -5300,6 +5430,7 @@ export const IntegrationKindApi = {
     CustomerioWebhook: 'customerio-webhook',
     CustomerioTrack: 'customerio-track',
     Apns: 'apns',
+    AppleAds: 'apple-ads',
     Postgresql: 'postgresql',
     AwsS3: 'aws-s3',
     AwsRedshift: 'aws-redshift',
@@ -9320,6 +9451,21 @@ export interface BISortApi {
     key: string
 }
 
+export interface BITopNApi {
+    /** @minimum 1 */
+    count: number
+    fieldId: string
+    includeOther: boolean
+    /** @minimum 0 */
+    measureIndex: number
+}
+
+export interface BITotalsApi {
+    columns?: boolean | null
+    rows?: boolean | null
+    subtotals?: boolean | null
+}
+
 export type BIAggregationApi = (typeof BIAggregationApi)[keyof typeof BIAggregationApi]
 
 export const BIAggregationApi = {
@@ -9332,11 +9478,31 @@ export const BIAggregationApi = {
     Custom: 'custom',
 } as const
 
+export type BITableCalculationTypeApi = (typeof BITableCalculationTypeApi)[keyof typeof BITableCalculationTypeApi]
+
+export const BITableCalculationTypeApi = {
+    PercentOfTotal: 'percent_of_total',
+    RunningTotal: 'running_total',
+    Difference: 'difference',
+    PercentChange: 'percent_change',
+    MovingAverage: 'moving_average',
+    Rank: 'rank',
+} as const
+
+export interface BITableCalculationApi {
+    /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
+    computeUsing?: string | null
+    type: BITableCalculationTypeApi
+    /** Number of points, including the current point, in a trailing moving average. */
+    window?: number | null
+}
+
 export interface BIValueApi {
     aggregation: BIAggregationApi
     customExpression?: string | null
     field: BIFieldApi
     label?: string | null
+    tableCalculation?: BITableCalculationApi | null
 }
 
 export interface BIConfigApi {
@@ -9352,6 +9518,8 @@ export interface BIConfigApi {
     /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
     sort?: BISortApi | null
     source?: BIDataSourceApi | null
+    topN?: BITopNApi | null
+    totals?: BITotalsApi | null
     values: BIValueApi[]
 }
 

@@ -102,6 +102,7 @@ export interface integrationsLogicValues {
     getIntegrationsByKind: (
         kinds: (
             | 'apns'
+            | 'apple-ads'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -214,6 +215,7 @@ export interface integrationsLogicActions {
     ) => {
         kind:
             | 'apns'
+            | 'apple-ads'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -350,6 +352,7 @@ export interface integrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'apple-ads'
                 | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
@@ -414,6 +417,7 @@ export interface integrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'apple-ads'
                 | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
@@ -472,6 +476,7 @@ export interface integrationsLogicActions {
         id: string
         kind:
             | 'apns'
+            | 'apple-ads'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -537,6 +542,7 @@ export interface integrationsLogicActions {
     requestIntegrationAccessSuccess: (
         accessRequest:
             | 'apns'
+            | 'apple-ads'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -587,6 +593,7 @@ export interface integrationsLogicActions {
     ) => {
         accessRequest:
             | 'apns'
+            | 'apple-ads'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -683,6 +690,7 @@ export interface integrationsLogicMeta {
         ) => (
             kinds: (
                 | 'apns'
+                | 'apple-ads'
                 | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'

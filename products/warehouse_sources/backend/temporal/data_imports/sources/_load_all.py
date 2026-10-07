@@ -790,6 +790,7 @@ from .missive.source import MissiveSource
 from .mistral_ai.source import MistralAISource
 from .mixmax.source import MixMaxSource
 from .mixpanel.source import MixpanelSource
+from .modal.source import ModalSource
 from .mode.source import ModeSource
 from .moengage.source import MoEngageSource
 from .moesif.source import MoesifSource
@@ -1149,6 +1150,7 @@ from .sprig.source import SprigSource
 from .sprinklr.source import SprinklrSource
 from .sprinto.source import SprintoSource
 from .sprout_social.source import SproutSocialSource
+from .sqlite.source import SQLiteSource
 from .squadcast.source import SquadcastSource
 from .square.source import SquareSource
 from .squarespace.source import SquarespaceSource

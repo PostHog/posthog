@@ -20,6 +20,8 @@ import { BIShelfStrip } from 'products/business_intelligence/frontend/components
 import { BIShowMe } from 'products/business_intelligence/frontend/components/BIShowMe'
 import { BIToolbar } from 'products/business_intelligence/frontend/components/BIToolbar'
 
+import { BIAnalysisControls } from './BIAnalysisControls'
+
 /**
  * A worksheet laid out like desktop BI tools: data pane, filter and marks cards, rows and columns
  * shelves above the view, and a chart picker on the right.
@@ -71,6 +73,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                         <div className="flex max-h-[40%] shrink-0 flex-col overflow-y-auto border-t @5xl/bi-editor:max-h-none @5xl/bi-editor:w-40 @5xl/bi-editor:border-l @5xl/bi-editor:border-t-0">
                             <BIFiltersCard />
                             <BIMarksCard />
+                            <BIAnalysisControls />
                         </div>
                         <Resizer {...biEditorResizerProps} />
                     </div>
