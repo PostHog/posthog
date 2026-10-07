@@ -14,6 +14,7 @@ Sits in its own module because `run_trace_evaluation` and `run_session_evaluatio
 each other (see the docstring on `run_session_evaluation`).
 """
 
+import threading
 from typing import Literal
 
 from posthog.temporal.ai_observability.metrics import increment_payload_budget
@@ -38,6 +39,13 @@ PAYLOAD_BYTES_EXPR = (
 # (see `should_skip_for_payload`), which is how we find out whether this multiple is wrong before
 # it can skip anything.
 PAYLOAD_BYTES_PER_JUDGE_CHAR = 8
+
+# Fetching a whole trace or session and rendering it is pure-Python work that holds the GIL. When
+# many activity threads do it at the same time, the event loop and the workflow threads wait too
+# long for the GIL. Temporal then fails workflow tasks across the pod with TMPRL1101, and the
+# liveness probe on the same loop times out. Hold one of these slots for the fetch, the render and
+# any Hog run, and release it before the judge call, which only waits on the network.
+TRANSCRIPT_BUILD_SLOTS = threading.BoundedSemaphore(2)
 
 
 def payload_budget_bytes(judge_max_chars: int) -> int:

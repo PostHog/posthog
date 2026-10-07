@@ -1,5 +1,6 @@
 import json
 import uuid
+import threading
 import tracemalloc
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -771,6 +772,46 @@ class TestExecuteTraceLLMJudgeActivity:
         if skip_reason == "property_access_restricted":
             assert "property access rules" in result["reasoning"]
         mock_client_class.assert_not_called()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_holds_a_build_slot_for_the_fetch_but_not_for_the_judge_call(
+        self, setup_data: dict[str, Any], active_key_config: None
+    ) -> None:
+        slots = threading.BoundedSemaphore(1)
+        slot_held: dict[str, bool] = {}
+
+        def fetch(*args: Any, **kwargs: Any) -> TraceFetchOutcome:
+            slot_held["fetch"] = not slots.acquire(blocking=False)
+            trace = create_trace([create_trace_event("$ai_generation", **{"$ai_input": "q", "$ai_output": "a"})])
+            return TraceFetchOutcome(trace=trace, skip_reason=None, event_count=1)
+
+        def complete(*args: Any, **kwargs: Any) -> MagicMock:
+            free = slots.acquire(blocking=False)
+            if free:
+                slots.release()
+            slot_held["judge"] = not free
+            response = MagicMock()
+            response.parsed = BooleanEvalResult(verdict=True, reasoning="ok")
+            response.usage = MagicMock(input_tokens=1, output_tokens=1, total_tokens=2)
+            return response
+
+        with (
+            patch("posthog.temporal.ai_observability.run_trace_evaluation.TRANSCRIPT_BUILD_SLOTS", slots),
+            patch("posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation", fetch),
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+        ):
+            mock_client_class.return_value.complete.side_effect = complete
+            result = execute_trace_llm_judge_activity(
+                ExecuteTraceEvaluationInputs(
+                    evaluation=evaluation_dict(setup_data),
+                    team_id=setup_data["team"].id,
+                    trace_id="trace-123",
+                    window_start=FROZEN_NOW.isoformat(),
+                )
+            )
+
+        assert result["verdict"] is True
+        assert slot_held == {"fetch": True, "judge": False}
 
 
 class TestExecuteTraceHogEvalActivity:

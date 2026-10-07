@@ -37,6 +37,7 @@ from posthog.temporal.ai_observability.evaluation_hog import (
 from posthog.temporal.ai_observability.evaluation_llm_judge import call_llm_judge, get_output_type_config
 from posthog.temporal.ai_observability.evaluation_payload import (
     PAYLOAD_BYTES_EXPR,
+    TRANSCRIPT_BUILD_SLOTS,
     payload_budget_bytes,
     should_skip_for_payload,
 )
@@ -486,16 +487,19 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
     output_config = evaluation.get("output_config") or {}
     allows_na = output_config.get("allows_na", False)
 
-    outcome = fetch_session_for_evaluation(
-        inputs.team_id,
-        inputs.session_id,
-        datetime.fromisoformat(inputs.window_start),
-        inputs.window_end_datetime,
-    )
-    if outcome.skip_reason or outcome.traces is None:
-        return build_session_skip_result(allows_na, outcome.skip_reason or "session_not_found", output_type=output_type)
+    with TRANSCRIPT_BUILD_SLOTS:
+        outcome = fetch_session_for_evaluation(
+            inputs.team_id,
+            inputs.session_id,
+            datetime.fromisoformat(inputs.window_start),
+            inputs.window_end_datetime,
+        )
+        if outcome.skip_reason or outcome.traces is None:
+            return build_session_skip_result(
+                allows_na, outcome.skip_reason or "session_not_found", output_type=output_type
+            )
+        transcript = format_session_for_judge(outcome.traces)
 
-    transcript = format_session_for_judge(outcome.traces)
     if transcript is None:
         return build_session_skip_result(allows_na, "session_too_long_to_judge", output_type=output_type)
 
@@ -529,18 +533,19 @@ async def execute_session_hog_eval_activity(inputs: ExecuteSessionEvaluationInpu
     allows_na = output_config.get("allows_na", False)
 
     def _execute() -> tuple[dict[str, Any] | None, str | None]:
-        outcome = fetch_session_for_evaluation(
-            inputs.team_id,
-            inputs.session_id,
-            datetime.fromisoformat(inputs.window_start),
-            inputs.window_end_datetime,
-        )
-        if outcome.skip_reason or outcome.traces is None:
-            return None, outcome.skip_reason or "session_not_found"
-        globals_dict = build_session_hog_globals(outcome.traces, inputs.session_id, bytecode=bytecode)
-        return execute_hog_eval_bytecode(
-            bytecode, globals_dict, allows_na=allows_na, output_type=output_type, output_config=output_config
-        ), None
+        with TRANSCRIPT_BUILD_SLOTS:
+            outcome = fetch_session_for_evaluation(
+                inputs.team_id,
+                inputs.session_id,
+                datetime.fromisoformat(inputs.window_start),
+                inputs.window_end_datetime,
+            )
+            if outcome.skip_reason or outcome.traces is None:
+                return None, outcome.skip_reason or "session_not_found"
+            globals_dict = build_session_hog_globals(outcome.traces, inputs.session_id, bytecode=bytecode)
+            return execute_hog_eval_bytecode(
+                bytecode, globals_dict, allows_na=allows_na, output_type=output_type, output_config=output_config
+            ), None
 
     result, skip_reason = await database_sync_to_async(_execute, thread_sensitive=False)()
 
