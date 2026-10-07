@@ -40,7 +40,7 @@ from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.models import Organization, Team, User
 
 from ee.hogai.context.insight.context import InsightContext
@@ -418,10 +418,29 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("validation", "Unknown field: missing_column", None),
-            ("timeout", "Query timed out", "error"),
-            ("memory_limit", "Query memory limit exceeded", "clickhouse_memory_limit_exceeded"),
-            ("warehouse_connection", "Warehouse connection failed", None),
+            ("validation", "Unknown field: missing_column", None, "Unknown field: missing_column"),
+            ("timeout", "Query timed out", "error", "Query timed out"),
+            (
+                "memory_limit",
+                "Query memory limit exceeded",
+                "clickhouse_memory_limit_exceeded",
+                "Query memory limit exceeded",
+            ),
+            ("warehouse_connection", "Warehouse connection failed", None, "Warehouse connection failed"),
+            (
+                "known_server_code",
+                None,
+                "too_many_parts",
+                "The database had a temporary problem while it ran this query. "
+                "Wait a few minutes, then run the query again. If the problem continues, contact support.",
+            ),
+            (
+                "storage_failure",
+                None,
+                "s3_error",
+                "PostHog couldn't read from storage while running this query. Wait a few minutes, "
+                "then run the query again. If the problem continues, contact support.",
+            ),
         ]
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -429,8 +448,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
     async def test_async_query_polling_with_error(
         self,
         _name: str,
-        error_message: str,
+        error_message: str | None,
         error_code: str | None,
+        expected_message: str,
         mock_get_query_status: Mock,
         mock_process_query: Mock,
     ) -> None:
@@ -452,9 +472,124 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             with self.assertRaises(MaxToolRetryableError) as context:
                 await self.query_runner.arun_and_format_query(query)
 
-        self.assertEqual(str(context.exception), error_message)
+        self.assertEqual(str(context.exception), expected_message)
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
         self.assertEqual(context.exception.error_type, "internal")
+
+    @parameterized.expand(
+        [
+            (
+                "UNKNOWN_IDENTIFIER",
+                None,
+                "A column in this query doesn't exist in the data. Check the column names. "
+                "If the query uses a view, check that the view still matches its source table. "
+                "Look up the table columns in `system.information_schema.columns`. "
+                "In a join, prefix each column with its table alias.",
+            ),
+            (
+                "unknown_identifier",
+                "Check the column selected by this view.",
+                "Check the column selected by this view. "
+                "Look up the table columns in `system.information_schema.columns`. "
+                "In a join, prefix each column with its table alias.",
+            ),
+            ("unsupported_method", None, "ClickHouse rejected the query with error UNSUPPORTED_METHOD."),
+            ("unsupported_method", "Use a supported query method.", "Use a supported query method."),
+            (
+                "bad_arguments",
+                "This function requires an integer argument.",
+                "This function requires an integer argument.",
+            ),
+            (
+                "illegal_type_of_argument",
+                "Expected an integer argument",
+                "Expected an integer argument",
+            ),
+        ]
+    )
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    async def test_async_query_error_code_decides_what_the_agent_reads(
+        self, error_code, error_message, expected_message, mock_get_query_status, mock_process_query
+    ):
+        mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
+        mock_get_query_status.return_value = Mock(
+            model_dump=lambda mode: {
+                "id": "test-query-id",
+                "complete": True,
+                "error": True,
+                "error_message": error_message,
+                "error_code": error_code,
+            }
+        )
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
+            with self.assertRaises(MaxToolRetryableError) as context:
+                await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
+        self.assertEqual(str(context.exception), expected_message)
+        self.assertEqual(context.exception.error_type, "validation")
+        self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
+
+    @parameterized.expand(
+        [
+            (code, code_name, expected_message, expected_exception)
+            for code, name, expected_message, expected_exception in [
+                (
+                    47,
+                    "unknown_identifier",
+                    "A column in this query doesn't exist in the data. Check the column names. "
+                    "If the query uses a view, check that the view still matches its source table. "
+                    "Look up the table columns in `system.information_schema.columns`. "
+                    "In a join, prefix each column with its table alias.",
+                    MaxToolRetryableError,
+                ),
+                (
+                    1,
+                    "unsupported_method",
+                    "ClickHouse rejected the query with error UNSUPPORTED_METHOD.",
+                    MaxToolRetryableError,
+                ),
+                (
+                    62,
+                    "syntax_error",
+                    "There was an unknown error running this query: Code: 62.\nstored-secret",
+                    Exception,
+                ),
+            ]
+            for code_name in [name, None]
+        ]
+    )
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_internal_clickhouse_query_rejection(
+        self, code, code_name, expected_message, expected_exception, mock_process_query
+    ):
+        mock_process_query.side_effect = InternalCHQueryError("stored-secret", code=code, code_name=code_name)
+        with self.assertRaises(expected_exception) as context:
+            await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
+        self.assertIs(type(context.exception), expected_exception)
+        self.assertEqual(str(context.exception), expected_message)
+        if isinstance(context.exception, MaxToolRetryableError):
+            self.assertEqual(context.exception.error_type, "validation")
+            self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
+
+    @parameterized.expand([("keeper_exception",), ("syntax_error",), (None,)])
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    async def test_async_server_fault_stays_unknown(self, error_code, mock_get_query_status, mock_process_query):
+        mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
+        mock_get_query_status.return_value = Mock(
+            model_dump=lambda mode: {
+                "id": "test-query-id",
+                "complete": True,
+                "error": True,
+                "error_message": None,
+                "error_code": error_code,
+            }
+        )
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
+            with self.assertRaises(Exception) as context:
+                await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
+        self.assertIs(type(context.exception), Exception)
+        self.assertEqual(str(context.exception), "There was an unknown error running this query: Query failed")
 
     @override_settings(TEST=False)
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")

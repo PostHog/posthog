@@ -50842,7 +50842,7 @@
                 },
                 "error_code": {
                     "default": null,
-                    "description": "Stable machine-readable code for the error (the DRF exception code), when known.",
+                    "description": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
                     "type": ["string", "null"]
                 },
                 "error_message": {
