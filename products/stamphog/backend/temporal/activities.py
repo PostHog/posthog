@@ -65,6 +65,7 @@ from products.stamphog.backend.facade.enums import (
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audiences
+from products.stamphog.backend.logic.engine_channel import EngineChannel, evaluate_engine_channel, parse_engine_channel
 from products.stamphog.backend.logic.engine_pregate import (
     ENGINE_DIR,
     PregateOutcome,
@@ -167,6 +168,9 @@ def _load_run(input: StamphogReviewInput) -> ReviewRun:
     )
 
 
+_ENGINE_CHANNEL_KEY = "engine_channel"
+
+
 def _output_merge(updates: dict[str, Any]) -> Func:
     """Postgres ``output || updates``: a top-level key merge that the database performs."""
     return Func(
@@ -190,6 +194,49 @@ def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
         output=_output_merge(updates), updated_at=timezone.now()
     )
     run.output = {**(run.output or {}), **updates}
+
+
+def _stored_output(run: ReviewRun) -> dict[str, Any]:
+    """The run's output as the writer holds it now, not the copy this activity loaded."""
+    return (
+        ReviewRun.objects.for_team(run.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(id=run.id)
+        .values_list("output", flat=True)
+        .first()
+    ) or {}
+
+
+def _engine_channel(run: ReviewRun) -> EngineChannel:
+    return parse_engine_channel((run.output or {}).get(_ENGINE_CHANNEL_KEY))
+
+
+def _decide_engine_channel(run: ReviewRun) -> EngineChannel:
+    """Evaluate the run's engine channel flag once, store the result, and reuse it after that.
+
+    The sandbox start and the context fetch run side by side and both need the channel, so either one
+    can decide it. Only the first write stores a value, and the other activity adopts it. A flag change
+    between the two evaluations therefore cannot give one run two channels, and a retry never
+    evaluates the flag again.
+    """
+    stored = (run.output or {}).get(_ENGINE_CHANNEL_KEY)
+    if stored is not None:
+        return parse_engine_channel(stored)
+    pull_request = run.pull_request
+    channel = evaluate_engine_channel(
+        repository=pull_request.repo_config.repository, pr_number=pull_request.pr_number, run_id=str(run.id)
+    )
+    claimed = (
+        ReviewRun.objects.for_team(run.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(id=run.id)
+        .exclude(output__has_key=_ENGINE_CHANNEL_KEY)
+        .update(output=_output_merge({_ENGINE_CHANNEL_KEY: channel.value}), updated_at=timezone.now())
+    )
+    if not claimed:
+        channel = parse_engine_channel(_stored_output(run).get(_ENGINE_CHANNEL_KEY))
+    run.output = {**(run.output or {}), _ENGINE_CHANNEL_KEY: channel.value}
+    return channel
 
 
 # aio_ continues the series the Action-era runs emitted; the engine blob carries the same word.
@@ -360,6 +407,7 @@ def _hosted_analytics_properties(run: ReviewRun) -> dict[str, object]:
         "stamphog_runtime": "hosted",
         "stamphog_team_id": run.team_id,
         "stamphog_review_run_id": str(run.id),
+        "stamphog_engine_channel": _engine_channel(run).value,
     }
     # Marks self-driving inbox reviews (never set for human PRs) so analytics can tell the engine's
     # completed events and LLM traces apart from reviews of human PRs.
@@ -412,6 +460,8 @@ def _reviewer_environment(run: ReviewRun, gateway: AIGatewayConfig) -> dict[str,
     added to llm_env_secrets so persisted output stays tidy. STAMPHOG_EXTRA_PROPERTIES stamps the
     hosted runtime/team/run context onto those events.
 
+    STAMPHOG_ENGINE_CHANNEL tells the engine which reviewer the run's stored engine channel selects.
+
     NETWORK_RESTRICTED_AGENT_ENV stops the Claude Code CLI under the Agent SDK from calling its own
     telemetry, error-reporting and update hosts. The egress allowlist blocks them, and a blocked call
     waits for its timeout before the CLI exits.
@@ -419,6 +469,7 @@ def _reviewer_environment(run: ReviewRun, gateway: AIGatewayConfig) -> dict[str,
     env = {
         "STAMPHOG_REPO_DIR": STAMPHOG_SANDBOX_REPO_DIR,
         "AI_GATEWAY_URL": gateway.url,
+        "STAMPHOG_ENGINE_CHANNEL": _engine_channel(run).value,
         **NETWORK_RESTRICTED_AGENT_ENV,
     }
     return {**env, **_engine_analytics_environment(_hosted_analytics_properties(run))}
@@ -497,6 +548,9 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     number = pull_request.pr_number
 
     client = StamphogGitHubClient(repo_config.installation_id)
+    # Decided here as well as at the sandbox start, so the pre-check events carry the channel when
+    # the context fetch finishes first.
+    _decide_engine_channel(run)
     # Self-driving runs skip the author's history: the author is the App machine user, so
     # familiarity from its merged PRs would read to the engine as human trust. Without facts the
     # engine only omits the familiarity section from the reviewer prompt; the review proceeds normally.
@@ -967,17 +1021,6 @@ def _begin_sandbox_phase(input: StamphogReviewInput) -> ReviewRun | None:
     return run
 
 
-def _stored_output(run: ReviewRun) -> dict[str, Any]:
-    """The run's output as the writer holds it now, not the copy this activity loaded."""
-    return (
-        ReviewRun.objects.for_team(run.team_id)
-        .using(router.db_for_write(ReviewRun))
-        .filter(id=run.id)
-        .values_list("output", flat=True)
-        .first()
-    ) or {}
-
-
 def _claim_once(run: ReviewRun, claim: str) -> None:
     """Record ``claim`` on the run, or raise SandboxPhaseError when an earlier attempt already did.
 
@@ -1007,6 +1050,7 @@ def _create_review_sandbox(
     Raises SandboxPhaseError from the provision on, which the retry policy excludes. A head fetch
     that fails tears the new sandbox down first.
     """
+    _decide_engine_channel(run)
     config = SandboxConfig(
         name=f"stamphog-review-{run.id}",
         template=SandboxTemplate.STAMPHOG_REVIEW,
@@ -1829,6 +1873,7 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
                 "stamphog_pr_number": pull_request.pr_number,
                 "stamphog_team_id": input.team_id,
                 "stamphog_runtime": "hosted",
+                "stamphog_engine_channel": _engine_channel(run).value,
                 "stamphog_error": first_error_line,
                 "stamphog_review_trigger": trigger_for_run(
                     output=run.output, review_mode=pull_request.repo_config.review_mode
