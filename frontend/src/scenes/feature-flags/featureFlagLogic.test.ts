@@ -922,6 +922,64 @@ describe('featureFlagLogic', () => {
                 expect(router.values.location.pathname).toContain(urls.featureFlag(MOCK_FEATURE_FLAG.id))
             }
         })
+
+        const NOW = new Date('2026-10-07T12:00:00Z')
+        const minutesAgo = (minutes: number): string => new Date(NOW.getTime() - minutes * 60_000).toISOString()
+        const listedCohort = (flagKey: string, createdAt: string): Record<string, any> => ({
+            id: 7,
+            name: `Users with feature flag ${flagKey} enabled at 2026-10-07 11:50:00`,
+            is_static: true,
+            deleted: false,
+            errors_calculating: 0,
+            is_calculating: false,
+            created_at: createdAt,
+        })
+
+        it.each([
+            {
+                scenario: 'reuses a recent cohort for this flag',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)),
+                usesCohortId: 7,
+            },
+            {
+                scenario: 'creates a cohort when the existing one is over an hour old',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(61)),
+                usesCohortId: 42,
+            },
+            {
+                scenario: 'creates a cohort when the recent one belongs to a flag whose key extends this one',
+                listed: () => listedCohort(`${MOCK_FEATURE_FLAG.key}-2`, minutesAgo(10)),
+                usesCohortId: 42,
+            },
+        ])('$scenario', async ({ listed, usesCohortId }) => {
+            jest.useFakeTimers()
+            jest.setSystemTime(NOW)
+            router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id))
+            const createStaticCohort = jest.fn(() => [201, { cohort: { ...COHORT, is_calculating: true } }])
+            const existing = listed()
+            useMocks({
+                post: {
+                    '/api/projects/:projectId/feature_flags/:id/create_static_cohort_for_flag/': createStaticCohort,
+                },
+                get: {
+                    '/api/projects/:projectId/cohorts/': () => [200, { count: 1, results: [existing] }],
+                    '/api/projects/:projectId/cohorts/7/': () => [200, existing],
+                    '/api/projects/:projectId/cohorts/42/': () => [
+                        200,
+                        { ...COHORT, is_calculating: false, errors_calculating: 0 },
+                    ],
+                },
+            })
+
+            logic.actions.createBroadcastCohort()
+            await jest.advanceTimersByTimeAsync(5_000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createStaticCohort).toHaveBeenCalledTimes(usesCohortId === 7 ? 0 : 1)
+            expect(JSON.parse(router.values.searchParams.audience)).toEqual([
+                expect.objectContaining({ type: 'cohort', value: usesCohortId }),
+            ])
+        })
     })
 
     describe('setMultivariateEnabled functionality', () => {

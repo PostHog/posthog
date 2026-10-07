@@ -88,7 +88,7 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
-import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
+import { cohortsList, cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
 import type { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
 import {
@@ -165,6 +165,30 @@ import { flagToggleKey, updateFlagActiveInProject } from './updateFlagActiveInPr
 
 const BROADCAST_COHORT_POLL_MS = 2000
 const BROADCAST_COHORT_WAIT_MS = 60_000
+// A flag cohort is a snapshot, so reuse it only while it still reflects who has the flag now.
+const REUSABLE_FLAG_COHORT_MAX_AGE_MS = 60 * 60 * 1000
+// The cohort search parameter rejects longer queries with a 400.
+const COHORT_SEARCH_MAX_LENGTH = 200
+
+function flagCohortNamePrefix(flagKey: string): string {
+    // Matches the name that create_static_cohort_for_flag gives its cohort. Renaming it there stops reuse here.
+    return `Users with feature flag ${flagKey} enabled at`
+}
+
+function newestReusableFlagCohort(cohorts: CohortApi[], flagKey: string, now: number): CohortApi | null {
+    const prefix = `${flagCohortNamePrefix(flagKey)} `
+    const reusable = cohorts.filter(
+        (cohort) =>
+            !!cohort.name?.startsWith(prefix) &&
+            cohort.is_static === true &&
+            !cohort.deleted &&
+            cohort.errors_calculating === 0 &&
+            !!cohort.created_at &&
+            now - new Date(cohort.created_at).getTime() < REUSABLE_FLAG_COHORT_MAX_AGE_MS
+    )
+    reusable.sort((a, b) => new Date(b.created_at as string).getTime() - new Date(a.created_at as string).getTime())
+    return reusable[0] ?? null
+}
 
 function reportFailedToCreateFeatureFlagWithCohort(code: string, detail: string): void {
     posthog.capture('failed to create feature flag with cohort', { detail, code })
@@ -3592,12 +3616,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         return null
                     }
                     const projectId = String(values.currentProjectId)
-                    // nosemgrep: prefer-codegen-api-namespaced-feature_flags -- The generated function returns void, so it can't return the new cohort.
-                    const { cohort } = await api.featureFlags.createStaticCohort(props.id)
-                    breakpoint()
+                    const search = flagCohortNamePrefix(values.featureFlag.key)
+                    let cohortId: number | null = null
+                    if (search.length <= COHORT_SEARCH_MAX_LENGTH) {
+                        const { results } = await cohortsList(projectId, { search, limit: 20 })
+                        breakpoint()
+                        cohortId = newestReusableFlagCohort(results, values.featureFlag.key, Date.now())?.id ?? null
+                    }
+                    if (cohortId === null) {
+                        // nosemgrep: prefer-codegen-api-namespaced-feature_flags -- The generated function returns void, so it can't return the new cohort.
+                        const { cohort } = await api.featureFlags.createStaticCohort(props.id)
+                        breakpoint()
+                        cohortId = cohort.id as number
+                    }
                     // The cohort fills in the background. Opening the broadcast earlier would let it send to no one.
                     const deadline = Date.now() + BROADCAST_COHORT_WAIT_MS
-                    let status = await cohortsRetrieve(projectId, cohort.id as number)
+                    let status = await cohortsRetrieve(projectId, cohortId)
                     breakpoint()
                     while (status.is_calculating && Date.now() < deadline) {
                         await breakpoint(BROADCAST_COHORT_POLL_MS)
