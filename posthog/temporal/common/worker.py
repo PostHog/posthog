@@ -58,12 +58,12 @@ from posthog.temporal.usage_report.metrics import (
     USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS,
 )
 
-from products.alerts.backend.facade.temporal import (
+from products.alerts_platform.backend.facade.temporal import (
     ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS,
     ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
     AlertsPlatformTelemetryInterceptor,
 )
-from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
+from products.batch_exports.backend.facade.temporal import BatchExportsMetricsInterceptor
 from products.experiments.backend.temporal.recalculation_metrics import (
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
@@ -87,6 +87,8 @@ from products.tasks.backend.facade.temporal import (
     TASKS_LATENCY_HISTOGRAM_METRICS,
     TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS,
     TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS,
+    TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS,
+    TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS,
     TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS,
     TASKS_RUN_TOKENS_HISTOGRAM_METRICS,
     TASKS_RUN_TURNS_HISTOGRAM_BUCKETS,
@@ -321,6 +323,9 @@ async def create_worker(
         | dict(zip(TASKS_RUN_TOKENS_HISTOGRAM_METRICS, itertools.repeat(TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS)))
         | dict(zip(TASKS_RUN_TURNS_HISTOGRAM_METRICS, itertools.repeat(TASKS_RUN_TURNS_HISTOGRAM_BUCKETS)))
         | dict(
+            zip(TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS, itertools.repeat(TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS))
+        )
+        | dict(
             zip(
                 EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS),
@@ -379,6 +384,13 @@ async def create_worker(
                 itertools.repeat(DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
+    if task_queue == settings.DATA_WAREHOUSE_TASK_QUEUE:
+        # Both metrics hold small counts. The default buckets are for latencies in milliseconds,
+        # which puts every count into the first bucket.
+        histogram_bucket_overrides |= {
+            "warehouse_pipeline_run_attempt": [1.0, 2.0, 3.0, 5.0, 9.0, 20.0, 50.0, 100.0, 200.0],
+            "warehouse_import_handoffs_per_run": [0.0, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0],
+        }
     if task_queue == settings.TASKS_TASK_QUEUE:
         histogram_bucket_overrides |= dict(
             zip(

@@ -23,7 +23,7 @@ from requests.adapters import HTTPAdapter
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
-from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import ServiceAccountOwnershipError
+from products.batch_exports.backend.facade.destinations.bigquery import ServiceAccountOwnershipError
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_CREATE_READ_SESSION_RETRY,
@@ -2327,7 +2327,7 @@ def test_bigquery_build_pipeline_threads_resolved_rest_api_version(pin):
 # every client the run opens signs with what it returns.
 
 
-_BATCH_EXPORT_MODULE = "products.batch_exports.backend.temporal.destinations.bigquery_batch_export"
+_BATCH_EXPORT_MODULE = "products.batch_exports.backend.facade.destinations.bigquery"
 
 
 def _google_cloud_integration(team, *, with_key: bool, email: str = "sa@my-project.iam.gserviceaccount.com"):

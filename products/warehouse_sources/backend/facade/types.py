@@ -1,18 +1,16 @@
 """
 Shared type surface for warehouse_sources.
 
-The framework-light shared enums and typed structures that cross-product consumers
-compare against or annotate with. They carry Django ``TextChoices`` / ``StrEnum``
-semantics (not framework-free), so they live here as object wiring rather than in
-``facade.contracts``. Defined in the facade so the contract-check inputs always watch
-them; ``backend.types`` re-exports them for product-internal use.
+The shared enums and typed structures that cross-product consumers compare against or annotate with.
+The choices enums use ``LabeledStrEnum`` from ``posthog.enums``, so this module does not import Django.
+The module is in the facade so that the contract-check inputs watch these types.
+``backend.types`` re-exports them for product-internal use.
 """
 
 import typing
 from enum import StrEnum
 
-from django.db import models
-from django.utils.functional import Promise
+from posthog.enums import LabeledStrEnum
 
 __all__ = [
     "DIRECT_ENGINE_BY_SOURCE_TYPE",
@@ -73,7 +71,7 @@ class PartitionSettings(typing.NamedTuple):
     partition_size: int
 
 
-class ExternalDataSourceType(models.TextChoices):
+class ExternalDataSourceType(LabeledStrEnum):
     ASHBY = "Ashby", "Ashby"
     SUPABASE = "Supabase", "Supabase"
     CUSTOMERIO = "CustomerIO", "CustomerIO"
@@ -1079,6 +1077,7 @@ class ExternalDataSourceType(models.TextChoices):
     DONORBOX = "Donorbox", "Donorbox"
     DOORLOOP = "Doorloop", "Doorloop"
     DOVETAIL = "Dovetail", "Dovetail"
+    DRAGONBOAT = "Dragonboat", "Dragonboat"
     DRCHRONO = "Drchrono", "Drchrono"
     DYNAMICS365BUSINESSCENTRAL = "Dynamics365BusinessCentral", "Dynamics365BusinessCentral"
     ECBDATAPORTAL = "EcbDataPortal", "EcbDataPortal"
@@ -1314,6 +1313,7 @@ class ExternalDataSourceType(models.TextChoices):
     WHATSAPPBUSINESSMANAGEMENT = "WhatsappBusinessManagement", "WhatsappBusinessManagement"
     WHOGHO = "WhoGho", "WhoGho"
     WHOP = "Whop", "Whop"
+    WISTIA = "Wistia", "Wistia"
     WIZ = "Wiz", "Wiz"
     WOMPI = "Wompi", "Wompi"
     WORKIZ = "Workiz", "Workiz"
@@ -1424,9 +1424,28 @@ class ExternalDataSourceType(models.TextChoices):
     COMMSLAYER = "Commslayer", "Commslayer"
     SPRINTO = "Sprinto", "Sprinto"
     GEM = "Gem", "Gem"
+    AUDIOGO = "AudioGO", "AudioGO"
+    EXACTONLINE = "ExactOnline", "ExactOnline"
+    LETTRLABS = "LettrLabs", "LettrLabs"
+    GRAFANAIRM = "GrafanaIRM", "GrafanaIRM"
+    TESSITURA = "Tessitura", "Tessitura"
+    CHARGEBACKSTOP = "ChargebackStop", "ChargebackStop"
+    CHARGEFLOW = "Chargeflow", "Chargeflow"
+    DREAMDATA = "Dreamdata", "Dreamdata"
+    GOOGLEBUSINESSPROFILE = "GoogleBusinessProfile", "GoogleBusinessProfile"
+    LEDYER = "Ledyer", "Ledyer"
+    SUPERMETRICS = "Supermetrics", "Supermetrics"
+    SQLITE = "SQLite", "SQLite"
+    MODAL = "Modal", "Modal"
+    VIMEO = "Vimeo", "Vimeo"
+    SCRUNCH = "Scrunch", "Scrunch"
+    LOOM = "Loom", "Loom"
+    ARCADE = "Arcade", "Arcade"
+    NEO4J = "Neo4j", "Neo4j"
+    TESTDINO = "TestDino", "TestDino"
 
 
-def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:
+def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:
     # Callable so growing the enum doesn't generate a no-op migration.
     return list(ExternalDataSourceType.choices)
 
@@ -1452,12 +1471,12 @@ class ManagedWarehouseSQLMode(StrEnum):
     UNAVAILABLE = "unavailable"
 
 
-class DataWarehouseManagedViewSetKind(models.TextChoices):
+class DataWarehouseManagedViewSetKind(LabeledStrEnum):
     REVENUE_ANALYTICS = "revenue_analytics", "Revenue Analytics"
     ENGINEERING_ANALYTICS = "engineering_analytics", "Engineering Analytics"
 
 
-class DataWarehouseTableFormat(models.TextChoices):
+class DataWarehouseTableFormat(LabeledStrEnum):
     CSV = "CSV", "CSV"
     CSVWithNames = "CSVWithNames", "CSVWithNames"
     Parquet = "Parquet", "Parquet"
@@ -1466,7 +1485,7 @@ class DataWarehouseTableFormat(models.TextChoices):
     DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
 
 
-class DataWarehouseTableCreatedVia(models.TextChoices):
+class DataWarehouseTableCreatedVia(LabeledStrEnum):
     # The first five mirror `ExternalDataSource.CreatedVia` value-for-value, so table and source
     # attribution can be counted together. The last three have no source equivalent — they cover
     # the tables PostHog creates itself, which a request surface would otherwise misattribute to
@@ -1481,7 +1500,7 @@ class DataWarehouseTableCreatedVia(models.TextChoices):
     DEMO = "demo", "demo"
 
 
-class ExternalDataJobStatus(models.TextChoices):
+class ExternalDataJobStatus(LabeledStrEnum):
     RUNNING = "Running", "Running"
     FAILED = "Failed", "Failed"
     COMPLETED = "Completed", "Completed"
@@ -1489,18 +1508,18 @@ class ExternalDataJobStatus(models.TextChoices):
     BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
 
 
-class ExternalDataJobPipelineVersion(models.TextChoices):
+class ExternalDataJobPipelineVersion(LabeledStrEnum):
     V1 = "v1-dlt-sync", "v1-dlt-sync"
     V2 = "v2-non-dlt", "v2-non-dlt"
     V3 = "v3-kafka-s3", "v3-kafka-s3"
 
 
-class ExternalDataSourceAccessMethod(models.TextChoices):
+class ExternalDataSourceAccessMethod(LabeledStrEnum):
     WAREHOUSE = "warehouse", "warehouse"
     DIRECT = "direct", "direct"
 
 
-class ExternalDataSourceCreatedVia(models.TextChoices):
+class ExternalDataSourceCreatedVia(LabeledStrEnum):
     WEB = "web", "web"
     API = "api", "api"
     MCP = "mcp", "mcp"
@@ -1508,7 +1527,7 @@ class ExternalDataSourceCreatedVia(models.TextChoices):
     SELF_DRIVING = "self_driving", "self_driving"
 
 
-class ExternalDataSourceStatus(models.TextChoices):
+class ExternalDataSourceStatus(LabeledStrEnum):
     RUNNING = "Running", "Running"
     PAUSED = "Paused", "Paused"
     ERROR = "Error", "Error"
@@ -1516,7 +1535,7 @@ class ExternalDataSourceStatus(models.TextChoices):
     CANCELLED = "Cancelled", "Cancelled"
 
 
-class ExternalDataSchemaStatus(models.TextChoices):
+class ExternalDataSchemaStatus(LabeledStrEnum):
     RUNNING = "Running", "Running"
     PAUSED = "Paused", "Paused"
     FAILED = "Failed", "Failed"
@@ -1525,7 +1544,7 @@ class ExternalDataSchemaStatus(models.TextChoices):
     BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
 
 
-class ExternalDataSchemaSyncType(models.TextChoices):
+class ExternalDataSchemaSyncType(LabeledStrEnum):
     FULL_REFRESH = "full_refresh", "full_refresh"
     INCREMENTAL = "incremental", "incremental"
     APPEND = "append", "append"
@@ -1534,7 +1553,7 @@ class ExternalDataSchemaSyncType(models.TextChoices):
     XMIN = "xmin", "xmin"
 
 
-class IncrementalSyncBlockedReason(models.TextChoices):
+class IncrementalSyncBlockedReason(LabeledStrEnum):
     """Why the last sync run could not merge rows on a schema's primary key.
 
     A missing key is a configuration state and stays until someone picks one. A duplicate key is a
@@ -1546,14 +1565,14 @@ class IncrementalSyncBlockedReason(models.TextChoices):
     DUPLICATE_PRIMARY_KEY = "duplicate_primary_key", "Duplicate primary key"
 
 
-class ExternalDataSchemaSyncFrequency(models.TextChoices):
+class ExternalDataSchemaSyncFrequency(LabeledStrEnum):
     DAILY = "day", "Daily"
     WEEKLY = "week", "Weekly"
     MONTHLY = "month", "Monthly"
     # TODO provide flexible schedule definition
 
 
-class WarehouseColumnAnnotationDescriptionSource(models.TextChoices):
+class WarehouseColumnAnnotationDescriptionSource(LabeledStrEnum):
     CANONICAL = "canonical", "Canonical"
     AI_GENERATED = "ai_generated", "AI generated"
     USER_EDITED = "user_edited", "User edited"

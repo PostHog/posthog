@@ -58,6 +58,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
+from posthog.run_mode import run_mode
 from posthog.security.url_validation import has_ambiguous_authority
 from posthog.stable_chunks import persist_stable_chunks_choice, stable_chunks_for_request
 
@@ -65,9 +66,8 @@ from products.feature_flags.backend.persisted_flags import get_dynamic_persisted
 
 tracer = trace.get_tracer(__name__)
 
-# Cardinality is bounded: render_template is only called with the literal template
-# names "index.html", "demo.html", and "render_query.html" — 3 templates × 2 auth
-# states = 6 series total.
+# Cardinality is bounded because every render_template caller passes a literal template
+# name, so each template adds one series per auth state.
 TEMPLATE_CONTEXT_DURATION_HISTOGRAM = Histogram(
     "posthog_template_context_duration_seconds",
     "Time spent building the SPA template context (get_context_for_template).",
@@ -524,6 +524,9 @@ def _build_template_context(
     if settings.STRIPE_PUBLIC_KEY:
         context["stripe_public_key"] = settings.STRIPE_PUBLIC_KEY
 
+    if settings.ORIGIN_TRIAL_TOKENS:
+        context["origin_trial_tokens"] = settings.ORIGIN_TRIAL_TOKENS
+
     context["git_rev"] = get_git_commit_short()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
@@ -582,6 +585,7 @@ def _build_template_context(
     posthog_app_context: dict[str, Any] = {
         "persisted_feature_flags": get_persisted_feature_flags_for_app_context(),
         "anonymous": not request.user or not request.user.is_authenticated,
+        "run_mode": run_mode().value,
     }
 
     posthog_bootstrap: dict[str, Any] = {}

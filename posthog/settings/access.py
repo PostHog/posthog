@@ -153,8 +153,9 @@ AGENT_PROXY_CALLBACK_SECRET: str | None = os.getenv("AGENT_PROXY_CALLBACK_SECRET
 # ReviewHog production label trigger. The trigger endpoint (POST /api/review_hog/trigger) authenticates
 # CI by comparing the request's bearer token to REVIEWHOG_TRIGGER_TOKEN (a shared secret provisioned to
 # both Django and the GitHub Action). Unset fails closed outside local dev/test. REVIEWHOG_TEAM_ID is a
-# comma-separated list of team ids allowed to use ReviewHog's UI trigger; the FIRST id is the team
-# label-triggered runs execute and publish under. REVIEWHOG_RUN_USER_ID is the user the sandbox tasks
+# comma-separated list of team ids using tiered review models; the FIRST id is the team that receives
+# label-triggered and automatic authored-PR reviews and sees internal UI features. Manual UI/API access
+# uses the review-hog feature flag. REVIEWHOG_RUN_USER_ID is the user the label-triggered sandbox tasks
 # run as (falls back to the team's GitHub integration creator when unset).
 REVIEWHOG_TRIGGER_TOKEN: str | None = os.getenv("REVIEWHOG_TRIGGER_TOKEN") or None
 # The env var stays singular (production charts provision it by that name); a single id parses to [id].

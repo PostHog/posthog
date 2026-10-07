@@ -29,6 +29,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.permissions import get_authenticator_scopes
 from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
@@ -39,7 +40,8 @@ from products.signals.backend.artefact_schemas import (
     ActionabilityChoice,
     Priority,
 )
-from products.signals.backend.enums import report_link_kind_choices
+from products.signals.backend.background_pilot import OPT_OUT_DISABLED, capture_background_scout_opted_out
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReportCheck, SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
@@ -704,17 +706,25 @@ class RecordCheckResultRequestSerializer(serializers.Serializer):
 
     check_id = serializers.UUIDField(help_text="The check this run was dispatched to answer, as given in the run note.")
     outcome = serializers.ChoiceField(
-        choices=[
-            (outcome.value, outcome.label)
-            for outcome in (
-                SignalReportCheck.Outcome.PASSED,
-                SignalReportCheck.Outcome.FAILED,
-                SignalReportCheck.Outcome.ERRORED,
-            )
-        ],
+        choices=SignalReportCheck.Outcome.choices,
         help_text=(
-            "`passed` when the expectation still holds, `failed` when it does not, and `errored` when you "
-            "could not establish either. `failed` retires the check, so use it for a conclusion, not a suspicion."
+            "`passed` when the evidence meets the check's stated bar and the expectation holds, `failed` when "
+            "the evidence meets the bar and the expectation does not hold. `inconclusive` when your tools "
+            "worked but the evidence cannot settle the question; give a `reason`. `errored` only when a tool, "
+            "query, or model call failed. `failed` retires the check, so use it for a conclusion, not a suspicion."
+        ),
+    )
+    reason = serializers.ChoiceField(
+        choices=SignalReportCheck.InconclusiveReason.choices,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Required with `inconclusive`, and refused with any other outcome. `awaiting_data`: the data can "
+            "still arrive (a rollout lag, a soak not complete, too few samples so far), so the check looks again "
+            "later. `unmeasurable`: the data the check needs is not captured. `needs_manual_verification`: only "
+            "a person or another environment can verify it. `no_fix_to_measure`: nothing was changed to fix the "
+            "claim, so no window after a fix exists. A report resolved without a pull request still has a window "
+            "that starts when it resolved. Every reason except `awaiting_data` ends the check."
         ),
     )
     explanation = serializers.CharField(
@@ -729,6 +739,14 @@ class RecordCheckResultRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The number you measured, when the check came down to one. Leave it out otherwise.",
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        is_inconclusive = attrs["outcome"] == SignalReportCheck.Outcome.INCONCLUSIVE
+        if is_inconclusive and not attrs.get("reason"):
+            raise serializers.ValidationError({"reason": "An `inconclusive` outcome needs a reason."})
+        if not is_inconclusive and attrs.get("reason"):
+            raise serializers.ValidationError({"reason": "Only an `inconclusive` outcome takes a reason."})
+        return attrs
 
 
 class RecordCheckResultResponseSerializer(serializers.Serializer):
@@ -1482,7 +1500,7 @@ class ReportLinkWriteSerializer(serializers.Serializer):
     """One typed, directed link to write on the report being emitted or edited."""
 
     kind = serializers.ChoiceField(
-        choices=report_link_kind_choices(),
+        choices=ReportLinkKind.choices,
         help_text=(
             "How this report relates to `report_id`. `depends_on` for work that cannot land "
             "until the other report's fix does, `part_of` for one piece of a larger report, "
@@ -1640,6 +1658,18 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "call — pass one when a retry might reword the report."
         ),
     )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("priority") and not attrs.get("priority_explanation"):
+            raise serializers.ValidationError(
+                {
+                    "priority_explanation": (
+                        "Required when `priority` is set. Add a 2-3 sentence justification for the priority, "
+                        "or omit `priority`."
+                    )
+                }
+            )
+        return attrs
 
 
 class EmitReportResponseSerializer(serializers.Serializer):
@@ -1812,8 +1842,50 @@ class EditReportRequestSerializer(serializers.Serializer):
             "checks gate the replacement. The existing pull request closes only after a successful, "
             "verified replacement. Technical failures retry automatically; policy blocks wait for a new "
             "edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, "
-            "and only within the first four content revisions, including revisions that did not request replacement."
+            "and only within the first four content revisions, including revisions that did not request replacement. "
+            "When the flag is not applied, `warnings` says why."
         ),
+    )
+    actionability = serializers.ChoiceField(
+        required=False,
+        allow_null=True,
+        choices=[(c.value, c.value) for c in ActionabilityChoice],
+        help_text=(
+            "Optional new actionability call, for when new evidence changed your judgment. Replaces the "
+            "report's actionability decision and re-runs autostart: `immediately_actionable` can open a "
+            "draft PR, `requires_human_input` and `not_actionable` stop autostart from opening one. The "
+            "report's inbox status does not change. Send it with `actionability_explanation`, and with "
+            "`already_addressed` when the issue is handled, since the three replace the decision as one unit."
+        ),
+    )
+    actionability_explanation = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="2-3 sentence evidence-grounded justification for `actionability`. Required when you set it.",
+    )
+    already_addressed = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Whether the issue is already handled: fixed, or with a fix in flight. Part of the actionability "
+            "decision, so it requires `actionability` and `actionability_explanation` too; omitted means false. "
+            "Set it when a fix lands or starts, so autostart does not open a duplicate PR."
+        ),
+    )
+    priority = serializers.ChoiceField(
+        required=False,
+        allow_null=True,
+        choices=[(p.value, p.value) for p in Priority],
+        help_text=(
+            "Optional new priority (`P0`-`P4`), for when the issue escalated or eased. Replaces the report's "
+            "priority and re-runs autostart, which needs a priority to open a draft PR. Requires "
+            "`priority_explanation`."
+        ),
+    )
+    priority_explanation = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="2-3 sentence justification for `priority`. Required when `priority` is set.",
     )
 
     def validate(self, attrs: dict) -> dict:
@@ -1828,6 +1900,11 @@ class EditReportRequestSerializer(serializers.Serializer):
         if unknown:
             raise serializers.ValidationError(f"unknown fields: {', '.join(unknown)}")
         return attrs
+
+
+class EditReportWarningSerializer(serializers.Serializer):
+    field = serializers.CharField(help_text="The request field the edit did not apply.")
+    message = serializers.CharField(help_text="Why the field was not applied. The rest of the edit landed.")
 
 
 class EditReportResponseSerializer(serializers.Serializer):
@@ -1896,9 +1973,19 @@ class EditReportResponseSerializer(serializers.Serializer):
     supersedes_implementation = serializers.BooleanField(
         help_text=(
             "Whether the edit recorded that the report's pull request should be replaced. False when "
-            "you did not ask for it, when the edit changed no content, or when the report has already "
-            "been rewritten too many times."
+            "you did not ask for it, when the edit changed no content, or when the report has already been rewritten too many times."
         ),
+    )
+    decision_fields_set = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Which work decisions the edit replaced (`actionability`, `priority`). Empty when you set "
+            "none, or re-sent the decisions the report already held."
+        ),
+    )
+    warnings = serializers.ListField(
+        child=EditReportWarningSerializer(),
+        help_text="Request fields the edit did not apply, each with the reason. Empty when every field applied.",
     )
     corroboration_collapsed = serializers.BooleanField(
         help_text=(
@@ -3314,8 +3401,18 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         help_text=(
             "Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the "
             "evaluation window), `ignored` (no person engaged with its reports — no view, rating, "
-            "note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null "
-            "unless `status` is `pending_pause` or `paused_by_system`."
+            "note, dismissal, or resolution), `repeated_failures` (consecutive failed runs), `retired` "
+            "(PostHog retired the scout), or `background_removed` (the background lane stopped "
+            "managing the scout). Null unless `status` is `pending_pause` or `paused_by_system`."
+        ),
+    )
+    managed_by = serializers.ChoiceField(
+        choices=SignalScoutConfig.ManagedBy.choices,
+        read_only=True,
+        help_text=(
+            "Who controls this scout now. `team`: a person set it up or has changed it. "
+            "`background`: PostHog runs it in the background and no person has edited it yet. Any "
+            "edit through this API changes `background` to `team`."
         ),
     )
     emit = serializers.BooleanField(
@@ -3499,6 +3596,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "enabled",
             "status",
             "pause_reason",
+            "managed_by",
             "emit",
             "run_interval_minutes",
             "run_cron_schedule",
@@ -3697,6 +3795,16 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
         ),
     )
 
+    suggestion_id = serializers.CharField(
+        required=False,
+        write_only=True,
+        max_length=64,
+        help_text=(
+            "Optional id of the canonical scout suggestion this request turns on. It records that the "
+            "scout came from that suggestion. An id this project's batch does not hold is ignored."
+        ),
+    )
+
     def validate_output_destinations(self, value: dict) -> dict:
         return _validate_output_destinations(value, self.context)
 
@@ -3736,6 +3844,16 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
         # both of which re-check the enabled-scout cap — an unrelated edit must not sidestep that.
         if validated_data and instance.consecutive_failure_count:
             validated_data["consecutive_failure_count"] = 0
+        # A person who edits a background-managed scout takes it over, so the background coordinator
+        # must not change or remove it after this. An empty write is not an edit.
+        if validated_data and instance.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND:
+            if validated_data.get("enabled") is False and instance.enabled:
+                request = self.context.get("request")
+                user = getattr(request, "user", None)
+                capture_background_scout_opted_out(
+                    config=instance, user=user if isinstance(user, User) else None, action=OPT_OUT_DISABLED
+                )
+            validated_data["managed_by"] = SignalScoutConfig.ManagedBy.TEAM
         if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
             target = (
                 SignalScoutConfig.Status.ACTIVE
@@ -3791,6 +3909,7 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
             "mcp_gateway_server_ids",
             "repositories",
             "write_scopes",
+            "suggestion_id",
         ]
 
 

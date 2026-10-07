@@ -35,11 +35,13 @@ export const manifest: ProductManifest = {
             sourceId,
             template,
             intent,
+            format,
         }: {
             type?: 'boolean' | 'multivariate' | 'remote_config'
             sourceId?: number | string | null
             template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
             intent?: 'local-eval' | 'first-page-load'
+            format?: 'rules_v2'
         }): string => {
             const params = new URLSearchParams()
             if (type) {
@@ -54,6 +56,9 @@ export const manifest: ProductManifest = {
             if (intent) {
                 params.set('intent', intent)
             }
+            if (format) {
+                params.set('format', format)
+            }
             return `/feature_flags/new?${params.toString()}`
         },
     },
@@ -62,6 +67,7 @@ export const manifest: ProductManifest = {
             name: 'Feature flag',
             iconType: 'feature_flag',
             href: (ref: string) => urls.featureFlag(ref),
+            listHref: () => urls.featureFlags(),
             iconColor: ['var(--color-product-feature-flags-light)'],
             filterKey: 'feature_flag',
         },

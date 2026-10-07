@@ -3,13 +3,13 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { searchLogic } from './searchLogic'
+import { filterSearchItems } from './utils'
 
 /** Poll until a condition holds. The searches settle in no fixed order, so an ordered
  *  `toDispatchActions` list would wait on an action that had already gone past. */
@@ -66,30 +66,6 @@ describe('searchLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it.each([false, true])('gates the command-menu terminal toggle when enabled=%s', (enabled) => {
-        logic.unmount()
-        logic = searchLogic({ logicKey: 'command' })
-        logic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: enabled })
-
-        const toggle = logic.values.miscItems.find((item) => item.id === 'misc-toggle-terminal')
-        expect(!!toggle).toBe(enabled)
-        expect(terminalDockLogic.values.dockOpen).toBe(false)
-        if (toggle) {
-            toggle.onSelect?.()
-            expect(terminalDockLogic.values.dockOpen).toBe(true)
-            toggle.onSelect?.()
-            expect(terminalDockLogic.values.dockOpen).toBe(false)
-            toggle.onSelect?.()
-            featureFlagLogic.actions.setFeatureFlags([], {})
-            expect(terminalDockLogic.values.dockOpen).toBe(false)
-            expect(logic.values.miscItems.some((item) => item.id === 'misc-toggle-terminal')).toBe(false)
-        }
-        featureFlagLogic.actions.setFeatureFlags([], {})
-        terminalDockLogic.actions.toggleTerminal()
-        expect(terminalDockLogic.values.dockOpen).toBe(false)
-    })
-
     it('aborts and cancels the in-flight person search when the term is cleared', async () => {
         neverResolvingPersonSearch()
 
@@ -123,6 +99,54 @@ describe('searchLogic', () => {
         // The superseded run must not settle the loader the newer run now owns.
         await expectLogic(logic).toNotHaveDispatchedActions(['loadPersonSearchResultsFailure'])
         expect(logic.values.personSearchResultsLoading).toBe(true)
+    })
+
+    it.each([
+        ['materialized views', 'dataManagementItems', 'Models'],
+        ['batch exports', 'dataManagementItems', 'Destinations'],
+        ['insights', 'productsItems', 'Product analytics'],
+        ['semantic layer', 'productsItems', 'Data catalog'],
+        ['Semantic Layer', 'productsItems', 'Data catalog'],
+        ['semanticlayer', 'productsItems', 'Data catalog'],
+        ['semantic-layer', 'productsItems', 'Data catalog'],
+        ['featureflags', 'productsItems', 'Feature flags'],
+        ['Feature Flags', 'productsItems', 'Feature flags'],
+    ] as const)('finds an item by a manifest search keyword: %s', (search, selector, itemName) => {
+        const matches = filterSearchItems(logic.values[selector], search)
+        expect(matches.map((item) => item.name)).toContain(itemName)
+    })
+
+    it.each([
+        ['data quality', true, true],
+        ['dataquality', true, true],
+        ['Data-Quality', true, true],
+        ['models data quality', true, true],
+        ['data quality', false, false],
+        ['', true, false],
+    ])('lists the Models data quality tab for search %j with the flag on=%s: %s', (search, flagEnabled, listed) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: flagEnabled })
+        logic.actions.setSearch(search)
+
+        const dataManagement = logic.values.allCategories.find((category) => category.key === 'data-management')
+        const tabRow = dataManagement?.items.find((item) => item.href === urls.models('data-quality'))
+        expect(tabRow ? { displayName: tabRow.displayName, parentName: tabRow.parentName } : undefined).toEqual(
+            listed ? { displayName: 'Data quality', parentName: 'Models' } : undefined
+        )
+    })
+
+    it.each([
+        ['newflag', 'New Feature flag'],
+        ['new flag', 'New Feature flag'],
+        ['New Feature Flag', 'New Feature flag'],
+        ['newfeatureflag', 'New Feature flag'],
+        ['create flag', 'New Feature flag'],
+        ['new site app', 'New Web script'],
+        ['new site_app', 'New Web script'],
+    ])('puts the right item first in the create category for %j', (search, expectedFirst) => {
+        logic.actions.setSearch(search)
+
+        const create = logic.values.allCategories.find((category) => category.key === 'create')
+        expect(create?.items[0]?.name).toBe(expectedFirst)
     })
 
     it('maps matching support tickets into their own category', async () => {

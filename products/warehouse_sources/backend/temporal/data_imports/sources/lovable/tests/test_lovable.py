@@ -71,16 +71,33 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-def _run(endpoint: str, manager: mock.MagicMock | None = None) -> Any:
+def _run(endpoint: str, manager: mock.MagicMock | None = None, api_version: str = "v1") -> Any:
     return lovable_source(
         api_key="lov_key",
-        api_version="v1",
+        api_version=api_version,
         endpoint=endpoint,
         resumable_source_manager=manager or _manager(),
     )
 
 
 class TestLovableSourceTransport:
+    @parameterized.expand(
+        [
+            ("v1_sends_no_version_header", "v1", {}),
+            ("dated_version_pins_the_header", "2026-09-11", {"Lovable-Version": "2026-09-11"}),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_version_selects_the_header_on_the_v1_path(
+        self, _name: str, api_version: str, expected_headers: dict[str, str], mock_session: mock.MagicMock
+    ) -> None:
+        urls = _wire(mock_session.return_value, [_page([{"id": "ws-1"}])])
+
+        _rows(_run("Workspaces", api_version=api_version))
+
+        assert urls == ["https://api.lovable.dev/v1/workspaces?limit=100"]
+        assert mock_session.return_value.headers == {"Accept": "application/json", **expected_headers}
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_account_endpoint_follows_the_cursor(self, mock_session: mock.MagicMock) -> None:
         urls = _wire(
@@ -138,6 +155,22 @@ class TestLovableSourceTransport:
         assert "visibility=all" in urls[1]
         assert "publish_status=any" in urls[1]
 
+    @parameterized.expand(
+        [
+            ("Projects", "https://api.lovable.dev/v1/projects?limit=100&workspace_id=ws-1"),
+            ("WorkspaceMembers", "https://api.lovable.dev/v1/workspaces/ws-1/members?limit=50"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_dated_version_drops_the_filters_it_no_longer_accepts(
+        self, endpoint: str, expected_url: str, mock_session: mock.MagicMock
+    ) -> None:
+        urls = _wire(mock_session.return_value, [_page([{"id": "ws-1"}]), _page([{"id": "row-1"}])])
+
+        _rows(_run(endpoint, api_version="2026-09-11"))
+
+        assert urls[1] == expected_url
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_project_endpoint_fans_out_through_workspaces_and_stamps_both_parents(
         self, mock_session: mock.MagicMock
@@ -174,19 +207,24 @@ class TestLovableSourceTransport:
 
     @parameterized.expand(
         [
-            ("Workspaces", ["id"], "created_at"),
-            ("Projects", ["id"], "created_at"),
-            ("WorkspaceMembers", ["workspace_id", "user_id"], "invited_at"),
-            ("WorkspaceCreditHistory", ["workspace_id", "id"], "occurred_at"),
-            ("ProjectCollaborators", ["project_id", "user_id"], None),
-            ("ProjectSecurityScans", ["project_id", "scan_id"], "started_at"),
-            ("ProjectPiiLabels", ["project_id", "id"], "found_at"),
+            ("v1", "Workspaces", ["id"], "created_at"),
+            ("v1", "Projects", ["id"], "created_at"),
+            ("v1", "WorkspaceMembers", ["workspace_id", "user_id"], "invited_at"),
+            ("v1", "WorkspaceCreditHistory", ["workspace_id", "id"], "occurred_at"),
+            ("v1", "ProjectCollaborators", ["project_id", "user_id"], None),
+            ("v1", "ProjectSecurityScans", ["project_id", "scan_id"], "started_at"),
+            ("v1", "ProjectPiiLabels", ["project_id", "id"], "found_at"),
+            ("2026-09-11", "Workspaces", ["id"], "created_at"),
+            ("2026-09-11", "Projects", ["id"], "created_at"),
+            ("2026-09-11", "WorkspaceMembers", ["workspace_id", "user_id"], None),
+            ("2026-09-11", "ProjectSecurityScans", ["project_id", "id"], "started_at"),
+            ("2026-09-11", "ProjectPiiLabels", ["project_id", "id"], "found_at"),
         ]
     )
     def test_primary_keys_and_partitioning_per_endpoint(
-        self, endpoint: str, primary_keys: list[str], partition_key: str | None
+        self, api_version: str, endpoint: str, primary_keys: list[str], partition_key: str | None
     ) -> None:
-        response = _run(endpoint)
+        response = _run(endpoint, api_version=api_version)
 
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
@@ -257,8 +295,42 @@ class TestLovableResume:
 class TestValidateCredentials:
     @parameterized.expand(
         [
+            ("v1", "https://api.lovable.dev/v1/me", {"Lovable-API-Key": "lov_key"}),
+            (
+                "2026-09-11",
+                "https://api.lovable.dev/v1/workspaces?limit=1",
+                {"Lovable-API-Key": "lov_key", "Lovable-Version": "2026-09-11"},
+            ),
+        ]
+    )
+    @mock.patch(PROBE_SESSION_PATCH)
+    def test_probe_targets_an_endpoint_the_version_serves(
+        self, api_version: str, expected_url: str, expected_headers: dict[str, str], mock_session: mock.MagicMock
+    ) -> None:
+        response = Response()
+        response.status_code = 200
+        mock_session.return_value.get.return_value = response
+
+        assert validate_credentials("lov_key", api_version) == (True, None)
+        assert mock_session.return_value.get.call_args.args[0] == expected_url
+        assert mock_session.return_value.get.call_args.kwargs["headers"] == expected_headers
+
+    @parameterized.expand(
+        [
             ("valid", 200, True, None),
             ("bad_key", 401, False, "Invalid Lovable API key. Create a new key in Lovable and reconnect."),
+            (
+                "plan_too_low",
+                402,
+                False,
+                "Lovable's API needs the Business plan or higher. Upgrade the workspace in Lovable and reconnect.",
+            ),
+            (
+                "missing_scope",
+                403,
+                False,
+                "This Lovable API key can't read workspaces. Create a key with the workspaces:read scope and reconnect.",
+            ),
             ("server_error", 500, False, "Could not connect to Lovable. Check the API key and try again."),
         ]
     )
@@ -275,8 +347,7 @@ class TestValidateCredentials:
         response.status_code = status_code
         mock_session.return_value.get.return_value = response
 
-        assert validate_credentials("lov_key", "v1") == (expected_valid, expected_message)
-        assert mock_session.return_value.get.call_args.args[0] == "https://api.lovable.dev/v1/me"
+        assert validate_credentials("lov_key", "2026-09-11") == (expected_valid, expected_message)
 
     @mock.patch(PROBE_SESSION_PATCH)
     def test_transport_failure_is_not_valid(self, mock_session: mock.MagicMock) -> None:
@@ -323,6 +394,15 @@ class TestCheckEndpointPermissions:
         _wire(mock_session.return_value, [_page([{"id": "ws-1"}])])
 
         assert check_endpoint_permissions("lov_key", "v1", ["RetiredTable"]) == {"RetiredTable": None}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_table_the_version_dropped_reports_no_reason_without_a_probe(self, mock_session: mock.MagicMock) -> None:
+        urls = _wire(mock_session.return_value, [_page([{"id": "ws-1"}])])
+
+        assert check_endpoint_permissions("lov_key", "2026-09-11", ["WorkspaceCreditHistory"]) == {
+            "WorkspaceCreditHistory": None
+        }
+        assert urls == ["https://api.lovable.dev/v1/workspaces?limit=1"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_project_scoped_table_probes_a_project(self, mock_session: mock.MagicMock) -> None:

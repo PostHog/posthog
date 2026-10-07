@@ -16,7 +16,6 @@ from posthog.schema import (
     EventsNode,
     ExperimentActorsQuery,
     ExperimentBreakdownResult,
-    ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
@@ -70,6 +69,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
     has_activation_config,
+    resolve_filter_test_accounts,
 )
 from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
 from products.experiments.backend.hogql_queries.utils import (
@@ -81,6 +81,7 @@ from products.experiments.backend.hogql_queries.utils import (
     get_variant_results,
     split_baseline_and_test_variants,
 )
+from products.experiments.backend.metric_resolution import metric_reads_data_warehouse
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -356,20 +357,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             interval=IntervalType.DAY,
             now=datetime.now(),
         )
-        if isinstance(self.query.metric, ExperimentMeanMetric):
-            self.is_data_warehouse_query = self.query.metric.source.kind == "ExperimentDataWarehouseNode"
-        elif isinstance(self.query.metric, ExperimentFunnelMetric):
-            self.is_data_warehouse_query = any(
-                isinstance(step, ExperimentDataWarehouseNode) for step in self.query.metric.series
-            )
-        elif isinstance(self.query.metric, ExperimentRatioMetric):
-            numerator_is_dw = isinstance(self.query.metric.numerator, ExperimentDataWarehouseNode)
-            denominator_is_dw = isinstance(self.query.metric.denominator, ExperimentDataWarehouseNode)
-            self.is_data_warehouse_query = numerator_is_dw or denominator_is_dw
-        elif isinstance(self.query.metric, ExperimentRetentionMetric):
-            start_is_dw = isinstance(self.query.metric.start_event, ExperimentDataWarehouseNode)
-            completion_is_dw = isinstance(self.query.metric.completion_event, ExperimentDataWarehouseNode)
-            self.is_data_warehouse_query = start_is_dw or completion_is_dw
+        self.is_data_warehouse_query = metric_reads_data_warehouse(self.query.metric)
 
         self.stats_method = get_experiment_stats_method(self.experiment)
 
@@ -401,6 +389,13 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
         if len(breakdowns) > 3:
             raise ValidationError("Maximum of 3 breakdowns are supported for experiment metrics")
+
+        if any(breakdown.type == "element" for breakdown in breakdowns):
+            # BreakdownInjector has no element-specific expression, so an element breakdown would
+            # silently fall back to reading the same-named event property instead.
+            raise ValidationError(
+                "Element breakdowns are not supported for experiment metrics. Use an event or person property instead."
+            )
 
         return breakdowns
 
@@ -941,9 +936,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             team=self.team,
             feature_flag_key=feature_flag_key,
             exposure_config=exposure_config,
-            filter_test_accounts=self.experiment.exposure_criteria.get("filterTestAccounts", True)
-            if self.experiment.exposure_criteria
-            else False,
+            filter_test_accounts=resolve_filter_test_accounts(self.experiment.exposure_criteria),
             multiple_variant_handling=multiple_variant_handling,
             variants=self.variants,
             date_range_query=self.date_range_query,

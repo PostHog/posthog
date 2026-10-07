@@ -69,6 +69,7 @@ export interface runningTimeLogicValues {
     }[] // experimentLogic
     primaryMetricsResultsLoading: boolean // experimentLogic
     unmodifiedExperiment: Experiment | null // experimentLogic
+    isRecalculating: boolean // experimentMetricsLogic
     recalcPrimaryMetricsResults: CachedNewExperimentQueryResponse[] // experimentMetricsLogic
     recalcPrimaryMetricsResultsErrors: (unknown | null)[] // experimentMetricsLogic
     defaultMinimumDetectableEffect: number // experimentsConfigLogic
@@ -82,6 +83,7 @@ export interface runningTimeLogicValues {
     currentExposures: number | null
     dailyExposureRate: number | null
     initialConfig: RunningTimeConfig
+    isCalculating: boolean
     isComplete: boolean
     isManualMode: boolean
     isSaving: boolean
@@ -249,6 +251,13 @@ export interface runningTimeLogicMeta {
             experiment: Experiment
         ) => number | null
         isComplete: (currentExposures: number | null, targetSampleSize: number | null) => boolean
+        isCalculating: (
+            isManualMode: boolean,
+            featureFlags: FeatureFlagsSet,
+            primaryMetricsResultsLoading: boolean,
+            isRecalculating: boolean,
+            automaticCalculationLoading: boolean
+        ) => boolean
         manualFormPreview: (
             manualPreviewInput: RunningTimeCalculationInputApi | null,
             manualPreview: ManualPreview
@@ -285,6 +294,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 [
                     'primaryMetricsResults as recalcPrimaryMetricsResults',
                     'primaryMetricsResultsErrors as recalcPrimaryMetricsResultsErrors',
+                    'isRecalculating',
                 ],
                 modalsLogic,
                 ['isRunningTimeConfigModalOpen'],
@@ -570,6 +580,36 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             (s) => [s.currentExposures, s.targetSampleSize],
             (current: number | null, target: number | null): boolean =>
                 current !== null && target !== null && current >= target,
+        ],
+        // True while the estimate is still resolving: metric results loading or the automatic calculation
+        // request in flight. Lets the UI distinguish "still loading" from "settled but can't estimate"
+        // instead of flashing a pending state during the gap between the two. Manual mode has no async
+        // estimate to wait on, so it never counts as calculating.
+        isCalculating: [
+            (s) => [
+                s.isManualMode,
+                s.featureFlags,
+                s.primaryMetricsResultsLoading,
+                s.isRecalculating,
+                s.automaticCalculationLoading,
+            ],
+            (
+                isManualMode: boolean,
+                featureFlags: FeatureFlagsSet,
+                primaryMetricsResultsLoading: boolean,
+                isRecalculating: boolean,
+                automaticCalculationLoading: boolean
+            ): boolean => {
+                if (isManualMode) {
+                    return false
+                }
+                // The recalculation flow sources results from experimentMetricsLogic, the legacy flow from
+                // experimentLogic. Watch whichever is active so neither path flashes a pending state on load.
+                const metricsLoading = featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
+                    ? isRecalculating
+                    : primaryMetricsResultsLoading
+                return metricsLoading || automaticCalculationLoading
+            },
         ],
         manualFormPreview: [
             (s) => [s.manualPreviewInput, s.manualPreview],

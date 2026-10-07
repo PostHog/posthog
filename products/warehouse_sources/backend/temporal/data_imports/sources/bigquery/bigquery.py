@@ -520,7 +520,7 @@ def _impersonated_credentials(service_account_email: str, team_id: int) -> googl
     """
     # Imported here so the source registry — which the API imports on every request path — does not
     # pull in the batch-export Temporal module.
-    from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (  # noqa: PLC0415 — keeps the batch-export Temporal module off the source registry's import path
+    from products.batch_exports.backend.facade.destinations.bigquery import (  # noqa: PLC0415 — keeps the batch-export Temporal module off the source registry's import path
         MissingRequiredPermissionsError,
         ServiceAccountNotFoundError,
         ServiceAccountOwnershipError,

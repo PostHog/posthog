@@ -436,7 +436,6 @@ def _is_request_for_team_secret_token_secured_endpoint(request: Request) -> bool
             "featureflag-local-evaluation",
             "project_feature_flags-remote-config",
             "project_feature_flags-local-evaluation",
-            "project_live_debugger_breakpoints-active-breakpoints",
         }
     )
 

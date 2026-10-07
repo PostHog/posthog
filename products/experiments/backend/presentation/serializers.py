@@ -11,7 +11,7 @@ from typing import Annotated, Any, TypeGuard
 
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from opentelemetry import trace
 from pydantic import (
     Field as PydanticField,
@@ -26,6 +26,7 @@ from posthog.schema import (
     EventPropertyFilter,
     ExperimentApiExposureCriteria,
     ExperimentApiMetric,
+    ExperimentMetric,
     ExperimentParameters,
     ExperimentRunningTimeCalculation,
     MultipleVariantHandling,
@@ -43,7 +44,7 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
-from products.experiments.backend.facade.timeseries import merge_saved_metric_breakdowns
+from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, resolve_saved_metric_definition
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -170,6 +171,11 @@ class ExperimentExposureCriteriaField(serializers.JSONField):
 
 @extend_schema_field(ExperimentRunningTimeCalculation)  # type: ignore[arg-type]
 class ExperimentRunningTimeCalculationField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(ExperimentMetric)  # type: ignore[arg-type]
+class ExperimentMetricDefinitionField(serializers.JSONField):
     pass
 
 
@@ -366,6 +372,28 @@ def _dedupe_metric_ordering(value: list[str] | None) -> list[str] | None:
     return list(dict.fromkeys(value))
 
 
+@extend_schema_serializer(component_name="ExperimentToSavedMetric")
+class ExperimentSavedMetricLinkSerializer(ExperimentToSavedMetricSerializer):
+    """A shared metric's link to one experiment, as the experiment API returns it."""
+
+    # The link model has no such attribute, so this serializer renders it as null.
+    # ExperimentSerializer.to_representation sets the value from the served query.
+    effective_query = ExperimentMetricDefinitionField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The metric this experiment calculates for this shared metric: `query` with the per-experiment "
+            "overrides from `metadata` applied (breakdowns, breakdown_limit, and funnel breakdown attribution). "
+            "Results, fingerprints and queries for this metric use this definition, not `query`. "
+            "Null when `query` is not an ExperimentMetric, such as a legacy shared metric "
+            "(kind ExperimentTrendsQuery or ExperimentFunnelsQuery), which takes no overrides."
+        ),
+    )
+
+    class Meta(ExperimentToSavedMetricSerializer.Meta):
+        fields = [*ExperimentToSavedMetricSerializer.Meta.fields, "effective_query"]
+
+
 class ExperimentSerializer(ExperimentBaseSerializer):
     """Full experiment representation for the detail, create, and update endpoints.
 
@@ -382,7 +410,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         allow_null=True,
         help_text="ID of a holdout group to exclude from the experiment.",
     )
-    saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
+    saved_metrics = ExperimentSavedMetricLinkSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
     saved_metrics_ids = serializers.ListField(
         child=serializers.JSONField(),
         required=False,
@@ -606,6 +634,14 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         # launched today, which is what the setup UI needs to show.
         return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
 
+    @staticmethod
+    def _stored_saved_metric_queries(instance: Experiment) -> dict[int, dict[str, Any]]:
+        links = instance.experimenttosavedmetric_set.all()
+        # Calling select_related on the manager would discard a prefetch cache and query again.
+        if "experimenttosavedmetric_set" not in getattr(instance, "_prefetched_objects_cache", {}):
+            links = links.select_related("saved_metric")
+        return {link.id: link.saved_metric.query for link in links}
+
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -636,22 +672,38 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         saved_metrics = data.get("saved_metrics", [])
         with tracer.start_as_current_span("ExperimentSerializer.saved_metric_fingerprints") as span:
             span.set_attribute("saved_metric_count", len(saved_metrics))
+            stored_queries = self._stored_saved_metric_queries(instance) if saved_metrics else {}
             for saved_metric in saved_metrics:
                 if saved_metric.get("query"):
                     apply_metric_date_range(saved_metric["query"], new_date_range)
 
                     # Add fingerprint to saved metric returned from API so that the frontend knows what
-                    # timeseries records to query. Computed on the effective config (with link-metadata
-                    # breakdowns), the same dict the daily discovery fingerprints, so the chart read finds
-                    # the rows the daily workflow wrote.
+                    # timeseries records to query. Computed on the effective definition (with the link
+                    # overrides), the same dict the daily discovery fingerprints, so the chart read finds
+                    # the rows the daily workflow wrote. The action names are part of the hash, and the
+                    # serialized query carries the refreshed names, so the hash reads the stored query.
+                    stored_query = stored_queries.get(saved_metric["id"]) or saved_metric["query"]
                     saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
-                        merge_saved_metric_breakdowns(saved_metric["query"], saved_metric.get("metadata")),
+                        resolve_saved_metric_definition(stored_query, saved_metric.get("metadata")),
                         instance.start_date,
                         get_experiment_stats_method(instance),
                         instance.exposure_criteria,
                         only_count_matured_users=instance.only_count_matured_users,
                         excluded_variants=instance.excluded_variants or [],
                     )
+
+                    # Derived from the served query after the fingerprint is stamped, so that the effective
+                    # definition carries the same fingerprint and refreshed action names. Clients send it to
+                    # /query as is. The schema types it as the ExperimentMetric union, so a query outside the
+                    # union (a legacy kind, or a row without a known metric_type) keeps the null default.
+                    served_query = saved_metric["query"]
+                    if (
+                        served_query.get("kind") == "ExperimentMetric"
+                        and served_query.get("metric_type") in METRIC_BUILDERS
+                    ):
+                        saved_metric["effective_query"] = resolve_saved_metric_definition(
+                            served_query, saved_metric.get("metadata")
+                        )
 
         return data
 
@@ -1358,6 +1410,7 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
     description = serializers.CharField(
         required=False,
         allow_blank=True,
+        max_length=3000,
         help_text="Optional experiment description.",
     )
 
@@ -1434,10 +1487,13 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     """Request body for triggering a metrics recalculation."""
 
     trigger = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.Trigger.choices,
+        choices=ExperimentMetricsRecalculation.RequestTrigger.choices,
         required=False,
         default="manual",
-        help_text="What triggered this recalculation (manual is the default for user-initiated runs)",
+        help_text=(
+            "What triggered this recalculation (manual is the default for user-initiated runs). Only client "
+            "triggers are accepted; agent_mcp, timeseries_sync and scheduled are set by the server."
+        ),
     )
 
 
@@ -1452,8 +1508,12 @@ class ActiveRecalculationRunSerializer(serializers.Serializer):
     )
 
 
-class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
-    """Serializer for metrics recalculation status responses."""
+class _ExperimentMetricsRecalculationBaseSerializer(serializers.Serializer):
+    """Identity, counters and timestamps of one recalculation job row.
+
+    Never a response on its own. Each endpoint serializes with the subclass that matches what it fills, so the
+    generated client types carry only the fields that endpoint returns.
+    """
 
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this recalculation job")
     experiment_id = serializers.IntegerField(read_only=True, help_text="ID of the experiment being recalculated")
@@ -1475,21 +1535,13 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
         ),
     )
     # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
-    metric_errors = serializers.JSONField(read_only=True, help_text="Map of metric_uuid to error details")
-    metric_retries = serializers.JSONField(
+    metric_errors = serializers.JSONField(
         read_only=True,
-        required=False,
         help_text=(
-            "Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, "
-            "next_retry_at}. message is a user-safe description of the error that triggered the retry. "
-            "Present only while a metric is between failed attempts; cleared when it succeeds or "
-            "fails terminally, so treat entries for metrics that already have a result as stale."
+            "Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is "
+            "true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can "
+            "succeed; false when the metric config, the data, or a resource limit must change first"
         ),
-    )
-    trigger = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.Trigger.choices,
-        read_only=True,
-        help_text="What triggered this recalculation",
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the job was created")
     started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing started")
@@ -1502,29 +1554,29 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
             "Shared by every metric in the run; null until processing starts"
         ),
     )
+
+
+class ExperimentMetricsRecalculationJobSerializer(_ExperimentMetricsRecalculationBaseSerializer):
+    """POST response: the job just queued, or the one already active. It carries no results or live progress yet."""
+
     is_existing = serializers.BooleanField(
         read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
     )
 
-    active_run = ActiveRecalculationRunSerializer(
-        read_only=True,
-        required=False,
-        allow_null=True,
-        help_text="Run currently executing for this experiment, if any; poll it by id for live progress",
-    )
 
-    result_source = serializers.ChoiceField(
-        choices=["recalculation", "timeseries_fallback"],
-        required=False,
-        default="recalculation",
+class ExperimentMetricsRecalculationRunSerializer(_ExperimentMetricsRecalculationBaseSerializer):
+    """GET by id: one run with its per-metric results, retry state and live query progress."""
+
+    metric_retries = serializers.JSONField(
         read_only=True,
+        required=False,
         help_text=(
-            "Where these results came from: 'recalculation' for a real metrics-recalculation run, "
-            "'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data."
+            "Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, "
+            "next_retry_at}. message is a user-safe description of the error that triggered the retry. "
+            "Present only while a metric is between failed attempts; cleared when it succeeds or "
+            "fails terminally, so treat entries for metrics that already have a result as stale."
         ),
     )
-    # Populated by the GET endpoints (latest / by-id). Omitted from the POST response payload (which doesn't carry
-    # per-metric results yet — the workflow has just started).
     results = MetricRecalculationResultSerializer(
         many=True,
         read_only=True,
@@ -1546,6 +1598,27 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
             "ClickHouse's total_rows_approx across running queries plus the final read_rows of finished ones. "
             "A soft ceiling revised mid-scan, so it can exceed or trail rows_read; treat rows_read as the "
             "reliable signal"
+        ),
+    )
+
+
+class ExperimentMetricsRecalculationLatestSerializer(ExperimentMetricsRecalculationRunSerializer):
+    """GET latest: the newest terminal run, or the timeseries fallback, plus a pointer to any active run."""
+
+    active_run = ActiveRecalculationRunSerializer(
+        read_only=True,
+        required=False,
+        allow_null=True,
+        help_text="Run currently executing for this experiment, if any; poll it by id for live progress",
+    )
+    result_source = serializers.ChoiceField(
+        choices=["recalculation", "timeseries_fallback"],
+        required=False,
+        default="recalculation",
+        read_only=True,
+        help_text=(
+            "Where these results came from: 'recalculation' for a real metrics-recalculation run, "
+            "'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data."
         ),
     )
 

@@ -28,11 +28,11 @@ from .get_task_processing_context import TaskProcessingContext
 logger = get_logger(__name__)
 
 _SANDBOX_WEDGE_PROBE_COMMAND = """
-printf 'memory_current='; cat /sys/fs/cgroup/memory.current 2>/dev/null || printf 'unavailable\n'
-printf 'memory_max='; cat /sys/fs/cgroup/memory.max 2>/dev/null || printf 'unavailable\n'
-printf 'oom_kill='; awk '$1 == "oom_kill" { print $2 }' /sys/fs/cgroup/memory.events 2>/dev/null || printf 'unavailable\n'
-printf 'pids_current='; cat /sys/fs/cgroup/pids.current 2>/dev/null || printf 'unavailable\n'
-printf 'pids_max='; cat /sys/fs/cgroup/pids.max 2>/dev/null || printf 'unavailable\n'
+printf 'memory_current='; cat /sys/fs/cgroup/memory.current 2>/dev/null || cat /sys/fs/cgroup/memory/memory.usage_in_bytes 2>/dev/null || printf 'unavailable\n'
+printf 'memory_max='; cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || printf 'unavailable\n'
+printf 'oom_kill='; awk '$1 == "oom_kill" { print $2 }' /sys/fs/cgroup/memory.events 2>/dev/null || awk '$1 == "oom_kill" { print $2 }' /sys/fs/cgroup/memory/memory.oom_control 2>/dev/null || printf 'unavailable\n'
+printf 'pids_current='; cat /sys/fs/cgroup/pids.current 2>/dev/null || cat /sys/fs/cgroup/pids/pids.current 2>/dev/null || printf 'unavailable\n'
+printf 'pids_max='; cat /sys/fs/cgroup/pids.max 2>/dev/null || cat /sys/fs/cgroup/pids/pids.max 2>/dev/null || printf 'unavailable\n'
 printf 'tmp_available_kb='; df -Pk /tmp 2>/dev/null | awk 'NR == 2 { print $4 }'
 """.strip()
 

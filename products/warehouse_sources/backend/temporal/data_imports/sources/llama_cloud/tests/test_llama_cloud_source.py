@@ -122,8 +122,9 @@ class TestLlamaCloudSourceVersions:
         assert version in self.source.supported_versions
         assert self.source.resolve_api_version(version) == version
 
-    @parameterized.expand([("v1",), ("v2",)])
-    def test_no_version_is_deprecated(self, version: str) -> None:
-        # This is a plain update, not a sunset: neither label is deprecated, so the in-product
-        # deprecation banner must stay dark for existing v1 pins.
-        assert self.source.get_version_deprecation(version) is None
+    def test_only_legacy_v1_is_deprecated_without_sunset(self) -> None:
+        # The vendor published no sunset date, so v1 pins get the advisory banner but keep syncing.
+        deprecation = self.source.get_version_deprecation("v1")
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert self.source.get_version_deprecation("v2") is None

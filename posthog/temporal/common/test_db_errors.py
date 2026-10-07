@@ -46,6 +46,10 @@ def _raised_from(error: BaseException, cause: BaseException) -> BaseException:
         ),
         (OperationalError("connection failed: FATAL: password authentication failed for user"), False),
         (OperationalError("no such database"), False),
+        # psycopg raises this straight off local state (no new network I/O) when a connection
+        # already marked dead by an earlier operation is reused — the same dropped-connection
+        # condition as "server closed the connection unexpectedly", just discovered later.
+        (OperationalError("the connection is closed"), True),
         # The connect path's socket/selector setup raises a bare OSError, not an OperationalError,
         # when this worker's own fd table is full — same condition already retried on a source's
         # connect path (postgres.py::_is_too_many_open_files_error).
@@ -75,6 +79,17 @@ def _raised_from(error: BaseException, cause: BaseException) -> BaseException:
             _raised_from(ApplicationError("Failed to emit $ai_evaluation"), KeyError("team_id")),
             False,
         ),
+        # Code using a raw psycopg connection instead of Django's ORM (e.g. the warehouse-sources
+        # postgres queue producer) raises psycopg's own exception classes directly, never wrapped
+        # in Django's OperationalError/InterfaceError/InternalError.
+        (
+            psycopg.errors.ProtocolViolation(
+                "server login has been failing, cached error: connect failed (server_login_retry)"
+            ),
+            True,
+        ),
+        (psycopg.errors.ProtocolViolation("query_wait_timeout"), True),
+        (psycopg.errors.SyntaxErrorOrAccessRuleViolation("syntax error"), False),
     ],
 )
 def test_is_transient_db_error_by_message(error: BaseException, expected: bool) -> None:

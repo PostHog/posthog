@@ -99,21 +99,10 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         setIncludeTime,
         setSelectedResultDistinctId,
         clearTestForm,
-        testFlagEvaluation,
-        testAllDistinctIds,
+        submitTestEvaluation,
     } = useActions(logic)
 
     const isLoading = testEvaluationLoading || allEvaluationsLoading
-
-    const handleSubmit = (): void => {
-        if (hasMultipleDistinctIds) {
-            // Evaluate every merged distinct ID in one go so their variants can be
-            // compared side by side, rather than re-running the tool per ID.
-            testAllDistinctIds({ flagId: featureFlag.id!, distinctIds: personDistinctIds, formData })
-        } else {
-            testFlagEvaluation({ flagId: featureFlag.id!, formData })
-        }
-    }
 
     const hasConditions = !!result?.conditions?.length
     // The batch row whose detail is currently expanded — the explicit selection, or
@@ -270,7 +259,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                         <LemonButton
                             type="primary"
                             loading={isLoading}
-                            onClick={handleSubmit}
+                            onClick={() => submitTestEvaluation()}
                             disabledReason={!hasValidPerson ? 'Please select a person' : undefined}
                         >
                             {hasMultipleDistinctIds

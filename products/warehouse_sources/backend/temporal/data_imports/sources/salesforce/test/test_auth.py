@@ -1,4 +1,5 @@
 import json
+import socket
 
 import pytest
 import unittest.mock
@@ -158,7 +159,16 @@ def test_refresh_retries_transient_transport_error_then_succeeds():
     assert mock_sleep.call_count == 2
 
 
-def test_refresh_raises_transport_error_after_exhausting_retries():
+@pytest.mark.parametrize(
+    "lookup_error",
+    [
+        None,
+        socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution"),
+        socket.gaierror(socket.EAI_FAIL, "Non-recoverable failure in name resolution"),
+    ],
+    ids=["host_resolves", "resolver_blip", "resolver_failure"],
+)
+def test_refresh_raises_transport_error_after_exhausting_retries(lookup_error):
     items = [requests.exceptions.ProxyError("Cannot connect to proxy") for _ in range(auth._MAX_TOKEN_REFRESH_ATTEMPTS)]
 
     with (
@@ -169,11 +179,41 @@ def test_refresh_raises_transport_error_after_exhausting_retries():
         unittest.mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.time.sleep"
         ) as mock_sleep,
+        unittest.mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.socket.getaddrinfo",
+            side_effect=lookup_error,
+        ),
         pytest.raises(requests.exceptions.ProxyError),
     ):
         _ = auth.salesforce_refresh_access_token("something", "https://login.salesforce.com")
 
     assert mock_sleep.call_count == auth._MAX_TOKEN_REFRESH_ATTEMPTS - 1
+
+
+def test_refresh_stops_retrying_when_instance_host_does_not_exist():
+    from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.source import SalesforceSource
+
+    items = [requests.exceptions.ProxyError("Cannot connect to proxy") for _ in range(auth._MAX_TOKEN_REFRESH_ATTEMPTS)]
+
+    with (
+        unittest.mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
+            return_value=_session_with_side_effects(items),
+        ),
+        unittest.mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.time.sleep"
+        ),
+        unittest.mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.socket.getaddrinfo",
+            side_effect=socket.gaierror(socket.EAI_NONAME, "Name or service not known"),
+        ),
+        pytest.raises(auth.SalesforceInstanceNotFoundError) as exc,
+    ):
+        _ = auth.salesforce_refresh_access_token("something", "https://deleted-org.my.salesforce.com")
+
+    patterns = SalesforceSource().get_non_retryable_errors()
+    assert any(pattern in str(exc.value) for pattern in patterns)
+    assert "deleted-org" not in str(exc.value)
 
 
 def test_refresh_retries_transient_token_request_then_succeeds():

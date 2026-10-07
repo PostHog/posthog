@@ -402,6 +402,34 @@ describe('projectTreeDataLogic', () => {
         })
     })
 
+    it.each(['notebook', 'folder'])(
+        'moves the underlying %s from a shortcut even when its parent has not been loaded',
+        async (type) => {
+            const item = { id: 'real-file', type, ref: 'notes-ref', path: 'Research/Notes' }
+            const shortcut = {
+                id: 'star-note',
+                type,
+                path: 'Pinned notes',
+                ref: type === 'folder' ? item.path : item.ref,
+            }
+            const move = jest.spyOn(api.fileSystem, 'move').mockResolvedValue({ ...item, path: 'Users/Alex/Notes' })
+            const createShortcut = jest.spyOn(api.fileSystemShortcuts, 'create')
+            jest.spyOn(api.fileSystem, 'count').mockResolvedValue({ count: 1, entries: [item], has_more: false })
+            jest.mocked(api.fileSystem.list).mockResolvedValue({ count: 1, results: [item], users: [] })
+
+            await expectLogic(logic, () => {
+                logic.actions.moveShortcutToFolder(shortcut, 'Users/Alex', 'test')
+            }).toFinishAllListeners()
+
+            expect(api.fileSystem.list).toHaveBeenCalledWith(
+                type === 'folder' ? { type: 'folder', path: 'Research/Notes' } : { type: 'notebook', ref: 'notes-ref' }
+            )
+            expect(move).toHaveBeenCalledWith('real-file', 'Users/Alex/Notes')
+            expect(createShortcut).not.toHaveBeenCalled()
+            expect(logic.values.viableItems).toContainEqual({ ...item, path: 'Users/Alex/Notes' })
+        }
+    )
+
     it('reports a bulk move once, with an undo that reverts every item', async () => {
         const success = jest.spyOn(lemonToast, 'success').mockReturnValue('' as any)
         const move = jest.spyOn(api.fileSystem, 'move').mockResolvedValue({} as any)

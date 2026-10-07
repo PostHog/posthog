@@ -12,6 +12,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
 import { ExperimentMetaBar } from 'products/experiments/frontend/components/ExperimentMetaBar'
+import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
 import { LegacyExperimentView } from 'products/experiments/frontend/legacy'
 import { ExperimentMetricModal } from 'products/experiments/frontend/modals/ExperimentMetricModal/ExperimentMetricModal'
 import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
@@ -52,6 +53,11 @@ const MetricsTab = (): JSX.Element => {
     const hasMetrics = orderedPrimaryMetricsWithResults.length > 0 || orderedSecondaryMetricsWithResults.length > 0
     const showRecalculationStatus = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION] && hasMetrics
 
+    // The condition under which EmptyMetricsPanel renders its "No metrics defined" warning below.
+    const { reportActedOn: reportNoMetricActedOn } = useHealthFindingReporting(
+        !hasMetrics && isExperimentLaunched ? { code: 'no_metric' } : null
+    )
+
     return (
         <>
             <ResultsNotificationBanner />
@@ -68,7 +74,12 @@ const MetricsTab = (): JSX.Element => {
 
             {/* Modern metrics view */}
             {!hasMetrics ? (
-                <EmptyMetricsPanel isLaunched={isExperimentLaunched} />
+                <EmptyMetricsPanel
+                    isLaunched={isExperimentLaunched}
+                    onAddMetric={(metricType) =>
+                        reportNoMetricActedOn(metricType === 'primary' ? 'add_primary_metric' : 'add_secondary_metric')
+                    }
+                />
             ) : (
                 <>
                     <Metrics isSecondary={false} />

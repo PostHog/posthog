@@ -199,6 +199,18 @@ export const SettingsUserApiKeys: Story = {
     args: { sectionId: 'user-api-keys' },
 }
 
+export const SettingsUserApiKeysCreateModal: Story = {
+    args: { sectionId: 'user-api-keys' },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Create personal API key'))
+        // Open one group, so the snapshot shows the rows under a header too. The settings
+        // navigation has a "Product analytics" entry as well, so the lookup stays inside the modal.
+        const dialog = within(await within(document.body).findByRole('dialog'))
+        await userEvent.click(await dialog.findByText('Product analytics'))
+    },
+}
+
 export const SettingsUserNotifications: Story = {
     args: { sectionId: 'user-notifications' },
 }

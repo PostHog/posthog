@@ -79,6 +79,7 @@ class TestBingAdsSource:
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.valid_config, self.team_id)
+        assert next(schema for schema in schemas if schema.name == "keyword_performance_report").should_sync_default
 
         assert len(schemas) > 0
 
@@ -99,6 +100,9 @@ class TestBingAdsSource:
         assert len(report_schema.incremental_fields) == 1
         assert report_schema.incremental_fields[0]["field"] == "TimePeriod"
         assert report_schema.incremental_fields[0]["field_type"] == IncrementalFieldType.Date
+
+        destination_url_schema = next(s for s in schemas if s.name == "destination_url_performance_report")
+        assert destination_url_schema.default_incremental_lookback_seconds == 15 * 24 * 60 * 60
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.bing_ads_source")
     @mock.patch.object(BingAdsSource, "get_oauth_integration")

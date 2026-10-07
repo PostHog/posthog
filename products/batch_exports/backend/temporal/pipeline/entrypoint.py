@@ -11,6 +11,7 @@ from posthog.dataclasses import frozen
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillDetails,
@@ -160,7 +161,7 @@ def _get_config_for_interval(
     raise ValueError(f"Unsupported interval: '{interval}'")
 
 
-def _get_status_for_activity_error(error: exceptions.ActivityError) -> BatchExportRun.Status:
+def _get_status_for_activity_error(error: exceptions.ActivityError) -> BatchExportRunStatus:
     """Decide what a failed run's status should be, given the error raised.
 
     The error could be raised by either the `insert_into_internal_stage_activity` or the

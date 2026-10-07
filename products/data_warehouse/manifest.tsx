@@ -194,6 +194,7 @@ export const manifest: ProductManifest = {
             iconType: 'data_source',
             iconColor: ['var(--color-product-sources-light)', 'var(--color-product-sources-dark)'],
             href: urls.sources(),
+            searchKeywords: ['data warehouse', 'warehouse', 'connectors', 'import data'],
             sceneKey: 'Sources',
             sceneKeys: ['Sources'],
         },

@@ -2,12 +2,14 @@ import logging
 import datetime as dt
 from typing import TYPE_CHECKING
 
-from temporalio import workflow
-from temporalio.common import MetricCounter
+from temporalio import activity, workflow
+from temporalio.common import MetricCounter, MetricHistogram
 
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.event.util import format_clickhouse_timestamp
+
+from products.warehouse_sources.backend.models.external_data_destination import get_or_create_warehouse_destination
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -74,6 +76,32 @@ def get_version_check_skipped_metric() -> MetricCounter:
     )
 
 
+def get_worker_shutdown_handoff_metric(source_type: str | None) -> MetricCounter:
+    # Counts imports that gave up a shutting-down worker so another pod can continue them. An
+    # import that never hands off keeps its pod alive for the whole graceful shutdown timeout.
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown"})
+        .create_counter(
+            "warehouse_worker_shutdown_handoff_total",
+            "Imports that raised WorkerShuttingDownError so another worker could continue them.",
+        )
+    )
+
+
+def get_import_handoffs_per_run_metric(source_type: str | None) -> MetricHistogram:
+    # One observation per workflow run that can hand off for free, zero included. Compare it with
+    # the attempt histogram to tell runs that worker restarts moved from runs that failed.
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown"})
+        .create_histogram(
+            "warehouse_import_handoffs_per_run",
+            "Worker-shutdown hand-offs of the import activity in one workflow run.",
+        )
+    )
+
+
 def emit_data_import_app_metrics(job: "ExternalDataJob") -> None:
     """Emit app_metrics2 rows for a data import job that just reached terminal state.
 
@@ -116,7 +144,17 @@ def emit_data_import_app_metrics(job: "ExternalDataJob") -> None:
     # Each destination is also keyed on its own, without a schema. A source-level surface wants one
     # series per destination across every table, and the API filters `instance_id` by equality, so
     # without this row it would have to ask once per schema per destination.
-    for destination_id in job.destination_ids or []:
+    # A run still reaches here with no ids: a job that predates destinations, a CDC companion
+    # lane, or a run of a team the flag was off for. Without this fallback those runs report no
+    # destination at all, and a project sees a gap in its rows-by-destination chart.
+    destination_ids = list(job.destination_ids or [])
+    if not destination_ids:
+        try:
+            destination_ids = [str(get_or_create_warehouse_destination(job.team_id).id)]
+        except Exception:
+            logger.exception("Failed to resolve the warehouse destination for data import metrics")
+
+    for destination_id in destination_ids:
         payloads.extend(rows_for(f"{schema_instance_id}/{destination_id}"))
         payloads.extend(rows_for(str(destination_id)))
 

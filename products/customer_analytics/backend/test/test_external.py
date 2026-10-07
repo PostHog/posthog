@@ -120,11 +120,18 @@ class TestExternalAccountAPI(APIBaseTest):
         read_psak = self._create_psak_token(scopes=["account:read"], label="read")
         wrong_scope_psak = self._create_psak_token(scopes=["endpoint:read"], label="wrong-scope")
         self.mock_csp_enabled.return_value = False
+        write_psak = self._create_psak_token(scopes=["account:write"], label="write")
         for token in [self.team.secret_api_token, read_psak, wrong_scope_psak]:
             with self.subTest(token=token):
                 response = self._get(token=token)
                 self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
                 self.assertEqual(response.json(), {"error": "Invalid API key"})
+        for token in [self.team.secret_api_token, write_psak]:
+            with self.subTest(token=token, method="post"):
+                response = self._post({"external_id": "acme-2"}, token=token)
+                self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+                self.assertEqual(response.json(), {"error": "Invalid API key"})
+        self.assertFalse(Account.objects.for_team(self.team.id).filter(external_id="acme-2").exists())
 
     def test_get_accepts_project_secret_api_key_with_account_read_scope(self):
         response = self._get(token=self._create_psak_token(scopes=["account:read"]))
@@ -138,17 +145,46 @@ class TestExternalAccountAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("post_read_scope", "_post", ["account:read"], {"external_id": "acme-2"}),
-            ("post_write_scope", "_post", ["account:write"], {"external_id": "acme-2"}),
+            ("post_unrelated_scope", "_post", ["endpoint:read"], {"external_id": "acme-2"}),
             ("patch_read_scope", "_patch", ["account:read"], {"external_id": "acme-1", "churned_at": "2026-08-01"}),
+            ("patch_write_scope", "_patch", ["account:write"], {"external_id": "acme-1", "churned_at": "2026-08-01"}),
         ]
     )
-    def test_writes_reject_project_secret_api_key(self, _name, request_method, scopes, payload):
+    def test_writes_reject_project_secret_api_key(
+        self, _name: str, request_method: str, scopes: list[str], payload: dict[str, str]
+    ) -> None:
         token = self._create_psak_token(scopes=scopes)
         response = getattr(self, request_method)(payload, token=token)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(Account.objects.for_team(self.team.id).filter(external_id="acme-2").exists())
         self.account.refresh_from_db()
         self.assertIsNone(self.account.churned_at)
+
+    @parameterized.expand([("primary", "secret_api_token"), ("backup", "secret_api_token_backup")])
+    def test_patch_accepts_legacy_token_that_has_a_migrated_psak_row(self, _name: str, token_field: str) -> None:
+        # The #63111 backfill gives the legacy token a PSAK row with the same hash. The
+        # legacy string (primary or rotated-out backup) must keep the legacy path
+        # (updates allowed), not resolve as a PSAK.
+        token = generate_random_token_secret()
+        setattr(self.team, token_field, token)
+        self.team.save(update_fields=[token_field])
+        create_project_secret_api_key(self.team, label="Migrated legacy secret API key", value=token)
+        response = self._patch({"external_id": "acme-1", "churned_at": "2026-08-01"}, token=token)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.account.refresh_from_db()
+        self.assertIsNotNone(self.account.churned_at)
+
+    def test_post_accepts_project_secret_api_key_with_account_write_scope(self) -> None:
+        token = self._create_psak_token(scopes=["account:write"])
+
+        created = self._post({"external_id": "acme-2", "name": "Acme Two"}, token=token)
+        repeated = self._post({"external_id": "acme-2", "name": "Renamed"}, token=token)
+
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(repeated.status_code, status.HTTP_200_OK)
+        self.assertEqual(repeated.json()["id"], created.json()["id"])
+        accounts = Account.objects.for_team(self.team.id).filter(external_id="acme-2")
+        self.assertEqual([account.name for account in accounts], ["Acme Two"])
 
     def test_project_secret_api_keys_share_a_team_rate_limit(self):
         cache.clear()
@@ -525,6 +561,25 @@ class TestExternalAccountAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("supplied_name", {"name": " Supplied Corp "}, "Supplied Corp"),
+            ("blank_name", {"name": "   "}, "New Corp"),
+            ("null_name", {"name": None}, "New Corp"),
+        ]
+    )
+    def test_post_supplied_name_overrides_group_name(
+        self, _name: str, extra_payload: dict[str, str | None], expected_name: str
+    ) -> None:
+        self.team.customer_analytics_config.account_group_type_index = 0
+        self.team.customer_analytics_config.save()
+        create_group(team=self.team, group_type_index=0, group_key="new-1", group_properties={"name": "New Corp"})
+
+        response = self._post({"external_id": "new-1", **extra_payload})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], expected_name)
+
+    @parameterized.expand(
+        [
             ("no_group_type_configured", False, False),
             ("group_missing", True, False),
             ("group_has_no_name_property", True, True),
@@ -537,17 +592,53 @@ class TestExternalAccountAPI(APIBaseTest):
         if create_nameless_group:
             create_group(team=self.team, group_type_index=0, group_key="new-1", group_properties={"plan": "free"})
 
-        response = self._post({"external_id": "new-1"})
+        response = self._post({"external_id": "new-1", "name": ""})
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "new-1")
 
     def test_post_existing_account_is_a_noop(self):
-        response = self._post({"external_id": "acme-1"})
+        response = self._post(
+            {"external_id": "acme-1", "name": "Renamed", "properties": {"stripe_customer_id": "cus_new"}}
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "Acme Corp")
         self.account.refresh_from_db()
         self.assertEqual(self.account.name, "Acme Corp")
+        self.assertIsNone(self.account.properties.stripe_customer_id)
+
+    def test_post_stores_supplied_properties(self) -> None:
+        response = self._post(
+            {
+                "external_id": "new-1",
+                "properties": {
+                    "website_domain": "https://www.example.com/pricing",
+                    "stripe_customer_id": "cus_123",
+                    "sfdc_id": "001ABC",
+                    "slack_channel_id": "C0123",
+                },
+            }
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        properties = Account.objects.for_team(self.team.id).get(external_id="new-1").properties
+        self.assertEqual(properties.website_domain, "example.com")
+        self.assertEqual(properties.stripe_customer_id, "cus_123")
+        self.assertEqual(properties.sfdc_id, "001ABC")
+        self.assertEqual(properties.slack_channel_id, "C0123")
+
+    @parameterized.expand(
+        [
+            ("unknown_key", {"favorite_color": "blue"}),
+            ("wrong_type", {"email_domains": "example.com"}),
+            ("not_an_object", ["cus_123"]),
+        ]
+    )
+    def test_post_rejects_invalid_properties(self, _name: str, properties: object) -> None:
+        response = self._post({"external_id": "new-1", "properties": properties})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Account.objects.for_team(self.team.id).filter(external_id="new-1").exists())
 
     @parameterized.expand([("missing", {}), ("blank", {"external_id": "   "})])
     def test_post_requires_external_id(self, _name, payload):

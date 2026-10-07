@@ -20,11 +20,13 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS, MIN_ATTRIBUTION_WINDOW_DAYS
 
 from .attribution_weights import DAY_IN_SECONDS
+from .constants import MARKETING_SPILL_AFTER_BYTES
 from .conversion_goal_conditions import conversion_goal_condition
 from .marketing_analytics_base_query_runner import ResponseType
 from .session_breakdown_base import MarketingSessionBreakdownQueryRunnerBase
@@ -57,6 +59,14 @@ MAX_CONVERSIONS_PER_PERSON = 500
 class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[ResponseType], Generic[ResponseType]):
     # Narrower than the session-breakdown base's union: everything below reads attribution-only fields.
     query: MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery
+
+    def get_query_settings(self) -> HogQLGlobalSettings:
+        # Extra aggregation threads create more partial states and spill files for the same sessions.
+        return HogQLGlobalSettings(
+            max_bytes_before_external_group_by=MARKETING_SPILL_AFTER_BYTES,
+            max_threads=16 if self._live_session_resolution_used else None,
+            optimize_aggregation_in_order=True if self._live_session_resolution_used else None,
+        )
 
     def get_cache_key_variant(self) -> str:
         variant = super().get_cache_key_variant()
@@ -248,19 +258,14 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
 
     def _person_arrays_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
         """The credit side, using shared session resolution when eligible."""
-        if self.config.sessions_precomputation_enabled or self.config.live_session_resolution_enabled:
+        if self.config.live_session_resolution_enabled:
             from .attribution_sessions_read import build_person_arrays  # noqa: PLC0415 (import cycle)
 
-            with self.timings.measure(
-                "attribution_live_session_resolution"
-                if self.config.live_session_resolution_enabled
-                else "attribution_sessions_precompute_credit"
-            ):
-                precomputed = build_person_arrays(self, date_range)
-            if precomputed is not None:
-                self._sessions_precompute_used = not self.config.live_session_resolution_enabled
-                self._live_session_resolution_used = self.config.live_session_resolution_enabled
-                return precomputed
+            with self.timings.measure("attribution_live_session_resolution"):
+                resolved = build_person_arrays(self, date_range)
+            if resolved is not None:
+                self._live_session_resolution_used = True
+                return resolved
         return self._build_person_arrays_select(date_range)
 
     def _build_person_arrays_select(self, date_range: QueryDateRange) -> ast.SelectQuery:

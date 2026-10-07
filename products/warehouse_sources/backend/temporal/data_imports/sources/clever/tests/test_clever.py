@@ -13,6 +13,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clever.cle
     clever_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.clever.settings import (
+    CLEVER_API_VERSION_V3_0,
+    CLEVER_API_VERSION_V3_1,
+    clever_base_url,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 CLEVER_SESSION_PATCH = (
@@ -134,12 +139,16 @@ class TestCleverSourceResumeBehavior:
         responses: list[Response],
         should_use_incremental_field: bool = False,
         db_incremental_field_last_value: Any = None,
+        api_version: str = CLEVER_API_VERSION_V3_1,
+        sent_urls: list[str] | None = None,
     ) -> tuple[MagicMock, list[dict[str, Any]]]:
         sent_params: list[dict[str, Any]] = []
         response_iter = iter(responses)
 
         def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
             sent_params.append(dict(request.params or {}))
+            if sent_urls is not None:
+                sent_urls.append(request.url)
             return next(response_iter)
 
         with patch(CLIENT_SESSION_PATCH) as MockSession:
@@ -150,6 +159,7 @@ class TestCleverSourceResumeBehavior:
 
             resource = clever_source(
                 bearer_token="test-token",
+                api_version=api_version,
                 endpoint=endpoint,
                 team_id=123,
                 job_id="test_job",
@@ -180,6 +190,26 @@ class TestCleverSourceResumeBehavior:
             CleverResumeConfig(starting_after="r1"),
             CleverResumeConfig(starting_after="r2"),
         ]
+
+    @pytest.mark.parametrize(
+        ("api_version", "expected_url"),
+        [
+            (CLEVER_API_VERSION_V3_0, "https://api.clever.com/v3.0/users"),
+            (CLEVER_API_VERSION_V3_1, "https://api.clever.com/v3.1/users"),
+        ],
+    )
+    def test_requests_target_the_pinned_api_version(self, api_version: str, expected_url: str) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        responses = [
+            _make_http_response({"data": [{"data": {"id": "u1"}}], "links": [_next_link("u1")]}),
+            _make_http_response({"data": [{"data": {"id": "u2"}}], "links": []}),
+        ]
+        sent_urls: list[str] = []
+        self._drive("Users", manager, responses, api_version=api_version, sent_urls=sent_urls)
+
+        assert sent_urls == [expected_url, expected_url]
 
     def test_contacts_endpoint_sends_role_filter(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
@@ -266,7 +296,7 @@ class TestValidateCredentials:
         self, mock_session: MagicMock, status_code: int, expected_valid: bool
     ) -> None:
         mock_session.return_value.get.return_value = MagicMock(status_code=status_code)
-        is_valid, message = validate_credentials("test-token")
+        is_valid, message = validate_credentials("test-token", CLEVER_API_VERSION_V3_1)
         assert is_valid is expected_valid
         if expected_valid:
             assert message is None
@@ -276,12 +306,33 @@ class TestValidateCredentials:
     @patch(CLEVER_SESSION_PATCH)
     def test_validate_credentials_swallows_exceptions(self, mock_session: MagicMock) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
-        is_valid, message = validate_credentials("test-token")
+        is_valid, message = validate_credentials("test-token", CLEVER_API_VERSION_V3_1)
         assert is_valid is False
         assert message is not None
 
     @patch(CLEVER_SESSION_PATCH)
     def test_validate_credentials_redacts_token(self, mock_session: MagicMock) -> None:
         mock_session.return_value.get.return_value = MagicMock(status_code=200)
-        validate_credentials("super-secret-token")
+        validate_credentials("super-secret-token", CLEVER_API_VERSION_V3_1)
         mock_session.assert_called_once_with(redact_values=("super-secret-token",))
+
+    @pytest.mark.parametrize(
+        ("api_version", "expected_url"),
+        [
+            (CLEVER_API_VERSION_V3_0, "https://api.clever.com/v3.0/districts"),
+            (CLEVER_API_VERSION_V3_1, "https://api.clever.com/v3.1/districts"),
+        ],
+    )
+    @patch(CLEVER_SESSION_PATCH)
+    def test_validate_credentials_probes_the_requested_api_version(
+        self, mock_session: MagicMock, api_version: str, expected_url: str
+    ) -> None:
+        mock_session.return_value.get.return_value = MagicMock(status_code=200)
+        validate_credentials("test-token", api_version)
+        assert mock_session.return_value.get.call_args.args[0] == expected_url
+
+
+def test_clever_base_url_rejects_unknown_version() -> None:
+    # Falling back to another version would silently move a pinned source.
+    with pytest.raises(ValueError):
+        clever_base_url("v2.1")
