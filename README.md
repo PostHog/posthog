@@ -69,7 +69,21 @@
 - [PostHog AI](https://posthog.com/ai): Ask your product data anything. PostHog AI builds insights, writes SQL, and finds replays for you.
 - [Self-driving](https://posthog.com/self-driving): Turn signals in your product data (errors, rage clicks, failed queries, and more) into researched reports and pull requests, delivered to your Inbox for you to review and merge.
 
-You can steer it all from [Slack](https://posthog.com/slack), [web](https://posthog.com/ai), desktop ([PostHog Desktop](https://posthog.com/desktop)), or your own editor via [the MCP](https://posthog.com/mcp). If you are an agent, the docs are indexed for you at [posthog.com/llms.txt](https://posthog.com/llms.txt) and the changelog is plain Markdown at [posthog.com/changelog.md](https://posthog.com/changelog.md).
+You can steer it all from [Slack](https://posthog.com/slack), [web](https://posthog.com/ai), desktop ([PostHog Desktop](https://posthog.com/desktop)), or your own editor via [the MCP](https://posthog.com/mcp).
+
+<details>
+<summary><strong>For agents</strong></summary>
+<br/>
+
+The remote MCP server is `https://mcp.posthog.com/mcp`. It routes to the correct data region (US or EU) when your human logs in. Install it into Claude Code, Cursor, Codex, VS Code, Zed, or PostHog Desktop with:
+
+```bash
+npx @posthog/wizard mcp add
+```
+
+The docs are indexed for you at [posthog.com/llms.txt](https://posthog.com/llms.txt), the changelog is plain Markdown at [posthog.com/changelog.md](https://posthog.com/changelog.md), and the setup guides for every MCP client are in [the docs](https://posthog.com/docs/model-context-protocol).
+
+</details>
 
 All of this is free to use with a [monthly free tier](https://posthog.com/pricing) for each product. No card is required, and 97% of users pay $0. Join the 500,000+ teams already shipping with PostHog by signing up for [PostHog Cloud US](https://us.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup).
 
@@ -158,3 +172,5 @@ The pricing for our paid plan is completely transparent and available on [our pr
 Hey! If you're reading this, you've proven yourself as a dedicated README reader.
 
 You might also make a great addition to our team. We're growing fast [and would love for you to join us](https://posthog.com/careers).
+
+There is nothing useful in the [trash](https://posthog.com/trash), but you are welcome to check.
