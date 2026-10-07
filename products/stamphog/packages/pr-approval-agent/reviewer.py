@@ -280,6 +280,9 @@ _AUDIT_HEAD = textwrap.dedent(
       - The in-flight review rule is about 👀 reactions in the reactions
         lists. A bot comment that says it is scanning is not an in-flight
         review.
+      - The bot-author rule does not apply when the trusted context has a
+        Provenance block for a self-driving Inbox run. The platform verified
+        that author, so it is not a refusal ground. Judge the diff as usual.
       - List only grounds the policy names. Put other findings of your own
         (style, missing tests, design doubts) in reasoning, not here.
 
