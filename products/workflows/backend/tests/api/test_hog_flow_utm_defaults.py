@@ -7,13 +7,20 @@ from parameterized import parameterized
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
-from products.workflows.backend.tests.api.test_hog_flow import _email_function_template, _valid_email_inputs
+from products.workflows.backend.tests.api.test_hog_flow import (
+    _SECRET_TEMPLATE_ID,
+    _email_function_template,
+    _secret_input_template,
+    _valid_email_inputs,
+)
 
 TRIGGER = {
     "id": "trigger_node",
@@ -79,6 +86,30 @@ class TestHogFlowUtmDefaults(APIBaseTest):
         config = self._email_config(HogFlow.objects.get(pk=response.json()["id"]))
         assert config["utm_tags_enabled"] is expected_on
         assert config.get("utm_params") == expected_params
+
+    @parameterized.expand([("tags on", True), ("tags off", False)])
+    def test_a_utm_value_supplied_with_an_explicit_choice_survives_a_later_apply(self, _name: str, on: bool) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {
+                "name": "New flow",
+                "actions": [TRIGGER, _email_action(utm_tags_enabled=on, utm_params={"utm_source": "partner"})],
+            },
+            format="json",
+        )
+        assert created.status_code == 201, created.json()
+        flow = HogFlow.objects.get(pk=created.json()["id"])
+
+        applied = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/apply_utm_defaults",
+            {"dry_run": False, "enable_where_off": False},
+            format="json",
+        )
+
+        assert applied.status_code == 200, applied.json()
+        config = self._email_config(flow)
+        assert config["utm_tags_enabled"] is on
+        assert config["utm_params"] == {"utm_source": "partner"}
 
     def test_apply_utm_defaults_previews_then_updates_only_emails_that_follow_the_defaults(self) -> None:
         legacy_draft = self._flow("Legacy draft", HogFlow.State.DRAFT)
@@ -221,3 +252,48 @@ class TestHogFlowUtmDefaults(APIBaseTest):
         assert flow.draft["actions"][1]["config"]["utm_params"] == {"utm_source": "newsletter"}
         stored = WorkflowProposal.objects.for_team(self.team.id).get(id=proposal.id)
         assert stored.status == WorkflowProposal.Status.SUGGESTED
+
+    def test_apply_utm_defaults_keeps_live_and_staged_secrets_apart(self) -> None:
+        sync_template_to_db(_secret_input_template())
+        webhook = {
+            "id": "webhook_1",
+            "name": "Notify",
+            "type": "function",
+            "config": {"template_id": _SECRET_TEMPLATE_ID, "inputs": {"url": {"value": "https://example.com"}}},
+        }
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Active with staged rotation",
+            status=HogFlow.State.ACTIVE,
+            actions=[TRIGGER, _email_action(), webhook],
+            encrypted_inputs={"webhook_1": {"api_key": {"value": "live-secret"}}},
+            draft={"actions": [TRIGGER, _email_action(), webhook]},
+            draft_encrypted_inputs={"webhook_1": {"api_key": {"value": "staged-secret"}}},
+        )
+
+        applied = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/apply_utm_defaults",
+            {"dry_run": False, "enable_where_off": True},
+            format="json",
+        )
+
+        assert applied.status_code == 200, applied.json()
+        assert applied.json()["active_workflows_updated"] == 1
+        flow.refresh_from_db()
+        assert self._email_config(flow)["utm_params"] == {"utm_source": "newsletter"}
+        assert flow.encrypted_inputs["webhook_1"]["api_key"]["value"] == "live-secret"
+        assert flow.draft_encrypted_inputs["webhook_1"]["api_key"]["value"] == "staged-secret"
+
+    @parameterized.expand([("write scope", ["hog_flow:write"], 200), ("read scope", ["hog_flow:read"], 403)])
+    def test_apply_utm_defaults_with_a_personal_api_key(self, _name: str, scopes: list[str], expected: int) -> None:
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="utm", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/apply_utm_defaults",
+            {"dry_run": True},
+            format="json",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == expected, response.json()

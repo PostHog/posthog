@@ -378,6 +378,10 @@ def _reject_clock_based_wait(config: dict, team: Team) -> None:
     )
 
 
+def live_secret_map(instance: "HogFlow", template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
+    return merge_secret_maps(plaintext_secret_map(instance.actions, template_cache), instance.encrypted_inputs)
+
+
 def existing_secret_map(instance: "HogFlow", template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
     # Every stored secret a masked re-save may need to recover, later sources winning: legacy
     # plaintext (live, then draft), then the encrypted live map, then the encrypted draft map.
@@ -2910,7 +2914,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # maps (draft wins) so an in-progress draft edit recovers the value the client actually saw.
         # Must be set before super() runs, since the nested action serializers validate inside it.
         if instance is not None:
-            self.context["existing_encrypted_inputs"] = existing_secret_map(instance, template_cache={})
+            # A server-side rewrite of the live actions sets live_secrets_only, so a staged credential
+            # rotation stays in the draft until someone publishes it.
+            secret_map = live_secret_map if self.context.get("live_secrets_only") else existing_secret_map
+            self.context["existing_encrypted_inputs"] = secret_map(instance, template_cache={})
             # Stored sender overrides, keyed by action id, so child action validation only holds
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.
@@ -4326,6 +4333,7 @@ class HogFlowViewSet(
         "resume_email_sending",
         "approve_proposal",
         "reject_proposal",
+        "apply_utm_defaults",
     ]
     queryset = HogFlow.objects.all()
     pagination_class = HogFlowPagination
@@ -5949,7 +5957,7 @@ class HogFlowViewSet(
             "workflows_failed": 0,
             "workflows_without_access": 0,
         }
-        for flow in flows:
+        for flow in flows.iterator():
             # A broadcast that already went out keeps the links it was sent with.
             if (
                 flow.origin_product == HogFlow.OriginProduct.BROADCASTS
@@ -6001,7 +6009,12 @@ class HogFlowViewSet(
                 locked.save(update_fields=["draft", "draft_updated_at"])
                 unstage_workflow_proposals(team_id=locked.team_id, hog_flow_id=locked.pk)
             if plan.actions is not None:
-                serializer = self.get_serializer(locked, data={"actions": plan.actions}, partial=True)
+                serializer = self.get_serializer(
+                    locked,
+                    data={"actions": plan.actions},
+                    partial=True,
+                    context={**self.get_serializer_context(), "live_secrets_only": True},
+                )
                 serializer.is_valid(raise_exception=True)
                 bump = self._stage_revision_bump(locked, before_update, serializer.validated_data)
                 serializer.save()

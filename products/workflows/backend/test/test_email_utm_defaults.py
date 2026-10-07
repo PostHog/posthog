@@ -83,6 +83,8 @@ class TestEmailUtmDefaults(SimpleTestCase):
             _email("new_unset"),
             _email("new_chosen", utm_tags_enabled=False),
             _email("new_with_values", utm_params={"utm_source": "partner"}),
+            _email("new_chosen_with_values", utm_tags_enabled=True, utm_params={"utm_source": "partner"}),
+            _email("new_with_marker", **{UTM_FROM_DEFAULT_KEY: ["utm_medium"]}),
             {"id": "trigger", "type": "trigger", "config": {}},
         ]
 
@@ -93,7 +95,14 @@ class TestEmailUtmDefaults(SimpleTestCase):
         assert configs["new_unset"]["utm_tags_enabled"] is True
         assert configs["new_unset"]["utm_params"] == DEFAULTS.params
         assert configs["new_unset"][UTM_FROM_DEFAULT_KEY] == list(UTM_KEYS)
-        assert configs["new_chosen"] == {"template_id": "template-email", "utm_tags_enabled": False}
+        assert configs["new_chosen"] == {
+            "template_id": "template-email",
+            "utm_tags_enabled": False,
+            UTM_FROM_DEFAULT_KEY: list(UTM_KEYS),
+        }
+        assert configs["new_chosen_with_values"]["utm_params"] == {"utm_source": "partner"}
+        assert configs["new_chosen_with_values"][UTM_FROM_DEFAULT_KEY] == ["utm_medium", "utm_campaign", "utm_content"]
+        assert configs["new_with_marker"][UTM_FROM_DEFAULT_KEY] == ["utm_medium"]
         assert configs["new_with_values"]["utm_params"] == {
             "utm_source": "partner",
             "utm_campaign": "{{ person.properties.plan }}",

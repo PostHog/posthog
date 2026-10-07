@@ -5,7 +5,9 @@ from django.test import RequestFactory, SimpleTestCase
 
 from rest_framework import status
 
-from posthog.models import OrganizationMembership
+from posthog.api.project import update_team_workflows_config
+from posthog.api.team import drop_cached_workflows_config
+from posthog.models import OrganizationMembership, Team
 
 from products.workflows.backend.admin.team_workflows_config_admin import TeamWorkflowsConfigAdmin
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -97,6 +99,25 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "workflows_config__email_utm_params"
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_utm_params == {"utm_source": "newsletter"}
+
+    def test_a_utm_save_keeps_settings_another_admin_changed_after_the_team_loaded(self) -> None:
+        self.addCleanup(drop_cached_workflows_config)
+        team = Team.objects.get(pk=self.team.pk)
+        assert team.workflows_config.email_tracking_consent_mode == "off"
+        TeamWorkflowsConfig.objects.filter(team=self.team).update(
+            email_tracking_consent_mode="opt_in", workflow_task_rate_limit_per_day=0
+        )
+        request = RequestFactory().patch(self.url)
+        request.user = self.user
+
+        update_team_workflows_config(
+            team, {"email_utm_params": {"utm_source": "newsletter"}}, context={"request": request}
+        )
+
+        row = TeamWorkflowsConfig.objects.get(team=self.team)
+        assert row.email_tracking_consent_mode == "opt_in"
+        assert row.workflow_task_rate_limit_per_day == 0
+        assert row.email_utm_params == {"utm_source": "newsletter"}
 
     def test_patch_rejects_non_boolean_capture_workflows_engagement_events(self) -> None:
         response = self.client.patch(

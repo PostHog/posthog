@@ -49,6 +49,7 @@ from posthog.api.team import (
     TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _format_serializer_errors,
+    drop_cached_workflows_config,
     get_or_mint_live_events_token,
     handle_experiments_config,
     handle_logs_config,
@@ -268,6 +269,7 @@ def update_team_customer_analytics_config(team: Team, validated_data: dict[str, 
 
 def update_team_workflows_config(team: Team, validated_data: dict[str, Any], *, context: dict) -> None:
     user_access_control = context.get("user_access_control")
+    drop_cached_workflows_config()
     old_config = {field: getattr(team.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields}
 
     serializer = TeamWorkflowsConfigSerializer(

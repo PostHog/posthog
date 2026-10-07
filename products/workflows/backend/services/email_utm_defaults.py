@@ -53,16 +53,17 @@ def seed_new_email_actions(
         if not is_email_action(action) or action.get("id") in existing:
             continue
         config = action["config"]
+        # Values the caller supplied for this email are its own, so only the keys it left out follow the default.
+        # A new step without a marker would otherwise count as following every default on the next bulk apply.
+        supplied = clean_utm_params(config.get("utm_params"))
+        config.setdefault(UTM_FROM_DEFAULT_KEY, [key for key in UTM_KEYS if key not in supplied])
         if "utm_tags_enabled" in config:
             continue
-        # Values the caller supplied for this email are its own, so only the keys it left out follow the default.
-        supplied = clean_utm_params(config.get("utm_params"))
         config["utm_tags_enabled"] = defaults.enabled
         config["utm_params"] = {
             **{key: value for key, value in defaults.params.items() if key not in supplied},
             **supplied,
         }
-        config[UTM_FROM_DEFAULT_KEY] = [key for key in UTM_KEYS if key not in supplied]
 
 
 def _keys_following_default(config: dict[str, Any]) -> list[str]:

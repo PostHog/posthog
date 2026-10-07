@@ -1080,6 +1080,12 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         )
 
 
+def drop_cached_workflows_config() -> None:
+    # Team.workflows_config keeps the last loaded row in a process-wide cache. The config save writes every
+    # column, so a cached row would undo settings another admin changed through a different process.
+    Team.workflows_config.fget.cache_clear()
+
+
 def validate_team_workflows_config(team: Team | None, value: dict[str, Any] | None) -> dict[str, Any] | None:
     if value is None:
         return None
@@ -2573,6 +2579,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return instance
 
     def _update_workflows_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        drop_cached_workflows_config()
         old_config = {
             field: getattr(instance.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields
         }
