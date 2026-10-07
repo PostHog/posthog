@@ -8182,6 +8182,7 @@ export interface MarketingAnalyticsSearchQuery extends DataNode<MarketingAnalyti
     breakdown?: 'keyword' | 'page'
     keyword?: string
     page?: string
+    normalizePageUrls?: boolean
     includePostHogConversions?: boolean
 }
 

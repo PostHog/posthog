@@ -239,7 +239,8 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert usd.clicks == 15 and usd.impressions == 150
         assert usd.cost == 30 and usd.conversions == 2.5 and usd.position is None
 
-    def test_organic_positions_are_weighted_and_details_keep_query_page_filters(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_organic_positions_are_weighted_and_details_keep_query_page_filters(self, normalize_urls: bool) -> None:
         table = self._table(
             "organic_query_pages",
             {
@@ -253,7 +254,7 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             "date,query,page,clicks,impressions,position\n"
             "2023-01-10,Analytics,https://example.com/a,10,100,1\n"
             "2023-01-10,Analytics,https://example.com/b,90,900,9\n"
-            "2023-01-10,Other,https://example.com/a,5,50,2\n"
+            "2023-01-10,Other,https://example.com/a?variant=example#plans,5,50,2\n"
             "2022-12-15,Analytics,https://example.com/a,8,200,4\n",
         )
         query = MarketingAnalyticsSearchQuery(
@@ -276,10 +277,13 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert sum(row.clicks for row in pages) == 100
         query.breakdown = Breakdown1.KEYWORD
         query.keyword = None
-        query.page = "https://example.com/a"
-        queries = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate().results
-        assert {row.keyword for row in queries} == {"analytics", "other"}
-        assert sum(row.clicks for row in queries) == 15
+        query.page = "https://example.com/a?campaign=example#details" if normalize_urls else "https://example.com/a"
+        query.normalizePageUrls = normalize_urls
+        query.includePostHogConversions = False
+        result = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate()
+        assert {row.keyword for row in result.results} == ({"analytics", "other"} if normalize_urls else {"analytics"})
+        assert sum(row.clicks for row in result.results) == (15 if normalize_urls else 10)
+        assert result.posthogConversionGoals is None
         query.page = "https://example.com/a' OR 1=1 --"
         assert (
             MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate().results == []
@@ -407,8 +411,12 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
                     "$current_url": url,
                     "$pathname": "/pricing",
                     "utm_source": (
-                        "microsoft"
-                        if person in ("bing-paid", "bing-previous")
+                        "Google"
+                        if person == "paid"
+                        else "Bing"
+                        if person == "bing-previous"
+                        else "microsoft"
+                        if person == "bing-paid"
                         else "google"
                         if medium and person not in ("auto-tagged", "bing-auto-tagged", "bing-stored-click")
                         else ""

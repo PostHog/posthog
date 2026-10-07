@@ -28884,6 +28884,7 @@ class MarketingAnalyticsSearchQuery(BaseModel):
     keyword: str | None = None
     kind: Literal["MarketingAnalyticsSearchQuery"] = "MarketingAnalyticsSearchQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    normalizePageUrls: bool | None = None
     page: str | None = None
     response: MarketingAnalyticsSearchQueryResponse | None = None
     search: str | None = None

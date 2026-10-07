@@ -77,9 +77,10 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             return f"{variant}_live_session_resolution"
         return variant
 
-    def _page_expr(self, field: str) -> ast.Expr:
-        page = parse_expr(field)
-        return ast.Call(name="cutQueryStringAndFragment", args=[page]) if self.include_posthog_conversions else page
+    def _page_expr(self, page: ast.Expr) -> ast.Expr:
+        if self.include_posthog_conversions or self.query.normalizePageUrls:
+            return ast.Call(name="cutQueryStringAndFragment", args=[page])
+        return page
 
     def _source_query(
         self, source: MarketingAnalyticsSearchSource, date_range: QueryDateRange, period: int
@@ -98,7 +99,7 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                     "keyword_value": ast.Constant(value=None)
                     if self.query.breakdown == "page"
                     else parse_expr("nullIf(lower(trim(s.query)), '')"),
-                    "page_value": self._page_expr("s.page")
+                    "page_value": self._page_expr(parse_expr("s.page"))
                     if self.query.breakdown == "page"
                     else ast.Constant(value=None),
                     "keyword_filter": parse_expr(
@@ -108,7 +109,11 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                     if self.query.keyword is not None
                     else ast.Constant(value=True),
                     "page_filter": parse_expr(
-                        "s.page = {page}", placeholders={"page": ast.Constant(value=self.query.page)}
+                        "{page_value} = {page}",
+                        placeholders={
+                            "page_value": self._page_expr(parse_expr("s.page")),
+                            "page": self._page_expr(ast.Constant(value=self.query.page)),
+                        },
                     )
                     if self.query.page is not None
                     else ast.Constant(value=True),
@@ -129,7 +134,7 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                 placeholders=placeholders,
             )
         if self.query.breakdown == "page" and source.sourceType == "BingAds":
-            placeholders["page_value"] = self._page_expr("destination_url")
+            placeholders["page_value"] = self._page_expr(parse_expr("destination_url"))
             return parse_select(
                 """
                 SELECT {period} AS period, NULL AS keyword, nullIf({page_value}, '') AS page,
@@ -148,7 +153,7 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
         if self.query.breakdown == "page":
             if source.sourceType != "GoogleAds":
                 raise ValueError("Landing pages are supported by Google Ads and Google Search Console")
-            placeholders["page_value"] = self._page_expr("landing_page_view_unexpanded_final_url")
+            placeholders["page_value"] = self._page_expr(parse_expr("landing_page_view_unexpanded_final_url"))
             return parse_select(
                 """
                 SELECT {period} AS period, NULL AS keyword,

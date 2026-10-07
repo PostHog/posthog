@@ -307,8 +307,69 @@ type Story = StoryObj<typeof meta>
 export const Connected: Story = {
     parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=false` },
 }
+export const Pagination: Story = {
+    parameters: {
+        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true`,
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': async ({
+                        request,
+                    }: {
+                        request: Request
+                    }) => {
+                        const { query } = (await request.json()) as { query: MarketingAnalyticsSearchQuery }
+                        return [
+                            200,
+                            {
+                                results: Array.from({ length: 23 }, (_, index) => ({
+                                    ...ROWS[index % ROWS.length],
+                                    previous: {
+                                        clicks: 50,
+                                        impressions: 1000,
+                                        ctr: 0.05,
+                                        cost: 100,
+                                        conversions: 2,
+                                        cpc: 2,
+                                        cpa: 50,
+                                        position: 5,
+                                    },
+                                    keyword: `Example keyword ${index + 1}`,
+                                    page: query.breakdown === 'page' ? `https://example.com/page-${index + 1}` : null,
+                                })),
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('1-10 of 23 entries')
+        await userEvent.click(canvas.getByRole('button', { name: 'Next page' }))
+        await canvas.findByText('11-20 of 23 entries')
+        const nextButton = canvas.getByRole('button', { name: 'Next page' })
+        const arrowTop = nextButton.getBoundingClientRect().top
+        await userEvent.click(canvas.getByRole('button', { name: 'Go to page' }))
+        await userEvent.click(await within(canvasElement.ownerDocument.body).findByText('Page 3 of 3'))
+        await canvas.findByText('21-23 of 23 entries')
+        await expect(canvas.getByRole('button', { name: 'Next page' }).getBoundingClientRect().top).toBe(arrowTop)
+        await userEvent.click(canvas.getByRole('button', { name: 'Landing pages' }))
+        await canvas.findByText('1-10 of 23 entries')
+        await userEvent.click(canvas.getByRole('button', { name: 'Next page' }))
+        await canvas.findByText('11-20 of 23 entries')
+        await userEvent.click(canvas.getByRole('button', { name: 'Keywords and queries' }))
+        await expect(await canvas.findByText('1-10 of 23 entries')).toBeVisible()
+    },
+}
 export const Comparison: Story = {
     parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true` },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Google Search Console')
+        const table = canvasElement.querySelector('.SearchPerformanceTable .LemonTable__content')!
+        await expect(table.getBoundingClientRect().height).toBeLessThan(600)
+    },
 }
 export const MixedWithPosition: Story = {
     ...Comparison,

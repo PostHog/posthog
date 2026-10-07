@@ -46,7 +46,9 @@ class SearchConversionQueryRunner(MarketingAnalyticsAttributionQueryRunner):
             """,
             placeholders={
                 "channel": field("channel_type", "$channel_type"),
-                "source": self._normalized_source_expr(field("utm_source", "$entry_utm_source")),
+                "source": self._normalized_source_expr(
+                    ast.Call(name="lower", args=[field("utm_source", "$entry_utm_source")])
+                ),
                 "google": ast.Constant(value=INTEGRATION_PRIMARY_SOURCE[NativeMarketingSource.GOOGLE_ADS]),
                 "bing": ast.Constant(value=INTEGRATION_PRIMARY_SOURCE[NativeMarketingSource.BING_ADS]),
                 "has_gclid": has_gclid,

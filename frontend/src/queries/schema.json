@@ -36440,6 +36440,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "normalizePageUrls": {
+                    "type": "boolean"
+                },
                 "page": {
                     "type": "string"
                 },

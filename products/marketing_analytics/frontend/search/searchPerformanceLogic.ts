@@ -279,6 +279,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 return {
                     ...query,
                     includePostHogConversions: false,
+                    normalizePageUrls: query.includePostHogConversions,
                     sources: detailSources,
                     search: undefined,
                     breakdown: row.page ? 'keyword' : 'page',

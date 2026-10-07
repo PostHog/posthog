@@ -1,4 +1,7 @@
-import { useActions, useValues } from 'kea'
+import './SearchPerformanceTable.scss'
+
+import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
 
@@ -6,6 +9,8 @@ import { urls } from 'scenes/urls'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
+import { Reload } from '~/queries/nodes/DataNode/Reload'
 import {
     CurrencyCode,
     MarketingAnalyticsSearchMetrics,
@@ -69,7 +74,11 @@ export function SearchPerformanceTable({
         )
     }
     return (
-        <>
+        <BindLogic logic={dataNodeLogic} props={logic.props}>
+            <div className="flex flex-wrap items-center gap-2 py-2">
+                <Reload />
+                <ElapsedTime />
+            </div>
             {query.includePostHogConversions && !responseLoading && searchResponse && (
                 <LemonBanner
                     type="info"
@@ -95,12 +104,16 @@ export function SearchPerformanceTable({
                 tableLayout="fixed"
                 firstColumnSticky
                 allowContentScroll
-                className="[&_th]:whitespace-normal"
+                className={clsx('SearchPerformanceTable [&_th]:whitespace-normal', {
+                    'SearchPerformanceTable--paginated': rows.length > 10,
+                })}
                 dataSource={responseLoading ? [] : rows}
                 loading={responseLoading}
-                loadingSkeletonRows={5}
+                loadingSkeletonRows={10}
                 rowKey={(row) => JSON.stringify([row.keyword, row.page, row.platform, row.matchType, row.currency])}
-                pagination={{ pageSize: 10 }}
+                key={JSON.stringify(query)}
+                pagination={{ pageSize: 10, useUrl: false, showPageSelector: true }}
+                scrollToTopOnPageChange={false}
                 useURLForSorting={false}
                 emptyState={emptyState}
                 columns={[
@@ -192,7 +205,7 @@ export function SearchPerformanceTable({
                                     ? (row.currency as CurrencyCode)
                                     : null
                             return (
-                                <div>
+                                <div className="SearchPerformanceTable__metric">
                                     <ChangeValueCell
                                         value={value === null ? null : [value, row.previous?.[metric] ?? null]}
                                         compare={!!query.compareFilter?.compare}
@@ -269,6 +282,6 @@ export function SearchPerformanceTable({
                     ),
                 ]}
             />
-        </>
+        </BindLogic>
     )
 }

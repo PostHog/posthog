@@ -372,6 +372,25 @@ describe('marketingAnalyticsLogic', () => {
             expect(search.values.query.includePostHogConversions).toBe(false)
             search.actions.setBreakdown('page')
             expect(search.values.query.includePostHogConversions).toBe(true)
+            search.actions.selectRow({
+                page: 'https://example.com/pricing',
+                keyword: null,
+                platform: 'GoogleSearchConsole',
+                matchType: null,
+                currency: null,
+                clicks: 10,
+                impressions: 100,
+                cost: null,
+                conversions: null,
+                ctr: 0.1,
+                cpc: null,
+                cpa: null,
+            })
+            expect(search.values.detailQuery).toMatchObject({
+                page: 'https://example.com/pricing',
+                normalizePageUrls: true,
+                includePostHogConversions: false,
+            })
             const searchNode = dataNodeLogic({
                 key: SEARCH_PERFORMANCE_QUERY_KEY,
                 query: search.values.query,
@@ -459,6 +478,10 @@ describe('marketingAnalyticsLogic', () => {
                 const chartBefore = (tiles.values.marketingChartTile.query as InsightVizNode).source as TrendsQuery
                 logic.actions.setAdPerformanceConversionGoals(false)
                 expect(search.values.query.includePostHogConversions).toBe(false)
+                expect(search.values.detailQuery).toMatchObject({
+                    normalizePageUrls: false,
+                    includePostHogConversions: false,
+                })
                 const chartAfter = (tiles.values.marketingChartTile.query as InsightVizNode).source as TrendsQuery
                 expect(chartAfter).toEqual(chartBefore)
                 expect(chartAfter.series).toHaveLength(1)
