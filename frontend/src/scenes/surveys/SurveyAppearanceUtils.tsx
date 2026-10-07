@@ -14,6 +14,9 @@ const lowlight = createLowlight(common)
 lowlight.register({ xml })
 
 const CODE_FONT_FAMILY = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
+// The highlighted overlay and the textarea below it must use the same line height, because a difference moves the
+// caret and the selection away from the characters that the user sees.
+const CODE_LINE_HEIGHT = '1.5'
 
 function HighlightedTextArea({
     value,
@@ -54,7 +57,7 @@ function HighlightedTextArea({
             {showPlaceholder ? (
                 <div
                     className="absolute inset-0 p-[10px_12px] text-muted pointer-events-none"
-                    style={{ fontFamily: CODE_FONT_FAMILY, lineHeight: '1.5' }}
+                    style={{ fontFamily: CODE_FONT_FAMILY, lineHeight: CODE_LINE_HEIGHT }}
                 >
                     {placeholder}
                 </div>
@@ -63,20 +66,22 @@ function HighlightedTextArea({
                     ref={preRef}
                     className={clsx(
                         'm-0 overflow-auto pointer-events-none bg-transparent h-full whitespace-pre-wrap',
-                        'border-none leading-6'
+                        'border-none'
                     )}
                     style={{
                         padding: '10px 12px',
                         wordWrap: 'break-word',
                         fontFamily: 'inherit',
                         fontSize: 'inherit',
+                        lineHeight: CODE_LINE_HEIGHT,
                     }}
                 >
                     <code
-                        className={clsx('hljs leading-6', isDarkModeOn && 'hljs-dark')}
+                        className={clsx('hljs', isDarkModeOn && 'hljs-dark')}
                         style={{
                             fontFamily: CODE_FONT_FAMILY,
                             fontSize: 'inherit',
+                            lineHeight: CODE_LINE_HEIGHT,
                         }}
                         dangerouslySetInnerHTML={{ __html: toHtml(highlighted) }}
                     />
@@ -100,7 +105,7 @@ function HighlightedTextArea({
                 style={{
                     fontFamily: CODE_FONT_FAMILY,
                     fontSize: 'inherit',
-                    lineHeight: '1.5',
+                    lineHeight: CODE_LINE_HEIGHT,
                 }}
             />
         </div>
