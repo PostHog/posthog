@@ -636,6 +636,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             chunk_size_override=schema.chunk_size_override,
             row_filters=inputs.row_filters,
             enabled_columns=inputs.enabled_columns,
+            stored_primary_keys=inputs.primary_keys,
             bypass_env_proxy=self._bypass_env_proxy(config, inputs.team_id),
             server_hostname=config.host,
         )
