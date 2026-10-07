@@ -1,6 +1,6 @@
 import json
-from collections.abc import Iterator
-from typing import Any
+from collections.abc import Iterable, Iterator
+from typing import Any, cast
 
 import pytest
 from unittest.mock import patch
@@ -74,7 +74,8 @@ def test_full_refresh_pagination_and_rows(config: Neo4jSourceConfig, transport: 
         replies.append((202, {"data": {"fields": fields, "values": values[offset : offset + 2]}}))
     with patch("products.warehouse_sources.backend.temporal.data_imports.sources.neo4j.neo4j.PAGE_SIZE", 2):
         result = neo4j_source(config, 1, f"{prefix}_Order")
-        rows = [row for page in result.items() for row in page]
+        pages = cast(Iterable[list[dict[str, Any]]], result.items())
+        rows = [row for page in pages for row in page]
     assert len(rows) == count
     assert [row["element_id"] for row in rows] == [f"id-{index}" for index in range(count)]
     for index, row in enumerate(rows):
