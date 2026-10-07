@@ -15,9 +15,7 @@ function readBrowserStorage(): BrowserStorageSummary {
     let entries: [string, string][] = []
     try {
         entries = Object.keys(window.localStorage).map((key) => [key, window.localStorage.getItem(key) ?? ''])
-    } catch {
-        // Blocked storage reads as empty.
-    }
+    } catch {}
     return summarizeBrowserStorage(entries, keaStorage.lastUsed())
 }
 

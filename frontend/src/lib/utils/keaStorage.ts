@@ -21,10 +21,8 @@ export function storageEntryBytes(key: string, value: string): number {
 }
 
 export interface KeaStorage {
-    /** The storage engine to pass to `localStoragePlugin`. kea-localstorage reads and writes it by bracket access. */
     engine: Storage
     lastUsed: () => Record<string, number>
-    /** Removes kea-persisted keys not used within the TTL. Returns how many keys it removed. */
     pruneExpired: () => number
     /** Removes every kea-persisted key. Other localStorage keys stay. Returns how many keys it removed. */
     removeAll: () => number

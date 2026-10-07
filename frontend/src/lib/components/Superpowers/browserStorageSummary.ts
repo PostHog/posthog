@@ -1,11 +1,9 @@
 import { isKeaPersistedKey, storageEntryBytes } from 'lib/utils/keaStorage'
 
 export interface BrowserStorageGroup {
-    /** The key with team ids, UUIDs, and counters replaced by `*`, so per-instance keys group together. */
     pattern: string
     keyCount: number
     bytes: number
-    /** Latest recorded use across the group, or null when no key in it has a recorded use. */
     lastUsed: number | null
     persistedByKea: boolean
 }
