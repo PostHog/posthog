@@ -144,8 +144,11 @@ def normalize_site_url(raw: str) -> str:
     the rest untouched — a bare hostname (no scheme, no ``sc-domain:`` prefix) stays as-is
     because we can't tell which property type was meant.
     """
-    # No property contains a quote, so any around the value came along with the copy.
-    site = raw.strip().strip(_PASTED_QUOTES).strip()
+    site = raw.strip()
+    # A value that opens with a quote was copied with its quotes. A quote elsewhere can belong
+    # to a URL path, so only a leading one triggers the strip.
+    if site[:1] in _PASTED_QUOTES:
+        site = site.strip(_PASTED_QUOTES).strip()
 
     # The Search Console UI URL carries the property in its `resource_id` query param.
     if is_search_console_ui_url(site):
