@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import TableNode
+from posthog.hogql.database.models import SavedQuery, TableNode
 from posthog.hogql.database.test.tables import (
     create_aapl_stock_s3_table,
     create_aapl_stock_table_self_referencing,
@@ -64,13 +64,21 @@ class TestView(BaseTest):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
-    @parameterized.expand([("warehouse_table",), ("self_managed_table",)])
-    def test_a_view_shadowed_by_a_table_keeps_the_table_and_is_counted(self, shadowed_by: str):
+    @parameterized.expand(
+        [
+            ("warehouse_table", "aapl_stock_view", "warehouse_table"),
+            ("self_managed_table", "aapl_stock_view", "self_managed_table"),
+            # The built-in events table wins the slot over the self-managed one, so it is the table
+            # the view is reported against.
+            ("self_managed_table", "events", "posthog_table"),
+        ]
+    )
+    def test_a_view_shadowed_by_a_table_keeps_the_table_and_is_counted(
+        self, added_as: str, name: str, shadowed_by: str
+    ):
         database = Database.create_for(team=self.team)
-        tables = TableNode(
-            children={"aapl_stock_view": TableNode(name="aapl_stock_view", table=create_aapl_stock_s3_table())}
-        )
-        if shadowed_by == "warehouse_table":
+        tables = TableNode(children={name: TableNode(name=name, table=create_aapl_stock_s3_table(name))})
+        if added_as == "warehouse_table":
             database._add_warehouse_tables(tables)
         else:
             database._add_warehouse_self_managed_tables(tables)
@@ -80,7 +88,7 @@ class TestView(BaseTest):
             database._add_views(
                 TableNode(
                     children={
-                        "aapl_stock_view": TableNode(name="aapl_stock_view", table=create_aapl_stock_table_view()),
+                        name: TableNode(name=name, table=create_aapl_stock_table_view()),
                         "aapl_stock_nested_view": TableNode(
                             name="aapl_stock_nested_view", table=create_nested_aapl_stock_view()
                         ),
@@ -88,10 +96,33 @@ class TestView(BaseTest):
                 )
             )
 
-        assert database.get_table(["aapl_stock_view"]).name == "aapl_stock"
+        assert not isinstance(database.get_table([name]), SavedQuery)
         client.metrics.count.assert_called_once_with(
             "hogql.database.views_shadowed", 1, attributes={"shadowed_by": shadowed_by}
         )
+
+    def test_a_nested_view_is_not_shadowed_by_a_flat_table_with_the_same_dotted_name(self):
+        database = Database.create_for(team=self.team)
+        database._add_warehouse_self_managed_tables(
+            TableNode(
+                children={
+                    "schema.stock": TableNode(name="schema.stock", table=create_aapl_stock_s3_table("schema.stock"))
+                }
+            )
+        )
+
+        client = MagicMock()
+        with patch("posthoganalytics.default_client", client):
+            database._add_views(
+                TableNode(
+                    children={
+                        "schema": TableNode.create_nested_for_chain(["schema", "stock"], create_aapl_stock_table_view())
+                    }
+                )
+            )
+
+        assert isinstance(database.get_table("schema.stock"), SavedQuery)
+        client.metrics.count.assert_not_called()
 
     def _select(self, query: str, dialect: Literal["clickhouse", "hogql"] = "clickhouse") -> str:
         return prepare_and_print_ast(parse_select(query), self.context, dialect=dialect)[0]
