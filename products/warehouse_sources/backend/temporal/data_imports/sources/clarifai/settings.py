@@ -9,3 +9,5 @@ PERMISSION_ERROR = (
 )
 HOST_ERROR = "Enter a public HTTPS API host without a path, query, or credentials."
 RESOURCE_ERROR = "Clarifai could not find the resource. Check the user ID and app ID."
+
+# Throwaway edit for a CI measurement.
