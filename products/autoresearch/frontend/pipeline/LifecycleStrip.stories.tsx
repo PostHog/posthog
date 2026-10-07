@@ -43,6 +43,14 @@ const meta: Meta<typeof LifecycleStrip> = {
     title: 'Products/Autoresearch/Lifecycle strip',
     component: LifecycleStrip,
     parameters: { mockDate: '2026-03-01T12:00:00Z' },
+    // The strip is an inline-size container, which contributes no intrinsic width, so an unsized story root collapses to zero.
+    decorators: [
+        (Story) => (
+            <div className="w-[960px]">
+                <Story />
+            </div>
+        ),
+    ],
 }
 export default meta
 type Story = StoryObj<typeof LifecycleStrip>

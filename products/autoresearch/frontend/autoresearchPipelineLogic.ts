@@ -40,8 +40,8 @@ import {
     type AutoresearchTrainingRunApi,
     CreateSuggestionPriorityEnumApi,
 } from './generated/api.schemas'
-import type { PredictionsPeopleView } from './predictionsPeopleQuery'
 import { LifecycleStep, pipelineLifecycle } from './pipelineLifecycle'
+import type { PredictionsPeopleView } from './predictionsPeopleQuery'
 
 export interface AutoresearchPipelineLogicProps {
     id: string
