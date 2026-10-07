@@ -11,6 +11,7 @@ import { AccountNotesExpansion } from './AccountNotesExpansion'
 import { AccountOpportunitiesExpansion } from './AccountOpportunitiesExpansion'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
 import { AccountRelationshipsExpansion } from './AccountRelationshipsExpansion'
+import { AccountSessionReplays } from './AccountSessionReplays'
 import type { AccountViewComponentKind } from './accountViewComponents'
 import type { AccountViewTileConfig } from './accountViewTileConfig'
 
@@ -35,6 +36,8 @@ export function AccountViewComponent({
 }: AccountViewComponentProps): JSX.Element {
     const tileProps = { instanceId, initialConfig, onConfigChange }
     switch (kind) {
+        case 'session_replays':
+            return <AccountSessionReplays accountId={accountId} externalId={externalId} {...tileProps} />
         case 'notes':
             return <AccountNotesExpansion accountId={accountId} embedded={embedded} {...tileProps} />
         case 'tasks':
