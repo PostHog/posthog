@@ -125,6 +125,10 @@ DATA_WAREHOUSE_VACUUM_MAX_INTERVAL_HOURS = get_from_env("DATA_WAREHOUSE_VACUUM_M
 DATA_WAREHOUSE_FULL_VACUUM_INTERVAL_HOURS = get_from_env(
     "DATA_WAREHOUSE_FULL_VACUUM_INTERVAL_HOURS", 168, type_cast=int
 )
+# Compact Delta tables with deltalite's native `DeltaLiteTable.compact` instead of delta-rs
+# `optimize.compact`. deltalite streams each bin under the load slot's memory budget. A deltalite build
+# without `compact`, a table that deltalite refuses, or a deltalite failure falls back to delta-rs.
+DATA_WAREHOUSE_DELTALITE_COMPACTION = get_from_env("DATA_WAREHOUSE_DELTALITE_COMPACTION", False, type_cast=str_to_bool)
 
 # delta-rs merge spill-to-disk. A merge decompresses the target partition into an Arrow working set that
 # can exceed the 29 GB pod limit and OOM — killing every co-tenant activity on the pod. When set, delta-rs
