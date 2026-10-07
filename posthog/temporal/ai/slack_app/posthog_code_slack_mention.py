@@ -259,7 +259,6 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                     event.get("text", ""),
                     thread_messages,
                     inputs,
-                    thread_ts,
                 )
                 if not needs_repo:
                     repository = None

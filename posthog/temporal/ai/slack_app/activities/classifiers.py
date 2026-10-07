@@ -240,15 +240,18 @@ def classify_posthog_code_task_needs_repo_activity(
     event_text: str,
     thread_messages: list[SlackThreadMessage],
     inputs: PostHogCodeSlackMentionWorkflowInputs | None = None,
-    thread_ts: str | None = None,
 ) -> bool:
     """Classify with the team's routing rules loaded from ``inputs``.
 
-    ``inputs`` and ``thread_ts`` sit last and optional for payload compatibility: activity
-    tasks queued by pre-deploy workflow code carry only the payloads that existed when they
-    were queued, and a required leading parameter would make them unbindable on a new
-    worker. Such tasks classify without routing rules and without a trace id, which is the
-    pre-deploy behavior.
+    ``inputs`` sits last and optional for payload compatibility: activity tasks queued
+    by pre-deploy workflow code carry only the first two payloads, and a required
+    leading parameter would make them unbindable on a new worker. Such tasks classify
+    without routing rules, which is the pre-deploy behavior.
+
+    Do not add a fourth parameter. Temporal drops the argument type hints when the
+    declared parameter count differs from the queued payload count, so a task queued
+    before the deploy decodes ``inputs`` as a plain dict and fails on attribute access.
+    Read whatever else this activity needs out of ``inputs``, as the trace id does.
     """
     # Circular import: products.slack_app.backend.api imports this package at module scope.
     from products.slack_app.backend.api import _get_full_repo_names  # noqa: PLC0415
@@ -267,6 +270,7 @@ def classify_posthog_code_task_needs_repo_activity(
     # every rule.
     connected = {repo.lower() for repo in _get_full_repo_names(integration, user_id=inputs.user_id)}
     routing_rules = team_routing_rule_lines(integration.team_id, candidate_repos=connected or None)
+    thread_ts = inputs.event.get("thread_ts") or inputs.event.get("ts")
     return classify_task_needs_repo(
         event_text,
         thread_messages,
