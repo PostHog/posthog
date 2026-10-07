@@ -9,6 +9,7 @@ const RENDERS_EVERYTHING: ChartDisplayOptionEligibility = {
     hasTrendsFormula: false,
     boxPlotMissingProperty: false,
     hasMetricInsight: false,
+    hasProportionBarChart: false,
 }
 
 function disabledReasons(eligibility: ChartDisplayOptionEligibility): Map<ChartDisplayType, string | undefined> {
@@ -87,11 +88,11 @@ describe('getChartDisplayOptions', () => {
     })
 
     it.each([
-        [true, true],
-        [false, false],
-    ])('offers the metric chart type only behind its flag (%s)', (hasMetricInsight, isOffered) => {
-        expect(disabledReasons({ ...RENDERS_EVERYTHING, hasMetricInsight }).has(ChartDisplayType.Metric)).toBe(
-            isOffered
-        )
+        ['hasMetricInsight', ChartDisplayType.Metric, true],
+        ['hasMetricInsight', ChartDisplayType.Metric, false],
+        ['hasProportionBarChart', ChartDisplayType.ActionsProportionBar, true],
+        ['hasProportionBarChart', ChartDisplayType.ActionsProportionBar, false],
+    ] as const)('offers the %s chart type %s only behind its flag (%s)', (flag, display, flagEnabled) => {
+        expect(disabledReasons({ ...RENDERS_EVERYTHING, [flag]: flagEnabled }).has(display)).toBe(flagEnabled)
     })
 })

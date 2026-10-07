@@ -177,6 +177,7 @@ export const DISPLAYS_WITH_IN_CHART_LEGEND = [
     ChartDisplayType.ActionsUnstackedBar,
     ChartDisplayType.ActionsPie,
     ChartDisplayType.ActionsDonut,
+    ChartDisplayType.ActionsProportionBar,
 ]
 
 // Omit must distribute over the query-node union: a plain Omit would collapse the update type

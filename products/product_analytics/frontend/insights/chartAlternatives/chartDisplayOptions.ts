@@ -14,6 +14,7 @@ export type ChartDisplayIcon =
     | 'metric'
     | 'number'
     | 'pie'
+    | 'proportionBar'
     | 'table'
     | 'worldMap'
 
@@ -34,6 +35,7 @@ export interface ChartDisplayOptionGroup {
 export interface ChartDisplayOptionEligibility {
     boxPlotMissingProperty: boolean
     hasMetricInsight: boolean
+    hasProportionBarChart: boolean
     hasSingleSeriesOutput: boolean
     hasTrendsFormula: boolean
     isTrends: boolean
@@ -88,6 +90,7 @@ export function applyChartDisplay(query: TrendsQuery, display: ChartDisplayType)
 export function getChartDisplayOptions({
     boxPlotMissingProperty,
     hasMetricInsight,
+    hasProportionBarChart,
     hasSingleSeriesOutput,
     hasTrendsFormula,
     isTrends,
@@ -200,6 +203,17 @@ export function getChartDisplayOptions({
                     description: 'Proportions of a whole as a ring.',
                     disabledReason: trendsOnlyDisabledReason,
                 },
+                ...(hasProportionBarChart
+                    ? [
+                          {
+                              display: ChartDisplayType.ActionsProportionBar,
+                              icon: 'proportionBar' as const,
+                              label: 'Proportion bar',
+                              description: 'Proportions of a whole as one flat bar.',
+                              disabledReason: trendsOnlyDisabledReason,
+                          },
+                      ]
+                    : []),
                 {
                     display: ChartDisplayType.ActionsBarValue,
                     icon: 'horizontalBar',

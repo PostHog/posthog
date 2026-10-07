@@ -515,6 +515,7 @@ const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
     ChartDisplayType.ActionsBarValue,
     ChartDisplayType.ActionsPie,
     ChartDisplayType.ActionsDonut,
+    ChartDisplayType.ActionsProportionBar,
     ChartDisplayType.Metric,
     ChartDisplayType.BoxPlot,
     ChartDisplayType.SlopeGraph,
@@ -649,11 +650,16 @@ export const getAggregationGroupTypeIndex = (query: InsightQueryNode): GroupType
     return undefined
 }
 
+// A proportion bar has no axis to read a size from, so its legend carries the shares. Its legend
+// shows under the bar unless the user changes that.
+const isProportionBarQuery = (query: TrendsQuery): boolean =>
+    query.trendsFilter?.display === ChartDisplayType.ActionsProportionBar
+
 export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
     if (isStickinessQuery(query)) {
         return query.stickinessFilter?.showLegend
     } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.showLegend
+        return query.trendsFilter?.showLegend ?? (isProportionBarQuery(query) ? true : undefined)
     } else if (isLifecycleQuery(query)) {
         return query.lifecycleFilter?.showLegend
     } else if (isFunnelsQuery(query)) {
@@ -666,7 +672,7 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
 // serialize an inline string-literal union and emits a broken type; consumers narrow as needed.
 export const getLegendPosition = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.legendPosition
+        return query.trendsFilter?.legendPosition ?? (isProportionBarQuery(query) ? 'bottom' : undefined)
     } else if (isStickinessQuery(query)) {
         return query.stickinessFilter?.legendPosition
     } else if (isLifecycleQuery(query)) {

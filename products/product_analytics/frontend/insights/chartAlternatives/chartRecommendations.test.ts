@@ -28,6 +28,7 @@ const compatibleOptions = getChartDisplayOptions({
     hasTrendsFormula: false,
     boxPlotMissingProperty: false,
     hasMetricInsight: true,
+    hasProportionBarChart: false,
 })
 
 describe('getChartAlternatives', () => {

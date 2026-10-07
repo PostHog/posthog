@@ -17459,6 +17459,7 @@
                 "Metric",
                 "ActionsPie",
                 "ActionsDonut",
+                "ActionsProportionBar",
                 "ActionsBarValue",
                 "ActionsTable",
                 "WorldMap",

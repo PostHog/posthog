@@ -19,7 +19,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { DataColorToken, getSeriesColor, getSeriesColorPalette } from 'lib/colors'
-import { PIE_DISPLAY_TYPES } from 'lib/constants'
+import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { INSIGHT_UNIT_OPTIONS_SHORT } from 'scenes/insights/aggregationAxisFormat'
@@ -119,7 +119,7 @@ export const SeriesTab = (): JSX.Element => {
     // A scatter's x axis holds a second measure rather than a category, so only numeric columns fit.
     const xAxisOptions = isScatterPlot ? numericalColumns.map(toColumnOption) : options
 
-    if (PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
+    if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
         const valueColumn = selectedYAxis?.find((series) => series !== null)?.name ?? null
         const valueOptions = numericalColumns.map(({ name, type }) => ({
             value: name,
@@ -301,7 +301,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
     const { isSettingsOpen, canOpenSettings, activeSettingsTab } = useValues(seriesLogic)
     const { setSettingsOpen, submitFormatting, submitDisplay, setSettingsTab } = useActions(seriesLogic)
 
-    const isPieChart = PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)
+    const isPieChart = PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
     const showSeriesColor = !showTableSettings && !selectedSeriesBreakdownColumn
 
@@ -504,7 +504,7 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
     const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { updateSeriesIndex } = useActions(dataVisualizationLogic)
 
-    const isPieChart = PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)
+    const isPieChart = PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)
     const hideChartSpecificOptions =
         isPieChart ||
         effectiveVisualizationType === ChartDisplayType.ActionsBarValue ||

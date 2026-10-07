@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, screen, waitFor } from '@testing-library/react'
 
-import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { getHogChart, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, legend, personsModal, renderInsight } from '~/test/insight-testing'
@@ -39,7 +39,7 @@ const pieByHedgehog = (trendsFilter: Record<string, unknown> = {}): ReturnType<t
         trendsFilter: { display: ChartDisplayType.ActionsPie, showValuesOnSeries: true, ...trendsFilter },
     })
 
-describe('TrendsPieChart (ActionsPie)', () => {
+describe('TrendsPieChart', () => {
     it.each([
         {
             name: 'shows raw slice values when percent stack view is off',
@@ -117,6 +117,32 @@ describe('TrendsPieChart (ActionsPie)', () => {
                 b.className.includes('opacity-40')
             )
             expect(dimmed.map((b) => b.textContent)).toEqual(['Spike'])
+        })
+    })
+
+    describe('ActionsProportionBar', () => {
+        it.each([
+            {
+                name: 'shows the legend with each share by default, because the bar has no axis',
+                showLegend: undefined,
+                expectedRows: [
+                    { label: 'Spike', secondaryLabel: '57.9% · 11' },
+                    { label: 'Thistle', secondaryLabel: '21.1% · 4' },
+                    { label: 'Bramble', secondaryLabel: '10.5% · 2' },
+                    { label: 'Prickles', secondaryLabel: '10.5% · 2' },
+                    { label: 'Conker', secondaryLabel: '0% · 0' },
+                ],
+            },
+            { name: 'hides the legend when the user turns it off', showLegend: false, expectedRows: [] },
+        ])('$name', async ({ showLegend, expectedRows }) => {
+            const { container } = renderInsight({
+                query: pieByHedgehog({ display: ChartDisplayType.ActionsProportionBar, showLegend }),
+            })
+            await waitFor(() => expect(container.querySelector('[data-attr="trend-proportion-bar"]')).not.toBeNull(), {
+                timeout: 5000,
+            })
+
+            expect(getHogChart(container).proportionLegendItems()).toEqual(expectedRows)
         })
     })
 })

@@ -15,6 +15,7 @@ const VISUALIZATION_SUPPORT: Record<ChartDisplayType, VisualizationSupport> = {
     [ChartDisplayType.ActionsUnstackedBar]: 'axes',
     [ChartDisplayType.ActionsPie]: 'axes',
     [ChartDisplayType.ActionsDonut]: 'axes',
+    [ChartDisplayType.ActionsProportionBar]: 'axes',
     [ChartDisplayType.ActionsLineGraphCumulative]: 'axes',
     [ChartDisplayType.ScatterPlot]: 'manual',
     [ChartDisplayType.TwoDimensionalHeatmap]: 'manual',

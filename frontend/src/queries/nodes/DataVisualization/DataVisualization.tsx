@@ -7,7 +7,7 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { PIE_DISPLAY_TYPES } from 'lib/constants'
+import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -283,7 +283,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 />
             </BindLogic>
         )
-    } else if (PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
+    } else if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         // Pie charts can consume breakdown series totals directly, even when there isn't
         // a matching breakdown x-axis to swap in like the line/bar path expects.

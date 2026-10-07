@@ -3,8 +3,14 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
-import { PieChart } from '@posthog/quill-charts'
-import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from '@posthog/quill-charts'
+import { PieChart, ProportionBar } from '@posthog/quill-charts'
+import type {
+    PieChartConfig,
+    ProportionBarConfig,
+    RadialSlicePayload,
+    Series,
+    TooltipContext,
+} from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import {
@@ -101,6 +107,7 @@ export function TrendsPieChart({
     const onDataPointClick = context?.onDataPointClick
     const showAggregation = !pieChartVizOptions?.hideAggregation
     const isDonut = display === ChartDisplayType.ActionsDonut
+    const isProportionBar = display === ChartDisplayType.ActionsProportionBar
 
     // Share the line/bar label resolver so the legend humanizes event names ($pageview → Pageview)
     // and honors series renames, instead of showing the raw event key.
@@ -174,6 +181,8 @@ export function TrendsPieChart({
             legendConfig,
         ]
     )
+
+    const proportionBarConfig: ProportionBarConfig = useMemo(() => ({ legend: legendConfig }), [legendConfig])
 
     // ActionsPie disables clicks entirely when the insight has data-warehouse series (see
     // ActionsPie.tsx — `onClick={hasDataWarehouseSeries ? undefined : onClick}`); match that here.
@@ -283,6 +292,32 @@ export function TrendsPieChart({
         )
     }
 
+    const renderTotalBelow = (className?: string | false): JSX.Element | false =>
+        showAggregation &&
+        !isDonut && (
+            <div className={clsx('text-7xl text-center font-bold m-0', className)}>
+                {formatAggregationAxisValue(trendsFilter, total, baseCurrency)}
+            </div>
+        )
+
+    if (isProportionBar) {
+        return (
+            <div className="flex flex-col w-full flex-1 min-h-0 justify-center gap-6">
+                <ProportionBar<TrendsSeriesMeta>
+                    series={series}
+                    theme={theme}
+                    config={proportionBarConfig}
+                    tooltip={renderTooltip}
+                    onSliceClick={canHandleClick ? onSliceClick : undefined}
+                    valueFormatter={valueFormatter}
+                    dataAttr="trend-proportion-bar"
+                    onError={handleChartError}
+                />
+                {renderTotalBelow()}
+            </div>
+        )
+    }
+
     // A bottom legend (exports/shared images) hugs the bottom of the chart box. If the box fills a
     // tall card the round pie centers in it, stranding the legend far below the pie and up against
     // the total. Bound the box to a square around the pie so the legend sits right under it, and
@@ -316,11 +351,7 @@ export function TrendsPieChart({
         // leaving `PieChart` with `outerRadius <= 0` and no slices. Mirrors the bar/line charts.
         <div className={clsx('flex flex-col w-full flex-1 min-h-0', legendAtBottom && 'justify-center')}>
             {legendAtBottom ? <div className="flex flex-col w-full min-h-0 max-h-full aspect-square">{pie}</div> : pie}
-            {showAggregation && !isDonut && (
-                <div className={clsx('text-7xl text-center font-bold m-0', legendAtBottom && 'mt-6')}>
-                    {formatAggregationAxisValue(trendsFilter, total, baseCurrency)}
-                </div>
-            )}
+            {renderTotalBelow(legendAtBottom && 'mt-6')}
         </div>
     )
 }

@@ -4,7 +4,15 @@ import { IconGraph, IconLifecycle, IconPieChart, IconScatter, IconTrends } from 
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Icon123, IconAreaChart, IconDonutChart, IconHeatmap, IconTableChart, IconTrendingUp } from 'lib/lemon-ui/icons'
+import {
+    Icon123,
+    IconAreaChart,
+    IconDonutChart,
+    IconHeatmap,
+    IconProportionBarChart,
+    IconTableChart,
+    IconTrendingUp,
+} from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ChartDisplayType } from '~/types'
@@ -23,6 +31,7 @@ const DISPLAY_TYPE_LABELS: Record<ChartDisplayType, string> = {
     [ChartDisplayType.Metric]: 'Metric',
     [ChartDisplayType.ActionsPie]: 'Pie chart',
     [ChartDisplayType.ActionsDonut]: 'Donut chart',
+    [ChartDisplayType.ActionsProportionBar]: 'Proportion bar',
     [ChartDisplayType.ActionsBarValue]: 'Horizontal bar chart',
     [ChartDisplayType.ActionsTable]: 'Table',
     [ChartDisplayType.WorldMap]: 'World map',
@@ -49,7 +58,8 @@ export function getTableDisplayOptions(
     numericalColumns: Column[],
     autoVisualizationType: ChartDisplayType,
     disabledReasonFor?: (displayType: ChartDisplayType) => string | undefined,
-    metricInsightEnabled = false
+    metricInsightEnabled = false,
+    proportionBarEnabled = false
 ): LemonSelectOptions<ChartDisplayType> {
     const canDisplayContinuousChart = columns.length > 1 && numericalColumns.length > 0
     const canDisplayScatterPlot = numericalColumns.length > 1
@@ -139,6 +149,15 @@ export function getTableDisplayOptions(
                     icon: <IconDonutChart />,
                     label: 'Donut chart',
                 },
+                ...(proportionBarEnabled
+                    ? [
+                          {
+                              value: ChartDisplayType.ActionsProportionBar,
+                              icon: <IconProportionBarChart />,
+                              label: 'Proportion bar',
+                          },
+                      ]
+                    : []),
                 {
                     value: ChartDisplayType.ScatterPlot,
                     icon: <IconScatter />,
@@ -209,7 +228,8 @@ export const TableDisplay = ({
                 numericalColumns,
                 autoVisualizationType,
                 disabledReasonFor,
-                !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT]
+                !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT],
+                !!featureFlags[FEATURE_FLAGS.PROPORTION_BAR_CHART]
             )}
             renderButtonContent={() => renderDisplayTypeLabel(visualizationType, autoVisualizationType)}
             size="small"

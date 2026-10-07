@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
-import { PIE_DISPLAY_TYPES } from 'lib/constants'
+import { PART_OF_WHOLE_DISPLAY_TYPES, PIE_DISPLAY_TYPES } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -104,6 +104,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
     const showFunnelLegendConfig = isTrendsFunnel && hasBreakdownFilter(breakdownFilter)
     const isCalendarHeatmap = display === ChartDisplayType.CalendarHeatmap
     const isPie = !!display && PIE_DISPLAY_TYPES.includes(display)
+    const isPartOfWhole = !!display && PART_OF_WHOLE_DISPLAY_TYPES.includes(display)
     // Percent stacking swaps the raw values out for percentages, so there is no unit left to pick.
     // A pie is the exception: it can show the value and the percentage together.
     const showsRawValues = !showPercentStackView || (isPie && !!showValuesOnSeries)
@@ -172,7 +173,10 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
             displayItems.push(DisplayOptions.Legend)
         }
         if (isPie) {
-            displayItems.push(DisplayOptions.SliceNames, DisplayOptions.PieTotal)
+            displayItems.push(DisplayOptions.SliceNames)
+        }
+        if (isPartOfWhole) {
+            displayItems.push(DisplayOptions.PieTotal)
         }
         if (isTrendsFunnel && !hideContinuousChartOptions) {
             displayItems.push(DisplayOptions.HideIncompleteFunnelPeriods)

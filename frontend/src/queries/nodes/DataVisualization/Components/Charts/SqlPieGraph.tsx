@@ -1,8 +1,15 @@
 import clsx from 'clsx'
 import { useCallback, useMemo, useState } from 'react'
 
-import { ChartLegend, PieChart, TooltipSurface, TooltipSwatch, useChartLegend } from '@posthog/quill-charts'
-import type { ChartLegendConfig, PieChartConfig, TooltipContext } from '@posthog/quill-charts'
+import {
+    ChartLegend,
+    PieChart,
+    ProportionBar,
+    TooltipSurface,
+    TooltipSwatch,
+    useChartLegend,
+} from '@posthog/quill-charts'
+import type { ChartLegendConfig, PieChartConfig, ProportionBarConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
@@ -34,6 +41,7 @@ export const SqlPieGraph = ({
 }: SqlChartProps): JSX.Element => {
     const theme = useChartTheme()
     const isDonut = visualizationType === ChartDisplayType.ActionsDonut
+    const isProportionBar = visualizationType === ChartDisplayType.ActionsProportionBar
 
     const slices = useMemo(() => buildPieSlices(xData, yData), [xData, yData])
     const formattingSettings = yData[0]?.settings
@@ -42,7 +50,8 @@ export const SqlPieGraph = ({
     // Toggled-off slices aren't persisted (SQL insights have nowhere to save them), but the legend
     // is controlled anyway so the total and the tooltip shares track the slices actually drawn.
     const [hiddenKeys, setHiddenKeys] = useState<string[]>([])
-    const showLegend = chartSettings.showLegend ?? false
+    // A proportion bar has no axis to read a size from, so its legend carries the shares.
+    const showLegend = chartSettings.showLegend ?? isProportionBar
     const visibleHiddenKeySet = useMemo(() => new Set(showLegend ? hiddenKeys : []), [showLegend, hiddenKeys])
     const total = useMemo(
         () => series.reduce((sum, s) => (visibleHiddenKeySet.has(s.key) ? sum : sum + (s.data[0] ?? 0)), 0),
@@ -55,7 +64,8 @@ export const SqlPieGraph = ({
     // The total is a sum-of-values readout, so default it on only when slices show values.
     // `showPieTotal` is the legacy top-level toggle — honor it for charts saved before `pie`.
     const showPieTotal = chartSettings.pie?.showTotal ?? chartSettings.showPieTotal ?? sliceContent === 'values'
-    const asPercent = (chartSettings.pie?.valueDisplay ?? 'absolute') === 'percentage'
+    // The proportion bar has no "show values as" control: its legend and tooltip show both.
+    const asPercent = !isProportionBar && (chartSettings.pie?.valueDisplay ?? 'absolute') === 'percentage'
 
     const absoluteFormatter = useCallback(
         (value: number) => formatSqlSeriesValue(value, formattingSettings),
@@ -67,7 +77,7 @@ export const SqlPieGraph = ({
     const legendConfig: ChartLegendConfig = useMemo(
         () => ({
             show: showLegend,
-            position: chartSettings.legendPosition ?? 'right',
+            position: chartSettings.legendPosition ?? (isProportionBar ? 'bottom' : 'right'),
             interactive: true,
             hiddenKeys: showLegend ? hiddenKeys : [],
             onToggleSeries: (key: string) =>
@@ -75,8 +85,10 @@ export const SqlPieGraph = ({
             onSetHiddenSeries: setHiddenKeys,
             renderItem: legendRenderItem,
         }),
-        [showLegend, chartSettings.legendPosition, hiddenKeys, legendRenderItem]
+        [showLegend, chartSettings.legendPosition, isProportionBar, hiddenKeys, legendRenderItem]
     )
+
+    const proportionBarConfig: ProportionBarConfig = useMemo(() => ({ legend: legendConfig }), [legendConfig])
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, legendConfig)
 
@@ -120,7 +132,9 @@ export const SqlPieGraph = ({
     if (!slices.length) {
         return (
             <div className={clsx(className, 'rounded bg-surface-primary flex flex-1 items-center justify-center p-6')}>
-                <span className="text-secondary text-sm">Pie charts require at least one positive value.</span>
+                <span className="text-secondary text-sm">
+                    {isProportionBar ? 'Proportion bars' : 'Pie charts'} require at least one positive value.
+                </span>
             </div>
         )
     }
@@ -134,6 +148,32 @@ export const SqlPieGraph = ({
                 <div className="text-5xl font-bold">{absoluteFormatter(total)}</div>
             </div>
         ) : null
+
+    if (isProportionBar) {
+        return (
+            <div
+                className={clsx(
+                    className,
+                    'rounded bg-surface-primary flex flex-col flex-1 min-h-0 p-4 justify-center',
+                    {
+                        'h-[60vh]': presetChartHeight,
+                        'h-full': !presetChartHeight,
+                    }
+                )}
+            >
+                <ProportionBar
+                    series={series}
+                    theme={theme}
+                    config={proportionBarConfig}
+                    tooltip={renderTooltip}
+                    valueFormatter={absoluteFormatter}
+                    dataAttr="sql-proportion-bar"
+                    onError={handleChartError}
+                />
+                {totalDisplay}
+            </div>
+        )
+    }
 
     // For pies, a side legend narrows the chart column, so the total belongs inside it to stay
     // centered under the pie. A top/bottom legend leaves the column full-width, and the total goes below both.
