@@ -1,4 +1,4 @@
-import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
+import { OAUTH_SCOPES_HIDDEN } from 'lib/oauthScopes.generated'
 import {
     AGENT_CLI_API_KEY_SCOPES,
     API_KEY_SCOPE_PRESETS,
@@ -11,7 +11,10 @@ import {
 
 import { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
-const API_SCOPE_OBJECTS = Object.values(ScopeObjectEnumApi)
+const OAUTH_HIDDEN_SCOPE_OBJECTS = new Set(OAUTH_SCOPES_HIDDEN.map((scope) => scope.split(':')[0]))
+
+// The pickers never show an OAuth-hidden object, so only the rest need a row and a group.
+const PICKER_SCOPE_OBJECTS = Object.values(ScopeObjectEnumApi).filter((obj) => !OAUTH_HIDDEN_SCOPE_OBJECTS.has(obj))
 
 const getRenderableKeyCreationScopes = (): Set<string> =>
     new Set(
@@ -54,7 +57,7 @@ describe('API_SCOPES modal coverage', () => {
     it('offers or explicitly omits every scope object', () => {
         // The enum is generated from posthog/scopes.py, so a new backend scope object fails here
         // until someone offers it in the key-creation modal or gives a reason to omit it.
-        const uncovered = API_SCOPE_OBJECTS.filter((obj) => !offered.has(obj) && !omitted.has(obj))
+        const uncovered = PICKER_SCOPE_OBJECTS.filter((obj) => !offered.has(obj) && !omitted.has(obj))
         expect(uncovered).toEqual([])
     })
 
@@ -65,12 +68,21 @@ describe('API_SCOPES modal coverage', () => {
 })
 
 describe('API_SCOPE_GROUPS', () => {
-    it('files every scope object in exactly one group', () => {
+    const filed = API_SCOPE_GROUPS.flatMap(({ objects }) => objects)
+
+    it('files every picker scope object in exactly one group', () => {
         // A new scope object fails here until someone picks the product area it belongs to.
-        const filed = API_SCOPE_GROUPS.flatMap(({ objects }) => objects)
         const duplicates = [...new Set(filed.filter((obj, index) => filed.indexOf(obj) !== index))]
-        const missing = API_SCOPE_OBJECTS.filter((obj) => !filed.includes(obj))
+        const missing = PICKER_SCOPE_OBJECTS.filter((obj) => !filed.includes(obj))
         expect({ duplicates, missing }).toEqual({ duplicates: [], missing: [] })
+    })
+
+    it('keeps OAuth-hidden scope objects out of every picker', () => {
+        // A hidden object with a row would show in the key picker, and a group that exists only for
+        // hidden objects carries a label that no person should ever see.
+        const shown = [...filed, ...API_SCOPES.map(({ key }) => key)]
+        const hidden = shown.filter((obj) => OAUTH_HIDDEN_SCOPE_OBJECTS.has(obj))
+        expect(hidden).toEqual([])
     })
 
     it('uses each group label once', () => {
@@ -127,9 +139,12 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.label).toBe('Read-only access')
         })
 
-        it('contains :read for every entry in API_SCOPES except unprivileged-excluded scopes', () => {
+        it('contains :read for every readable entry in API_SCOPES except unprivileged-excluded scopes', () => {
             const preset = findPreset('read_only_access')
-            const expected = API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded)
+            const expected = API_SCOPES.filter(
+                ({ unprivilegedExcluded, disabledActions }) =>
+                    !unprivilegedExcluded && !disabledActions?.includes('read')
+            )
                 .map(({ key }) => `${key}:read`)
                 .sort()
             expect([...preset.scopes].sort()).toEqual(expected)
@@ -163,14 +178,14 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.scopes).not.toContain('integration:write')
             expect(preset.scopes).not.toContain('user:write')
         })
-
-        it('only includes scopes the key creation UI can render', () => {
-            const renderableScopes = getRenderableKeyCreationScopes()
-
-            expect(AGENT_CLI_API_KEY_SCOPES).toEqual(
-                (AGENT_USE_CASE_SCOPES as readonly string[]).filter((scope) => renderableScopes.has(scope))
-            )
-            expect(AGENT_CLI_API_KEY_SCOPES.every((scope) => renderableScopes.has(scope))).toBe(true)
-        })
     })
+
+    it.each(API_KEY_SCOPE_PRESETS.filter(({ value }) => value !== 'all_access').map(({ value }) => value))(
+        'preset %s only sets levels the key creation UI can render',
+        (value) => {
+            const renderableScopes = getRenderableKeyCreationScopes()
+            const unrenderable = findPreset(value).scopes.filter((scope) => !renderableScopes.has(scope))
+            expect(unrenderable).toEqual([])
+        }
+    )
 })

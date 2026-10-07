@@ -91,6 +91,7 @@ PRODUCTS_APPS = [
     "products.metrics.backend.apps.MetricsConfig",
     "products.apm.backend.apps.ApmConfig",
     "products.notifications.backend.apps.NotificationsConfig",
+    "products.cross_project_dashboards.backend.apps.CrossProjectDashboardsConfig",
     "products.dashboards.backend.apps.DashboardsConfig",
     "products.messaging.backend.apps.MessagingConfig",
     "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
@@ -669,6 +670,9 @@ SPECTACULAR_SETTINGS = {
             "DiagnosticSeverityEnum": ["error", "warning"],
             "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
             "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
+            "LogsAlertDestinationTypeEnum": ["slack", "webhook", "teams", "pagerduty"],
+            "PagerDutySeverityEnum": ["critical", "error", "warning", "info"],
+            "PagerDutyRegionEnum": ["us", "eu"],
             # growth's identity-matching tier and the signals scout suggestion confidence.
             "ConfidenceTierEnum": ["low", "medium", "high"],
             #

@@ -140,6 +140,14 @@ OLD_DENY_PATTERN_DEFS = {
             "^tools/hogli-commands/hogli_commands/product/",
         ]
     },
+    "workflows_delivery": {
+        "paths": [
+            "^products/cdp/backend/(api|models)/",
+            "^products/workflows/backend/(facade|presentation|models)/",
+            "^products/messaging/backend/(api|models)/",
+            "^nodejs/src/cdp/[\\s\\S]*(?<!\\.test\\.ts)\\Z",
+        ]
+    },
 }
 OLD_ALLOW_ONLY_EXTENSIONS = {
     ".txt",
@@ -243,6 +251,14 @@ def _rename_deps_toolchain(d: dict) -> None:
     d["deny"]["dependencies_toolchain"] = d["deny"].pop("deps_toolchain")
 
 
+def _self_governance_exempts_a_team(d: dict) -> None:
+    d["deny"]["stamphog_policy"]["exempt_author_teams"] = ["team-devex"]
+
+
+def _exempt_author_team_with_org_prefix(d: dict) -> None:
+    d["deny"]["auth"]["exempt_author_teams"] = ["@PostHog/team-security"]
+
+
 def _ownership_unknown_format(d: dict) -> None:
     d["ownership"]["sources"][0]["format"] = "svn-blame"
 
@@ -277,6 +293,8 @@ def _ownership_wrong_locator_for_format(d: dict) -> None:
         _out_of_contract_delegation,
         _ceiling_under_global_default,
         _rename_deps_toolchain,
+        _self_governance_exempts_a_team,
+        _exempt_author_team_with_org_prefix,
         _ownership_unknown_format,
         _ownership_both_locators,
         _ownership_no_locator,

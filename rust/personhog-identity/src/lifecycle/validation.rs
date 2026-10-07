@@ -46,6 +46,7 @@ const BARE_CASE_INSENSITIVE_ILLEGAL_IDS: &[&str] = &[
     "true",
     "false",
 ];
+// '$posthog_cookieless' is the cookieless mode sentinel. Every cookieless visitor shares it.
 const BARE_CASE_SENSITIVE_ILLEGAL_IDS: &[&str] = &[
     "[object Object]",
     "NaN",
@@ -54,6 +55,7 @@ const BARE_CASE_SENSITIVE_ILLEGAL_IDS: &[&str] = &[
     "null",
     "0",
     "undefined",
+    "$posthog_cookieless",
 ];
 
 fn with_quoted(ids: &[&str]) -> HashSet<String> {

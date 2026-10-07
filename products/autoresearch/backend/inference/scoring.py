@@ -61,6 +61,7 @@ from products.autoresearch.backend.dataset.labeling import (
     build_training_features_sql,
     rolling_selection,
 )
+from products.autoresearch.backend.inference.failures import classify_failure
 from products.autoresearch.backend.inference.sandbox import (
     _FOLD_COL,
     _HOLDOUT_FOLD,
@@ -215,12 +216,13 @@ class _EmitResult:
 
 
 def create_inference_run(
-    *, pipeline: AutoresearchPipeline, model: AutoresearchModel, window: ScoringWindow
+    *, pipeline: AutoresearchPipeline, model: AutoresearchModel, window: ScoringWindow, scheduled: bool = False
 ) -> AutoresearchRun:
     return AutoresearchRun.objects.create(
         pipeline=pipeline,
         model=model,
         run_type=AutoresearchRun.RunType.INFERENCE,
+        scheduled=scheduled,
         status=AutoresearchRun.Status.RUNNING,
         started_at=django_timezone.now(),
         # Online validation discovers matured dates from these two keys instead of scanning
@@ -237,6 +239,7 @@ def run_inference_for_pipeline(
     user: User | None = None,
     run: AutoresearchRun | None = None,
     query_context: QueryContext = INTERACTIVE_QUERY,
+    scheduled: bool = False,
 ) -> AutoresearchRun:
     """
     Top-level inference entry point. Creates an AutoresearchRun, scores users,
@@ -255,16 +258,20 @@ def run_inference_for_pipeline(
 
     ``query_context`` is the ClickHouse budget of every scoring query. The Temporal
     activity passes ``BATCH_QUERY``.
+
+    ``scheduled`` marks a run the daily sweep started. Promotion counts only those runs when
+    it decides that the champion cannot score.
     """
     window = ScoringWindow.for_date(prediction_date)
     if run is None:
-        run = create_inference_run(pipeline=pipeline, model=model, window=window)
+        run = create_inference_run(pipeline=pipeline, model=model, window=window, scheduled=scheduled)
     else:
         run.model = model
         run.status = AutoresearchRun.Status.RUNNING
         run.error = ""
+        run.metrics.pop("failure_kind", None)
         run.completed_at = None
-        run.save(update_fields=["model", "status", "error", "completed_at"])
+        run.save(update_fields=["model", "status", "error", "metrics", "completed_at"])
 
     try:
         team = pipeline.team
@@ -310,9 +317,12 @@ def run_inference_for_pipeline(
     except Exception as exc:
         run.status = AutoresearchRun.Status.FAILED
         run.error = str(exc)[:2000]
+        run.metrics["failure_kind"] = classify_failure(exc)
         run.completed_at = django_timezone.now()
-        run.save(update_fields=["status", "error", "completed_at"])
-        logger.exception("autoresearch_inference_failed", pipeline_id=str(pipeline.pk))
+        run.save(update_fields=["status", "error", "metrics", "completed_at"])
+        logger.exception(
+            "autoresearch_inference_failed", pipeline_id=str(pipeline.pk), failure_kind=run.metrics["failure_kind"]
+        )
         raise
 
 

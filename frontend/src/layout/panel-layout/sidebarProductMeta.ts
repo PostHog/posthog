@@ -69,6 +69,7 @@ export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
     'Apps',
     'Autoresearch',
     'Broadcasts',
+    'Business intelligence',
     'Business knowledge',
     'Engineering analytics',
     'Identity matching',

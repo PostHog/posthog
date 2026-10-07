@@ -1,4 +1,3 @@
-import datetime as dt
 from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol
 
 from django.db.models import F
@@ -281,22 +280,21 @@ async def _run_delta_maintenance(
     delta_table_ref: "DeltaTableRef",
     is_cdc_companion: bool,
     logger: FilteringBoundLogger,
-    partition_count_fallback: int | None,
 ) -> None:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
         DeltaMaintenance,
     )
 
     # Threshold maintenance for every sync type: most final batches leave the table with nothing
-    # to compact, and an unconditional compact still lists and plans every file. Compact when
-    # fragmented, otherwise vacuum once enough commits have accrued; see DeltaMaintenance.run_scheduled.
-    # A non-CDC sync also compacts once its small merge files add up (see compact_if_fragmented).
+    # to compact, and an unconditional compact still lists and plans every file. Vacuum when the
+    # commit or time cadence is due, then compact when compaction can remove files; see
+    # DeltaMaintenance.run_scheduled. A non-CDC sync also compacts once its small merge files add up
+    # (see compact_if_fragmented).
     logger.debug("Running threshold-based delta maintenance")
     with POST_LOAD_DURATION_SECONDS.labels(operation="maintenance").time():
         await DeltaMaintenance(delta_table_ref).run_scheduled(
             schema,
             is_cdc_companion=is_cdc_companion,
-            partition_count_fallback=partition_count_fallback,
             compact_small_files=not schema.is_cdc,
         )
 
@@ -593,22 +591,6 @@ POST_LOAD_STEPS: tuple[PostLoadStep, ...] = (
 )
 
 
-def _repartitioned_during_job(schema: ExternalDataSchema, job: ExternalDataJob) -> bool:
-    """Whether a repartition rewrote the table earlier in this same job.
-
-    The swap clears `repartition_pending` and `repartition_swap` before extraction runs, so
-    those markers cannot tell post-load that the layout was just replaced and its files still
-    need publishing. An unparseable stamp publishes rather than skips.
-    """
-    stamped = schema.last_repartition_at
-    if not stamped:
-        return False
-    try:
-        return dt.datetime.fromisoformat(stamped) >= job.created_at
-    except (TypeError, ValueError):
-        return True
-
-
 def _post_load_step_phase_name(step: PostLoadStep) -> str:
     name = getattr(step, "__name__", type(step).__name__)
     return name.strip("_").removesuffix("_step")
@@ -646,7 +628,6 @@ async def run_post_load_operations(
     last_incremental_field_value: Any = None,
     resource: "Optional[SourceResponse]" = None,
     cdc_write_mode: Optional[str] = None,
-    allow_zero_row_skip: bool = False,
 ) -> Optional[str]:
     """
     Orchestrator that runs all post-load operations, in order:
@@ -659,9 +640,6 @@ async def run_post_load_operations(
            analytics views, repartition detection)
 
     Returns the queryable folder the table now serves from, or None when there is no delta table.
-
-    With `allow_zero_row_skip`, a steady-state non-CDC run that wrote zero rows skips steps
-    1, 2 and 4 and returns None.
     """
     if delta_table_ref is None or await delta_table_ref.get_delta_table() is None:
         # A clean run that wrote zero rows creates no delta table, so there is nothing to publish or
@@ -681,38 +659,7 @@ async def run_post_load_operations(
     # look like a continuation.
     is_initial_load = not schema.initial_sync_complete
 
-    # Zero rows means the Delta table is untouched: nothing to compact, and republishing
-    # would only orphan a fresh copy of every parquet file. A schema with a linked table
-    # has nothing to repoint either. Bookkeeping and POST_LOAD_STEPS still run below,
-    # because those repair managed views and watermarks rather than describing what this
-    # run wrote. Opt-in because only the v2 pipeline's row_count is ground truth for what
-    # the run wrote; the v3 consumer's can read 0 for a batch that did write data.
-    if (
-        allow_zero_row_skip
-        and row_count == 0
-        and not is_cdc_schema
-        and not is_cdc_companion
-        and schema.initial_sync_complete
-        # An unlinked schema has nothing queryable, and skipping registration strands it: the next
-        # zero-row run skips again.
-        and schema.table_id is not None
-        and schema.repartition_pending is None
-        and schema.repartition_swap is None
-        and schema.delta_revive_required is None
-        and not _repartitioned_during_job(schema, job)
-    ):
-        logger.debug("Zero rows synced, skipping delta maintenance and S3 publish")
-        await _finalize_sync_bookkeeping(job, schema, resource, last_incremental_field_value, logger)
-        await _run_post_load_steps(job, schema, source, delta_table_ref, is_cdc_companion, logger)
-        return None
-
-    await _run_delta_maintenance(
-        schema,
-        delta_table_ref,
-        is_cdc_companion,
-        logger,
-        partition_count_fallback=resource.partition_count if resource is not None else None,
-    )
+    await _run_delta_maintenance(schema, delta_table_ref, is_cdc_companion, logger)
 
     queryable_folder = await _publish_queryable_files(
         job, schema, delta_table_ref, resource_name, is_cdc_companion, logger

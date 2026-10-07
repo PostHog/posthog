@@ -50,6 +50,7 @@ export const manifest: ProductManifest = {
         action: {
             name: 'Action',
             href: (ref: string) => urls.action(ref),
+            listHref: () => urls.actions(),
             filterKey: 'action',
             iconType: 'action' as FileSystemIconType,
             iconColor: [

@@ -330,8 +330,10 @@ export interface userLogicActions {
     }
     updateUser: (
         user: Partial<UserType>,
-        successCallback?: () => void
+        successCallback?: () => void,
+        failureCallback?: () => void
     ) => {
+        failureCallback: (() => void) | undefined
         successCallback: (() => void) | undefined
         user: Partial<UserType>
     }
@@ -345,12 +347,14 @@ export interface userLogicActions {
     updateUserSuccess: (
         user: UserType,
         payload?: {
+            failureCallback: (() => void) | undefined
             successCallback: (() => void) | undefined
             user: Partial<UserType>
         }
     ) => {
         user: UserType
         payload?: {
+            failureCallback: (() => void) | undefined
             successCallback: (() => void) | undefined
             user: Partial<UserType>
         }
@@ -431,9 +435,10 @@ export const userLogic = kea<userLogicType>([
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: (preserveLocation = false, nextUrl?: string) => ({ preserveLocation, nextUrl }),
         upgradeImpersonation: (reason: string) => ({ reason }),
-        updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({
+        updateUser: (user: Partial<UserType>, successCallback?: () => void, failureCallback?: () => void) => ({
             user,
             successCallback,
+            failureCallback,
         }),
         cancelEmailChangeRequest: true,
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
@@ -498,7 +503,7 @@ export const userLogic = kea<userLogicType>([
             },
         },
     })),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, cache }) => ({
         user: [
             // TODO: Because we don't actually load the app until this request completes, `user` is never `null` (will help simplify checks across the app)
             null as UserType | null,
@@ -513,16 +518,34 @@ export const userLogic = kea<userLogicType>([
                     }
                     return null
                 },
-                updateUser: async ({ user, successCallback }) => {
-                    if (!values.user) {
-                        throw new Error('Current user has not been loaded yet, so it cannot be updated!')
+                updateUser: async ({ user, successCallback, failureCallback }): Promise<UserType> => {
+                    const previousUpdate = cache.pendingUserUpdate as Promise<void> | undefined
+                    let completeUpdate: () => void = () => {}
+                    const pendingUpdate = new Promise<void>((resolve) => {
+                        completeUpdate = resolve
+                    })
+                    cache.pendingUserUpdate = pendingUpdate
+                    await previousUpdate
+
+                    try {
+                        if (!values.user) {
+                            throw new Error('Current user has not been loaded yet, so it cannot be updated!')
+                        }
+                        // Full user responses can replace newer state, so account writes finish in submission order.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
+                        const response = await api.update<UserType>('api/users/@me/', user)
+                        successCallback?.()
+                        return response
+                    } catch (error) {
+                        failureCallback?.()
+                        // Returning the old user would make kea-loaders report a failed write as a success.
+                        throw error
+                    } finally {
+                        completeUpdate()
+                        if (cache.pendingUserUpdate === pendingUpdate) {
+                            cache.pendingUserUpdate = undefined
+                        }
                     }
-                    // Let failures throw so kea-loaders dispatches `updateUserFailure` — returning the old
-                    // user here would be treated as a success, silently masking backend errors.
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
-                    const response = await api.update<UserType>('api/users/@me/', user)
-                    successCallback?.()
-                    return response
                 },
                 cancelEmailChangeRequest: async () => {
                     if (!values.user) {
@@ -741,7 +764,8 @@ export const userLogic = kea<userLogicType>([
                     !values.credentialReviewDismissedInSession &&
                     !router.values.location.pathname.startsWith('/account/credential-review')
                 ) {
-                    router.actions.push(urls.credentialReview())
+                    const { pathname, search, hash } = router.values.location
+                    router.actions.push(urls.credentialReview(`${pathname}${search}${hash}`))
                 }
             }
         },

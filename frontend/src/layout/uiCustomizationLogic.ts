@@ -85,33 +85,33 @@ export interface uiCustomizationLogicValues {
 export interface uiCustomizationLogicActions {
     updateUser: (
         user: Partial<UserType>,
-        successCallback?: (() => void) | undefined
+        successCallback?: (() => void) | undefined,
+        failureCallback?: (() => void) | undefined
     ) => {
+        failureCallback: (() => void) | undefined
         successCallback: (() => void) | undefined
         user: Partial<UserType>
-    } // userLogic
-    updateUserFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
     } // userLogic
     updateUserSuccess: (
         user: UserType,
         payload?:
             | {
+                  failureCallback: (() => void) | undefined
                   successCallback: (() => void) | undefined
                   user: Partial<UserType>
               }
             | undefined
     ) => {
         payload?: {
+            failureCallback: (() => void) | undefined
             successCallback: (() => void) | undefined
             user: Partial<UserType>
         }
         user: UserType
     } // userLogic
+    clearPendingUiConfiguration: (configuration: UserUIConfiguration) => {
+        configuration: UserUIConfiguration
+    }
     completeStarredProductsSetup: () => {
         value: true
     }
@@ -134,6 +134,15 @@ export interface uiCustomizationLogicActions {
     ) => {
         section: keyof SidebarSectionsConfiguration
         shown: boolean
+    }
+    updateUiConfiguration: (
+        configuration: UserUIConfiguration,
+        successCallback?: () => void,
+        failureCallback?: () => void
+    ) => {
+        configuration: UserUIConfiguration
+        failureCallback: (() => void) | undefined
+        successCallback: (() => void) | undefined
     }
 }
 
@@ -174,13 +183,19 @@ export const uiCustomizationLogic = kea<uiCustomizationLogicType>([
     path(['layout', 'uiCustomizationLogic']),
     connect(() => ({
         values: [userLogic, ['user', 'userLoading'], featureFlagLogic, ['featureFlags']],
-        actions: [userLogic, ['updateUser', 'updateUserSuccess', 'updateUserFailure']],
+        actions: [userLogic, ['updateUser', 'updateUserSuccess']],
     })),
     actions({
         setSidebarSectionShown: (section: SidebarSectionKey, shown: boolean) => ({ section, shown }),
         setSidebarDensity: (density: SidebarDensity) => ({ density }),
         setSidebarItemShown: (item: SidebarItemKey, shown: boolean) => ({ item, shown }),
         setPendingUiConfiguration: (configuration: UserUIConfiguration | null) => ({ configuration }),
+        clearPendingUiConfiguration: (configuration: UserUIConfiguration) => ({ configuration }),
+        updateUiConfiguration: (
+            configuration: UserUIConfiguration,
+            successCallback?: () => void,
+            failureCallback?: () => void
+        ) => ({ configuration, successCallback, failureCallback }),
         completeStarredProductsSetup: true,
     }),
     reducers({
@@ -189,6 +204,8 @@ export const uiCustomizationLogic = kea<uiCustomizationLogicType>([
             null as UserUIConfiguration | null,
             {
                 setPendingUiConfiguration: (_, { configuration }) => configuration,
+                clearPendingUiConfiguration: (state, { configuration }) => (state === configuration ? null : state),
+                updateUserSuccess: (state, { payload }) => (payload?.user.ui_configuration === state ? null : state),
             },
         ],
     }),
@@ -228,10 +245,16 @@ export const uiCustomizationLogic = kea<uiCustomizationLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        updateUiConfiguration: ({ configuration, successCallback, failureCallback }) => {
+            actions.setPendingUiConfiguration(configuration)
+            actions.updateUser({ ui_configuration: configuration }, successCallback, () => {
+                actions.clearPendingUiConfiguration(configuration)
+                failureCallback?.()
+            })
+        },
         setSidebarSectionShown: ({ section, shown }) => {
             const configuration = withSidebarSectionVisibility(values.uiConfiguration, section, shown)
-            actions.setPendingUiConfiguration(configuration)
-            actions.updateUser({ ui_configuration: configuration })
+            actions.updateUiConfiguration(configuration)
             posthog.capture('sidebar customization changed', {
                 element_kind: 'section',
                 element_key: section,
@@ -240,8 +263,7 @@ export const uiCustomizationLogic = kea<uiCustomizationLogicType>([
         },
         setSidebarItemShown: ({ item, shown }) => {
             const configuration = withSidebarItemVisibility(values.uiConfiguration, item, shown)
-            actions.setPendingUiConfiguration(configuration)
-            actions.updateUser({ ui_configuration: configuration })
+            actions.updateUiConfiguration(configuration)
             posthog.capture('sidebar customization changed', {
                 element_kind: 'item',
                 element_key: item,
@@ -250,8 +272,7 @@ export const uiCustomizationLogic = kea<uiCustomizationLogicType>([
         },
         setSidebarDensity: ({ density }) => {
             const configuration = withSidebarPatch(values.uiConfiguration, { density })
-            actions.setPendingUiConfiguration(configuration)
-            actions.updateUser({ ui_configuration: configuration })
+            actions.updateUiConfiguration(configuration)
             posthog.capture('sidebar customization changed', {
                 element_kind: 'density',
                 element_key: density,
@@ -259,14 +280,7 @@ export const uiCustomizationLogic = kea<uiCustomizationLogicType>([
         },
         completeStarredProductsSetup: () => {
             const configuration = withSidebarPatch(values.uiConfiguration, { starred_products_setup_completed: true })
-            actions.setPendingUiConfiguration(configuration)
-            actions.updateUser({ ui_configuration: configuration })
-        },
-        updateUserSuccess: () => {
-            actions.setPendingUiConfiguration(null)
-        },
-        updateUserFailure: () => {
-            actions.setPendingUiConfiguration(null)
+            actions.updateUiConfiguration(configuration)
         },
     })),
 ])

@@ -7,9 +7,17 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
+
 from posthog.api.capture import CaptureInternalResult
+from posthog.exceptions import (
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 
 from products.autoresearch.backend.dataset.labeling import PREDICTION_EVENT_NAME, ROLLING_SCORE_LIMIT
 from products.autoresearch.backend.inference import (
@@ -518,12 +526,34 @@ class TestRecipeRouting(TeamScopedTestMixin, BaseTest):
         assert dist["max"] > dist["min"]
 
 
+def _per_query_memory_limit() -> Exception:
+    exc = ClickHouseQueryMemoryLimitExceeded()
+    exc.__cause__ = ServerException("Query memory limit exceeded", code=241)
+    return exc
+
+
+def _cluster_memory_pressure() -> Exception:
+    exc = ClickHouseClusterMemoryLimitExceeded()
+    exc.__cause__ = ServerException("Memory limit (total) exceeded", code=241)
+    return exc
+
+
 class TestQueryFailuresFailTheRun(TeamScopedTestMixin, BaseTest):
+    @parameterized.expand(
+        [
+            ("unknown_error", lambda: Exception("connection reset"), "other"),
+            ("per_query_memory_limit", _per_query_memory_limit, "limit_exceeded"),
+            ("timeout", ClickHouseQueryTimeOut, "limit_exceeded"),
+            # The raw cause carries the same code as a per-query limit, but the next run can pass.
+            ("cluster_memory_pressure", _cluster_memory_pressure, "other"),
+            ("invalid_query", lambda: QueryError("Unknown table"), "query_failed"),
+        ]
+    )
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
-    def test_feature_query_failure_fails_the_run(self, mock_run_hogql: MagicMock):
+    def test_feature_query_failure_fails_the_run(self, _name, make_error, failure_kind, mock_run_hogql: MagicMock):
         # Returning no rows on a transient failure completed the run as an empty population
         # and advanced the cadence, so the day's scoring was skipped with nothing retried.
-        mock_run_hogql.side_effect = Exception("clickhouse timeout")
+        mock_run_hogql.side_effect = make_error()
         pipeline = AutoresearchPipeline.objects.create(
             team=self.team, created_by=self.user, name="Failing", target_event="$pageview", horizon_days=7
         )
@@ -536,6 +566,7 @@ class TestQueryFailuresFailTheRun(TeamScopedTestMixin, BaseTest):
 
         run = AutoresearchRun.objects.filter(pipeline=pipeline).latest("created_at")
         assert run.status == AutoresearchRun.Status.FAILED
+        assert run.metrics["failure_kind"] == failure_kind
         pipeline.refresh_from_db()
         assert pipeline.last_scored_at is None
 

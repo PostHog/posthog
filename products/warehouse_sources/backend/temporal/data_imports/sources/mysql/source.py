@@ -501,6 +501,12 @@ class MySQLSource(
             # the rare case where it exhausts that budget so Temporal's own activity retry
             # can recover it rather than surfacing it as error-tracking noise.
             "TiProxy fails to connect to TiDB",
+            # A TiDB-fronting gateway's own 1105 wording for the same "no backend reachable"
+            # condition as the TiProxy case above — it found zero TiDB instances to route to
+            # rather than failing to reach one it knew about. `_connect_with_transient_retry`
+            # already retries it in-process (see `_is_transient_no_available_tidb_instances` in
+            # mysql.py); this is the backstop for the rare case where it exhausts that budget.
+            "No available TiDB instances, please make sure TiDB is available",
             # Vitess/PlanetScale vtgate error 1105 raised while a streaming query is in flight:
             # vtgate's own gRPC client to the backend vttablet was already closing (a tablet
             # swap during a failover, reparent, or health-check-triggered pool recycle) when the

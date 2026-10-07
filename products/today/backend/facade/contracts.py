@@ -5,7 +5,19 @@ from typing import Any
 
 from pydantic.dataclasses import dataclass
 
-from .enums import BriefingStatus, BriefingWriter, ItemGroup, ItemReason, ItemSource, ItemState
+from .enums import (
+    BriefingStatus,
+    BriefingWriter,
+    CitedSource,
+    FigureSourceKind,
+    FigureText,
+    ImpactNumberKey,
+    ItemGroup,
+    ItemReason,
+    ItemSource,
+    ItemState,
+    KeyClauseRole,
+)
 
 
 @dataclass(frozen=True)
@@ -109,3 +121,131 @@ class CandidateList:
     local_day: date
     candidates: list[Candidate]
     more_reports_count: int
+
+
+@dataclass(frozen=True)
+class PullRequestLink:
+    url: str
+    number: int
+
+
+@dataclass(frozen=True)
+class CodeFile:
+    repo: str
+    path: str
+
+
+@dataclass(frozen=True)
+class PreviewLine:
+    text: str
+    quiet: bool
+
+
+@dataclass(frozen=True)
+class PageLink:
+    url: str
+    text: str
+
+
+@dataclass(frozen=True)
+class SignalPreview:
+    hint: str
+    code: list[CodeFile]
+    block: list[PreviewLine]
+    text: str
+    facts: list[str]
+    link: PageLink | None
+    link_label: str | None
+
+
+@dataclass(frozen=True)
+class RecordingTarget:
+    session_id: str
+    start_at: datetime | None
+    offset: str | None
+    seek_seconds: int | None
+
+
+@dataclass(frozen=True)
+class SignalView:
+    signal_id: str
+    source_product: str
+    source_type: str
+    source_id: str
+    content: str
+    timestamp: datetime
+    extra: dict[str, Any]
+    headline: str
+    lead: str
+    meta: str
+    cited: CitedSource | None
+    recording: RecordingTarget | None
+    link: PageLink | None
+    preview: SignalPreview | None
+
+
+@dataclass(frozen=True)
+class ImpactWorking:
+    expression: str
+    result: str
+
+
+@dataclass(frozen=True)
+class ImpactNumber:
+    key: ImpactNumberKey
+    value: str
+    sentence: str
+    signal: SignalView | None
+    values: list[str]
+    working: ImpactWorking | None
+
+
+@dataclass(frozen=True)
+class ReportPage:
+    lead: str
+    proposal: str
+    impact_sentence: str
+    named_pull_request: PullRequestLink | None
+    solution_names_pull_request: bool
+    evidence: list[SignalView]
+    source_count: int
+    impact_numbers: list[ImpactNumber]
+    last_seen: datetime | None
+
+
+@dataclass(frozen=True)
+class KeyClause:
+    start: int
+    end: int
+    role: KeyClauseRole
+    expansion: list[str]
+
+
+@dataclass(frozen=True)
+class ReportKeyClauses:
+    lead: list[KeyClause]
+    impact: list[KeyClause]
+    proposal: list[KeyClause]
+
+
+@dataclass(frozen=True)
+class FigureQuote:
+    kind: FigureSourceKind
+    signal: SignalView | None
+    at: datetime
+    sentence: str
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
+class FigureMark:
+    text: FigureText
+    start: int
+    end: int
+    figure: str
+    quote: FigureQuote
+
+
+class JevTimedOut(Exception):
+    pass

@@ -160,6 +160,20 @@ deny:
                 - '^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\.py$'
                 - '^tools/hogli-commands/hogli_commands/product_structure\.yaml$'
                 - '^tools/hogli-commands/hogli_commands/product/'
+    workflows_delivery:
+        description: 'CDP, Workflows and Messaging code that decides which customer configurations exist and what gets delivered.'
+        rationale: "Owner-only: stamphog approves team-workflows' own changes here and refuses everyone else's. Another team's change here breaks a customer silently: the API and models decide which of a tenant's rows get listed and updated, and the plugin-server worker decides what gets delivered. Teams usually edit these paths to carve out an exception for their own rows, their tests still pass, and existing customer configurations stop appearing or stop being delivered. Product frontends stay out, because a mistake there is visible. As in CODEOWNERS, only the API test directories and `*.test.ts` files stay out. Nothing else under the worker does: the template, legacy-plugin, legacy-webhook and segment directories hold live delivery code and mutable registries."
+        match:
+            paths:
+                - '^products/cdp/backend/(api|models)/'
+                - '^products/workflows/backend/(facade|presentation|models)/'
+                - '^products/messaging/backend/(api|models)/'
+                - '^nodejs/src/cdp/[\s\S]*(?<!\.test\.ts)\Z'
+        exempt_path_prefixes:
+            - 'products/cdp/backend/api/test/'
+            - 'products/messaging/backend/api/test/'
+        exempt_author_teams:
+            - 'team-workflows'
 allow:
     path_patterns:
         - 'docs/'

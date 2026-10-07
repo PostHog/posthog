@@ -2,6 +2,7 @@ import json
 from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 
 from requests import Response
@@ -210,35 +211,128 @@ class TestEmployeeHistoryTables:
             _rows(hibob_source("service-id", "token", "employee_lifecycle", team_id=1, job_id="j"))
 
 
-class TestCandidates:
+class TestHiringSearches:
+    @pytest.mark.parametrize(
+        "endpoint, path, prefix",
+        [
+            ("candidates", "/v1/hiring/candidates/search", "/candidate"),
+            ("applications", "/v1/hiring/applications/search", "/application"),
+        ],
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_posts_body_cursor_and_normalizes_pointer_keys(self, MockSession) -> None:
+    def test_posts_body_cursor_and_normalizes_pointer_keys(self, MockSession, endpoint, path, prefix) -> None:
         session = MockSession.return_value
         captured = _wire(
             session,
             [
                 _response(
                     {
-                        "items": [{"/candidate/id": 7, "/candidate/firstName": "Ada"}],
+                        "items": [{f"{prefix}/id": 7, f"{prefix}/status": "active"}],
                         "response_metadata": {"next_cursor": "c2"},
                     }
                 ),
-                _response({"items": [{"/candidate/id": 8}], "response_metadata": {"next_cursor": None}}),
+                _response({"items": [{f"{prefix}/id": 8}], "response_metadata": {"next_cursor": None}}),
             ],
         )
 
-        rows = _rows(hibob_source("service-id", "token", "candidates", team_id=1, job_id="j"))
+        rows = _rows(hibob_source("service-id", "token", endpoint, team_id=1, job_id="j"))
 
-        assert rows == [{"id": 7, "firstName": "Ada"}, {"id": 8}]
-        assert [(c["method"], c["url"]) for c in captured] == [
-            ("POST", "https://api.hibob.com/v1/hiring/candidates/search")
-        ] * 2
+        assert rows == [{"id": 7, "status": "active"}, {"id": 8}]
+        assert [(c["method"], c["url"]) for c in captured] == [("POST", f"https://api.hibob.com{path}")] * 2
         assert "cursor" not in captured[0]["json"]
-        assert "/candidate/modificationDate" in captured[0]["json"]["fields"]
+        assert f"{prefix}/modificationDate" in captured[0]["json"]["fields"]
+        # HiBob rejects a search asking for more than 50 fields.
+        assert len(captured[0]["json"]["fields"]) <= 50
         assert captured[1]["json"]["cursor"] == "c2"
         # The next sync must not start from the previous sync's cursor.
-        body = HIBOB_ENDPOINTS["candidates"].body
+        body = HIBOB_ENDPOINTS[endpoint].body
         assert body is not None and "cursor" not in body
+
+
+class TestTimeOffRequestChanges:
+    @time_machine.travel("2026-07-01T12:00:00Z", tick=False)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_requests_rolling_window_within_six_months(self, MockSession) -> None:
+        session = MockSession.return_value
+        change = {"requestId": 11, "changeType": "Created", "employeeId": "e1", "type": "days"}
+        captured = _wire(session, [_response({"changes": [change]})])
+
+        response = hibob_source("service-id", "token", "time_off_request_changes", team_id=1, job_id="j")
+        rows = _rows(response)
+
+        assert rows == [change]
+        assert response.primary_keys == ["requestId", "changeType"]
+        assert session.send.call_count == 1
+        assert (captured[0]["method"], captured[0]["url"]) == (
+            "GET",
+            "https://api.hibob.com/v1/timeoff/requests/changes",
+        )
+        assert captured[0]["params"] == {"includePending": "true", "since": "2026-01-02T12:00:00.000Z"}
+
+
+class TestNamedLists:
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            [
+                {"name": "department", "items": [{"id": 1, "value": "Eng", "name": "Eng", "archived": False}]},
+                {
+                    "name": "site",
+                    "items": [
+                        {
+                            "id": 2,
+                            "value": "UK",
+                            "name": "UK",
+                            "archived": True,
+                            "children": [{"id": 3, "value": "London", "name": "London", "archived": False}],
+                        }
+                    ],
+                },
+            ],
+            {
+                "department": {
+                    "name": "department",
+                    "items": [{"id": 1, "value": "Eng", "name": "Eng", "archived": False, "children": []}],
+                },
+                "site": {
+                    "name": "site",
+                    "items": [
+                        {
+                            "id": 2,
+                            "value": "UK",
+                            "name": "UK",
+                            "archived": True,
+                            "children": [{"id": 3, "value": "London", "name": "London", "archived": False}],
+                        }
+                    ],
+                },
+            },
+        ],
+        ids=["documented_array", "keyed_by_list_name"],
+    )
+    @mock.patch(HIBOB_SESSION_PATCH)
+    def test_flattens_nested_items_with_list_name_and_parent(self, mock_make_session, payload) -> None:
+        session = mock_make_session.return_value
+        session.get.return_value = _response(payload)
+
+        response = hibob_source("service-id", "token", "named_lists", team_id=1, job_id="j")
+        rows = _rows(response)
+
+        assert rows == [
+            {"id": 1, "value": "Eng", "name": "Eng", "archived": False, "listName": "department", "parentId": None},
+            {"id": 2, "value": "UK", "name": "UK", "archived": True, "listName": "site", "parentId": None},
+            {"id": 3, "value": "London", "name": "London", "archived": False, "listName": "site", "parentId": 2},
+        ]
+        assert response.primary_keys == ["listName", "id"]
+        assert session.get.call_args.args[0] == "https://api.hibob.com/v1/company/named-lists"
+        assert session.get.call_args.kwargs["params"] == {"includeArchived": "true"}
+
+    @mock.patch(HIBOB_SESSION_PATCH)
+    def test_auth_error_fails_loud(self, mock_make_session) -> None:
+        mock_make_session.return_value.get.return_value = _response({"error": "unauthorized"}, status=401)
+
+        with pytest.raises(Exception):
+            _rows(hibob_source("service-id", "token", "named_lists", team_id=1, job_id="j"))
 
 
 class TestTimeOffCalendars:
