@@ -48,10 +48,11 @@ Saved-query lists expose metadata only; refreshing them preserves the query and 
 ## Saved-query writes
 
 The saved-query API accepts `sync_frequency` on create and update.
-On create, any cadence other than `"never"` materializes the new view at that cadence and starts its first run, through the same code as the `materialize` action.
-That runs after the DAG node exists, in the same transaction, so a refused cadence leaves no saved query behind.
-On update, the cadence only changes the node's target and does not materialize a view that is not materialized yet.
-This includes a create that matches an existing view by name, because that create runs as an update.
+Any cadence other than `"never"` means the view is materialized.
+On create, and on update of a view that is not materialized yet, it materializes the view at that cadence and starts its first run, through the same code as the `materialize` action.
+That runs inside the write's transaction after the DAG node exists, so a refused cadence leaves no saved query behind on create and leaves the view unchanged on update.
+On a view that is already materialized, the cadence only changes the node's target.
+A create that matches an existing view by name runs as an update.
 An omitted cadence leaves the target unchanged on update; explicit `null` and `"never"` both clear it.
 Invalid cadence values return 400.
 

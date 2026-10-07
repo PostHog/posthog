@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from posthog.test.base import NonAtomicAPIBaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.db import connection
 from django.test import override_settings
@@ -59,6 +59,38 @@ class TestSavedQueryConflictToken(NonAtomicAPIBaseTest):
     def _revision(self, view_id: str) -> str | None:
         revision = DataWarehouseSavedQuery.objects.get(id=view_id).query_revision
         return str(revision) if revision else None
+
+    @parameterized.expand([("create",), ("update",)])
+    def test_materialization_response_reflects_a_failed_schedule_bootstrap(self, operation: str) -> None:
+        created: SavedQueryResponse | None = None
+        if operation == "update":
+            created = self._create()
+        temporal = AsyncMock()
+        temporal.list_schedules.return_value.__aiter__.return_value = []
+        temporal.create_schedule.side_effect = RuntimeError("Schedule service unavailable")
+
+        with (
+            patch("products.data_modeling.backend.schedule.async_connect", return_value=temporal),
+            patch("products.data_modeling.backend.logic.schedule_reconcile.async_connect", return_value=temporal),
+            patch("products.data_modeling.backend.logic.node_materialization.sync_connect", return_value=temporal),
+        ):
+            if created is None:
+                response = self.client.post(
+                    self._url(),
+                    {
+                        "name": "event_view",
+                        "query": {"kind": "HogQLQuery", "query": "select event from events limit 100"},
+                        "sync_frequency": "6hour",
+                    },
+                )
+            else:
+                response = self.client.patch(self._url(created["id"]), {"sync_frequency": "6hour"})
+
+        self.assertEqual(response.status_code, 201 if created is None else 200, response.content)
+        temporal.create_schedule.assert_awaited()
+        self.assertFalse(response.json()["is_materialized"])
+        saved_query = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
+        self.assertFalse(saved_query.is_materialized)
 
     @parameterized.expand(DEFERRED_AND_IMMEDIATE)
     def test_create_returns_a_usable_token(self, _name: str, deferred: bool) -> None:
@@ -128,6 +160,8 @@ class TestSavedQueryConflictToken(NonAtomicAPIBaseTest):
         with override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=deferred):
             created = self._create()
             token = created["latest_history_id"]
+            # Materialized first, so the cadence below only changes the cadence instead of materializing the view.
+            DataWarehouseSavedQuery.objects.filter(id=created["id"]).update(is_materialized=True)
 
             # A cadence change writes its own activity row; a rename writes none and would prove nothing.
             response = self.client.patch(self._url(created["id"]), {"sync_frequency": "6hour"})

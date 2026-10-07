@@ -1022,7 +1022,7 @@ class TestSavedQuery(APIBaseTest):
 
         assert response.status_code == 404
 
-    def _create_saved_query_for_frequency_tests(self, name: str = "event_view") -> dict:
+    def _create_saved_query_for_frequency_tests(self, name: str = "event_view", *, materialized: bool = False) -> dict:
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
@@ -1034,29 +1034,38 @@ class TestSavedQuery(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 201)
+        if materialized:
+            DataWarehouseSavedQuery.objects.filter(id=response.json()["id"]).update(is_materialized=True)
         return response.json()
 
     @parameterized.expand(
         [
-            ("24hour", "24hour", timedelta(hours=24)),
-            ("never", None, None),
+            ("materialized_24hour", True, "24hour", "24hour", timedelta(hours=24)),
+            ("materialized_never", True, "never", None, None),
             # Sub-15min cadences are deprecated for saved queries and clamped up to the "15min" floor.
-            ("5min", "15min", timedelta(minutes=15)),
+            ("materialized_5min", True, "5min", "15min", timedelta(minutes=15)),
+            ("unmaterialized_24hour", False, "24hour", "24hour", timedelta(hours=24)),
         ]
     )
     def test_update_sync_frequency_writes_target_through(
-        self, sync_frequency: str, expected_frequency: str | None, expected_target: timedelta | None
+        self,
+        _name: str,
+        starts_materialized: bool,
+        sync_frequency: str,
+        expected_frequency: str | None,
+        expected_target: timedelta | None,
     ):
         from products.data_modeling.backend.facade.api import get_declared_target, set_declared_target
         from products.data_modeling.backend.facade.models import Node
 
-        saved_query = self._create_saved_query_for_frequency_tests()
+        saved_query = self._create_saved_query_for_frequency_tests(materialized=starts_materialized)
         node = Node.objects.get(saved_query_id=saved_query["id"])
         set_declared_target(node, timedelta(hours=12))
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
         with (
             patch(f"{reconcile_module}.maybe_reconcile_dag") as reconcile,
+            patch("products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids", return_value={str(node.dag_id)}),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
@@ -1073,6 +1082,12 @@ class TestSavedQuery(APIBaseTest):
         node.refresh_from_db()
         self.assertEqual(get_declared_target(node), expected_target)
         reconcile.assert_called_once()
+        # a cadence on a view that is not materialized materializes it; on one that is, it only retargets
+        self.assertTrue(updated.is_materialized)
+        self.assertEqual(
+            ActivityLog.objects.filter(item_id=saved_query["id"], activity="materialization_enabled").exists(),
+            not starts_materialized,
+        )
 
     @parameterized.expand(
         [
@@ -1089,7 +1104,7 @@ class TestSavedQuery(APIBaseTest):
         from products.data_modeling.backend.facade.api import set_declared_target
         from products.data_modeling.backend.facade.models import Node
 
-        saved_query = self._create_saved_query_for_frequency_tests()
+        saved_query = self._create_saved_query_for_frequency_tests(materialized=True)
         node = Node.objects.get(saved_query_id=saved_query["id"])
         set_declared_target(node, timedelta(hours=12))
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
@@ -1113,7 +1128,7 @@ class TestSavedQuery(APIBaseTest):
     def test_update_sync_frequency_without_node_is_rejected(self):
         from products.data_modeling.backend.facade.models import Node
 
-        saved_query = self._create_saved_query_for_frequency_tests()
+        saved_query = self._create_saved_query_for_frequency_tests(materialized=True)
         Node.objects.filter(saved_query_id=saved_query["id"]).delete()
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
@@ -1133,7 +1148,7 @@ class TestSavedQuery(APIBaseTest):
     def test_update_sync_frequency_rolls_back_invalid_target(self):
         from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError
 
-        saved_query = self._create_saved_query_for_frequency_tests()
+        saved_query = self._create_saved_query_for_frequency_tests(materialized=True)
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
         with (
@@ -1222,7 +1237,7 @@ class TestSavedQuery(APIBaseTest):
         field = DataWarehouseSavedQuerySerializer().fields["sync_frequency"]
         self.assertFalse(field.read_only)
 
-    def _create_view_with_a_consumer(self, consumer_target: timedelta) -> dict:
+    def _create_view_with_a_consumer(self, consumer_target: timedelta, *, materialized: bool = False) -> dict:
         """An upstream view whose only downstream consumer declares `consumer_target`.
 
         A consumer ceiling is the cheapest real bound to build here: it needs one extra saved
@@ -1231,7 +1246,7 @@ class TestSavedQuery(APIBaseTest):
         """
         from products.data_modeling.backend.facade.api import set_declared_target
 
-        upstream = self._create_saved_query_for_frequency_tests(name="upstream_view")
+        upstream = self._create_saved_query_for_frequency_tests(name="upstream_view", materialized=materialized)
         consumer = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {"name": "consumer_view", "query": {"kind": "HogQLQuery", "query": "select event from upstream_view"}},
@@ -1259,7 +1274,7 @@ class TestSavedQuery(APIBaseTest):
     def test_every_offered_cadence_is_accepted_and_every_withheld_one_is_refused(self):
         # The whole point of serving bounds is that the picker and the write path cannot
         # disagree. Walk every option the API offered and hold the PATCH to that promise.
-        upstream = self._create_view_with_a_consumer(consumer_target=timedelta(hours=6))
+        upstream = self._create_view_with_a_consumer(consumer_target=timedelta(hours=6), materialized=True)
         options = self._read_frequency_bounds(upstream["id"])["options"]
         self.assertTrue(any(option["allowed"] for option in options))
         self.assertTrue(any(not option["allowed"] for option in options))
@@ -1294,11 +1309,15 @@ class TestSavedQuery(APIBaseTest):
         with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
-                {"sync_frequency": "24hour"},
+                {"sync_frequency": "24hour", "description": "Events per day"},
             )
 
         self.assertEqual(response.status_code, 400, response.json())
         self.assertIn("consumer_view", str(response.json()))
+        # the refusal comes from materializing the view, which runs last inside the update's transaction
+        unchanged = DataWarehouseSavedQuery.objects.get(id=upstream["id"])
+        self.assertFalse(unchanged.is_materialized)
+        self.assertFalse(unchanged.column_annotations.exists())
 
     def test_bounds_stay_off_the_list_page(self):
         # Bounds cost a graph walk per view, so serving them on a page of views is an N+1. The
@@ -1410,7 +1429,7 @@ class TestSavedQuery(APIBaseTest):
     def test_explicit_null_sync_frequency_clears_the_target(self) -> None:
         from products.data_modeling.backend.facade.api import get_declared_target
 
-        saved_query = self._create_saved_query_for_frequency_tests()
+        saved_query = self._create_saved_query_for_frequency_tests(materialized=True)
         url = f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}"
         with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
             initial = self.client.patch(url, {"sync_frequency": "6hour"})
