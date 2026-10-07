@@ -800,7 +800,12 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         branch: str | None = None,
         acting_user_id: int | None = None,
         scheduled_at: datetime | None = None,
+        defer_dispatch: bool = False,
+        stage: str | None = None,
     ) -> "TaskRun":
+        """Create a cloud run. A scheduled or deferred run stays NOT_STARTED, which keeps the
+        queued-run reconciler from dispatching it before its owner does; `dispatch_is_deferred`
+        is how the rest of the lifecycle recognizes it."""
         if scheduled_at is not None and django_timezone.is_naive(scheduled_at):
             raise ValueError("scheduled_at must be timezone-aware")
 
@@ -919,12 +924,17 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             is_resume = bool(resume_from_run_id)
             has_pending = _has_pending_user_input(extra_state or {})
             stamp_pending_user_message_id(state)
+            if defer_dispatch:
+                state["dispatch_deferred"] = True
             task_run = TaskRun.objects.create(
                 task=task,
                 team=task.team,
-                status=TaskRun.Status.NOT_STARTED if scheduled_at is not None else TaskRun.Status.QUEUED,
-                queued_at=None if scheduled_at is not None else django_timezone.now(),
+                status=(
+                    TaskRun.Status.NOT_STARTED if scheduled_at is not None or defer_dispatch else TaskRun.Status.QUEUED
+                ),
+                queued_at=None if scheduled_at is not None or defer_dispatch else django_timezone.now(),
                 scheduled_at=scheduled_at,
+                stage=stage,
                 **({"environment": environment} if environment else {}),
                 state=state,
                 branch=branch,
@@ -1050,8 +1060,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             scheduled_run_ids = list(
                 TaskRun.objects.select_for_update()
                 .filter(
+                    models.Q(scheduled_at__isnull=False) | models.Q(state__dispatch_deferred=True),
                     task_id=self.id,
-                    scheduled_at__isnull=False,
                     status__in=[TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED],
                 )
                 .values_list("id", flat=True)
@@ -1062,7 +1072,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                     status__in=[TaskWorkflowDispatch.Status.PENDING, TaskWorkflowDispatch.Status.CLAIMED],
                 ).update(
                     status=TaskWorkflowDispatch.Status.DEAD,
-                    last_error="Task deleted before the scheduled run started",
+                    last_error="Task deleted before the run started",
                     claimed_by="",
                     lease_expires_at=None,
                     updated_at=deleted_at,
@@ -1070,7 +1080,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 TaskRun.objects.filter(id__in=scheduled_run_ids).update(
                     status=TaskRun.Status.CANCELLED,
                     completed_at=deleted_at,
-                    error_message="This scheduled run was canceled because the task was deleted.",
+                    error_message="This run was canceled before it started because the task was deleted.",
                     updated_at=deleted_at,
                 )
             self.deleted = True
@@ -3262,6 +3272,15 @@ class TaskRun(models.Model):
                 task_run_id=str(self.id),
                 error=str(e),
             )
+
+    @property
+    def dispatch_is_deferred(self) -> bool:
+        """A NOT_STARTED cloud run that another owner dispatches later: a scheduled run when it is
+        due, a delegated run once it is briefed. The start endpoint, cancel and soft delete treat it
+        as waiting rather than as a run a person starts by hand."""
+        return self.status == TaskRun.Status.NOT_STARTED and (
+            self.scheduled_at is not None or bool((self.state or {}).get("dispatch_deferred"))
+        )
 
     def mark_failed(self, error: str, error_type: str | None = None) -> None:
         """Mark the progress as failed with an error message."""

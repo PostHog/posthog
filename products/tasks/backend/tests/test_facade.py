@@ -1126,6 +1126,25 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(stale.status, TaskRun.Status.FAILED.value)
         self.assertEqual(stale.error_message, "boom")
 
+    def test_stale_deferred_runs_are_swept_apart_from_scheduled_ones(self):
+        task = self._make_task()
+        deferred = task.create_run(defer_dispatch=True)
+        fresh_deferred = task.create_run(defer_dispatch=True)
+        scheduled = task.create_run(scheduled_at=django_timezone.now() + timedelta(days=1))
+        past = django_timezone.now() - timedelta(hours=48)
+        TaskRun.objects.filter(pk__in=[deferred.pk, scheduled.pk]).update(updated_at=past)
+
+        deferred_ids = facade.get_stale_deferred_task_run_ids(older_than=timedelta(hours=24), limit=100)
+        queued_ids = facade.get_stale_queued_task_run_ids(
+            older_than=timedelta(hours=24), limit=100, environment=TaskRun.Environment.CLOUD
+        )
+
+        self.assertEqual(deferred_ids, [deferred.id])
+        self.assertNotIn(fresh_deferred.id, deferred_ids)
+        self.assertNotIn(deferred.id, queued_ids)
+        self.assertTrue(facade.fail_task_run(deferred.id, "stale", expected_status=TaskRun.Status.NOT_STARTED))
+        self.assertFalse(facade.fail_task_run(scheduled.id, "stale"))
+
     def test_complete_idle_local_task_run_skips_run_handed_off_to_cloud(self):
         task = self._make_task()
         idle_local = TaskRun.objects.create(

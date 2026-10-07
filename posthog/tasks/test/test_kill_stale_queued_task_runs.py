@@ -41,14 +41,18 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         *,
         prewarmed: bool = False,
         environment: str | None = None,
+        state: dict[str, Any] | None = None,
+        scheduled_at: datetime.datetime | None = None,
     ) -> "TaskRun":
         TaskRun = apps.get_model("tasks", "TaskRun")
-        state = {"prewarmed": True, "await_user_message": True} if prewarmed else {}
+        if state is None:
+            state = {"prewarmed": True, "await_user_message": True} if prewarmed else {}
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=status,
             state=state,
+            scheduled_at=scheduled_at,
             **({"environment": environment} if environment else {}),
         )
         now = timezone.now()
@@ -72,6 +76,28 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0].kwargs["properties"]["error_type"], "stale_queued_cleanup")
+
+    def test_fails_a_stale_deferred_run_but_not_a_scheduled_one(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        deferred = self._make_run(
+            TaskRun.Status.NOT_STARTED, datetime.timedelta(hours=25), state={"dispatch_deferred": True}
+        )
+        scheduled = self._make_run(
+            TaskRun.Status.NOT_STARTED,
+            datetime.timedelta(hours=25),
+            scheduled_at=timezone.now() + datetime.timedelta(days=1),
+        )
+
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            kill_stale_queued_task_runs()
+
+        deferred.refresh_from_db()
+        scheduled.refresh_from_db()
+        self.assertEqual(deferred.status, TaskRun.Status.FAILED)
+        self.assertIn("deferred dispatch", deferred.error_message or "")
+        self.assertEqual(scheduled.status, TaskRun.Status.NOT_STARTED)
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
+        self.assertEqual(captured[0].kwargs["properties"]["error_type"], "stale_deferred_cleanup")
 
     def test_leaves_recently_queued_run_alone(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")

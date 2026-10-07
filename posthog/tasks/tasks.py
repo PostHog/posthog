@@ -262,6 +262,20 @@ def kill_stale_queued_task_runs() -> None:
     )
 
     # Idle local runs: complete quietly instead of failing (see docstring).
+    DEFERRED_REASON = "Run waited for its deferred dispatch for over 24h and was killed by the cleanup job."
+    deferred_ids = tasks_facade.get_stale_deferred_task_run_ids(STALE_AFTER, BATCH_SIZE)
+    deferred_swept, deferred_errors = _sweep_each(
+        deferred_ids,
+        lambda run_id: tasks_facade.fail_task_run(
+            run_id,
+            DEFERRED_REASON,
+            error_type="stale_deferred_cleanup",
+            expected_status=tasks_facade.TaskRunStatus.NOT_STARTED,
+        ),
+        STALE_QUEUED_TASK_RUN_SWEPT_COUNTER,
+        STALE_QUEUED_TASK_RUN_ERRORS_COUNTER,
+    )
+
     local_ids = tasks_facade.get_stale_queued_task_run_ids(
         STALE_AFTER, BATCH_SIZE, environment=tasks_facade.TaskRunEnvironment.LOCAL
     )
@@ -291,6 +305,7 @@ def kill_stale_queued_task_runs() -> None:
 
     saturated = (
         len(stale_ids) >= BATCH_SIZE
+        or len(deferred_ids) >= BATCH_SIZE
         or len(local_ids) >= BATCH_SIZE
         or len(prewarmed_ids) >= BATCH_SIZE
         or len(terminal_prewarmed_ids) >= BATCH_SIZE
@@ -301,6 +316,9 @@ def kill_stale_queued_task_runs() -> None:
         candidates=len(stale_ids),
         swept=swept,
         errors=errors,
+        deferred_candidates=len(deferred_ids),
+        deferred_swept=deferred_swept,
+        deferred_errors=deferred_errors,
         local_candidates=len(local_ids),
         local_completed=local_swept,
         local_errors=local_errors,

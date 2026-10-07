@@ -1504,6 +1504,26 @@ def get_latest_active_internal_task_run_for_organization(
     return get_latest_internal_task_run_for_organization(organization_id, ai_stage=ai_stage, active_only=True)
 
 
+def get_stale_deferred_task_run_ids(older_than: timedelta, limit: int) -> list[UUID]:
+    """Ids of cloud runs whose deferred dispatch never came: NOT_STARTED with no schedule and
+    untouched for ``older_than``. A scheduled run is left out because the clock dispatches it.
+
+    Intentionally cross-team — the janitor sweep runs without a team context.
+    """
+    cutoff = django_timezone.now() - older_than
+    return list(
+        TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
+            status=TaskRun.Status.NOT_STARTED,
+            environment=TaskRun.Environment.CLOUD,
+            scheduled_at__isnull=True,
+            state__dispatch_deferred=True,
+            updated_at__lt=cutoff,
+        )
+        .order_by("updated_at")
+        .values_list("id", flat=True)[:limit]
+    )
+
+
 def get_stale_queued_task_run_ids(
     older_than: timedelta,
     limit: int,
@@ -2118,15 +2138,15 @@ def set_task_run_created_at_for_seeding(
     TaskRun.objects.filter(pk=run_id, task_id=task_id, team_id=team_id).update(created_at=created_at)
 
 
-def fail_task_run(run_id: str | UUID, error: str, error_type: str | None = None) -> bool:
-    """Mark a QUEUED run as failed. Returns whether a run was acted on.
+def fail_task_run(
+    run_id: str | UUID, error: str, error_type: str | None = None, *, expected_status: str = TaskRun.Status.QUEUED
+) -> bool:
+    """Mark a run still in ``expected_status`` as failed. Returns whether a run was acted on.
 
-    Refetches filtered on ``status=QUEUED`` so a run that left the queue between the
-    candidate scan and this call is skipped. Intentionally cross-team (janitor sweep).
+    Refetches filtered on that status so a run that moved on between the candidate scan and
+    this call is skipped. Intentionally cross-team (janitor sweep).
     """
-    run = TaskRun.objects.filter(
-        pk=run_id, status=TaskRun.Status.QUEUED
-    ).first()  # nosemgrep: celery-task-team-scope-audit
+    run = TaskRun.objects.filter(pk=run_id, status=expected_status).first()  # nosemgrep: celery-task-team-scope-audit
     if run is None:
         return False
     run.mark_failed(error, error_type=error_type)
@@ -6149,7 +6169,7 @@ def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: i
     run_source = (run.state or {}).get("run_source")
     if run.environment != TaskRun.Environment.CLOUD:
         return "not_cloud", run_source
-    if run.status == TaskRun.Status.NOT_STARTED and run.scheduled_at is not None:
+    if run.dispatch_is_deferred:
         return "scheduled", run_source
     if run.status not in _STARTABLE_TASK_RUN_STATUSES:
         return f"bad_status:{run.status}", run_source
