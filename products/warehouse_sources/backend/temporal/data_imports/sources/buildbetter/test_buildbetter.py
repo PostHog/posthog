@@ -10,8 +10,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildbette
     BuildBetterResumeConfig,
     _make_paginated_request,
     buildbetter_source,
+    validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.settings import BUILDBETTER_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.settings import (
+    BUILDBETTER_API_URL,
+    BUILDBETTER_ENDPOINTS,
+    BUILDBETTER_REST_API_URL,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.source import BuildBetterSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
@@ -33,6 +38,27 @@ def _make_manager(can_resume: bool = False, state: BuildBetterResumeConfig | Non
 
 def _interview_payload(ids: list[str]) -> dict:
     return {"data": {"interview": [{"id": i} for i in ids]}}
+
+
+def _recording(recording_id: str) -> dict:
+    return {
+        "id": recording_id,
+        "display_name": "Renewal discussion",
+        "source": "upload",
+        "recorded_at": "2026-07-28T15:00:00.000Z",
+        "created_at": "2026-07-28T15:05:00.000Z",
+        "updated_at": "2026-07-28T15:12:00.000Z",
+        "metadata": [],
+    }
+
+
+def _recordings_page(ids: list[str], has_more: bool = False) -> dict:
+    return {"recordings": [_recording(i) for i in ids], "page": 1, "limit": 100, "has_more": has_more}
+
+
+REST_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session"
+)
 
 
 class TestMakePaginatedRequest:
@@ -500,28 +526,190 @@ class TestNestedEndpoints:
         ]
 
 
-class TestBuildbetterSource:
-    def test_source_threads_resumable_manager_through(self) -> None:
+class TestRestEndpoints:
+    @parameterized.expand(
+        [
+            (
+                "interview_attendees",
+                "interview_attendees",
+                {
+                    "id": "rec-1",
+                    "participants": [
+                        {"speaker": 0, "person": {"id": "per-1", "firstName": "Pat", "email": "pat@example.com"}},
+                        {"speaker": 1, "person": {"id": "per-2", "firstName": "Alex", "email": "alex@example.com"}},
+                    ],
+                },
+                [
+                    {"speaker": 0, "person": {"id": "per-1", "firstName": "Pat", "email": "pat@example.com"}},
+                    {"speaker": 1, "person": {"id": "per-2", "firstName": "Alex", "email": "alex@example.com"}},
+                ],
+            ),
+            (
+                "interview_sentences",
+                "interview_sentences",
+                {
+                    "type": "utterance",
+                    "recordingId": "rec-1",
+                    "utterances": [
+                        {"recordingId": "rec-1", "startSec": 0, "endSec": 2.5, "speaker": 0, "text": "First"},
+                        {"recordingId": "rec-1", "startSec": 2.5, "endSec": 4, "speaker": 1, "text": "Second"},
+                    ],
+                },
+                [
+                    {"text": "First", "speaker": 0, "start_sec": 0, "end_sec": 2.5, "sentence_index": 0},
+                    {"text": "Second", "speaker": 1, "start_sec": 2.5, "end_sec": 4, "sentence_index": 1},
+                ],
+            ),
+        ]
+    )
+    def test_flattens_recording_children_with_parent_columns(
+        self, _name: str, endpoint_name: str, child_payload: dict, expected_child_rows: list[dict]
+    ) -> None:
         manager = _make_manager(can_resume=False)
-        logger = MagicMock()
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session"
-        ) as session_cls:
+        with patch(REST_PATCH) as session_cls:
             session = session_cls.return_value
-            session.post.return_value = _make_response(_interview_payload(["x"]))
+            session.get.side_effect = [
+                _make_response(_recordings_page(["rec-1", "rec-gone"])),
+                _make_response(child_payload),
+                # A recording deleted after the list read is skipped rather than failing the sync
+                _make_response({"message": "Not Found"}, status_code=404),
+            ]
 
             response = buildbetter_source(
                 api_key="key",
-                endpoint_name="interviews",
-                logger=logger,
+                endpoint_name=endpoint_name,
+                api_version="v3",
+                logger=MagicMock(),
                 resumable_source_manager=manager,
             )
             batches = list(cast(Iterable[Any], response.items()))
 
-        assert batches == [[{"id": "x"}]]
-        assert response.primary_keys == ["id"]
+        parent_columns = {
+            "interview_id": "rec-1",
+            "interview_created_at": "2026-07-28T15:05:00.000Z",
+            "interview_updated_at": "2026-07-28T15:12:00.000Z",
+        }
+        assert batches == [[parent_columns | row for row in expected_child_rows]]
+        primary_keys = response.primary_keys
+        assert primary_keys
+        for row in batches[0]:
+            assert all(row.get(key) is not None for key in primary_keys)
+
+    @parameterized.expand(
+        [
+            ("fresh_run", False, None, 1),
+            ("resume", True, BuildBetterResumeConfig(page=3), 3),
+            # A checkpoint written by the GraphQL path carries no page, so REST starts over
+            ("graphql_checkpoint", True, BuildBetterResumeConfig(offset=200), 1),
+        ]
+    )
+    def test_pages_recordings_and_checkpoints_the_next_page(
+        self, _name: str, can_resume: bool, state: BuildBetterResumeConfig | None, first_page: int
+    ) -> None:
+        manager = _make_manager(can_resume=can_resume, state=state)
+
+        with patch(REST_PATCH) as session_cls:
+            session = session_cls.return_value
+            session.get.side_effect = [
+                _make_response(_recordings_page(["a"], has_more=True)),
+                _make_response(_recordings_page(["b"], has_more=False)),
+            ]
+
+            response = buildbetter_source(
+                api_key="key",
+                endpoint_name="interviews",
+                api_version="v3",
+                logger=MagicMock(),
+                resumable_source_manager=manager,
+            )
+            batches = list(cast(Iterable[Any], response.items()))
+
+        assert batches == [[_recording("a")], [_recording("b")]]
+        assert [call.kwargs["params"]["page"] for call in session.get.call_args_list] == [first_page, first_page + 1]
+        assert [call.args[0].page for call in manager.save_state.call_args_list] == [first_page + 1]
+
+
+class TestBuildbetterSource:
+    @parameterized.expand(
+        [
+            ("v1_interviews", "v1", "interviews", BUILDBETTER_API_URL, ["id"]),
+            ("v1_attendees", "v1", "interview_attendees", BUILDBETTER_API_URL, ["interview_id", "id"]),
+            ("v3_interviews", "v3", "interviews", f"{BUILDBETTER_REST_API_URL}/recordings", ["id"]),
+            (
+                "v3_attendees",
+                "v3",
+                "interview_attendees",
+                f"{BUILDBETTER_REST_API_URL}/recordings",
+                ["interview_id", "speaker"],
+            ),
+            # REST serves no signals, so v3 keeps them on GraphQL
+            ("v3_extractions", "v3", "extractions", BUILDBETTER_API_URL, ["id"]),
+        ]
+    )
+    def test_routes_each_version_to_its_api(
+        self, _name: str, api_version: str, endpoint_name: str, expected_url: str, expected_primary_keys: list[str]
+    ) -> None:
+        manager = _make_manager(can_resume=False)
+        query_name = BUILDBETTER_ENDPOINTS[endpoint_name].graphql_query_name
+
+        with patch(REST_PATCH) as session_cls:
+            session = session_cls.return_value
+            session.post.return_value = _make_response({"data": {query_name: []}})
+            session.get.return_value = _make_response(_recordings_page([]))
+
+            response = buildbetter_source(
+                api_key="key",
+                endpoint_name=endpoint_name,
+                api_version=api_version,
+                logger=MagicMock(),
+                resumable_source_manager=manager,
+            )
+            list(cast(Iterable[Any], response.items()))
+
+        requested_urls = [call.args[0] for call in session.post.call_args_list + session.get.call_args_list]
+        assert requested_urls == [expected_url]
+        assert response.primary_keys == expected_primary_keys
         manager.can_resume.assert_called_once()
+
+    def test_unknown_version_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported BuildBetter API version"):
+            buildbetter_source(
+                api_key="key",
+                endpoint_name="interviews",
+                api_version="v2",
+                logger=MagicMock(),
+                resumable_source_manager=_make_manager(),
+            )
+
+    @parameterized.expand(
+        [
+            ("v1", "v1", {"interviews", "interview_attendees", "interview_sentences", "extractions"}),
+            ("v3", "v3", {"extractions"}),
+        ]
+    )
+    def test_incremental_tables_per_version(self, _name: str, api_version: str, expected_incremental: set[str]) -> None:
+        schemas = BuildBetterSource().get_schemas(MagicMock(), team_id=1, api_version=api_version)
+        checked = {"interviews", "interview_attendees", "interview_sentences", "extractions"}
+
+        assert {schema.name for schema in schemas if schema.supports_incremental} & checked == expected_incremental
+
+    @parameterized.expand(
+        [
+            ("v1", "v1", "post", BUILDBETTER_API_URL, {"data": {"interview": [{"id": 1}]}}),
+            ("v3", "v3", "get", f"{BUILDBETTER_REST_API_URL}/recordings", _recordings_page(["rec-1"])),
+        ]
+    )
+    def test_validate_credentials_probes_the_pinned_api(
+        self, _name: str, api_version: str, method: str, expected_url: str, payload: dict
+    ) -> None:
+        with patch(REST_PATCH) as session_cls:
+            session = session_cls.return_value
+            getattr(session, method).return_value = _make_response(payload)
+
+            assert validate_credentials("key", api_version) == (True, None)
+
+        assert getattr(session, method).call_args.args[0] == expected_url
 
 
 class TestBuildBetterSourceNonRetryableErrors:
