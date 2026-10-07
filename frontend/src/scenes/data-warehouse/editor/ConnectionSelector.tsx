@@ -113,26 +113,28 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
                 } as typeof sourceQuery)
                 syncUrlWithQuery()
             }}
-            options={[
-                ...displayedConnectionSelectOptions.map((group) => ({
-                    options: group.options.map(toLemonSelectOption),
-                })),
-                ...(hostedTrinoEnabled || sourceQuery.source.executionTarget === 'managed_trino'
-                    ? [
-                          {
-                              options: [
-                                  {
-                                      label: 'Hosted Trino',
-                                      value: 'managed_trino',
-                                      disabledReason: hostedTrinoEnabled
-                                          ? undefined
-                                          : 'Hosted Trino queries are not enabled for this organization',
-                                  },
-                              ],
-                          },
-                      ]
-                    : []),
-            ]}
+            options={displayedConnectionSelectOptions.map((group) => ({
+                options: group.options.flatMap((option) => {
+                    const connectionOption = toLemonSelectOption(option)
+                    if (
+                        option.value === POSTHOG_WAREHOUSE &&
+                        (hostedTrinoEnabled || sourceQuery.source.executionTarget === 'managed_trino')
+                    ) {
+                        return [
+                            connectionOption,
+                            {
+                                label: 'PostHog (Trino)',
+                                value: 'managed_trino',
+                                icon: connectionOption.icon,
+                                disabledReason: hostedTrinoEnabled
+                                    ? undefined
+                                    : 'PostHog (Trino) queries are not enabled for this organization',
+                            },
+                        ]
+                    }
+                    return [connectionOption]
+                }),
+            }))}
         />
     )
 }

@@ -45,7 +45,7 @@ If Redis is unavailable, SQL editor queries and managed warehouse schema discove
 
 ## Hosted Trino opt-in
 
-The `managed-warehouse-trino-query` organization feature flag adds **Hosted Trino** to the SQL editor connection selector. The default PostHog target remains unchanged. The backend checks the same flag before execution and cache reads; selecting the target in a URL does not grant access.
+The `managed-warehouse-trino-query` organization feature flag adds **PostHog (Trino)** directly below **PostHog (ClickHouse)** in the SQL editor connection selector. The default PostHog target remains unchanged. The backend checks the same flag before execution and cache reads; selecting the target in a URL does not grant access.
 
 Hosted Trino runs the current HogQL query through the Django-backed Trino compiler, preserving project scoping and the requesting user's table permissions. It resolves logical table names to the project's managed warehouse tables without requiring a stored model translation. Data must already exist in the Trino target; unsupported expressions and missing tables produce query errors. The target accepts HogQL only and cannot be combined with an external connection or raw SQL mode.
 
