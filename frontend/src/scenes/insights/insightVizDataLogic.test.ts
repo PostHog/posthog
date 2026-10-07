@@ -357,6 +357,7 @@ describe('insightVizDataLogic', () => {
         }
         const addsWarehouseSeries = (kind: NodeKind, warehouseKind: NodeKind): Record<string, any> => ({
             kind,
+            added: 'series',
             initial: { series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }] },
             update: { series: [{ ...warehouseSeries, kind: warehouseKind }] },
         })
@@ -367,11 +368,23 @@ describe('insightVizDataLogic', () => {
             addsWarehouseSeries(NodeKind.StickinessQuery, NodeKind.DataWarehouseNode),
             {
                 kind: NodeKind.RetentionQuery,
+                added: 'target entity',
                 initial: { retentionFilter: { targetEntity: { id: '$pageview', type: 'events' } } },
                 update: { retentionFilter: { targetEntity: warehouseEntity } },
             },
+            {
+                kind: NodeKind.RetentionQuery,
+                added: 'returning entity',
+                initial: { retentionFilter: { targetEntity: { id: '$pageview', type: 'events' } } },
+                update: {
+                    retentionFilter: {
+                        targetEntity: { id: '$pageview', type: 'events' },
+                        returningEntity: warehouseEntity,
+                    },
+                },
+            },
         ])(
-            'disables filterTestAccounts and properties when adding a data warehouse series to $kind',
+            'disables filterTestAccounts and properties when adding a data warehouse $added to $kind',
             ({ kind, initial, update }) => {
                 const initialSource: Record<string, unknown> = {
                     kind,

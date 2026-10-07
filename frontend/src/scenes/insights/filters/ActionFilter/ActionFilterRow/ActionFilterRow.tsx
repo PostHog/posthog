@@ -34,6 +34,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
+import { PropValue } from '~/models/propertyDefinitionsModel'
 import { DatabaseSerializedFieldType, NodeKind } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
@@ -92,6 +93,10 @@ const DragHandle = ({ listeners }: DragHandleProps): JSX.Element => (
 // The taxonomic filter's showNumericalPropsOnly flag doesn't filter warehouse schema columns,
 // so numeric-only pickers must not be fed non-numeric columns in the first place.
 const NUMERIC_SCHEMA_FIELD_TYPES: DatabaseSerializedFieldType[] = ['integer', 'float', 'decimal']
+
+// A warehouse series filter without a warehouse values endpoint falls back to the event values endpoint.
+// That endpoint scans recent events for a column that events do not carry, so these filters fetch no values.
+const NO_VALUE_SUGGESTIONS = (): PropValue[] => []
 
 // Which warehouse tables a row's picker may offer, by the caller's typeKey. Anything not listed
 // gets the unrestricted data warehouse group.
@@ -174,6 +179,9 @@ export function ActionFilterRow({
     const isFlagCallsSeries = isDataWarehouseFilter && node.table_name === FLAG_EVALUATIONS_TABLE
     // The data warehouse map leaves out PostHog tables, which a flag calls series reads.
     const seriesTable = isDataWarehouseFilter ? allTablesMap[node.table_name] : undefined
+    // The property values endpoint only serves warehouse tables and views.
+    const seriesValuesTableName =
+        seriesTable?.type === 'data_warehouse' || seriesTable?.type === 'view' ? seriesTable.name : undefined
     useEffect(() => {
         if (isDataWarehouseFilter) {
             ensureAllTableFields()
@@ -771,14 +779,10 @@ export function ActionFilterRow({
                                   : []
                         }
                         schemaColumns={seriesTable ? Object.values(seriesTable.fields) : []}
-                        // The property values endpoint only serves warehouse tables and views.
-                        dataWarehouseTableName={
-                            seriesTable?.type === 'data_warehouse' || seriesTable?.type === 'view'
-                                ? seriesTable.name
-                                : undefined
+                        dataWarehouseTableName={seriesValuesTableName}
+                        staticValueOptions={
+                            isDataWarehouseFilter && !seriesValuesTableName ? NO_VALUE_SUGGESTIONS : undefined
                         }
-                        // Without static values, a flag calls filter looks up its values in events instead.
-                        staticValueOptions={isFlagCallsSeries ? () => [] : undefined}
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}

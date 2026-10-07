@@ -1765,6 +1765,36 @@ describe('insightNavLogic', () => {
                     },
                 },
                 {
+                    label: 'trends flag calls to lifecycle',
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.DataWarehouseNode,
+                                id: 'posthog.flag_evaluations',
+                                name: 'posthog.flag_evaluations',
+                                table_name: 'posthog.flag_evaluations',
+                                id_field: 'uuid',
+                                timestamp_field: 'timestamp',
+                                distinct_id_field: 'distinct_id',
+                            },
+                        ],
+                    },
+                    targetView: InsightType.LIFECYCLE,
+                    expectedSource: {
+                        kind: NodeKind.LifecycleQuery,
+                        series: [
+                            {
+                                kind: NodeKind.LifecycleDataWarehouseNode,
+                                table_name: 'posthog.flag_evaluations',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                                created_at_field: 'timestamp',
+                            },
+                        ],
+                    },
+                },
+                {
                     label: 'lifecycle flag calls to trends',
                     source: {
                         kind: NodeKind.LifecycleQuery,

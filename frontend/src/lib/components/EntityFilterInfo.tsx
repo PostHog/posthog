@@ -31,9 +31,13 @@ export type DisplayEntityFilter = (EntityFilter | ActionFilter) & { table_name?:
 
 export function toDisplayEntityFilter(filter: DisplayableEntity): DisplayEntityFilter {
     const displayFilter = nodeToDisplayEntityFilter(filter)
-    // A flag calls series stands in for the event and displays as it. Query results describe a warehouse
-    // series as an events entity whose id is the table name, so the check reads only the id.
-    if (displayFilter.id === FLAG_EVALUATIONS_TABLE) {
+    // Trends and lifecycle results describe a warehouse series as an events entity whose id is the table name.
+    // Funnel results describe a warehouse step with no id and the table name in `name`.
+    if (
+        displayFilter.id === FLAG_EVALUATIONS_TABLE ||
+        (displayFilter.type === EntityTypes.DATA_WAREHOUSE &&
+            (displayFilter.table_name ?? displayFilter.name) === FLAG_EVALUATIONS_TABLE)
+    ) {
         const name = ensureStringIsNotBlank(displayFilter.name)
         return {
             ...displayFilter,

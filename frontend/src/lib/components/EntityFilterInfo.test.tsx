@@ -100,6 +100,16 @@ describe('EntityFilterInfo', () => {
             },
             'Feature flag called',
         ],
+        [
+            'a flag calls step in funnel results',
+            {
+                type: EntityTypes.DATA_WAREHOUSE,
+                id: null,
+                name: 'posthog.flag_evaluations',
+                custom_name: 'Feature flag called',
+            },
+            'Feature flag called',
+        ],
     ] as [string, DisplayableEntity, string][])(
         'shows a single label for an unrenamed series on %s',
         (_, filter, label) => {
