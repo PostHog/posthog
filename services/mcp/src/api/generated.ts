@@ -11273,6 +11273,48 @@ export namespace Schemas {
       uploads: UploadTarget[];
     }
 
+    export interface AddSourcesRequest {
+      /**
+         * IDs of up to 50 existing sources to attach to this destination.
+         * @maxItems 50
+         */
+      source_ids: string[];
+      /** Start a full resync for each enabled table newly attached. */
+      resync?: boolean;
+    }
+
+    /**
+     * One source that writes to a destination. Shape only — never used to deserialize.
+     */
+    export interface SyncedSource {
+      /** The source's id. */
+      id: string;
+      /** How the source is labelled in the UI, prefix included. */
+      name: string;
+      /** Which connector this is, e.g. Stripe or Postgres. */
+      source_type: string;
+      /** True when only some of the source's tables reach this destination, through their own override. */
+      via_table_override: boolean;
+    }
+
+    export interface SkippedSource {
+      /** ID of the source that was not attached. */
+      id: string;
+      /** Name of the source that was not attached. */
+      name: string;
+      /** Why the source was not attached. */
+      reason: string;
+    }
+
+    export interface AddSourcesResponse {
+      /** Sources newly attached to this destination. */
+      attached: SyncedSource[];
+      /** Sources that were not attached and their reasons. */
+      skipped: SkippedSource[];
+      /** Number of tables sent for a full resync. */
+      tables_resyncing: number;
+    }
+
     export interface AddSuppressionRequest {
       /**
          * The email address to suppress. Will not receive any messages until removed.
@@ -46054,20 +46096,6 @@ export namespace Schemas {
       AzureBlob: 'AzureBlob',
       S3: 'S3',
     } as const;
-
-    /**
-     * One source that writes to a destination. Shape only — never used to deserialize.
-     */
-    export interface SyncedSource {
-      /** The source's id. */
-      id: string;
-      /** How the source is labelled in the UI, prefix included. */
-      name: string;
-      /** Which connector this is, e.g. Stripe or Postgres. */
-      source_type: string;
-      /** True when only some of the source's tables reach this destination, through their own override. */
-      via_table_override: boolean;
-    }
 
     export interface ExternalDataDestination {
       readonly id: string;
