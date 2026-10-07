@@ -649,5 +649,8 @@ If the scout states a product-specific output, keep it off the report channel.
 To create such a scout per team, do not use `scout-create`, because it always grants both report tools.
 Create the skill with `skill-create` and leave `allowed_tools` empty.
 Then register it with `scout-config-create`, and set its schedule, `enabled`, and `emit` on that call.
+Also set `write_scopes` on that call to the scope that writes the product output, for example `["hog_flow_proposal:write"]` for workflow suggestions.
+Without that grant, the scout cannot write its output.
+A dry run (`emit: false`) never holds the grant, so the scout writes no output in a dry run.
 Give the skill a name without the `signals-scout-` prefix.
 The coordinator auto-registers an enabled config for a prefixed skill that has no config, so a prefixed scout can run on the defaults before your `scout-config-create` call.

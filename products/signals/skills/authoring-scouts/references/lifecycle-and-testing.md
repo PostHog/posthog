@@ -46,9 +46,10 @@ posthog:skill-get {"skill_name": "signals-scout-error-tracking"}
 posthog:scout-create {"name": "signals-scout-<scope>", "description": "...", "body": "...", "config": {"run_interval_minutes": 120}}
 
 # New scout with a product-specific output: scout-create always grants the report tools,
-# so create the skill without them and register its config separately (see report-contract.md).
+# so create the skill without them and register its config separately, with the write grant
+# its output needs (see report-contract.md).
 posthog:skill-create {"name": "<scope>-scout", "description": "...", "body": "..."}
-posthog:scout-config-create {"skill_name": "<scope>-scout", "run_interval_minutes": 120}
+posthog:scout-config-create {"skill_name": "<scope>-scout", "run_interval_minutes": 120, "write_scopes": ["<object>:write"]}
 
 # Adapt an existing per-team scout — use the SMALLEST primitive (find/replace, not full-body)
 posthog:skill-get {"skill_name": "signals-scout-<scope>"}          # get current version first
