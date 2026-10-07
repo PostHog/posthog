@@ -1,8 +1,8 @@
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { componentsToDayJs, dateStringToComponents, dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
-import { CompareFilter, DateRange } from '~/queries/schema/schema-general'
+import { CompareFilter } from '~/queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '~/types'
 
 // Not a root table, so the `posthog.` prefix is part of the name. A team on the Events mode without
@@ -36,24 +36,30 @@ export function reachesPastFlagEvaluationsRetention(dateFrom: string | null): bo
     return !parsed || parsed.isBefore(flagEvaluationsRetentionStart())
 }
 
-// The query runners read a missing start as the last 7 days.
-const DEFAULT_INSIGHT_DATE_FROM = '-7d'
-
-export function insightReachesPastFlagEvaluationsRetention(
-    dateRange: DateRange | null | undefined,
+/** Whether the range an insight ran over, or the period it compares against, starts before the table's oldest day. */
+export function insightReachesPastFlagEvaluationsRetention({
+    dateFrom,
+    resolvedDateRange,
+    compareFilter,
+}: {
+    /** The live editor range, which wins over the saved query's. */
+    dateFrom: string | null | undefined
+    resolvedDateRange: { date_from?: string | null; date_to?: string | null } | null | undefined
     compareFilter: CompareFilter | null | undefined
-): boolean {
-    const dateFrom = dateRange?.date_from ?? DEFAULT_INSIGHT_DATE_FROM
-    const start = dateStringToDayJs(dateFrom)
-    if (!start || reachesPastFlagEvaluationsRetention(dateFrom)) {
+}): boolean {
+    // All time resolves to the oldest row the table still holds, so the resolved range never shows the cutoff.
+    if (dateFrom === 'all') {
         return true
     }
-    if (!compareFilter?.compare) {
+    if (!resolvedDateRange?.date_from) {
         return false
     }
-    const today = dayjs.utc().startOf('day')
-    const comparedPeriodOffset = compareFilter.compare_to
-        ? today.diff(dateStringToDayJs(compareFilter.compare_to) ?? today)
-        : (dateStringToDayJs(dateRange?.date_to ?? null) ?? dayjs.utc()).diff(start)
-    return start.subtract(comparedPeriodOffset, 'millisecond').isBefore(flagEvaluationsRetentionStart())
+    const start = dayjs(resolvedDateRange.date_from)
+    const compareToComponents = compareFilter?.compare ? dateStringToComponents(compareFilter.compare_to ?? null) : null
+    const comparedStart = !compareFilter?.compare
+        ? start
+        : compareToComponents
+          ? componentsToDayJs(compareToComponents, start)
+          : start.subtract(dayjs(resolvedDateRange.date_to ?? undefined).diff(start), 'millisecond')
+    return comparedStart.isBefore(flagEvaluationsRetentionStart())
 }

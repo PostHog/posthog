@@ -61,7 +61,11 @@ def _flag_calls_series(**kwargs: Any) -> DataWarehouseNode:
     )
 
 
-def _retention_entity(aggregation_target_field: str = "person_id") -> dict[str, Any]:
+def _aggregation_target(aggregation_group_type_index: int | None) -> str:
+    return "person_id" if aggregation_group_type_index is None else f"$group_{aggregation_group_type_index}"
+
+
+def _retention_entity(aggregation_target_field: str) -> dict[str, Any]:
     return {
         "id": TABLE,
         "name": TABLE,
@@ -159,13 +163,11 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("by_person", None, "person_id"),
-            ("by_group", 0, "$group_0"),
+            ("by_person", None),
+            ("by_group", 0),
         ]
     )
-    def test_funnel_from_flag_call_to_pageview(
-        self, _name: str, aggregation_group_type_index: int | None, aggregation_target_field: str
-    ):
+    def test_funnel_from_flag_call_to_pageview(self, _name: str, aggregation_group_type_index: int | None):
         query = FunnelsQuery(
             dateRange=DATE_RANGE,
             aggregation_group_type_index=aggregation_group_type_index,
@@ -175,7 +177,7 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
                     table_name=TABLE,
                     timestamp_field="timestamp",
                     id_field="uuid",
-                    aggregation_target_field=aggregation_target_field,
+                    aggregation_target_field=_aggregation_target(aggregation_group_type_index),
                     properties=[PROBE_FLAG],
                 ),
                 EventsNode(event="$pageview"),
@@ -188,33 +190,32 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("flag_calls_return_as_flag_calls", None, "person_id", _retention_entity(), [2, 1, 0]),
+            ("flag_calls_return_as_flag_calls", None, None, [2, 1, 0]),
             (
                 "flag_calls_return_as_pageviews",
                 None,
-                "person_id",
                 {"id": "$pageview", "name": "$pageview", "type": "events"},
                 [2, 1, 0],
             ),
-            ("by_group", 0, "$group_0", _retention_entity("$group_0"), [2, 0, 0]),
+            ("by_group", 0, None, [2, 0, 0]),
         ]
     )
     def test_retention(
         self,
         _name: str,
         aggregation_group_type_index: int | None,
-        aggregation_target_field: str,
-        returning_entity: dict[str, Any],
+        returning_event: dict[str, Any] | None,
         expected: list[int],
     ):
+        flag_calls = _retention_entity(_aggregation_target(aggregation_group_type_index))
         query = RetentionQuery(
             dateRange=DATE_RANGE,
             aggregation_group_type_index=aggregation_group_type_index,
             retentionFilter={
                 "period": "Day",
                 "totalIntervals": 3,
-                "targetEntity": _retention_entity(aggregation_target_field),
-                "returningEntity": returning_entity,
+                "targetEntity": flag_calls,
+                "returningEntity": returning_event or flag_calls,
             },
         )
 
@@ -234,13 +235,11 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
             (
                 "by_person",
                 None,
-                "person_id",
                 {"new": [2, 0, 0], "returning": [0, 1, 0], "resurrecting": [0, 0, 0], "dormant": [0, -1, -1]},
             ),
             (
                 "by_group",
                 0,
-                "$group_0",
                 {"new": [2, 0, 0], "returning": [0, 0, 0], "resurrecting": [0, 0, 0], "dormant": [0, -2, 0]},
             ),
         ]
@@ -249,7 +248,6 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
         self,
         _name: str,
         aggregation_group_type_index: int | None,
-        aggregation_target_field: str,
         expected: dict[str, list[int]],
     ):
         query = LifecycleQuery(
@@ -261,7 +259,7 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
                     id=TABLE,
                     table_name=TABLE,
                     timestamp_field="timestamp",
-                    aggregation_target_field=aggregation_target_field,
+                    aggregation_target_field=_aggregation_target(aggregation_group_type_index),
                     created_at_field="timestamp",
                 )
             ],

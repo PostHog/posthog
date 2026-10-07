@@ -1169,7 +1169,12 @@ export interface insightVizDataLogicMeta {
             isUsingSessionAnalysis: boolean | Breakdown,
             query: Node<Record<string, any>> | null
         ) => boolean
-        showsFlagCallsRetentionNotice: (querySource: InsightQueryNode | null) => boolean
+        showsFlagCallsRetentionNotice: (
+            querySource: InsightQueryNode | null,
+            dateRange: DateRange | null | undefined,
+            compareFilter: CompareFilter | null | undefined,
+            insightData: Record<string, any>
+        ) => boolean
         isNonTimeSeriesDisplay: (display: ChartDisplayType | null | undefined) => boolean
         isSingleSeriesOutput: (
             isTrends: boolean,
@@ -2243,14 +2248,20 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ) => isUsingSessionAnalysis && !(isInsightVizNode(query) && query.suppressSessionAnalysisWarning),
         ],
         showsFlagCallsRetentionNotice: [
-            (s) => [s.querySource],
-            (querySource: InsightQueryNode | null): boolean =>
+            (s) => [s.querySource, s.dateRange, s.compareFilter, s.insightData],
+            (
+                querySource: InsightQueryNode | null,
+                dateRange: DateRange | null | undefined,
+                compareFilter: CompareFilter | null | undefined,
+                insightData: Record<string, any>
+            ): boolean =>
                 !!querySource &&
                 readsFlagCalls(querySource) &&
-                insightReachesPastFlagEvaluationsRetention(
-                    querySource.dateRange,
-                    'compareFilter' in querySource ? querySource.compareFilter : null
-                ),
+                insightReachesPastFlagEvaluationsRetention({
+                    dateFrom: dateRange?.date_from,
+                    resolvedDateRange: insightData?.resolved_date_range,
+                    compareFilter,
+                }),
         ],
         isNonTimeSeriesDisplay: [
             (s) => [s.display],
@@ -2705,14 +2716,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateQuerySource: ({ querySource }) => {
             actions.setQuery({
                 ...values.query,
-                source: {
+                source: withFlagCallsAggregationTarget({
                     ...values.querySource,
                     ...handleQuerySourceUpdateSideEffects(
                         querySource,
                         values.querySource as InsightQueryNode,
                         values.isIntervalManuallySet
                     ),
-                },
+                } as InsightQueryNode),
             } as Node)
         },
 
@@ -3032,16 +3043,6 @@ const handleQuerySourceUpdateSideEffects = (
     // We do not support properties, filtering test accounts, and sampling for DWH nodes
     // Disable them if there are any. Check the query after the update, so a later edit cannot turn them on again.
     const nextQuery = { ...currentState, ...mergedUpdate } as InsightQueryNode
-    const retargetedQuery = withFlagCallsAggregationTarget(nextQuery)
-    if (retargetedQuery !== nextQuery) {
-        if (isRetentionQuery(retargetedQuery)) {
-            ;(mergedUpdate as RetentionQuery).retentionFilter = retargetedQuery.retentionFilter
-        } else {
-            ;(mergedUpdate as FunnelsQuery | LifecycleQuery).series = (
-                retargetedQuery as FunnelsQuery | LifecycleQuery
-            ).series
-        }
-    }
     const nextRetentionEntities = isRetentionQuery(nextQuery)
         ? [nextQuery.retentionFilter?.targetEntity, nextQuery.retentionFilter?.returningEntity]
         : []

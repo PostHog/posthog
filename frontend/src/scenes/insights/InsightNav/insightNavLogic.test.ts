@@ -14,6 +14,7 @@ import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import {
     Breakdown,
     BreakdownFilter,
+    DataWarehouseNode,
     EventsQuery,
     FunnelsQuery,
     InsightVizNode,
@@ -1471,6 +1472,15 @@ describe('insightNavLogic', () => {
                 expect(stickinessSource.stickinessFilter?.display).toEqual(ChartDisplayType.ActionsBar)
             })
 
+            const flagCallsTrendsNode: DataWarehouseNode = {
+                kind: NodeKind.DataWarehouseNode,
+                id: 'posthog.flag_evaluations',
+                name: 'posthog.flag_evaluations',
+                table_name: 'posthog.flag_evaluations',
+                id_field: 'uuid',
+                timestamp_field: 'timestamp',
+                distinct_id_field: 'distinct_id',
+            }
             const dataWarehouseTestCases: {
                 label: string
                 source: InsightVizNode['source']
@@ -1675,17 +1685,7 @@ describe('insightNavLogic', () => {
                     label: 'trends flag calls to funnels',
                     source: {
                         kind: NodeKind.TrendsQuery,
-                        series: [
-                            {
-                                kind: NodeKind.DataWarehouseNode,
-                                id: 'posthog.flag_evaluations',
-                                name: 'posthog.flag_evaluations',
-                                table_name: 'posthog.flag_evaluations',
-                                id_field: 'uuid',
-                                timestamp_field: 'timestamp',
-                                distinct_id_field: 'distinct_id',
-                            },
-                        ],
+                        series: [flagCallsTrendsNode],
                     },
                     targetView: InsightType.FUNNELS,
                     expectedSource: {
@@ -1706,17 +1706,7 @@ describe('insightNavLogic', () => {
                     source: {
                         kind: NodeKind.TrendsQuery,
                         aggregation_group_type_index: 0,
-                        series: [
-                            {
-                                kind: NodeKind.DataWarehouseNode,
-                                id: 'posthog.flag_evaluations',
-                                name: 'posthog.flag_evaluations',
-                                table_name: 'posthog.flag_evaluations',
-                                id_field: 'uuid',
-                                timestamp_field: 'timestamp',
-                                distinct_id_field: 'distinct_id',
-                            },
-                        ],
+                        series: [flagCallsTrendsNode],
                     },
                     targetView: InsightType.FUNNELS,
                     expectedSource: {
@@ -1798,17 +1788,7 @@ describe('insightNavLogic', () => {
                     label: 'trends flag calls to lifecycle',
                     source: {
                         kind: NodeKind.TrendsQuery,
-                        series: [
-                            {
-                                kind: NodeKind.DataWarehouseNode,
-                                id: 'posthog.flag_evaluations',
-                                name: 'posthog.flag_evaluations',
-                                table_name: 'posthog.flag_evaluations',
-                                id_field: 'uuid',
-                                timestamp_field: 'timestamp',
-                                distinct_id_field: 'distinct_id',
-                            },
-                        ],
+                        series: [flagCallsTrendsNode],
                     },
                     targetView: InsightType.LIFECYCLE,
                     expectedSource: {
