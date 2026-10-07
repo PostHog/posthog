@@ -1729,6 +1729,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 audience_filter_count: properties.length,
             })
         }
+        if (audience !== undefined && !properties) {
+            // Opening with no recipients would mean everyone, so say the link's audience was not used.
+            lemonToast.error("This link's recipients couldn't be read, so none were added. Choose who gets the email.")
+        }
         if (audience !== undefined || name !== undefined || source !== undefined) {
             router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
         }

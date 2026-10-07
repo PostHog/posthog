@@ -24,7 +24,19 @@ describe('broadcastAudiencePrefill', () => {
         ['an empty audience', '[]'],
         ['an object instead of a list', '{"key":"email"}'],
         ['an event filter, which a broadcast audience cannot use', '[{"key":"$browser","type":"event","value":"x"}]'],
+        ['a person filter missing its value', '[{"key":"email","type":"person","operator":"exact"}]'],
+        ['a cohort filter without a cohort id', '[{"key":"id","type":"cohort","operator":"in"}]'],
+        [
+            'one bad filter next to a good one',
+            '[{"key":"id","type":"cohort","value":7},{"key":"email","type":"person","operator":"exact","value":[]}]',
+        ],
     ])('returns null for %s', (_label, raw) => {
         expect(parseBroadcastAudiencePrefill(raw)).toBeNull()
+    })
+
+    it('accepts a person filter that needs no value', () => {
+        const audience = [{ key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.IsSet }]
+
+        expect(parseBroadcastAudiencePrefill(JSON.stringify(audience))).toEqual(audience)
     })
 })
