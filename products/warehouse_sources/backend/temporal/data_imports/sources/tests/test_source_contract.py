@@ -16,7 +16,7 @@ import time
 from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -220,6 +220,31 @@ DETECTION_CASES = [
 )
 def test_harness_detects_each_condition(start: StartExtraction, expected: set[str]) -> None:
     assert check_extraction(start, ["rows"]).failed == expected
+
+
+def _rest_client_without_adapter_retry(
+    inputs: SourceInputs,
+) -> tuple[SourceResponse, ResumableSourceManager[Any] | None]:
+    manager = _manager(inputs)
+    client = RESTClient(
+        base_url=BASE_URL, session=make_tracked_session(retry=NO_ADAPTER_RETRY), request_timeout=(10, 60)
+    )
+
+    def rows() -> Iterator[Any]:
+        paginator = JSONResponseCursorPaginator(cursor_path="next_cursor", cursor_param="cursor")
+        for page in client.paginate("/rows", paginator=paginator, data_selector="data"):
+            if page:
+                yield page
+
+    return _response(rows()), manager
+
+
+def test_waits_of_a_retry_controller_that_an_earlier_test_replaced_still_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Some source tests replace `RESTClient._send_request.retry.sleep` and never put it back. The
+    # verdict of a source must not depend on whether such a test ran earlier in the same process.
+    monkeypatch.setattr(cast(Any, RESTClient._send_request).retry, "sleep", lambda *_: None)
+    failed = check_extraction(_rest_client_without_adapter_retry, ["rows"]).failed
+    assert {STALL_BUDGET, RATE_LIMIT_BUDGET} <= failed
 
 
 def read_baseline() -> dict[str, str]:

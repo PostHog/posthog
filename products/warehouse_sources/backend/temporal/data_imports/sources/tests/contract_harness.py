@@ -5,6 +5,7 @@ retry layers of the adapter, the REST client and the source all run as they do i
 waits add to a fake clock and take no real time.
 """
 
+import gc
 import io
 import ast
 import sys
@@ -25,6 +26,7 @@ from unittest import mock
 
 from django.db.backends.base.base import BaseDatabaseWrapper
 
+import tenacity
 import structlog
 from urllib3.connection import HTTPConnection, HTTPSConnection
 
@@ -317,6 +319,31 @@ def _sleep_aliases() -> list[tuple[Any, str]]:
     return aliases
 
 
+@functools.cache
+def _retry_controllers() -> list[tenacity.Retrying]:
+    """Each synchronous tenacity controller that a `@retry` decorator created.
+
+    A test can replace the `sleep` of one for the rest of the process, for example
+    `RESTClient._send_request.retry.sleep = lambda *_: None`. That wait then never reaches the fake
+    clock, and the verdict of every later source depends on which tests ran before.
+    """
+    return [controller for controller in gc.get_objects() if isinstance(controller, tenacity.Retrying)]
+
+
+@contextlib.contextmanager
+def _waits_on_the_fake_clock(sleep: Callable[[float], None]) -> Iterator[None]:
+    """Give each retry controller the fake `sleep`, and put back what each one had. This is cheaper than `mock.patch`."""
+    controllers = _retry_controllers()
+    originals = [controller.sleep for controller in controllers]
+    for controller in controllers:
+        controller.sleep = sleep
+    try:
+        yield
+    finally:
+        for controller, original in zip(controllers, originals):
+            controller.sleep = original
+
+
 @contextlib.contextmanager
 def fake_environment(scenario: Scenario) -> Iterator[FakeNetwork]:
     """Route HTTP to a `FakeNetwork`, block every other connection, and make each wait advance a fake clock."""
@@ -372,6 +399,7 @@ def fake_environment(scenario: Scenario) -> Iterator[FakeNetwork]:
         mock.patch.object(asyncio, "sleep", async_sleep),
         mock.patch.object(ResumableSourceManager, "_get_redis", memory_redis),
         *(mock.patch.object(module, name, sleep) for module, name in _sleep_aliases()),
+        _waits_on_the_fake_clock(sleep),
     ]
     with contextlib.ExitStack() as stack:
         for patch in patches:
