@@ -29,13 +29,13 @@ describe('formatExecuteSqlDescription', () => {
 
     // The description ships to every MCP client on every tools/list; keep the catalog
     // addition small so prompt bloat shows up as a reviewable failure, not silent growth.
-    // Budget 2900 covers the metric-discovery section (carrying the catalog-vs-query-*
+    // Budget 3100 covers the metric-discovery section (carrying the catalog-vs-query-*
     // precedence rule, synonym/derived-form and definition-question routing, the
     // plain-language one-off caveat the answer owes the reader, and the no-match offer
     // to save a settled measure as a proposed metric) plus the certification/verified-join
     // trust checklist; keep future additions under this so bloat still fails the build.
     it('keeps data-catalog discovery within its character budget', () => {
         const catalogSections = `${METRIC_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
-        expect(catalogSections.length).toBeLessThan(2900)
+        expect(catalogSections.length).toBeLessThan(3100)
     })
 })

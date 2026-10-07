@@ -20,6 +20,7 @@ from products.data_catalog.evals.constants import (
     METRIC_CREATE_TOOL,
     METRIC_UPDATE_TOOL,
     METRICS_CATALOG_MARKER,
+    PROPOSED_BADGE_ICON,
 )
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
 from products.posthog_ai.eval_harness.scorers import (
@@ -45,6 +46,7 @@ __all__ = [
     "ClarificationAsked",
     "ProposedMetricNotRun",
     "MetricDescribeBeforeAdaptedSql",
+    "ProposedBadgeShown",
     "TrustBadgeShown",
 ]
 
@@ -917,4 +919,41 @@ class TrustBadgeShown(Scorer):
             name=self._name(),
             score=1.0 if has_badge is should_show else 0.0,
             metadata={"expected_shown": should_show, "has_badge": has_badge},
+        )
+
+
+class ProposedBadgeShown(Scorer):
+    """Binary: when the agent runs the named proposed metric, does the answer badge it and link to it?
+
+    Using a proposed metric is the agent's call, so a case where it never runs the metric is skipped
+    (``score=None``) and left to the behavior judge.
+    """
+
+    def _name(self) -> str:
+        return "proposed_badge"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        metric_name = spec.get("metric_name") if isinstance(spec, dict) else None
+        if not isinstance(metric_name, str) or not metric_name:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "metric_name is required"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+        ran = any(
+            not call.is_error and call.input.get("name") == metric_name
+            for call in parser.get_tool_calls(METRIC_RUN_TOOL)
+        )
+        if not ran:
+            return Score(name=self._name(), score=None, metadata={"reason": "proposed metric not used"})
+
+        answer = (output or {}).get("last_message") or ""
+        has_badge = PROPOSED_BADGE_ICON in answer
+        has_link = f"/data-catalog/metrics/{metric_name}" in answer
+        return Score(
+            name=self._name(),
+            score=1.0 if has_badge and has_link else 0.0,
+            metadata={"has_badge": has_badge, "has_link": has_link},
         )

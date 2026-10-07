@@ -1127,14 +1127,15 @@ describe('exec tool', () => {
         }
 
         it.each([
-            ['proposed', { status: 'proposed', is_drifted: false }],
-            ['drifted approved', { status: 'approved', is_drifted: true }],
-            ['deprecated', { status: 'deprecated', is_drifted: false }],
-        ])('marks a %s metric result noncanonical', async (_label, envelope) => {
+            ['proposed', { status: 'proposed', is_drifted: false }, 'use it only if its definition fits'],
+            ['drifted proposed', { status: 'proposed', is_drifted: true }, 'Do not present this as the answer'],
+            ['drifted approved', { status: 'approved', is_drifted: true }, 'Do not present this as the answer'],
+            ['deprecated', { status: 'deprecated', is_drifted: false }, 'Do not present this as the answer'],
+        ])('marks a %s metric result noncanonical', async (_label, envelope, guidance) => {
             const exec = metricRunExec({ ...envelope, results: [[42]] })
             const result = await exec.handler(mockContext, { command: 'call data-catalog-metric-run' })
             expect(result).toContain('NONCANONICAL')
-            expect(result).toContain('Do not present this as the answer')
+            expect(result).toContain(guidance)
         })
 
         it('leaves an approved, non-drifted result unmarked', async () => {
