@@ -608,9 +608,8 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
     ID-JAG (XAA) JWT Bearer grant served from the OAuth token endpoint
     (`/oauth/token`, logic in `posthog.api.id_jag`). Validates the JWT against the
     RS256 public key derived from `OIDC_RSA_PRIVATE_KEY` and binds the request
-    to the User whose email matches the `userSub` half of the token's `sub`
-    claim (`{provider}:{userSub}` per
-    https://xaa.dev/docs/token-structure#sub-claim-format).
+    to the User named by the token's `user_uuid` claim, which the token endpoint
+    resolved from the IdP subject.
 
     Scope enforcement lives in `posthog.permissions.APIScopePermission`; this
     class only handles signature + claim validation and user resolution.
@@ -702,7 +701,7 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
                         issuer=site_url,
                         leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                         options={
-                            "require": ["iss", "sub", "email", "aud", "exp", "iat", "client_id", "scope", "org_id"],
+                            "require": ["iss", "sub", "user_uuid", "aud", "exp", "iat", "client_id", "scope", "org_id"],
                             "verify_signature": True,
                             "verify_exp": True,
                             "verify_aud": True,
@@ -738,20 +737,13 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
             if not organization_id:
                 raise AuthenticationFailed(detail="ID-JAG access token is missing the org_id claim.")
 
-            token_email = str(claims.get("email") or "")
-            if not token_email:
-                raise AuthenticationFailed(detail="ID-JAG access token is missing the email claim.")
-
-            # Resolve the user by (email, org_id) so the token only authenticates
-            # against the specific organization it was minted for. This prevents
-            # a token from authenticating as another user that happens to share
-            # the email, and re-validates membership at every request (the user
-            # may have been removed from the org after the token was issued).
+            # Membership is re-checked on every request, because the user may have left the
+            # organization after the token was issued.
             membership = (
                 OrganizationMembership.objects.filter(
                     organization_id=organization_id,
                     user__is_active=True,
-                    user__email__iexact=token_email,
+                    user__uuid=str(claims["user_uuid"]),
                 )
                 .select_related("user", "organization")
                 .first()
