@@ -198,6 +198,8 @@ class TestTransientRPCRetry:
             # A mid-stream HTTP/2 transport interruption surfaces as UNKNOWN, not one of the
             # transient statuses above — it must still be ridden out in-process.
             ("h2 protocol error: error reading a body from connection", RPCStatusCode.UNKNOWN),
+            # Temporal Cloud's generic transient failure is UNKNOWN with a "please retry" message.
+            ("something went wrong, please retry (0a1b2c3d4e5f)", RPCStatusCode.UNKNOWN),
             # tonic cancels a call that outruns the client's RPC deadline with status CANCELLED and
             # message "Timeout expired" — a client-side timeout that must be ridden out, not raised.
             ("Timeout expired", RPCStatusCode.CANCELLED),

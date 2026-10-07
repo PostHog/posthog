@@ -88,7 +88,11 @@ _RETRYABLE_RPC_STATUSES = frozenset(
 # underlying transport connection is closed mid-request (a known upstream pattern, e.g.
 # temporalio/sdk-core#807) — another connection blip, not an intentional cancellation. Match the
 # phrase, not the whole status, for the same reason as above.
-_RETRYABLE_RPC_MESSAGES = ("h2 protocol error", "Timeout expired", "operation was canceled")
+#
+# Temporal Cloud returns a generic transient failure as status UNKNOWN with the message
+# "something went wrong, please retry (<id>)". The server asks the client to retry, so ride it out.
+# Match only the stable phrase, because the trailing id changes on each occurrence.
+_RETRYABLE_RPC_MESSAGES = ("h2 protocol error", "Timeout expired", "operation was canceled", "please retry")
 
 
 def _is_retryable_rpc_error(error: RPCError) -> bool:
