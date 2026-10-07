@@ -104,6 +104,7 @@ import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTempl
 import {
     featureFlagsCopyFlagsCreate,
     featureFlagsCopyFlagsDependencyRequirementsCreate,
+    featureFlagsCreateStaticCohortForFlagCreate,
     featureFlagsList,
     featureFlagsRetrieve,
     featureFlagsStatusRetrieve,
@@ -3639,10 +3640,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             newestReusableFlagCohort(results, values.featureFlag, userUuid, Date.now())?.id ?? null
                     }
                     if (cohortId === null) {
-                        // nosemgrep: prefer-codegen-api-namespaced-feature_flags -- The generated function returns void, so it can't return the new cohort.
-                        const { cohort } = await api.featureFlags.createStaticCohort(props.id)
+                        const { cohort } = await featureFlagsCreateStaticCohortForFlagCreate(projectId, props.id)
                         breakpoint()
-                        cohortId = cohort.id as number
+                        cohortId = cohort.id
                     }
                     // The cohort fills in the background. Opening the broadcast earlier would let it send to no one.
                     const deadline = Date.now() + BROADCAST_COHORT_WAIT_MS
