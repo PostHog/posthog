@@ -192,6 +192,10 @@ export function featureChanges(
 ): FeatureChanges {
     const runNames = (runExplanation.top_features ?? []).map((f) => f.name)
     const championNames = (championExplanation.top_features ?? []).map((f) => f.name)
+    // An empty list means the model recorded no importances, which says nothing about its features.
+    if (runNames.length === 0 || championNames.length === 0) {
+        return { added: [], dropped: [] }
+    }
     return {
         added: runNames.filter((name) => !championNames.includes(name)),
         dropped: championNames.filter((name) => !runNames.includes(name)),

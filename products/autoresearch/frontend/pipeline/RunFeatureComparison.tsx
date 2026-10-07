@@ -30,10 +30,9 @@ export function RunFeatureComparison({ runId }: { runId: string }): JSX.Element 
         )
     }
     const compareWithChampion = champion && champion.id !== model.id
-    const changes =
-        compareWithChampion && (model.model_explanation.top_features ?? []).length > 0
-            ? featureChanges(model.model_explanation, champion.model_explanation)
-            : { added: [], dropped: [] }
+    const changes = compareWithChampion
+        ? featureChanges(model.model_explanation, champion.model_explanation)
+        : { added: [], dropped: [] }
     return (
         <div className="@container">
             <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2">

@@ -291,7 +291,8 @@ describe('autoresearchPipelineLogic', () => {
         it.each([
             ['same features', explanation('a', 'b'), explanation('b', 'a'), { added: [], dropped: [] }],
             ['added and dropped', explanation('a', 'c'), explanation('a', 'b'), { added: ['c'], dropped: ['b'] }],
-            ['run without importances', {}, explanation('a'), { added: [], dropped: ['a'] }],
+            ['run without importances', {}, explanation('a'), { added: [], dropped: [] }],
+            ['champion without importances', explanation('a'), {}, { added: [], dropped: [] }],
         ])('%s', (_name, run, champion, expected) => {
             expect(featureChanges(run, champion)).toEqual(expected)
         })
