@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 import {
     SCORE_RUN_POLL_INTERVAL_MS,
     autoresearchPipelineLogic,
+    featureChanges,
     scoringCoverage,
     trainingRunProgress,
 } from './autoresearchPipelineLogic'
@@ -20,7 +21,13 @@ import {
     autoresearchRunsRetrieve,
     autoresearchScoreCreate,
 } from './generated/api'
-import { AutoresearchRunApi, AutoresearchTrainingRunApi, IterationTrailApi } from './generated/api.schemas'
+import {
+    AutoresearchRunApi,
+    AutoresearchTrainingRunApi,
+    FeatureDirectionEnumApi,
+    IterationTrailApi,
+    ModelExplanationFieldApi,
+} from './generated/api.schemas'
 
 jest.mock('./generated/api', () => ({
     autoresearchRetrieve: jest.fn(),
@@ -348,6 +355,25 @@ describe('autoresearchPipelineLogic', () => {
                 ],
             })
             expect(trainingRunProgress(run)).toEqual({ iterationCount: 2, bestHoldoutScore: 0.7 })
+        })
+    })
+
+    describe('featureChanges', () => {
+        const explanation = (...names: string[]): ModelExplanationFieldApi => ({
+            top_features: names.map((name) => ({
+                name,
+                importance: 1,
+                direction: FeatureDirectionEnumApi.Positive,
+            })),
+        })
+
+        it.each([
+            ['same features', explanation('a', 'b'), explanation('b', 'a'), { added: [], dropped: [] }],
+            ['added and dropped', explanation('a', 'c'), explanation('a', 'b'), { added: ['c'], dropped: ['b'] }],
+            ['run without importances', {}, explanation('a'), { added: [], dropped: [] }],
+            ['champion without importances', explanation('a'), {}, { added: [], dropped: [] }],
+        ])('%s', (_name, run, champion, expected) => {
+            expect(featureChanges(run, champion)).toEqual(expected)
         })
     })
 })
