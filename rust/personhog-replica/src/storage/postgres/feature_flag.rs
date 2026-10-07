@@ -175,6 +175,19 @@ impl FeatureFlagStorage for PostgresStorage {
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let mut tx = sqlx::Connection::begin(&mut *conn).await?;
+        // The foreign key from posthog_featureflaghashkeyoverride to posthog_person is deferred.
+        // Postgres checks deferred keys at COMMIT. statement_timeout does not cover COMMIT. A
+        // person delete or merge holds FOR UPDATE on the person row until its transaction ends.
+        // Until then, the commit waits. This statement moves the check into the INSERT, where
+        // statement_timeout applies.
+        sqlx::query("SET CONSTRAINTS ALL IMMEDIATE")
+            .execute(&mut *tx)
+            .await?;
+        // Kept under the router's 5 s backend deadline so the caller sees an error, not a timeout.
+        sqlx::query("SET LOCAL lock_timeout = '2s'")
+            .execute(&mut *tx)
+            .await?;
 
         // DO UPDATE locks each conflicting row even when its WHERE is false, so NOT EXISTS
         // skips the pairs that already hold a real key. The WHERE still keeps a real key that a
@@ -205,8 +218,9 @@ impl FeatureFlagStorage for PostgresStorage {
             feature_flag_keys,
             COOKIELESS_SENTINEL_VALUE
         )
-        .execute(&mut *conn)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
 
         Ok(result.rows_affected() as i64)
     }

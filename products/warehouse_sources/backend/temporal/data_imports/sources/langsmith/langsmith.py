@@ -616,6 +616,8 @@ def _stop_at_page_limit(
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
     resumable_source_manager.save_state(resume_state)
+    # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+    resumable_source_manager.safe_point()
     raise LangSmithPageLimitError(message)
 
 
