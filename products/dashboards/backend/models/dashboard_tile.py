@@ -1,5 +1,5 @@
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q, QuerySet, UniqueConstraint
 from django.utils import timezone
 
@@ -27,6 +27,16 @@ class Text(models.Model):
     class Meta:
         db_table = "posthog_text"
 
+    def copy_for_team(self, team_id: int) -> "Text":
+        return Text.objects.create(
+            body=self.body,
+            agent_context=self.agent_context,
+            created_by_id=self.created_by_id,
+            last_modified_at=self.last_modified_at,
+            last_modified_by_id=self.last_modified_by_id,
+            team_id=team_id,
+        )
+
 
 class ButtonTile(UUIDModel):
     url = models.CharField(max_length=2000)
@@ -50,6 +60,18 @@ class ButtonTile(UUIDModel):
 
     class Meta:
         db_table = "posthog_buttontile"
+
+    def copy_for_team(self, team_id: int) -> "ButtonTile":
+        return ButtonTile.objects.create(
+            url=self.url,
+            text=self.text,
+            placement=self.placement,
+            style=self.style,
+            created_by_id=self.created_by_id,
+            last_modified_at=self.last_modified_at,
+            last_modified_by_id=self.last_modified_by_id,
+            team_id=team_id,
+        )
 
 
 class DashboardTileManager(models.Manager):
@@ -217,30 +239,25 @@ class DashboardTile(models.Model):
                 raise ValidationError("This content is already on the destination dashboard.")
             stale.delete()
 
+    @transaction.atomic
     def copy_to_dashboard(self, dashboard: Dashboard) -> None:
         """
-        Place this tile's content on another dashboard: create a new row, or undelete a soft-deleted
-        row for the same insight, text, or button (unique constraint would block a second insert otherwise).
+        Copy text and buttons into the destination team. Reuse a deleted insight tile because
+        the unique dashboard-insight constraint prevents a second row for the same insight.
 
         The ``copy_tile`` API still only exposes insight and text tiles; dashboard duplication uses this
         method for all tile types including buttons.
         """
-        # An edit can replace the content reference while this copy waits for the lock.
         if self.text_id is not None or self.button_tile_id is not None:
-            self.refresh_from_db(from_queryset=DashboardTile.objects.select_for_update(of=("self",)))
+            self.refresh_from_db()
+        existing = None
         if self.insight is not None:
             existing = DashboardTile.objects_including_soft_deleted.filter(
                 dashboard=dashboard, insight=self.insight
             ).first()
-        elif self.text is not None:
-            existing = DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard, text=self.text).first()
-        elif self.button_tile is not None:
-            existing = DashboardTile.objects_including_soft_deleted.filter(
-                dashboard=dashboard, button_tile=self.button_tile
-            ).first()
         elif self.widget is not None:
             raise ValidationError("Widget tiles must be deep-cloned when copying between dashboards.")
-        else:
+        elif self.text is None and self.button_tile is None:
             raise ValidationError("Cannot copy tile without insight, text, button_tile, or widget.")
 
         if existing:
@@ -260,8 +277,8 @@ class DashboardTile(models.Model):
             dashboard=dashboard,
             team_id=dashboard.team_id,
             insight=self.insight,
-            text=self.text,
-            button_tile=self.button_tile,
+            text=self.text.copy_for_team(dashboard.team_id) if self.text is not None else None,
+            button_tile=self.button_tile.copy_for_team(dashboard.team_id) if self.button_tile is not None else None,
             color=self.color,
             layouts=self.layouts,
             show_description=self.show_description,

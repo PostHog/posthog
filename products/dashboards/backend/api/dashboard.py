@@ -1489,24 +1489,13 @@ def _tile_type_and_widget_type(tile: DashboardTile) -> tuple[str, str | None]:
 
 
 def _copy_text_if_shared(tile: DashboardTile) -> Text:
-    # Locks the tile against a concurrent `copy_to_dashboard` adding a second reference to this
-    # text, so the sharing check below can't race a duplication that hasn't committed yet.
     tile = DashboardTile.objects.select_for_update(of=("self",)).select_related("text").get(pk=tile.pk)
     text = cast(Text, tile.text)
     is_shared = DashboardTile.objects_including_soft_deleted.filter(text_id=text.id).exclude(id=tile.id).exists()
-    # A tile moved to another team's dashboard (`move_tile`) keeps its text reference, so a
-    # sole reference can still belong to a different team than the tile.
     if not is_shared and text.team_id == tile.team_id:
         return text
 
-    text_copy = Text.objects.create(
-        body=text.body,
-        agent_context=text.agent_context,
-        created_by_id=text.created_by_id,
-        last_modified_at=text.last_modified_at,
-        last_modified_by_id=text.last_modified_by_id,
-        team_id=tile.team_id,
-    )
+    text_copy = text.copy_for_team(tile.team_id)
     tile.text = text_copy
     tile.save(update_fields=["text"])
     return text_copy
@@ -1521,16 +1510,7 @@ def _copy_button_if_shared(tile: DashboardTile) -> ButtonTile:
     if not is_shared and button.team_id == tile.team_id:
         return button
 
-    button_copy = ButtonTile.objects.create(
-        url=button.url,
-        text=button.text,
-        placement=button.placement,
-        style=button.style,
-        created_by_id=button.created_by_id,
-        last_modified_at=button.last_modified_at,
-        last_modified_by_id=button.last_modified_by_id,
-        team_id=tile.team_id,
-    )
+    button_copy = button.copy_for_team(tile.team_id)
     tile.button_tile = button_copy
     tile.save(update_fields=["button_tile"])
     return button_copy
@@ -1831,7 +1811,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 )
                 duplicate_tiles = self.initial_data.get("duplicate_tiles", False)
                 for existing_tile in existing_tiles:
-                    # Widget tiles move with their widget row; other tiles re-link shared insight/text/button rows.
+                    # Widgets need the clone path because their state belongs to one dashboard.
                     if duplicate_tiles or existing_tile.widget_id is not None:
                         self._deep_duplicate_tiles(dashboard, existing_tile, user_access_control)
                     else:
@@ -1908,6 +1888,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             new_data = {
                 **TextSerializer(existing_tile.text, context=self.context).data,
                 "id": None,  # to create a new Text
+                "team": dashboard.team_id,
             }
             new_data.pop("dashboards", None)
             text_serializer = TextSerializer(data=new_data, context=self.context)
@@ -1928,6 +1909,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             new_data = {
                 **ButtonTileSerializer(existing_tile.button_tile, context=self.context).data,
                 "id": None,
+                "team": dashboard.team_id,
             }
             new_data.pop("dashboards", None)
             button_tile_serializer = ButtonTileSerializer(data=new_data, context=self.context)
@@ -3143,6 +3125,16 @@ class DashboardsViewSet(
             )
         try:
             with transaction.atomic():
+                if tile.text_id is not None:
+                    text = _copy_text_if_shared(tile)
+                    text.team_id = to_dashboard_obj.team_id
+                    text.save(update_fields=["team"])
+                    tile.text = text
+                elif tile.button_tile_id is not None:
+                    button = _copy_button_if_shared(tile)
+                    button.team_id = to_dashboard_obj.team_id
+                    button.save(update_fields=["team"])
+                    tile.button_tile = button
                 tile.prepare_move_to_dashboard(to_dashboard)
                 tile.dashboard_id = to_dashboard
                 # Destination is scoped to the current project; align team_id when moving within it.
@@ -3219,10 +3211,6 @@ class DashboardsViewSet(
             check_can_add_insight_to_shared_dashboard(
                 cast(User, request.user), destination, tile.insight.query, user_access_control
             )
-        elif tile.text is not None:
-            if DashboardTile.objects.filter(dashboard=destination, text=tile.text).exists():
-                raise exceptions.ValidationError("This text card is already on the destination dashboard.")
-
         try:
             with transaction.atomic():
                 tile.copy_to_dashboard(destination)

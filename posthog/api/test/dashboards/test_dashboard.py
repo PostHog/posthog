@@ -2109,7 +2109,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["creation_mode"], "default")
 
-    def test_dashboard_duplication_uses_copy_on_write_for_text_tiles(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_dashboard_duplication_copies_text_and_button_tiles(self, duplicate_tiles: bool) -> None:
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
         insight_one_id, _ = self.dashboard_api.create_insight(
             {"dashboards": [existing_dashboard.pk], "name": "the insight"}
@@ -2133,15 +2134,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.client.force_login(viewer)
 
         duplicate_id, duplicate_response = self.dashboard_api.create_dashboard(
-            {"name": "another", "use_dashboard": existing_dashboard.id}
+            {"name": "another", "use_dashboard": existing_dashboard.id, "duplicate_tiles": duplicate_tiles}
         )
 
         insight_tile = next(t for t in duplicate_response["tiles"] if t.get("insight"))
         text_tile = next(t for t in duplicate_response["tiles"] if t.get("text"))
-        assert insight_tile["insight"]["id"] == insight_one_id
-        assert insight_tile["insight"]["name"] == "the insight"
+        assert (insight_tile["insight"]["id"] == insight_one_id) is (not duplicate_tiles)
+        assert insight_tile["insight"]["name"] == ("the insight (Copy)" if duplicate_tiles else "the insight")
 
-        assert text_tile["text"]["id"] == original_text_tile["text"]["id"]
+        assert text_tile["text"]["id"] != original_text_tile["text"]["id"]
+        assert text_tile["text"]["body"] == "source body"
+        assert text_tile["text"]["agent_context"] == "source context"
 
         invalid_text_tile = {
             **text_tile,
@@ -2155,7 +2158,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         shared_tile = DashboardTile.objects.get(id=text_tile["id"])
         original_text.refresh_from_db()
-        assert shared_tile.text_id == original_text.id
+        assert shared_tile.text_id == text_tile["text"]["id"]
         assert original_text.body == "source body"
 
         text_tile["text"]["body"] = "duplicate body"
@@ -2176,7 +2179,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert duplicate_text_tile["text"]["agent_context"] == "duplicate context"
 
         button_tile = next(t for t in duplicate_response["tiles"] if t.get("button_tile"))
-        assert button_tile["button_tile"]["id"] == original_button_tile["button_tile"]["id"]
+        assert button_tile["button_tile"]["id"] != original_button_tile["button_tile"]["id"]
         button_tile["button_tile"]["url"] = "https://example.com/duplicate"
         self.dashboard_api.update_dashboard(duplicate_id, {"tiles": [button_tile]})
 
@@ -2777,13 +2780,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["tiles"]) == 1
         assert response.json()["tiles"][0]["text"]["body"] == "hello"
+        assert response.json()["tiles"][0]["text"]["id"] != tile["text"]["id"]
 
         response2 = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_two_id}/copy_tile",
             {"fromDashboardId": dashboard_one_id, "tileId": tile["id"]},
         )
-        assert response2.status_code == status.HTTP_400_BAD_REQUEST
-        assert "already" in json.dumps(response2.json()).lower()
+        assert response2.status_code == status.HTTP_200_OK
+        copied_tiles = response2.json()["tiles"]
+        assert len(copied_tiles) == 2
+        assert len({copied_tile["text"]["id"] for copied_tile in copied_tiles}) == 2
 
     def test_copy_tile_restores_soft_deleted_insight_tile_on_destination(self) -> None:
         dashboard_a_id, _ = self.dashboard_api.create_dashboard({"name": "a"})
@@ -2827,8 +2833,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert len(dashboard_two["tiles"]) == 1
         assert dashboard_two["tiles"][0]["insight"]["id"] == insight_id
 
-    def test_move_text_tile_succeeds_when_destination_has_soft_deleted_shadow_tile(self) -> None:
-        """Soft-deleted rows still hold unique (dashboard, text_id); moving must delete them first."""
+    def test_move_text_tile_isolates_content_from_destination_deleted_tile(self) -> None:
         dashboard_a_id, _ = self.dashboard_api.create_dashboard({"name": "a"})
         dashboard_b_id, _ = self.dashboard_api.create_dashboard({"name": "b"})
         text = Text.objects.create(team=self.team, body="hello", created_by=self.user)
@@ -2837,7 +2842,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             text=text,
             layouts={},
         )
-        DashboardTile.objects_including_soft_deleted.create(
+        shadow = DashboardTile.objects_including_soft_deleted.create(
             dashboard_id=dashboard_b_id,
             text=text,
             deleted=True,
@@ -2850,7 +2855,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert patch_response.status_code == status.HTTP_200_OK
         dashboard_b = self.dashboard_api.get_dashboard(dashboard_b_id)
         assert len(dashboard_b["tiles"]) == 1
-        assert dashboard_b["tiles"][0]["text"]["id"] == text.id
+        assert dashboard_b["tiles"][0]["text"]["id"] != text.id
+        assert dashboard_b["tiles"][0]["text"]["body"] == "hello"
+        shadow.refresh_from_db()
+        assert shadow.deleted is True
+        assert shadow.text_id == text.id
 
     def test_move_tile_between_dashboards_is_project_scoped(self) -> None:
         other_org, _, other_team = Organization.objects.bootstrap(self.user, name="other org")
@@ -2870,38 +2879,71 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard = self.dashboard_api.get_dashboard(dashboard_id)
         assert len(dashboard["tiles"]) == 1
 
-    def test_move_tile_foreign_team_text_is_copied_on_edit(self) -> None:
+    @parameterized.expand([("text", False), ("text", True), ("button_tile", False), ("button_tile", True)])
+    def test_move_tile_updates_content_ownership(self, content_field: str, shared: bool) -> None:
         destination_team = Team.objects.create(organization=self.organization, project=self.project)
         source_dashboard = Dashboard.objects.create(team=self.team, name="Source Dashboard")
         destination_dashboard = Dashboard.objects.create(team=destination_team, name="Destination Dashboard")
-        text = Text.objects.create(body="original", team=self.team, created_by=self.user)
-        tile = DashboardTile.objects.create(dashboard=source_dashboard, text=text)
+        if content_field == "text":
+            content: Text | ButtonTile = Text.objects.create(body="original", team=self.team, created_by=self.user)
+        else:
+            content = ButtonTile.objects.create(
+                url="https://example.com/original", text="Original", team=self.team, created_by=self.user
+            )
+        tile = DashboardTile.objects.create(dashboard=source_dashboard, **{content_field: content})
+        if shared:
+            other_dashboard = Dashboard.objects.create(team=self.team, name="Other Dashboard")
+            DashboardTile.objects.create(dashboard=other_dashboard, **{content_field: content})
 
         move_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{source_dashboard.id}/move_tile",
             {"tile": {"id": tile.id}, "to_dashboard": destination_dashboard.id},
         )
-        self.assertEqual(move_response.status_code, status.HTTP_200_OK)
-
+        assert move_response.status_code == status.HTTP_200_OK
         tile.refresh_from_db()
-        self.assertEqual(tile.team_id, destination_team.id)
-        self.assertEqual(tile.text_id, text.id, "the moved tile still points at the source team's text")
+        moved_content = tile.text if content_field == "text" else tile.button_tile
+        assert moved_content is not None
+        assert tile.team_id == destination_team.id
+        assert moved_content.team_id == destination_team.id
+        assert (moved_content.id == content.id) is (not shared)
+        content.refresh_from_db()
+        assert content.team_id == (self.team.id if shared else destination_team.id)
 
-        update_response = self.client.post(
-            f"/api/environments/{destination_team.id}/dashboards/{destination_dashboard.id}/update_text_tile/",
-            {"tile_id": tile.id, "body": "edited from destination team"},
-            content_type="application/json",
-        )
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-
-        text.refresh_from_db()
-        tile.refresh_from_db()
-        self.assertEqual(text.body, "original", "the source team's text must not be mutated")
-        self.assertNotEqual(tile.text_id, text.id)
-        tile_text = tile.text
-        assert tile_text is not None
-        self.assertEqual(tile_text.team_id, destination_team.id)
-        self.assertEqual(tile_text.body, "edited from destination team")
+        if content_field == "text":
+            update_response = self.client.post(
+                f"/api/projects/{destination_team.id}/dashboards/{destination_dashboard.id}/update_text_tile/",
+                {"tile_id": tile.id, "body": "edited"},
+                format="json",
+            )
+        else:
+            update_response = self.client.patch(
+                f"/api/projects/{destination_team.id}/dashboards/{destination_dashboard.id}",
+                {
+                    "tiles": [
+                        {
+                            "id": tile.id,
+                            "button_tile": {
+                                "id": str(moved_content.id),
+                                "url": "https://example.com/edited",
+                                "text": "Edited",
+                            },
+                        }
+                    ]
+                },
+                format="json",
+            )
+        assert update_response.status_code == status.HTTP_200_OK
+        moved_content.refresh_from_db()
+        if isinstance(moved_content, Text):
+            assert moved_content.body == "edited"
+        else:
+            assert moved_content.url == "https://example.com/edited"
+        if shared:
+            content.refresh_from_db()
+            if isinstance(content, Text):
+                assert content.body == "original"
+            else:
+                assert content.url == "https://example.com/original"
 
     @parameterized.expand([("source",), ("target",)])
     def test_move_tile_respects_access_control(self, blocked_dashboard: str) -> None:
