@@ -1089,13 +1089,13 @@ class TestWarehouseViewAccessControl(BaseTest):
         runner = get_query_runner(
             {"kind": "HogQLQuery", "query": "SELECT id FROM denied_view"}, self.team, user=self.user
         )
-        assert "denied_view" in runner.database._denied_tables
+        assert "denied_view" in runner.shared_database._denied_tables
         denied_cache_key = runner.get_cache_key()
 
         runner.bypass_warehouse_access_control()
 
         # A bypass result must never be served from the denied user's cache entry, or the other way round.
-        assert "denied_view" not in runner.database._denied_tables
+        assert "denied_view" not in runner.shared_database._denied_tables
         assert runner.get_cache_key() != denied_cache_key
 
     def test_shared_link_user_skips_warehouse_view_acl_but_hides_system_tables(self):

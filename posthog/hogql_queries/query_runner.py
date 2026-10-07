@@ -3576,6 +3576,11 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         queried_resources = queried_access_controlled_resources(
             self.query, self.team, bypassed_scopes=self._bypassed_access_scopes
         )
+        if queried_resources and self._bypass_warehouse_access_control:
+            # The run reads warehouse tables and views whatever the user's rules say, so those rules
+            # must not partition the key. Otherwise the result would land in the denied user's
+            # entry and be served to them.
+            queried_resources = queried_resources - WAREHOUSE_ACCESS_SCOPES
 
         if isinstance(self.user, User) and not self.team.organization.is_feature_available(
             AvailableFeature.ACCESS_CONTROL

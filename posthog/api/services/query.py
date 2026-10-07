@@ -686,7 +686,6 @@ def process_query_model(
             pagination_cursor=pagination_cursor,
             analytics_props=analytics_props,
             allow_raw_results=allow_raw_results,
-            bypass_warehouse_access_control=bypass_warehouse_access_control,
         )
 
     # This query doesn't run via query runner
