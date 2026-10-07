@@ -229,6 +229,27 @@ export const ExternalId: Story = {
     },
 }
 
+export const ChurnedAndIgnored: Story = {
+    render: () => <App />,
+    decorators: [
+        mswDecorator({
+            get: {
+                [ACCOUNT_RETRIEVE_ENDPOINT]: {
+                    ...account,
+                    churned_at: '2026-05-01T10:00:00Z',
+                    ignored_at: '2026-05-15T10:00:00Z',
+                },
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: {
+            waitForSelector: ['[data-attr="account-churned-tag"]', '[data-attr="account-ignored-tag"]'],
+            viewport: { width: 1280, height: 900 },
+        },
+    },
+}
+
 export const Narrow: Story = {
     render: () => <App />,
     parameters: {
