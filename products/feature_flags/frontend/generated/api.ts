@@ -847,7 +847,8 @@ export const getFeatureFlagsEnableCreateUrl = (projectId: string, id: number) =>
  * Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
  * archived state are left as they are. An archived flag is refused: unarchive it first. A
  * flag whose own flag dependencies are disabled or use an unsupported configuration
- * format is also refused. An already-enabled flag is returned unchanged.
+ * format is also refused, as is a flag whose release conditions target a deleted cohort.
+ * An already-enabled flag is returned unchanged.
  */
 export const featureFlagsEnableCreate = async (
     projectId: string,
