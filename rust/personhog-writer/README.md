@@ -87,7 +87,8 @@ When the writer is slow (PG latency, pool saturation), size-triggered flushes st
 
 - **Cooperative-sticky assignment**: during autoscaling, only partitions that need to move are revoked
 - **Static group membership**: when `KAFKA_CLIENT_ID` is set, the broker holds partition assignments during pod restarts (requires StatefulSet for stable pod names)
-- **Manual offset commits**: offsets are committed only after a successful Postgres write
+- **Manual offset commits**: offsets are committed only after a successful Postgres write, and only for partitions still assigned to this pod
+- **Revocation**: when the broker takes partitions away, their buffered rows are dropped, and a batch already queued for the writer is filtered the same way when the writer picks it up. Their offsets were never committed, so the new owner reads them from the last commit instead of both pods writing the same rows. A batch already executing against Postgres, including its retries, still completes
 
 ## Metrics
 
@@ -115,6 +116,9 @@ When the writer is slow (PG latency, pool saturation), size-triggered flushes st
 | `personhog_writer_pg_pool_idle` | gauge | Idle sqlx pool connections (sampled every 5s) |
 | `personhog_writer_offset_commits_total` | counter | Successful offset commits |
 | `personhog_writer_offset_commit_errors_total` | counter | Failed offset commits |
+| `personhog_writer_offset_commits_skipped_total{reason}` | counter | Partition offsets left uncommitted because the partition is no longer assigned |
+| `personhog_writer_partitions_revoked_total` | counter | Partitions the broker revoked from this pod |
+| `personhog_writer_revoked_rows_dropped_total{stage}` | counter | Rows dropped because their partition was revoked (stage: buffer, queued) |
 | `personhog_writer_flush_duration_seconds` | histogram | PG write latency per flush |
 | `personhog_writer_flush_rows` | histogram | Rows per flush |
 | `personhog_writer_channel_send_duration_seconds` | histogram | Time waiting on the writer channel (backpressure indicator) |
