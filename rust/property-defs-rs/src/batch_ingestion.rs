@@ -215,6 +215,20 @@ impl EventDefinitionsBatch {
         timer.fin();
     }
 
+    // Keeps only the rows whose mask entry is true; returns how many were dropped.
+    pub fn retain_rows(&mut self, keep: &[bool]) -> usize {
+        let removed = keep.iter().filter(|k| !**k).count();
+        if removed == 0 {
+            return 0;
+        }
+        retain_by_mask(&mut self.ids, keep);
+        retain_by_mask(&mut self.names, keep);
+        retain_by_mask(&mut self.team_ids, keep);
+        retain_by_mask(&mut self.project_ids, keep);
+        retain_by_mask(&mut self.cached, keep);
+        removed
+    }
+
     // See EventPropertiesBatch::remove_rows_for_fk.
     pub fn remove_rows_for_fk(&mut self, column: &str, value: i64) -> usize {
         let keep: Vec<bool> = match column {
@@ -430,9 +444,21 @@ pub async fn process_batch(
                 if event_defs.should_flush_batch() {
                     let pool = pool.clone();
                     let cache = cache.clone();
-                    let outbound = event_defs;
+                    let mut outbound = event_defs;
                     event_defs = EventDefinitionsBatch::new(config.write_batch_size);
+                    let read_pool = read_pool.clone();
                     handles.push(tokio::spawn(async move {
+                        if let Some(rp) = &read_pool {
+                            crate::read_filter::filter_event_definitions(
+                                rp,
+                                &mut outbound,
+                                read_budget,
+                            )
+                            .await;
+                        }
+                        if outbound.is_empty() {
+                            return Ok(());
+                        }
                         write_event_definitions_batch(cache, outbound, &pool).await
                     }));
                 }
@@ -493,7 +519,16 @@ pub async fn process_batch(
     if !event_defs.is_empty() {
         let pool = pool.clone();
         let cache = cache.clone();
+        let read_pool = read_pool.clone();
         handles.push(tokio::spawn(async move {
+            let mut event_defs = event_defs;
+            if let Some(rp) = &read_pool {
+                crate::read_filter::filter_event_definitions(rp, &mut event_defs, read_budget)
+                    .await;
+            }
+            if event_defs.is_empty() {
+                return Ok(());
+            }
             write_event_definitions_batch(cache, event_defs, &pool).await
         }));
     }
