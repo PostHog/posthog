@@ -5,7 +5,7 @@ import { combineUrl } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconCheck } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -30,6 +30,7 @@ const COPIED_RESET_MS = 1600
  * The button is its own feedback ("Copy" -> "Copied"), so the clipboard toast is suppressed.
  */
 function CommandCta(): JSX.Element {
+    const { wizardCommandCopied } = useActions(inboxOnboardingLogic)
     const [copied, setCopied] = useState(false)
     const resetTimerRef = useRef<number | null>(null)
 
@@ -44,6 +45,7 @@ function CommandCta(): JSX.Element {
     const handleCopy = (): void => {
         void copyToClipboard(SELF_DRIVING_WIZARD_COMMAND, 'self-driving setup command', { silent: true })
         captureInboxWelcomeCommandCopied({ surface: 'takeover' })
+        wizardCommandCopied()
         setCopied(true)
         if (resetTimerRef.current !== null) {
             window.clearTimeout(resetTimerRef.current)
@@ -69,6 +71,31 @@ function CommandCta(): JSX.Element {
     )
 }
 
+/**
+ * The text under the command. After a copy it becomes a waiting state: the wizard's sign-in calls
+ * back to the terminal, not to this tab, so without it a user who comes back finds the page
+ * unchanged and has no sign that setup started.
+ */
+function CommandHint({ children }: { children: React.ReactNode }): JSX.Element {
+    const { awaitingWizardRun } = useValues(inboxOnboardingLogic)
+
+    if (!awaitingWizardRun) {
+        return <p className="mt-3.5 max-w-[520px] text-[13px] text-tertiary">{children}</p>
+    }
+    return (
+        <div className="mt-3.5 flex max-w-[520px] flex-col items-center gap-1" role="status">
+            <span className="flex items-center gap-2 text-sm font-semibold">
+                <Spinner textColored />
+                Waiting for the setup agent to connect
+            </span>
+            <p className="m-0 text-[13px] text-tertiary">
+                Run the command in your repo and sign in when it asks. This page updates by itself when the agent
+                starts.
+            </p>
+        </div>
+    )
+}
+
 function GithubFirstCta(): JSX.Element {
     useMountedLogic(integrationsLogic)
     const { githubIntegrations, integrationsLoading } = useValues(integrationsLogic)
@@ -90,10 +117,10 @@ function GithubFirstCta(): JSX.Element {
                 </div>
                 <h2 className="mb-4 text-lg font-semibold">Almost there</h2>
                 <CommandCta />
-                <p className="mt-3.5 max-w-[520px] text-[13px] text-tertiary">
+                <CommandHint>
                     Run the setup agent in your repo to pick the signal sources and scouts to watch. PRs start landing
                     in this inbox.
-                </p>
+                </CommandHint>
             </>
         )
     }
@@ -167,10 +194,10 @@ export function InboxWelcome(): JSX.Element {
                     ) : (
                         <>
                             <CommandCta />
-                            <p className="mt-3.5 max-w-[520px] text-[13px] text-tertiary">
+                            <CommandHint>
                                 Run it in your repo. That's the whole setup: it connects GitHub and picks the signal
                                 sources and scouts to watch. PRs start landing in this inbox.
-                            </p>
+                            </CommandHint>
                         </>
                     )}
                     <ManualSetupAction />

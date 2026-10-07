@@ -216,6 +216,42 @@ describe('wizardActiveSessionDetectorLogic', () => {
         })
     })
 
+    // A copied command is the only signal that a run is coming. The watch must hold for the whole
+    // window (the user is in the terminal), and the fast poll must stop once the run connects.
+    describe('expected run after a copied command', () => {
+        beforeEach(() => {
+            jest.useFakeTimers()
+            mockLatestRetrieve.mockResolvedValue(null)
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('watches the program and polls fast until the run connects, then releases the watch', async () => {
+            logic.actions.expectRun('self-driving')
+            expect(logic.values.watchedWorkflows).toContain('self-driving')
+
+            await expectLogic(logic, () => {
+                jest.advanceTimersByTime(5_000)
+            }).toDispatchActions(['check'])
+            expect(mockLatestRetrieve).toHaveBeenCalledWith(
+                expect.anything(),
+                { workflow_id: 'self-driving' },
+                expect.anything()
+            )
+
+            logic.actions.markActive('self-driving')
+            mockLatestRetrieve.mockClear()
+            jest.advanceTimersByTime(20_000)
+            expect(mockLatestRetrieve).not.toHaveBeenCalled()
+            expect(logic.values.watchedWorkflows).toContain('self-driving')
+
+            jest.advanceTimersByTime(15 * 60 * 1000)
+            expect(logic.values.watchedWorkflows).not.toContain('self-driving')
+        })
+    })
+
     it('defers teardown (scheduleMarkInactive) when an active session goes terminal', async () => {
         logic.actions.markActive('posthog-integration')
         await expectLogic(logic).toMatchValues({ hasActiveSession: true })

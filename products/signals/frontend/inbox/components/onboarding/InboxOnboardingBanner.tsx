@@ -16,7 +16,7 @@ import { SELF_DRIVING_WIZARD_COMMAND } from './InboxWelcome'
  * MCP use-case hint) rather than a system banner; session-dismissable via the close button.
  */
 export function InboxOnboardingBanner(): JSX.Element {
-    const { dismissBanner } = useActions(inboxOnboardingLogic)
+    const { dismissBanner, wizardCommandCopied } = useActions(inboxOnboardingLogic)
 
     return (
         <div className="mx-4 mb-3 mt-2 flex flex-col gap-2 rounded-lg border border-dashed border-primary bg-bg-light p-4">
@@ -44,7 +44,10 @@ export function InboxOnboardingBanner(): JSX.Element {
                 ariaLabel="Copy self-driving setup command"
                 decoration="rainbow"
                 size="sm"
-                onCopy={() => captureInboxWelcomeCommandCopied({ surface: 'banner' })}
+                onCopy={() => {
+                    captureInboxWelcomeCommandCopied({ surface: 'banner' })
+                    wizardCommandCopied()
+                }}
                 // rounded-md sits one step inside the rounded-lg banner it nests in.
                 className="!m-0 rounded-md border border-primary bg-surface-secondary hover:border-accent"
             />
