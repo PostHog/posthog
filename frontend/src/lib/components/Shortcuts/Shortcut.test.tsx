@@ -63,6 +63,31 @@ describe('Shortcut', () => {
     })
 
     test.each([
+        { target: 'input', clicks: 0 },
+        { target: 'body', clicks: 1 },
+    ])('Shortcut with ignoreInEditable on $target clicks=$clicks', ({ target, clicks }) => {
+        const onClick = jest.fn()
+        render(
+            <>
+                <input aria-label="Shortcut input" />
+                <Shortcut
+                    name="TestIgnoreInEditable"
+                    keybind={[['x']]}
+                    intent="Test editable target suppression"
+                    interaction="click"
+                    ignoreInEditable
+                >
+                    <LemonButton onClick={onClick}>Shortcut target</LemonButton>
+                </Shortcut>
+            </>
+        )
+
+        fireEvent.keyDown(target === 'input' ? screen.getByLabelText('Shortcut input') : document.body, { key: 'x' })
+
+        expect(onClick).toHaveBeenCalledTimes(clicks)
+    })
+
+    test.each([
         { capture: 'ctrl', key: 'k', ctrlKey: true, metaKey: false, shiftKey: false, triggered: false },
         { capture: 'ctrl', key: 'j', ctrlKey: true, metaKey: false, shiftKey: false, triggered: false },
         { capture: undefined, key: 'k', ctrlKey: true, metaKey: false, shiftKey: false, triggered: true },

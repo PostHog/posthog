@@ -26,7 +26,18 @@ interface ShortcutProps extends Omit<ShortcutType, 'ref' | 'keybind' | 'interact
 }
 
 export const Shortcut = forwardRef<HTMLElement, ShortcutProps>(function Shortcut(
-    { children, name, keybind, intent, interaction, scope = 'global', disabled = false, disabledReason, priority = 0 },
+    {
+        children,
+        name,
+        keybind,
+        intent,
+        interaction,
+        scope = 'global',
+        disabled = false,
+        disabledReason,
+        ignoreInEditable = false,
+        priority = 0,
+    },
     forwardedRef
 ): ReactElement {
     const childProps = (isValidElement(children) ? children.props : {}) as Record<string, unknown>
@@ -43,6 +54,7 @@ export const Shortcut = forwardRef<HTMLElement, ShortcutProps>(function Shortcut
         scope,
         disabled: isDisabled,
         priority,
+        ignoreInEditable,
     })
 
     const mergedRef = useMergeRefs([callbackRef, forwardedRef])
