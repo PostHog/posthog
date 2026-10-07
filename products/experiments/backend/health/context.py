@@ -4,7 +4,7 @@ from posthog.schema import MultipleVariantHandling
 
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.metric_resolution import saved_metric_links
+from products.experiments.backend.metric_resolution import saved_metric_link_role, saved_metric_links
 from products.experiments.backend.models.experiment import Experiment
 
 
@@ -105,16 +105,13 @@ def _load_flag_state(experiment: Experiment) -> FlagState | None:
 
 
 def load_health_context(experiment: Experiment, exposures: ExposureTotals | None = None) -> HealthContext:
-    shared_metric_types = [
-        link.metadata.get("type") if isinstance(link.metadata, dict) else None
-        for link in saved_metric_links(experiment)
-    ]
+    shared_metric_roles = [saved_metric_link_role(link) for link in saved_metric_links(experiment)]
     return HealthContext(
         is_launched=experiment.is_launched,
         has_ended=experiment.is_stopped,
         archived=experiment.archived,
         flag=_load_flag_state(experiment),
-        primary_metric_count=len(experiment.metrics or []) + shared_metric_types.count("primary"),
-        secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_types.count("secondary"),
+        primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),
+        secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_roles.count("secondary"),
         exposures=exposures,
     )

@@ -77,6 +77,14 @@ def _make(cls, **attrs):
     return instance
 
 
+_HEALTH_PAUSED = ("flag_off_while_running", "running_but_flag_disabled")
+_HEALTH_METRIC = {
+    "kind": "ExperimentMetric",
+    "metric_type": "mean",
+    "uuid": "health-inline-metric",
+    "source": {"kind": "EventsNode", "event": "$pageview"},
+}
+
 _FLAG_CONFIG_KEYS = (
     "feature_flag_variants",
     "rollout_percentage",
@@ -676,26 +684,21 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            ("flag_off", False, None, None),
-            (
-                "no_metric",
-                True,
-                None,
-                [("flag_off_while_running", "running_but_flag_disabled"), ("no_metric", None)],
-            ),
-            (
-                "shared_secondary_metric_counts",
-                True,
-                "secondary",
-                [("flag_off_while_running", "running_but_flag_disabled")],
-            ),
+            ("flag_off", False, {}, None, None),
+            ("no_metric", True, {}, None, [_HEALTH_PAUSED, ("no_metric", None)]),
+            ("inline_primary_metric_counts", True, {"metrics": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
+            ("inline_secondary_metric_counts", True, {"metrics_secondary": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
+            ("shared_primary_metric_counts", True, {}, {"metadata": {"type": "primary"}}, [_HEALTH_PAUSED]),
+            ("shared_secondary_metric_counts", True, {}, {"metadata": {"type": "secondary"}}, [_HEALTH_PAUSED]),
+            ("shared_metric_without_type_counts", True, {}, {}, [_HEALTH_PAUSED]),
         ]
     )
     def test_detail_reports_health_findings(
         self,
         _name: str,
         flag_enabled: bool,
-        shared_metric_type: str | None,
+        inline_metrics: dict[str, list[dict[str, Any]]],
+        shared_metric_link: dict[str, Any] | None,
         expected: list[tuple[str, str | None]] | None,
     ) -> None:
         experiment = Experiment.objects.create(
@@ -717,10 +720,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 },
             ),
             start_date=timezone.now() - timedelta(days=3),
-            metrics=[],
-            metrics_secondary=[],
+            metrics=inline_metrics.get("metrics", []),
+            metrics_secondary=inline_metrics.get("metrics_secondary", []),
         )
-        if shared_metric_type:
+        if shared_metric_link is not None:
             saved_metric = ExperimentSavedMetric.objects.create(
                 team=self.team,
                 name="Shared metric",
@@ -731,9 +734,12 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                     "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             )
-            ExperimentToSavedMetric.objects.create(
-                experiment=experiment, saved_metric=saved_metric, metadata={"type": shared_metric_type}
+            link_response = self.client.patch(
+                f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+                {"saved_metrics_ids": [{"id": saved_metric.id, **shared_metric_link}]},
+                format="json",
             )
+            self.assertEqual(link_response.status_code, status.HTTP_200_OK, link_response.json())
 
         def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
             return flag_enabled and flag_key == EXPERIMENT_HEALTH_FINDINGS_FLAG
