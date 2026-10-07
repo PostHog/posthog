@@ -219,10 +219,11 @@ export function Navigation({
                         {todayRail && todaySidebarInContent && todaySidebarVisible && (
                             <TodayWarehouseSidebar className="col-start-1 row-start-2" />
                         )}
-                        {/* Same wrapper on every route so main never remounts when the warehouse header or sidebar appears. */}
+                        {/* Same wrapper on every route so main never remounts when the warehouse header or sidebar appears.
+                            It stays unpositioned, so the side panel and the takeover host size against the whole column, header row included. */}
                         <div
                             className={cn(
-                                'relative flex min-h-0 min-w-0 flex-1 overflow-hidden',
+                                'flex min-h-0 min-w-0 flex-1 overflow-hidden',
                                 todayRail && 'col-start-2 row-start-2'
                             )}
                         >
