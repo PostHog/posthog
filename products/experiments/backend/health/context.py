@@ -51,12 +51,7 @@ class HealthContext:
         return self.is_launched and not self.has_ended
 
 
-def parse_flag_state(*, active: bool, deleted: bool, filters: object) -> FlagState:
-    if not isinstance(filters, dict):
-        filters = {}
-    groups = filters.get("groups")
-    multivariate = filters.get("multivariate")
-    variants = multivariate.get("variants") if isinstance(multivariate, dict) else None
+def parse_flag_state(*, active: bool, deleted: bool, groups: object, variants: object) -> FlagState:
     return FlagState(
         active=active,
         deleted=deleted,
@@ -99,9 +94,9 @@ def _load_flag_state(experiment: Experiment) -> FlagState | None:
     if feature_flag_id is None:
         return None
     flag = experiment.feature_flag
-    # Read the raw document, as the page does. A document in a config format other than v1 then
-    # reads as a flag without release groups and variants, and does not raise.
-    return parse_flag_state(active=bool(flag.active), deleted=bool(flag.deleted), filters=flag.get_filters())
+    return parse_flag_state(
+        active=bool(flag.active), deleted=bool(flag.deleted), groups=flag.conditions, variants=flag.variants
+    )
 
 
 def load_health_context(experiment: Experiment, exposures: ExposureTotals | None = None) -> HealthContext:
