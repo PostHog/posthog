@@ -449,11 +449,27 @@ describe('RequestStateResolver MCP client contexts', () => {
     })
 
     it.each([
+        { mcpClientName: 'openai-mcp' },
+        { mcpClientName: 'openai-mcp (Codex)' },
+        { mcpClientName: 'openai-mcp (ChatGPT)' },
+        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (Codex)' },
+        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (ChatGPT)' },
+        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0' },
+    ])('enables production render-ui for OpenAI transport %j', async (identity) => {
+        vi.stubEnv('NODE_ENV', 'production')
+        vi.stubEnv('POSTHOG_MCP_FORCE_RENDER_UI', undefined)
+        const result = await makeResolver().resolve(makeProps(identity))
+
+        expect(result.renderUiEnabled).toBe(true)
+        expect(result.useSingleExec).toBe(true)
+    })
+
+    it.each([
         ['development', 'true', true],
         ['development', undefined, false],
         ['production', 'true', false],
         [undefined, 'true', false],
-    ])('resolves Codex render-ui with NODE_ENV=%s and override=%s', async (nodeEnv, override, enabled) => {
+    ])('resolves terminal Codex render-ui with NODE_ENV=%s and override=%s', async (nodeEnv, override, enabled) => {
         vi.stubEnv('NODE_ENV', nodeEnv)
         vi.stubEnv('POSTHOG_MCP_FORCE_RENDER_UI', override)
         const result = await makeResolver().resolve(makeProps({ mcpClientName: 'codex' }))

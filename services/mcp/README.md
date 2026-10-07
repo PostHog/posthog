@@ -406,8 +406,12 @@ Then replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in t
 
 The server defaults to port **8787**, reads config from `.env` (see `.env.example`), and expects a local Redis on port `6379` for session state; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint.
 
-To test `render-ui` in Codex or another client outside the Claude UI-host allowlist,
-set `POSTHOG_MCP_FORCE_RENDER_UI=true` in `.env` and run `pnpm run build:ui-apps`.
+`render-ui` is available in production for Claude UI hosts and OpenAI's MCP
+transport used by ChatGPT and Codex. OpenAI's generic plugin-discovery client
+receives it too, so the cached plugin tool list includes the app tools.
+
+To test MCP Apps locally, run `pnpm run build:ui-apps`. For clients outside those
+hosts, set `POSTHOG_MCP_FORCE_RENDER_UI=true` in `.env`.
 This override is honored only when `NODE_ENV=development`, which `pnpm run dev`
 sets by default. Connect the client to `http://localhost:8787/mcp?mode=cli` and
 start a fresh chat so it discovers both `exec` and `render-ui`. Use `exec` to
@@ -422,7 +426,8 @@ discovery advertises reachable endpoints. Its development frontend assets must
 be available over HTTPS. Create a custom MCP plugin in ChatGPT using the MCP
 tunnel's `/mcp?mode=cli&readonly=true` URL, complete OAuth, and start a fresh chat
 with that plugin selected. Keep `POSTHOG_API_BASE_URL` pointing to local PostHog.
-Remove the override and stop the tunnels after testing.
+Remove the override if used, and stop the tunnels after testing. Refresh the
+plugin's tools after changing the advertised roster, then start a fresh chat.
 
 In single-exec mode, UI hosts also discover the connection's permitted read-only
 tools with `ui.visibility: ["app"]`. These tools load data and support drill-down

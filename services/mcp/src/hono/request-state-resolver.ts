@@ -190,7 +190,7 @@ export class RequestStateResolver {
         })
 
         const renderUiEnabled =
-            clientProfile.isClaudeUiHost() ||
+            clientProfile.isRenderUiHost() ||
             (env.NODE_ENV === 'development' && env.POSTHOG_MCP_FORCE_RENDER_UI === 'true')
 
         const { mode: resolvedMode, useSingleExec } = resolveMode({

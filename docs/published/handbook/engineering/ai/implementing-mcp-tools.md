@@ -358,7 +358,9 @@ Product teams own their definitions and control which operations are exposed as 
    name fails generation instead of silently dropping the argument at runtime.
    See "UI apps" in `services/mcp/CONTRIBUTING.md` for the rules.
 
-   In single-exec mode, UI hosts receive `exec` and `render-ui` as model tools,
+   `render-ui` is enabled for Claude UI hosts and OpenAI's MCP transport in
+   production, including ChatGPT, Codex, and generic OpenAI plugin discovery.
+   In single-exec mode, these hosts receive `exec` and `render-ui` as model tools,
    plus the connection's permitted read-only tools with `ui.visibility: ["app"]`.
    App-only descriptors let the host authorize visualization data fetches and
    drill-down calls without exposing those tools to the model. These descriptors
