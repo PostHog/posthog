@@ -4578,21 +4578,21 @@ Note: The connector covers only the platform v3 lookup tables plus /search/jql i
 
 ## JobNimbus — **thin**
 
-Today (9): `activities`, `contacts`, `estimates`, `jobs`, `lead_sources`, `payments`, `tasks`, `users`, `workflows`
+Today (13): `activities`, `budgets`, `contacts`, `estimates`, `groups`, `invoices`, `jobs`, `lead_sources`, `payments`, `products`, `tasks`, `users`, `workflows`
 
 Diffed against: <https://documenter.gw.postman.com/api/collections/3919598/S11PpG4x?segregateAuth=true&versionTag=latest>
 
-- [ ] `/api1/v2/invoices` — billed revenue per job - the core financial fact table (high)
+- [x] `/api1/v2/invoices` — billed revenue per job - the core financial fact table (high)
 - [x] `/api1/v2/estimates` — quoted value and win/loss analysis against jobs (high)
 - [x] `/api1/payments` — cash actually collected, needed for AR and collection-rate reporting (high)
 - [x] `/api1/account/users` — lookup resolving the sales rep / owner / assignee IDs carried on jobs, contacts and tasks (high)
 - [x] `/api1/account/settings (workflows, statuses, lead sources)` — lookup resolving the workflow, status and lead-source IDs on jobs and contacts (high)
 - [ ] `/api1/account/settings (custom fields)` — not in the documented settings response (medium)
-- [ ] `/api1/v2/products` — product catalog that estimate and invoice line items reference (medium)
-- [ ] `/api1/budgets` — job budget vs actual, the input to job-level profitability (medium)
+- [x] `/api1/v2/products` — product catalog that estimate and invoice line items reference (medium)
+- [x] `/api1/budgets` — job budget vs actual, the input to job-level profitability (medium)
 - [ ] `/api1/v2/workorders` — scheduled work per job, links crews to jobs (medium)
 - [ ] `/api1/v2/materialorders` — material cost and supplier ordering per job (medium)
-- [ ] `/api1/account/settings?field=groups` — team/group lookup for rolling users up to crews or offices (medium)
+- [x] `/api1/account/settings?field=groups` — team/group lookup for rolling users up to crews or offices (medium)
 - [ ] `/api1/utility/uoms` — unit-of-measure lookup for product and order line items (low)
 
 Note: The doc URL in the payload (documenter.getpostman.com/view/3919598/S11PpG7g) 404s; the live collection is S11PpG4x. The connector exposes 9 of the ~13 GET-able resources, including estimates and payments; invoices and budgets remain the largest financial gaps. File upload endpoints were excluded per the rules.
