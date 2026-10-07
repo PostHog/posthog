@@ -1,6 +1,5 @@
 import { Brain } from "@phosphor-icons/react";
 import { memo } from "react";
-import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
 import { ToolRow } from "./ToolRow";
 import { ContentPre } from "./toolCallUtils";
 
@@ -14,10 +13,6 @@ export const ThoughtView = memo(function ThoughtView({
   isLoading,
 }: ThoughtViewProps) {
   const hasContent = content.trim().length > 0;
-  // Chat-thread chrome uses past tense after a thought completes. The standalone fallback retains
-  // "Thinking" when chat-thread chrome is unavailable.
-  const chatChrome = useChatThreadChrome();
-
   // An empty thought that's done streaming is pure noise — a bare "Thinking"
   // header with nothing under it. Only show it while content is still arriving.
   if (!hasContent && !isLoading) return null;
@@ -29,7 +24,7 @@ export const ThoughtView = memo(function ThoughtView({
         isLoading={isLoading}
         content={hasContent ? <ContentPre>{content}</ContentPre> : undefined}
       >
-        {chatChrome && !isLoading ? "Thought" : "Thinking"}
+        {!isLoading ? "Thought" : "Thinking"}
       </ToolRow>
     </div>
   );

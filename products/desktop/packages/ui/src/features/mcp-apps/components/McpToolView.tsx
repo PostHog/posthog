@@ -4,7 +4,6 @@ import {
   isPostHogExecTool,
 } from "@posthog/core/sessions/posthogExecDisplay";
 import { readMcpToolDescriptor } from "@posthog/shared";
-import { useChatThreadChrome } from "../../sessions/components/chat-thread/chatThreadChrome";
 import { ToolRow } from "../../sessions/components/session-update/ToolRow";
 import {
   ContentPre,
@@ -38,10 +37,6 @@ export function McpToolView({
     turnCancelled,
     turnComplete,
   );
-  // Chat-thread chrome restyles the MCP header and output. The standalone fallback retains its
-  // original colors and input/output divider when chat-thread chrome is unavailable.
-  const chatChrome = useChatThreadChrome();
-
   const { serverName: defaultServerName, toolName: defaultToolName } =
     parseMcpToolKey(mcpToolName);
   const descriptor = readMcpToolDescriptor(toolCall._meta);
@@ -71,20 +66,9 @@ export function McpToolView({
     fullInput || showOutput ? (
       <>
         {fullInput && <ContentPre>{fullInput}</ContentPre>}
-        {showOutput &&
-          (chatChrome ? (
-            <ContentPre>{output}</ContentPre>
-          ) : (
-            <div className={fullInput ? "border-gray-6 border-t" : undefined}>
-              <ContentPre>{output}</ContentPre>
-            </div>
-          ))}
+        {showOutput && <ContentPre>{output}</ContentPre>}
       </>
     ) : undefined;
-
-  const previewClass = chatChrome
-    ? "text-muted-foreground/50"
-    : "text-accent-11";
 
   return (
     <ToolRow
@@ -98,7 +82,7 @@ export function McpToolView({
       <ToolTitle>{displayName}</ToolTitle>
       {inputPreview && (
         <ToolTitle>
-          <span className={previewClass}>{inputPreview}</span>
+          <span className="text-muted-foreground/50">{inputPreview}</span>
         </ToolTitle>
       )}
     </ToolRow>
