@@ -208,7 +208,6 @@ def test_run_routes_through_the_engine(
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     engine = _StubEngine(canned)
-    harness = SandboxedEvalHarness(parse_args(["--agent-model", "claude-test"]))
     reporter = _StubReporter()
 
     with (
@@ -222,6 +221,7 @@ def test_run_routes_through_the_engine(
             side_effect=lambda *args: "abc123" if args[0] == "rev-parse" else "",
         ),
     ):
+        harness = SandboxedEvalHarness(parse_args(["--agent-model", "claude-test"]))
         with harness._stack:
             harness._bootstrap(frozenset())
             ctx = harness._build_context(frozenset(), reporter)  # type: ignore[arg-type]

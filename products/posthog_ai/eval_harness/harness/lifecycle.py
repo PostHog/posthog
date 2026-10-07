@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 import atexit
 import asyncio
@@ -90,8 +91,12 @@ def eval_feature_enabled(
 
 def _git(*args: str) -> str | None:
     """Stdout of a git command run in the checkout under test; ``None`` when git fails."""
+    # GIT_DIR, GIT_WORK_TREE and friends would point git away from REPO_ROOT.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     try:
-        result = subprocess.run(["git", *args], cwd=REPO_ROOT, check=True, capture_output=True, text=True, timeout=10)
+        result = subprocess.run(
+            ["git", *args], cwd=REPO_ROOT, env=env, check=True, capture_output=True, text=True, timeout=10
+        )
     except (OSError, subprocess.SubprocessError):
         return None
     return result.stdout.strip()
@@ -124,6 +129,9 @@ class SandboxedEvalHarness:
         self._posthog_client: Posthog | None = None
         self._posthog_evaluation_client: Posthog | None = None
         self._demo_data: SandboxedDemoData | None = None
+        # Read before asyncio.run so the git subprocesses never block the event loop.
+        self._git_sha = _git("rev-parse", "HEAD")
+        self._git_dirty = _worktree_dirty()
 
     def run(self) -> int:
         # Discover before anything is provisioned: a typo'd selector should cost a
@@ -419,8 +427,8 @@ class SandboxedEvalHarness:
             engine=self._engine,
             per_case_timeout_seconds=self.options.per_case_timeout_seconds,
             trials=self.options.trials,
-            git_sha=_git("rev-parse", "HEAD"),
-            git_dirty=_worktree_dirty(),
+            git_sha=self._git_sha,
+            git_dirty=self._git_dirty,
         )
 
     async def _run_suite(self, suite: EvalSuite, ctx: EvalContext) -> SuiteRunResult:
