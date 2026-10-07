@@ -93,6 +93,11 @@ from products.product_analytics.backend.presentation.insight import InsightSeria
 
 logger = structlog.get_logger(__name__)
 
+RECORDING_OWNED_BY_OTHER_PROJECT_ERROR = (
+    "You can't share this recording from this project because another project already uses its session ID. "
+    "Make sure you share it from the project that captured it, or contact support if you need help."
+)
+
 
 def shared_url_as_png(url: str = "") -> str:
     validated_url = urlparse(url)
@@ -444,7 +449,15 @@ class SharingConfigurationViewSet(
                 raise NotFound("Insight not found.")
         if recording_id:
             # NOTE: Recordings are a special case as we don't want to query CH just for this.
-            context["recording"] = SessionRecording.get_or_build(recording_id, team=self.team)
+            recording = SessionRecording.get_or_build(recording_id, team=self.team)
+            # session_id is unique across all teams, so saving a new row fails if another team owns this id.
+            if (
+                recording._state.adding
+                # nosemgrep: idor-lookup-without-team (checks ownership by other teams, returns no data)
+                and SessionRecording.objects.filter(session_id=recording_id).exclude(team_id=self.team.pk).exists()
+            ):
+                raise ValidationError(RECORDING_OWNED_BY_OTHER_PROJECT_ERROR)
+            context["recording"] = recording
         if notebook_short_id:
             try:
                 context["notebook"] = Notebook.objects.get(short_id=notebook_short_id, team=self.team)
