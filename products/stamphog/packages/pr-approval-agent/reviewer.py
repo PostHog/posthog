@@ -18,7 +18,7 @@ from typing import Any
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from gates import manifest_basenames
-from gateway import REVIEWER_MODEL, analytics_extra_properties, gateway_env, resolve_gateway_config
+from gateway import CLAUDE_REVIEWER_MODEL, analytics_extra_properties, gateway_env, resolve_gateway_config
 from github import PRData, drop_abandoned_bot_eyes, new_diff_file, write_pr_diff
 from policy import _sanitize_untrusted, review_guidance_path, steering_path
 from verdict_rule import FACT_FIELDS, FACTS_SCHEMA, InvalidFactsError, ReviewFacts, derive_verdict
@@ -406,6 +406,14 @@ _INVOCATION_LINES = {
 }
 
 
+def max_turns(classification: dict, gate_context: dict) -> int:
+    """The reviewer's turn budget for this PR."""
+    # Gate denials and trivial PRs don't need deep exploration —
+    # just read the diff and report.
+    quick = gate_context["gate_verdict"] == "DENIED" or classification.get("t1_subclass") == "T1a-trivial"
+    return 5 if quick else 20
+
+
 class Reviewer:
     """LLM reviewer using Agent SDK."""
 
@@ -451,10 +459,6 @@ class Reviewer:
             diff_path = copied_diff_path
         prompt = self._build_review_prompt(pr, classification, gate_context, diff_path)
 
-        # Gate denials and trivial PRs don't need deep exploration —
-        # just read the diff and report.
-        quick = gate_context["gate_verdict"] == "DENIED" or classification.get("t1_subclass") == "T1a-trivial"
-
         options = ClaudeAgentOptions(
             system_prompt=REVIEWER_SYSTEM,
             allowed_tools=["Read", "Grep", "Glob"],
@@ -480,31 +484,15 @@ class Reviewer:
             # ships in the head tree, regardless of CLI defaults.
             mcp_servers={},
             strict_mcp_config=True,
-            max_turns=5 if quick else 20,
-            model=REVIEWER_MODEL,
+            max_turns=max_turns(classification, gate_context),
+            model=CLAUDE_REVIEWER_MODEL,
             permission_mode="dontAsk",
             output_format=FACTS_SCHEMA,
             effort="low",
             extra_args={"no-session-persistence": None},
         )
 
-        # Shared by both routes. The full set is always on the separate
-        # stamphog_review_completed event. Extras first, so the base props win.
-        # The hosted server stamps runtime and team context through
-        # STAMPHOG_EXTRA_PROPERTIES, and a local run sets no such variable.
-        attribution = {
-            **analytics_extra_properties(),
-            "stamphog_pr_number": pr.number,
-            "stamphog_repo": pr.repo,
-            "stamphog_author": pr.author,
-            "stamphog_tier": classification.get("tier", ""),
-            "stamphog_t1_subclass": classification.get("t1_subclass", ""),
-            "stamphog_breadth": classification.get("breadth", ""),
-            "stamphog_commit_type": classification.get("commit_type") or "",
-            "stamphog_gate_verdict": gate_context.get("gate_verdict", ""),
-            "stamphog_files_changed": len(pr.files),
-            "stamphog_lines_total": pr.lines_total,
-        }
+        attribution = self._attribution(pr, classification, gate_context)
 
         active_query = _apply_gateway_route(resolve_gateway_config(), attribution)
         posthog_kwargs: dict = {}
@@ -517,7 +505,7 @@ class Reviewer:
             trace_name = f"stamphog PR #{pr.number}: {_sanitize_untrusted(pr.title, max_len=100)}"
             posthog_kwargs = {
                 "posthog_distinct_id": pr.author,
-                # Same extras-first merge as `attribution` above, for the traced route.
+                # Same extras-first merge as _attribution, for the traced route.
                 "posthog_properties": {
                     **analytics_extra_properties(),
                     "$ai_trace_name": trace_name,
@@ -596,6 +584,27 @@ class Reviewer:
         if result is None:
             raise RuntimeError("Reviewer agent returned no structured output")
         return result
+
+    def _attribution(self, pr: PRData, classification: dict, gate_context: dict) -> dict:
+        """The analytics properties every gateway call of this review carries.
+
+        The full set is always on the separate stamphog_review_completed event. Extras first, so
+        the base properties win. The hosted server stamps runtime and team context through
+        STAMPHOG_EXTRA_PROPERTIES, and a local run sets no such variable.
+        """
+        return {
+            **analytics_extra_properties(),
+            "stamphog_pr_number": pr.number,
+            "stamphog_repo": pr.repo,
+            "stamphog_author": pr.author,
+            "stamphog_tier": classification.get("tier", ""),
+            "stamphog_t1_subclass": classification.get("t1_subclass", ""),
+            "stamphog_breadth": classification.get("breadth", ""),
+            "stamphog_commit_type": classification.get("commit_type") or "",
+            "stamphog_gate_verdict": gate_context.get("gate_verdict", ""),
+            "stamphog_files_changed": len(pr.files),
+            "stamphog_lines_total": pr.lines_total,
+        }
 
     def _log_tool_call(self, block: ToolUseBlock) -> None:
         name = block.name

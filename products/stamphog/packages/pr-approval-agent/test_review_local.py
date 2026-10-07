@@ -14,9 +14,9 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
-import reviewer  # noqa: E402
 import review_pr  # noqa: E402
 import review_local  # noqa: E402
+import openai_reviewer  # noqa: E402
 from github import CommitProvenance  # noqa: E402
 from review_pr import Pipeline  # noqa: E402
 
@@ -560,7 +560,7 @@ def test_hosted_stacked_review_never_creates_a_worktree(monkeypatch) -> None:
         seen["stacked"] = pr.stacked
         return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
 
-    monkeypatch.setattr(reviewer.Reviewer, "review", fake_review)
+    monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", fake_review)
 
     result = review_local.run(_stacked_context("feat/parent", "master"))
 
@@ -713,7 +713,7 @@ def test_pregate_is_final_only_where_the_full_review_agrees(
     def approve(self, pr, classification, gate_context, diff_path=None):
         return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
 
-    monkeypatch.setattr(reviewer.Reviewer, "review", approve)
+    monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", approve)
     assert review_local.run(context)["final_verdict"] == expect_verdict
 
 
@@ -738,7 +738,7 @@ def test_main_prints_the_result_with_phase_timings_as_its_last_line(monkeypatch,
     def approve(self, pr, classification, gate_context, diff_path=None):
         return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
 
-    monkeypatch.setattr(reviewer.Reviewer, "review", approve)
+    monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", approve)
     context_path = tmp_path / "context.json"
     context_path.write_text(json.dumps(_run_context([_api_file("src/app.py")])))
     monkeypatch.setenv(review_local.LAUNCHED_AT_ENV, str(review_local._now_ms() - 1500))

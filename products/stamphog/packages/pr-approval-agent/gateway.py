@@ -1,8 +1,8 @@
 # ruff: noqa: T201
-"""Route the Claude Agent SDK through PostHog's internal Go ai-gateway.
+"""Route the reviewer's LLM calls through PostHog's internal Go ai-gateway.
 
 Gated on AI_GATEWAY_URL + AI_GATEWAY_API_KEY; a bad/half-set config falls back to
-direct Anthropic instead of failing the review. The gateway is slugless, so the
+the direct provider key instead of failing the review. The gateway is slugless, so the
 product rides on a header, not the path.
 """
 
@@ -13,9 +13,22 @@ from urllib.parse import urlparse
 # aio_ matches the other cutovers; no $ai_ prefix (gateway strips those).
 AI_PRODUCT = "aio_stamphog"
 
-# Lives here rather than in reviewer.py so the hosted server can read it without claude_agent_sdk:
-# its fast refusal summary calls the same model through the same gateway.
-REVIEWER_MODEL = "claude-opus-5-5"
+REVIEWER_MODEL = "gpt-6.1-sol"
+REVIEWER_EFFORT = "low"
+
+# The Claude Agent SDK reviewer stays in the engine as the rollback. The worker selects it with
+# STAMPHOG_REVIEWER_ENGINE=claude, which the hosted server forwards into the sandbox.
+CLAUDE_REVIEWER_MODEL = "claude-opus-5-5"
+CLAUDE_ENGINE = "claude"
+
+# Lives here so the hosted server can read it without the LLM SDKs: its fast refusal summary calls
+# the Anthropic Messages API through the same gateway, so it needs a Claude model.
+SUMMARY_MODEL = "claude-sonnet-5-5"
+
+
+def reviewer_engine() -> str:
+    """The reviewer engine for this run: "claude" for the rollback reviewer, otherwise "openai"."""
+    return CLAUDE_ENGINE if os.environ.get("STAMPHOG_REVIEWER_ENGINE", "").strip() == CLAUDE_ENGINE else "openai"
 
 
 def analytics_extra_properties() -> dict[str, object]:
@@ -74,7 +87,7 @@ def resolve_gateway_config() -> tuple[str, str] | None:
     return f"{parsed.scheme}://{parsed.netloc}{path}", api_key
 
 
-def _properties_header(properties: dict[str, object]) -> str:
+def _properties_json(properties: dict[str, object]) -> str:
     # Single X-PostHog-Properties JSON blob: the slugless Go gateway merges it onto
     # $ai_generation and ignores per-property x-posthog-property-* headers. None
     # dropped; newlines collapsed so a value can't break the header block.
@@ -85,7 +98,12 @@ def _properties_header(properties: dict[str, object]) -> str:
         clean[key] = value.replace("\r", " ").replace("\n", " ") if isinstance(value, str) else value
     if not clean:
         return ""
-    return f"X-PostHog-Properties: {json.dumps(clean, separators=(',', ':'))}"
+    return json.dumps(clean, separators=(",", ":"))
+
+
+def _properties_header(properties: dict[str, object]) -> str:
+    value = _properties_json(properties)
+    return f"X-PostHog-Properties: {value}" if value else ""
 
 
 def gateway_env(base_url: str, api_key: str, properties: dict[str, object]) -> dict[str, str]:
@@ -96,3 +114,8 @@ def gateway_env(base_url: str, api_key: str, properties: dict[str, object]) -> d
         "ANTHROPIC_API_KEY": api_key,
         "ANTHROPIC_CUSTOM_HEADERS": _properties_header({"ai_product": AI_PRODUCT, **properties}),
     }
+
+
+def openai_gateway_headers(properties: dict[str, object]) -> dict[str, str]:
+    """The analytics header for an OpenAI SDK client, with the same content gateway_env sends."""
+    return {"X-PostHog-Properties": _properties_json({"ai_product": AI_PRODUCT, **properties})}

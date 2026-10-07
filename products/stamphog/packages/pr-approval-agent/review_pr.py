@@ -4,6 +4,7 @@
 # dependencies = [
 #     "claude-agent-sdk==0.2.164",
 #     "anthropic==0.80.0",
+#     "openai==3.26.0",
 #     "posthoganalytics==7.20.4",
 #     "pyyaml==6.0.3",
 # ]
@@ -15,10 +16,10 @@ Usage:
     uv run products/stamphog/packages/pr-approval-agent/review_pr.py <pr_number> [--dry-run] [--output-json path]
 
 Runs deterministic gates (deny-list, ownership, tier classification),
-then — if eligible — calls Claude for evidence-bundle review and
-second-pass audit.
+then — if eligible — calls the LLM reviewer for an evidence-bundle review.
 
-Requires `gh` CLI authenticated and ANTHROPIC_API_KEY in env.
+Requires `gh` CLI authenticated and OPENAI_API_KEY in env (or ANTHROPIC_API_KEY
+with STAMPHOG_REVIEWER_ENGINE=claude for the rollback reviewer).
 """
 
 import os
@@ -58,7 +59,7 @@ from gates import (
     t1_risk_subclass,
     test_only,
 )
-from gateway import analytics_extra_properties
+from gateway import CLAUDE_ENGINE, analytics_extra_properties, reviewer_engine
 from github import (
     CommitProvenance,
     PRData,
@@ -152,6 +153,18 @@ _NON_RETRYABLE_PATTERNS = (
 
 class WorktreeUnavailableError(RuntimeError):
     """The PR head tree required for a stacked review could not be created."""
+
+
+def _llm_usage_properties(reviewer_output: dict | None) -> dict[str, object]:
+    """Token usage the reviewer reported, as event properties, or {} when it reported none.
+
+    Only the OpenAI reviewer reports usage. The Claude reviewer's usage reaches analytics through
+    the gateway's $ai_generation events instead.
+    """
+    usage = (reviewer_output or {}).get("usage")
+    if not isinstance(usage, dict):
+        return {}
+    return {f"stamphog_llm_{name}": value for name, value in usage.items()}
 
 
 def _is_retryable_error(err_msg: str) -> bool:
@@ -911,6 +924,16 @@ class Pipeline:
 
         raise AssertionError("review retry loop exhausted without a verdict")
 
+    def _new_reviewer(self, explore_root: Path | None) -> "Reviewer":
+        # Deferred so the gate-only pre-check can import this module where the LLM SDKs are absent.
+        if reviewer_engine() == CLAUDE_ENGINE:
+            from reviewer import Reviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+            return Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
+        from openai_reviewer import OpenAIReviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+        return OpenAIReviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
+
     def _llm_review(self, gate_verdict: str) -> None:
         print(f"\n{_bold('LLM Review')}")
         # Outside the retry loop: a diff-write hiccup must not masquerade as a
@@ -923,12 +946,10 @@ class Pipeline:
         }
 
         print(_dim("  Calling reviewer..."))
-        # Deferred so the gate-only pre-check can import this module where claude_agent_sdk is absent.
-        from reviewer import Reviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
 
         try:
             with self._pr_head_worktree() as explore_root:
-                reviewer = Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
+                reviewer = self._new_reviewer(explore_root)
                 reviewer_unavailable = self._run_reviewer_with_retries(reviewer, gate_context, diff_path)
         except WorktreeUnavailableError as exc:
             reviewer_unavailable = True
@@ -1028,6 +1049,8 @@ class Pipeline:
                 "stamphog_llm_risk": (self.reviewer_output or {}).get("risk", ""),
                 "stamphog_llm_issues": (self.reviewer_output or {}).get("issues", []),
                 "stamphog_llm_facts_summary": facts_summary((self.reviewer_output or {}).get("facts")),
+                "stamphog_reviewer_engine": reviewer_engine(),
+                **_llm_usage_properties(self.reviewer_output),
             },
         )
 

@@ -1,7 +1,7 @@
 # PR approval agent
 
 A Python package that reviews one pull request and returns a verdict.
-It runs deterministic safety gates over the changed files, classifies the PR into a tier, then lets a Claude Agent SDK reviewer look for showstoppers.
+It runs deterministic safety gates over the changed files, classifies the PR into a tier, then lets an LLM reviewer look for showstoppers.
 
 The package reads its policy from the `.stamphog/` directory of the checked-out tree it runs in.
 It writes nothing to GitHub.
@@ -125,7 +125,10 @@ Wait for in-flight bot reviews (skipped when gates already denied)
   │
   ▼
 LLM Review
-  - Claude Agent SDK with Read/Grep/Glob tools, Opus at low effort
+  - GPT-6.1 Sol at low effort in an OpenAI Responses tool loop (openai_reviewer.py), with
+    read_file/grep/glob tools confined to the checkout
+  - STAMPHOG_REVIEWER_ENGINE=claude on the worker switches to the Claude Agent SDK reviewer
+    (Opus 5.5 low, Read/Grep/Glob) as a rollback without a deploy
   - Reports facts, not a verdict; verdict_rule.py derives the verdict (see Verdicts)
   - Explores the repo via git diff, reads source files if needed
   - Looks for showstoppers: production breakage, security, missed deps
@@ -286,8 +289,9 @@ How the head tree is materialized differs per entrypoint:
   Symbolic links the PR adds or repoints fail closed, so a PR path cannot resolve outside the worktree.
 
 **The explored tree is PR-authored content.**
-The reviewer runs the Agent SDK with `setting_sources=[]` (isolation mode) plus `strict_mcp_config`, so it does **not** load `.claude/settings.json` hooks (command execution), `CLAUDE.md` (injected instructions), or `.mcp.json` from the tree.
+The Claude rollback reviewer runs the Agent SDK with `setting_sources=[]` (isolation mode) plus `strict_mcp_config`, so it does **not** load `.claude/settings.json` hooks (command execution), `CLAUDE.md` (injected instructions), or `.mcp.json` from the tree.
 Those files are still readable as untrusted _content_ under the anti-injection notice, never as configuration.
+The OpenAI reviewer loads no configuration from the tree at all, and its tools resolve every path, symbolic links included, and refuse one outside the checkout.
 The diff scratch file is created with `mkstemp` under an unpredictable name, so a tracked symlink in the tree cannot redirect the write.
 
 The base commit of a stacked PR is its parent branch tip, which the checkout does not necessarily carry.
@@ -398,7 +402,8 @@ Every run produces a JSON evidence bundle (`--output-json` on `review_pr.py`) co
 - `policy.py` - policy loader, resolver, and the untrusted-text sanitizer
 - `gates.py` - deterministic classification and deny-list logic
 - `github.py` - GitHub data fetching via `gh` CLI
-- `reviewer.py` - Claude Agent SDK reviewer (showstoppers prompt, reports facts)
+- `reviewer.py` - the shared prompt and the Claude Agent SDK rollback reviewer (reports facts)
+- `openai_reviewer.py` - the GPT-6.1 Sol reviewer: Responses tool loop and the read-only repo tools
 - `verdict_rule.py` - the facts schema and the rule that derives the verdict from it
 
 ## Empirical basis
