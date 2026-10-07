@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Literal
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
@@ -17,6 +17,7 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from pydantic import BaseModel
+from rest_framework.exceptions import NotFound
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 
@@ -64,7 +65,11 @@ from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialRunEvidence,
     TrialRunJudgment,
 )
-from products.signals.backend.scout_harness.trial_judge import TrialJudgeExecutionError, parse_trial_judgment
+from products.signals.backend.scout_harness.trial_judge import (
+    TrialJudgeExecutionError,
+    judge_trial_run,
+    parse_trial_judgment,
+)
 from products.signals.backend.scout_harness.trial_launch import (
     ScoutTrialLaunchError,
     ScoutTrialsDisabled,
@@ -86,6 +91,7 @@ from products.signals.backend.test.test_scout_harness_api import _make_run
 from products.signals.backend.test.test_scout_trial_judge import _reference_context, _snapshot
 from products.signals.backend.trial_judging import TrialJudgeInput, build_trial_judge_prompt
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.exceptions import TaskInvalidStateError
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run  # tach-ignore
 
@@ -586,6 +592,7 @@ class TestScoutTrialEvaluation(BaseTest):
         [
             "valid",
             "evaluation_id",
+            "noncanonical_evaluation_id",
             "launch_id",
             "context_id",
             "source_task_id",
@@ -599,10 +606,18 @@ class TestScoutTrialEvaluation(BaseTest):
             "source_status",
             "source_deleted",
             "source_invalidated",
+            "source_skill",
+            "source_config_team",
             "operator_revoked",
+            "operator_inactive",
+            "operator_membership_revoked",
+            "operator_project_revoked",
+            "historical_skill_removed",
         ]
     )
-    def test_judge_credentials_require_the_exact_saved_evaluation_and_private_source(self, mismatch: str) -> None:
+    def test_judge_credentials_require_trusted_private_source_without_reading_saved_documents(
+        self, mismatch: str
+    ) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         evidence = snapshot.runs[0]
         marker: dict[str, str | int] = {
@@ -618,6 +633,8 @@ class TestScoutTrialEvaluation(BaseTest):
         team_id, user_id = self.team.id, self.user.id
         if mismatch == "user_id":
             marker["user_id"] = user_id + 1
+        elif mismatch == "noncanonical_evaluation_id":
+            marker["evaluation_id"] = snapshot.evaluation_id.hex
         elif mismatch in marker:
             marker[mismatch] = str(uuid4())
         elif mismatch == "caller_team":
@@ -640,14 +657,56 @@ class TestScoutTrialEvaluation(BaseTest):
             task.save(update_fields=["deleted"])
         elif mismatch == "source_invalidated":
             ScoutTrialStore(self.scout_run).invalidate("Synthetic invalidation", allow_terminal=True)
+        elif mismatch == "source_skill":
+            self.scout_run.skill_name = "signals-scout-other"
+            self.scout_run.save(update_fields=["skill_name"])
+        elif mismatch == "source_config_team":
+            self.config.team = Team.objects.create(organization=self.organization, name="Other synthetic project")
+            self.config.save(update_fields=["team"])
         elif mismatch == "operator_revoked":
             self.user.is_staff = False
             self.user.save(update_fields=["is_staff"])
-            with self.assertRaises(TrialEvaluationError):
-                is_scout_trial_judge_context(team_id=team_id, user_id=user_id, marker=marker)
-            return
-        assert is_scout_trial_judge_context(team_id=team_id, user_id=user_id, marker=marker) is (mismatch == "valid")
-        if mismatch == "valid":
+        elif mismatch == "operator_inactive":
+            self.user.is_active = False
+            self.user.save(update_fields=["is_active"])
+        elif mismatch == "operator_membership_revoked":
+            self.user.organization_memberships.filter(organization_id=self.organization.id).delete()
+        elif mismatch == "operator_project_revoked":
+            self.enterContext(
+                patch(
+                    "products.access_control.backend.facade.user_access_control.UserAccessControl.has_project_access",
+                    new_callable=PropertyMock,
+                    return_value=False,
+                )
+            )
+        elif mismatch == "historical_skill_removed":
+            self.skill.delete()
+            LLMSkill.objects.create(
+                team=self.team,
+                name=self.skill.name,
+                version=2,
+                body="Updated synthetic instructions.",
+                allowed_tools=["emit_report"],
+            )
+
+        with (
+            patch.object(
+                object_storage, "read", side_effect=AssertionError("Credentials must not read saved documents")
+            ),
+            patch(
+                "products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user",
+                return_value="synthetic-judge-token",
+            ) as mint,
+        ):
+            if mismatch == "historical_skill_removed":
+                with self.assertRaises(NotFound):
+                    is_scout_trial_judge_context(team_id=team_id, user_id=user_id, marker=marker)
+            else:
+                assert is_scout_trial_judge_context(team_id=team_id, user_id=user_id, marker=marker) is (
+                    mismatch in {"valid", "evaluation_id"}
+                )
+            if mismatch in {"caller_team", "caller_user"}:
+                return
             judge_task = Task.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -656,16 +715,44 @@ class TestScoutTrialEvaluation(BaseTest):
                 origin_key=f"scout-trial-judge:{snapshot.evaluation_id}:{evidence.launch_id}",
             )
             judge_run = judge_task.create_run(extra_state={"scout_trial_judge": marker, "use_dedicated_stream": False})
-            with patch(
-                "products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user",
-                return_value="synthetic-judge-token",
-            ) as mint:
+            if mismatch == "valid":
                 assert (
                     create_oauth_access_token_for_run(judge_task, judge_run.state, scopes="full")
                     == "synthetic-judge-token"
                 )
-            assert mint.call_args.kwargs["scopes"] == "signals_scout_judge"
-            assert mint.call_args.kwargs["sandbox_task_id"] == judge_task.id
+                assert mint.call_args.kwargs["scopes"] == "signals_scout_judge"
+                assert mint.call_args.kwargs["sandbox_task_id"] == judge_task.id
+            else:
+                with self.assertRaises(NotFound if mismatch == "historical_skill_removed" else TaskInvalidStateError):
+                    create_oauth_access_token_for_run(judge_task, judge_run.state, scopes="full")
+                mint.assert_not_called()
+
+    @parameterized.expand(
+        ["source_origin", "source_state", "excluded_evidence", "unfinished_evidence", "foreign_evidence"]
+    )
+    def test_changed_source_or_ineligible_evidence_cannot_dispatch_a_judge(self, invalid: str) -> None:
+        snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        evidence = snapshot.runs[0]
+        if invalid == "source_origin":
+            task = self.scout_run.task_run.task
+            task.origin_key = "ordinary-task"
+            task.save(update_fields=["origin_key"])
+        elif invalid == "source_state":
+            self.scout_run.task_run.state["scout_trial"] = {}
+            self.scout_run.task_run.save(update_fields=["state"])
+        elif invalid == "excluded_evidence":
+            evidence = evidence.model_copy(update={"exclusion_reason": "Synthetic excluded run."})
+            snapshot = snapshot.model_copy(update={"runs": [evidence]})
+        elif invalid == "unfinished_evidence":
+            evidence = evidence.model_copy(update={"execution_status": "failed"})
+            snapshot = snapshot.model_copy(update={"runs": [evidence]})
+        else:
+            evidence = evidence.model_copy(update={"launch_id": uuid4()})
+
+        with patch(f"{JUDGE_MODULE}.MultiTurnSession.start", new_callable=AsyncMock) as start:
+            with self.assertRaises(TrialJudgeExecutionError):
+                async_to_sync(judge_trial_run)(snapshot, evidence)
+        start.assert_not_awaited()
 
     @parameterized.expand(
         [(bound, status, None) for bound in (False, True) for status in ("pending", "unknown", "not_started")]
