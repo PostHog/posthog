@@ -29,11 +29,12 @@ from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import record_request
 
-RequestTimeout = float | tuple[float | None, float | None]
+RequestTimeout = float | tuple[float, float] | tuple[float, None]
 
 # Pass this as `timeout` to send a request with no deadline. `None` does not do that: `requests`
 # passes `None` for every call that names no timeout, so `None` means "use the default".
-NO_REQUEST_TIMEOUT: tuple[None, None] = (None, None)
+# The cast is for the `requests` stubs, which reject a `None` connect value that `requests` accepts.
+NO_REQUEST_TIMEOUT: RequestTimeout = cast(RequestTimeout, (None, None))
 
 
 def default_request_timeout() -> tuple[float, float]:
@@ -145,7 +146,7 @@ class TrackedHTTPAdapter(HTTPAdapter):
             response = super().send(
                 request,
                 stream=stream,
-                timeout=cast(Any, resolve_request_timeout(timeout)),
+                timeout=resolve_request_timeout(timeout),
                 verify=verify,
                 cert=cert,
                 proxies=proxies,
