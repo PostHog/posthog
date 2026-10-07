@@ -1,6 +1,6 @@
 import { LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
-import { ModelQuality, ModelQualityVerdict } from './modelQuality'
+import { MODEL_QUALITY_THRESHOLDS, ModelQuality, ModelQualityVerdict } from './modelQuality'
 
 const VERDICT_TAG_TYPE: Record<ModelQualityVerdict, LemonTagType> = {
     Strong: 'success',
@@ -33,6 +33,11 @@ export function ModelQualityTag({
                     <div>
                         AUC shows how well the model ranks people who do the target above people who don't. 0.5 is
                         random and 1.0 is perfect.
+                    </div>
+                    <div>
+                        Strong is {MODEL_QUALITY_THRESHOLDS.strong.toFixed(2)} or more, Fair is{' '}
+                        {MODEL_QUALITY_THRESHOLDS.fair.toFixed(2)} to {MODEL_QUALITY_THRESHOLDS.strong.toFixed(2)}, and
+                        Weak is below {MODEL_QUALITY_THRESHOLDS.fair.toFixed(2)}.
                     </div>
                     <div className="text-xs">
                         Holdout AUC: {formatAuc(holdoutAuc)}. Realized AUC: {formatAuc(realizedAuc)}.
