@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { useMocks } from '~/mocks/jest'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
@@ -62,7 +63,14 @@ function renderPersonCell(displayName: string): void {
 }
 
 describe('renderColumn', () => {
-    beforeEach(() => initKeaTests())
+    beforeEach(() => {
+        initKeaTests()
+        // PersonPreview looks the person up by distinct ID, then by person ID. Both lookups find no profile.
+        useMocks({
+            get: { '/api/environments/:team_id/persons/': { results: [], next: null } },
+            post: { '/api/environments/:team_id/query/:kind/': { results: [] } },
+        })
+    })
     afterEach(() => cleanup())
 
     it.each([
@@ -94,7 +102,7 @@ describe('renderColumn', () => {
 
         await waitFor(() => {
             // PersonPreview mounting is the probe for the popover. It reports no profile either way,
-            // because this test leaves the persons API unmocked.
+            // because the mocked persons API finds none.
             expect(screen.queryAllByText('No profile associated with this ID')).toHaveLength(popovers as number)
             expect(screen.queryAllByText('This distinct ID has no person profile.')).toHaveLength(notices as number)
         })
