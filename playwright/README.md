@@ -83,3 +83,14 @@ Error: locator.click: Error: strict mode violation: locator('text=Set a billing 
 1) <span class="LemonButton__content">Set a billing limit</span> aka getByTestId('billing-limit-input-wrapper-product_analytics').getByRole('button', { name: 'Set a billing limit' })
 2) <span class="LemonButton__content">Set a billing limit</span> aka getByTestId('billing-limit-input-wrapper-session_replay').getByRole('button', { name: 'Set a billing limit' })
 ```
+
+### Mobile project creation acceptance
+
+The `NewAccountMenu` Storybook stories run focused WebKit checks in an iPhone browser context. They open the real navigation and account menu, then assert the account popup closes and the project-limit paywall or create-project dialog appears. Fixtures use invented organization data.
+
+```sh
+pnpm --filter=@posthog/storybook start --port 6006 --no-open
+pnpm --filter=@posthog/storybook exec test-storybook --url http://127.0.0.1:6006 --browsers webkit --no-index-json --maxWorkers=1 NewAccountMenu
+```
+
+Install WebKit through the existing Playwright installation if needed. This adds coverage to the existing Storybook WebKit runner without expanding the browser matrix.
