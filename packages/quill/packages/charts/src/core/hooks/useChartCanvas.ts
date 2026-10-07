@@ -71,7 +71,7 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
 
             const staticWiped = syncCanvasSize(canvas, rect, dpr)
             const overlayWiped = syncCanvasSize(overlayCanvas, rect, dpr)
-            if (staticWiped) {
+            if (staticWiped || forceRepaint) {
                 markPaintPending(canvas)
             }
 
