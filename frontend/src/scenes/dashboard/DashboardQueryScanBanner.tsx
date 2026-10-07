@@ -37,15 +37,23 @@ export function DashboardQueryScanBanner(): JSX.Element | null {
                     <Link to={urls.insightView(entry.shortId)}>{entry.name}</Link>
                 </Fragment>
             ))}
-            {hiddenCount > 0 && (
+            {hiddenCount > 0 && !expanded && (
                 <>
-                    {expanded ? ' ' : ' and '}
-                    <Link onClick={() => setExpanded(!expanded)} data-attr="dashboard-query-scan-banner-toggle">
-                        {expanded ? 'Show less' : `${hiddenCount} more`}
+                    {' and '}
+                    <Link onClick={() => setExpanded(true)} data-attr="dashboard-query-scan-banner-toggle">
+                        {`${hiddenCount} more`}
                     </Link>
                 </>
             )}
             {single ? '. Open it to see the advice.' : '. Open an insight to see the advice.'}
+            {hiddenCount > 0 && expanded && (
+                <>
+                    {' '}
+                    <Link onClick={() => setExpanded(false)} data-attr="dashboard-query-scan-banner-toggle">
+                        Show less
+                    </Link>
+                </>
+            )}
         </LemonBanner>
     )
 }
