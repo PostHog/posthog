@@ -1535,6 +1535,33 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.json()["tags"], ["keep"])
         self.assertEqual(set(Tag.objects.filter(team_id=self.project.id).values_list("name", flat=True)), {"keep"})
 
+    def test_only_organization_admins_can_change_project_groups(self):
+        group_tag = "project-group:production-apps"
+        self.client.patch(f"/api/projects/{self.project.id}/", {"tags": [group_tag, "keep"]}, format="json")
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        regular_tag_update = self.client.patch(
+            f"/api/projects/{self.project.id}/", {"tags": [group_tag, "updated"]}, format="json"
+        )
+        self.assertEqual(regular_tag_update.status_code, status.HTTP_200_OK, regular_tag_update.json())
+
+        group_update = self.client.patch(
+            f"/api/projects/{self.project.id}/", {"tags": ["project-group:staging", "updated"]}, format="json"
+        )
+        self.assertEqual(group_update.status_code, status.HTTP_400_BAD_REQUEST, group_update.json())
+
+    @parameterized.expand(
+        [
+            ("invalid_slug", ["project-group:production apps"]),
+            ("multiple_groups", ["project-group:production", "project-group:staging"]),
+        ]
+    )
+    def test_project_group_tags_must_use_one_slug(self, _name, tags):
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {"tags": tags}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
     def test_project_can_be_created_with_tags(self):
         self.organization.available_product_features = [
             {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 2}

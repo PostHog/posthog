@@ -1146,6 +1146,23 @@ class ProjectBackwardCompatSerializer(
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.instance)
 
+        if "tags" in attrs:
+            new_groups = project_tags.validate_group_tags(attrs["tags"])
+            current_groups = (
+                project_tags.group_tags(project_tags.current_names(self.instance)) if self.instance else set()
+            )
+            if new_groups != current_groups:
+                organization_id = (
+                    self.instance.organization_id if self.instance else self.context["view"].organization_id
+                )
+                membership = OrganizationMembership.objects.filter(
+                    user=self.context["request"].user, organization_id=organization_id
+                ).first()
+                if membership is None or membership.level < OrganizationMembership.Level.ADMIN:
+                    raise serializers.ValidationError(
+                        {"tags": "Only organization admins and owners can change project groups."}
+                    )
+
         if self.instance:
             field_mappings = get_field_access_control_map(Team)
             user_access_control = self.user_access_control
@@ -1526,12 +1543,15 @@ class ProjectViewSet(
         tags_before = project_tags.current_names(project) if "tags" in serializer.initial_data else None
         super().perform_update(serializer)
         if tags_before is not None:
+            tags_after = project_tags.current_names(project)
             project_tags.report_change(
                 user=cast(User, self.request.user),
                 project=project,
                 tags_before=tags_before,
-                tags_after=project_tags.current_names(project),
+                tags_after=tags_after,
             )
+            if tags_before != tags_after:
+                transaction.on_commit(lambda: _bump_org_serializer_cache_version(str(project.organization_id)))
 
     def _notify_org_admins_of_member_project_creation(self, project: Project) -> None:
         """When a member (below admin) creates a project, notify org admins/owners in-app. Best-effort."""

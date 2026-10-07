@@ -12,11 +12,12 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
+import { identifierToHuman } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
-import { AvailableFeature, TeamBasicType } from '~/types'
+import { AvailableFeature, OrganizationTeamType } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
@@ -26,7 +27,7 @@ import { ProjectName } from './ProjectMenu'
 interface ProjectListItem {
     type: 'project'
     id: number
-    team: TeamBasicType
+    team: OrganizationTeamType
     isCurrent: boolean
 }
 
@@ -85,10 +86,22 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         return [...filteredProjects, createItem] as ListItem[]
     }, [allProjectItems, searchValue])
 
-    const currentProject = filteredItems.find((p): p is ProjectListItem => p.type === 'project' && p.isCurrent)
-    const otherProjects = filteredItems
-        .filter((p): p is ProjectListItem => p.type === 'project' && !p.isCurrent)
-        .sort((a, b) => a.team.name.localeCompare(b.team.name))
+    const projectGroups = useMemo(() => {
+        const groups = new Map<string | null, ProjectListItem[]>()
+        for (const item of filteredItems) {
+            if (item.type !== 'project') {
+                continue
+            }
+            const group = item.team.project_group ?? null
+            groups.set(group, [...(groups.get(group) ?? []), item])
+        }
+        return [...groups.entries()]
+            .sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : a.localeCompare(b)))
+            .map(([name, projects]) => ({
+                name,
+                projects: projects.sort((a, b) => a.team.name.localeCompare(b.team.name)),
+            }))
+    }, [filteredItems])
     const createItem = filteredItems.find((p): p is CreateProjectItem => p.type === 'create')
 
     const canCreateProject = preflight?.can_create_org !== false && !projectCreationForbiddenReason
@@ -212,31 +225,11 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                         className={`flex flex-col gap-px ${spacingClass} bg-surface-primary ${!dialog && 'pt-0.5'}`}
                         tabIndex={-1}
                     >
-                        {/* Current Project */}
-                        {currentProject && (
-                            <Combobox.Group items={[currentProject]}>
-                                <Combobox.Collection>
-                                    {(item: ProjectListItem) => (
-                                        <Combobox.Item
-                                            key={item.id}
-                                            value={item}
-                                            onClick={() => handleItemClick(item)}
-                                            render={(props) => (
-                                                <ButtonPrimitive {...props} menuItem active className="flex-1" truncate>
-                                                    <IconCheck className="text-tertiary" />
-                                                    <ProjectName team={item.team} className="flex-1 min-w-0" />
-                                                    <ProjectFreshnessIndicator teamId={item.team.id} />
-                                                </ButtonPrimitive>
-                                            )}
-                                        />
-                                    )}
-                                </Combobox.Collection>
-                            </Combobox.Group>
-                        )}
-
-                        {/* Other Projects */}
-                        {otherProjects.length > 0 && (
-                            <Combobox.Group items={otherProjects}>
+                        {projectGroups.map(({ name, projects }) => (
+                            <Combobox.Group key={name ?? 'ungrouped'} items={projects}>
+                                <Combobox.GroupLabel className="px-2 pt-2 pb-1 text-xxs text-tertiary font-medium">
+                                    {name ? identifierToHuman(name, 'sentence') : 'Other projects'}
+                                </Combobox.GroupLabel>
                                 <Combobox.Collection>
                                     {(item: ProjectListItem) => (
                                         <Combobox.Item
@@ -247,11 +240,16 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                                 <ButtonPrimitive
                                                     {...props}
                                                     menuItem
+                                                    active={item.isCurrent}
                                                     className="flex-1"
                                                     tabIndex={-1}
                                                     hasSideActionRight
                                                 >
-                                                    <IconBlank />
+                                                    {item.isCurrent ? (
+                                                        <IconCheck className="text-tertiary" />
+                                                    ) : (
+                                                        <IconBlank />
+                                                    )}
                                                     <ProjectName team={item.team} className="flex-1 min-w-0" />
                                                     <ProjectFreshnessIndicator teamId={item.team.id} />
                                                 </ButtonPrimitive>
@@ -260,7 +258,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                     )}
                                 </Combobox.Collection>
                             </Combobox.Group>
-                        )}
+                        ))}
 
                         <MenuSeparator />
 

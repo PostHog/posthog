@@ -609,7 +609,7 @@ export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
     plugins_access_level: PluginsAccessLevel
-    teams: TeamBasicType[]
+    teams: OrganizationTeamType[]
     projects: ProjectBasicType[]
     available_product_features: BillingFeatureType[]
     is_member_join_email_enabled: boolean
@@ -741,6 +741,10 @@ export interface TeamBasicType extends WithAccessControl {
     ingested_event: boolean
     is_demo: boolean
     timezone: string
+}
+
+export interface OrganizationTeamType extends TeamBasicType {
+    project_group?: string | null
 }
 
 export interface CorrelationConfigType {
