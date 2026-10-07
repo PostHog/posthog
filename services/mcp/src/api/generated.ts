@@ -72138,7 +72138,7 @@ export namespace Schemas {
       readonly insight_short_id: string | null;
       /** @nullable */
       readonly resource_name: string | null;
-      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
+      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 20. */
       dashboard_export_insights?: number[];
       /**
          * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
@@ -82284,7 +82284,7 @@ export namespace Schemas {
       readonly insight_short_id?: string | null;
       /** @nullable */
       readonly resource_name?: string | null;
-      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
+      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 20. */
       dashboard_export_insights?: number[];
       /**
          * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
@@ -95837,21 +95837,21 @@ export namespace Schemas {
     } as const;
 
     export interface ScoutRubricReferenceTextDocument {
-      /** Path of the reference supplied to the generator. */
+      /** Path of the captured reference file. */
       path: string;
-      /** Content type of the supplied reference. */
+      /** Content type of the captured reference file. */
       content_type: string;
-      /** Exact reference text supplied to the generator. */
+      /** Saved reference text used for judging. */
       content: string;
     }
 
     export interface ScoutRubricReferenceLimitsDocument {
       /**
-         * Number of reference files not supplied.
+         * Number of files missing from the saved reference.
          * @minimum 0
          */
       omitted_files: number;
-      /** Reference paths whose supplied content was truncated. */
+      /** Paths of files truncated in the saved reference. */
       truncated_files: string[];
     }
 
@@ -95864,11 +95864,11 @@ export namespace Schemas {
       skill_name: string;
       /** Skill version used for generation. */
       skill_version: number;
-      /** Scout description supplied to the generator. */
+      /** Scout description captured for this reference. */
       description: string;
-      /** Exact instructions supplied to the generator. */
+      /** Saved scout instructions used for judging. */
       instructions: string;
-      /** Whether the supplied instructions were truncated. */
+      /** Whether the saved instructions were truncated. */
       instructions_truncated: boolean;
       /** Report capabilities used to select the source rules.
        *
@@ -95877,15 +95877,15 @@ export namespace Schemas {
        * * `edit` - Edit
        * * `both` - Both */
       report_channel: ScoutRubricReportChannelEnum;
-      /** Exact report-disposition rules supplied to the generator. */
+      /** Report-disposition rules captured for this reference. */
       report_disposition_instructions: string;
-      /** Reference-file inventory supplied to the generator. */
+      /** Reference-file inventory captured for this reference. */
       reference_files: string[];
       /** Whether the reference-file inventory was truncated. */
       reference_files_truncated: boolean;
-      /** Reference texts supplied to the generator. */
+      /** Saved reference texts used for judging. */
       reference_texts: ScoutRubricReferenceTextDocument[];
-      /** Limits on the supplied reference texts. */
+      /** Missing or truncated text in the saved reference. */
       reference_limits: ScoutRubricReferenceLimitsDocument;
     }
 
@@ -103860,7 +103860,7 @@ export namespace Schemas {
       readonly insight_short_id: string | null;
       /** @nullable */
       readonly resource_name: string | null;
-      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
+      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 20. */
       dashboard_export_insights?: number[];
       /**
          * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
