@@ -47,14 +47,7 @@ import { WatchFeedTab } from './components/WatchFeedTab'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
 import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
-import {
-    ENABLED_OPTIONS,
-    EnabledFilter,
-    scannerTypeOptions,
-    ScannerType,
-    ReplayScanner,
-    homeRedesignVariant,
-} from './types'
+import { ENABLED_OPTIONS, EnabledFilter, scannerTypeOptions, ScannerType, ReplayScanner } from './types'
 
 function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element {
     const { deletingIds } = useValues(replayScannersLogic)
@@ -149,16 +142,8 @@ export function ReplayScannersScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { showUsd } = useValues(visionQuotaLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    // On the test arm the tab row itself diverges, so the flag read (which reports exposure)
-    // is correct on every tab of this scene.
-    const isRedesign =
-        homeRedesignVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]) === 'test'
-    // The feed tab exists only on the test arm and is its default; control users following a
-    // shared ?tab=watch link fall through to the scanners tab.
-    const knownTabs: string[] = isRedesign
-        ? ['watch', 'scanners', ReplayScannerTab.Search, 'usage']
-        : ['scanners', ReplayScannerTab.Search, 'usage']
-    const defaultTab = isRedesign ? 'watch' : 'scanners'
+    const knownTabs: string[] = ['watch', 'scanners', ReplayScannerTab.Search, 'usage']
+    const defaultTab = 'watch'
     const activeTab = knownTabs.includes(searchParams.tab) ? searchParams.tab : defaultTab
 
     const columns: LemonTableColumns<ReplayScanner> = [
@@ -299,7 +284,7 @@ export function ReplayScannersScene(): JSX.Element {
                 activeKey={activeTab}
                 onChange={(tab) => push(urls.replayVision(), tab === defaultTab ? {} : { tab })}
                 tabs={[
-                    ...(isRedesign ? [{ key: 'watch', label: 'What to watch', content: <></> }] : []),
+                    { key: 'watch', label: 'What to watch', content: <></> },
                     { key: 'scanners', label: 'Scanners', content: <></> },
                     { key: ReplayScannerTab.Search, label: 'Search', content: <></> },
                     { key: 'usage', label: 'Usage', content: <></> },

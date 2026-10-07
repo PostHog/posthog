@@ -225,10 +225,10 @@ def _assemble_grounding_evidence(
     multi_label: bool,
     allow_freeform_tags: bool,
     scanner: ReplayScanner | None,
-    user_access_control: UserAccessControl | None,
+    user_access_control: UserAccessControl,
 ) -> str:
     """Gather the emitted-tag, product-taxonomy, and sibling-vocabulary evidence and format it as briefing
-    text. Shared by the standalone suggest_tags endpoint and the classifier config proposer's grounding."""
+    text."""
     freeform: list[tuple[str, int]] = []
     reasoning_samples: list[str] = []
     if scanner is not None:
@@ -240,9 +240,7 @@ def _assemble_grounding_evidence(
             )
 
     taxonomy = _product_taxonomy(team)
-    sibling_tags: list[str] = []
-    if user_access_control is not None:
-        sibling_tags = _sibling_vocabularies(team, scanner.id if scanner is not None else None, user_access_control)
+    sibling_tags = _sibling_vocabularies(team, scanner.id if scanner is not None else None, user_access_control)
 
     return _build_user_content(
         prompt=prompt,
@@ -254,28 +252,6 @@ def _assemble_grounding_evidence(
         events=taxonomy.events,
         screens=taxonomy.screens,
         sibling_tags=sibling_tags,
-    )
-
-
-def grounding_briefing(scanner: ReplayScanner) -> str:
-    """The same emitted-tag + product-taxonomy evidence `suggest_classifier_tags` uses, assembled for a
-    scanner's own persisted config. Lets the classifier config proposer ground its prompt and tag-vocabulary
-    suggestions without a second copy of this evidence gathering.
-
-    Omits sibling-scanner vocabularies on purpose: this suggestion is shown to everyone with access to the
-    scanner, so grounding it with any single principal's access would leak the tag vocabularies of
-    object-level-restricted sibling scanners to viewers who cannot see those scanners. The interactive
-    suggest_classifier_tags path keeps sibling evidence, filtered by the requesting user's own access.
-    """
-    config = scanner.scanner_config if isinstance(scanner.scanner_config, dict) else {}
-    return _assemble_grounding_evidence(
-        team=scanner.team,
-        prompt=str(config.get("prompt", "")),
-        current_tags=list(config.get("tags", [])),
-        multi_label=bool(config.get("multi_label", True)),
-        allow_freeform_tags=bool(config.get("allow_freeform_tags", False)),
-        scanner=scanner,
-        user_access_control=None,
     )
 
 

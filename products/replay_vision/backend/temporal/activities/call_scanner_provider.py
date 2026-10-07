@@ -159,20 +159,12 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
     if not await sync_to_async(is_ai_data_processing_approved)(inputs.team_id):
         raise ConsentWithdrawnError("AI data processing consent was withdrawn before this recording could be analyzed")
 
-    if inputs.snapshot_override is not None:
-        snapshot = inputs.snapshot_override
-        team_name, llm_inputs, network_payload = await asyncio.gather(
-            sync_to_async(_load_team_name)(inputs.team_id),
-            _load_llm_inputs(inputs.observation_id),
-            _load_network_payload(inputs.observation_id),
-        )
-    else:
-        snapshot, team_name, llm_inputs, network_payload = await asyncio.gather(
-            sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
-            sync_to_async(_load_team_name)(inputs.team_id),
-            _load_llm_inputs(inputs.observation_id),
-            _load_network_payload(inputs.observation_id),
-        )
+    snapshot, team_name, llm_inputs, network_payload = await asyncio.gather(
+        sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
+        sync_to_async(_load_team_name)(inputs.team_id),
+        _load_llm_inputs(inputs.observation_id),
+        _load_network_payload(inputs.observation_id),
+    )
     scanner: BaseScanner = scanner_from_snapshot(snapshot)
     scanner = await _inject_known_freeform_tags(scanner, inputs)
     scanner = await _inject_learned_rules(scanner, snapshot, inputs.team_id)
@@ -190,7 +182,9 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         team_id=inputs.team_id,
         video_clock=video_clock,
         network_payload=network_payload,
-        trace_id=_scan_trace_id(inputs),
+        # The observation id, so every step, the lookup round, and retry of a scan reads as a single LLM
+        # analytics conversation and the observation id doubles as the trace search key.
+        trace_id=str(inputs.observation_id),
     )
 
 
@@ -335,15 +329,6 @@ def _identity_values(identity: SessionIdentity) -> list[str]:
     return [value for value in [*values, *(group.name for group in identity.groups)] if value]
 
 
-def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
-    """LLM analytics trace id for one scan: the observation id, so every step, the lookup round, and retry of
-    a scan reads as a single conversation and the observation id doubles as the trace search key. Evaluation
-    re-runs (snapshot_override) get a fresh id so they don't interleave with the real scan's trace."""
-    if inputs.snapshot_override is not None:
-        return str(uuid4())
-    return str(inputs.observation_id)
-
-
 def _resolve_citations(
     finalized: _OutputT,
     scanner: BaseScanner,
@@ -431,10 +416,8 @@ async def _apply_experiment_scan_context(scanner: BaseScanner, inputs: CallScann
     """Give an experiment scanner the variant and experiment description the workflow resolved.
 
     Scan-time context, never persisted (see `ExperimentScanner`). A no-op for the other types.
-    When the inputs carry neither field — a prompt evaluation re-scanning a rated session, or a
-    history from before attribution shipped — the source observation's persisted attribution
-    stands in, so an evaluation tests the prompt with its experiment block rather than without.
-    Best effort there: a lookup failure must not fail the scan, and a pre-attribution row simply
+    When the inputs carry neither field, the source observation's persisted attribution stands in.
+    Best effort there: a lookup failure must not fail the scan, and a row without attribution simply
     has nothing persisted to inject."""
     if not isinstance(scanner, ExperimentScanner):
         return scanner

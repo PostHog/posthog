@@ -1001,7 +1001,6 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
-                              |ReplayQuotaGrant
                               |Role
                               |RoleExternalReference
                               |RoleMembership
@@ -1080,7 +1079,6 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
-                        |ReplayQuotaGrant
                         |Role
                         |RoleExternalReference
                         |RoleMembership
