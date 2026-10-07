@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from django.db import OperationalError
 
-from parameterized import parameterized
+from parameterized import param, parameterized
 from psycopg.errors import QueryCanceled
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
@@ -231,9 +231,15 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(response.json(), expected)
         mock_runner_cls.return_value.run.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("without_code", None, {}),
+            ("with_code", "unknown_identifier", {"error_code": "unknown_identifier"}),
+        ]
+    )
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
-    def test_invoke_tool_error_returns_error_response(self, mock_execute):
-        mock_execute.side_effect = MaxToolRetryableError("Query validation failed: syntax error")
+    def test_invoke_tool_error_returns_error_response(self, _name, error_code, expected_extra, mock_execute):
+        mock_execute.side_effect = MaxToolRetryableError("Query validation failed: syntax error", error_code=error_code)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
@@ -248,6 +254,7 @@ class TestMCPToolsAPI(APIBaseTest):
                 "success": False,
                 "content": "Tool failed: MaxToolRetryableError: Query validation failed: syntax error. You may retry with adjusted inputs.",
                 "error_type": "validation",
+                **expected_extra,
             },
         )
 
@@ -314,10 +321,11 @@ class TestMCPToolsAPI(APIBaseTest):
                 "internal",
                 "Tool failed: MaxToolRetryableError: QueryVisitor has no method visit_select_query. You may retry with adjusted inputs.",
             ),
-            (
+            param(
                 CHQueryErrorIllegalTypeOfArgument("Illegal argument type", code=43),
                 "validation",
                 "Tool failed: MaxToolRetryableError: Illegal argument type. You may retry with adjusted inputs.",
+                error_code="illegal_type_of_argument",
             ),
             (
                 CHQueryErrorCorruptedParquetMetadata("Warehouse file metadata is corrupt", code=1001),
@@ -361,7 +369,7 @@ class TestMCPToolsAPI(APIBaseTest):
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     def test_query_failures_preserve_recovery_advice(
-        self, error: Exception, error_type: str, content: str, mock_query: Mock
+        self, error: Exception, error_type: str, content: str, mock_query: Mock, *, error_code: str | None = None
     ) -> None:
         mock_query.side_effect = error
 
@@ -372,7 +380,10 @@ class TestMCPToolsAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"success": False, "content": content, "error_type": error_type})
+        expected = {"success": False, "content": content, "error_type": error_type}
+        if error_code:
+            expected["error_code"] = error_code
+        self.assertEqual(response.json(), expected)
 
     @parameterized.expand(
         [
@@ -397,6 +408,16 @@ class TestMCPToolsAPI(APIBaseTest):
                 "query_was_cancelled",
                 "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Query failed. You may retry with adjusted inputs.",
             ),
+            param(
+                "storage_error",
+                None,
+                None,
+                "S3_ERROR",
+                "Tool failed: MaxToolRetryableError: PostHog couldn't read from storage while running this query. "
+                "Wait a few minutes, then run the query again. If the problem continues, contact support.. "
+                "You may retry with adjusted inputs.",
+                expected_error_code="s3_error",
+            ),
             (
                 "polling_error",
                 ConnectionError("Query status unavailable"),
@@ -419,6 +440,8 @@ class TestMCPToolsAPI(APIBaseTest):
         mock_query: Mock,
         mock_status: Mock,
         _mock_sleep: AsyncMock,
+        *,
+        expected_error_code: str | None = None,
     ) -> None:
         mock_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
         mock_status.side_effect = polling_error
@@ -437,7 +460,10 @@ class TestMCPToolsAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"success": False, "content": content, "error_type": "internal"})
+        expected = {"success": False, "content": content, "error_type": "internal"}
+        if expected_error_code:
+            expected["error_code"] = expected_error_code
+        self.assertEqual(response.json(), expected)
 
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):

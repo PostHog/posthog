@@ -1,22 +1,15 @@
-import uuid
+"""Batch export endpoints: create, update, pause, unpause, delete and destination tests."""
+
 import typing
-import builtins
-import datetime as dt
 import dataclasses
-import collections.abc
-from dataclasses import dataclass
-from typing import Any, cast
+from typing import cast
 
-from django.conf import settings
-from django.db import models, transaction
-from django.utils.timezone import now
+from django.db import transaction
 
-import structlog
 import posthoganalytics
-from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field, extend_schema_view
-from rest_framework import filters, mixins, request, response, serializers, status, viewsets
-from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, PermissionDenied, ValidationError
-from rest_framework.pagination import CursorPagination
+from drf_spectacular.utils import extend_schema, extend_schema_view
+from rest_framework import request, response, serializers, status, viewsets
+from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 
 from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode
 
@@ -29,9 +22,7 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
-from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import (
     AzureBlobIntegration,
@@ -49,29 +40,22 @@ from posthog.security.url_validation import (
     validate_external_host,
 )
 from posthog.temporal.common.client import sync_connect
-from posthog.utils import relative_date_parse, str_to_bool
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
 from products.batch_exports.backend.filters import SUPPORTED_FILTER_TYPES_DISPLAY, validate_batch_export_filters
 from products.batch_exports.backend.hogql_source import (
-    DATA_INTERVAL_START_PLACEHOLDER,
     UnsupportedHogQLQueryError,
-    find_interval_placeholders,
     load_hogql_modifiers,
-    parse_hogql_select_for_batch_export,
     serialize_batch_export_query,
     validate_hogql_query_for_batch_export,
 )
 from products.batch_exports.backend.models.batch_export import (
     BATCH_EXPORT_INTERVALS,
-    OBJECT_STORAGE_DESTINATIONS,
     S3_FAMILY_TYPES,
     TIMEZONES,
     BatchExport,
-    BatchExportBackfill,
     BatchExportDestination,
-    BatchExportRun,
     BatchExportSource,
 )
 from products.batch_exports.backend.presentation.views.destination_tests import get_destination_test
@@ -87,14 +71,9 @@ from products.batch_exports.backend.service import (
     BatchExportSchema,
     BatchExportServiceError,
     BatchExportServiceRPCError,
-    BatchExportWithNoEndNotAllowedError,
-    backfill_export,
-    cancel_running_batch_export_run,
-    coerce_config_to_declared_types,
     delete_batch_export,
     pause_batch_export,
     sync_batch_export,
-    sync_cancel_running_batch_export_backfill,
     unpause_batch_export,
 )
 from products.batch_exports.backend.temporal.destinations.constants import (
@@ -103,721 +82,10 @@ from products.batch_exports.backend.temporal.destinations.constants import (
 )
 from products.batch_exports.backend.temporal.sql.events import EXPORTABLE_EVENTS_MODEL_FIELDS
 
-logger = structlog.get_logger(__name__)
-
-
-def validate_date_input(date_input: Any, batch_export: BatchExport) -> dt.datetime:
-    """Validate and parse a date/datetime input as a proper dt.datetime.
-
-    If the interval is daily or weekly, we expect the input to be an ISO formatted date string.
-    We then need to convert it to a datetime using the batch export's timezone and offset.
-
-    For all other intervals, we expect the input to be an ISO formatted datetime string.
-
-    Args:
-        date_input: The datetime input to parse.
-
-    Raises:
-        ValidationError: If the input cannot be parsed.
-
-    Returns:
-        The parsed dt.datetime.
-    """
-    if batch_export.interval == "day" or batch_export.interval == "week":
-        try:
-            parsed_date = dt.date.fromisoformat(date_input)
-        except (TypeError, ValueError):
-            # Try to parse as a datetime string so we can give a more helpful error message
-            try:
-                parsed = dt.datetime.fromisoformat(date_input)
-                raise ValidationError(
-                    f"Input '{date_input}' is not a valid ISO formatted date. "
-                    "Daily or weekly batch export backfills expect only the date component, but a time was included."
-                )
-            except (TypeError, ValueError):
-                pass
-            raise ValidationError(f"Input '{date_input}' is not a valid ISO formatted date.")
-
-        if batch_export.interval == "week":
-            # Validate that the provided date is on the correct day of the week, according to the batch export's day offset
-            # Python's date.isoweekday() returns 1-7 for Monday-Sunday, so we need to convert it to 0-6 for Sunday-Saturday
-            normalized_day = parsed_date.isoweekday() % 7
-            if normalized_day != batch_export.offset_day:
-                # get day of week as string
-                day_of_week = parsed_date.strftime("%A")
-                expected_day_of_week = batch_export.offset_day_name
-                assert expected_day_of_week is not None
-                raise ValidationError(
-                    f"Input {date_input} is not on the correct day of the week for this batch export. "
-                    f"{date_input} is a {day_of_week} but this batch export is configured to run "
-                    f"weekly on {expected_day_of_week}."
-                )
-
-        # If we have an offset hour, add it to the parsed datetime
-        # Also, apply the timezone to the parsed datetime
-        time_of_day = dt.time.min if batch_export.offset_hour is None else dt.time(hour=batch_export.offset_hour)
-        parsed = dt.datetime.combine(parsed_date, time_of_day).replace(tzinfo=batch_export.timezone_info)
-
-    else:
-        try:
-            parsed = dt.datetime.fromisoformat(date_input)
-        except (TypeError, ValueError):
-            raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
-
-        if parsed.tzinfo is None:
-            raise ValidationError(f"Input {date_input} is naive.")
-
-    return parsed
-
-
-class BatchExportRunSerializer(serializers.ModelSerializer):
-    """Serializer for a BatchExportRun model."""
-
-    # Underlying model can be null for on demand batch exports. But scheduled
-    # batch exports always have a data_interval_end given by the schedule
-    # itself (even if that isn't used by the underlying HogQL query). This
-    # narrows the API contract so any consumers don't have to deal with
-    # nullable data_interval_end.
-    data_interval_end = serializers.DateTimeField(
-        required=True, allow_null=False, help_text="The end of the data interval."
-    )
-
-    class Meta:
-        model = BatchExportRun
-        fields = "__all__"
-        # TODO: Why aren't all these read only?
-        read_only_fields = ["batch_export"]
-
-
-class BatchExportRunListQuerySerializer(serializers.Serializer):
-    """Query parameters accepted when listing the runs of a batch export."""
-
-    status = serializers.ListField(
-        required=False,
-        child=serializers.ChoiceField(choices=BatchExportRun.Status.choices),
-        help_text="Only return runs in these statuses. Repeat the parameter to pass more than one status.",
-    )
-    after = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text=(
-            "Only return runs created at or after this point. "
-            "Accepts an ISO-8601 datetime or a relative value like `-7d`. Defaults to `-7d`. "
-            "Ignored when ordering by `data_interval_start`."
-        ),
-    )
-    before = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text=(
-            "Only return runs created at or before this point. "
-            "Accepts an ISO-8601 datetime or a relative value like `-1d`. Defaults to now. "
-            "Ignored when ordering by `data_interval_start`."
-        ),
-    )
-    start = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text=(
-            "Only return runs whose data interval starts at or after this point. "
-            "Accepts an ISO-8601 datetime or a relative value like `-7d`. Defaults to `-7d`. "
-            "Only applies when ordering by `data_interval_start`."
-        ),
-    )
-    end = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text=(
-            "Only return runs whose data interval ends at or before this point. "
-            "Accepts an ISO-8601 datetime or a relative value like `-1d`. Defaults to now. "
-            "Only applies when ordering by `data_interval_start`."
-        ),
-    )
-
-
-class RunsCursorPagination(CursorPagination):
-    page_size = 100
-
-
-@extend_schema(tags=["batch_exports"])
-@extend_schema_view(list=extend_schema(parameters=[BatchExportRunListQuerySerializer]))
-class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ReadOnlyModelViewSet):
-    scope_object = "batch_export"
-    queryset = BatchExportRun.objects.select_related("batch_export__destination").all()
-    serializer_class = BatchExportRunSerializer
-    pagination_class = RunsCursorPagination
-    filter_rewrite_rules = {"team_id": "batch_export__team_id"}
-    filter_backends = [filters.OrderingFilter]
-    ordering_fields = ["created_at", "data_interval_start"]
-    ordering = "-created_at"
-    log_source = "batch_exports"
-
-    def get_log_entry_instance_id(self) -> str:
-        return cast(str, self.parents_query_dict["run_id"])
-
-    def safely_get_queryset(self, queryset):
-        query = BatchExportRunListQuerySerializer(data=self.request.GET)
-        query.is_valid(raise_exception=True)
-        params = query.validated_data
-
-        after = params.get("after")
-        before = params.get("before")
-        start = params.get("start")
-        end = params.get("end")
-
-        # OrderingFilter applies the sort and declares this parameter, so it is not on the serializer.
-        ordering = self.request.GET.get("ordering", None)
-        # If we're ordering by data_interval_start, we need to filter by that otherwise we're ordering by created_at
-        if ordering == "data_interval_start" or ordering == "-data_interval_start":
-            start_timestamp = relative_date_parse(start if start else "-7d", self.team.timezone_info)
-            end_timestamp = relative_date_parse(end, self.team.timezone_info) if end else now()
-            queryset = queryset.filter(data_interval_start__gte=start_timestamp, data_interval_end__lte=end_timestamp)
-        else:
-            after_datetime = relative_date_parse(after if after else "-7d", self.team.timezone_info)
-            before_datetime = relative_date_parse(before, self.team.timezone_info) if before else now()
-            date_range = (after_datetime, before_datetime)
-            queryset = queryset.filter(created_at__range=date_range)
-
-        if statuses := params.get("status"):
-            queryset = queryset.filter(status__in=statuses)
-
-        queryset = queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"])
-        return queryset
-
-    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
-    def retry(self, *args, **kwargs) -> response.Response:
-        """Retry a batch export run.
-
-        We use the same underlying mechanism as when backfilling a batch export, as retrying
-        a run is the same as backfilling one run.
-        """
-        batch_export_run = self.get_object()
-
-        temporal = sync_connect()
-        backfill_id = backfill_export(
-            temporal,
-            str(batch_export_run.batch_export.id),
-            self.team_id,
-            batch_export_run.data_interval_start,
-            batch_export_run.data_interval_end,
-        )
-
-        return response.Response({"backfill_id": backfill_id}, status=status.HTTP_201_CREATED)
-
-    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
-    def cancel(self, *args, **kwargs) -> response.Response:
-        """Cancel a batch export run."""
-
-        batch_export_run: BatchExportRun = self.get_object()
-
-        if (
-            batch_export_run.status == BatchExportRun.Status.RUNNING
-            or batch_export_run.status == BatchExportRun.Status.STARTING
-        ):
-            temporal = sync_connect()
-            try:
-                cancel_running_batch_export_run(temporal, batch_export_run)
-            except Exception as e:
-                # It could be the case that the run is already cancelled but our database hasn't been updated yet. In
-                # this case, we can just ignore the error but log it for visibility (in case there is an actual issue).
-                logger.warning("Error cancelling batch export run: %s", e)
-        else:
-            raise ValidationError(f"Cannot cancel a run that is in '{batch_export_run.status}' status")
-
-        return response.Response({"cancelled": True})
-
-
-class DatabricksDestinationConfigSerializer(serializers.Serializer):
-    """Typed configuration for a Databricks batch-export destination.
-
-    Credentials live in the linked Integration, not in this config. Mirrors
-    `DatabricksBatchExportInputs` in `products/batch_exports/backend/service.py`.
-    """
-
-    http_path = serializers.CharField(help_text="Databricks SQL warehouse HTTP path.")
-    catalog = serializers.CharField(help_text="Unity Catalog name.")
-    schema = serializers.CharField(help_text="Schema (database) name inside the catalog.")
-    table_name = serializers.CharField(help_text="Destination table name.")
-    use_variant_type = serializers.BooleanField(
-        required=False,
-        default=True,
-        help_text="Whether to use the Databricks VARIANT type for JSON-like columns.",
-    )
-    use_automatic_schema_evolution = serializers.BooleanField(
-        required=False,
-        default=True,
-        help_text="Whether to let Databricks evolve the destination table schema automatically.",
-    )
-
-
-class BigQueryDestinationConfigSerializer(serializers.Serializer):
-    """Typed configuration for a BigQuery batch-export destination.
-
-    Credentials live in the linked Integration, not in this config. Mirrors the
-    non-credential fields of `BigQueryBatchExportInputs` in
-    `products/batch_exports/backend/service.py`.
-    """
-
-    dataset_id = serializers.CharField(help_text="BigQuery dataset ID to write to.")
-    table_id = serializers.CharField(
-        required=False,
-        default="events",
-        help_text="BigQuery table ID inside the dataset.",
-    )
-    use_json_type = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text=(
-            "Whether to export 'properties', 'set', and 'set_once' fields as the BigQuery JSON type "
-            "rather than STRING. Cannot be changed after the export is created."
-        ),
-    )
-
-
-class PostgresDestinationConfigSerializer(serializers.Serializer):
-    """Typed configuration for a PostgreSQL batch-export destination.
-
-    Connection credentials may live in a linked Integration (when one is provided) or
-    inline in this config (legacy). Mirrors the non-credential fields of
-    `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
-    """
-
-    database = serializers.CharField(help_text="PostgreSQL database name to connect to.")
-    schema = serializers.CharField(
-        required=False,
-        default="public",
-        help_text="PostgreSQL schema name containing the destination table.",
-    )
-    table_name = serializers.CharField(
-        required=False,
-        default="events",
-        help_text="PostgreSQL table name to write exported rows into.",
-    )
-    has_self_signed_cert = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text="Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration.",
-    )
-
-
-LEGACY_PARQUET_EXTENSION_HELP_TEXT = (
-    "Whether Parquet files keep the compression codec in their extension, for example "
-    "'.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new "
-    "exports leave it out. An export that already wrote Parquet files before this setting existed "
-    "keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON "
-    "Lines, which always carries the codec in its extension."
+from . import (
+    destinations as destination_views,
+    runs as run_views,
 )
-
-
-class AzureBlobDestinationConfigSerializer(serializers.Serializer):
-    """Typed configuration for an Azure Blob Storage batch-export destination.
-
-    Credentials live in the linked Integration, not in this config. Mirrors
-    `AzureBlobBatchExportInputs` in `products/batch_exports/backend/service.py`.
-    """
-
-    container_name = serializers.CharField(help_text="Azure Blob Storage container name.")
-    prefix = serializers.CharField(
-        required=False,
-        default="",
-        allow_blank=True,
-        help_text="Object key prefix applied to every exported file.",
-    )
-    compression = serializers.ChoiceField(
-        choices=sorted({codec for codecs in AZURE_BLOB_SUPPORTED_COMPRESSIONS.values() for codec in codecs}),
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text="Optional compression codec applied to exported files. Valid codecs depend on file_format.",
-    )
-    file_format = serializers.ChoiceField(
-        choices=["JSONLines", "Parquet"],
-        required=False,
-        default="JSONLines",
-        help_text="File format used for exported objects.",
-    )
-    max_file_size_mb = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text="If set, rolls to a new file once the current file exceeds this size in MB.",
-    )
-
-    legacy_parquet_extension = serializers.BooleanField(
-        required=False,
-        help_text=LEGACY_PARQUET_EXTENSION_HELP_TEXT,
-    )
-
-
-class S3FamilyDestinationConfigSerializer(serializers.Serializer):
-    """Shared non-credential configuration for S3-family batch-export destinations.
-
-    Credentials (and, for S3-compatible providers, the `endpoint_url`) live in the linked
-    Integration, not in this config. Mirrors the non-credential fields of `S3FamilyBaseInputs` in
-    `products/batch_exports/backend/service.py`.
-    """
-
-    bucket_name = serializers.CharField(help_text="Name of the destination bucket.")
-    region = serializers.CharField(help_text="Region the bucket is in (e.g. 'us-east-1').")
-    prefix = serializers.CharField(help_text="Object key prefix applied to every exported file.")
-    compression = serializers.ChoiceField(
-        choices=sorted({codec for codecs in S3_SUPPORTED_COMPRESSIONS.values() for codec in codecs}),
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text="Optional compression codec applied to exported files. Valid codecs depend on file_format.",
-    )
-    file_format = serializers.ChoiceField(
-        choices=list(S3_SUPPORTED_COMPRESSIONS.keys()),
-        required=False,
-        default="JSONLines",
-        help_text="File format used for exported objects.",
-    )
-    max_file_size_mb = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text="If set, rolls to a new file once the current file exceeds this size in MB.",
-    )
-
-    legacy_parquet_extension = serializers.BooleanField(
-        required=False,
-        help_text=LEGACY_PARQUET_EXTENSION_HELP_TEXT,
-    )
-
-
-class AwsS3DestinationConfigSerializer(S3FamilyDestinationConfigSerializer):
-    """Typed configuration for an AWS S3 batch-export destination.
-
-    AWS credentials live in the linked aws-s3 Integration. Mirrors the non-credential fields of
-    `AwsS3BatchExportInputs` in `products/batch_exports/backend/service.py`.
-    """
-
-    encryption = serializers.CharField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text="Optional S3 server-side encryption algorithm (e.g. 'AES256' or 'aws:kms').",
-    )
-    kms_key_id = serializers.CharField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text="KMS key ID to use when encryption is 'aws:kms'.",
-    )
-
-
-class S3CompatibleDestinationConfigSerializer(S3FamilyDestinationConfigSerializer):
-    """Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,
-    DigitalOcean Spaces, etc.).
-
-    Credentials and the provider `endpoint_url` live in the linked s3-compatible Integration.
-    Mirrors the non-credential fields of `S3CompatibleBatchExportInputs` in
-    `products/batch_exports/backend/service.py`.
-    """
-
-    use_virtual_style_addressing = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text="Use virtual-hosted-style addressing rather than path-style.",
-    )
-
-
-class SnowflakeDestinationConfigSerializer(serializers.Serializer):
-    """Typed configuration for a Snowflake batch-export destination.
-
-    Account, user, authentication type and credentials live in the linked Integration, never here.
-    Mirrors the non-credential fields of `SnowflakeBatchExportInputs` in
-    `products/batch_exports/backend/service.py`.
-    """
-
-    database = serializers.CharField(help_text="Snowflake database to write to.")
-    warehouse = serializers.CharField(help_text="Snowflake compute warehouse to use.")
-    schema = serializers.CharField(help_text="Schema inside the database containing the destination table.")
-    table_name = serializers.CharField(
-        required=False,
-        default="events",
-        help_text="Destination table name.",
-    )
-    role = serializers.CharField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text="Optional Snowflake role to assume for the session.",
-    )
-
-
-_AWS_CREDENTIALS_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "aws_access_key_id": {"type": "string"},
-        "aws_secret_access_key": {"type": "string"},
-    },
-    "required": ["aws_access_key_id", "aws_secret_access_key"],
-}
-
-
-@extend_schema_field(
-    {
-        "oneOf": [
-            {"type": "integer", "description": "ID of an aws-s3-kind Integration."},
-            _AWS_CREDENTIALS_SCHEMA,
-        ],
-    }
-)
-class RedshiftCopyBucketCredentialsField(serializers.JSONField):
-    """Inline AWS credentials or the id of an aws-s3-kind Integration."""
-
-    pass
-
-
-@extend_schema_field(
-    {
-        "oneOf": [
-            {"type": "integer", "description": "ID of an aws-s3-kind Integration."},
-            {"type": "string", "description": "ARN of an IAM role attached to the Redshift cluster."},
-            _AWS_CREDENTIALS_SCHEMA,
-        ],
-    }
-)
-class RedshiftCopyAuthorizationField(serializers.JSONField):
-    """IAM role ARN, inline AWS credentials, or the id of an aws-s3-kind Integration."""
-
-    pass
-
-
-class RedshiftCopyInputsSerializer(serializers.Serializer):
-    """S3 staging configuration for a Redshift batch export running in COPY mode."""
-
-    s3_bucket = serializers.CharField(help_text="S3 bucket where files are staged before the Redshift COPY.")
-    region_name = serializers.CharField(help_text="AWS region of the staging S3 bucket.")
-    s3_key_prefix = serializers.CharField(help_text="Key prefix for staged files in the S3 bucket.")
-    authorization = RedshiftCopyAuthorizationField(
-        help_text=(
-            "Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached "
-            "to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration."
-        ),
-    )
-    bucket_credentials = RedshiftCopyBucketCredentialsField(
-        help_text=(
-            "Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an "
-            "aws-s3-kind Integration."
-        ),
-    )
-
-
-class RedshiftExportMode(models.TextChoices):
-    INSERT = "INSERT", "INSERT"
-    COPY = "COPY", "COPY"
-
-
-class RedshiftDestinationConfigSerializer(serializers.Serializer):
-    """Typed configuration for a Redshift batch-export destination.
-
-    Connection credentials may live in a linked Integration (when one is provided) or inline in
-    this config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
-    `products/batch_exports/backend/service.py`.
-    """
-
-    database = serializers.CharField(help_text="Redshift database name to connect to.")
-    host = serializers.CharField(
-        required=False,
-        help_text=(
-            "Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift "
-            "integration; plain Redshift integrations store the host themselves."
-        ),
-    )
-    schema = serializers.CharField(
-        required=False,
-        default="public",
-        help_text="Redshift schema name containing the destination table.",
-    )
-    table_name = serializers.CharField(
-        required=False,
-        default="events",
-        help_text="Redshift table name to write exported rows into.",
-    )
-    port = serializers.IntegerField(
-        required=False,
-        default=5439,
-        help_text="Port the Redshift server listens on.",
-    )
-    properties_data_type = serializers.ChoiceField(
-        choices=["varchar", "super"],
-        required=False,
-        default="varchar",
-        help_text="Data type used for JSON-like columns such as event properties.",
-    )
-    mode = serializers.ChoiceField(
-        choices=RedshiftExportMode.choices,
-        required=False,
-        default="INSERT",
-        help_text="How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.",
-    )
-    copy_inputs = RedshiftCopyInputsSerializer(
-        required=False,
-        help_text="S3 staging configuration, required when mode is 'COPY'.",
-    )
-
-
-@extend_schema_field(
-    PolymorphicProxySerializer(
-        component_name="BatchExportDestinationConfig",
-        serializers={
-            "Databricks": DatabricksDestinationConfigSerializer,
-            "AzureBlob": AzureBlobDestinationConfigSerializer,
-            "BigQuery": BigQueryDestinationConfigSerializer,
-            "Postgres": PostgresDestinationConfigSerializer,
-            "AwsS3": AwsS3DestinationConfigSerializer,
-            "S3Compatible": S3CompatibleDestinationConfigSerializer,
-            "Snowflake": SnowflakeDestinationConfigSerializer,
-            "Redshift": RedshiftDestinationConfigSerializer,
-        },
-        resource_type_field_name="type",
-    )
-)
-class TypedBatchExportDestinationConfigField(serializers.JSONField):
-    """JSONField with a polymorphic OpenAPI schema keyed by the sibling `type`.
-
-    Runtime validation remains a plain JSONField (see
-    `BatchExportDestinationSerializer.validate`); the decorator only shapes the
-    generated OpenAPI spec so clients and MCP tools see typed configs for
-    integration-backed destinations.
-    """
-
-    pass
-
-
-# Request schemas per destination type. These shape the OpenAPI spec for create/update
-# request bodies so that integration-backed destinations advertise integration_id as
-# required. Runtime validation still flows through BatchExportDestinationSerializer and
-# its validate_destination hook — these classes are schema-only.
-class DatabricksDestinationRequestSerializer(serializers.Serializer):
-    """Request shape for creating or updating a Databricks batch-export destination."""
-
-    type = serializers.ChoiceField(choices=["Databricks"])
-    integration_id = serializers.IntegerField(
-        help_text="ID of a databricks-kind Integration. Use the integrations-list MCP tool to find one.",
-    )
-    config = DatabricksDestinationConfigSerializer()
-
-
-class AzureBlobDestinationRequestSerializer(serializers.Serializer):
-    """Request shape for creating or updating an Azure Blob Storage batch-export destination."""
-
-    type = serializers.ChoiceField(choices=["AzureBlob"])
-    integration_id = serializers.IntegerField(
-        help_text="ID of an azure-blob-kind Integration. Use the integrations-list MCP tool to find one.",
-    )
-    config = AzureBlobDestinationConfigSerializer()
-
-
-class BigQueryDestinationRequestSerializer(serializers.Serializer):
-    """Request shape for creating or updating a BigQuery batch-export destination."""
-
-    type = serializers.ChoiceField(choices=["BigQuery"])
-    integration_id = serializers.IntegerField(
-        help_text=(
-            "ID of a google-cloud-service-account-kind Integration. Use the integrations-list MCP tool to find one."
-        ),
-    )
-    config = BigQueryDestinationConfigSerializer()
-
-
-class PostgresDestinationRequestSerializer(serializers.Serializer):
-    """Request shape for creating or updating a PostgreSQL batch-export destination."""
-
-    type = serializers.ChoiceField(choices=["Postgres"])
-    integration_id = serializers.IntegerField(
-        help_text=(
-            "ID of a postgresql-kind Integration providing connection credentials. Required when creating "
-            "a batch export. Use the integrations-list MCP tool to find one."
-        ),
-    )
-    config = PostgresDestinationConfigSerializer()
-
-
-class AwsS3DestinationRequestSerializer(serializers.Serializer):
-    """Request shape for creating or updating an AWS S3 batch-export destination."""
-
-    type = serializers.ChoiceField(choices=["AwsS3"])
-    integration_id = serializers.IntegerField(
-        help_text=(
-            "ID of an aws-s3-kind Integration providing AWS credentials. "
-            "Use the integrations-list MCP tool to find one."
-        ),
-    )
-    config = AwsS3DestinationConfigSerializer()
-
-
-class S3CompatibleDestinationRequestSerializer(serializers.Serializer):
-    """Request shape for creating or updating an S3-compatible batch-export destination."""
-
-    type = serializers.ChoiceField(choices=["S3Compatible"])
-    integration_id = serializers.IntegerField(
-        help_text=(
-            "ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. "
-            "Use the integrations-list MCP tool to find one."
-        ),
-    )
-    config = S3CompatibleDestinationConfigSerializer()
-
-
-class SnowflakeDestinationRequestSerializer(serializers.Serializer):
-    """Request shape for creating or updating a Snowflake batch-export destination."""
-
-    type = serializers.ChoiceField(choices=["Snowflake"])
-    integration_id = serializers.IntegerField(
-        help_text=(
-            "ID of a snowflake-kind Integration providing the account, user and credentials. "
-            "Use the integrations-list MCP tool to find one."
-        ),
-    )
-    config = SnowflakeDestinationConfigSerializer()
-
-
-class RedshiftDestinationRequestSerializer(serializers.Serializer):
-    """Request shape for creating or updating a Redshift batch-export destination."""
-
-    type = serializers.ChoiceField(choices=["Redshift"])
-    integration_id = serializers.IntegerField(
-        help_text=(
-            "ID of an aws-redshift-kind Integration providing connection credentials. Use the "
-            "integrations-list MCP tool to find one."
-        ),
-    )
-    config = RedshiftDestinationConfigSerializer()
-
-
-BatchExportDestinationRequest = PolymorphicProxySerializer(
-    component_name="BatchExportDestinationRequest",
-    serializers={
-        "Databricks": DatabricksDestinationRequestSerializer,
-        "AzureBlob": AzureBlobDestinationRequestSerializer,
-        "BigQuery": BigQueryDestinationRequestSerializer,
-        "Postgres": PostgresDestinationRequestSerializer,
-        "AwsS3": AwsS3DestinationRequestSerializer,
-        "S3Compatible": S3CompatibleDestinationRequestSerializer,
-        "Snowflake": SnowflakeDestinationRequestSerializer,
-        "Redshift": RedshiftDestinationRequestSerializer,
-    },
-    resource_type_field_name="type",
-)
-
-
-@extend_schema_field(BatchExportDestinationRequest)
-class BatchExportDestinationRequestField(serializers.JSONField):
-    """JSONField annotated with a polymorphic OpenAPI request schema.
-
-    Only integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3,
-    S3Compatible, Snowflake, Redshift) are exposed in the schema. integration_id is required for
-    every one of them. Existing Postgres and Redshift exports created before integrations keep
-    their inline credentials and stay valid when edited. Runtime validation remains
-    `BatchExportDestinationSerializer.validate_destination`.
-    """
-
-    pass
-
 
 HOGQL_QUERY_HELP_TEXT = (
     "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. "
@@ -855,7 +123,7 @@ class BatchExportRequestSerializer(serializers.Serializer):
             "The hogql model exports the results of hogql_query."
         ),
     )
-    destination = BatchExportDestinationRequestField(
+    destination = destination_views.BatchExportDestinationRequestField(
         help_text="Destination configuration. Required integration_id is enforced per destination type.",
     )
     interval = serializers.ChoiceField(
@@ -901,236 +169,6 @@ class BatchExportRequestSerializer(serializers.Serializer):
         max_value=23,
         help_text="Hour-of-day offset (0-23) for daily and weekly intervals.",
     )
-
-
-# S3-family destinations that may authenticate via an Integration, mapped to
-# the linked integration's kind. Adding a future S3-family destination (e.g. a
-# first-class GCS-via-S3 type) is a one-line addition here.
-S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, Integration.IntegrationKind] = {
-    BatchExportDestination.Destination.AWS_S3: Integration.IntegrationKind.AWS_S3,
-    BatchExportDestination.Destination.S3_COMPATIBLE: Integration.IntegrationKind.S3_COMPATIBLE,
-}
-
-
-def _writes_compressed_parquet(config: dict[str, typing.Any]) -> bool:
-    """Whether a config produces Parquet file names that carry a compression codec."""
-    return config.get("file_format") == "Parquet" and config.get("compression") is not None
-
-
-def _uses_legacy_parquet_extension(destination_type: str, stored_config: dict[str, typing.Any]) -> bool:
-    """Whether an export's stored config already writes the codec into its Parquet file names.
-
-    Reads through `coerce_config_to_declared_types`, because `EncryptedJSONField` stringifies
-    scalars on write and the string "False" is truthy.
-    """
-    coerced = coerce_config_to_declared_types(destination_type, stored_config)
-    stored = coerced.get("legacy_parquet_extension")
-    if stored is None:
-        # export was created before the `legacy_parquet_extension` field was added
-        # so will use the legacy extension if it writes compressed Parquet files
-        return _writes_compressed_parquet(coerced)
-    return bool(stored)
-
-
-def _set_default_parquet_extension(destination_type: str, config: dict[str, typing.Any]) -> None:
-    """Opt a newly created destination into the standard `.parquet` extension.
-
-    The workflow input dataclasses default this to `True`, so that an export whose Temporal
-    schedule predates the field keeps the same file extension as before in order to maintain
-    compatibility.
-    """
-    if destination_type in OBJECT_STORAGE_DESTINATIONS:
-        config.setdefault("legacy_parquet_extension", False)
-
-
-def _pin_existing_parquet_extension(destination_type: str, stored_config: dict[str, typing.Any]) -> None:
-    """Record what an export's file names already look like, before a patch can change its format.
-
-    An export that predates this setting has no value for it, and a missing value reads as the
-    legacy naming. That is correct only for an export that already writes names carrying a codec,
-    which means Parquet with a compression codec set. An export on JSON Lines, or on Parquet with
-    no compression, has no such names to keep, so moving it to compressed Parquet has to produce
-    `.parquet` rather than `.parquet.zst`.
-
-    Takes the config as stored, before the incoming patch merges into it, so the value reflects
-    what the export has been running rather than what it is moving to. An explicit value in the
-    patch still wins, because the merge applies afterwards.
-    """
-    if destination_type not in OBJECT_STORAGE_DESTINATIONS:
-        return
-
-    stored_config.setdefault("legacy_parquet_extension", _writes_compressed_parquet(stored_config))
-
-
-def _coerce_integration_id(value: typing.Any) -> int | None:
-    """Return the integration id encoded in a Redshift COPY credential value, if any.
-
-    `BatchExportDestination.config` is an `EncryptedJSONField`, which stringifies scalar
-    leaves on the decrypt round trip, so an id may arrive as an int or a numeric string.
-    """
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str) and value.isdigit():
-        return int(value)
-    return None
-
-
-class BatchExportDestinationSerializer(serializers.ModelSerializer):
-    """Serializer for an BatchExportDestination model.
-
-    The `config` field is polymorphic and typed only for destinations that keep
-    credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
-    AwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape
-    but without a typed OpenAPI schema. Secret fields are stripped from `config` on read.
-    """
-
-    config = TypedBatchExportDestinationConfigField(
-        help_text=(
-            "Destination-specific configuration. Fields depend on `type`. Credentials for "
-            "integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, "
-            "Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are "
-            "stripped from responses."
-        ),
-    )
-    integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.all(),
-        required=False,
-        allow_null=True,
-        help_text="The integration for this destination.",
-    )
-    integration_id = TeamScopedPrimaryKeyRelatedField(
-        write_only=True,
-        queryset=Integration.objects.all(),
-        source="integration",
-        required=False,
-        allow_null=True,
-        help_text=(
-            "ID of a team-scoped Integration providing credentials, for destinations that authenticate "
-            "through one. Required for all of them."
-        ),
-    )
-
-    class Meta:
-        model = BatchExportDestination
-        fields = ["type", "config", "integration", "integration_id"]
-
-    def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
-        """Create a BatchExportDestination."""
-        export_destination = BatchExportDestination.objects.create(**validated_data)
-        return export_destination
-
-    def validate(self, attrs: collections.abc.Mapping[str, typing.Any]) -> collections.abc.Mapping[str, typing.Any]:
-        """Validate the destination configuration based on workflow inputs.
-
-        Ensure that the submitted destination configuration passes the following checks:
-        * Does NOT contain fields that do not exist in workflow inputs.
-        * Contains all required fields as defined by workflow inputs.
-        * Provided values match types required by workflow inputs.
-
-        Raises:
-            A `serializers.ValidationError` if any of these checks fail.
-        """
-        export_type, config = attrs["type"], attrs["config"]
-        request = self.context.get("request")
-        is_patch = request is not None and request.method == "PATCH"
-
-        _, workflow_inputs = DESTINATION_WORKFLOWS[export_type]
-        base_field_names = {field.name for field in dataclasses.fields(BaseBatchExportInputs)}
-        workflow_fields = dataclasses.fields(workflow_inputs)
-        destination_fields = {field for field in workflow_fields if field.name not in base_field_names}
-
-        extra_fields = config.keys() - {field.name for field in destination_fields} - base_field_names
-        if extra_fields:
-            str_fields = ", ".join(f"'{extra_field}'" for extra_field in sorted(extra_fields))
-            raise serializers.ValidationError(f"Configuration has unknown field/s: {str_fields}")
-
-        # Destination config fields without a dataclass default must be provided.
-        for destination_field in destination_fields:
-            is_required = (
-                destination_field.default == dataclasses.MISSING
-                and destination_field.default_factory == dataclasses.MISSING
-            )
-            if destination_field.name not in config:
-                if is_required and not is_patch:
-                    # When patching we expect a partial configuration. So, we don't
-                    # error on missing required fields.
-                    raise serializers.ValidationError(
-                        f"Configuration missing required field: '{destination_field.name}'"
-                    )
-                else:
-                    continue
-
-            config_value = config[destination_field.name]
-            field_type = destination_field.type
-
-            if not isinstance(field_type, type):
-                # `dataclasses.Field.type` could be something we can't work with.
-                # TODO: Validate these ones too?
-                continue
-
-            if not isinstance(config_value, field_type):
-                config_value, success = try_convert_to_type(config_value, field_type)
-
-                if not success:
-                    raise serializers.ValidationError(
-                        f"Configuration has invalid type: got '{type(config_value).__name__}', expected '{field_type.__name__}'"
-                    )
-
-                config[destination_field.name] = config_value
-
-        return attrs
-
-    def to_representation(self, instance: BatchExportDestination) -> dict:
-        data = super().to_representation(instance)
-
-        def remove_secret_fields_recursive(d: dict[str, typing.Any]):
-            target = {}
-
-            for k, v in d.items():
-                if k in BatchExportDestination.secret_fields[instance.type]:
-                    continue
-                elif isinstance(v, dict):
-                    target[k] = remove_secret_fields_recursive(v)
-                else:
-                    target[k] = v
-
-            return target
-
-        config = remove_secret_fields_recursive(data["config"])
-        data["config"] = coerce_config_to_declared_types(instance.type, config)
-
-        return data
-
-
-Success = bool
-
-
-def try_convert_to_type(value: typing.Any, target_type: type) -> tuple[typing.Any, Success]:
-    """Attempt to convert value to target type based on well-known casting functions.
-
-    This doesn't raise any exceptions but rather returns a tuple with a bool indicating
-    if the value in the first position was successfully casted to `target_type` or not.
-    If casting fails, the value in the first position is returned unchanged, otherwise a
-    new value of type `target_type` is returned.
-    """
-    current_type = type(value)
-
-    match (current_type, target_type):
-        case (builtins.str, builtins.bool):
-            cast_func: typing.Callable[[typing.Any], typing.Any] = str_to_bool
-        case (builtins.str, builtins.int):
-            cast_func = int
-        case _:
-            return (value, False)
-
-    try:
-        new_value = cast_func(value)
-    except Exception:
-        return (value, False)
-
-    return (new_value, True)
 
 
 def parse_events_hogql_query(hogql_query: str, team_id: int, user: User | None) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -1205,10 +243,10 @@ class _DatabaseFieldFinder(TraversingVisitor):
 class BatchExportSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExport model."""
 
-    destination = BatchExportDestinationSerializer(
+    destination = destination_views.BatchExportDestinationSerializer(
         help_text="Destination configuration (type, config, and optional integration)."
     )
-    latest_runs = BatchExportRunSerializer(
+    latest_runs = run_views.BatchExportRunSerializer(
         many=True,
         read_only=True,
         help_text="The 10 most recent runs of this batch export, ordered newest first.",
@@ -1461,7 +499,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         # This setting is used for grandfathered exports that used the legacy Parquet file extension,
         # and is a one-way migration; once exports use the new `.parquet` extension it is not
         # possible to go back to using the legacy extension.
-        if config.get("legacy_parquet_extension") is True and not _uses_legacy_parquet_extension(
+        if config.get("legacy_parquet_extension") is True and not destination_views._uses_legacy_parquet_extension(
             destination_type, existing_config
         ):
             raise serializers.ValidationError(
@@ -1525,7 +563,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             # The integration must match the destination kind. (Team ownership is already enforced
             # by the team-scoped `integration` field, which can only resolve integrations belonging
             # to the request's team.)
-            if integration.kind != S3_DESTINATION_TO_INTEGRATION_KIND[destination_type]:
+            if integration.kind != destination_views.S3_DESTINATION_TO_INTEGRATION_KIND[destination_type]:
                 raise serializers.ValidationError(
                     f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
                 )
@@ -1642,9 +680,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 credential_keys = {"aws_access_key_id", "aws_secret_access_key"}
 
                 bucket_credentials = copy_inputs["bucket_credentials"]
-                bucket_integration_id = _coerce_integration_id(bucket_credentials)
+                bucket_integration_id = destination_views._coerce_integration_id(bucket_credentials)
                 authorization = copy_inputs.get("authorization")
-                authorization_integration_id = _coerce_integration_id(authorization)
+                authorization_integration_id = destination_views._coerce_integration_id(authorization)
 
                 existing_copy_inputs = existing_config.get("copy_inputs") or {}
 
@@ -1659,7 +697,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     if (
                         instance is not None
                         and copy_integration_id is None
-                        and _coerce_integration_id(existing_copy_inputs.get(field_name)) is not None
+                        and destination_views._coerce_integration_id(existing_copy_inputs.get(field_name)) is not None
                     ):
                         raise serializers.ValidationError(
                             f"Cannot switch '{field_name}' from an integration to inline credentials. "
@@ -1751,7 +789,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             # TODO: Migrate batch exports using a HogQL query to HogQL model.
             validated_data["schema"] = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
 
-        _set_default_parquet_extension(destination_data["type"], destination_data["config"])
+        destination_views._set_default_parquet_extension(destination_data["type"], destination_data["config"])
 
         destination = BatchExportDestination(**destination_data)
         user = self.context["request"].user
@@ -1909,7 +947,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if destination_data:
                 # Type changes are rejected by `validate_destination` — the incoming `type`
                 # (if any) always equals the existing type by the time we get here.
-                _pin_existing_parquet_extension(batch_export.destination.type, batch_export.destination.config)
+                destination_views._pin_existing_parquet_extension(
+                    batch_export.destination.type, batch_export.destination.config
+                )
                 batch_export.destination.config = recursive_dict_merge(
                     batch_export.destination.config,
                     destination_data.get("config", {}),
@@ -2132,266 +1172,3 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         result = destination_test.run_step(test_step)
         return response.Response(result.as_dict())
-
-
-@dataclass
-class BatchExportBackfillProgress:
-    """Progress information for a batch export backfill."""
-
-    total_runs: int | None
-    finished_runs: int | None
-    progress: float | None
-
-
-class BatchExportBackfillSerializer(serializers.ModelSerializer):
-    progress = serializers.SerializerMethodField(read_only=True)
-
-    class Meta:
-        model = BatchExportBackfill
-        fields = "__all__"
-
-    @extend_schema_field(
-        {
-            "type": "object",
-            "nullable": True,
-            "properties": {
-                "total_runs": {"type": "integer", "nullable": True},
-                "finished_runs": {"type": "integer", "nullable": True},
-                "progress": {"type": "number", "nullable": True},
-            },
-        }
-    )
-    def get_progress(self, obj: BatchExportBackfill) -> BatchExportBackfillProgress | None:
-        """Return progress information containing total runs, finished runs, and progress percentage.
-
-        To reduce the number of database calls we make (which could be expensive when fetching a list of backfills) we
-        only get the list of completed runs from the DB if the backfill is still running.
-        """
-        if obj.status == obj.Status.COMPLETED:
-            return BatchExportBackfillProgress(
-                total_runs=obj.total_expected_runs, finished_runs=obj.total_expected_runs, progress=1.0
-            )
-        elif obj.status not in (obj.Status.RUNNING, obj.Status.STARTING):
-            # if backfill finished in some other state then progress info may not be meaningful
-            return None
-
-        total_runs = obj.total_expected_runs
-        if not total_runs:
-            return None
-
-        if obj.start_at is None and obj.adjusted_start_at is None:
-            # if it's just a single run, backfilling from the beginning of time, we can't calculate progress based on
-            # the number of completed runs so better to return None
-            return None
-
-        finished_runs = obj.get_finished_runs()
-        # just make sure we never return a progress > 1
-        total_runs = max(total_runs, finished_runs)
-        return BatchExportBackfillProgress(
-            total_runs=total_runs, finished_runs=finished_runs, progress=round(finished_runs / total_runs, ndigits=1)
-        )
-
-
-class BackfillsCursorPagination(CursorPagination):
-    page_size = 50
-
-
-class TooManyConcurrentBackfills(APIException):
-    status_code = status.HTTP_429_TOO_MANY_REQUESTS
-    default_code = "too_many_concurrent_backfills"
-    default_detail = "Too many concurrent batch export backfills for this team."
-
-
-def create_backfill(
-    team: Team,
-    batch_export: BatchExport,
-    start_at_input: str | None,
-    end_at_input: str | None,
-) -> str:
-    """Create a new backfill for a BatchExport.
-
-    Args:
-        team: The team creating the backfill
-        batch_export: The batch export to backfill
-        start_at_input: ISO formatted datetime string for backfill start
-        end_at_input: ISO formatted datetime string for backfill end
-
-    Returns:
-        The pre-generated backfill ID.
-    """
-    # Currently, backfills from the beginning of time usually fail due to us hitting ClickHouse memory limits.
-    # Therefore, this feature is behind a feature flag while we improve backfilling behavior.
-    if start_at_input is None:
-        if not posthoganalytics.feature_enabled(
-            "batch-export-earliest-backfill",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={
-                "organization": {
-                    "id": str(team.organization.id),
-                    "created_at": team.organization.created_at,
-                }
-            },
-            send_feature_flag_events=False,
-        ):
-            raise ValidationError("Backfilling from the beginning of time is not enabled for this team.")
-
-        if batch_export.model == BatchExport.Model.HOGQL and (hogql_query := batch_export.hogql_query) is not None:
-            try:
-                parsed = parse_hogql_select_for_batch_export(hogql_query)
-            except UnsupportedHogQLQueryError as e:
-                raise ValidationError(str(e)) from e
-            if DATA_INTERVAL_START_PLACEHOLDER in find_interval_placeholders(parsed):
-                # TODO: We should maybe support beginning-of-time backfills with this placeholder.
-                raise ValidationError(
-                    "This query references {data_interval_start}, which is unavailable when backfilling from the "
-                    "beginning of time. Provide 'start_at' or remove {data_interval_start} from the query."
-                )
-
-    concurrency_limit = settings.BATCH_EXPORT_MAX_CONCURRENT_BACKFILLS_PER_TEAM
-    active_backfills = BatchExportBackfill.objects.filter(
-        team_id=team.pk,
-        status__in=[
-            BatchExportBackfill.Status.STARTING,
-            BatchExportBackfill.Status.RUNNING,
-        ],
-    ).count()
-    if active_backfills >= concurrency_limit:
-        raise TooManyConcurrentBackfills(
-            f"This team already has {concurrency_limit} batch export backfills running. "
-            f"Wait for some to finish or cancel them before creating more."
-        )
-
-    temporal = sync_connect()
-
-    if start_at_input is not None:
-        start_at = validate_date_input(start_at_input, batch_export)
-    else:
-        start_at = None
-
-    if end_at_input is not None:
-        end_at = validate_date_input(end_at_input, batch_export)
-    else:
-        end_at = None
-
-    # Note: earliest backfill date validation and adjustment is now done in the Temporal workflow
-    # via the get_backfill_info activity. This allows the potentially slow ClickHouse query to run
-    # asynchronously rather than blocking the HTTP request.
-
-    backfill_id = str(uuid.uuid4())
-
-    if start_at is None or end_at is None:
-        backfill_export(
-            temporal=temporal,
-            batch_export_id=str(batch_export.pk),
-            team_id=team.pk,
-            start_at=start_at,
-            end_at=end_at,
-            backfill_id=backfill_id,
-        )
-        return backfill_id
-
-    if start_at >= end_at:
-        raise ValidationError("The initial backfill datetime 'start_at' must be before 'end_at'")
-    if end_at > dt.datetime.now(dt.UTC):
-        raise ValidationError(f"The provided 'end_at' ({end_at.isoformat()}) is in the future")
-
-    try:
-        backfill_export(
-            temporal=temporal,
-            batch_export_id=str(batch_export.pk),
-            team_id=team.pk,
-            start_at=start_at,
-            end_at=end_at,
-            backfill_id=backfill_id,
-        )
-        return backfill_id
-    except BatchExportWithNoEndNotAllowedError:
-        raise ValidationError("Backfilling a BatchExport with no end date is not allowed")
-
-
-class BatchExportBackfillViewSet(
-    TeamAndOrgViewSetMixin,
-    mixins.CreateModelMixin,
-    mixins.ListModelMixin,
-    mixins.RetrieveModelMixin,
-    viewsets.GenericViewSet,
-):
-    """ViewSet for BatchExportBackfill models.
-
-    Allows creating and reading backfills, but not updating or deleting them.
-    """
-
-    scope_object = "batch_export"
-    queryset = BatchExportBackfill.objects.all()
-    serializer_class = BatchExportBackfillSerializer
-    pagination_class = BackfillsCursorPagination
-    filter_rewrite_rules = {"team_id": "batch_export__team_id"}
-    filter_backends = [filters.OrderingFilter]
-    ordering_fields = ["created_at", "start_at"]
-    ordering = "-created_at"
-
-    def safely_get_queryset(self, queryset):
-        return queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"])
-
-    def create(self, request: request.Request, *args, **kwargs) -> response.Response:
-        """Create a new backfill for a BatchExport."""
-        try:
-            batch_export = BatchExport.objects.select_related("destination").get(
-                id=self.kwargs["parent_lookup_batch_export_id"], team_id=self.team_id
-            )
-        except BatchExport.DoesNotExist:
-            raise NotFound("BatchExport not found.")
-
-        start_at = request.data.get("start_at")
-        end_at = request.data.get("end_at")
-
-        backfill_id = create_backfill(
-            self.team,
-            batch_export,
-            start_at,
-            end_at,
-        )
-
-        if isinstance(request.user, User):
-            try:
-                posthoganalytics.capture(
-                    distinct_id=str(request.user.distinct_id),
-                    event="batch export backfill created",
-                    properties={
-                        "backfill_id": backfill_id,
-                        "batch_export_id": str(batch_export.pk),
-                        "destination_type": batch_export.destination.type,
-                        "has_start_at": start_at is not None,
-                        "has_end_at": end_at is not None,
-                        "team_id": self.team_id,
-                    },
-                    groups=groups(self.team.organization, self.team),
-                )
-            except Exception:
-                logger.exception("Failed to capture batch export backfill created event")
-
-        return response.Response({"backfill_id": backfill_id}, status=status.HTTP_201_CREATED)
-
-    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
-    def cancel(self, *args, **kwargs) -> response.Response:
-        """Cancel a batch export backfill."""
-
-        batch_export_backfill: BatchExportBackfill = self.get_object()
-
-        if (
-            batch_export_backfill.status == BatchExportBackfill.Status.RUNNING
-            or batch_export_backfill.status == BatchExportBackfill.Status.STARTING
-        ):
-            temporal = sync_connect()
-            try:
-                sync_cancel_running_batch_export_backfill(temporal, batch_export_backfill)
-            except Exception as e:
-                # It could be the case that the backfill is already cancelled but our database hasn't been updated yet.
-                # In this case, we can just ignore the error but log it for visibility (in case there is an actual
-                # issue).
-                logger.warning("Error cancelling batch export backfill: %s", e)
-        else:
-            raise ValidationError(f"Cannot cancel a backfill that is in '{batch_export_backfill.status}' status")
-
-        return response.Response({"cancelled": True})
