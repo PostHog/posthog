@@ -423,6 +423,14 @@ class TestSessionIdentityGate:
 
 _GH_MODULE = "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox"
 
+# The GitHub identity marker is keyed on the sandbox, so the write and the read below must
+# agree on one id.
+_GATE_SANDBOX_ID = "sb-gate"
+
+
+def _gate_lookup() -> LiveSandboxLookup:
+    return LiveSandboxLookup(sandbox=MagicMock(id=_GATE_SANDBOX_ID))
+
 
 @patch(f"{_GH_MODULE}.upgrade_run_to_user_authorship", return_value=None)
 @patch(f"{_GH_MODULE}.clear_github_credentials_from_sandbox")
@@ -441,10 +449,10 @@ class TestSandboxGithubIdentityGate:
         # The actor can connect or disconnect between messages, and a resume or snapshot restore
         # can drop the token, so an unchanged actor is not evidence the sandbox still holds it.
         mock_authorship.return_value = PrAuthorshipMode.USER
-        mock_resolve.return_value = LiveSandboxLookup(sandbox=MagicMock())
+        mock_resolve.return_value = _gate_lookup()
         mock_get_token.return_value = "ghu_token"
         mock_apply.return_value = True
-        mark_sandbox_github_identity("run-1", 42)
+        mark_sandbox_github_identity(_GATE_SANDBOX_ID, 42)
 
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_apply.assert_called_once()
@@ -457,10 +465,10 @@ class TestSandboxGithubIdentityGate:
         # Same actor as last turn, but their install no longer mints: the cheap skip must not
         # leave their token live in the sandbox until the refresh loop next runs.
         mock_authorship.return_value = PrAuthorshipMode.USER
-        mock_resolve.return_value = LiveSandboxLookup(sandbox=MagicMock())
+        mock_resolve.return_value = _gate_lookup()
         mock_get_token.return_value = None
         mock_clear.return_value = True
-        mark_sandbox_github_identity("run-1", 42)
+        mark_sandbox_github_identity(_GATE_SANDBOX_ID, 42)
 
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_clear.assert_called_once()
@@ -473,10 +481,10 @@ class TestSandboxGithubIdentityGate:
         # integration does not revoke the token GitHub already issued, so proceeding could leave it
         # usable in the sandbox after the user disconnected.
         mock_authorship.return_value = PrAuthorshipMode.USER
-        mock_resolve.return_value = LiveSandboxLookup(sandbox=MagicMock())
+        mock_resolve.return_value = _gate_lookup()
         mock_get_token.return_value = None
         mock_clear.return_value = False
-        mark_sandbox_github_identity("run-1", 42)
+        mark_sandbox_github_identity(_GATE_SANDBOX_ID, 42)
 
         assert (
             _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None)
@@ -488,10 +496,10 @@ class TestSandboxGithubIdentityGate:
     ):
         # A different actor inheriting the previous one's live token is the case the gate exists for.
         mock_authorship.return_value = PrAuthorshipMode.USER
-        mock_resolve.return_value = LiveSandboxLookup(sandbox=MagicMock())
+        mock_resolve.return_value = _gate_lookup()
         mock_get_token.return_value = None
         mock_clear.return_value = False
-        mark_sandbox_github_identity("run-1", 99)
+        mark_sandbox_github_identity(_GATE_SANDBOX_ID, 99)
 
         assert (
             _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None)
@@ -504,13 +512,13 @@ class TestSandboxGithubIdentityGate:
         # Revoke, then reconnect. The logout leaves the sandbox marked against this actor, and the
         # reconnect must still be picked up — no marker check may short-circuit the rebind.
         mock_authorship.return_value = PrAuthorshipMode.USER
-        mock_resolve.return_value = LiveSandboxLookup(sandbox=MagicMock())
+        mock_resolve.return_value = _gate_lookup()
         mock_clear.return_value = True
         mock_get_token.return_value = None
-        mark_sandbox_github_identity("run-1", 42)
+        mark_sandbox_github_identity(_GATE_SANDBOX_ID, 42)
 
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
-        assert get_sandbox_github_identity_user("run-1") == 42
+        assert get_sandbox_github_identity_user(_GATE_SANDBOX_ID) == 42
 
         mock_get_token.return_value = "ghu_reconnected"
         mock_apply.return_value = True
@@ -525,7 +533,7 @@ class TestSandboxGithubIdentityGate:
         # BOT runs share a single installation token, so every actor is already
         # the same GitHub identity — nothing to rebind.
         mock_authorship.return_value = PrAuthorshipMode.BOT
-        mark_sandbox_github_identity("run-1", 99)
+        mark_sandbox_github_identity(_GATE_SANDBOX_ID, 99)
 
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_get_token.assert_not_called()
@@ -536,42 +544,42 @@ class TestSandboxGithubIdentityGate:
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
     ):
         mock_authorship.return_value = PrAuthorshipMode.USER
-        mock_resolve.return_value = LiveSandboxLookup(sandbox=MagicMock())
+        mock_resolve.return_value = _gate_lookup()
         mock_get_token.return_value = "ghu_newtoken"
         mock_apply.return_value = True
-        mark_sandbox_github_identity("run-1", 99)
+        mark_sandbox_github_identity(_GATE_SANDBOX_ID, 99)
 
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_apply.assert_called_once()
         assert mock_apply.call_args.args[2] == "ghu_newtoken"
         mock_clear.assert_not_called()
-        assert get_sandbox_github_identity_user("run-1") == 42
+        assert get_sandbox_github_identity_user(_GATE_SANDBOX_ID) == 42
 
     def test_transition_without_access_logs_out(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
     ):
         mock_authorship.return_value = PrAuthorshipMode.USER
-        mock_resolve.return_value = LiveSandboxLookup(sandbox=MagicMock())
+        mock_resolve.return_value = _gate_lookup()
         mock_get_token.side_effect = ReauthorizationRequired("no repo access")
         mock_clear.return_value = True
-        mark_sandbox_github_identity("run-1", 99)
+        mark_sandbox_github_identity(_GATE_SANDBOX_ID, 99)
 
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_apply.assert_not_called()
         mock_clear.assert_called_once()
         # Still marked: owner-scoped refreshes read this to know the sandbox is bound away from the
         # run owner, and must not inject the owner's token into this actor's session.
-        assert get_sandbox_github_identity_user("run-1") == 42
+        assert get_sandbox_github_identity_user(_GATE_SANDBOX_ID) == 42
 
     def test_apply_failure_falls_back_to_logout(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
     ):
         mock_authorship.return_value = PrAuthorshipMode.USER
-        mock_resolve.return_value = LiveSandboxLookup(sandbox=MagicMock())
+        mock_resolve.return_value = _gate_lookup()
         mock_get_token.return_value = "ghu_newtoken"
         mock_apply.side_effect = RuntimeError("write failed")
         mock_clear.return_value = True
-        mark_sandbox_github_identity("run-1", 99)
+        mark_sandbox_github_identity(_GATE_SANDBOX_ID, 99)
 
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_apply.assert_called_once()
@@ -584,18 +592,18 @@ class TestSandboxGithubIdentityGate:
         # rebind: the prior actor's token may still be live in the other location, so log out
         # rather than record the new actor.
         mock_authorship.return_value = PrAuthorshipMode.USER
-        mock_resolve.return_value = LiveSandboxLookup(sandbox=MagicMock())
+        mock_resolve.return_value = _gate_lookup()
         mock_get_token.return_value = "ghu_newtoken"
         mock_apply.return_value = False
         mock_clear.return_value = True
-        mark_sandbox_github_identity("run-1", 99)
+        mark_sandbox_github_identity(_GATE_SANDBOX_ID, 99)
 
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_apply.assert_called_once()
         mock_clear.assert_called_once()
         # Still marked: owner-scoped refreshes read this to know the sandbox is bound away from the
         # run owner, and must not inject the owner's token into this actor's session.
-        assert get_sandbox_github_identity_user("run-1") == 42  # logout confirmed, bound to new actor
+        assert get_sandbox_github_identity_user(_GATE_SANDBOX_ID) == 42  # logout confirmed, bound to new actor
 
     @pytest.mark.parametrize(
         "lookup,expected_reason",
@@ -617,13 +625,13 @@ class TestSandboxGithubIdentityGate:
     ):
         mock_authorship.return_value = PrAuthorshipMode.USER
         mock_resolve.return_value = lookup
-        mark_sandbox_github_identity("run-1", 99)
+        mark_sandbox_github_identity(_GATE_SANDBOX_ID, 99)
 
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) == expected_reason
         mock_get_token.assert_not_called()
         mock_apply.assert_not_called()
         mock_clear.assert_not_called()
-        assert get_sandbox_github_identity_user("run-1") == 99  # binding unchanged
+        assert get_sandbox_github_identity_user(_GATE_SANDBOX_ID) == 99  # binding unchanged
 
     def test_logout_failure_fails_closed(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
@@ -631,16 +639,16 @@ class TestSandboxGithubIdentityGate:
         # New actor has no access and the sandbox can't even be cleared — the
         # previous actor's creds may still be live, so fail closed.
         mock_authorship.return_value = PrAuthorshipMode.USER
-        mock_resolve.return_value = LiveSandboxLookup(sandbox=MagicMock())
+        mock_resolve.return_value = _gate_lookup()
         mock_get_token.side_effect = ReauthorizationRequired("no repo access")
         mock_clear.return_value = False
-        mark_sandbox_github_identity("run-1", 99)
+        mark_sandbox_github_identity(_GATE_SANDBOX_ID, 99)
 
         assert (
             _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None)
             == SandboxRebindFailure.LOGOUT_UNCONFIRMED
         )
-        assert get_sandbox_github_identity_user("run-1") == 99  # binding unchanged
+        assert get_sandbox_github_identity_user(_GATE_SANDBOX_ID) == 99  # binding unchanged
 
     def test_logout_exception_fails_closed(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
@@ -648,16 +656,16 @@ class TestSandboxGithubIdentityGate:
         # The clear itself raising (sandbox stopped/timed out between is_running and here) must
         # fail closed, not escape uncontrolled.
         mock_authorship.return_value = PrAuthorshipMode.USER
-        mock_resolve.return_value = LiveSandboxLookup(sandbox=MagicMock())
+        mock_resolve.return_value = _gate_lookup()
         mock_get_token.side_effect = ReauthorizationRequired("no repo access")
         mock_clear.side_effect = RuntimeError("sandbox stopped")
-        mark_sandbox_github_identity("run-1", 99)
+        mark_sandbox_github_identity(_GATE_SANDBOX_ID, 99)
 
         assert (
             _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None)
             == SandboxRebindFailure.LOGOUT_ERRORED
         )
-        assert get_sandbox_github_identity_user("run-1") == 99  # binding unchanged
+        assert get_sandbox_github_identity_user(_GATE_SANDBOX_ID) == 99  # binding unchanged
 
     def test_credential_unavailable_logs_out(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
@@ -667,17 +675,17 @@ class TestSandboxGithubIdentityGate:
         from products.tasks.backend.exceptions import CredentialUnavailableError
 
         mock_authorship.return_value = PrAuthorshipMode.USER
-        mock_resolve.return_value = LiveSandboxLookup(sandbox=MagicMock())
+        mock_resolve.return_value = _gate_lookup()
         mock_get_token.side_effect = CredentialUnavailableError("integration disconnected", {})
         mock_clear.return_value = True
-        mark_sandbox_github_identity("run-1", 99)
+        mark_sandbox_github_identity(_GATE_SANDBOX_ID, 99)
 
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_apply.assert_not_called()
         mock_clear.assert_called_once()
         # Still marked: owner-scoped refreshes read this to know the sandbox is bound away from the
         # run owner, and must not inject the owner's token into this actor's session.
-        assert get_sandbox_github_identity_user("run-1") == 42
+        assert get_sandbox_github_identity_user(_GATE_SANDBOX_ID) == 42
 
 
 class TestSendFollowupActivityRefreshOrdering:
