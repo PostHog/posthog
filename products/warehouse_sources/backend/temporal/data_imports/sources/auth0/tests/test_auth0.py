@@ -377,6 +377,44 @@ class TestGetRows:
 
         assert batches == [[{"id": "con_1", "name": "my-oidc", "strategy": "oidc"}]]
 
+    def test_users_omit_identity_provider_tokens(self) -> None:
+        page = {
+            "users": [
+                {
+                    "user_id": "auth0|1",
+                    "email": "a@example.com",
+                    "identities": [
+                        {
+                            "connection": "google-oauth2",
+                            "provider": "google-oauth2",
+                            "user_id": "123",
+                            "access_token": "shh-access",
+                            "access_token_secret": "shh-access-secret",
+                            "refresh_token": "shh-refresh",
+                        }
+                    ],
+                }
+            ],
+            "total": 1,
+        }
+        batches, _, _ = self._run("users", [_response(json_data=page)])
+
+        assert batches == [
+            [
+                {
+                    "user_id": "auth0|1",
+                    "email": "a@example.com",
+                    "identities": [
+                        {
+                            "connection": "google-oauth2",
+                            "provider": "google-oauth2",
+                            "user_id": "123",
+                        }
+                    ],
+                }
+            ]
+        ]
+
     def test_pagination_stops_once_total_is_reached(self) -> None:
         page_0 = {"clients": [{"client_id": str(i)} for i in range(100)], "total": 150}
         page_1 = {"clients": [{"client_id": str(i)} for i in range(100, 150)], "total": 150}

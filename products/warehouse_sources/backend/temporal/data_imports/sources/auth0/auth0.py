@@ -341,12 +341,37 @@ CREDENTIAL_FIELDS_BY_ENDPOINT: dict[str, tuple[str, ...]] = {
     "connections": ("options",),
 }
 
+# Credential fields nested inside each item of an array field, keyed by endpoint then array
+# field name. `read:user_idp_tokens` returns the linked identity provider's own access and
+# refresh tokens inside every `users` row's `identities` entries, letting a reader of the synced
+# table call those providers' APIs as the user without the source's own credentials.
+NESTED_CREDENTIAL_FIELDS_BY_ENDPOINT: dict[str, dict[str, tuple[str, ...]]] = {
+    "users": {"identities": ("access_token", "access_token_secret", "refresh_token")},
+}
+
+
+def _strip_nested_credential_fields(row: dict[str, Any], endpoint: str) -> dict[str, Any]:
+    nested = NESTED_CREDENTIAL_FIELDS_BY_ENDPOINT.get(endpoint)
+    if not nested:
+        return row
+    result = dict(row)
+    for array_field, fields in nested.items():
+        items = result.get(array_field)
+        if not isinstance(items, list):
+            continue
+        result[array_field] = [
+            {key: value for key, value in item.items() if key not in fields} if isinstance(item, dict) else item
+            for item in items
+        ]
+    return result
+
 
 def _strip_credential_fields(rows: list[dict[str, Any]], endpoint: str) -> list[dict[str, Any]]:
     fields = CREDENTIAL_FIELDS_BY_ENDPOINT.get(endpoint)
-    if not fields:
-        return rows
-    return [{key: value for key, value in row.items() if key not in fields} for row in rows]
+    rows = [{key: value for key, value in row.items() if key not in fields} for row in rows] if fields else list(rows)
+    if endpoint in NESTED_CREDENTIAL_FIELDS_BY_ENDPOINT:
+        rows = [_strip_nested_credential_fields(row, endpoint) for row in rows]
+    return rows
 
 
 def _max_window_value(rows: list[dict[str, Any]], window_field: str) -> Optional[str]:
