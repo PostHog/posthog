@@ -318,6 +318,36 @@ class TestInsightModel(BaseTest):
         )
         assert insight.show_legend is test_case["expected"]
 
+    @parameterized.expand([("list", ["query"]), ("set", {"query"}), ("tuple", ("query",))])
+    def test_save_with_update_fields_persists_query_metadata(
+        self, _name: str, update_fields: list[str] | set[str] | tuple[str, ...]
+    ) -> None:
+        insight = Insight.objects.create(team=self.team)
+        insight.query = {
+            "kind": "InsightVizNode",
+            "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        }
+        original_update_fields = type(update_fields)(update_fields)
+
+        insight.save(update_fields=update_fields)
+
+        insight.refresh_from_db()
+        assert insight.query_metadata is not None
+        assert insight.query_metadata["events"] == ["$pageview"]
+        assert update_fields == original_update_fields
+
+    def test_save_without_query_in_update_fields_skips_metadata_for_unsaved_query(self) -> None:
+        insight = Insight.objects.create(team=self.team)
+        insight.query = {
+            "kind": "InsightVizNode",
+            "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        }
+
+        insight.save(update_fields={"name"})
+
+        insight.refresh_from_db()
+        assert insight.query_metadata is None
+
     def test_get_analytics_query_metadata_for_trends_query(self) -> None:
         insight = Insight.objects.create(
             team=self.team,
