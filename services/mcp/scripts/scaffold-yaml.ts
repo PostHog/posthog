@@ -49,7 +49,9 @@ interface OpenApiOperation {
     summary?: string
     description?: string
     deprecated?: boolean
+    security?: Array<Record<string, string[]>>
     'x-product'?: string[]
+    'x-request-dependent-scopes'?: boolean
 }
 
 interface OpenApiSpec {
@@ -62,6 +64,8 @@ interface DiscoveredOperation {
     path: string
     summary?: string | undefined
     description?: string | undefined
+    /** Codegen cannot take the scopes from the spec, so the YAML entry must list them. */
+    needsExplicitScopes: boolean
 }
 
 // A file other than the product's default `--add` target needs `--file`, or the command fails or writes to tools.yaml.
@@ -149,6 +153,11 @@ function findOperationsByProduct(spec: OpenApiSpec, product: string): Discovered
                     path: urlPath,
                     summary: op.summary,
                     description: op.description,
+                    needsExplicitScopes:
+                        Boolean(op['x-request-dependent-scopes']) ||
+                        !(op.security ?? []).some((requirement) =>
+                            Object.values(requirement).some((scopes) => scopes.length > 0)
+                        ),
                 })
             }
         }
@@ -389,7 +398,17 @@ function oneLine(text: string | undefined, maxLength: number): string {
     return flat.length > maxLength ? `${flat.slice(0, maxLength - 1)}…` : flat
 }
 
-function formatCandidates(candidates: DiscoveredOperation[], product: string): string {
+function productDefinitionFiles(product: string): string[] {
+    const files: string[] = []
+    const mcpDir = path.join(PRODUCTS_DIR, product, 'mcp')
+    if (fs.existsSync(mcpDir)) {
+        files.push(...fs.readdirSync(mcpDir).map((file) => path.join(mcpDir, file)))
+    }
+    files.push(path.join(DEFINITIONS_DIR, `${product}.yaml`), path.join(DEFINITIONS_DIR, `${product}.yml`))
+    return files.filter((file) => /\.ya?ml$/.test(file) && fs.existsSync(file)).sort()
+}
+
+function formatCandidates(candidates: DiscoveredOperation[], product: string, productFiles: string[]): string {
     if (candidates.length === 0) {
         return `Every OpenAPI operation of "${product}" already has a YAML entry.\n`
     }
@@ -403,7 +422,12 @@ function formatCandidates(candidates: DiscoveredOperation[], product: string): s
         `${candidates.length} operation(s) of "${product}" have no YAML entry:\n` +
         lines.map((line) => `  ${line}\n`).join('') +
         `\nAdd one as an enabled tool:\n` +
-        `  pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product ${product}\n`
+        `  pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product ${product}\n` +
+        // Without --file the entry lands in the default file, and codegen builds its links from that file's url_prefix.
+        (productFiles.length > 1
+            ? `Add --file <path> to write it to another file of "${product}":\n` +
+              productFiles.map((file) => `  ${path.relative(MCP_ROOT, file)}\n`).join('')
+            : '')
     )
 }
 
@@ -585,6 +609,19 @@ function syncAll(spec: OpenApiSpec): void {
     }
 }
 
+function formatAddNextSteps(op: DiscoveredOperation): string {
+    const steps = [
+        'check the title and description the API gives the tool, set them in the YAML if they do not read well for an agent',
+    ]
+    if (!['GET', 'DELETE'].includes(op.method)) {
+        steps.push(`add annotations (required for ${op.method})`)
+    }
+    if (op.needsExplicitScopes) {
+        steps.push('add "scopes" (required: the API picks the scopes per request, so the spec cannot supply them)')
+    }
+    return `Next: ${steps.join(', ')}, then run hogli build:openapi to generate the tool.\n`
+}
+
 function addTool(spec: OpenApiSpec, product: string, operationId: string, filePath: string | undefined): void {
     const targetFile = filePath ? path.resolve(MCP_ROOT, filePath) : defaultProductFile(product)
     if (!targetFile || !fs.existsSync(targetFile)) {
@@ -612,13 +649,7 @@ function addTool(spec: OpenApiSpec, product: string, operationId: string, filePa
 
     const label = path.relative(REPO_ROOT, targetFile)
     process.stdout.write(`Added "${added.toolName}" (${added.op.method} ${added.op.path}) to ${label}.\n`)
-    process.stdout.write(
-        'Next: check the title and description the API gives the tool, set them in the YAML if they do not read well for an agent'
-    )
-    if (!['GET', 'DELETE'].includes(added.op.method)) {
-        process.stdout.write(`, add annotations (required for ${added.op.method})`)
-    }
-    process.stdout.write(', then run hogli build:openapi to generate the tool.\n')
+    process.stdout.write(formatAddNextSteps(added.op))
 }
 
 const USAGE = `Usage: scaffold-yaml --product <name> [--output <file>]   create or re-sync one product file
@@ -677,7 +708,7 @@ function main(): void {
             process.exit(1)
         }
         const candidates = findCandidates(spec, product, collectClaims().baseIds)
-        process.stdout.write(formatCandidates(candidates, product))
+        process.stdout.write(formatCandidates(candidates, product, productDefinitionFiles(product)))
         return
     }
 
@@ -724,7 +755,7 @@ function main(): void {
     formatWithPrettier([resolvedOutput])
 }
 
-export { buildAddedTool, findCandidates, mergeWithExisting, renderCategoryYaml }
+export { buildAddedTool, findCandidates, formatAddNextSteps, formatCandidates, mergeWithExisting, renderCategoryYaml }
 export type { Claims, OpenApiSpec }
 
 function stripExt(filePath: string): string {
