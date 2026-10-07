@@ -100,6 +100,7 @@ the row lists both.
 | astronomer                       | HTTP                        | requests                                                        | ✅                          |
 | attentive                        | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| auth0                            | HTTP                        | requests                                                        | ✅                          |
 | automox                          | HTTP                        | requests                                                        | ✅                          |
 | autumn                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | avalara                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -541,6 +542,7 @@ the row lists both.
 | mistral_ai                       | HTTP                        | requests                                                        | ✅                          |
 | mixmax                           | HTTP                        | requests                                                        | ✅                          |
 | mixpanel                         | HTTP                        | requests                                                        | ✅                          |
+| modal                            | gRPC                        | modal (vendor SDK)                                              | ⚠️ Vendor SDK               |
 | moengage                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mollie                           | HTTP                        | requests                                                        | ✅                          |
 | monday                           | HTTP (GraphQL)              | requests                                                        | ✅                          |
@@ -908,6 +910,7 @@ the row lists both.
 
 ### Notes on partially-tracked sources
 
+- **modal** uses grpclib inside its SDK without a channel or interceptor hook, so gRPC traffic bypasses tracking.
 - **bing_ads** uses Microsoft's `bingads` Python SDK, which builds its own HTTP transport via `suds-py3` for
   the SOAP API and a separate Reporting client. The SDK does not expose a session or HTTP-client injection
   hook today. Outbound traffic from this source bypasses the tracked transport.
@@ -980,12 +983,12 @@ doesn't conflict with concurrent PRs.
 - appfolio
 - apptivo
 - appwrite
+- arcade
 - arxiv
 - asknicely
 - athenahealth
 - atlan
 - audiogo
-- auth0
 - autodesk_construction_cloud
 - automox
 - aws_athena
@@ -1246,6 +1249,7 @@ doesn't conflict with concurrent PRs.
 - logrocket
 - lokalise
 - looker
+- loom
 - m3ter
 - mailtrap
 - mantle
@@ -1288,6 +1292,7 @@ doesn't conflict with concurrent PRs.
 - nasa
 - nationbuilder
 - navan
+- neo4j
 - neon_crm
 - netsuite
 - news_api
@@ -1394,6 +1399,7 @@ doesn't conflict with concurrent PRs.
 - scale_ai
 - scaleway
 - schematic
+- scrunch
 - search_ads_360
 - sec_edgar
 - secureframe
@@ -1434,6 +1440,7 @@ doesn't conflict with concurrent PRs.
 - sprinklr
 - sprinto
 - sprout_social
+- sqlite
 - starburst
 - statsig
 - stockx
@@ -1458,6 +1465,7 @@ doesn't conflict with concurrent PRs.
 - ternary
 - tessitura
 - terra_api
+- testdino
 - thinkific_courses
 - thoughtspot
 - threads
@@ -1489,6 +1497,7 @@ doesn't conflict with concurrent PRs.
 - uservoice
 - vanta
 - vespa
+- vimeo
 - virtuous
 - visma_economic
 - vonage

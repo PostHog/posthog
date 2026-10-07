@@ -2,23 +2,31 @@
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import Any, ClassVar
 from urllib.parse import urlsplit
 
 from products.alerts_platform.backend.facade.contracts import (
+    DEFAULT_PAGERDUTY_REGION,
+    DEFAULT_PAGERDUTY_SEVERITY,
     AlertDestinationAction,
     AlertDestinationConfig,
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
     EventKindSpec,
+    PagerDutyRegion,
+    PagerDutySeverity,
 )
 
 WEBHOOK_HEADERS = {"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}
 
 _HOG_FUNCTION_NAME_MAX_LEN = 400
+
+# An Events API v2 integration key as PagerDuty issues it.
+_PAGERDUTY_ROUTING_KEY_RE = re.compile(r"[A-Za-z0-9]{32}")
 
 
 def clip_hog_function_name(name: str) -> str:
@@ -40,6 +48,13 @@ def destination_filter(alert_id: str, event_id: str) -> dict[str, Any]:
             }
         ],
     }
+
+
+def spec_actions(spec: EventKindSpec) -> tuple[AlertDestinationAction, ...]:
+    return (
+        AlertDestinationAction(url=spec.primary_action_url, label=spec.primary_action_label),
+        *spec.additional_actions,
+    )
 
 
 def slack_body(spec: EventKindSpec) -> str:
@@ -68,10 +83,7 @@ def slack_blocks(spec: EventKindSpec, context_elements: tuple[str, ...]) -> list
                     "text": {"text": action.label, "type": "plain_text"},
                     "type": "button",
                 }
-                for action in (
-                    AlertDestinationAction(url=spec.primary_action_url, label=spec.primary_action_label),
-                    *spec.additional_actions,
-                )
+                for action in spec_actions(spec)
             ],
         },
     ]
@@ -82,16 +94,26 @@ def teams_text(spec: EventKindSpec) -> str:
     parts.extend(spec.intro_lines)
     if spec.details:
         parts.append("\n\n".join(f"**{label}:** {value}" for label, value in spec.details))
-    parts.append(
-        " · ".join(
-            f"[{action.label}]({action.url})"
-            for action in (
-                AlertDestinationAction(url=spec.primary_action_url, label=spec.primary_action_label),
-                *spec.additional_actions,
-            )
-        )
-    )
+    parts.append(" · ".join(f"[{action.label}]({action.url})" for action in spec_actions(spec)))
     return "\n\n".join(parts)
+
+
+def pagerduty_summary(spec: EventKindSpec) -> str:
+    """The incident title: the header, plus the first detail so the page says what breached."""
+    if not spec.details:
+        return spec.header
+    return f"{spec.header}: {spec.details[0][1]}"
+
+
+def pagerduty_custom_details(spec: EventKindSpec) -> dict[str, str]:
+    details = dict(spec.details)
+    if spec.intro_lines:
+        details = {"Details": "\n".join(spec.intro_lines), **details}
+    return details
+
+
+def pagerduty_links(spec: EventKindSpec) -> list[dict[str, str]]:
+    return [{"href": action.url, "text": action.label} for action in spec_actions(spec)]
 
 
 def _input_value(inputs: dict[str, Any], key: str) -> Any:
@@ -106,6 +128,26 @@ class DestinationSpec(ABC):
     type: ClassVar[DestinationType]
     template_id: ClassVar[str]
     required_fields: ClassVar[tuple[str, ...]]
+
+    def validate(self, data: AlertDestinationData) -> None:
+        """Raise `AlertDestinationValidationError` when the payload cannot become a destination of this type."""
+        missing_fields = tuple(field for field in self.required_fields if not data.get(field))
+        if len(missing_fields) == 1:
+            missing_field = missing_fields[0]
+            raise AlertDestinationValidationError(
+                f"{missing_field} is required for {self.type.label} destinations.", field=missing_field
+            )
+        if missing_fields:
+            formatted_fields = " and ".join(missing_fields)
+            raise AlertDestinationValidationError(f"{self.type.label} destinations require {formatted_fields}.")
+
+    def handles(self, event_kind_spec: EventKindSpec) -> bool:
+        """Whether this destination type has something to send for one event kind.
+
+        A message destination skips the incident kinds, because they repeat what the notification
+        kinds already said and ignore cooldown.
+        """
+        return event_kind_spec.incident_action is None
 
     @abstractmethod
     def build_name(self, data: AlertDestinationData) -> str: ...
@@ -245,8 +287,98 @@ class TeamsDestination(_WebhookUrlDestination):
         }
 
 
+class PagerDutyDestination(DestinationSpec):
+    """One incident per alert: the incident kinds trigger and resolve it, tied together by a
+    deduplication key derived from the alert id."""
+
+    type = DestinationType.PAGERDUTY
+    template_id = "template-pagerduty"
+    required_fields = ("pagerduty_routing_key",)
+
+    def validate(self, data: AlertDestinationData) -> None:
+        super().validate(data)
+        routing_key = data["pagerduty_routing_key"]
+        if not isinstance(routing_key, str) or not _PAGERDUTY_ROUTING_KEY_RE.fullmatch(routing_key):
+            raise AlertDestinationValidationError(
+                "Enter the 32-character integration key of a PagerDuty Events API v2 integration.",
+                field="pagerduty_routing_key",
+            )
+        severity = data.get("pagerduty_severity")
+        if severity is not None and severity not in PagerDutySeverity:
+            choices = ", ".join(choice.value for choice in PagerDutySeverity)
+            raise AlertDestinationValidationError(f"Choose a severity: {choices}.", field="pagerduty_severity")
+        region = data.get("pagerduty_region")
+        if region is not None and region not in PagerDutyRegion:
+            choices = ", ".join(choice.value for choice in PagerDutyRegion)
+            raise AlertDestinationValidationError(f"Choose a region: {choices}.", field="pagerduty_region")
+
+    def handles(self, event_kind_spec: EventKindSpec) -> bool:
+        return event_kind_spec.incident_action is not None
+
+    def build_name(self, data: AlertDestinationData) -> str:
+        return f"PagerDuty {_redact_routing_key(data['pagerduty_routing_key'])}"
+
+    def build_inputs(
+        self,
+        event_kind_spec: EventKindSpec,
+        data: AlertDestinationData,
+        *,
+        slack_context_elements: tuple[str, ...],
+    ) -> dict[str, Any]:
+        if event_kind_spec.incident_action is None:
+            raise ValueError(f"PagerDuty has nothing to send for the {event_kind_spec.display_kind} event kind.")
+        return {
+            "routing_key": {"value": data["pagerduty_routing_key"]},
+            "region": {"value": data.get("pagerduty_region") or DEFAULT_PAGERDUTY_REGION.value},
+            "event_action": {"value": event_kind_spec.incident_action.value},
+            # Both incident kinds carry `alert_id`, so a trigger and its resolve share one key.
+            "dedup_key": {"value": "posthog-alert-{event.properties.alert_id}"},
+            "summary": {"value": pagerduty_summary(event_kind_spec)},
+            "source": {"value": "{project.name}"},
+            "severity": {"value": data.get("pagerduty_severity") or DEFAULT_PAGERDUTY_SEVERITY.value},
+            "custom_details": {"value": pagerduty_custom_details(event_kind_spec)},
+            "links": {"value": pagerduty_links(event_kind_spec)},
+        }
+
+    def read(self, inputs: dict[str, Any]) -> AlertDestinationData:
+        data: AlertDestinationData = {"type": self.type}
+        routing_key = _input_value(inputs, "routing_key")
+        # Without the key two PagerDuty destinations cannot be told apart, so a config that
+        # lacks it reads as unreadable rather than as "the same as every other one".
+        if not isinstance(routing_key, str) or not routing_key:
+            return data
+        data["pagerduty_routing_key"] = routing_key
+        severity = _input_value(inputs, "severity")
+        region = _input_value(inputs, "region")
+        if isinstance(severity, str):
+            data["pagerduty_severity"] = severity
+        if isinstance(region, str):
+            data["pagerduty_region"] = region
+        return data
+
+    def redact(self, data: AlertDestinationData) -> AlertDestinationData:
+        routing_key = data.get("pagerduty_routing_key")
+        if routing_key is None:
+            return data
+        redacted = data.copy()
+        redacted["pagerduty_routing_key"] = _redact_routing_key(routing_key)
+        return redacted
+
+
+def _redact_routing_key(value: str) -> str:
+    """Keep the tail a person needs to tell two integration keys apart."""
+    return f"••••{value[-4:]}"
+
+
 DESTINATION_SPECS: dict[DestinationType, DestinationSpec] = {
-    spec.type: spec for spec in (SlackDestination(), DiscordDestination(), WebhookDestination(), TeamsDestination())
+    spec.type: spec
+    for spec in (
+        SlackDestination(),
+        DiscordDestination(),
+        WebhookDestination(),
+        TeamsDestination(),
+        PagerDutyDestination(),
+    )
 }
 
 SPEC_BY_TEMPLATE_ID: dict[str, DestinationSpec] = {spec.template_id: spec for spec in DESTINATION_SPECS.values()}
@@ -284,18 +416,11 @@ def validate_destination_data(
     if destination_type is None:
         choices = ", ".join(f"{choice.label} ({choice.value})" for choice in allowed_destination_types)
         raise AlertDestinationValidationError(f"Choose a supported destination type: {choices}.", field="type")
+    DESTINATION_SPECS[destination_type].validate(data)
 
-    missing_fields = tuple(
-        field for field in DESTINATION_SPECS[destination_type].required_fields if not data.get(field)
-    )
-    if len(missing_fields) == 1:
-        missing_field = missing_fields[0]
-        raise AlertDestinationValidationError(
-            f"{missing_field} is required for {destination_type.label} destinations.", field=missing_field
-        )
-    if missing_fields:
-        formatted_fields = " and ".join(missing_fields)
-        raise AlertDestinationValidationError(f"{destination_type.label} destinations require {formatted_fields}.")
+
+def destination_handles_event_kind(destination_type: DestinationType, spec: EventKindSpec) -> bool:
+    return DESTINATION_SPECS[destination_type].handles(spec)
 
 
 def build_alert_destination_config(
@@ -307,6 +432,11 @@ def build_alert_destination_config(
     slack_context_elements: tuple[str, ...],
 ) -> AlertDestinationConfig:
     destination_spec = DESTINATION_SPECS[data["type"]]
+    if not destination_spec.handles(spec):
+        raise ValueError(
+            f"{destination_spec.type.label} destinations have nothing to send for the {spec.display_kind} event kind. "
+            "Filter event kinds with destination_handles_event_kind first."
+        )
     product_name = spec.product_label.capitalize()
     destination_name = destination_spec.build_name(data)
 

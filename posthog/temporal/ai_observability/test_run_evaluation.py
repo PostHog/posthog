@@ -748,9 +748,18 @@ def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> No
         ),
     ],
 )
+@pytest.mark.parametrize(
+    "attempt,reportable",
+    [
+        pytest.param(1, False, id="first attempt"),
+        pytest.param(3, True, id="last attempt"),
+    ],
+)
 def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
-    provider: str, success_payload: dict[str, Any]
+    provider: str, success_payload: dict[str, Any], attempt: int, reportable: bool
 ) -> None:
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, attempt=attempt)
     key = MagicMock(
         provider=provider,
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
@@ -777,13 +786,16 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
             provider=provider, model="example-judge-v1", provider_key=key, is_byok=True
         )
         with pytest.raises(ApplicationError) as error:
-            call_llm_judge(
-                evaluation={"team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
-                system_prompt="",
-                user_prompt="Hello!",
-                allows_na=False,
+            env.run(
+                lambda: call_llm_judge(
+                    evaluation={"team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+                    system_prompt="",
+                    user_prompt="Hello!",
+                    allows_na=False,
+                )
             )
         assert not error.value.non_retryable
+        assert isinstance(error.value, NonReportableError) is not reportable
         assert error.value.next_retry_delay == timedelta(seconds=15)
         assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
         assert transport.call_count == 1

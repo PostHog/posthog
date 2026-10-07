@@ -14,29 +14,33 @@ see [Writing skills](/handbook/engineering/ai/writing-skills).
 ## TL;DR
 
 ```sh
-# 1. Scaffold a starter YAML with all operations disabled
+# 1. Only for a product with no YAML yet: create one with no tools
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
-# 2. Configure the YAML – enable tools, add descriptions, and annotations for PATCH/POST/PUT
+# 2. List the operations without a YAML entry, then add the ones agents need as enabled tools
+pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product your_product
+pnpm --filter=@posthog/mcp run scaffold-yaml -- --add your_product_things_list --product your_product
+
+# 3. Configure the YAML – adjust titles and descriptions, add annotations for PATCH/POST/PUT
 #    Place in products/<product>/mcp/*.yaml (preferred, e.g. actions, cohorts)
 
-# 3. For read/list tools backed by PostHog database rows, add a HogQL system table
+# 4. For read/list tools backed by PostHog database rows, add a HogQL system table
 #    in posthog/hogql/database/schema/system.py and a model reference in
 #    products/posthog_ai/skills/querying-posthog-data/references/
 
-# 4. Generate handlers and schemas
+# 5. Generate handlers and schemas
 hogli build:openapi
 
-# 5. Refresh the tool input schema snapshots (CI unit tests fail on a stale snapshot)
+# 6. Refresh the tool input schema snapshots (CI unit tests fail on a stale snapshot)
 pnpm --filter=@posthog/mcp exec vitest run tests/unit/tool-schema-snapshots.test.ts -u
 # A tool behind a new `feature_flag` needs that flag in the test's `featureFlags` map, set to the value that shows the tool:
 # true for a plain gate, the variant string for a variant gate, a non-true value for a `disable` gate.
 
-# 6. Only when the YAML uses ui_apps: regenerate the UI apps (CI checks they are current)
+# 7. Only when the YAML uses ui_apps: regenerate the UI apps (CI checks they are current)
 pnpm --filter=@posthog/mcp run generate:ui-apps
 
-# 7. Merge to master – CI builds and distributes automatically
+# 8. Merge to master – CI builds and distributes automatically
 ```
 
 ## Tool design principles
@@ -63,6 +67,11 @@ and simple tools are reusable across many workflows.
 For lookup tools, return an explicit normal result when absence is an expected answer (for example,
 checking whether an event's session has a recording). Keep invalid inputs, permission failures, and
 server failures as tool errors so MCP Analytics measures genuine failures rather than routine misses.
+
+Preserve API errors with `throw result.error` or `wrapError(message, result.error)` from `@/lib/errors`.
+Copying only the message loses the HTTP status and retry guidance.
+For HTTP 503 responses, the shared client passes a numeric `Retry-After` value to the agent as a minimum wait.
+It does not retry these requests automatically.
 
 ## SQL-first data retrieval
 
@@ -237,9 +246,10 @@ They live in **`products/<product>/mcp/*.yaml`**, keeping config close to the ow
 The build pipeline discovers YAML files from both paths.
 Product teams own their definitions and control which operations are exposed as MCP tools.
 
-**Workflow: scaffold, configure, generate.**
+**Workflow: add, configure, generate.**
 
-1. **Scaffold** a starter YAML with all operations disabled.
+1. **Add** the tools agents need.
+   Tools are opt-in: an operation is exposed only when a YAML file has an entry for it.
    `--product` discovers endpoints by their **`x-product`** attribution —
    it matches endpoints whose product attribution equals the product name.
    ViewSets in `products/<name>/backend/` are auto-attributed via the module path.
@@ -254,13 +264,21 @@ Product teams own their definitions and control which operations are exposed as 
    the scaffold can find them.
 
    ```sh
-   pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product
-   # or output directly into a product folder:
+   # Only for a product with no YAML yet: create one with no tools
    pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
        --output ../../products/your_product/mcp/tools.yaml
+   # List the product's operations that have no YAML entry
+   pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product your_product
+   # Add one as an enabled tool
+   # (--file <path> writes to a YAML file other than the product's tools.yaml)
+   pnpm --filter=@posthog/mcp run scaffold-yaml -- --add your_product_things_list --product your_product
    ```
 
-2. **Configure** the YAML – enable tools and add descriptions.
+   To keep an operation off on purpose, for example when another tool supersedes it,
+   give its entry `enabled: false` and `disabled_reason: <why>`.
+   Sync removes an `enabled: false` entry without a `disabled_reason` as a leftover stub, and codegen rejects a `disabled_reason` on an enabled tool.
+
+2. **Configure** each entry – the title and description come from the API; set them in the YAML when they do not read well for an agent.
    Scopes come from the API when you omit them. Annotations default for GET and DELETE, so declare them for PATCH, POST and PUT.
    A `scopes` list that misses a scope the API requires fails codegen.
    When an action's scopes depend on the request, list the action in the viewset's `request_dependent_scope_actions`, and declare `scopes` on its tools.
@@ -295,7 +313,7 @@ Product teams own their definitions and control which operations are exposed as 
    tools:
      domain-action: # e.g. feature-flags-list, experiments-create
        operation: your_product_endpoint_list # must match an OpenAPI operationId
-       enabled: true # false excludes from generation
+       enabled: true # false keeps the tool off and needs disabled_reason
        # --- optional: ---
        scopes: # defaults to the scopes the API requires; a list that misses one fails codegen
          - your_product:read
@@ -340,10 +358,19 @@ Product teams own their definitions and control which operations are exposed as 
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
+   For list tools with a UI app, set `response.text_include` to the dot-path fields an agent
+   needs from each result row. This adds a compact text response for clients that cannot read
+   `structuredContent`, while preserving the full structured payload for the app and explicit
+   JSON output. For example, the error issue list includes issue IDs, status, severity, timestamps,
+   impact counts, and links, but leaves volume buckets to the app. Pagination metadata stays in
+   the text response, and `results[0]` explicitly identifies an empty page.
+
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument
    name fails generation instead of silently dropping the argument at runtime.
    See "UI apps" in `services/mcp/CONTRIBUTING.md` for the rules.
+
+   Some clients display interactive apps with `render-ui`. Apps fetch data through read-only tools such as `query-trends` and `query-funnel`, which stay hidden from the model. After changing tools, refresh the client's tool list and start a new conversation.
 
    A custom UI app can set `resource_domains` when it loads an image, font, script, or stylesheet from an external source. Each value must be a CSP source expression. Declare only the required origin or path.
 
@@ -446,9 +473,9 @@ When backend API endpoints change, sync the YAML definitions:
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 ```
 
-This is idempotent and non-destructive –
-it only adds newly discovered operations (with `enabled: false`) and removes stale ones.
-All hand-authored configuration is preserved.
+This is idempotent and never adds entries, so a new endpoint does not change any YAML file.
+It keeps all hand-authored configuration, updates renumbered `_N` operation IDs,
+removes a disabled entry whose operation is gone, and fails on an enabled tool whose operation is gone.
 CI runs this as a drift check.
 
 See [`services/mcp/definitions/README.md`](https://github.com/PostHog/posthog/blob/master/services/mcp/definitions/README.md) for the full YAML schema reference (note: YAML definitions themselves now live in product folders)
