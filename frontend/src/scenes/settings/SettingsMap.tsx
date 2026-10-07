@@ -1759,7 +1759,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Configure which domains are tracked in web analytics. Wildcards are not allowed — URLs must be concrete and launchable.',
                 component: <TeamAuthorizedURLs />,
-                keywords: ['domain', 'website', 'url'],
+                keywords: ['domain', 'website', 'url', 'authorized urls', 'toolbar'],
             },
             {
                 id: 'channel-type',

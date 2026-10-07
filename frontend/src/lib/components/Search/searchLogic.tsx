@@ -18,6 +18,7 @@ import { commandLogic } from 'lib/components/Command/commandLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import posthog from 'lib/posthog-typed'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { uuid } from 'lib/utils/dom'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
@@ -41,7 +42,7 @@ import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/p
 import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
 import { matchesFlagDefinition } from '~/scenes/settings/flagGating'
 import { getTitleText } from '~/scenes/settings/settingsSearch'
-import { Setting, SettingSection, SettingSectionId } from '~/scenes/settings/types'
+import { Setting, SettingId, SettingSection, SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab, FileSystemIconColor, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import { conversationsTicketsList } from 'products/conversations/frontend/generated/api'
@@ -51,7 +52,7 @@ import type { AccountApi } from 'products/customer_analytics/frontend/generated/
 
 import type { Noun } from '../../../models/groupsModel'
 import type { FileSystemImport } from '../../../queries/schema/schema-general'
-import type { GroupType, IntegrationType, UserType } from '../../../types'
+import type { GroupType, IntegrationType, TeamPublicType, TeamType, UserType } from '../../../types'
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
 import { filterSearchItems, shouldSearchTickets } from './utils'
 
@@ -187,6 +188,8 @@ export interface SearchLogicProps {
 }
 
 export const RECENTS_LIMIT = 5
+/** Every setting is a result, so a broad term can match dozens. Fuse ranks the best first. */
+const SETTINGS_RESULT_LIMIT = 10
 /** Max starred shortcuts shown in quick search (folders excluded). */
 export const STARRED_LIMIT = 20
 const SEARCH_LIMIT = 5
@@ -228,6 +231,7 @@ export interface SettingsSectionSummary {
         descriptionString: string | null
         keywords?: string[]
         flag?: SettingSection['flag']
+        allowForTeam?: Setting['allowForTeam']
     }[]
 }
 
@@ -247,6 +251,7 @@ export interface searchLogicValues {
     recentsHasLoaded: boolean // recentItemsModel
     sceneLogViewsByRef: Record<string, string> // recentItemsModel
     sceneLogViewsHasLoaded: boolean // recentItemsModel
+    currentTeam: TeamType | TeamPublicType | null // teamLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     accountItems: SearchItem[]
@@ -259,6 +264,7 @@ export interface searchLogicValues {
     }
     dataManagementItems: SearchItem[]
     groupItems: SearchItem[]
+    groupSearchFailed: boolean
     groupSearchResults: Partial<Record<GroupTypeIndex, GroupQueryResult[]>>
     groupSearchResultsLoading: boolean
     healthItems: SearchItem[]
@@ -454,6 +460,9 @@ export interface searchLogicActions {
             search: string
         }
     }
+    setGroupSearchFailed: (failed: boolean) => {
+        failed: boolean
+    }
     setSearch: (search: string) => {
         search: string
     }
@@ -504,6 +513,7 @@ export interface searchLogicMeta {
         peopleItems: (treeGroupItems: FileSystemImport[], sceneLogViewsByRef: Record<string, string>) => SearchItem[]
         groupItems: (
             groupSearchResults: Partial<Record<GroupTypeIndex, GroupQueryResult[]>>,
+            groupSearchFailed: boolean,
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => SearchItem[]
         personItems: (personSearchResults: PersonType[]) => SearchItem[]
@@ -527,7 +537,8 @@ export interface searchLogicMeta {
             featureFlags: FeatureFlagsSet,
             organizationIntegrations: IntegrationType[] | null,
             settingsSections: SettingsSectionSummary[],
-            billingEntryUrl: string | null
+            billingEntryUrl: string | null,
+            currentTeam: TeamType | TeamPublicType | null
         ) => SearchItem[]
         unifiedSearchItems: (unifiedSearchResults: SearchResponse | null) => Record<string, SearchItem[]>
         loadingStates: (
@@ -609,7 +620,7 @@ export const searchLogic = kea<searchLogicType>([
             userLogic,
             ['user'],
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeam', 'currentTeamId'],
             recentItemsModel,
             ['recents as cachedRecents', 'recentsHasLoaded', 'sceneLogViewsByRef', 'sceneLogViewsHasLoaded'],
             projectTreeDataLogic,
@@ -623,8 +634,9 @@ export const searchLogic = kea<searchLogicType>([
     actions({
         setSearch: (search: string) => ({ search }),
         setSettingsSections: (sections: SettingsSectionSummary[]) => ({ sections }),
+        setGroupSearchFailed: (failed: boolean) => ({ failed }),
     }),
-    loaders(({ values, cache }) => ({
+    loaders(({ actions, values, cache, props }) => ({
         searchedRecents: [
             null as FileSystemEntry[] | null,
             {
@@ -707,6 +719,19 @@ export const searchLogic = kea<searchLogicType>([
                     // allSettled never rejects, so an abort lands here instead of in a catch: the
                     // breakpoint hands a superseded run over, and the filter below drops the rest.
                     breakpoint()
+
+                    // Without this, a failed request looks the same as a search with no matches.
+                    const failedCount = results.filter(
+                        (result) => result.status === 'rejected' && !isAbortError(result.reason)
+                    ).length
+                    actions.setGroupSearchFailed(failedCount > 0)
+                    if (failedCount > 0 && props.logicKey === 'command') {
+                        posthog.capture('command menu search failed', {
+                            source: 'groups',
+                            failed_requests: failedCount,
+                            total_requests: results.length,
+                        })
+                    }
 
                     return Object.fromEntries(
                         results
@@ -859,6 +884,13 @@ export const searchLogic = kea<searchLogicType>([
             [] as SettingsSectionSummary[],
             {
                 setSettingsSections: (_, { sections }) => sections,
+            },
+        ],
+        groupSearchFailed: [
+            false,
+            {
+                setGroupSearchFailed: (_, { failed }) => failed,
+                loadGroupSearchResults: () => false,
             },
         ],
     }),
@@ -1159,9 +1191,10 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
         groupItems: [
-            (s) => [s.groupSearchResults, s.aggregationLabel],
+            (s) => [s.groupSearchResults, s.groupSearchFailed, s.aggregationLabel],
             (
                 groupSearchResults: Partial<Record<GroupTypeIndex, GroupQueryResult[]>>,
+                groupSearchFailed: boolean,
                 aggregationLabel: (
                     groupTypeIndex: number | null | undefined,
                     deferToUserWording?: boolean
@@ -1188,6 +1221,16 @@ export const searchLogic = kea<searchLogicType>([
                                 groupNoun: noun,
                             },
                         })
+                    })
+                }
+                if (groupSearchFailed) {
+                    items.push({
+                        id: 'group-search-failed',
+                        name: 'Group search failed',
+                        displayName: "Couldn't search all groups. Change your search to try again.",
+                        category: 'groups',
+                        itemType: null,
+                        disabledReason: 'The group search request failed',
                     })
                 }
                 return items
@@ -1387,12 +1430,13 @@ export const searchLogic = kea<searchLogicType>([
             ],
         ],
         settingsItems: [
-            (s) => [s.featureFlags, s.organizationIntegrations, s.settingsSections, s.billingEntryUrl],
+            (s) => [s.featureFlags, s.organizationIntegrations, s.settingsSections, s.billingEntryUrl, s.currentTeam],
             (
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 organizationIntegrations: import('~/types').IntegrationType[] | null,
                 settingsSections: SettingsSectionSummary[],
-                billingEntryUrl: string | null
+                billingEntryUrl: string | null,
+                currentTeam: TeamType | TeamPublicType | null
             ): SearchItem[] => {
                 const checkFlag = (flagKey: Pick<Setting, 'flag'>['flag']): boolean =>
                     matchesFlagDefinition(flagKey, featureFlags)
@@ -1450,18 +1494,6 @@ export const searchLogic = kea<searchLogicType>([
                     // Create a search item for each settings section
                     const levelPrefix = toSentenceCase(effectiveLevel)
 
-                    const searchTerms = [
-                        ...(section.keywords ?? []),
-                        ...section.settings
-                            .filter((setting) => setting.hasTitle && checkFlag(setting.flag))
-                            .flatMap((setting) => [
-                                toSentenceCase(setting.id.replace(/[-]/g, ' ')),
-                                ...(setting.titleString ? [setting.titleString] : []),
-                                ...(setting.descriptionString ? [setting.descriptionString] : []),
-                                ...(setting.keywords ?? []),
-                            ]),
-                    ]
-
                     // Create the display name for each settings section
                     const displayName = section.titleString ?? toSentenceCase(section.id.replace(/[-]/g, ' '))
 
@@ -1472,7 +1504,7 @@ export const searchLogic = kea<searchLogicType>([
 
                     items.push({
                         id: `settings-${effectiveSectionId}`,
-                        name: `${levelPrefix}: ${displayName} (${searchTerms})`,
+                        name: `${levelPrefix}: ${displayName} (${section.keywords ?? []})`,
                         displayName: `${displayName}${displayNameSuffix}`,
                         category: 'settings',
                         href: billingHref || section.to || urls.settings(effectiveSectionId),
@@ -1483,6 +1515,38 @@ export const searchLogic = kea<searchLogicType>([
                             sectionId: effectiveSectionId,
                         },
                     })
+
+                    // Each setting is its own result, so a match shows the setting by name and links
+                    // straight to it, and the settings page gating (allowForTeam) applies here too.
+                    const visibleSettings = section.settings.filter(
+                        (setting) =>
+                            setting.hasTitle &&
+                            checkFlag(setting.flag) &&
+                            (!setting.allowForTeam || setting.allowForTeam(currentTeam))
+                    )
+                    for (const setting of visibleSettings) {
+                        const settingTitle = setting.titleString ?? toSentenceCase(setting.id.replace(/[-]/g, ' '))
+                        const searchTerms = [
+                            toSentenceCase(setting.id.replace(/[-]/g, ' ')),
+                            ...(setting.descriptionString ? [setting.descriptionString] : []),
+                            ...(setting.keywords ?? []),
+                        ]
+                        items.push({
+                            id: `settings-${effectiveSectionId}-${setting.id}`,
+                            name: `${settingTitle} (${searchTerms})`,
+                            displayName: settingTitle,
+                            productCategory: `${displayName}${displayNameSuffix}`,
+                            category: 'settings',
+                            href: section.to || urls.settings(effectiveSectionId, setting.id as SettingId),
+                            itemType: 'settings',
+                            record: {
+                                type: 'settings',
+                                level: effectiveLevel,
+                                sectionId: effectiveSectionId,
+                                settingId: setting.id,
+                            },
+                        })
+                    }
                 }
 
                 return items
@@ -1757,7 +1821,7 @@ export const searchLogic = kea<searchLogicType>([
                 }
 
                 // Filter and show settings if searching with matching results
-                const filteredSettings = filterBySearch(settingsItems)
+                const filteredSettings = filterBySearch(settingsItems).slice(0, SETTINGS_RESULT_LIMIT)
                 if (hasSearch && filteredSettings.length > 0) {
                     categories.push({
                         key: 'settings',
@@ -1935,6 +1999,7 @@ export const searchLogic = kea<searchLogicType>([
                                 (typeof setting.description === 'string' ? setting.description : null),
                             keywords: setting.keywords,
                             flag: setting.flag,
+                            allowForTeam: setting.allowForTeam,
                         })),
                     }))
                 )

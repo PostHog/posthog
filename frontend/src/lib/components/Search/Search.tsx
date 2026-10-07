@@ -73,6 +73,9 @@ const SETTINGS_THEME_ITEM_QUERY = ['dark', 'light', 'theme', 'appearance']
 
 const EMPTY_SUGGESTED_ITEMS: SearchItem[] = []
 
+/** Long enough to outlast the search debounce and the time between keystrokes. */
+const ZERO_RESULTS_CAPTURE_DELAY_MS = 1500
+
 // ============================================================================
 // Hooks
 // ============================================================================
@@ -609,6 +612,19 @@ function SearchRoot({
     // breaks at group boundaries where the two orderings diverge.
     const orderedItems = useMemo(() => stableGroupedItems.flatMap((g) => g.items), [stableGroupedItems])
     orderedItemsRef.current = orderedItems
+
+    // Wait for the results to settle, because the server results of the previous term stay in the
+    // list for a moment after each keystroke.
+    useEffect(() => {
+        const trimmed = searchValue.trim()
+        if (logicKey !== 'command' || !isActive || !trimmed || isSearching || orderedItems.length > 0) {
+            return
+        }
+        const timeout = setTimeout(() => {
+            posthog.capture('command menu search returned no results', { query_length: trimmed.length })
+        }, ZERO_RESULTS_CAPTURE_DELAY_MS)
+        return () => clearTimeout(timeout)
+    }, [logicKey, isActive, searchValue, isSearching, orderedItems.length])
 
     const contextValue: SearchContextValue = useMemo(
         () => ({

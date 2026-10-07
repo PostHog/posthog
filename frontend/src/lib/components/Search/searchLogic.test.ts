@@ -133,9 +133,72 @@ describe('searchLogic', () => {
 
             const items = logic.values.settingsItems.filter((item) => item.id === 'settings-project-task-agents')
             expect(items.map((item) => item.displayName)).toEqual([expectedName])
-            expect(items[0].name.includes('zebra')).toBe(expectsGatedKeyword)
+            const gatedSetting = logic.values.settingsItems.find(
+                (item) => item.id === 'settings-project-task-agents-task-comments-slack-dm'
+            )
+            expect(!!gatedSetting?.name.includes('zebra')).toBe(expectsGatedKeyword)
         }
     )
+
+    it.each([
+        ['hides', false],
+        ['shows', true],
+    ])('%s a setting by its allowForTeam gate and links a match straight to it', (_label, allowed) => {
+        logic.actions.setSettingsSections([
+            {
+                id: 'environment-replay',
+                level: 'environment',
+                titleString: 'Session replay',
+                settings: [
+                    {
+                        id: 'replay-authorized-domains',
+                        hasTitle: true,
+                        titleString: 'Authorized domains for replay',
+                        descriptionString: null,
+                        allowForTeam: () => allowed,
+                    },
+                ],
+            },
+            {
+                id: 'environment-web-analytics',
+                level: 'environment',
+                titleString: 'Web analytics',
+                settings: [
+                    {
+                        id: 'web-analytics-authorized-urls',
+                        hasTitle: true,
+                        titleString: 'Web analytics domains',
+                        descriptionString: null,
+                        keywords: ['authorized urls'],
+                    },
+                ],
+            },
+        ])
+
+        const matches = filterSearchItems(logic.values.settingsItems, 'authorized')
+        expect(matches.some((item) => item.id === 'settings-project-replay-replay-authorized-domains')).toBe(allowed)
+        expect(matches).toContainEqual(
+            expect.objectContaining({
+                displayName: 'Web analytics domains',
+                productCategory: 'Web analytics',
+                href: urls.settings('project-web-analytics', 'web-analytics-authorized-urls'),
+            })
+        )
+    })
+
+    it('shows an error row instead of no results when the group search fails', async () => {
+        personListMock.mockResolvedValue({ results: [] })
+        jest.spyOn(api.groups, 'listClickhouse').mockRejectedValue(new Error('Too many requests'))
+
+        await expectLogic(logic, () => logic.actions.setSearch('acme corporation')).toDispatchActions([
+            'loadGroupSearchResultsSuccess',
+        ])
+
+        expect(logic.values.groupItems).toEqual([
+            expect.objectContaining({ id: 'group-search-failed', disabledReason: expect.any(String) }),
+        ])
+        expect(logic.values.allCategories.find((category) => category.key === 'groups')?.items).toHaveLength(1)
+    })
 
     it('aborts and cancels the in-flight person search when the term is cleared', async () => {
         neverResolvingPersonSearch()
