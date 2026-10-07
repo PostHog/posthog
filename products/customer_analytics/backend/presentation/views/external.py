@@ -6,8 +6,8 @@ authenticate via the team secret API token passed as a Bearer token in the
 Authorization header. The bulk account list instead authenticates via a project
 secret API key or personal API key carrying the ``account:read`` scope, because the team token is
 readable by every project member and must not unlock a team-wide account export.
-The single-account GET accepts either credential, and so does POST, where a project secret
-API key needs the ``account:write`` scope. PATCH stays team-token only.
+The single-account GET accepts either credential, and so do POST and PATCH, where a
+project secret API key needs the ``account:write`` scope.
 
 The team token deliberately grants single-account writes (create, tags,
 relationships, custom property values) without per-user ``account`` scope checks:
@@ -235,14 +235,17 @@ def _get_auth_method_label(request: Request) -> str:
 
 
 def _authenticate_team_for_update(request: Request) -> tuple[Team, None] | tuple[None, Response]:
-    """Updates stay team-token only: they change tags, relationships and churn state. A project
-    secret API key is rejected explicitly, because the team-token lookup treats it as an
-    unknown token and answers 401 instead of 403."""
+    """Updates require ``account:write`` on a project secret API key; reads alone don't
+    grant tag, relationship or churn changes. The team token keeps working unchanged."""
     if is_authenticated_via_project_secret_api_key(request):
-        return None, Response(
-            {"error": "Project secret API keys cannot update accounts on this route"},
-            status=status.HTTP_403_FORBIDDEN,
-        )
+        authenticator = cast(ProjectSecretAPIKeyAuthentication, request.successful_authenticator)
+        key_scopes = set(get_authenticator_scopes(authenticator) or [])
+        if "*" not in key_scopes and EXTERNAL_ACCOUNT_WRITE_SCOPE not in key_scopes:
+            return None, Response(
+                {"error": f"API key missing required scope '{EXTERNAL_ACCOUNT_WRITE_SCOPE}'"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return authenticator.project_secret_api_key.team, None
     return _authenticate_team(request)
 
 
