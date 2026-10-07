@@ -10718,6 +10718,45 @@ export namespace Schemas {
       Number50000: 50000,
     } as const;
 
+    export type Operator1 = typeof Operator1[keyof typeof Operator1];
+
+
+    export const Operator1 = {
+      And: 'AND',
+      Or: 'OR',
+    } as const;
+
+    export interface BIConditionGroup {
+      filters: string[];
+      groups: BIConditionGroup[];
+      operator: Operator1;
+    }
+
+    export type Operator2 = typeof Operator2[keyof typeof Operator2];
+
+
+    export const Operator2 = {
+      Equals: 'equals',
+      NotEquals: 'not_equals',
+      GreaterThan: 'greater_than',
+      LessThan: 'less_than',
+      GreaterThanOrEqual: 'greater_than_or_equal',
+      LessThanOrEqual: 'less_than_or_equal',
+      Between: 'between',
+      IsSet: 'is_set',
+      IsNotSet: 'is_not_set',
+    } as const;
+
+    export interface BIResultFilter {
+      enabled?: boolean | null;
+      id: string;
+      /** @minimum 0 */
+      measureIndex: number;
+      operator: Operator2;
+      value: string;
+      valueTo?: string | null;
+    }
+
     export type BISortDirection = typeof BISortDirection[keyof typeof BISortDirection];
 
 
@@ -10798,6 +10837,9 @@ export namespace Schemas {
       dateRange?: DateRange | null;
       filters: BIFilter[];
       limit: BIQueryLimit;
+      resultFilterGroup?: BIConditionGroup | null;
+      resultFilters?: BIResultFilter[] | null;
+      rowFilterGroup?: BIConditionGroup | null;
       rows: BIField[];
       /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
       sort?: BISort | null;
@@ -121420,6 +121462,10 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Exclude Business intelligence worksheets from the insight list.
+     */
+    exclude_bi?: boolean;
+    /**
      * Include this parameter (any value) to restrict results to insights marked as favorited.
      */
     favorited?: boolean;
@@ -121429,7 +121475,7 @@ export namespace Schemas {
      */
     include_dashboards?: boolean;
     /**
-     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
+     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries; `BI` matches editable worksheets.
      */
     insight?: InsightsListInsight;
     /**
@@ -121448,6 +121494,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort by an insight field, with a leading minus for descending order. Supports last_modified_at and last_viewed_at.
+     */
+    order?: string;
     /**
      *
      * Whether to refresh the retrieved insights, how aggressively, and if sync or async:
@@ -121491,6 +121541,7 @@ export namespace Schemas {
 
 
     export const InsightsListInsight = {
+      Bi: 'BI',
       Funnels: 'FUNNELS',
       Journeys: 'JOURNEYS',
       Json: 'JSON',
