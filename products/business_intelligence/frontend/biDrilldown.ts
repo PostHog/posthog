@@ -19,6 +19,7 @@ import {
     fieldExpression,
     getBIResultDimensions,
 } from './biEditorTypes'
+import { normalizeBIConditionGroup } from './biFilterGroups'
 
 export interface BIDrillSelection {
     filters: BIFilter[]
@@ -188,10 +189,30 @@ export function getBIDrillQueries(
     if (!saved) {
         return null
     }
+    const selectionFilters = saved.rowFilterGroup
+        ? selection.filters.map((filter, index) => ({
+              ...filter,
+              field: { ...filter.field, id: `drill:${saved.filters.length + index}:${filter.field.id}` },
+          }))
+        : selection.filters
     const config: BIConfig = {
         ...saved,
         dateRange: node.source.filters?.dateRange ?? saved.dateRange,
-        filters: [...saved.filters, ...selection.filters],
+        filters: [...saved.filters, ...selectionFilters],
+        ...(saved.rowFilterGroup
+            ? {
+                  rowFilterGroup: {
+                      operator: 'AND' as const,
+                      filters: selectionFilters.map((filter) => filter.field.id),
+                      groups: [
+                          normalizeBIConditionGroup(
+                              saved.rowFilterGroup,
+                              saved.filters.map((filter) => filter.field.id)
+                          ),
+                      ],
+                  },
+              }
+            : {}),
         topN: undefined,
     }
     const source = buildBIRowsQuery(config, selection.previous)

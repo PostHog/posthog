@@ -95,6 +95,12 @@ part, or custom SQL condition, or to remove the filter. Filter changes respect t
 auto-update setting and are preserved with its saved configuration.
 Numeric filters preserve the precision of entered values. Invalid numbers show an error and prevent the worksheet from running until corrected or disabled.
 
+**Row filters** apply before aggregation. **Result filters** apply to aggregated measures, calculated measures, and table calculations after they run, before sorting and the final row limit. For example, add result filters for revenue greater than 1,000 and purchase count at least five. Each filter can be disabled without removing it. Removing a measure removes its result filters; the remaining filters keep their measure assignments.
+
+Both cards have **AND / OR groups**. Choose **AND — match all** or **OR — match any**, add nested groups, and move existing filters into them. Empty groups have no effect. Ungroup returns its conditions to the outer group. Existing worksheets retain their flat AND conditions. Date ranges and dashboard filters always combine with worksheet row conditions using AND; drill-down selections do too.
+
+Top N selects categories before result filters run. Comparison periods apply the same result conditions independently. Result filters hide detail groups; totals still aggregate all data matching the row filters. Table calculations use the full aggregated result before result filtering. Query usage events include result-filter and group counts without their values.
+
 ## Apple Ads in Marketing analytics
 
 Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-apple-ads` and is off by default.

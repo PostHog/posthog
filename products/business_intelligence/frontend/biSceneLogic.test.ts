@@ -274,6 +274,9 @@ describe('biSceneLogic', () => {
             () => editor.actions.addFieldToShelf(eventField, 'values'),
             () => editor.actions.setTableCalculation(0, { type: 'running_total' }),
             () => editor.actions.updateMeasureSettings(0, { formatting: { prefix: '€' } }),
+            () => editor.actions.addResultFilter(),
+            () => editor.actions.updateResultFilter(editor.values.config.resultFilters![0].id, { value: '100' }),
+            () => editor.actions.setFilterGroup('row', { operator: 'OR', filters: ['event'], groups: [] }),
             () => editor.actions.removeFieldFromShelf('columns', 0),
             () => logic.actions.setVisualization({ ...logic.values.worksheet, chartSettings: { showLegend: false } }),
         ]
