@@ -1,5 +1,5 @@
 import type { HogFlow } from '../hogflows/types'
-import { describeSuggestedChanges } from './suggestionChanges'
+import { describeFieldView, describeSuggestedChanges } from './suggestionChanges'
 
 const live = {
     name: 'Onboarding welcome',
@@ -12,7 +12,7 @@ const live = {
     ],
 } as unknown as HogFlow
 
-describe('describeSuggestedChanges', () => {
+describe('suggestionChanges', () => {
     it('pairs each changed field with the live value at the same path and names the step', () => {
         const changes = describeSuggestedChanges(
             {
@@ -70,5 +70,54 @@ describe('describeSuggestedChanges', () => {
 
         // Approving reduces the patch the same way, so the table must not read as a four-field edit.
         expect(steps[0].fields.map((field) => field.path)).toEqual(['config.subject'])
+    })
+
+    describe('describeFieldView', () => {
+        const emailHtml = (cta: string): string =>
+            `<table><tr><td><h1>Welcome aboard</h1></td></tr><tr><td><a href="https://example.com/start">${cta}</a></td></tr></table>`
+
+        it.each([
+            [
+                'a short text edit',
+                'config.inputs.email.value.subject',
+                'Old subject',
+                'New subject',
+                { kind: 'inline' },
+            ],
+            ['a number', 'config.delay_duration', 1, 2, { kind: 'inline' }],
+            [
+                'minified email HTML, split between tags',
+                'config.inputs.email.value.html',
+                emailHtml('Run the play'),
+                emailHtml('Create your first workflow'),
+                {
+                    kind: 'diff',
+                    language: 'html',
+                    original: emailHtml('Run the play').replace(/>(?=<)/g, '>\n'),
+                    modified: emailHtml('Create your first workflow').replace(/>(?=<)/g, '>\n'),
+                },
+            ],
+            [
+                'a new multi-line text field',
+                'config.inputs.email.value.text',
+                undefined,
+                'Hi there\nYour trial ends soon',
+                { kind: 'diff', language: 'plaintext', original: '', modified: 'Hi there\nYour trial ends soon' },
+            ],
+            [
+                'an object',
+                'filters',
+                { events: [{ id: 'signed_up' }] },
+                { events: [{ id: 'signed_up' }, { id: 'invited_user' }] },
+                {
+                    kind: 'diff',
+                    language: 'json',
+                    original: JSON.stringify({ events: [{ id: 'signed_up' }] }, null, 2),
+                    modified: JSON.stringify({ events: [{ id: 'signed_up' }, { id: 'invited_user' }] }, null, 2),
+                },
+            ],
+        ])('shows %s as the right view', (_name, path, before, after, expected) => {
+            expect(describeFieldView({ path, label: path, before, after })).toEqual(expected)
+        })
     })
 })
