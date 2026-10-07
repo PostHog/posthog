@@ -50,6 +50,7 @@ import {
     parseBIEditorState,
 } from './biEditorTypes'
 import type { BIQueryBuildResult } from './biEditorTypes'
+import { mergeBITableSettings } from './biMeasureSettings'
 import { applyBIDateRange, mergeBIQuerySource } from './biQueryFilters'
 
 export interface BISceneLogicProps {
@@ -350,6 +351,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                     ? mergeBIQuerySource(visualization.source, generatedQuery.node.source)
                     : { ...visualization.source, query: '' },
                 chartSettings: mergeBIChartSettings(visualization.chartSettings, generatedQuery?.node.chartSettings),
+                tableSettings: mergeBITableSettings(visualization.tableSettings, generatedQuery?.node.tableSettings),
             }),
         ],
         hasUnsavedChanges: [

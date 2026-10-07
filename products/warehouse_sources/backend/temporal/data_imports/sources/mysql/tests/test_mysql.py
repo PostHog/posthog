@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _MAX_CONNECT_ATTEMPTS,
     _MYSQL_SAFE_CONVERSIONS,
     _SSH_HANDSHAKE_EOF_ERROR,
+    METADATA_READ_TIMEOUT_SECONDS,
     STATEMENT_TIMEOUT_SECONDS,
     UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR,
     MySQLColumn,
@@ -1036,6 +1037,11 @@ class TestStreamingConnectionTimeouts:
         streaming_kwargs = mock_connect.call_args_list[1].kwargs
         assert streaming_kwargs["read_timeout"] == STATEMENT_TIMEOUT_SECONDS
 
+    def test_metadata_connection_has_a_read_timeout(self, build_pipeline_mocks):
+        mock_connect, _, _ = build_pipeline_mocks
+        _drain_source()
+        assert mock_connect.call_args_list[0].kwargs["read_timeout"] == METADATA_READ_TIMEOUT_SECONDS
+
     def test_set_session_timeouts_are_executed(self, build_pipeline_mocks):
         _, setup_cursor, _ = build_pipeline_mocks
         _drain_source()
@@ -1207,6 +1213,14 @@ class TestIsBadPlanError:
             pymysql.err.OperationalError(
                 3024, "Query execution was interrupted, maximum statement execution time exceeded"
             )
+        )
+
+    def test_matches_error_1969_max_statement_time_exceeded(self):
+        # MariaDB's max_statement_time cap killing the query is a fourth symptom
+        # of the same full-scan-and-filesort plan — the FORCE INDEX fallback
+        # resolves it too.
+        assert _is_bad_plan_error(
+            pymysql.err.OperationalError(1969, "Query execution was interrupted (max_statement_time exceeded)")
         )
 
     @pytest.mark.parametrize(
@@ -2603,6 +2617,21 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Query-execution-time-exceeded error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form (single-quoted tuple repr).
+            str(pymysql.err.OperationalError(1969, "Query execution was interrupted (max_statement_time exceeded)")),
+            # Temporal-wrapped form (double-quoted).
+            'OperationalError: (1969, "Query execution was interrupted (max_statement_time exceeded)")',
+        ],
+    )
+    def test_max_statement_time_exceeded_is_non_retryable(self, source, error_msg):
+        # MariaDB's variant of query-execution-time-exceeded (error 1969, rather than MySQL's 3024).
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Max-statement-time-exceeded error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",

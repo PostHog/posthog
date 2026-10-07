@@ -1,4 +1,6 @@
-from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
+from django.conf import settings
+
+from posthog.llm.gateway_client import AIGatewayConfig, GatewayNotConfiguredError, ensure_scout_trial_capture_ready
 from posthog.models import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -26,8 +28,15 @@ def create_trial_gateway_token(run: SignalScoutRun) -> str:
     ).first()
     if actor is None or not UserAccessControl(user=actor, team=task.team).has_project_access:
         raise GatewayNotConfiguredError("The scout trial operator no longer has access to this project")
-    return mint_private_gateway_token(team_id=run.team_id, user=actor.distinct_id, expires_in_seconds=600)
+    return mint_private_gateway_token(
+        team_id=run.team_id,
+        user=actor.distinct_id,
+        expires_in_seconds=600,
+        gateway_config=AIGatewayConfig(url=settings.AI_GATEWAY_URL, api_key=settings.AI_GATEWAY_API_KEY),
+    )
 
 
 def revoke_trial_gateway_token(token: str) -> None:
-    revoke_private_gateway_token(token)
+    revoke_private_gateway_token(
+        token, gateway_config=AIGatewayConfig(url=settings.AI_GATEWAY_URL, api_key=settings.AI_GATEWAY_API_KEY)
+    )

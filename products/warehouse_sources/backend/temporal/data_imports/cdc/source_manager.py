@@ -375,7 +375,9 @@ async def build_output_lanes(
     lanes: list[OutputLane] = []
     positions: list[int | None] = []
     for index, lane in enumerate(served_lanes(schema)):
-        delta_table = await DeltaTableRef(lane.resource_name, job, logger).get_delta_table()
+        delta_table = await DeltaTableRef(
+            lane.resource_name, job, logger, expect_missing=schema.table_id is None
+        ).get_delta_table()
         is_append = lane.write_mode == COMPANION_WRITE_MODE
         keys = [normalize_column_name(name) for name in schema.primary_key_columns or []]
         if delta_table is not None:

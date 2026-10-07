@@ -20,7 +20,6 @@ from uuid import UUID, uuid4
 from django.conf import settings
 from django.db import transaction
 from django.db.models import F, Prefetch, Q
-from django.db.models.fields.json import KT
 from django.utils import timezone as django_timezone
 
 from posthog.models.team import Team
@@ -39,6 +38,7 @@ from ..dataset.validation import (
     ValidationWarningCode as _ValidationWarningCode,
     validate_pipeline_definition as _validate_pipeline_definition,
 )
+from ..evaluation.history import latest_validation_runs
 from ..models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -49,6 +49,11 @@ from ..models import (
 )
 from ..query import measure_queries
 from ..training import artifacts as artifact_store
+from ..training.explanation import (
+    MAX_TOP_FEATURES as _MAX_TOP_FEATURES,
+    FeatureDirection as _FeatureDirection,
+    normalize_model_explanation,
+)
 from ..training.recipe_validation import RecipeValidationError, feature_sql_hints, validate_feature_sql, validate_recipe
 from ..training.shadow_set import shadow_set_ids
 from .contracts import (
@@ -174,7 +179,7 @@ def _model_to_contract(row: AutoresearchModel, *, in_shadow_set: bool) -> Model:
         role=row.role,
         recipe_hash=row.recipe_hash,
         model_recipe=row.model_recipe or {},
-        model_explanation=row.model_explanation or {},
+        model_explanation=normalize_model_explanation(row.model_explanation),
         holdout_score=row.holdout_score,
         realized_score=row.realized_score,
         calibration_error=row.calibration_error,
@@ -739,6 +744,8 @@ def _running_inference_run(team_id: int, pipeline: AutoresearchPipeline) -> Auto
             status=AutoresearchRun.Status.RUNNING,
             started_at__gte=django_timezone.now() - _INFERENCE_RUN_STALE_AFTER,
         )
+        # A shadow model's run belongs to the champion's cadence, not to a scoring the caller can poll.
+        .exclude(metrics__has_key="shadow")
         .order_by("-started_at")
         .first()
     )
@@ -879,18 +886,7 @@ def online_performance(
     """
     pipeline = _pipeline_row(team_id, pipeline_id)
     limit = max(1, min(limit, ONLINE_PERFORMANCE_DATES_MAX))
-    runs = list(
-        AutoresearchRun.objects.for_team(team_id)
-        .filter(
-            pipeline=pipeline,
-            run_type=AutoresearchRun.RunType.VALIDATION,
-            status=AutoresearchRun.Status.COMPLETED,
-            metrics__has_key="prediction_date",
-        )
-        .annotate(prediction_date=KT("metrics__prediction_date"), horizon=KT("metrics__horizon_days"))
-        .order_by("-prediction_date", "horizon", F("completed_at").desc(nulls_last=True), "-id")
-        .distinct("prediction_date", "horizon")[:limit]
-    )
+    runs = latest_validation_runs(team_id, pipeline, limit=limit)
     model_ids = {model_id for run in runs for model_id in (run.metrics.get("per_model") or {})}
     current_roles = dict(
         AutoresearchModel.objects.for_team(team_id)
@@ -1638,3 +1634,5 @@ SUGGESTION_STATUS_CHOICES = AutoresearchSuggestion.Status.choices
 SUGGESTION_SOURCE_CHOICES = AutoresearchSuggestion.Source.choices
 RUN_TYPE_CHOICES = AutoresearchRun.RunType.choices
 RUN_STATUS_CHOICES = AutoresearchRun.Status.choices
+FEATURE_DIRECTION_CHOICES = _FeatureDirection.choices
+MAX_TOP_FEATURES = _MAX_TOP_FEATURES
