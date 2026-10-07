@@ -86,11 +86,15 @@ export function BatchExportConfiguration(): JSX.Element {
                         <LemonField
                             label="Status"
                             name="paused"
-                            info="Start in a paused state or continuously exporting from now"
+                            info={
+                                isNew
+                                    ? 'Turn on to start exporting on the schedule below after you create the export. Leave off to create it in a paused state.'
+                                    : 'Turn off to pause scheduled runs. Save to apply the change.'
+                            }
                         >
                             {({ value, onChange }) => (
                                 <LemonSwitch
-                                    label="Enabled"
+                                    label={value ? 'Paused' : 'Exporting'}
                                     onChange={() => onChange(!value)}
                                     checked={!value}
                                     fullWidth

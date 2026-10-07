@@ -7011,6 +7011,7 @@ export type BatchExportConfiguration = {
     start_at: string | null
     end_at: string | null
     paused: boolean
+    last_paused_at?: string | null
     model: string
     filters: AnyPropertyFilter[]
     latest_runs?: BatchExportRun[]
