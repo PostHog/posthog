@@ -1,0 +1,34 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "config": {
+            "description": "Email sender config.",
+            "properties": {
+                "email": {
+                    "description": "Sender address, for example `hello@mail.example.com`. Its domain is the sending domain that needs DNS records. Free and disposable mailbox domains such as gmail.com are rejected. Cannot be changed after creation; send the current address when updating.",
+                    "format": "email",
+                    "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                    "type": "string"
+                },
+                "mail_from_subdomain": {
+                    "description": "Subdomain of the sending domain used as the custom MAIL FROM (bounce) domain. `feedback` gives `feedback.mail.example.com`. Defaults to `feedback`. Pick another value if that subdomain already has MX records.",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Sender display name recipients see in their inbox, for example `Acme`.",
+                    "type": "string"
+                },
+                "provider": {
+                    "const": "ses",
+                    "default": "ses",
+                    "description": "Sending provider. Always `ses`.",
+                    "type": "string"
+                }
+            },
+            "required": ["email", "name"],
+            "type": "object"
+        }
+    },
+    "required": ["config"],
+    "type": "object"
+}

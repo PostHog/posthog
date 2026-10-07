@@ -1,0 +1,12 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "domain": {
+            "description": "Domain to check, for example `mail.example.com`. Subdomains resolve to their registrable domain.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["domain"],
+    "type": "object"
+}
