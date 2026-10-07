@@ -8171,10 +8171,12 @@ mod tests {
 
     // Paused time makes the elapsed assertion exact: the runtime jumps straight to each timer.
     #[rstest::rstest]
-    #[case::hash_key_read(None, "get_hash_key_overrides")]
-    #[case::hash_key_check(Some("anon_distinct_id"), "should_write_hash_key_override")]
+    #[case::hash_key_read(true, None, "get_hash_key_overrides")]
+    #[case::hash_key_check(true, Some("anon_distinct_id"), "should_write_hash_key_override")]
+    #[case::group_type_lookup(false, None, "fetch_group_type_mapping")]
     #[tokio::test(start_paused = true)]
     async fn test_stalled_persons_db_degrades_within_one_deadline(
+        #[case] with_continuity_flag: bool,
         #[case] anon_distinct_id: Option<&str>,
         #[case] first_stopped_call: &str,
     ) {
@@ -8216,7 +8218,16 @@ mod tests {
             key: "continuity_flag".mock_into(),
             ensure_experience_continuity: Some(true)
         );
-        let mut flags = flag_list_with_metadata(vec![rollout_flag, person_flag, continuity_flag]);
+        let group_flag = mock!(FeatureFlag,
+            id: 4,
+            key: "group_flag".mock_into(),
+            filters: mock!(FlagFilters, aggregation_group_type_index: Some(0))
+        );
+        let mut flag_list = vec![rollout_flag, person_flag, group_flag];
+        if with_continuity_flag {
+            flag_list.push(continuity_flag);
+        }
+        let mut flags = flag_list_with_metadata(flag_list);
         // Preloaded cohorts keep the cohort definitions lookup off the stalled pool.
         flags.cohorts = Some(Arc::from(Vec::new()));
 
@@ -8252,12 +8263,15 @@ mod tests {
             "timeout:persons_db_deadline"
         );
         assert_eq!(
-            response.flags["continuity_flag"].reason.code,
-            "hash_key_override_error"
+            response
+                .flags
+                .get("continuity_flag")
+                .map(|flag| flag.reason.code.as_str()),
+            with_continuity_flag.then_some("hash_key_override_error")
         );
         assert!(
             elapsed < deadline * 2,
-            "the hash key lookup and the properties fetch share one deadline, took {elapsed:?}"
+            "the hash key lookup, the group type lookup, and the properties fetch share one deadline, took {elapsed:?}"
         );
         assert_eq!(
             stalled_db.connection_requests.load(Ordering::SeqCst),

@@ -760,6 +760,7 @@ pub(crate) mod db_operations {
     pub const SET_HASH_KEY_OVERRIDES: &str = "set_hash_key_overrides";
     pub const GET_HASH_KEY_OVERRIDES: &str = "get_hash_key_overrides";
     pub const FETCH_PROPERTIES: &str = "fetch_properties";
+    pub const FETCH_GROUP_TYPE_MAPPING: &str = "fetch_group_type_mapping";
 }
 
 /// Records `flags_hash_key_retries_total` and the `retried` label on `flags_database_error_total`

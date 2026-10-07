@@ -3163,7 +3163,14 @@ impl FeatureFlagMatcher {
         let group_type_mapping_timer = common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
         let mut errors_while_computing_flags = false;
 
-        match self.group_type_cache.get_mappings(self.team_id).await {
+        // The cache applies the deadline itself, so that this request's deadline cannot cancel
+        // the fetch that other requests for the team wait on.
+        let mappings = self
+            .group_type_cache
+            .get_mappings(self.team_id, self.persons_db_deadline)
+            .await;
+        record_persons_db_deadline_exceeded(db_operations::FETCH_GROUP_TYPE_MAPPING, &mappings);
+        match mappings {
             Ok(mapping) => {
                 if mapping.is_empty() {
                     // Empty mappings are not an error — the team simply has no group types

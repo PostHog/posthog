@@ -78,7 +78,7 @@ The same hook also increments the `db_connection_created_total` counter when `po
 ### Persons DB deadline
 
 `PERSONS_DB_DEADLINE_MS` (default 2500ms) bounds all persons DB work in one flag evaluation.
-The hash key override check, write, and read, and the person, cohort, and group properties fetch share one deadline, so sequential calls cannot add up past it.
+The hash key override check, write, and read, the group type mapping lookup, and the person, cohort, and group properties fetch share one deadline, so sequential calls cannot add up past it.
 The deadline starts when the matcher is built, just before evaluation.
 Postgres `statement_timeout` cannot cancel a query on a database that has stopped answering, so once a query is in flight this client-side timer is the only bound.
 When the pool has no free connection, the pool acquire timeout (`ACQUIRE_TIMEOUT_SECS`) can fire first, and the call fails with `timeout:pool_timeout` instead.
@@ -90,9 +90,16 @@ When the deadline passes, the call fails with `FlagError::TimeoutError("persons_
 - The request returns a 200 with `errorsWhileComputingFlags: true`.
 
 A call that would start after the deadline fails without taking a connection.
+The group type mapping cache runs its coalesced fetch in a separate task.
+A cache hit still succeeds after the deadline, each request stops waiting at its own deadline, and a request that stops waiting does not cancel the fetch for the others.
+The shared fetch has its own 5s cap instead of any request's deadline.
+Without the cap, a fetch stuck on an unreachable database keeps running.
+Every later request for the team then waits on that fetch instead of starting a new one.
+A slow group type lookup uses up the shared deadline, so the properties fetch after it can fail even when person queries are fast.
 Each stopped call increments `flags_database_error_total` with `timeout_type="persons_db_deadline"` and the call's `operation`.
 The canonical log line records the first stopped call in `persons_db_deadline_exceeded`.
 The internal batch evaluation endpoint does not apply the deadline. When a person's evaluation returns an error, Django leaves that person out of the static cohort and still reports the run as a success.
+The batch endpoint shares the group type mapping cache with `/flags`, so its group type lookup still stops at the 5s shared fetch cap.
 Set `PERSONS_DB_DEADLINE_MS=0` to disable the deadline.
 
 A query that the deadline drops mid-flight keeps its connection until sqlx's on-release ping finishes.
