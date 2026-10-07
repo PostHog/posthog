@@ -50,6 +50,7 @@ import type { WorkflowsSceneTab } from '../../products/workflows/frontend/Workfl
 import {
     ActionType,
     AnnotationType,
+    AnyPropertyFilter,
     DashboardType,
     FileSystemIconColor,
     InsightSceneSource,
@@ -1575,12 +1576,14 @@ export const productUrls = {
         template,
         intent,
         format,
+        properties,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
         template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
         intent?: 'local-eval' | 'first-page-load'
         format?: 'rules_v2'
+        properties?: AnyPropertyFilter[]
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -1597,6 +1600,9 @@ export const productUrls = {
         }
         if (format) {
             params.set('format', format)
+        }
+        if (properties?.length) {
+            params.set('properties', JSON.stringify(properties))
         }
         return `/feature_flags/new?${params.toString()}`
     },
