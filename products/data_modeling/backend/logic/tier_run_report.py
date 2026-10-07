@@ -36,7 +36,7 @@ from products.data_modeling.backend.models.data_modeling_job import (
     DataModelingJobStatus,
 )
 from products.data_modeling.backend.models.edge import Edge
-from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.models.node import READER_NODE_TYPES, Node, NodeType
 
 # node types a DAG run actually materializes; everything else is skipped and never gets a job row
 MATERIALIZING_TYPES = frozenset({NodeType.MAT_VIEW.value, NodeType.ENDPOINT.value})
@@ -161,11 +161,11 @@ def _reportable_nodes(dag: DAG) -> list[Node]:
     """Every node a run could act on. Mirrors `schedulable_nodes`' exclusion of soft-deleted saved
     queries — those keep their target but the scheduler never sees them, so reporting them would
     manufacture permanent phantom rows. Source (TABLE) nodes are kept so the page can show them.
-    METRIC nodes are dropped: nothing ever runs them.
+    Metric and insight nodes are dropped: nothing ever runs them.
     """
     return list(
         Node.objects.filter(team_id=dag.team_id, dag=dag)
-        .exclude(type=NodeType.METRIC)
+        .exclude(type__in=READER_NODE_TYPES)
         .exclude(saved_query__deleted=True)
         .select_related("saved_query")
     )

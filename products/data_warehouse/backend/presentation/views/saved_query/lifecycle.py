@@ -63,8 +63,24 @@ def _readable_saved_query_ids(
     )
 
 
+def _readable_insight_ids(dependents: Sequence[Dependent], user_access_control: UserAccessControl) -> frozenset[int]:
+    objects = [
+        (str(dependent.insight_id), dependent.created_by_id)
+        for dependent in dependents
+        if dependent.insight_id is not None
+    ]
+    if not objects:
+        return frozenset()
+    levels = user_access_control.bulk_object_access_levels("insight", objects)
+    return frozenset(int(insight_id) for insight_id, level in levels.items() if level is not None and level != "none")
+
+
+def _is_metric(dependent: Dependent) -> bool:
+    return dependent.saved_query_id is None and dependent.insight_id is None
+
+
 def _metrics_readable(dependents: Sequence[Dependent], user_access_control: UserAccessControl) -> bool:
-    if not any(dependent.saved_query_id is None for dependent in dependents):
+    if not any(_is_metric(dependent) for dependent in dependents):
         return False
     return user_access_control.check_access_level_for_resource("data_catalog", required_level="viewer")
 
@@ -74,17 +90,21 @@ def visible_dependents(
 ) -> list[Dependent]:
     """The dependents this caller may be told the name of. Fails closed when there is no access control.
 
-    A saved query is resolved through its own `warehouse_view` object grant, one bulk call for all of
-    them. A metric is all or nothing on project `data_catalog` viewer, the gate the metric API uses.
+    A saved query is resolved through its own `warehouse_view` object grant, and an insight through its
+    own `insight` object grant, one bulk call for each kind. A metric is all or nothing on project
+    `data_catalog` viewer, the gate the metric API uses.
     """
     if user_access_control is None:
         return []
     readable_saved_queries = _readable_saved_query_ids(dependents, user_access_control)
+    readable_insights = _readable_insight_ids(dependents, user_access_control)
     metrics_readable = _metrics_readable(dependents, user_access_control)
     return [
         dependent
         for dependent in dependents
-        if dependent.saved_query_id in readable_saved_queries or (dependent.saved_query_id is None and metrics_readable)
+        if dependent.saved_query_id in readable_saved_queries
+        or dependent.insight_id in readable_insights
+        or (_is_metric(dependent) and metrics_readable)
     ]
 
 

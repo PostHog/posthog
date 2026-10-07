@@ -9,13 +9,19 @@ from rest_framework.pagination import PageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_modeling.backend.facade.models import Edge, NodeType
-from products.data_modeling.backend.presentation.views.metric_visibility import MetricNodeVisibilityMixin
+from products.data_modeling.backend.presentation.views.node_visibility import NodeVisibilityMixin
 
-_METRIC_EDGE_REFUSAL = "Edges that connect a metric are maintained by the data catalog."
+_READER_EDGE_REFUSALS: dict[str, str] = {
+    NodeType.METRIC: "Edges that connect a metric are maintained by the data catalog.",
+    NodeType.INSIGHT: "Edges that connect an insight are maintained from the insight's query.",
+}
 
 
-def _connects_a_metric(edge: Edge) -> bool:
-    return NodeType.METRIC in (edge.source.type, edge.target.type)
+def _reader_edge_refusal(edge: Edge) -> str | None:
+    for node_type in (edge.source.type, edge.target.type):
+        if node_type in _READER_EDGE_REFUSALS:
+            return _READER_EDGE_REFUSALS[node_type]
+    return None
 
 
 class EdgeSerializer(serializers.ModelSerializer):
@@ -54,8 +60,9 @@ class EdgeSerializer(serializers.ModelSerializer):
         target_dag = attrs.get("dag")
         if target_dag is not None and target_dag.is_managed:
             raise serializers.ValidationError("Edges cannot be created in or moved into a system-managed DAG.")
-        if self.instance is not None and _connects_a_metric(self.instance):
-            raise serializers.ValidationError(_METRIC_EDGE_REFUSAL)
+        refusal = _reader_edge_refusal(self.instance) if self.instance is not None else None
+        if refusal is not None:
+            raise serializers.ValidationError(refusal)
         return attrs
 
 
@@ -76,7 +83,7 @@ class EdgePagination(PageNumberPagination):
         ]
     )
 )
-class EdgeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class EdgeViewSet(NodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = Edge.objects.select_related("dag").all()
     serializer_class = EdgeSerializer
@@ -91,8 +98,9 @@ class EdgeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
     def perform_destroy(self, instance: Edge) -> None:
         if instance.dag.is_managed:
             raise serializers.ValidationError("Edges belonging to a system-managed DAG cannot be deleted.")
-        if _connects_a_metric(instance):
-            raise serializers.ValidationError(_METRIC_EDGE_REFUSAL)
+        refusal = _reader_edge_refusal(instance)
+        if refusal is not None:
+            raise serializers.ValidationError(refusal)
         instance.delete()
 
     def safely_get_queryset(self, queryset):

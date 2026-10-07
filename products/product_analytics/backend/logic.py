@@ -93,6 +93,18 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return list(Insight.objects_including_soft_deleted.filter(team_id=team_id, id__in=insight_ids))
 
 
+def live_insights(*, team_id: int, insight_ids: Collection[int]) -> QuerySet[Insight]:
+    return (
+        Insight.objects.filter(team_id=team_id, id__in=insight_ids)
+        .only("id", "short_id", "name", "derived_name", "created_by_id")
+        .order_by("id")
+    )
+
+
+def insight_display_name(insight: Insight) -> str:
+    return insight.name or insight.derived_name or insight.short_id
+
+
 def recent_viewers_by_insight(
     *, team_id: int, insight_ids: Collection[int], since: datetime, max_per_insight: int
 ) -> dict[int, list["User"]]:

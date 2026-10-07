@@ -171,6 +171,9 @@ from products.product_analytics.backend.facade.api import (
     recently_viewed_insights,
     record_insight_view,
     record_insight_views,
+    remove_insight_lineage,
+    sync_insight_lineage,
+    sync_insights_lineage,
     with_last_viewed_at,
 )
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
@@ -824,6 +827,9 @@ class InsightSerializer(InsightBasicSerializer):
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
 
+        if insight.query:
+            sync_insight_lineage(insight)
+
         log_and_report_insight_activity(
             activity="created",
             insight=insight,
@@ -910,6 +916,13 @@ class InsightSerializer(InsightBasicSerializer):
                     )
 
             updated_insight = super().update(instance, validated_data)
+        # The lineage node holds what the query reads, the name the graph shows, and whether the insight is live.
+        lineage_changed = before_update is None or any(
+            getattr(before_update, field) != getattr(updated_insight, field)
+            for field in ("query", "name", "derived_name", "deleted")
+        )
+        if lineage_changed:
+            sync_insight_lineage(updated_insight)
         # Delete linked alerts only when the insight can no longer carry any alert. A switch between
         # alertable kinds (e.g. trends -> SQL) is left alone: the config type no longer matches, but
         # the alert check cycle re-validates against the current query and auto-disables + notifies on
@@ -2416,6 +2429,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 hide_tiles_for_insights(insight_ids)
                 delete_insight_alerts(insight_ids)
                 delete_insight_subscriptions(project_id=self.team.project_id, insight_ids=insight_ids)
+                remove_insight_lineage(insights)
 
                 activity_log_entries: list[LogActivityEntry] = []
                 for insight in insights:
@@ -2467,6 +2481,9 @@ When set, the specified dashboard's filters and date range override will be appl
                     id__in=insight_ids, team__project_id=self.team.project_id
                 ).update(deleted=False, last_modified_at=now(), last_modified_by=current_user)
                 restore_tiles_for_insights(insight_ids, user_permissions=self.user_permissions)
+                # Re-read so each insight carries deleted=False, which the lineage sync keys off.
+                restored_insights = Insight.objects.filter(id__in=insight_ids, team__project_id=self.team.project_id)
+                sync_insights_lineage(restored_insights.select_related("team"))
 
                 activity_log_entries: list[LogActivityEntry] = []
                 for insight in insights:

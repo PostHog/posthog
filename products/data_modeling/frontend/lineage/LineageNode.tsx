@@ -332,7 +332,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
         fn?.()
     }
 
-    const destination = node.type === 'metric' ? 'the metric' : 'the model'
+    const destination = node.type === 'metric' ? 'the metric' : node.type === 'insight' ? 'the insight' : 'the model'
     const cardAction = data.selectable ? 'highlights its lineage' : `opens ${destination}`
     const ariaLabel = [
         `${node.name}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, ${cardAction}`,

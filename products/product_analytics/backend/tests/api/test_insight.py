@@ -72,6 +72,8 @@ from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscr
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.data_modeling.backend.facade.api import sync_saved_query_to_dag
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
@@ -4687,3 +4689,79 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
             team=ANY,
             request=ANY,
         )
+
+
+class TestInsightLineage(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        for view_name in ("orders_view", "refunds_view"):
+            view = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=view_name,
+                query={"kind": "HogQLQuery", "query": "SELECT distinct_id AS id FROM events"},
+            )
+            sync_saved_query_to_dag(view)
+
+    def _query(self, sql: str) -> dict[str, Any]:
+        return {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": sql}}
+
+    def _create(self, sql: str, name: str = "Monthly revenue") -> int:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/insights/", {"name": name, "query": self._query(sql)}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        return response.json()["id"]
+
+    def _patch(self, insight_id: int, data: dict[str, Any]) -> None:
+        response = self.client.patch(f"/api/environments/{self.team.id}/insights/{insight_id}/", data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+    def _reader(self, insight_id: int) -> tuple[str, set[str]] | None:
+        node = Node.objects.filter(team=self.team, insight_id=insight_id).first()
+        if node is None:
+            return None
+        sources = {edge.source.name for edge in Edge.objects.filter(target=node).select_related("source")}
+        return node.name, sources
+
+    def test_saving_an_insight_records_the_views_it_reads(self) -> None:
+        insight_id = self._create("SELECT * FROM orders_view JOIN events ON events.distinct_id = orders_view.id")
+
+        node = Node.objects.get(team=self.team, insight_id=insight_id)
+        self.assertEqual(node.type, NodeType.INSIGHT)
+        self.assertEqual(node.insight_short_id, Insight.objects.get(id=insight_id).short_id)
+        self.assertEqual(self._reader(insight_id), ("Monthly revenue", {"orders_view"}))
+
+        self._patch(insight_id, {"query": self._query("SELECT * FROM refunds_view")})
+        self.assertEqual(self._reader(insight_id), ("Monthly revenue", {"refunds_view"}))
+
+        self._patch(insight_id, {"name": "Monthly refunds"})
+        self.assertEqual(self._reader(insight_id), ("Monthly refunds", {"refunds_view"}))
+
+        self._patch(insight_id, {"query": self._query("SELECT count() FROM events")})
+        self.assertIsNone(self._reader(insight_id))
+
+    def test_deleting_an_insight_drops_its_node_and_restoring_brings_it_back(self) -> None:
+        single = self._create("SELECT * FROM orders_view")
+        bulk = self._create("SELECT * FROM refunds_view")
+
+        self._patch(single, {"deleted": True})
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/insights/bulk_delete/", {"ids": [bulk]}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIsNone(self._reader(single))
+        self.assertIsNone(self._reader(bulk))
+
+        self._patch(single, {"deleted": False})
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/insights/bulk_restore/", {"ids": [bulk]}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(self._reader(single), ("Monthly revenue", {"orders_view"}))
+        self.assertEqual(self._reader(bulk), ("Monthly revenue", {"refunds_view"}))
+
+    def test_a_query_whose_tables_cannot_be_read_still_saves(self) -> None:
+        insight_id = self._create("SELECT FROM WHERE orders_view")
+
+        self.assertTrue(Insight.objects.filter(id=insight_id).exists())
+        self.assertIsNone(self._reader(insight_id))

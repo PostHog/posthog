@@ -11,7 +11,7 @@ Saved query variables and insight-view tracking cross as data: callers pass a te
 project's root team, because that is the team ``RootTeamMixin.save()`` writes the rows against.
 """
 
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -24,7 +24,12 @@ from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend import logic
-from products.product_analytics.backend.facade.contracts import InsightVariableDefinition, SavedInsightDefinition
+from products.product_analytics.backend.facade.contracts import (
+    InsightLineageBackfill,
+    InsightReference,
+    InsightVariableDefinition,
+    SavedInsightDefinition,
+)
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -124,6 +129,49 @@ def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[
 
 def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
+
+
+def insight_references(*, team_id: int, insight_ids: Collection[int]) -> list[InsightReference]:
+    """The live insights among these ids, named the way the insight list names them. Deleted ones are left out."""
+    return [
+        InsightReference(
+            id=insight.pk,
+            short_id=insight.short_id,
+            name=logic.insight_display_name(insight),
+            created_by_id=insight.created_by_id,
+        )
+        for insight in logic.live_insights(team_id=team_id, insight_ids=insight_ids)
+    ]
+
+
+def sync_insight_lineage(insight: Insight) -> None:
+    """Rebuild the insight's node in the data modeling lineage graph from what its query reads, best effort."""
+    # The lineage module imports posthog.hogql.metadata, which reaches posthog.hogql.variables, which imports this
+    # facade, so a module-level import would be circular.
+    from products.product_analytics.backend import insight_lineage  # noqa: PLC0415
+
+    insight_lineage.sync_insight_lineage(insight)
+
+
+def remove_insight_lineage(insights: Collection[Insight]) -> None:
+    """Drop the lineage nodes of insights that were just deleted, best effort."""
+    from products.product_analytics.backend import insight_lineage  # noqa: PLC0415
+
+    insight_lineage.remove_insight_lineage(insights)
+
+
+def sync_insights_lineage(insights: Iterable[Insight]) -> InsightLineageBackfill:
+    """Rebuild the lineage nodes of many insights, building each team's schema at most once."""
+    from products.product_analytics.backend import insight_lineage  # noqa: PLC0415
+
+    return insight_lineage.sync_insights_lineage(insights)
+
+
+def sync_team_insight_lineage(*, team_id: int, chunk_size: int) -> InsightLineageBackfill:
+    """Rebuild the lineage node of every live insight in the team, loading `chunk_size` insights at a time."""
+    from products.product_analytics.backend import insight_lineage  # noqa: PLC0415
+
+    return insight_lineage.sync_team_insight_lineage(team_id, chunk_size)
 
 
 def recent_viewers_by_insight(

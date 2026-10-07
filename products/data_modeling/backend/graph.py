@@ -26,6 +26,7 @@ class Graph:
         exclude_table_sources: bool = True,
         exclude_table_targets: bool = True,
         hidden_types: frozenset[str] = frozenset(),
+        hidden_ids: frozenset[str] = frozenset(),
     ):
         """Load edges and build adjacency maps.
 
@@ -36,6 +37,7 @@ class Graph:
             exclude_table_targets: skip edges whose target is a TABLE node (for downstream counts)
             hidden_types: node types the reader may not see, dropped from both sides so a count
                 never reports a node the same reader's node list omits
+            hidden_ids: individual nodes the reader may not see, dropped the same way
         """
         qs = Edge.objects.filter(team_id=team_id)
         if dag_id:
@@ -56,6 +58,8 @@ class Graph:
                 continue
             s = str(source_id)
             t = str(target_id)
+            if s in hidden_ids or t in hidden_ids:
+                continue
             if not exclude_table_sources or source_type != NodeType.TABLE:
                 self._upstream_adj[t].add(s)
             if not exclude_table_targets or target_type != NodeType.TABLE:

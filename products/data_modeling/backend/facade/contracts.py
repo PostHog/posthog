@@ -54,6 +54,7 @@ class Dependent:
     name: str
     kind: str
     saved_query_id: str | None = None
+    insight_id: int | None = None
     created_by_id: int | None = None
     lineage_node_id: str | None = None
 

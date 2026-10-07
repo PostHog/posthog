@@ -14,6 +14,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.api import mark_node_suspended, set_declared_target, suspension_state
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -823,6 +824,34 @@ class TestRefusedDeleteAccessControl(WarehouseAccessControlTestMixin):
             "Ask a project admin to find what depends on it.",
         )
         self.assertNotIn("weekly_active_accounts", response.content.decode())
+
+    @parameterized.expand(
+        [
+            ("readable", None, "These read from it: Weekly accounts (insight). Update or delete them first."),
+            (
+                "denied",
+                "none",
+                "Something you don't have access to reads from it. Ask a project admin to find what depends on it.",
+            ),
+        ]
+    )
+    def test_an_insight_is_named_only_to_a_caller_who_can_read_it(
+        self, _name: str, insight_access: str | None, expected_tail: str
+    ):
+        insight = Insight.objects.create(team=self.team, name="Weekly accounts", created_by=self.user)
+        insight_node = Node.objects.create(
+            team=self.team, dag=self.dag, name="Weekly accounts", type=NodeType.INSIGHT, insight_id=insight.id
+        )
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.upstream_node, target=insight_node)
+        if insight_access is not None:
+            self._create_access_control(
+                self.editor_user, resource="insight", resource_id=str(insight.id), access_level=insight_access
+            )
+
+        response = self._delete_upstream()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["detail"], f"Can't delete upstream_view yet. {expected_tail}")
 
     def test_a_visible_dependent_is_named_while_a_denied_one_beside_it_is_not(self):
         self._add_consumer("visible_view")

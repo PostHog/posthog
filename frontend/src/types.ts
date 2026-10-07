@@ -6289,6 +6289,10 @@ export interface DataModelingNode {
     saved_query_id?: string
     /** UUID of the data catalog metric a metric node stands for */
     metric_id?: string | null
+    /** ID of the insight an insight node stands for */
+    insight_id?: number | null
+    /** Short ID of the insight an insight node stands for, which its URL uses */
+    insight_short_id?: string | null
     lineage_issue?: LineageIssueApi | null
     origin?: 'posthog' | 'warehouse' | null
     warehouse_table_id?: string | null

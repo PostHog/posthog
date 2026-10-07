@@ -10,6 +10,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
+from products.data_modeling.backend.logic.insight_dag_sync import sync_insight_to_dag
 from products.data_modeling.backend.logic.saved_query_dag_sync import (
     HasDependentsError,
     ManagedDAGError,
@@ -26,6 +27,7 @@ from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import ResolutionCycleError
 from products.data_modeling.backend.models.node import NodeType
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
@@ -600,6 +602,30 @@ class TestDeleteNodeFromDag(BaseTest):
             delete_node_from_dag(upstream)
 
         self.assertIn("downstream_view (view)", describe_dependents(upstream.name, context.exception.dependents))
+
+    @parameterized.expand([("live_insight_blocks", False), ("deleted_insight_does_not_block", True)])
+    def test_delete_asks_the_insight_whether_it_still_reads_the_view(self, _name: str, insight_deleted: bool):
+        upstream = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        upstream_node = sync_saved_query_to_dag(upstream)
+        assert upstream_node is not None
+        insight = Insight.objects.create(team=self.team, name="Monthly revenue", deleted=insight_deleted)
+        sync_insight_to_dag(self.team, insight.id, insight.short_id, "Monthly revenue", ["upstream_view"])
+
+        if insight_deleted:
+            delete_node_from_dag(upstream)
+            self.assertFalse(Node.objects.filter(team=self.team, saved_query=upstream).exists())
+            return
+        with self.assertRaises(HasDependentsError) as context:
+            delete_node_from_dag(upstream)
+        self.assertEqual(
+            describe_dependents(upstream.name, context.exception.dependents),
+            "Can't delete upstream_view yet. These read from it: Monthly revenue (insight). Update or delete them first.",
+        )
+        self.assertEqual(context.exception.dependents[0].insight_id, insight.id)
 
     def test_delete_succeeds_when_no_dependents(self):
         upstream = DataWarehouseSavedQuery.objects.create(
