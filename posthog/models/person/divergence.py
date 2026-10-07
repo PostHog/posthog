@@ -1084,7 +1084,7 @@ def repair_persons(
                         target_version=None,
                         outcome="skipped_team_gone",
                     )
-                    person_outcomes[action.outcome] += 1
+                    outcomes.add(action)
                     on_action(action)
                     processed += 1
                 log(f"team {team_id}: no longer exists, {len(person_uuids)} persons skipped")
