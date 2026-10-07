@@ -1306,8 +1306,15 @@ async fn test_get_hash_key_override_context_with_overrides() {
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::nothing_stored(None, false)]
+#[case::cookieless_sentinel_stored(Some("$posthog_cookieless"), false)]
+#[case::cookieless_sentinel_stored_with_person_check(Some("$posthog_cookieless"), true)]
 #[tokio::test]
-async fn test_get_hash_key_override_context_no_overrides() {
+async fn test_get_hash_key_override_context_no_overrides(
+    #[case] stored_hash_key: Option<&str>,
+    #[case] check_person_exists: bool,
+) {
     let ctx = TestContext::new().await;
 
     let person = ctx
@@ -1315,12 +1322,18 @@ async fn test_get_hash_key_override_context_no_overrides() {
         .await
         .expect("Failed to insert person");
 
+    if let Some(stored_hash_key) = stored_hash_key {
+        ctx.insert_hash_key_override(person.id, "stored-flag", stored_hash_key)
+            .await
+            .expect("Failed to insert override");
+    }
+
     let result = ctx
         .storage
         .get_hash_key_override_context(
             ctx.team_id,
             &["user_no_overrides".to_string()],
-            false,
+            check_person_exists,
             ConsistencyLevel::Eventual,
         )
         .await
@@ -1433,14 +1446,18 @@ async fn test_upsert_hash_key_overrides_multiple_distinct_ids_and_flags() {
         .insert_person("upsert_multi_user2", None)
         .await
         .expect("Failed to insert person 2");
+    ctx.add_distinct_id_to_person(person1.id, "upsert_multi_user1_alias")
+        .await
+        .expect("Failed to add distinct id to person 1");
 
-    // Two distinct_ids × two flag keys = 4 overrides
+    // Two persons × two flag keys = 4 overrides. The alias resolves to person 1 again.
     let inserted_count = ctx
         .storage
         .upsert_hash_key_overrides(
             ctx.team_id,
             &[
                 "upsert_multi_user1".to_string(),
+                "upsert_multi_user1_alias".to_string(),
                 "upsert_multi_user2".to_string(),
             ],
             &["flag-a".to_string(), "flag-b".to_string()],
@@ -1525,38 +1542,40 @@ async fn test_upsert_hash_key_overrides_empty_flag_keys_returns_zero() {
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::keeps_a_real_key("conflict-flag", "first_hash", 0, "first_hash")]
+#[case::replaces_the_cookieless_sentinel("conflict-flag", "$posthog_cookieless", 1, "second_hash")]
+#[case::writes_past_a_real_key_on_another_flag("other-flag", "first_hash", 1, "second_hash")]
 #[tokio::test]
-async fn test_upsert_hash_key_overrides_on_conflict_do_nothing() {
+async fn test_upsert_hash_key_overrides_replaces_only_a_stored_cookieless_sentinel(
+    #[case] stored_flag_key: &str,
+    #[case] stored_hash_key: &str,
+    #[case] expected_count: i64,
+    #[case] expected_hash_key: &str,
+) {
     let ctx = TestContext::new().await;
 
-    ctx.insert_person("upsert_conflict_user", None)
+    let person = ctx
+        .insert_person("upsert_conflict_user", None)
         .await
         .expect("Failed to insert person");
+    ctx.insert_hash_key_override(person.id, stored_flag_key, stored_hash_key)
+        .await
+        .expect("Failed to insert override");
 
-    let distinct_ids = ["upsert_conflict_user".to_string()];
-    let flag_keys = ["conflict-flag".to_string()];
-
-    // First insert
-    let first_count = ctx
+    let written_count = ctx
         .storage
-        .upsert_hash_key_overrides(ctx.team_id, &distinct_ids, &flag_keys, "first_hash")
+        .upsert_hash_key_overrides(
+            ctx.team_id,
+            &["upsert_conflict_user".to_string()],
+            &["conflict-flag".to_string()],
+            "second_hash",
+        )
         .await
         .expect("Failed to upsert hash key overrides");
 
-    assert_eq!(first_count, 1);
+    assert_eq!(written_count, expected_count);
 
-    // Second insert with same distinct_id and feature_flag_key should do nothing
-    // (ON CONFLICT DO NOTHING)
-    let second_count = ctx
-        .storage
-        .upsert_hash_key_overrides(ctx.team_id, &distinct_ids, &flag_keys, "second_hash")
-        .await
-        .expect("Failed to upsert hash key overrides");
-
-    // No new rows inserted due to conflict
-    assert_eq!(second_count, 0);
-
-    // Verify the original hash_key is preserved (not updated)
     let result = ctx
         .storage
         .get_hash_key_override_context(
@@ -1569,8 +1588,12 @@ async fn test_upsert_hash_key_overrides_on_conflict_do_nothing() {
         .expect("Failed to get hash key override context");
 
     assert_eq!(result.len(), 1);
-    assert_eq!(result[0].overrides.len(), 1);
-    assert_eq!(result[0].overrides[0].hash_key, "first_hash");
+    let conflict_flag_override = result[0]
+        .overrides
+        .iter()
+        .find(|o| o.feature_flag_key == "conflict-flag")
+        .expect("Missing conflict-flag override");
+    assert_eq!(conflict_flag_override.hash_key, expected_hash_key);
 
     ctx.cleanup().await.ok();
 }
