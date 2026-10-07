@@ -50,9 +50,7 @@ export function sqlVisualizationDisabledReason(
 
     const nextQuery = applyVisualizationType(query, displayType, columns, rowCount)
     const hasYAxis = !!nextQuery.chartSettings?.yAxis?.length
-    // A proportion bar draws one part per numeric column (see `seriesToSlices` in
-    // `sqlPieGraphAdapter.ts`), so it doesn't need an X-axis column to label parts by, same as
-    // `Metric`.
+    // A proportion bar draws one part per numeric column, so like `Metric` it needs no X-axis column.
     if (
         hasYAxis &&
         (drawnAs === ChartDisplayType.Metric ||

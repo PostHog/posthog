@@ -650,12 +650,9 @@ export const getAggregationGroupTypeIndex = (query: InsightQueryNode): GroupType
     return undefined
 }
 
-// A proportion bar has no axis to read a size from, so its legend carries the shares. Its legend
-// shows under the bar unless the user changes that.
 const isProportionBarQuery = (query: TrendsQuery): boolean =>
     query.trendsFilter?.display === ChartDisplayType.ActionsProportionBar
 
-/** `partCount` is the number of parts the chart draws, when results are loaded. */
 export const getShowLegend = (query: InsightQueryNode, partCount?: number): boolean | undefined => {
     if (isStickinessQuery(query)) {
         return query.stickinessFilter?.showLegend

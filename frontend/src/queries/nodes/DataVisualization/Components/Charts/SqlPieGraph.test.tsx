@@ -53,7 +53,6 @@ const baseProps = (
     chartSettings,
 })
 
-// Equal parts that add up to 100, one category each.
 const proportionBarWithParts = (count: number): SqlChartProps => ({
     ...baseProps({}, Array(count).fill(100 / count), ChartDisplayType.ActionsProportionBar),
     xData: { ...xData, data: Array.from({ length: count }, (_, i) => `part ${i}`) },
@@ -129,8 +128,6 @@ describe('SqlPieGraph', () => {
             showsTotal: false,
         },
         {
-            // `sliceContent` is a pie-only "show on slices" setting with no proportion-bar control,
-            // so a value carried over from a prior pie selection must not suppress the bar's total.
             name: 'a proportion bar still shows the total when a stale pie sliceContent carries over',
             chartSettings: { pie: { sliceContent: 'labels' as const } },
             expectedShares: ['40% · 40', '30% · 30', '20% · 20', '10% · 10'],

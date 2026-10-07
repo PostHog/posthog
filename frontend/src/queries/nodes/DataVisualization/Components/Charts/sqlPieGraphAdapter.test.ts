@@ -126,8 +126,6 @@ describe('sqlPieGraphAdapter', () => {
                 },
             ]
 
-            // Summing [1, NaN, 2] naively gives NaN, which would fail the `value > 0` slice filter
-            // and drop the whole series even though it has two valid, positive points.
             expect(buildPieSlices(xData, yData)).toEqual([{ label: 'first', value: 3, color: '#111111' }])
         })
 

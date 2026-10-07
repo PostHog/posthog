@@ -354,7 +354,6 @@ describe('DisplayTab', () => {
                 query: 'select label, total from numbers(2)',
             },
             display,
-            // No `pie.showTotal` — only the legacy field, like a chart saved before `pie` existed.
             chartSettings: { showPieTotal: false },
         }
 

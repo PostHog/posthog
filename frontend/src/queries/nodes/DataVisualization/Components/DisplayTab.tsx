@@ -72,8 +72,6 @@ export const DisplayTab = (): JSX.Element => {
     const isDonutChart = effectiveVisualizationType === ChartDisplayType.ActionsDonut
     const isProportionBar = effectiveVisualizationType === ChartDisplayType.ActionsProportionBar
     const isPartOfWholeChart = PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)
-    // A proportion bar has no axis to read a size from, so its legend carries the shares and
-    // shows unless the user turns it off.
     const proportionBarPartCount = useMemo(() => {
         if (!isProportionBar) {
             return 0

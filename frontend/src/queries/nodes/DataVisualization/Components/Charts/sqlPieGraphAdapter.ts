@@ -29,8 +29,7 @@ const toSliceLabel = (value: unknown): string => {
     return String(value)
 }
 
-// Treats null, NaN, and Infinity as a missing value worth 0. Otherwise one non-finite point
-// poisons the whole category's sum, dropping an otherwise-valid total from the chart entirely.
+// One NaN or Infinity point would otherwise make the whole category's sum non-finite.
 const toFiniteValue = (value: number | null): number => (value !== null && Number.isFinite(value) ? value : 0)
 
 const sumValues = (values: (number | null)[]): number => {
@@ -99,8 +98,8 @@ export const buildPieSeries = (slices: PieSlice[]): Series[] => {
     }))
 }
 
-/** The data a part-of-whole chart draws. Pie charts can consume breakdown series totals directly,
- *  even when there isn't a matching breakdown x-axis to swap in like the line/bar path expects. */
+/** Pie charts can consume breakdown series totals directly, even when there isn't a matching
+ *  breakdown x-axis to swap in like the line/bar path expects. */
 export const partOfWholeChartData = (
     breakdown: BreakdownSeriesData<number | null>,
     xData: AxisSeries<string> | null,
@@ -110,16 +109,12 @@ export const partOfWholeChartData = (
     yData: breakdown.seriesData.length ? breakdown.seriesData : yData,
 })
 
-/** The legend default when the user has not set one. A proportion bar has no axis to read a size
- *  from, so its legend carries the shares and shows while the part count stays small. */
 export const showsLegendByDefault = (isProportionBar: boolean, partCount: number): boolean =>
     isProportionBar && partCount <= MAX_DEFAULT_PROPORTION_LEGEND_PARTS
 
-/** Whether the total shows. The total is a sum-of-values readout, so it defaults on only when
- *  slices show values. `showPieTotal` is the legacy top-level toggle, honored for charts saved
- *  before `pie`. A proportion bar has no "show on slices" control, so a `sliceContent` left over
- *  from a prior pie or donut does not turn its total off. The renderer and the Display tab switch
- *  both read this, so they agree. */
+/** The total is a sum-of-values readout, so it defaults on only when slices show values.
+ *  `showPieTotal` is the legacy top-level toggle, honored for charts saved before `pie`. A proportion
+ *  bar has no "show on slices" control, so a `sliceContent` left from a pie does not turn its total off. */
 export const showsPieTotal = (
     chartSettings: Pick<ChartSettings, 'pie' | 'showPieTotal'>,
     isProportionBar: boolean

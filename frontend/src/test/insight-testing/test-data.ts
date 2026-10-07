@@ -117,13 +117,11 @@ export const trendsSeries = {
         { label: 'Conker', data: [0, 0, 0, 0, 0], days, labels, breakdown_value: 'Conker' },
         { label: 'Prickles', data: [0, 0, 1, 1, 0], days, labels, breakdown_value: 'Prickles' },
     ] satisfies CannedSeries[],
-    // One part sums negative (e.g. a trends formula like `A - B`). The proportion bar floors
-    // each part at 0 before drawing it, so the total below the bar must match that floor too.
+    // A part that sums negative, as a trends formula like `A - B` can.
     napsByHedgehogWithNegativePart: [
         { label: 'Spike', data: [10, 0, 0, 0, 0], days, labels, breakdown_value: 'Spike' },
         { label: 'Bramble', data: [-4, 0, 0, 0, 0], days, labels, breakdown_value: 'Bramble' },
     ] satisfies CannedSeries[],
-    // More parts than a proportion bar shows a legend for by default.
     napsByManyHedgehogs: Array.from({ length: 21 }, (_, i) => ({
         label: `Hedgehog ${i + 1}`,
         data: [1, 0, 0, 0, 0],

@@ -173,8 +173,7 @@ describe('TrendsPieChart', () => {
                 timeout: 5000,
             })
 
-            // Raw sum of 10 and -4 is 6, but the bar floors the negative part at 0, so the
-            // total must read 10 to agree with a bar that is 100% Spike.
+            // The bar floors -4 at 0, so the total reads 10, not the raw sum of 6.
             expect(container.querySelector('[data-attr="trend-total"]')).toHaveTextContent('10')
         })
     })

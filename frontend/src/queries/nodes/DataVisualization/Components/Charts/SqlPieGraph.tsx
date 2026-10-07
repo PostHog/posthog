@@ -56,7 +56,6 @@ export const SqlPieGraph = ({
     // Toggled-off slices aren't persisted (SQL insights have nowhere to save them), but the legend
     // is controlled anyway so the total and the tooltip shares track the slices actually drawn.
     const [hiddenKeys, setHiddenKeys] = useState<string[]>([])
-    // A proportion bar has no axis to read a size from, so its legend carries the shares.
     const showLegend = chartSettings.showLegend ?? showsLegendByDefault(isProportionBar, series.length)
     const visibleHiddenKeySet = useMemo(() => new Set(showLegend ? hiddenKeys : []), [showLegend, hiddenKeys])
     const total = useMemo(
