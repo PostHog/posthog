@@ -1108,6 +1108,7 @@ describe('metricResults', () => {
         ['the effective query the API resolved', { effective_query: effectiveQuery }, effectiveQuery],
         ['the saved query of a legacy shared metric', { effective_query: null }, savedQuery],
         ['the saved query when the API predates effective_query', {}, savedQuery],
+        ['an empty metric when the link carries no query', { query: undefined }, {}],
     ])('shows and queries a shared metric with %s', (_name, effectiveQueryField, expectedQuery) => {
         const experiment = {
             ...baseExperiment,

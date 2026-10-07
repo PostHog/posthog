@@ -1038,11 +1038,14 @@ export type ExperimentSavedMetric = Omit<ExperimentToSavedMetricApi, 'metadata' 
 /**
  * The backend applies the link overrides to the saved query and serves the result as `effective_query`.
  * A legacy shared metric takes no overrides and has no effective query, so its saved query applies as is.
+ * A link that carries no query gets an empty metric. Results map to metrics by position, and the callers
+ * read fields of every metric, so the link must keep its position.
  */
 export const sharedMetricEffectiveQuery = ({
     query,
     effective_query,
-}: Pick<ExperimentSavedMetric, 'query' | 'effective_query'>): ExperimentMetric => effective_query ?? query
+}: Pick<ExperimentSavedMetric, 'query' | 'effective_query'>): ExperimentMetric =>
+    effective_query ?? query ?? ({} as ExperimentMetric)
 
 export const sharedMetricsToExperimentMetrics = (
     sharedMetrics: ExperimentSavedMetric[] | undefined,
