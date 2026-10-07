@@ -346,10 +346,9 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
                 'popstate',
                 () => {
                     landed.abort()
-                    if (
-                        currentHistoryCount() === preEditorCount &&
-                        removeProjectIdIfPresent(window.location.pathname) !== combineUrl(destination).pathname
-                    ) {
+                    const target = combineUrl(destination)
+                    const landedAt = removeProjectIdIfPresent(window.location.pathname) + window.location.search
+                    if (currentHistoryCount() === preEditorCount && landedAt !== target.pathname + target.search) {
                         router.actions.push(destination)
                     }
                 },

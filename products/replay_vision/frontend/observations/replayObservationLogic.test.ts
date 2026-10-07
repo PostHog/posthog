@@ -209,16 +209,39 @@ describe('replayObservationLogic', () => {
         }
     })
 
-    // The watch feed lives on the home scene, not the scanner that owns the row, so an observation
-    // opened from it (carrying `from=watch`) must send back to the feed rather than the scanner.
-    it('back returns to the watch feed when the observation was opened from it', async () => {
-        router.actions.push('/replay-vision/observations/obs-1', { from: 'watch', t: 12 })
+    // A `from` origin sends back to where the reader was, not to the scanner that owns the row. `return_to`
+    // must stay on this site: anything else falls back to the origin's own page.
+    test.each([
+        { label: 'the watch feed', params: { from: 'watch', t: 12 }, expected: '/replay-vision?tab=watch' },
+        { label: 'the recording', params: { from: 'recording' }, expected: '/replay/sess-1' },
+        {
+            label: 'the playlist it was opened from',
+            params: { from: 'recording', return_to: '/replay/home?filters=x#panel=a' },
+            expected: '/replay/home?filters=x#panel=a',
+        },
+        {
+            label: 'the page under the PostHog AI panel',
+            params: { from: 'ai', return_to: '/dashboard/1' },
+            expected: '/dashboard/1',
+        },
+        {
+            label: 'PostHog AI, not a protocol-relative host',
+            params: { from: 'ai', return_to: '//example.com/x' },
+            expected: '/ai',
+        },
+        {
+            label: 'PostHog AI, not a backslash host',
+            params: { from: 'ai', return_to: '/\\example.com' },
+            expected: '/ai',
+        },
+    ])('back returns to $label', async ({ params, expected }) => {
+        router.actions.push(urls.replayVisionObservation('obs-1'), params)
         const logic = replayObservationLogic({ id: 'obs-1' })
         logic.mount()
         try {
             await expectLogic(logic).toDispatchActions(['loadObservationSuccess'])
             const { breadcrumbs } = sceneLogic.values
-            expect(breadcrumbs[breadcrumbs.length - 2].path).toBe('/replay-vision?tab=watch')
+            expect(breadcrumbs[breadcrumbs.length - 2].path).toBe(expected)
         } finally {
             logic.unmount()
         }
