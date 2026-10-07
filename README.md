@@ -58,7 +58,7 @@
 
 **Data**
 
-- [Data warehouse](https://posthog.com/context-warehouse): Collect, store, transform, and query all the context behind your product. Includes a managed warehouse, 120+ sources, and a SQL editor with BI and data visualization.
+- [Warehouse](https://posthog.com/context-warehouse/managed-warehouse): Collect, store, transform, and query all the context behind your product. Includes a managed warehouse, 120+ sources, and a SQL editor with BI and data visualization.
 - [Data pipelines](https://posthog.com/cdp): Run custom filters and transformations on your incoming data. Send it to 25+ tools or any webhook in real time, or batch export large amounts to your warehouse.
 - [Endpoints](https://posthog.com/endpoints): Build custom API endpoints powered by your PostHog data.
 
