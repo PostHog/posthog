@@ -36,6 +36,11 @@ def slack_event_props(integration: Integration, *, slack_user_id: str | None = N
     return props
 
 
+def slack_session_id(slack_team_id: str, channel: str, thread_ts: str) -> str:
+    """The id of one Slack thread, which joins its mention, reply, and task run events."""
+    return f"{slack_team_id}:{channel}:{thread_ts}"
+
+
 def slack_distinct_id(integration: Integration, slack_user_id: str) -> str:
     """The distinct id of a Slack user that no PostHog user has been resolved for yet."""
     return f"slack:{integration.integration_id}:{slack_user_id}"

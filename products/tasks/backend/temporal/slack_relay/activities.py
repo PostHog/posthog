@@ -295,14 +295,14 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
 
     answer_delivered = answer_posted
     if not answer_posted:
-        chunks_posted = []
-        for index, chunk in enumerate(chunks):
-            prefix = mention_prefix if index == 0 else ""
-            # This relay carries one agent answer, split only to fit Slack's length cap, so
-            # the last chunk is where the turn ends and the footer belongs.
-            chunks_posted.append(
-                handler.post_thread_message(f"{prefix}{chunk}", with_footer=index == len(chunks) - 1, markdown=True)
+        # This relay carries one agent answer, split only to fit Slack's length cap, so the last
+        # chunk is where the turn ends and the footer belongs. Every chunk posts even after one fails.
+        chunks_posted = [
+            handler.post_thread_message(
+                f"{mention_prefix if index == 0 else ''}{chunk}", with_footer=index == len(chunks) - 1, markdown=True
             )
+            for index, chunk in enumerate(chunks)
+        ]
         answer_delivered = bool(chunks_posted) and all(chunks_posted)
         if has_pending_slack_files and not compose_with_charts:
             deliver_pending_slack_file_artifacts(task_run)

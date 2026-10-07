@@ -272,24 +272,28 @@ class TestOnboarding:
         assert events.count((onboarding.EVENT_SOURCE_ENABLED, None)) == 2
         assert events.count((onboarding.EVENT_STEP_COMPLETED, "sources")) == 1
 
-    @pytest.mark.parametrize("github_done,expected_events", [(True, 2), (False, 0)])
+    @pytest.mark.parametrize(
+        "github_done,expected_events",
+        [
+            (True, [(onboarding.EVENT_STEP_COMPLETED, "github"), (onboarding.EVENT_COMPLETED, None)]),
+            (False, []),
+        ],
+    )
     @patch("products.slack_app.backend.onboarding.capture_slack_event")
     @patch("products.slack_app.backend.onboarding._onboarding_status")
+    @patch("products.slack_app.backend.onboarding._github_done")
+    @patch("products.slack_app.backend.onboarding._resolve_onboarding_user", return_value=7)
     def test_record_github_step_completes_onboarding_when_github_was_last(
-        self, mock_status, mock_capture, github_done, expected_events
+        self, _resolve, mock_github_done, mock_status, mock_capture, github_done, expected_events
     ):
         self.integration.config = {"scope": "channels:manage,chat:write", "authed_user": {"id": "U_INSTALL"}}
-        status = dict.fromkeys(onboarding.OnboardingStep, True)
-        status[onboarding.OnboardingStep.GITHUB] = github_done
-        mock_status.return_value = (7, status)
+        mock_github_done.return_value = github_done
+        mock_status.return_value = (7, dict.fromkeys(onboarding.OnboardingStep, True))
 
         onboarding.record_github_step(self.integration)
         onboarding.record_github_step(self.integration)
 
-        assert [(c.args[1], c.kwargs.get("step")) for c in mock_capture.call_args_list] == [
-            (onboarding.EVENT_STEP_COMPLETED, "github"),
-            (onboarding.EVENT_COMPLETED, None),
-        ][:expected_events]
+        assert [(c.args[1], c.kwargs.get("step")) for c in mock_capture.call_args_list] == expected_events
         assert all(c.kwargs["slack_user_id"] == "U_INSTALL" for c in mock_capture.call_args_list)
 
     @patch("products.slack_app.backend.tasks.record_onboarding_github_step.delay")

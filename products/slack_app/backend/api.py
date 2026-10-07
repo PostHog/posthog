@@ -55,7 +55,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
 from products.slack_app.backend import inbox_channel
-from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.discussion_replies import try_ingest_discussion_reply
 from products.slack_app.backend.feature_flags import (
     ASSISTANT_REQUIRED_SCOPES,
@@ -891,11 +891,6 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
         result = resolve_from_candidates(candidates, slack_team_id=slack_team_id, channel=channel, thread_ts=thread_ts)
         return JsonResponse({"claimed": claimed, "thread_claimed": result.source == "thread"})
     return JsonResponse({"claimed": claimed})
-
-
-def _build_slack_thread_key(slack_workspace_id: str, channel: str, thread_ts: str) -> str:
-    """Build the unique key for a Slack thread."""
-    return f"{slack_workspace_id}:{channel}:{thread_ts}"
 
 
 def _strip_bot_mentions(text: str) -> str:
@@ -3913,7 +3908,7 @@ def _report_slack_mention_received(
         properties: dict[str, Any] = {
             "is_first_message_in_session": is_first_message_in_session,
             "session_message_count": session_message_count,
-            "slack_session_id": f"{slack_team_id}:{channel}:{thread_ts}" if channel and thread_ts else None,
+            "slack_session_id": slack_session_id(slack_team_id, channel, thread_ts) if channel and thread_ts else None,
             "slack_team_id": slack_team_id,
             "slack_channel": channel,
             "slack_thread_ts": thread_ts,
@@ -3988,7 +3983,7 @@ def _report_slack_mention_dropped(
             "drop_reason": reason,
             "replied": replied,
             "slack_event_type": event.get("type"),
-            "slack_session_id": f"{slack_team_id}:{channel}:{thread_ts}" if channel and thread_ts else None,
+            "slack_session_id": slack_session_id(slack_team_id, channel, thread_ts) if channel and thread_ts else None,
             "slack_team_id": slack_team_id,
             "slack_channel": channel,
             "slack_thread_ts": thread_ts,

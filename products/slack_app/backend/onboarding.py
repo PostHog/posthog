@@ -80,6 +80,10 @@ def _has_personal_github(user_id: int) -> bool:
     return UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.GITHUB).exists()
 
 
+def _github_done(team_id: int, user_id: int | None) -> bool:
+    return (user_id is None or _has_personal_github(user_id)) and _has_team_github(team_id)
+
+
 def _has_ai_approval(team_id: int) -> bool:
     org_approved = (
         Team.objects.filter(id=team_id).values_list("organization__is_ai_data_processing_approved", flat=True).first()
@@ -132,7 +136,7 @@ def _onboarding_status(
     return user_id, {
         OnboardingStep.AI_APPROVAL: _has_ai_approval(team_id),
         OnboardingStep.CHANNEL: in_channel,
-        OnboardingStep.GITHUB: (user_id is None or _has_personal_github(user_id)) and _has_team_github(team_id),
+        OnboardingStep.GITHUB: _github_done(team_id, user_id),
         OnboardingStep.SOURCES: _has_enabled_source(team_id),
     }
 
@@ -180,14 +184,19 @@ def send_onboarding_dm(integration: Integration, slack_user_id: str) -> bool:
             capture_slack_event(
                 integration, EVENT_STEP_COMPLETED, slack_user_id=slack_user_id, step=str(step), completed_before_dm=True
             )
-    if all(status[step] for step in _REQUIRED_STEPS):
-        capture_slack_event(integration, EVENT_COMPLETED, slack_user_id=slack_user_id)
+    _capture_completed_if_done(integration, slack_user_id, status)
     return True
 
 
 def _maybe_complete(integration: Integration, slack_user_id: str, user_id: int | None = None) -> None:
     """Fire 'completed' once every required step is done. Pass ``user_id`` when already resolved."""
     _, status = _onboarding_status(integration, SlackIntegration(integration), slack_user_id, user_id)
+    _capture_completed_if_done(integration, slack_user_id, status)
+
+
+def _capture_completed_if_done(
+    integration: Integration, slack_user_id: str, status: dict[OnboardingStep, bool]
+) -> None:
     if all(status[step] for step in _REQUIRED_STEPS):
         capture_slack_event(integration, EVENT_COMPLETED, slack_user_id=slack_user_id)
 
@@ -273,22 +282,24 @@ def record_github_step(integration: Integration) -> None:
     GitHub connects on the web, not through a Slack click, so this runs when a GitHub connection
     is created. It only covers installs that got the onboarding DM.
     """
-    installer = _installer_slack_user_id(integration)
+    installer = installer_slack_user_id(integration)
     if not installer or not has_inbox_scopes(integration):
         return
-    _, status = _onboarding_status(integration, SlackIntegration(integration), installer)
-    if not status[OnboardingStep.GITHUB]:
+    slack = SlackIntegration(integration)
+    user_id = _resolve_onboarding_user(slack, integration, installer)
+    if not _github_done(integration.team_id, user_id):
         return
     # One GitHub connect flow can create the team and the personal connection together, which queues
     # this twice. The atomic add lets only the first run report the step.
-    if not cache.add(f"slack_onboarding_github_step:{integration.id}", True, timeout=_GITHUB_STEP_DEDUPE_SECONDS):
+    dedupe_key = f"slack_app:onboarding_github_step:v1:{integration.id}"
+    if not cache.add(dedupe_key, True, timeout=_GITHUB_STEP_DEDUPE_SECONDS):
         return
     capture_slack_event(integration, EVENT_STEP_COMPLETED, slack_user_id=installer, step=str(OnboardingStep.GITHUB))
-    if all(status[step] for step in _REQUIRED_STEPS):
-        capture_slack_event(integration, EVENT_COMPLETED, slack_user_id=installer)
+    _, status = _onboarding_status(integration, slack, installer, user_id)
+    _capture_completed_if_done(integration, installer, status)
 
 
-def _installer_slack_user_id(integration: Integration) -> str | None:
+def installer_slack_user_id(integration: Integration) -> str | None:
     return ((integration.config or {}).get("authed_user") or {}).get("id")
 
 
@@ -298,7 +309,7 @@ def run_install_onboarding(integration: Integration) -> None:
     if not has_inbox_scopes(integration):
         return
     channel = ensure_inbox_channel(integration)
-    installer = _installer_slack_user_id(integration)
+    installer = installer_slack_user_id(integration)
     if not installer:
         return
     if channel is not None:

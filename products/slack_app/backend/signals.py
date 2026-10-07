@@ -1,7 +1,7 @@
-from collections.abc import Iterable
 from typing import Any
 
 from django.db import transaction
+from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
@@ -27,32 +27,34 @@ def record_onboarding_github_step_on_personal_connect(
     sender: Any, instance: UserIntegration, created: bool, **kwargs
 ) -> None:
     """A user's first personal GitHub can finish the GitHub step of the Slack installs they made."""
-    if not created or instance.kind != UserIntegration.IntegrationKind.GITHUB:
-        return
-    if (
-        UserIntegration.objects.filter(user_id=instance.user_id, kind=UserIntegration.IntegrationKind.GITHUB).count()
-        > 1
-    ):
-        return
-    _dispatch_onboarding_github_step(
-        Integration.objects.filter(kind="slack", created_by_id=instance.user_id).values_list("id", flat=True)
-    )
+    if created and instance.kind == UserIntegration.IntegrationKind.GITHUB:
+        _dispatch_onboarding_github_step_if_first(
+            other_github_connections=UserIntegration.objects.filter(
+                user_id=instance.user_id, kind=UserIntegration.IntegrationKind.GITHUB
+            ).exclude(id=instance.id),
+            slack_installs=Integration.objects.filter(kind="slack", created_by_id=instance.user_id),
+        )
 
 
 @receiver(post_save, sender=Integration)
 def record_onboarding_github_step_on_team_connect(sender: Any, instance: Integration, created: bool, **kwargs) -> None:
     """A team's first GitHub installation can finish the GitHub step of the team's Slack installs."""
-    if not created or instance.kind != "github":
-        return
-    if Integration.objects.filter(team_id=instance.team_id, kind="github").count() > 1:
-        return
-    _dispatch_onboarding_github_step(
-        Integration.objects.filter(kind="slack", team_id=instance.team_id).values_list("id", flat=True)
-    )
+    if created and instance.kind == "github":
+        _dispatch_onboarding_github_step_if_first(
+            other_github_connections=Integration.objects.filter(team_id=instance.team_id, kind="github").exclude(
+                id=instance.id
+            ),
+            slack_installs=Integration.objects.filter(kind="slack", team_id=instance.team_id),
+        )
 
 
-def _dispatch_onboarding_github_step(slack_integration_ids: Iterable[int]) -> None:
-    integration_ids = list(slack_integration_ids)
+def _dispatch_onboarding_github_step_if_first(
+    *, other_github_connections: QuerySet, slack_installs: QuerySet[Integration]
+) -> None:
+    # A later connection of the same kind cannot change the step's outcome, so only the first dispatches.
+    if other_github_connections.exists():
+        return
+    integration_ids = list(slack_installs.values_list("id", flat=True))
     if not integration_ids:
         return
     # Deferred: tasks.py imports api.py, which a module-level import would load from AppConfig.ready().
@@ -85,12 +87,12 @@ def onboard_slack_inbox_on_install(sender: Any, instance: Integration, created: 
 
 def _capture_install(integration: Integration, *, has_inbox_scopes: bool) -> None:
     from products.slack_app.backend.analytics import capture_slack_event  # noqa: PLC0415
+    from products.slack_app.backend.onboarding import installer_slack_user_id  # noqa: PLC0415
 
-    installer_slack_user_id = ((integration.config or {}).get("authed_user") or {}).get("id")
     capture_slack_event(
         integration,
         "slack app installed",
-        slack_user_id=installer_slack_user_id,
+        slack_user_id=installer_slack_user_id(integration),
         posthog_user=integration.created_by,
         has_inbox_scopes=has_inbox_scopes,
         # Only a workspace's first project connection is a new workspace adopting the app.

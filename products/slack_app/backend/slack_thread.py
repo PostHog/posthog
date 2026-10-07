@@ -12,7 +12,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
-from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
@@ -57,8 +57,6 @@ _SECTION_TEXT_LIMIT = 3000
 _BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_format"})
 # Slack closed the stream, so every later append and the stop call fail the same way.
 _STREAM_ENDED_ERROR_CODE = "message_not_in_streaming_state"
-
-REPLY_POSTED_EVENT = "slack app reply posted"
 
 
 class ReplyKind(StrEnum):
@@ -501,14 +499,25 @@ class SlackThreadHandler:
             for piece in _markdown_text_pieces(self._with_leading_mention(final_markdown)):
                 answer_chunks.append({"type": "markdown_text", "text": piece})
         answer_delivered = self._append_chunks(ts, answer_chunks, "slack_app_status_stream_final_append_failed")
-        # A turn stopped before it answered still closes its stream, which then holds only status lines.
-        has_answer = bool(final_markdown) or mention_sent
         if self.stream_ended:
             if final_markdown:
                 answer_delivered = self._post_answer_outside_stream(final_markdown)
-            if has_answer:
-                self.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
-            return
+        else:
+            self._close_stream(
+                ts, final_markdown=final_markdown, mention_sent=mention_sent, append_attachments=append_attachments
+            )
+        # A turn stopped before it answered still closes its stream, which then holds only status lines.
+        if final_markdown or mention_sent:
+            self.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
+
+    def _close_stream(
+        self,
+        ts: str,
+        *,
+        final_markdown: str | None,
+        mention_sent: bool,
+        append_attachments: Callable[[], None] | None,
+    ) -> None:
         if append_attachments is not None:
             try:
                 append_attachments()
@@ -527,8 +536,6 @@ class SlackThreadHandler:
         if footer:
             self._append_trailing_blocks(ts)
         self._stop_stream(ts)
-        if has_answer:
-            self.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
 
     def _stop_stream(self, ts: str) -> None:
         if self.stream_ended:
@@ -792,7 +799,7 @@ class SlackThreadHandler:
         footer = self._footer_block() if with_footer and fits_in_a_block else None
         blocks = self._answer_blocks(text, footer, markdown=markdown)
         try:
-            posted = self._post_in_thread(text=text, blocks=blocks)
+            return self._post_in_thread(text=text, blocks=blocks) is not None
         except SlackApiError as e:
             # Slack rejects a request whose blocks are invalid outright — the `text`
             # fallback does not rescue it — so the answer would go down with its footer.
@@ -811,7 +818,6 @@ class SlackThreadHandler:
         except Exception as e:
             logger.warning("slack_post_thread_message_failed", error=str(e))
             return False
-        return posted is not None
 
     def post_completion(self, task_url: str | None) -> None:
         """Post the no-PR completion message.
@@ -931,7 +937,7 @@ class SlackThreadHandler:
             actor = self.actor_slack_user_id
             capture_slack_event(
                 integration,
-                REPLY_POSTED_EVENT,
+                "slack app reply posted",
                 slack_user_id=actor,
                 posthog_user=resolve_posthog_user_from_event(
                     slack_user_id=actor, probe_integration=integration, candidate_integrations=[integration]
@@ -940,7 +946,9 @@ class SlackThreadHandler:
                 else None,
                 reply_kind=str(reply_kind),
                 delivered=delivered,
-                slack_session_id=f"{integration.integration_id}:{self.context.channel}:{self.context.thread_ts}",
+                slack_session_id=slack_session_id(
+                    integration.integration_id, self.context.channel, self.context.thread_ts
+                ),
                 task_id=self.run_footer.task_id,
                 run_id=self.run_footer.run_id,
             )
