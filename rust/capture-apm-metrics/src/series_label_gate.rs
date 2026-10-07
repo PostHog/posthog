@@ -47,6 +47,7 @@ const WRITER_CHANNEL_CAPACITY: usize = 10_000;
 const WRITER_BATCH_SIZE: usize = 500;
 const WRITER_FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 const PRUNE_INTERVAL: Duration = Duration::from_secs(300);
+const HEAL_AFTER_CONSECUTIVE_TIMEOUTS: u32 = 3;
 
 pub type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 
@@ -105,6 +106,24 @@ impl Cap {
             Cap::Global => "global",
             Cap::Token => "token",
         }
+    }
+}
+
+#[derive(Default)]
+struct TimeoutStreak(u32);
+
+impl TimeoutStreak {
+    fn reset(&mut self) {
+        self.0 = 0;
+    }
+
+    fn record(&mut self) -> bool {
+        self.0 += 1;
+        if self.0 < HEAL_AFTER_CONSECUTIVE_TIMEOUTS {
+            return false;
+        }
+        self.0 = 0;
+        true
     }
 }
 
@@ -350,7 +369,9 @@ impl SeriesLabelGate {
             .await;
         let outcome = match &result {
             Ok(()) => "ok",
-            Err(PullError::Timeout { .. }) => "timeout",
+            Err(PullError::Timeout { .. }) | Err(PullError::Redis(CustomRedisError::Timeout)) => {
+                "timeout"
+            }
             Err(PullError::Redis(_)) => "error",
         };
         record_pull(kind, outcome, &stats, started.elapsed());
@@ -438,6 +459,7 @@ impl SeriesLabelGate {
         let gate = Arc::clone(self);
         tokio::spawn(async move {
             let mut since = (gate.clock)() - PULL_OVERLAP_SECS;
+            let mut timeouts = TimeoutStreak::default();
             let mut ticker = tokio::time::interval(interval);
             ticker.tick().await;
             loop {
@@ -449,14 +471,24 @@ impl SeriesLabelGate {
                 {
                     Ok(merged) => {
                         debug!("Pulled {merged} new series from Redis");
+                        timeouts.reset();
                         since = started - PULL_OVERLAP_SECS;
                     }
                     Err(e) => {
                         // `since` stays put, so the next tick re-reads the gap.
                         debug!("Series label pull from Redis failed: {e}");
-                        if let PullError::Redis(e) = &e {
-                            if e.is_unrecoverable_error() {
-                                client.heal().await;
+                        match &e {
+                            PullError::Timeout { .. }
+                            | PullError::Redis(CustomRedisError::Timeout) => {
+                                if timeouts.record() {
+                                    client.heal().await;
+                                }
+                            }
+                            PullError::Redis(e) => {
+                                timeouts.reset();
+                                if e.is_unrecoverable_error() {
+                                    client.heal().await;
+                                }
                             }
                         }
                     }
@@ -503,6 +535,7 @@ pub fn spawn_redis_writer(
     let ttl_secs = window.as_secs() + REDIS_BUCKET_SECS as u64;
     tokio::spawn(async move {
         let mut batch: Vec<SeenSeries> = Vec::with_capacity(WRITER_BATCH_SIZE);
+        let mut timeouts = TimeoutStreak::default();
         loop {
             let Some(first) = rx.recv().await else {
                 return;
@@ -528,27 +561,32 @@ pub fn spawn_redis_writer(
             let result = tokio::time::timeout(timeout, client.execute_pipeline(commands)).await;
             let outcome = match &result {
                 Ok(Ok(_)) => "ok",
+                Ok(Err(CustomRedisError::Timeout)) | Err(_) => "timeout",
                 Ok(Err(_)) => "error",
-                Err(_) => "timeout",
             };
             histogram!("capture_metrics_series_redis_push_duration_seconds", "outcome" => outcome)
                 .record(started.elapsed().as_secs_f64());
             match result {
                 Ok(Ok(_)) => {
+                    timeouts.reset();
                     counter!("capture_metrics_series_redis_pushed").increment(pushed);
                 }
+                Ok(Err(CustomRedisError::Timeout)) | Err(_) => {
+                    counter!("capture_metrics_series_redis_push_failed", "outcome" => outcome)
+                        .increment(pushed);
+                    debug!("Series label push to Redis timed out");
+                    if timeouts.record() {
+                        client.heal().await;
+                    }
+                }
                 Ok(Err(e)) => {
+                    timeouts.reset();
                     counter!("capture_metrics_series_redis_push_failed", "outcome" => outcome)
                         .increment(pushed);
                     debug!("Series label push to Redis failed: {e}");
                     if e.is_unrecoverable_error() {
                         client.heal().await;
                     }
-                }
-                Err(_) => {
-                    counter!("capture_metrics_series_redis_push_failed", "outcome" => outcome)
-                        .increment(pushed);
-                    debug!("Series label push to Redis timed out");
                 }
             }
         }
@@ -1095,6 +1133,48 @@ mod tests {
         }
 
         assert!(client.get_calls().iter().any(|c| c.op == "heal"));
+    }
+
+    #[tokio::test]
+    async fn writer_heals_connection_after_repeated_timeouts() {
+        let (tx, rx) = mpsc::channel(WRITER_CHANNEL_CAPACITY);
+        let client = MockRedisClient::new().pipeline_block(Duration::from_secs(5));
+        let shared: Arc<dyn Client> = Arc::new(client.clone());
+        spawn_redis_writer(shared, rx, Duration::from_millis(20), WINDOW);
+
+        let flushes = HEAL_AFTER_CONSECUTIVE_TIMEOUTS as usize;
+        for key in 0..(WRITER_BATCH_SIZE * flushes) as u64 {
+            tx.send((key, START)).await.unwrap();
+        }
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        while !client.get_calls().iter().any(|c| c.op == "heal")
+            && tokio::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        assert!(client.get_calls().iter().any(|c| c.op == "heal"));
+    }
+
+    #[tokio::test]
+    async fn puller_heals_connection_after_repeated_timeouts() {
+        let (gate, _, _) = gate(true, false);
+        let gate = Arc::new(gate);
+        let client = MockRedisClient::new();
+        let shared: Arc<dyn Client> = Arc::new(client.clone());
+        gate.spawn_redis_puller(shared, Duration::from_millis(10), Duration::ZERO);
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        while !client.get_calls().iter().any(|c| c.op == "heal")
+            && tokio::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        let calls = client.get_calls();
+        assert!(calls.iter().any(|c| c.op == "heal"));
+        assert!(calls.iter().all(|c| c.op == "heal"));
     }
 
     #[test]
