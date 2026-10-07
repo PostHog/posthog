@@ -2,13 +2,17 @@ import { IconArrowRight } from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import type { HogFlowPublishImpactApi, HogFlowPublishImpactDeletedStepApi } from '../generated/api.schemas'
+import { AiTaskPromptDiffs } from './AiTaskPromptDiffs'
+import type { AiTaskPromptChange } from './workflowLogic'
 
 function PublishImpactContent({
     impact,
     inFlightRuns,
+    aiTaskPromptChanges,
 }: {
     impact: HogFlowPublishImpactApi | null
     inFlightRuns: number | null
+    aiTaskPromptChanges: AiTaskPromptChange[]
 }): JSX.Element {
     const deletedSteps = impact?.deleted_steps ?? []
     const emptyVariables = impact?.empty_variables ?? []
@@ -95,6 +99,7 @@ function PublishImpactContent({
                     })()}
                 </LemonBanner>
             )}
+            {aiTaskPromptChanges.length > 0 && <AiTaskPromptDiffs changes={aiTaskPromptChanges} />}
         </div>
     )
 }
@@ -102,16 +107,25 @@ function PublishImpactContent({
 export function openPublishConfirmDialog({
     impact,
     inFlightRuns,
+    aiTaskPromptChanges,
     onConfirm,
 }: {
     impact: HogFlowPublishImpactApi | null
     inFlightRuns: number | null
+    aiTaskPromptChanges: AiTaskPromptChange[]
     onConfirm: () => void
 }): void {
     LemonDialog.open({
         title: 'Publish staged changes?',
-        maxWidth: '36rem',
-        description: <PublishImpactContent impact={impact} inFlightRuns={inFlightRuns} />,
+        // The dialog otherwise shrinks to fit its content, and a diff takes its width from the dialog.
+        ...(aiTaskPromptChanges.length > 0 ? { width: '48rem' } : { maxWidth: '36rem' }),
+        description: (
+            <PublishImpactContent
+                impact={impact}
+                inFlightRuns={inFlightRuns}
+                aiTaskPromptChanges={aiTaskPromptChanges}
+            />
+        ),
         primaryButton: {
             children: 'Publish',
             onClick: onConfirm,

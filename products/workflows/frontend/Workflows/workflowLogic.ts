@@ -166,6 +166,41 @@ export function withStagedDraft(workflow: HogFlow): HogFlow {
     return { ...rest, ...draft } as HogFlow
 }
 
+export interface AiTaskPromptChange {
+    actionId: string
+    stepName: string
+    livePrompt: string
+    stagedPrompt: string
+}
+
+/**
+ * The AI task steps whose instructions the staged draft changes, for review before publish. A step
+ * the draft adds has no live instructions to compare against, so it is not included.
+ */
+export function getAiTaskPromptChanges(workflow: HogFlow): AiTaskPromptChange[] {
+    const liveActionsById = new Map(workflow.actions.map((action) => [action.id, action]))
+    const promptOf = (action: HogFlowAction): string =>
+        action.type === 'function' && typeof action.config.inputs.prompt?.value === 'string'
+            ? action.config.inputs.prompt.value
+            : ''
+
+    return (workflow.draft?.actions ?? []).flatMap((stagedAction) => {
+        const liveAction = liveActionsById.get(stagedAction.id)
+        if (
+            !liveAction ||
+            stagedAction.type !== 'function' ||
+            stagedAction.config.template_id !== 'template-posthog-create-task'
+        ) {
+            return []
+        }
+        const livePrompt = promptOf(liveAction)
+        const stagedPrompt = promptOf(stagedAction)
+        return livePrompt === stagedPrompt
+            ? []
+            : [{ actionId: stagedAction.id, stepName: stagedAction.name, livePrompt, stagedPrompt }]
+    })
+}
+
 // Mirrors DRAFT_CONTENT_FIELDS in products/workflows/backend/presentation/views/hog_flow.py: the fields the draft
 // cycle stages and publish promotes. Keep the two lists in sync.
 const WORKFLOW_CONTENT_FIELDS = [
@@ -3977,9 +4012,16 @@ export const workflowLogic = kea<workflowLogicType>([
             } finally {
                 actions.setDraftActionPending(null)
             }
+            const aiTaskPromptChanges = values.originalWorkflow ? getAiTaskPromptChanges(values.originalWorkflow) : []
+            // pinned: analytics event name
+            posthog.capture('workflows publish dialog opened', {
+                workflow_id: props.id,
+                changed_ai_task_prompts: aiTaskPromptChanges.length,
+            })
             openPublishConfirmDialog({
                 impact: preview.impact,
                 inFlightRuns: preview.in_flight_runs,
+                aiTaskPromptChanges,
                 onConfirm: () => actions.confirmPublishDraft(preview.confirm_token ?? ''),
             })
         },
