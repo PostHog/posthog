@@ -42,6 +42,7 @@ _SLACK_RECOVERY_STRATEGY_RETRY = "retry"
 _SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN = "connect_then_replan"
 _SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN = "unblock_and_replan"
 _SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
+_SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB = "reconnect_github"
 _THREAD_CONTEXT_TAG = "slack_thread_context"
 _THREAD_CONTEXT_UPDATE_TAG = "slack_thread_context_update"
 _INITIATOR_PLACEHOLDER = "<original user message was here>"
@@ -1273,6 +1274,7 @@ def _terminal_recovery_strategy(previous_run: Any) -> str | None:
             _SLACK_RECOVERY_STRATEGY_RETRY,
             _SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN,
             _SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN,
+            _SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB,
         }:
             return strategy
         return _SLACK_RECOVERY_STRATEGY_RETRY
@@ -1308,6 +1310,11 @@ def _build_terminal_recovery_prompt(previous_run: Any, user_text: str) -> str:
         _SLACK_RECOVERY_STRATEGY_CANCELLED: (
             "The previous sandbox was intentionally stopped. Resume only the work the user asks for now, and "
             "preserve any useful prior artifact or PR context."
+        ),
+        _SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB: (
+            "GitHub rejected the acting user's personal credentials on the previous run. Resolve them again "
+            "before executing. If the connection now works, re-plan and continue. If it still does not, say so "
+            "and ask the acting user to reconnect their personal GitHub in PostHog settings."
         ),
     }
 
