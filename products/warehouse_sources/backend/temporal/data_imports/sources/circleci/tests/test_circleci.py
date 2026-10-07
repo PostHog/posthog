@@ -745,8 +745,16 @@ class TestV3Rows:
         )
 
         manager = _make_manager()
-        batches = list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager, CIRCLECI_V3))
+        batches = []
+        saves_seen_at_yield = []
+        for batch in get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager, CIRCLECI_V3):
+            batches.append(batch)
+            saves_seen_at_yield.append(manager.save_state.call_count)
         rows = [row for batch in batches for row in batch]
+
+        # The next projects cursor is staged before the first page's last batch, so the pipeline
+        # commits it together with that batch.
+        assert saves_seen_at_yield == [0, 1, 1]
 
         assert [row["id"] for row in rows] == ["run-1", "run-2", "run-3"]
         # Attributes are lifted to top-level columns so the created_at partition key resolves.

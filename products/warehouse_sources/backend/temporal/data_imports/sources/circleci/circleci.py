@@ -563,6 +563,26 @@ def _v3_run_rows(
                             ]
 
 
+def _stage_cursor_before_last_batch(
+    batches: Iterator[list[dict[str, Any]]],
+    resumable_source_manager: ResumableSourceManager[CircleCIResumeConfig],
+    next_cursor: str | None,
+) -> Iterator[list[dict[str, Any]]]:
+    # The pipeline commits staged state right after it writes a batch, so the next projects cursor
+    # is staged before the page's last batch. Holding one batch back finds that last batch.
+    previous: list[dict[str, Any]] | None = None
+    for batch in batches:
+        if previous is not None:
+            yield previous
+        previous = batch
+
+    if next_cursor:
+        resumable_source_manager.save_state(CircleCIResumeConfig(page_cursor=next_cursor))
+
+    if previous is not None:
+        yield previous
+
+
 def _get_v3_rows(
     api_token: str,
     org_slug: str,
@@ -591,13 +611,13 @@ def _get_v3_rows(
         start_cursor=start_cursor,
     ):
         if endpoint == "projects":
-            if projects:
-                yield [_v3_row(project) for project in projects]
+            batches: Iterator[list[dict[str, Any]]] = iter(
+                [[_v3_row(project) for project in projects]] if projects else []
+            )
         else:
-            yield from _v3_run_rows(fetch_page, endpoint, projects, logger)
+            batches = _v3_run_rows(fetch_page, endpoint, projects, logger)
 
-        if next_cursor:
-            resumable_source_manager.save_state(CircleCIResumeConfig(page_cursor=next_cursor))
+        yield from _stage_cursor_before_last_batch(batches, resumable_source_manager, next_cursor)
 
 
 def get_rows(
