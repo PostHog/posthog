@@ -1469,7 +1469,7 @@ inbox_ranking_training_job = dagster.define_asset_job(
         **owner_tags,
         # The report-embeddings family fits 1536-column heads, and each head costs a fit per
         # permutation draw on top of the two it ships, so the wall clock is now the trainer's
-        # rather than the ETL's, and it gets a longer budget than the dataset job.
+        # rather than the ETL's.
         "dagster/max_runtime": str(3 * 60 * 60),
         # The examples asset holds every snapshot of the lookback window in pandas at once (state
         # plus labels per day) before the per-head builders run, plus one rendering's vectors as
