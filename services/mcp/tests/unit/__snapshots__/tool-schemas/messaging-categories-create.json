@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "category_type": {
+            "description": "Marketing messages respect opt-outs; transactional messages bypass marketing opt-outs.\n\n* `marketing` - Marketing\n* `transactional` - Transactional",
+            "enum": ["marketing", "transactional"],
+            "type": "string"
+        },
+        "description": {
+            "description": "Internal description of the messages in this category.",
+            "type": "string"
+        },
+        "key": {
+            "description": "Project-unique category key. Cannot be changed after creation.",
+            "maxLength": 64,
+            "type": "string"
+        },
+        "name": {
+            "description": "Display name of the message category.",
+            "maxLength": 128,
+            "type": "string"
+        },
+        "public_description": {
+            "description": "Description shown to recipients in their preferences page.",
+            "type": "string"
+        }
+    },
+    "required": ["key", "name"],
+    "type": "object"
+}

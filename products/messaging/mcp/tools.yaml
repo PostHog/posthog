@@ -7,6 +7,60 @@ feature: messaging
 url_prefix: /workflows
 ui_apps: {}
 tools:
+    messaging-categories-create:
+        operation: messaging_categories_create
+        enabled: true
+        feature_flag: workflows-email-domain-agent-setup
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        exclude_params: [deleted]
+        title: Create a message category
+        description: >
+            Create a message category with a project-unique, immutable key. Categories group messages for
+            category-specific subscription preferences. Transactional email can be sent without a category.
+    messaging-categories-list:
+        operation: messaging_categories_list
+        enabled: true
+        feature_flag: workflows-email-domain-agent-setup
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List message categories
+        description: List message categories in the current project. Categories group messages for category-specific subscription preferences.
+    messaging-categories-partial-update:
+        operation: messaging_categories_partial_update
+        enabled: true
+        feature_flag: workflows-email-domain-agent-setup
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        exclude_params: [key, deleted]
+        title: Update a message category
+        description: >
+            Update a message category's name, descriptions, or category type by ID. The key cannot change after
+            creation. This does not change recipients' stored subscription preferences.
+    messaging-categories-retrieve:
+        operation: messaging_categories_retrieve
+        enabled: true
+        feature_flag: workflows-email-domain-agent-setup
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a message category
+        description: Get a message category by its ID in the current project, including its immutable key and category type.
     opt-outs-add:
         operation: messaging_preferences_bulk_add_opt_outs_create
         enabled: true

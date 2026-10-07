@@ -251,9 +251,15 @@ For a complete list of available scopes, see [frontend/src/lib/scopes.tsx](https
 
 When the default-off `workflows-email-domain-agent-setup` flag is enabled, OAuth tokens and Personal API Keys with `integration:write` can verify an existing email sender with `POST /api/projects/{project_id}/integrations/{id}/email/verify/` and update it with `PATCH /api/projects/{project_id}/integrations/{id}/email/`. Both operations require admin access to the project. Read-only scopes cannot perform them, and project restrictions still apply. Existing session access remains available when the flag is off.
 
-Verification returns the domain's verification status and DNS records, and persists successful verification. The update accepts a nested `config` with `email`, `name`, `provider`, and optional `mail_from_subdomain`. Supply the existing email address and provider; only the display name and MAIL FROM subdomain change. The update calls the existing provider configuration operation. Neither operation sends an email.
+Verification returns the domain's verification status and DNS records, and persists successful verification. The update accepts a nested `config` with the existing `email` and the desired `name`, plus optional `provider` and `mail_from_subdomain`. Only the display name and MAIL FROM subdomain change. The update calls the existing provider configuration operation. Neither operation sends an email.
 
 The same flag exposes the MCP tools `integrations-email-verify-create` and `integrations-email-partial-update`. An organization's read-only MCP restriction still blocks both tools.
+
+### Message category setup
+
+When the default-off `workflows-email-domain-agent-setup` flag is enabled, OAuth tokens and Personal API Keys can list and retrieve message categories with `hog_flow:read`, and create or update them with `hog_flow:write`. Project restrictions and workflow resource roles still apply. The category key cannot change after creation. Token callers cannot archive categories, import preferences, configure opt-out sync, or delete categories, including callers with wildcard scopes. Existing session access remains available when the flag is off.
+
+The same flag exposes the MCP tools `messaging-categories-list`, `messaging-categories-retrieve`, `messaging-categories-create`, and `messaging-categories-partial-update`. Category setup does not send a message or change recipients' stored preferences. Changing a category's type affects whether future messages respect marketing opt-outs. Transactional email does not require a category.
 
 ### OpenID Connect Scopes
 

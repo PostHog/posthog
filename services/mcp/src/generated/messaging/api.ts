@@ -3,10 +3,89 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 3 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const MessagingCategoriesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const MessagingCategoriesListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const MessagingCategoriesCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingCategoriesCreateBodyKeyMax = 64
+
+export const messagingCategoriesCreateBodyNameMax = 128
+
+export const MessagingCategoriesCreateBody = () => zod.object({
+    key: zod
+        .string()
+        .max(messagingCategoriesCreateBodyKeyMax)
+        .describe('Project-unique category key. Cannot be changed after creation.'),
+    name: zod.string().max(messagingCategoriesCreateBodyNameMax).describe('Display name of the message category.'),
+    description: zod.string().optional().describe('Internal description of the messages in this category.'),
+    public_description: zod.string().optional().describe('Description shown to recipients in their preferences page.'),
+    category_type: zod
+        .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
+        .optional()
+        .describe(
+            'Marketing messages respect opt-outs; transactional messages bypass marketing opt-outs.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional'
+        ),
+})
+
+export const MessagingCategoriesRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this message category.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const MessagingCategoriesPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this message category.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingCategoriesPartialUpdateBodyNameMax = 128
+
+export const MessagingCategoriesPartialUpdateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(messagingCategoriesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Display name of the message category.'),
+    description: zod.string().optional().describe('Internal description of the messages in this category.'),
+    public_description: zod.string().optional().describe('Description shown to recipients in their preferences page.'),
+    category_type: zod
+        .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
+        .optional()
+        .describe(
+            'Marketing messages respect opt-outs; transactional messages bypass marketing opt-outs.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional'
+        ),
+})
 
 /**
  * Opt every recipient in the list out of the category named on their entry, or a default category.

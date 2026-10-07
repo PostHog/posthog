@@ -1,21 +1,39 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from django.utils import timezone
 
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.integration import Integration
+from posthog.permissions import get_authenticator_scopes
+from posthog.ph_client import feature_enabled_or_false
+from posthog.scopes import APIScopeObjectOrNotSupported
 
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.optout_sync_config import OptOutSyncConfig
 from products.messaging.backend.services.customerio_import_service import CustomerIOImportService
 
+if TYPE_CHECKING:
+    from django.http import HttpRequest
+
+    from rest_framework.request import Request
+
 
 class MessageCategorySerializer(serializers.ModelSerializer):
     def validate(self, data):
+        if (
+            data.get("deleted")
+            and get_authenticator_scopes(self.context["request"].successful_authenticator) is not None
+        ):
+            raise PermissionDenied("Archiving message categories requires session authentication.")
         if self.instance is None:
             # Ensure key is unique per team for new instances
             if MessageCategory.objects.filter(team_id=self.context["team_id"], key=data["key"], deleted=False).exists():
@@ -45,6 +63,20 @@ class MessageCategorySerializer(serializers.ModelSerializer):
             "updated_at",
             "created_by",
         )
+        extra_kwargs = {
+            "id": {"help_text": "Server-assigned UUID of the message category."},
+            "key": {"help_text": "Project-unique category key. Cannot be changed after creation."},
+            "name": {"help_text": "Display name of the message category."},
+            "description": {"help_text": "Internal description of the messages in this category."},
+            "public_description": {"help_text": "Description shown to recipients in their preferences page."},
+            "category_type": {
+                "help_text": "Marketing messages respect opt-outs; transactional messages bypass marketing opt-outs."
+            },
+            "created_at": {"help_text": "When the category was created."},
+            "updated_at": {"help_text": "When the category was last updated."},
+            "created_by": {"help_text": "ID of the user who created the category."},
+            "deleted": {"help_text": "Whether the category is archived. Changes require session authentication."},
+        }
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
@@ -63,10 +95,40 @@ class MessageCategoryViewSet(
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
-    scope_object = "INTERNAL"
+    scope_object: APIScopeObjectOrNotSupported = "INTERNAL"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions = ["create", "update", "partial_update"]
+    requires_resource_level_access = True
 
     serializer_class = MessageCategorySerializer
     queryset = MessageCategory.objects.all()
+
+    def initialize_request(self, request: HttpRequest, *args: object, **kwargs: object) -> Request:
+        initialized_request = super().initialize_request(request, *args, **kwargs)
+        self.scope_object = (
+            "hog_flow"
+            if self.action in self.scope_object_read_actions + self.scope_object_write_actions
+            else "INTERNAL"
+        )
+        return initialized_request
+
+    def check_permissions(self, request: Request) -> None:
+        super().check_permissions(request)
+        if self.action not in self.scope_object_read_actions + self.scope_object_write_actions:
+            return
+        if get_authenticator_scopes(request.successful_authenticator) is None:
+            return
+        if not feature_enabled_or_false(
+            "workflows-email-domain-agent-setup",
+            str(request.user.distinct_id),
+            groups={"organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+            group_properties={
+                "organization": {"id": str(self.team.organization_id)},
+                "project": {"id": str(self.team.uuid)},
+            },
+            send_feature_flag_events=False,
+        ):
+            raise PermissionDenied("This action does not support personal API key access")
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(

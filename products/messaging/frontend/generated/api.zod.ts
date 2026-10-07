@@ -14,15 +14,24 @@ export const messagingCategoriesCreateBodyKeyMax = 64
 export const messagingCategoriesCreateBodyNameMax = 128
 
 export const MessagingCategoriesCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesCreateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesCreateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesCreateBodyKeyMax)
+        .describe('Project-unique category key. Cannot be changed after creation.'),
+    name: zod.string().max(messagingCategoriesCreateBodyNameMax).describe('Display name of the message category.'),
+    description: zod.string().optional().describe('Internal description of the messages in this category.'),
+    public_description: zod.string().optional().describe('Description shown to recipients in their preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            'Marketing messages respect opt-outs; transactional messages bypass marketing opt-outs.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional'
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe('Whether the category is archived. Changes require session authentication.'),
 })
 
 export const messagingCategoriesUpdateBodyKeyMax = 64
@@ -30,15 +39,24 @@ export const messagingCategoriesUpdateBodyKeyMax = 64
 export const messagingCategoriesUpdateBodyNameMax = 128
 
 export const MessagingCategoriesUpdateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesUpdateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesUpdateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesUpdateBodyKeyMax)
+        .describe('Project-unique category key. Cannot be changed after creation.'),
+    name: zod.string().max(messagingCategoriesUpdateBodyNameMax).describe('Display name of the message category.'),
+    description: zod.string().optional().describe('Internal description of the messages in this category.'),
+    public_description: zod.string().optional().describe('Description shown to recipients in their preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            'Marketing messages respect opt-outs; transactional messages bypass marketing opt-outs.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional'
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe('Whether the category is archived. Changes require session authentication.'),
 })
 
 export const messagingCategoriesPartialUpdateBodyKeyMax = 64
@@ -46,15 +64,29 @@ export const messagingCategoriesPartialUpdateBodyKeyMax = 64
 export const messagingCategoriesPartialUpdateBodyNameMax = 128
 
 export const MessagingCategoriesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesPartialUpdateBodyKeyMax).optional(),
-    name: zod.string().max(messagingCategoriesPartialUpdateBodyNameMax).optional(),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesPartialUpdateBodyKeyMax)
+        .optional()
+        .describe('Project-unique category key. Cannot be changed after creation.'),
+    name: zod
+        .string()
+        .max(messagingCategoriesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Display name of the message category.'),
+    description: zod.string().optional().describe('Internal description of the messages in this category.'),
+    public_description: zod.string().optional().describe('Description shown to recipients in their preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            'Marketing messages respect opt-outs; transactional messages bypass marketing opt-outs.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional'
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe('Whether the category is archived. Changes require session authentication.'),
 })
 
 /**
@@ -67,15 +99,27 @@ export const messagingCategoriesImportFromCustomerioCreateBodyKeyMax = 64
 export const messagingCategoriesImportFromCustomerioCreateBodyNameMax = 128
 
 export const MessagingCategoriesImportFromCustomerioCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesImportFromCustomerioCreateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesImportFromCustomerioCreateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesImportFromCustomerioCreateBodyKeyMax)
+        .describe('Project-unique category key. Cannot be changed after creation.'),
+    name: zod
+        .string()
+        .max(messagingCategoriesImportFromCustomerioCreateBodyNameMax)
+        .describe('Display name of the message category.'),
+    description: zod.string().optional().describe('Internal description of the messages in this category.'),
+    public_description: zod.string().optional().describe('Description shown to recipients in their preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            'Marketing messages respect opt-outs; transactional messages bypass marketing opt-outs.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional'
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe('Whether the category is archived. Changes require session authentication.'),
 })
 
 /**
@@ -87,15 +131,27 @@ export const messagingCategoriesImportPreferencesCsvCreateBodyKeyMax = 64
 export const messagingCategoriesImportPreferencesCsvCreateBodyNameMax = 128
 
 export const MessagingCategoriesImportPreferencesCsvCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesImportPreferencesCsvCreateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesImportPreferencesCsvCreateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesImportPreferencesCsvCreateBodyKeyMax)
+        .describe('Project-unique category key. Cannot be changed after creation.'),
+    name: zod
+        .string()
+        .max(messagingCategoriesImportPreferencesCsvCreateBodyNameMax)
+        .describe('Display name of the message category.'),
+    description: zod.string().optional().describe('Internal description of the messages in this category.'),
+    public_description: zod.string().optional().describe('Description shown to recipients in their preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            'Marketing messages respect opt-outs; transactional messages bypass marketing opt-outs.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional'
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe('Whether the category is archived. Changes require session authentication.'),
 })
 
 /**
@@ -112,15 +168,27 @@ export const messagingCategoriesSaveTrackConfigCreateBodyKeyMax = 64
 export const messagingCategoriesSaveTrackConfigCreateBodyNameMax = 128
 
 export const MessagingCategoriesSaveTrackConfigCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesSaveTrackConfigCreateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesSaveTrackConfigCreateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesSaveTrackConfigCreateBodyKeyMax)
+        .describe('Project-unique category key. Cannot be changed after creation.'),
+    name: zod
+        .string()
+        .max(messagingCategoriesSaveTrackConfigCreateBodyNameMax)
+        .describe('Display name of the message category.'),
+    description: zod.string().optional().describe('Internal description of the messages in this category.'),
+    public_description: zod.string().optional().describe('Description shown to recipients in their preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            'Marketing messages respect opt-outs; transactional messages bypass marketing opt-outs.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional'
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe('Whether the category is archived. Changes require session authentication.'),
 })
 
 /**
@@ -135,15 +203,27 @@ export const messagingCategoriesSaveWebhookConfigCreateBodyKeyMax = 64
 export const messagingCategoriesSaveWebhookConfigCreateBodyNameMax = 128
 
 export const MessagingCategoriesSaveWebhookConfigCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesSaveWebhookConfigCreateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesSaveWebhookConfigCreateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesSaveWebhookConfigCreateBodyKeyMax)
+        .describe('Project-unique category key. Cannot be changed after creation.'),
+    name: zod
+        .string()
+        .max(messagingCategoriesSaveWebhookConfigCreateBodyNameMax)
+        .describe('Display name of the message category.'),
+    description: zod.string().optional().describe('Internal description of the messages in this category.'),
+    public_description: zod.string().optional().describe('Description shown to recipients in their preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            'Marketing messages respect opt-outs; transactional messages bypass marketing opt-outs.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional'
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe('Whether the category is archived. Changes require session authentication.'),
 })
 
 /**

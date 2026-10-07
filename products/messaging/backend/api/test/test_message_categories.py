@@ -1,19 +1,230 @@
+from datetime import timedelta
+
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Team
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, Team
 from posthog.models.integration import Integration
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.optout_sync_config import OptOutSyncConfig
 
 
+class TestMessageCategoryScopedAccess(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        feature_flags = patch("posthoganalytics.feature_enabled", return_value=True)
+        feature_flags.start()
+        self.addCleanup(feature_flags.stop)
+
+    def _authenticate(self, scopes: list[str], credential: str = "pak") -> None:
+        if credential == "oauth":
+            application = OAuthApplication.objects.create(
+                user=self.user,
+                organization=self.organization,
+                name="Category setup",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+            )
+            token = "pha_synthetic_category_setup_token"
+            OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token=token,
+                expires=timezone.now() + timedelta(hours=1),
+                scope=" ".join(scopes),
+                scoped_teams=[self.team.id],
+            )
+        else:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user,
+                label="Category setup",
+                secure_value=hash_key_value(token),
+                scopes=scopes,
+                scoped_teams=[self.team.id],
+            )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    @parameterized.expand([(credential, enabled) for credential in ["pak", "oauth"] for enabled in [False, True, None]])
+    def test_read_scope_lists_and_retrieves_only_project_categories(
+        self, credential: str, enabled: bool | None
+    ) -> None:
+        category = MessageCategory.objects.create(team=self.team, key="updates", name="Updates")
+        other_team = Team.objects.create(organization=self.organization)
+        other_category = MessageCategory.objects.create(team=other_team, key="other", name="Other")
+        self._authenticate(["hog_flow:read"], credential)
+
+        url = f"/api/projects/{self.team.id}/messaging_categories/"
+        with patch("posthoganalytics.feature_enabled", return_value=enabled):
+            response = self.client.get(url)
+            if enabled is not True:
+                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+                self.assertEqual(self.client.get(f"{url}{category.id}/").status_code, status.HTTP_403_FORBIDDEN)
+                return
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["id"] for item in response.json()["results"]], [str(category.id)])
+        response = self.client.get(f"{url}{category.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["key"], "updates")
+        self.assertEqual(self.client.get(f"{url}{other_category.id}/").status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            self.client.get(f"/api/projects/{other_team.id}/messaging_categories/").status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    @parameterized.expand([(credential, enabled) for credential in ["pak", "oauth"] for enabled in [False, True, None]])
+    def test_write_scope_creates_and_updates_categories_with_immutable_keys(
+        self, credential: str, enabled: bool | None
+    ) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        other_category = MessageCategory.objects.create(team=other_team, key="other", name="Other")
+        self._authenticate(["hog_flow:write"], credential)
+        url = f"/api/projects/{self.team.id}/messaging_categories/"
+        existing = MessageCategory.objects.create(team=self.team, key="existing", name="Existing")
+        with patch("posthoganalytics.feature_enabled", return_value=enabled):
+            response = self.client.post(url, {"key": "updates", "name": "Updates", "category_type": "marketing"})
+            if enabled is not True:
+                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+                detail_url = f"{url}{existing.id}/"
+                self.assertEqual(self.client.patch(detail_url, {"name": "Changed"}).status_code, 403)
+                self.assertEqual(self.client.put(detail_url, {"key": "existing", "name": "Changed"}).status_code, 403)
+                self.client.credentials()
+                self.client.force_login(self.user)
+                categories = self.client.get(url).json()["results"]
+                self.assertEqual([(item["key"], item["name"]) for item in categories], [("existing", "Existing")])
+                return
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        detail_url = f"{url}{response.json()['id']}/"
+
+        response = self.client.patch(detail_url, {"name": "Product updates"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "Product updates")
+        response = self.client.put(
+            detail_url, {"key": "updates", "name": "Monthly updates", "category_type": "marketing"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "Monthly updates")
+        self.assertEqual(self.client.patch(detail_url, {"key": "changed"}).status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.client.get(detail_url).json()["key"], "updates")
+        self.assertEqual(
+            self.client.patch(f"{url}{other_category.id}/", {"name": "Changed"}).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(
+            self.client.post(
+                f"/api/projects/{other_team.id}/messaging_categories/", {"key": "new", "name": "New"}
+            ).status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    @parameterized.expand(
+        [(credential, scopes) for credential in ["pak", "oauth"] for scopes in [["hog_flow:write"], ["*"]]]
+    )
+    def test_scoped_credentials_cannot_archive_categories(self, credential: str, scopes: list[str]) -> None:
+        category = MessageCategory.objects.create(team=self.team, key="updates", name="Updates")
+        self._authenticate(scopes, credential)
+        url = f"/api/projects/{self.team.id}/messaging_categories/"
+        self.assertEqual(
+            self.client.patch(f"{url}{category.id}/", {"deleted": True}).status_code, status.HTTP_403_FORBIDDEN
+        )
+        self.assertEqual(self.client.get(f"{url}{category.id}/").status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            self.client.post(url, {"key": "archived", "name": "Archived", "deleted": True}).status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    @parameterized.expand(
+        [(credential, scopes) for credential in ["pak", "oauth"] for scopes in [["hog_flow:read"], ["insight:write"]]]
+    )
+    def test_credentials_without_category_write_scope_cannot_mutate(self, credential: str, scopes: list[str]) -> None:
+        category = MessageCategory.objects.create(team=self.team, key="updates", name="Updates")
+        self._authenticate(scopes, credential)
+        url = f"/api/projects/{self.team.id}/messaging_categories/"
+        for method, path, data in [
+            ("post", url, {"key": "new", "name": "New"}),
+            ("patch", f"{url}{category.id}/", {"name": "Changed"}),
+            ("put", f"{url}{category.id}/", {"key": "updates", "name": "Changed"}),
+        ]:
+            with self.subTest(method=method):
+                self.assertEqual(getattr(self.client, method)(path, data).status_code, status.HTTP_403_FORBIDDEN)
+        if scopes == ["insight:write"]:
+            self.assertEqual(self.client.get(url).status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
+            (credential, scopes)
+            for credential in ["pak", "oauth"]
+            for scopes in [["hog_flow:read"], ["hog_flow:write"], ["*"]]
+        ]
+    )
+    def test_scoped_credentials_cannot_access_import_config_or_delete_actions(
+        self, credential: str, scopes: list[str]
+    ) -> None:
+        category = MessageCategory.objects.create(team=self.team, key="updates", name="Updates")
+        self._authenticate(scopes, credential)
+        url = f"/api/projects/{self.team.id}/messaging_categories/"
+        for method, endpoint in [
+            ("post", "import_from_customerio"),
+            ("post", "import_preferences_csv"),
+            ("get", "optout_sync_config"),
+            ("delete", "remove_customerio_app_config"),
+            ("post", "save_webhook_config"),
+            ("delete", "remove_webhook_config"),
+            ("post", "save_track_config"),
+            ("delete", "remove_track_config"),
+            ("delete", str(category.id)),
+        ]:
+            with self.subTest(endpoint=endpoint, method=method):
+                self.assertEqual(
+                    getattr(self.client, method)(f"{url}{endpoint}/").status_code, status.HTTP_403_FORBIDDEN
+                )
+        self.assertEqual(self.client.get(f"{url}{category.id}/").status_code, status.HTTP_200_OK)
+
+    @pytest.mark.ee
+    @parameterized.expand(
+        [(credential, level) for credential in ["pak", "oauth"] for level in ["none", "viewer", "editor"]]
+    )
+    def test_token_scopes_do_not_override_workflow_roles(self, credential: str, level: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+        AccessControl.objects.create(team=self.team, resource="hog_flow", access_level="none")
+        role = Role.objects.create(organization=self.organization, name="Category setup")
+        RoleMembership.objects.create(user=self.user, role=role, organization_member=membership)
+        AccessControl.objects.create(team=self.team, resource="hog_flow", role=role, access_level=level)
+        self._authenticate(["hog_flow:write"], credential)
+        url = f"/api/projects/{self.team.id}/messaging_categories/"
+
+        self.assertEqual(self.client.get(url).status_code, 403 if level == "none" else 200)
+        response = self.client.post(url, {"key": "updates", "name": "Updates"})
+        self.assertEqual(response.status_code, 201 if level == "editor" else 403)
+
+
 class TestMessageCategoryAPI(APIBaseTest):
-    def test_list_messaging_categories_for_team(self):
+    @parameterized.expand([(False,), (True,)])
+    def test_list_messaging_categories_for_team(self, flag_enabled: bool) -> None:
         """
         Tests that GET /messaging_categories only retrieves categories for the current team.
         """
@@ -24,7 +235,8 @@ class TestMessageCategoryAPI(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization)
         MessageCategory.objects.create(team=other_team, name="Team 2 Category", key="team2_cat")
 
-        response = self.client.get(f"/api/environments/{self.team.id}/messaging_categories/")
+        with patch("posthoganalytics.feature_enabled", return_value=flag_enabled):
+            response = self.client.get(f"/api/environments/{self.team.id}/messaging_categories/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 1)

@@ -19,18 +19,37 @@ export const MessageCategoryTypeEnumApi = {
 } as const
 
 export interface MessageCategoryApi {
+    /** Server-assigned UUID of the message category. */
     readonly id: string
-    /** @maxLength 64 */
+    /**
+     * Project-unique category key. Cannot be changed after creation.
+     * @maxLength 64
+     */
     key: string
-    /** @maxLength 128 */
+    /**
+     * Display name of the message category.
+     * @maxLength 128
+     */
     name: string
+    /** Internal description of the messages in this category. */
     description?: string
+    /** Description shown to recipients in their preferences page. */
     public_description?: string
+    /** Marketing messages respect opt-outs; transactional messages bypass marketing opt-outs.
+     *
+     * * `marketing` - Marketing
+     * * `transactional` - Transactional */
     category_type?: MessageCategoryTypeEnumApi
+    /** When the category was created. */
     readonly created_at: string
+    /** When the category was last updated. */
     readonly updated_at: string
-    /** @nullable */
+    /**
+     * ID of the user who created the category.
+     * @nullable
+     */
     readonly created_by: number | null
+    /** Whether the category is archived. Changes require session authentication. */
     deleted?: boolean
 }
 
@@ -44,18 +63,37 @@ export interface PaginatedMessageCategoryListApi {
 }
 
 export interface PatchedMessageCategoryApi {
+    /** Server-assigned UUID of the message category. */
     readonly id?: string
-    /** @maxLength 64 */
+    /**
+     * Project-unique category key. Cannot be changed after creation.
+     * @maxLength 64
+     */
     key?: string
-    /** @maxLength 128 */
+    /**
+     * Display name of the message category.
+     * @maxLength 128
+     */
     name?: string
+    /** Internal description of the messages in this category. */
     description?: string
+    /** Description shown to recipients in their preferences page. */
     public_description?: string
+    /** Marketing messages respect opt-outs; transactional messages bypass marketing opt-outs.
+     *
+     * * `marketing` - Marketing
+     * * `transactional` - Transactional */
     category_type?: MessageCategoryTypeEnumApi
+    /** When the category was created. */
     readonly created_at?: string
+    /** When the category was last updated. */
     readonly updated_at?: string
-    /** @nullable */
+    /**
+     * ID of the user who created the category.
+     * @nullable
+     */
     readonly created_by?: number | null
+    /** Whether the category is archived. Changes require session authentication. */
     deleted?: boolean
 }
 
