@@ -146,6 +146,33 @@ class TestFilloutTransport:
 
     @parameterized.expand(
         [
+            ("next_form_readable", [400, 200]),
+            ("not_found_then_readable", [404, 200]),
+            ("no_form_readable", [400, 400]),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.make_tracked_session")
+    def test_validate_credentials_skips_a_form_fillout_cannot_serve(self, _name, probe_statuses, mock_session) -> None:
+        forms_response = Mock(status_code=200, text="ok")
+        forms_response.json.return_value = [{"formId": "form_1"}, {"formId": "form_2"}]
+        probe_responses = []
+        for status in probe_statuses:
+            probe_response = Mock(status_code=status, text="form unavailable")
+            probe_response.json.return_value = {"message": "form unavailable"}
+            probe_responses.append(probe_response)
+        mock_session.return_value.get.side_effect = [forms_response, *probe_responses]
+
+        result = validate_credentials(api_key="key")
+
+        assert result == (True, None)
+        assert mock_session.return_value.get.call_count == 3
+        assert [call.args[0] for call in mock_session.return_value.get.call_args_list[1:]] == [
+            "https://api.fillout.com/v1/api/forms/form_1/submissions",
+            "https://api.fillout.com/v1/api/forms/form_2/submissions",
+        ]
+
+    @parameterized.expand(
+        [
             (401, "Invalid Fillout API key"),
             (403, "Fillout API key is missing permission to list forms"),
         ]

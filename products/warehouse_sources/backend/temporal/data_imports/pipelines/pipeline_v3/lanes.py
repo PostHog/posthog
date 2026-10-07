@@ -89,6 +89,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         *,
         models: ImportJobModels,
         source_cursor_manager: SourceCursorManager[Any] | None = None,
+        incremental_checkpoints_allowed: bool = False,
+        resumed_incremental_run_uuid: str | None = None,
+        resumed_incremental_value: Any = None,
     ) -> None:
         if not source_response.lanes:
             raise ValueError(f"{source_response.name} declares no lanes; run it on PipelineV3")
@@ -103,6 +106,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             resumable_source_manager,
             models=models,
             source_cursor_manager=source_cursor_manager,
+            incremental_checkpoints_allowed=incremental_checkpoints_allowed,
+            resumed_incremental_run_uuid=resumed_incremental_run_uuid,
+            resumed_incremental_value=resumed_incremental_value,
         )
 
         # The base built the first lane; it shares the base's batch list so the two never disagree.
@@ -159,8 +165,10 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
                 "workflow_run_id": None,
                 # The history table has no destination mapping: delivery names the destination
                 # table from the schema, and SCD2 rows merged by key there would clobber the
-                # consolidated table's rows.
+                # consolidated table's rows. Both lists are cleared so batches remain eligible
+                # for coalescing when they have no destinations to deliver to.
                 "destination_ids": [],
+                "external_destination_ids": [],
             }
         )
         writer = _LaneWriter(lane, s3_batch_writer, producer, job=job)

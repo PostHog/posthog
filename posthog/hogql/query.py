@@ -627,6 +627,10 @@ class HogQLQueryExecutor:
         if adapter is None:
             raise InternalHogQLError(f"No direct SQL adapter registered for engine: {source.direct_engine}")
 
+        stats = query_stats.get_active()
+        if stats is not None:
+            stats.add_direct_source(str(source.id))
+
         query_tags = get_query_tags()
         cancellation_token = (
             build_direct_query_cancellation_token(query_tags.client_query_id, str(query_tags.celery_task_id))
@@ -811,7 +815,7 @@ class HogQLQueryExecutor:
         return self.select_query, self._prompt_jev_tables
 
     def _prepare_execution(self, *, embedded_select: bool = False) -> _PreparedExecution:
-        self.context.referenced_saved_query_ids.clear()
+        self.context.clear_reads()
         self._parse_query()
 
         if embedded_select:
@@ -909,7 +913,7 @@ class HogQLQueryExecutor:
                 has_joins="JOIN" in self.clickhouse_sql,
                 has_json_operations="JSONExtract" in self.clickhouse_sql or "JSONHas" in self.clickhouse_sql,
                 hogql_features=hogql_features,
-                saved_query_ids=sorted(self.context.referenced_saved_query_ids) or None,
+                **self.context.read_tags(),
                 plan_fingerprint=plan_fingerprint,
                 timings=timings_dict,
                 modifiers=(
@@ -934,6 +938,11 @@ class HogQLQueryExecutor:
                 )
 
             stats = query_stats.get_active()
+            if stats is not None:
+                stats.add_reads(
+                    warehouse_table_ids=self.context.referenced_warehouse_table_ids,
+                    saved_query_ids=self.context.referenced_saved_query_ids,
+                )
             # The rows are read back per thread after the run, so a run ClickHouse stops is still
             # recorded with what it read, and a series running in another thread is not charged here.
             query_stats.reset_last_rows_read()

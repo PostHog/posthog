@@ -7,6 +7,9 @@ A run cancels the older runs it sees, and cancels itself when it sees a newer on
 whose workflow Depot creates last settles each pair.
 See "Superseded runs" in .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
 
+.depot/workflows/cancel-closed-merge-queue-runs.yml also runs this script when a merge queue batch
+closes. That run belongs to the pull request's newest event, so it cancels every older run.
+
 Standard library only: the job runs this with the runner's python3 before any install.
 """
 

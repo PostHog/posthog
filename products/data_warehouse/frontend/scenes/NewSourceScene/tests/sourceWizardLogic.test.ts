@@ -112,6 +112,7 @@ describe('sourceWizardLogic', () => {
             { enabled: true, category: 'Advertising', attributed: true },
             { enabled: false, category: 'Advertising', attributed: false },
             { enabled: true, category: 'Databases', attributed: false },
+            { enabled: true, category: 'Marketing & email', attributed: false },
         ] as const)(
             'attributes success only for eligible sources: $enabled / $category',
             async ({ enabled, category, attributed }) => {
@@ -119,7 +120,12 @@ describe('sourceWizardLogic', () => {
                     [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL]: enabled,
                 })
                 const source = buildSourceConfig({
-                    name: category === 'Advertising' ? 'GoogleAds' : 'Postgres',
+                    name:
+                        category === 'Advertising'
+                            ? 'GoogleAds'
+                            : category === 'Marketing & email'
+                              ? 'GoogleSearchConsole'
+                              : 'Postgres',
                     category,
                 })
                 const logic = sourceWizardLogic({
@@ -135,7 +141,20 @@ describe('sourceWizardLogic', () => {
                     await expectLogic(logic, () => logic.actions.selectConnector(source)).toFinishAllListeners()
                     captureMarketingCrossSellClick(MOCK_DEFAULT_TEAM.id, WebStatsBreakdown.InitialChannelType, false)
                     const attribution = getMarketingCrossSellAttribution(MOCK_DEFAULT_TEAM.id)!
+                    if (category !== 'Databases') {
+                        logic.actions.setReturnConfig(
+                            '/project/997/marketing?tab=ad-performance',
+                            'Marketing analytics'
+                        )
+                    }
                     await expectLogic(logic, () => logic.actions.createSource()).toFinishAllListeners()
+                    expect(posthog.capture).toHaveBeenCalledWith(
+                        'warehouse source connect completed',
+                        expect.objectContaining({
+                            sourceType: source.name,
+                            returnLabel: category === 'Databases' ? undefined : 'Marketing analytics',
+                        })
+                    )
                     const conversions = jest
                         .mocked(posthog.capture)
                         .mock.calls.filter(([name]) => name === 'web analytics marketing cross sell source created')
@@ -178,6 +197,10 @@ describe('sourceWizardLogic', () => {
                 captureMarketingCrossSellClick(MOCK_DEFAULT_TEAM.id, WebStatsBreakdown.InitialUTMCampaign, false)
                 const attribution = getMarketingCrossSellAttribution(MOCK_DEFAULT_TEAM.id)!
                 await expectLogic(logic, () => logic.actions.createSource()).toFinishAllListeners()
+                expect(posthog.capture).not.toHaveBeenCalledWith(
+                    'warehouse source connect completed',
+                    expect.anything()
+                )
                 expect(posthog.capture).not.toHaveBeenCalledWith(
                     'web analytics marketing cross sell source created',
                     expect.anything()

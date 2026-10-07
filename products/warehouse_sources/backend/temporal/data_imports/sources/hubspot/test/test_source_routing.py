@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     DEFAULT_PROPS,
     ENDPOINTS,
     HUBSPOT_API_VERSION_2026_03,
+    HUBSPOT_API_VERSION_2026_09,
     HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS,
     HUBSPOT_METADATA_ENDPOINTS,
@@ -327,14 +328,19 @@ def test_transient_http_error_is_retryable(error_msg: str) -> None:
 class TestApiVersion:
     def test_defaults_to_latest_date_version(self) -> None:
         src = HubspotSource()
-        assert src.default_version == HUBSPOT_API_VERSION_2026_03
-        # A source with no pin (a newly created one) resolves to the 2026-03 default...
-        assert src.resolve_api_version(None) == HUBSPOT_API_VERSION_2026_03
-        # ...while a v3 pin is honored verbatim so existing sources stay on the legacy paths.
+        assert src.default_version == HUBSPOT_API_VERSION_2026_09
+        # A source with no pin (a newly created one) resolves to the 2026-09 default...
+        assert src.resolve_api_version(None) == HUBSPOT_API_VERSION_2026_09
+        # ...while older pins are honored verbatim so existing sources keep their paths.
         assert src.resolve_api_version(HUBSPOT_API_VERSION_V3) == HUBSPOT_API_VERSION_V3
+        assert src.resolve_api_version(HUBSPOT_API_VERSION_2026_03) == HUBSPOT_API_VERSION_2026_03
 
-    def test_both_versions_supported(self) -> None:
-        assert set(HubspotSource().supported_versions) == {HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03}
+    def test_all_versions_supported(self) -> None:
+        assert set(HubspotSource().supported_versions) == {
+            HUBSPOT_API_VERSION_V3,
+            HUBSPOT_API_VERSION_2026_03,
+            HUBSPOT_API_VERSION_2026_09,
+        }
 
     @pytest.mark.parametrize(
         "path,api_version,expected",
@@ -360,6 +366,15 @@ class TestApiVersion:
             # trailing separator would leave owners calling the legacy endpoint under a date pin.
             ("/crm/v3/owners", HUBSPOT_API_VERSION_2026_03, "/crm/owners/2026-03"),
             ("/crm/v3/owners", HUBSPOT_API_VERSION_V3, "/crm/v3/owners"),
+            ("/crm/v3/objects/contacts", HUBSPOT_API_VERSION_2026_09, "/crm/objects/2026-09/contacts"),
+            ("/crm/v3/properties/deals", HUBSPOT_API_VERSION_2026_09, "/crm/properties/2026-09/deals"),
+            (
+                "/crm/v4/associations/contacts/deals/batch/read",
+                HUBSPOT_API_VERSION_2026_09,
+                "/crm/associations/2026-09/contacts/deals/batch/read",
+            ),
+            ("/crm/v3/pipelines/deals", HUBSPOT_API_VERSION_2026_09, "/crm/pipelines/2026-09/deals"),
+            ("/crm/v3/owners", HUBSPOT_API_VERSION_2026_09, "/crm/owners/2026-09"),
         ],
     )
     def test_apply_crm_api_version(self, path: str, api_version: str, expected: str) -> None:
@@ -368,9 +383,10 @@ class TestApiVersion:
     @pytest.mark.parametrize(
         "pin,expected",
         [
-            (None, HUBSPOT_API_VERSION_2026_03),
+            (None, HUBSPOT_API_VERSION_2026_09),
             (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_V3),
             (HUBSPOT_API_VERSION_2026_03, HUBSPOT_API_VERSION_2026_03),
+            (HUBSPOT_API_VERSION_2026_09, HUBSPOT_API_VERSION_2026_09),
         ],
     )
     def test_source_for_pipeline_threads_resolved_version(self, pin: str | None, expected: str) -> None:

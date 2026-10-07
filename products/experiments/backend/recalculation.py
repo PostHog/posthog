@@ -15,11 +15,11 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from prometheus_client import Counter
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import Throttled, ValidationError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
@@ -55,6 +55,28 @@ from products.experiments.backend.temporal.recalculation_logic import discover_e
 # backstop if that rollback itself fails.
 _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
 
+# rate limiting manual reloads (including agents).
+MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
+_RATE_LIMITED_TRIGGERS = frozenset(
+    {
+        ExperimentMetricsRecalculation.Trigger.MANUAL,
+        ExperimentMetricsRecalculation.Trigger.AGENT_MCP,
+    }
+)
+
+
+class RecalculationRateLimited(Throttled):
+    """A user-driven trigger landed inside MIN_USER_RECALCULATION_INTERVAL. The API layer renders it as a 429
+    with a Retry-After header, so a client or an agent knows when the next run is allowed."""
+
+    # DRF sets this in Throttled.__init__ and its handler turns it into Retry-After; the stubs omit it.
+    wait: float | None
+
+    default_code = "recalculation_rate_limited"
+    # DRF appends "Expected available in N seconds." to this, so the wait is not repeated here.
+    default_detail = "Metrics were recalculated less than 5 minutes ago."
+
+
 # A daily timeseries point older than this no longer stands in for a recalculation on the cold-start read. The
 # daily run happens once per day, so a fresh experiment always has a point inside the bound.
 TIMESERIES_FALLBACK_MAX_AGE = timedelta(hours=24)
@@ -64,6 +86,11 @@ TIMESERIES_FALLBACK_MAX_AGE = timedelta(hours=24)
 _recalculation_reuse_counter = Counter(
     "experiment_metrics_recalculation_existing_run_reused",
     "POST requests that returned an existing active run instead of creating a new one (idempotent reuse).",
+)
+# Counts user-driven POSTs that landed inside MIN_USER_RECALCULATION_INTERVAL and got the latest run back.
+_recalculation_rate_limited_counter = Counter(
+    "experiment_metrics_recalculation_rate_limited",
+    "POST requests answered with 429 because a user-driven run was requested inside the refresh window.",
 )
 # Fires whenever the 30-min staleness threshold marks a PENDING/IN_PROGRESS row FAILED so the experiment
 # can recalculate again. A sustained climb is a leading indicator of Temporal connect failures or the
@@ -282,12 +309,18 @@ def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
             pass
 
 
+def _refresh_window_enforced() -> bool:
+    # Local development skips the window so a developer can reload at will. Tests keep it, because they assert it.
+    return not settings.DEBUG or settings.TEST
+
+
 def request_recalculation(experiment: Experiment, user: User | None, trigger: str = "manual") -> dict:
     """Create an idempotent batch recalculation request for all experiment metrics.
 
     If an active (pending or in_progress) run already exists for this experiment, returns the existing run's
     serialized payload with ``is_existing=True`` — the caller should NOT start a new workflow in that case.
-    Otherwise creates a fresh pending row.
+    A user-driven trigger inside ``MIN_USER_RECALCULATION_INTERVAL`` after the latest completed run finished
+    raises ``RecalculationRateLimited``. Otherwise creates a fresh pending row.
     """
     if not experiment.is_launched:
         raise ValidationError("Cannot recalculate metrics for experiment that hasn't started")
@@ -317,6 +350,21 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
         if existing:
             _recalculation_reuse_counter.inc()
             return build_job_payload(existing, is_existing=True)
+
+        if trigger in _RATE_LIMITED_TRIGGERS and _refresh_window_enforced():
+            # get the latest terminal run and check against the rate limiting rules
+            # if matched, increment counter and raise so the API answers 429 with Retry-After
+            latest = _terminal_recalculations(experiment).order_by("-created_at").first()
+            if (
+                latest is not None
+                and latest.status == ExperimentMetricsRecalculation.Status.COMPLETED
+                and latest.trigger != ExperimentMetricsRecalculation.Trigger.TIMESERIES_SYNC
+                and latest.completed_at is not None
+                and latest.completed_at >= timezone.now() - MIN_USER_RECALCULATION_INTERVAL
+            ):
+                _recalculation_rate_limited_counter.inc()
+                next_allowed_at = latest.completed_at + MIN_USER_RECALCULATION_INTERVAL
+                raise RecalculationRateLimited(wait=(next_allowed_at - timezone.now()).total_seconds())
 
         # No fresh active row, but stale tombstones might still hold the per-experiment uniqueness constraint
         # (unique_active_metrics_recalculation_per_experiment). Mark them FAILED so the constraint releases
@@ -369,21 +417,22 @@ def get_active_recalculation(experiment: Experiment) -> ExperimentMetricsRecalcu
         )
 
 
+def _terminal_recalculations(experiment: Experiment) -> QuerySet[ExperimentMetricsRecalculation]:
+    """Runs that really finished. Callers hold the team scope.
+
+    completed_at is only ever stamped by the workflow's finalize step, so it separates runs that really
+    finished from trigger-failure tombstones (status flipped to FAILED at create time, never started). Keying
+    on metric_errors instead would hide a failed run whose failures live only in result rows.
+    """
+    return ExperimentMetricsRecalculation.objects.filter(team=experiment.team, experiment=experiment).filter(
+        Q(status=ExperimentMetricsRecalculation.Status.COMPLETED)
+        | (Q(status=ExperimentMetricsRecalculation.Status.FAILED) & Q(completed_at__isnull=False))
+    )
+
+
 def get_latest_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
     with team_scope(experiment.team_id, canonical=True):
-        return (
-            ExperimentMetricsRecalculation.objects.filter(team=experiment.team, experiment=experiment)
-            .filter(
-                # completed_at is only ever stamped by the workflow's finalize step, so it separates runs
-                # that really finished from trigger-failure tombstones (status flipped to FAILED at create
-                # time, never started). Keying on metric_errors instead would hide a failed run whose
-                # failures live only in result rows.
-                Q(status=ExperimentMetricsRecalculation.Status.COMPLETED)
-                | (Q(status=ExperimentMetricsRecalculation.Status.FAILED) & Q(completed_at__isnull=False))
-            )
-            .order_by("-created_at")
-            .first()
-        )
+        return _terminal_recalculations(experiment).order_by("-created_at").first()
 
 
 def get_recalculation_by_id(experiment: Experiment, recalculation_id: str) -> ExperimentMetricsRecalculation | None:

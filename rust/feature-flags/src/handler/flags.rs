@@ -397,6 +397,7 @@ pub async fn evaluate_for_request(
         membership_stamp_policy: state.config.realtime_cohort_membership_stamp_policy,
         detailed_analysis: detailed_analysis.unwrap_or(false),
         only_use_override_person_properties: only_use_override_person_properties.unwrap_or(false),
+        persons_db_deadline: state.config.persons_db_deadline(),
     };
 
     evaluation::evaluate_feature_flags(ctx, request_id).await

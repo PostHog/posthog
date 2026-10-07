@@ -51,8 +51,10 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS: int = max(
     1,
     get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS", 6, type_cast=int),
 )
-# Use "flag_evaluations" only where ingestion forks every team's flag calls into that table. The historical
-# and async ingestion lanes never fork, so calls ingested on them do not move last_called_at with this source.
+# Use "flag_evaluations" only where every analytics ingestion lane forks every team's flag calls into that table.
+# This source moves last_called_at only for calls that the fork writes. A lane forks only when its deployment
+# config sets INGESTION_FLAG_EVALUATIONS_MODE and INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC. The fork also skips a
+# call dated past the table's TTL.
 # Disabling the fork also stops last_called_at with this source, and the checkpoint keeps moving past the missed
 # calls. Switch this back to "events" before disabling the fork.
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE: str = get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE", "events")
@@ -168,8 +170,10 @@ TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
 )
 
 # OrganizationFeatureFlagsConfig.flag_evaluations_mode for a new organization. 0 reads
-# $feature_flag_called from events. 1 reads it from flag_evaluations. 2 also stops writing it to events.
-# A change here never moves an existing organization.
+# $feature_flag_called from events. 1 reads it from flag_evaluations for the flag Usage tab, the
+# per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called.
+# 2 also stops writing it to events for teams in the ingestion allowlist. A change here never moves an
+# existing organization.
 FLAG_EVALUATIONS_NEW_ORG_MODE: int = get_from_env("FLAG_EVALUATIONS_NEW_ORG_MODE", 0, type_cast=int)
 
 # Feature flag limits to prevent memory issues during flag evaluation/caching.

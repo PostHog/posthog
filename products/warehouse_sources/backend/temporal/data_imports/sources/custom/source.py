@@ -379,6 +379,16 @@ def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
     from ``setup_incremental_object``, and an unsupported key as a ``TypeError`` from the
     engine's ``Incremental(**config)`` constructor.
     """
+    resource_defaults = manifest.get("resource_defaults")
+    default_endpoint = resource_defaults.get("endpoint") if isinstance(resource_defaults, dict) else None
+    if isinstance(default_endpoint, dict) and _has_incremental_config(default_endpoint):
+        # The engine merges defaults into every resource, so a default cursor would bypass the
+        # per-resource handling: preview stripping, cursor typing, and keeping fan-out parents full-scan.
+        raise ManifestValidationError(
+            "resource_defaults.endpoint can't declare incremental config. "
+            "Set endpoint.incremental on each resource that syncs incrementally instead"
+        )
+
     for resource in manifest.get("resources") or []:
         if not isinstance(resource, dict):
             continue
@@ -405,6 +415,15 @@ def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
                 f"Resource {resource.get('name')!r}: endpoint.incremental.start_param is required and must be a "
                 "non-empty string naming the query parameter used to send the cursor value to the API"
             )
+
+
+def _has_incremental_config(endpoint: dict[str, Any]) -> bool:
+    if endpoint.get("incremental") is not None:
+        return True
+    params = endpoint.get("params")
+    return isinstance(params, dict) and any(
+        isinstance(value, dict) and value.get("type") == "incremental" for value in params.values()
+    )
 
 
 def _validate_paginator_configs(manifest: dict[str, Any]) -> None:
@@ -1250,12 +1269,15 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # drop parent rows (and with them their children); they full-scan
             # every run, matching the built-in fan-out sources (Typeform/Sentry).
             chain = _fanout_chain(manifest, inputs.schema_name)
-            chosen = chain.child
+            manifest_without_default_incremental, default_incremental = _split_default_incremental(manifest)
+            chosen = _with_default_incremental(chain.child, default_incremental)
             engine_resources = [
                 *(_without_incremental_config(r) for r in chain.ancestors),
-                _strip_engine_unsupported_incremental_keys(chain.child),
+                _strip_engine_unsupported_incremental_keys(chosen),
             ]
-            engine_manifest = cast(RESTAPIConfig, {**manifest, "resources": engine_resources})
+            engine_manifest = cast(
+                RESTAPIConfig, {**manifest_without_default_incremental, "resources": engine_resources}
+            )
 
             # Backstop for manifests stored before create-time validation covered this: an
             # endpoint.incremental block missing start_param crashes the engine with a bare,
@@ -1431,7 +1453,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         engine_manifest = cast(
             RESTAPIConfig,
             {
-                **manifest,
+                **_split_default_incremental(manifest)[0],
                 "resources": engine_resources,
                 "client": {
                     **client,
@@ -2090,6 +2112,39 @@ def _strip_engine_unsupported_incremental_keys(resource: dict[str, Any]) -> dict
         return resource
     cleaned = exclude_keys(incremental, _ENGINE_UNSUPPORTED_INCREMENTAL_KEYS)
     return {**resource, "endpoint": {**endpoint, "incremental": cleaned}}
+
+
+def _split_default_incremental(manifest: dict[str, Any]) -> tuple[dict[str, Any], Any]:
+    """Return ``manifest`` without ``resource_defaults.endpoint.incremental``, plus that block.
+
+    The engine merges ``resource_defaults.endpoint`` into each resource shallowly, so a
+    default ``incremental`` block reaches every resource that has none of its own. It would
+    skip ``_strip_engine_unsupported_incremental_keys`` and the full scan of fan-out
+    ancestors. Callers apply the returned block to the chosen resource themselves.
+    """
+    defaults = manifest.get("resource_defaults")
+    if not isinstance(defaults, dict):
+        return manifest, None
+    default_endpoint = defaults.get("endpoint")
+    if not isinstance(default_endpoint, dict) or "incremental" not in default_endpoint:
+        return manifest, None
+    engine_defaults = {**defaults, "endpoint": exclude_keys(default_endpoint, {"incremental"})}
+    return {**manifest, "resource_defaults": engine_defaults}, default_endpoint["incremental"]
+
+
+def _with_default_incremental(resource: dict[str, Any], default_incremental: Any) -> dict[str, Any]:
+    """Return ``resource`` with ``default_incremental`` applied when it declares no
+    ``endpoint.incremental`` of its own, as the engine's defaults merge would."""
+    if default_incremental is None:
+        return resource
+    endpoint = resource.get("endpoint")
+    if isinstance(endpoint, str):
+        endpoint = {"path": endpoint}
+    elif endpoint is None:
+        endpoint = {}
+    if not isinstance(endpoint, dict) or "incremental" in endpoint:
+        return resource
+    return {**resource, "endpoint": {**endpoint, "incremental": default_incremental}}
 
 
 def _build_resource_graph(

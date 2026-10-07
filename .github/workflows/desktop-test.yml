@@ -338,7 +338,7 @@ jobs:
 
             - name: Build agent dependencies
               working-directory: packages/agent
-              run: pnpm install --frozen-lockfile && pnpm exec turbo build --filter=@posthog/agent^...
+              run: pnpm install --frozen-lockfile && node scripts/turbo.mjs build --filter=@posthog/agent^...
 
             - name: Download native codex binary
               # Non-fatal at the STEP so a failure surfaces as the fail-loud binary guard

@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import { useRef, useState } from 'react'
 
-import { Composer, QuillComposerLayout, QuillComposerSendButton } from 'products/posthog_ai/frontend/api/primitives'
+import { Composer, QuillComposerLayout, QuillComposerSendButton } from 'products/posthog_ai/frontend/api/composer'
 
 import { todayLogic } from './todayLogic'
 
