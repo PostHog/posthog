@@ -2,7 +2,6 @@ import os
 import re
 import json
 import asyncio
-import hashlib
 from collections.abc import AsyncGenerator, Iterable
 from datetime import datetime
 from time import perf_counter
@@ -3079,7 +3078,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 or not tasks_facade.is_html_artifact(content.name, content.content_type)
             ):
                 raise NotFound()
-            script_digest = hashlib.sha256(content.content).hexdigest() if content.written_with_open_network else None
+            script_digest = content.script_sha256
         scripts_available = script_digest is not None
         if run_scripts and not scripts_available:
             raise PermissionDenied(

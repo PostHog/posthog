@@ -10295,39 +10295,73 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 self.client.get(preview_path, HTTP_HOST="usercontent.example").status_code, status.HTTP_404_NOT_FOUND
             )
 
+    @parameterized.expand([("finalized_upload", "upload"), ("living_slack_file_version", "living")])
     @override_settings(
         CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
     )
     @patch("posthog.storage.object_storage.read_bytes")
     @patch("posthog.storage.object_storage.head_object")
+    @patch("posthog.storage.object_storage.write")
     @patch("posthog.storage.object_storage.tag")
-    def test_html_artifact_replaced_after_finalize_does_not_run_scripts(
-        self, _mock_tag, mock_head_object, mock_read_bytes
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_html_artifact_replaced_after_it_was_saved_does_not_run_scripts(
+        self, _name, writer, mock_integration_for_mapping, _mock_tag, _mock_write, mock_head_object, mock_read_bytes
     ):
         approved = b"<p>Approved report</p>"
         mock_head_object.return_value = {"ContentLength": len(approved), "ContentType": "text/html"}
         mock_read_bytes.return_value = approved
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        artifact_id = uuid.uuid4().hex
-        finalized = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/finalize_upload/",
-            {
-                "artifacts": [
-                    {
-                        "id": artifact_id,
-                        "name": "report.html",
-                        "type": "output",
-                        "source": "agent_output",
-                        "storage_path": f"{run.get_artifact_s3_prefix()}/{artifact_id[:8]}_report.html",
-                        "content_type": "text/html",
-                    }
-                ]
-            },
-            format="json",
-        )
-        self.assertEqual(finalized.status_code, status.HTTP_200_OK)
-        api_path = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/preview/?scripts=true"
+        runs_path = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}"
+        if writer == "upload":
+            artifact_id = uuid.uuid4().hex
+            saved = self.client.post(
+                f"{runs_path}/artifacts/finalize_upload/",
+                {
+                    "artifacts": [
+                        {
+                            "id": artifact_id,
+                            "name": "report.html",
+                            "type": "output",
+                            "source": "agent_output",
+                            "storage_path": f"{run.get_artifact_s3_prefix()}/{artifact_id[:8]}_report.html",
+                            "content_type": "text/html",
+                        }
+                    ]
+                },
+                format="json",
+            )
+            api_path = f"{runs_path}/artifacts/{artifact_id}/preview/?scripts=true"
+        else:
+            integration = Integration.objects.create(
+                team=self.team, kind="slack", integration_id="T123", config={"scope": "chat:write,files:write"}
+            )
+            SlackThreadTaskMapping.objects.create(
+                team=self.team,
+                integration=integration,
+                slack_workspace_id="T123",
+                channel="C123",
+                thread_ts="1111.1",
+                task=task,
+                task_run=run,
+                mentioning_slack_user_id="U123",
+            )
+            slack_integration = MagicMock()
+            slack_integration.missing_scopes.return_value = set()
+            mock_integration_for_mapping.return_value = slack_integration
+            saved = self.client.post(
+                f"{runs_path}/living_artifacts/",
+                {
+                    "name": "report.html",
+                    "artifact_type": "file",
+                    "adapter": "slack_file",
+                    "content_base64": base64.b64encode(approved).decode("ascii"),
+                    "content_type": "text/html",
+                },
+                format="json",
+            )
+            api_path = f"{runs_path}/artifacts/{saved.json()['id']}/preview/?version=1&scripts=true"
+        self.assertEqual(saved.status_code, status.HTTP_200_OK)
 
         def served_csp() -> str:
             minted = self.client.get(api_path)

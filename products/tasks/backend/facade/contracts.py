@@ -1049,7 +1049,7 @@ class LivingArtifactVersionContent:
     name: str
     content_type: str
     content: bytes
-    written_with_open_network: bool
+    script_sha256: str | None
 
 
 @dataclass(frozen=True, kw_only=True)
