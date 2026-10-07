@@ -14,6 +14,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
+    IncidentAction,
 )
 
 _HEADLINES: Final[dict[AlertEventKind, str]] = {
@@ -21,6 +22,12 @@ _HEADLINES: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.RESOLVED: "{name} is resolved",
     AlertEventKind.ERRORED: "{name} could not be checked",
     AlertEventKind.BROKEN: "{name} is turned off",
+}
+
+# What a held row says, when cooldown or mute kept its announcement and only its incident moved.
+_INCIDENT_KINDS: Final[dict[IncidentAction, AlertEventKind]] = {
+    IncidentAction.TRIGGER: AlertEventKind.FIRING,
+    IncidentAction.RESOLVE: AlertEventKind.RESOLVED,
 }
 
 
@@ -35,10 +42,19 @@ class MessageDetail:
 
 @frozen
 class AlertMessage:
-    """One notification, before a provider formats it."""
+    """One notification, before a provider formats it.
+
+    `headline` and `details` are the copy, and a provider that renders text uses only those. The
+    other fields are the facts the copy was written from, for a provider whose body is data.
+    `incident_action` is set only on a message for an incident manager destination.
+    """
 
     headline: str
     details: tuple[MessageDetail, ...]
+    configuration_id: str
+    alert_name: str
+    transition: AnnouncedTransition
+    incident_action: IncidentAction | None = None
 
 
 def _number(value: float) -> str:
@@ -76,17 +92,25 @@ def _failure_details(transition: AnnouncedTransition, consecutive_failures: int)
     return details
 
 
-def build_message(announcement: EvaluationAnnouncement, transition: AnnouncedTransition) -> AlertMessage:
+def build_message(
+    announcement: EvaluationAnnouncement,
+    transition: AnnouncedTransition,
+    *,
+    incident_action: IncidentAction | None = None,
+) -> AlertMessage:
     """The message for one transition.
 
     The announcement carries what the whole evaluation decided, the transition what one group
     did. One message per transition: what a message says about several groups at once is a copy
     decision nobody has made, and it arrives with fan-in rather than being guessed at here.
     """
-    headline = _HEADLINES.get(transition.kind)
+    kind = transition.kind
+    if kind == AlertEventKind.CHECK and incident_action is not None:
+        kind = _INCIDENT_KINDS[incident_action]
+    headline = _HEADLINES.get(kind)
     if headline is None:
-        # `announcement` excludes the check rows, so every transition that reaches delivery
-        # announces something. A check here means that filter is gone.
+        # `announcement` returns a check row only for a group whose incident moved, so a check
+        # here without an incident action means that filter is gone.
         raise ValueError(f"{transition.kind} announces nothing and has no message")
 
     failure_kinds = (AlertEventKind.ERRORED, AlertEventKind.BROKEN)
@@ -95,4 +119,11 @@ def build_message(announcement: EvaluationAnnouncement, transition: AnnouncedTra
         if transition.kind in failure_kinds
         else _breach_details(transition)
     )
-    return AlertMessage(headline=headline.format(name=announcement.alert_name), details=tuple(details))
+    return AlertMessage(
+        headline=headline.format(name=announcement.alert_name),
+        details=tuple(details),
+        configuration_id=announcement.configuration_id,
+        alert_name=announcement.alert_name,
+        transition=transition,
+        incident_action=incident_action,
+    )

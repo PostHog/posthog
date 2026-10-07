@@ -3,7 +3,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -27,7 +27,7 @@ INSIGHTS_BASE_URLS: dict[str, str] = {
     "eu": "https://api.eu.jumpcloud.com",
 }
 
-# Both the v1 and v2 console list endpoints cap `limit` at 100.
+# The v1 and v2 console list endpoints cap `limit` at 100, unless an endpoint sets its own page_size.
 REST_PAGE_SIZE = 100
 # Directory Insights allows up to 10,000 events per page; keep pages smaller since each
 # event is a sizeable JSON document and pages are yielded whole.
@@ -192,6 +192,38 @@ def _parse_search_after(raw: str | None, logger: FilteringBoundLogger) -> list[A
     return parsed
 
 
+def _page_size(config: JumpcloudEndpointConfig) -> int:
+    return config.page_size or REST_PAGE_SIZE
+
+
+def _fetch_rest_page(
+    session: requests.Session,
+    base_url: str,
+    path: str,
+    config: JumpcloudEndpointConfig,
+    skip: int,
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    params: dict[str, Any] = {"limit": _page_size(config), "skip": skip}
+    if config.sort:
+        params["sort"] = config.sort
+    url = f"{base_url}{path}?{urlencode(params)}"
+
+    response = _request(session, "GET", url, logger)
+    data = response.json()
+
+    # v1 wraps rows as {"totalCount": n, "results": [...]}; v2 returns a bare array, except the
+    # services that wrap it under `data_key`. Any other 200 payload is a permanent API-contract
+    # violation, not a transient failure.
+    if config.api == "v1" or config.data_key:
+        rows = data.get(config.data_key or "results") if isinstance(data, dict) else None
+    else:
+        rows = data if isinstance(data, list) else None
+    if not isinstance(rows, list):
+        raise ValueError(f"JumpCloud API returned an unexpected response shape: url={url}")
+    return rows
+
+
 def _get_rest_rows(
     session: requests.Session,
     base_url: str,
@@ -206,22 +238,7 @@ def _get_rest_rows(
         logger.debug(f"JumpCloud: resuming {config.name} from skip={skip}")
 
     while True:
-        params: dict[str, Any] = {"limit": REST_PAGE_SIZE, "skip": skip}
-        if config.sort:
-            params["sort"] = config.sort
-        url = f"{base_url}{config.path}?{urlencode(params)}"
-
-        response = _request(session, "GET", url, logger)
-        data = response.json()
-
-        # v1 wraps rows as {"totalCount": n, "results": [...]}; v2 returns a bare array. Any
-        # other 200 payload is a permanent API-contract violation, not a transient failure.
-        if config.api == "v1":
-            rows = data.get("results") if isinstance(data, dict) else None
-        else:
-            rows = data if isinstance(data, list) else None
-        if not isinstance(rows, list):
-            raise ValueError(f"JumpCloud API returned an unexpected response shape: url={url}")
+        rows = _fetch_rest_page(session, base_url, config.path, config, skip, logger)
 
         if not rows:
             break
@@ -229,13 +246,118 @@ def _get_rest_rows(
         yield rows
 
         # A short page means we've reached the end of the resource.
-        if len(rows) < REST_PAGE_SIZE:
+        if len(rows) < _page_size(config):
             break
 
         skip += len(rows)
         # Save AFTER yielding so a crash re-runs from the last persisted offset rather than
         # skipping ahead; the merge dedupes any re-pulled rows on the primary key.
         resumable_source_manager.save_state(JumpcloudResumeConfig(skip=skip))
+
+
+def _get_child_rows(
+    session: requests.Session,
+    base_url: str,
+    config: JumpcloudEndpointConfig,
+    parent_id: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    path = config.path.replace("{parent_id}", quote(parent_id, safe=""))
+    skip = 0
+    while True:
+        try:
+            rows = _fetch_rest_page(session, base_url, path, config, skip, logger)
+        except requests.HTTPError as e:
+            # The parent can be deleted between listing it and requesting its children.
+            if e.response is not None and e.response.status_code == 404:
+                logger.warning(f"JumpCloud: {config.parent} {parent_id} not found while syncing {config.name}")
+                return
+            raise
+
+        if not rows:
+            return
+
+        yield rows
+
+        if len(rows) < _page_size(config):
+            return
+        skip += len(rows)
+
+
+def _yield_with_checkpoint(
+    rows: Iterator[list[dict[str, Any]]],
+    next_state: JumpcloudResumeConfig | None,
+    resumable_source_manager: ResumableSourceManager[JumpcloudResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Hold one batch so the next-page state is staged immediately before the last yield."""
+    try:
+        pending = next(rows)
+    except StopIteration:
+        if next_state is not None:
+            resumable_source_manager.save_state(next_state)
+            resumable_source_manager.safe_point()
+        return
+
+    for batch in rows:
+        yield pending
+        pending = batch
+
+    if next_state is not None:
+        resumable_source_manager.save_state(next_state)
+    yield pending
+    if next_state is not None:
+        resumable_source_manager.safe_point()
+
+
+def _get_fanout_rows(
+    session: requests.Session,
+    base_url: str,
+    config: JumpcloudEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[JumpcloudResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Page through the parent endpoint, then through the child endpoint of each parent row.
+
+    The resume cursor is the parent page offset, so a resumed attempt re-requests the children of
+    at most one parent page; the merge dedupes them on the composite primary key.
+    """
+    if config.parent is None or config.parent_id_column is None:
+        raise ValueError(f"JumpCloud endpoint {config.name} is not a fan-out endpoint")
+    parent_config = JUMPCLOUD_ENDPOINTS[config.parent]
+    parent_id_column = config.parent_id_column
+    parent_key = parent_config.primary_key
+    if parent_key is None:
+        raise ValueError(f"JumpCloud endpoint {config.parent} has no primary key to fan out on")
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    parent_skip = resume.skip if resume else 0
+    if resume:
+        logger.debug(f"JumpCloud: resuming {config.name} from parent skip={parent_skip}")
+
+    while True:
+        parents = _fetch_rest_page(session, base_url, parent_config.path, parent_config, parent_skip, logger)
+        if not parents:
+            break
+
+        def page_rows(parent_page: list[dict[str, Any]] = parents) -> Iterator[list[dict[str, Any]]]:
+            for parent in parent_page:
+                parent_id = parent.get(parent_key)
+                if not parent_id:
+                    continue
+                has_children = False
+                for rows in _get_child_rows(session, base_url, config, str(parent_id), logger):
+                    has_children = True
+                    yield [{**row, parent_id_column: parent_id} for row in rows]
+                if not has_children:
+                    resumable_source_manager.safe_point()
+
+        has_more = len(parents) >= _page_size(parent_config)
+        next_state = JumpcloudResumeConfig(skip=parent_skip + len(parents)) if has_more else None
+        yield from _yield_with_checkpoint(page_rows(), next_state, resumable_source_manager)
+
+        if not has_more:
+            break
+        parent_skip += len(parents)
 
 
 def _get_event_rows(
@@ -319,6 +441,9 @@ def validate_credentials(
     (``schema_name`` set) treats 403 as a hard failure.
     """
     endpoint = JUMPCLOUD_ENDPOINTS.get(schema_name) if schema_name else None
+    if endpoint is not None and endpoint.parent:
+        # A child path needs a parent id, so a scoped probe checks the parent listing instead.
+        endpoint = JUMPCLOUD_ENDPOINTS[endpoint.parent]
     # A scoped probe against a secret-bearing endpoint returns rows too, so keep its response out
     # of HTTP sample capture as well.
     session = _make_session(api_key, org_id, capture=not (endpoint is not None and endpoint.redact_keys))
@@ -379,8 +504,10 @@ def get_rows(
     config = JUMPCLOUD_ENDPOINTS[endpoint]
     # One session reused across every page so urllib3 keeps the connection alive. Endpoints that
     # redact secret-bearing fields opt out of HTTP sample capture entirely, since capture records
-    # the raw body before those fields can be stripped.
-    session = _make_session(api_key, org_id, capture=not config.redact_keys)
+    # the raw body before those fields can be stripped. A fan-out endpoint also reads its parent's
+    # raw listing, so it inherits the parent's opt-out.
+    parent_redacts = config.parent is not None and bool(JUMPCLOUD_ENDPOINTS[config.parent].redact_keys)
+    session = _make_session(api_key, org_id, capture=not (config.redact_keys or parent_redacts))
 
     if config.api == "insights":
         pages = _get_event_rows(
@@ -392,6 +519,8 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
+    elif config.parent:
+        pages = _get_fanout_rows(session, _console_base_url(region), config, logger, resumable_source_manager)
     else:
         pages = _get_rest_rows(session, _console_base_url(region), config, logger, resumable_source_manager)
 
@@ -429,7 +558,7 @@ def jumpcloud_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
-        primary_keys=[endpoint_config.primary_key],
+        primary_keys=endpoint_config.primary_keys,
         # Directory Insights doesn't document a guaranteed response ordering for the events
         # query, so "desc" keeps the incremental watermark safe: it's persisted once, as the
         # run's max, only after the whole window has been walked. The REST endpoints are

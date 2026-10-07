@@ -10,7 +10,7 @@ See [`sql.py`](./sql.py) for the table family and the schema this compares again
 
 Two inputs, both explicit.
 
-**The day.** One completed UTC day, as `YYYY-MM-DD`. Not today: a partial day reads as a deficit for every event that has not been written yet.
+**The day.** One completed UTC day, as `YYYY-MM-DD`. Not today: a partial day reads as a deficit for every event that has not been written yet. Pick a day inside the table's 90-day retention, because the table holds no older calls.
 
 **The team ids being widened to.** The allowlist lives only in the Node deployment env config (`INGESTION_FLAG_EVALUATIONS_TEAMS`, `INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS`, `INGESTION_FLAG_EVALUATIONS_MODE`), and nothing in ClickHouse records it. A team that is enabled but writing nothing at all looks identical to a team that was never enabled, so the check cannot derive its own team list. Pass the ids you intend to switch on.
 
@@ -102,13 +102,11 @@ This runs on the cluster that serves customer queries. The group-by state grows 
 
 If a batch reaches a ceiling, shrink the batch. Do not raise the ceiling.
 
-### Delayed lanes never fork
+### A lane forks only when its deployment config turns the fork on
 
-The fork runs only on the real-time lanes, and that is enforced in code rather than left to deployment config. `createFlagEvaluationsService` in `nodejs/src/ingestion/common/flag-evaluations/flag-evaluations-service.ts` returns `undefined` for any lane outside `REALTIME_INGESTION_LANES`, and the pipeline composes the fork step out entirely when it does. Setting the env vars on the `historical` or `async` lane does not switch it on. The reason for the gate is that a backfill owns this table's history, so a delayed lane that also forked would write rows the backfill already covers.
+Every analytics ingestion lane can run the fork step, the delayed `historical` and `async` lanes included. A lane forks only when its deployment config sets `INGESTION_FLAG_EVALUATIONS_MODE` and `INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC`. A lane without them writes the team's calls to the events table and not to `flag_evaluations`, which reads as a deficit for a team whose fork is healthy.
 
-The deficit this produces is therefore narrow. It is not a lane that should have forked and didn't. It is an event that arrives on a real-time lane, gets rerouted to a delayed lane, and reaches the events table with no fork row, which reads as a deficit for a team whose fork is healthy.
-
-Check it first on a deficit that names a team with no other sign of trouble.
+On a deficit that names a team with no other sign of trouble, check whether the missing calls came through a lane whose deployment config does not turn the fork on. While the `historical` lane does not fork, start there. It carries `/batch/` requests sent with `historical_migration: true` and managed batch imports, so the events rows it wrote have `historical_migration = 1`. Add `AND historical_migration = 0` to the `events` half of the `UNION ALL`. If the deficit disappears, the missing calls came through the historical lane.
 
 ## Why this is not a scheduled job
 

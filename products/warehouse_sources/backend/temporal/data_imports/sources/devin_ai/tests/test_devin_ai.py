@@ -108,6 +108,7 @@ class TestEndpointPath:
             ("playbooks", "/v3/organizations/org-abc/playbooks"),
             ("knowledge_notes", "/v3/organizations/org-abc/knowledge/notes"),
             ("secrets", "/v3/organizations/org-abc/secrets"),
+            ("automations", "/v3/organizations/org-abc/automations"),
             ("session_insights", "/v3/organizations/org-abc/sessions/insights"),
             ("consumption_daily", "/v3/organizations/org-abc/consumption/daily"),
             # Members must stay on the org-scoped users listing: the v2 members endpoint only accepts
@@ -269,7 +270,7 @@ class TestGetStatusCode:
 
 
 class TestDevinAISource:
-    @parameterized.expand(["sessions", "session_insights", "playbooks", "knowledge_notes", "secrets"])
+    @parameterized.expand(["sessions", "session_insights", "playbooks", "knowledge_notes", "secrets", "automations"])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_source_response_uses_endpoint_primary_keys_and_stable_partition(self, endpoint: str, MockSession) -> None:
         response = _source(endpoint, _make_manager())

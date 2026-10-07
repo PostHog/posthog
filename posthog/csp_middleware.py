@@ -452,6 +452,8 @@ class CSPMiddleware:
                             f"https://webhooks.{urlsplit(settings.SITE_URL).hostname}",
                             # The onboarding adblock check probes the region's ingestion host.
                             f"{get_api_host()}/decide/",
+                            # The canvas bridge posts each ph.capture() event to the region's capture endpoint.
+                            f"{get_api_host()}/i/v0/e/",
                             # A task run's live stream, when the server hands out the region's agent-proxy.
                             *agent_proxy,
                         ],

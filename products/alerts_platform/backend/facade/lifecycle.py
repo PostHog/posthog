@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 from enum import Enum, StrEnum
 from typing import Protocol
 
-from products.alerts_platform.backend.facade.contracts import AlertEventKind, FiringEpisode
+from products.alerts_platform.backend.facade.contracts import AlertEventKind, FiringEpisode, IncidentAction
 
 MAX_CONSECUTIVE_FAILURES = 5
 
@@ -254,14 +254,9 @@ def decide_firing_episode(
     parks in SNOOZED with the firing still running underneath the mute, so a caller reading the
     two state strings cannot tell that state from a resolve.
     """
-    was_firing = snapshot.state in FIRING_STATES or (
-        policy.clear_check_ends_snooze and snapshot.state == AlertState.SNOOZED
-    )
-    if outcome.new_state == AlertState.SNOOZED:
-        if not (policy.clear_check_ends_snooze and was_firing):
-            return None
-        return FiringEpisode(started_at=snapshot.firing_started_at, ended=False)
-    if outcome.new_state in FIRING_STATES:
+    was_firing = _inside_firing(snapshot.state, policy)
+    is_firing = _firing_after(was_firing, outcome.new_state, policy)
+    if is_firing:
         # A firing that began before the platform recorded starts keeps an unknown one rather
         # than taking `now`, because a start later than `last_notified_at` would read as never
         # announced.
@@ -270,6 +265,35 @@ def decide_firing_episode(
     if not was_firing:
         return None
     return FiringEpisode(started_at=snapshot.firing_started_at, ended=True)
+
+
+def _inside_firing(state: AlertState, policy: AlertPolicy) -> bool:
+    return state in FIRING_STATES or (policy.clear_check_ends_snooze and state == AlertState.SNOOZED)
+
+
+def _firing_after(was_firing: bool, new_state: AlertState, policy: AlertPolicy) -> bool:
+    # A move into SNOOZED parks a firing only under clear_check_ends_snooze, and never starts one.
+    return _inside_firing(new_state, policy) and (new_state != AlertState.SNOOZED or was_firing)
+
+
+def decide_incident_action(
+    previous_state: AlertState, new_state: AlertState, *, policy: AlertPolicy
+) -> IncidentAction | None:
+    """Whether a transition opens or closes the incident a paging destination holds for the alert.
+
+    Read from the states and never from the notification. Cooldown and mute hold back the
+    announcement while the state still moves, and an incident manager needs one resolve for every
+    trigger it received, so a held resolve must still close the incident. The firing rule is
+    `decide_firing_episode`'s, so a policy that parks a firing alert in SNOOZED keeps its incident
+    open there.
+    """
+    was_firing = _inside_firing(previous_state, policy)
+    is_firing = _firing_after(was_firing, new_state, policy)
+    if is_firing and not was_firing:
+        return IncidentAction.TRIGGER
+    if was_firing and not is_firing:
+        return IncidentAction.RESOLVE
+    return None
 
 
 def evaluate_alert_check(

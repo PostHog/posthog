@@ -3,7 +3,7 @@ import datetime as dt
 from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
-from temporalio.common import MetricCounter
+from temporalio.common import MetricCounter, MetricHistogram
 
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
@@ -89,6 +89,19 @@ def get_worker_shutdown_handoff_metric(source_type: str | None) -> MetricCounter
     )
 
 
+def get_import_handoffs_per_run_metric(source_type: str | None) -> MetricHistogram:
+    # One observation per workflow run that can hand off for free, zero included. Compare it with
+    # the attempt histogram to tell runs that worker restarts moved from runs that failed.
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown"})
+        .create_histogram(
+            "warehouse_import_handoffs_per_run",
+            "Worker-shutdown hand-offs of the import activity in one workflow run.",
+        )
+    )
+
+
 def emit_data_import_app_metrics(job: "ExternalDataJob") -> None:
     """Emit app_metrics2 rows for a data import job that just reached terminal state.
 
@@ -131,10 +144,9 @@ def emit_data_import_app_metrics(job: "ExternalDataJob") -> None:
     # Each destination is also keyed on its own, without a schema. A source-level surface wants one
     # series per destination across every table, and the API filters `instance_id` by equality, so
     # without this row it would have to ask once per schema per destination.
-    # `destination_ids_for_run` returns an empty list when a schema resolves to the PostHog
-    # warehouse alone, so the run stays byte-for-byte on the path it took before destinations
-    # existed. Without this fallback those runs report no destination at all, and a project
-    # that never configured one sees an empty rows-by-destination chart.
+    # A run still reaches here with no ids: a job that predates destinations, a CDC companion
+    # lane, or a run of a team the flag was off for. Without this fallback those runs report no
+    # destination at all, and a project sees a gap in its rows-by-destination chart.
     destination_ids = list(job.destination_ids or [])
     if not destination_ids:
         try:

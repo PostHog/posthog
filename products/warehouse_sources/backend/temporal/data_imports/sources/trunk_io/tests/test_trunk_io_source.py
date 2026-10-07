@@ -62,16 +62,63 @@ class TestTrunkIoSource:
         assert repo.owner == "my-org"
         assert repo.name == "my-repo"
 
+    def test_new_sources_default_to_v2(self):
+        assert self.source.supported_versions == ("v1", "v2")
+        assert self.source.default_version == "v2"
+
     @parameterized.expand(
         [
-            ("UnhealthyTests", "unhealthy_tests"),
-            ("QuarantinedTests", "quarantined_tests"),
-            ("FailingTests", "failing_tests"),
-            ("MergeQueuePullRequests", "merge_queue_pull_requests"),
+            ("v1", "v1", ["UnhealthyTests", "QuarantinedTests", "FailingTests", "MergeQueuePullRequests"]),
+            (
+                "v2",
+                "v2",
+                [
+                    "UnhealthyTests",
+                    "QuarantinedTests",
+                    "FailingTests",
+                    "MergeQueuePullRequests",
+                    "TestCollections",
+                    "Tests",
+                ],
+            ),
+            (
+                "unpinned",
+                None,
+                [
+                    "UnhealthyTests",
+                    "QuarantinedTests",
+                    "FailingTests",
+                    "MergeQueuePullRequests",
+                    "TestCollections",
+                    "Tests",
+                ],
+            ),
         ]
     )
-    def test_source_for_pipeline_dispatches_to_expected_transport(self, schema_name: str, transport_fn: str):
-        inputs = _make_inputs(schema_name)
+    def test_get_schemas_lists_tables_for_pinned_version(
+        self, _label: str, api_version: str | None, expected: list[str]
+    ):
+        schemas = self.source.get_schemas(self.config, self.team_id, api_version=api_version)
+        assert [s.name for s in schemas] == expected
+
+    @parameterized.expand(
+        [
+            ("UnhealthyTests", "unhealthy_tests", "v1"),
+            ("QuarantinedTests", "quarantined_tests", "v1"),
+            ("FailingTests", "failing_tests", "v1"),
+            ("MergeQueuePullRequests", "merge_queue_pull_requests", "v1"),
+            ("UnhealthyTests", "unhealthy_tests", "v2"),
+            ("QuarantinedTests", "quarantined_tests", "v2"),
+            ("FailingTests", "failing_tests", "v2"),
+            ("MergeQueuePullRequests", "merge_queue_pull_requests", "v2"),
+            ("TestCollections", "list_test_collections", "v2"),
+            ("Tests", "list_tests", "v2"),
+        ]
+    )
+    def test_source_for_pipeline_dispatches_to_expected_transport(
+        self, schema_name: str, transport_fn: str, api_version: str
+    ):
+        inputs = _make_inputs(schema_name, api_version=api_version)
         manager = MagicMock(spec=ResumableSourceManager)
 
         with patch(
@@ -83,17 +130,21 @@ class TestTrunkIoSource:
         mock_transport.assert_called_once()
         assert response.name == schema_name
 
-    def test_source_for_pipeline_unknown_endpoint_raises(self):
-        inputs = _make_inputs("NotARealEndpoint")
+    @parameterized.expand(
+        [
+            ("unknown", "NotARealEndpoint", "v2"),
+            ("v2_table_on_v1_pin", "TestCollections", "v1"),
+            ("v2_tests_on_v1_pin", "Tests", "v1"),
+        ]
+    )
+    def test_source_for_pipeline_rejects_tables_the_pin_does_not_serve(
+        self, _label: str, schema_name: str, api_version: str
+    ):
+        inputs = _make_inputs(schema_name, api_version=api_version)
         manager = MagicMock(spec=ResumableSourceManager)
 
-        try:
+        with pytest.raises(ValueError):
             self.source.source_for_pipeline(self.config, manager, inputs)
-            raised = False
-        except ValueError:
-            raised = True
-
-        assert raised
 
     @parameterized.expand(
         [
@@ -101,6 +152,8 @@ class TestTrunkIoSource:
             ("QuarantinedTests", ["name", "parent", "file", "classname", "variant"]),
             ("FailingTests", ["id"]),
             ("MergeQueuePullRequests", ["id"]),
+            ("TestCollections", ["id"]),
+            ("Tests", ["id"]),
         ]
     )
     def test_source_for_pipeline_primary_keys(self, schema_name: str, expected_keys: list[str]):
@@ -111,6 +164,8 @@ class TestTrunkIoSource:
             "QuarantinedTests": "quarantined_tests",
             "FailingTests": "failing_tests",
             "MergeQueuePullRequests": "merge_queue_pull_requests",
+            "TestCollections": "list_test_collections",
+            "Tests": "list_tests",
         }[schema_name]
 
         with patch(

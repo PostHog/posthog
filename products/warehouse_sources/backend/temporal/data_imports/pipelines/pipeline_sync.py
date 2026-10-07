@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from django.db import transaction
 from django.db.models import Prefetch
+from django.utils import timezone
 
 import dlt
 import pyarrow
@@ -267,6 +268,28 @@ def _refresh_cumulative_row_count(
         logger.warning(f"Could not refresh cumulative row count for {context}, keeping previous value", exc_info=True)
 
 
+def _storage_delta_mib(table: DataWarehouseTable | None, live_size_mib: Optional[float]) -> Optional[float]:
+    if live_size_mib is None:
+        return None
+    previous_size_mib = (table.size_in_s3_mib or 0) if table is not None else 0
+    return live_size_mib - previous_size_mib
+
+
+def _record_storage_delta(job: ExternalDataJob, storage_delta_mib: Optional[float]) -> None:
+    if storage_delta_mib is None:
+        return
+    # One job can register more than once: a redelivered final batch runs post-load again, and a CDC
+    # snapshot also seeds its companion table. Each registration adds its own change, so a second
+    # pass that changes nothing does not erase the first.
+    job.storage_delta_mib = (job.storage_delta_mib or 0) + storage_delta_mib
+    # A queryset update does not raise when the job row was deleted during post-load.
+    retry_on_db_connection_drop(
+        lambda: ExternalDataJob.objects.filter(pk=job.pk).update(
+            storage_delta_mib=job.storage_delta_mib, updated_at=timezone.now()
+        )
+    )
+
+
 def own_linked_table(schema: ExternalDataSchema, pipeline: ExternalDataSource) -> DataWarehouseTable | None:
     """The schema's linked table, unless the link is its `_cdc` companion.
 
@@ -295,6 +318,7 @@ async def validate_schema_and_update_table(
     primary_keys: Optional[list[str]] = None,
     delta_schema_json: Optional[str] = None,
     live_row_count: Optional[int] = None,
+    live_size_mib: Optional[float] = None,
 ) -> None:
     """
     Async version of validate_schema_and_update_table_sync.
@@ -314,6 +338,9 @@ async def validate_schema_and_update_table(
             the column write are skipped; the pointer flip and the row count still happen.
         live_row_count: The row count of the published files, read from the Delta log. When given,
             it replaces the count of those files that a table needs when `row_count` is not its size.
+        live_size_mib: The size of the published files, read from the Delta log. When given, it is
+            recorded as the table's size and the change is added to the job's `storage_delta_mib`.
+            When None, the recorded size stays as it is.
     """
     logger = LOGGER.bind(team_id=team_id)
 
@@ -382,6 +409,7 @@ async def validate_schema_and_update_table(
             if table_created:
                 table = table_created
                 previous_queryable_folder = table.queryable_folder
+                storage_delta_mib = _storage_delta_mib(table, live_size_mib)
                 table.format = table_params["format"]
                 table.url_pattern = new_url_pattern
                 table.queryable_folder = queryable_folder
@@ -396,12 +424,14 @@ async def validate_schema_and_update_table(
                 # on a fresh connection rather than let this escape as error-tracking noise.
                 # new_url_pattern above is derived from the job's own destination folder, not from
                 # request input, so this sync is a trusted writer of a credential-less table's URL.
+                update_fields = ["format", "url_pattern", "queryable_folder", "row_count"]
+                if live_size_mib is not None:
+                    table.size_in_s3_mib = live_size_mib
+                    update_fields.append("size_in_s3_mib")
                 retry_on_db_connection_drop(
-                    lambda: table.save(
-                        update_fields=["format", "url_pattern", "queryable_folder", "row_count"],
-                        internally_computed_url_pattern=True,
-                    )
+                    lambda: table.save(update_fields=update_fields, internally_computed_url_pattern=True)
                 )
+                _record_storage_delta(job, storage_delta_mib)
                 _record_query_folder_pointer(
                     _schema_id, team_id, previous_queryable_folder, queryable_folder, run_id, logger
                 )
@@ -411,8 +441,10 @@ async def validate_schema_and_update_table(
                 table = DataWarehouseTable.objects.create(
                     external_data_source_id=job.pipeline.id,
                     created_via=DataWarehouseTableCreatedVia.SOURCE,
+                    size_in_s3_mib=live_size_mib,
                     **table_params,
                 )
+                _record_storage_delta(job, _storage_delta_mib(None, live_size_mib))
                 _record_query_folder_pointer(_schema_id, team_id, None, queryable_folder, run_id, logger)
                 if row_count == 0:
                     # table_params holds 0 for a table an earlier attempt already filled. get_count()
@@ -469,10 +501,10 @@ async def validate_schema_and_update_table(
                         effective_primary_keys,
                         external_data_schema.incremental_field,
                     )
-                    table_for_update.columns = columns
-                    table_for_update.save(update_fields=["columns"])
+                    table_for_update.set_columns(columns)
+                    table_for_update.save(update_fields=["columns", "column_order"])
                     # Keep local reference in sync
-                    table_created.columns = columns
+                    table_created.set_columns(columns)
 
                     # schema could have been deleted by this point
                     schema_model = (
@@ -528,6 +560,7 @@ async def register_cdc_companion_table(
     table_schema_dict: Optional[dict[str, str]] = None,
     set_as_schema_table: bool = False,
     live_row_count: Optional[int] = None,
+    live_size_mib: Optional[float] = None,
 ) -> None:
     """Create or update a standalone DataWarehouseTable for a CDC companion resource (e.g. `{schema_name}_cdc`).
 
@@ -574,6 +607,7 @@ async def register_cdc_companion_table(
             ).first()
 
             previous_queryable_folder = companion_table.queryable_folder if companion_table else None
+            storage_delta_mib = _storage_delta_mib(companion_table, live_size_mib)
             if companion_table:
                 table = companion_table
                 table.format = table_format
@@ -587,19 +621,22 @@ async def register_cdc_companion_table(
                 # on a fresh connection rather than let this escape as error-tracking noise.
                 # new_url_pattern above is derived from the job's own destination folder, not from
                 # request input, so this sync is a trusted writer of a credential-less table's URL.
+                update_fields = ["format", "url_pattern", "queryable_folder", "row_count"]
+                if live_size_mib is not None:
+                    table.size_in_s3_mib = live_size_mib
+                    update_fields.append("size_in_s3_mib")
                 retry_on_db_connection_drop(
-                    lambda: table.save(
-                        update_fields=["format", "url_pattern", "queryable_folder", "row_count"],
-                        internally_computed_url_pattern=True,
-                    )
+                    lambda: table.save(update_fields=update_fields, internally_computed_url_pattern=True)
                 )
             else:
                 logger.debug(f"Creating CDC companion table: {companion_table_name}")
                 companion_table = DataWarehouseTable.objects.create(
                     external_data_source_id=job.pipeline.id,
                     created_via=DataWarehouseTableCreatedVia.SOURCE,
+                    size_in_s3_mib=live_size_mib,
                     **table_params,
                 )
+            _record_storage_delta(job, storage_delta_mib)
             _record_query_folder_pointer(
                 schema_id, team_id, previous_queryable_folder, queryable_folder, run_id, logger
             )
@@ -611,8 +648,8 @@ async def register_cdc_companion_table(
 
             def _persist_columns() -> None:
                 with transaction.atomic():
-                    companion_table.columns = columns
-                    companion_table.save(update_fields=["columns"])
+                    companion_table.set_columns(columns)
+                    companion_table.save(update_fields=["columns", "column_order"])
 
                     if set_as_schema_table:
                         ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).update(table=companion_table)

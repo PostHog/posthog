@@ -4,6 +4,7 @@ from products.experiments.backend.replay_context import (
     accessible_experiment_ids,
     experiment_prompt_context,
     experiment_status,
+    launched_experiment_ids,
     session_attribution,
     session_variant,
     variant_rollout_shares,
@@ -21,6 +22,7 @@ from products.experiments.backend.replay_linkage import (
     resolve_exposure_linkage,
     resolve_in_session_exposure_semantics,
     targetable_experiments,
+    validate_draft_experiment_scope,
     validate_experiment_exposure_access,
 )
 
@@ -34,6 +36,7 @@ __all__ = [
     "accessible_experiment_ids",
     "experiment_prompt_context",
     "experiment_status",
+    "launched_experiment_ids",
     "exposed_distinct_ids_select",
     "exposed_persons_select",
     "exposed_session_ids_select",
@@ -42,6 +45,7 @@ __all__ = [
     "session_attribution",
     "session_variant",
     "targetable_experiments",
+    "validate_draft_experiment_scope",
     "validate_experiment_exposure_access",
     "variant_rollout_shares",
 ]

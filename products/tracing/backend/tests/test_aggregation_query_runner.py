@@ -1,10 +1,14 @@
 import datetime as dt
+from types import SimpleNamespace
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, TraceSpansAggregationQuery
+from posthog.schema import CompareFilter, DateRange, TraceSpansAggregationQuery
+
+from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.client import sync_execute
 
@@ -27,6 +31,29 @@ class TestPaginationReachesTheCacheKey(BaseTest):
         first_key = TraceSpansAggregationQueryRunner(query, self.team, **first).get_cache_key()
         second_key = TraceSpansAggregationQueryRunner(query, self.team, **second).get_cache_key()
         assert first_key != second_key
+
+
+class TestCompareFanOutTimings(BaseTest):
+    def test_each_window_gets_its_own_timings_and_both_are_merged_back(self):
+        received: list[HogQLTimings] = []
+
+        def fake_execute(**kwargs):
+            timings = kwargs["timings"]
+            received.append(timings)
+            with timings.measure("execute"):
+                pass
+            return SimpleNamespace(results=[])
+
+        query = TraceSpansAggregationQuery(
+            dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO), compareFilter=CompareFilter(compare=True)
+        )
+        runner = TraceSpansAggregationQueryRunner(query, self.team)
+        with patch("products.tracing.backend.aggregation_query_runner.execute_hogql_query", side_effect=fake_execute):
+            runner.calculate()
+
+        assert len({id(t) for t in received}) == 2
+        assert runner.timings not in received
+        assert {"./series_0/execute", "./series_1/execute"} <= runner.timings.timings.keys()
 
 
 class TestTraceSpansTreeStartOffset(_TraceSpansTestBase):

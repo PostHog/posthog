@@ -1421,6 +1421,8 @@ class GitHubIntegrationBase:
         that must know whether one specific person lands checks here first.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        if not _is_safe_github_repo_path(repo_path) or "/" in login or ".." in login:
+            return {"success": False, "error": "Unsafe repository or login for an assignee check"}
 
         response = self._installation_authenticated_get(
             f"https://api.github.com/repos/{repo_path}/assignees/{login}",
