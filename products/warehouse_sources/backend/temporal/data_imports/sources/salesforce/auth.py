@@ -11,8 +11,6 @@ from requests.exceptions import (
     Timeout as RequestsTimeout,
 )
 
-from posthog.psycopg_helpers import is_temporary_resolution_failure
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.deadline import (
     DeadlineExceededError,
@@ -113,7 +111,9 @@ def _instance_host_missing(instance_url: str) -> bool:
             thread_name="salesforce-instance-resolve",
         )
     except socket.gaierror as e:
-        return not is_temporary_resolution_failure(e)
+        # Only NXDOMAIN is an answer about the name. Every other errno, EAI_FAIL included, is the
+        # resolver failing, which says nothing about the org.
+        return e.errno == socket.EAI_NONAME
     except (DeadlineExceededError, UnicodeError):
         return False
     return False

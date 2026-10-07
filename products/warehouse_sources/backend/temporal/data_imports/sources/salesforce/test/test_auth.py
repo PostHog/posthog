@@ -164,8 +164,9 @@ def test_refresh_retries_transient_transport_error_then_succeeds():
     [
         None,
         socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution"),
+        socket.gaierror(socket.EAI_FAIL, "Non-recoverable failure in name resolution"),
     ],
-    ids=["host_resolves", "resolver_blip"],
+    ids=["host_resolves", "resolver_blip", "resolver_failure"],
 )
 def test_refresh_raises_transport_error_after_exhausting_retries(lookup_error):
     items = [requests.exceptions.ProxyError("Cannot connect to proxy") for _ in range(auth._MAX_TOKEN_REFRESH_ATTEMPTS)]
