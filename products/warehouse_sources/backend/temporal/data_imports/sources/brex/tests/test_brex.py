@@ -248,6 +248,7 @@ class TestGetRows:
             "departments",
             "locations",
             "titles",
+            "cost_centers",
             "cards",
             "fields",
             "vendors",
@@ -628,6 +629,7 @@ class TestPathResolution:
         [
             ("users", "/v2/users"),
             ("titles", "/v2/titles"),
+            ("cost_centers", "/v2/cost_centers"),
             ("cards", "/v2/cards"),
             ("fields", "/v1/fields"),
             ("field_values", "/v1/fields/{field_id}/values"),

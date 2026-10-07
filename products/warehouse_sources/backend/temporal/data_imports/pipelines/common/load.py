@@ -621,7 +621,7 @@ async def _maybe_flag_repartition_step(
 
     delta_table = await delta_table_ref.get_delta_table()
     if delta_table is not None:
-        await maybe_flag_for_repartition(schema, source, job, delta_table, logger)
+        await maybe_flag_for_repartition(schema, source, job, delta_table, logger, phase="post_load")
 
 
 # Product-facing side effects outside the core publish/register flow. Entries share the PostLoadStep
