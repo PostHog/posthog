@@ -631,6 +631,14 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         ],
     })),
     reducers({
+        htmlPreview: {
+            loadHtmlPreview: (_, artifact: RunArtifact): ArtifactHtmlPreview => ({
+                artifactId: artifact.id ?? '',
+                url: null,
+                error: null,
+                expiresAt: 0,
+            }),
+        },
         activeTab: [
             'conversation' as TaskRunTab,
             { setActiveTab: (_, { tab }) => tab, openFromUrl: () => 'artifacts' },
@@ -918,7 +926,8 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             }
             if (
                 kind === 'html' &&
-                (values.htmlPreview?.artifactId !== artifact.id || (values.htmlPreview?.expiresAt ?? 0) < Date.now())
+                (values.htmlPreview?.artifactId !== artifact.id ||
+                    (!values.htmlPreviewLoading && (values.htmlPreview?.expiresAt ?? 0) < Date.now()))
             ) {
                 actions.loadHtmlPreview(artifact)
             }

@@ -143,29 +143,65 @@ describe('taskRunArtifactsLogic', () => {
         await expectLogic(logic).toMatchValues({ activeTab: 'conversation', selectedFileKey: null })
     })
 
-    it('requests a runnable preview when an HTML artifact opens', async () => {
-        runArtifacts = [
-            {
-                id: 'html-1',
-                name: 'interactive.html',
-                type: 'output',
-                source: 'agent_output',
-                content_type: 'text/html',
-                storage_path: 'tasks/artifacts/html-1',
-                uploaded_at: '2026-09-28T18:00:00Z',
-            },
-        ]
+    it('loads each selected HTML preview once and ignores an old response', async () => {
+        runArtifacts = ['interactive.html', 'second.html'].map((name, index) => ({
+            id: `html-${index + 1}`,
+            name,
+            type: 'output',
+            source: 'agent_output',
+            content_type: 'text/html',
+            storage_path: `tasks/artifacts/html-${index + 1}`,
+            uploaded_at: '2026-09-28T18:00:00Z',
+        }))
+        const fetch = global.fetch
+        const pending: Array<(response: Response) => void> = []
+        global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) =>
+            String(input).includes('/preview/')
+                ? new Promise<Response>((resolve) => pending.push(resolve))
+                : fetch(input, init)
+        )
         const logic = taskRunArtifactsLogic({ taskId: TASK_ID })
         logic.mount()
         await expectLogic(logic, () => logic.actions.setActiveTab('artifacts')).toFinishAllListeners()
-        await expectLogic(logic, () => logic.actions.ensureSelectedText()).toFinishAllListeners()
-
-        expect(logic.values.htmlPreview?.artifactId).toBe('html-1')
-        expect(logic.values.htmlPreview?.url).toContain('/canvas-artifacts/task-preview/')
+        await expectLogic(logic, () => logic.actions.ensureSelectedText()).toMatchValues({ htmlPreviewLoading: true })
+        logic.actions.ensureSelectedText()
+        expect(pending).toHaveLength(1)
         expect(global.fetch).toHaveBeenCalledWith(
             expect.stringContaining(`/tasks/${TASK_ID}/runs/${RUN_ID}/artifacts/html-1/preview/`),
             expect.anything()
         )
+
+        logic.actions.selectArtifact('second.html')
+        logic.actions.ensureSelectedText()
+        expect(pending).toHaveLength(2)
+        await expectLogic(logic, () =>
+            pending[1](
+                new Response(
+                    JSON.stringify({
+                        url: 'https://usercontent.example/canvas-artifacts/task-preview/second/index.html',
+                    }),
+                    {
+                        headers: { 'Content-Type': 'application/json' },
+                    }
+                )
+            )
+        )
+            .toDispatchActions(['loadHtmlPreviewSuccess'])
+            .toMatchValues({
+                htmlPreviewLoading: false,
+                htmlPreview: expect.objectContaining({ artifactId: 'html-2' }),
+            })
+        pending[0](
+            new Response(
+                JSON.stringify({ url: 'https://usercontent.example/canvas-artifacts/task-preview/first/index.html' }),
+                {
+                    headers: { 'Content-Type': 'application/json' },
+                }
+            )
+        )
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.htmlPreview?.artifactId).toBe('html-2')
+        expect(logic.values.htmlPreview?.url).toContain('/task-preview/second/')
     })
 
     it.each([

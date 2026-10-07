@@ -838,8 +838,8 @@ function ArtifactToolbar({
                         Sandboxed
                     </TooltipTrigger>
                     <TooltipContent>
-                        This page runs with scripts off and no network. It can't read your PostHog data, cookies or
-                        session.
+                        Scripts run in an isolated frame. They cannot access your PostHog cookies or session. External
+                        scripts and API requests are blocked.
                     </TooltipContent>
                 </Tooltip>
             )}
