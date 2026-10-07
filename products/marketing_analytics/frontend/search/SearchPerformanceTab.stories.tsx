@@ -1,11 +1,15 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
-import { BindLogic } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
+
+import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { MarketingAnalyticsScene } from 'scenes/marketing-analytics/MarketingAnalyticsScene'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { MarketingAnalyticsFilters } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
+import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -13,6 +17,7 @@ import { Mocks } from '~/mocks/utils'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import {
     AttributionMode,
+    NodeKind,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsSearchRow,
 } from '~/queries/schema/schema-general'
@@ -596,11 +601,45 @@ export const NewDashboardFlagOff: Story = {
 
 export const PostHogConversions: Story = {
     ...Comparison,
+    render: function Render(): JSX.Element {
+        const { includeConversionGoals } = useValues(marketingAnalyticsLogic)
+        const { setAdPerformanceConversionGoals } = useActions(marketingAnalyticsLogic)
+        return (
+            <>
+                <MarketingAnalyticsFilters tabs={<></>} />
+                <LemonSwitch
+                    className="mb-4"
+                    label="Include conversion goals"
+                    checked={includeConversionGoals}
+                    onChange={setAdPerformanceConversionGoals}
+                />
+                <SearchPerformanceTab />
+            </>
+        )
+    },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByRole('button', { name: 'Landing pages' }))
         await userEvent.click(await canvas.findByRole('button', { name: 'Conversions' }))
-        await userEvent.click(await canvas.findByRole('checkbox', { name: 'Include PostHog conversions' }))
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...teamLogic.values.currentTeam!,
+            marketing_analytics_config: {
+                conversion_goals: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'purchase',
+                        conversion_goal_id: 'purchase-goal',
+                        conversion_goal_name: 'Purchases',
+                        schema_map: {},
+                    },
+                ],
+            },
+        })
+        await expect(canvas.findByRole('columnheader', { name: /Cost per Purchases/ })).resolves.toBeVisible()
+        await userEvent.click(canvas.getByRole('switch', { name: 'Include conversion goals' }))
+        await expect(canvas.queryByRole('columnheader', { name: /Cost per Purchases/ })).not.toBeInTheDocument()
+        await expect(canvas.getByRole('columnheader', { name: /Reported conversions/ })).toBeVisible()
+        await userEvent.click(canvas.getByRole('switch', { name: 'Include conversion goals' }))
         await expect(canvas.findByRole('columnheader', { name: /Cost per Purchases/ })).resolves.toBeVisible()
     },
 }

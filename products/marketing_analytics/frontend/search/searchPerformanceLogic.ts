@@ -26,9 +26,13 @@ import {
 
 export interface searchPerformanceLogicValues extends Pick<
     marketingAnalyticsLogicValues,
-    'dataWarehouseSources' | 'dataWarehouseSourcesLoading' | 'dateFilter' | 'compareFilter' | 'integrationFilter'
+    | 'dataWarehouseSources'
+    | 'dataWarehouseSourcesLoading'
+    | 'dateFilter'
+    | 'compareFilter'
+    | 'integrationFilter'
+    | 'includeConversionGoals'
 > {
-    includePostHogConversions: boolean
     metrics: SearchMetrics
     hasPaidSources: boolean
     displayMetrics: SearchMetrics
@@ -57,7 +61,6 @@ export interface searchPerformanceLogicActions extends Pick<
     marketingAnalyticsLogicActions,
     'loadSources' | 'loadSourcesSuccess' | 'loadSourcesFailure' | 'setIntegrationFilter' | 'setDates'
 > {
-    setIncludePostHogConversions: (include: boolean) => { include: boolean }
     clearFilters: () => { value: true }
     setShowPosition: (showPosition: boolean) => { showPosition: boolean }
     setMetrics: (metrics: SearchMetrics) => { metrics: SearchMetrics }
@@ -75,7 +78,14 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
     connect(() => ({
         values: [
             marketingAnalyticsLogic,
-            ['dataWarehouseSources', 'dataWarehouseSourcesLoading', 'dateFilter', 'compareFilter', 'integrationFilter'],
+            [
+                'dataWarehouseSources',
+                'dataWarehouseSourcesLoading',
+                'dateFilter',
+                'compareFilter',
+                'integrationFilter',
+                'includeConversionGoals',
+            ],
         ],
         actions: [
             marketingAnalyticsLogic,
@@ -84,7 +94,6 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
     })),
     actions({
         clearFilters: true,
-        setIncludePostHogConversions: (include: boolean) => ({ include }),
         setMetrics: (metrics: SearchMetrics) => ({ metrics }),
         setShowPosition: (showPosition: boolean) => ({ showPosition }),
         setBreakdown: (breakdown: SearchBreakdown) => ({ breakdown }),
@@ -94,7 +103,6 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         setQuerySearch: (search: string) => ({ search }),
     }),
     reducers({
-        includePostHogConversions: [false, { setIncludePostHogConversions: (_, { include }) => include }],
         breakdown: ['keyword' as SearchBreakdown, { setBreakdown: (_, { breakdown }) => breakdown }],
         channel: ['all' as SearchChannel, { setChannel: (_, { channel }) => channel }],
         selectedRow: [
@@ -190,7 +198,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 s.querySearch,
                 s.compareFilter,
                 s.breakdown,
-                s.includePostHogConversions,
+                s.includeConversionGoals,
                 s.displayMetrics,
             ],
             (
@@ -199,15 +207,14 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 search,
                 compareFilter,
                 breakdown,
-                includePostHogConversions,
+                includeConversionGoals,
                 metrics
             ): MarketingAnalyticsSearchQuery => ({
                 kind: NodeKind.MarketingAnalyticsSearchQuery,
                 sources,
                 breakdown,
                 compareFilter,
-                includePostHogConversions:
-                    breakdown === 'page' && metrics === 'conversions' && includePostHogConversions,
+                includePostHogConversions: breakdown === 'page' && metrics === 'conversions' && includeConversionGoals,
                 dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                 search,
             }),

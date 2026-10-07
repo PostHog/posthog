@@ -17,7 +17,7 @@ Reported conversions and reported CPA require a synced ad platform source in the
 Google Search Console reports organic traffic metrics only.
 The Traffic and Conversions views both include spend when a paid source is ready.
 The first column stays visible while the metrics scroll horizontally.
-In Landing pages, Include PostHog conversions adds the first five supported event or action goals and their cost per conversion.
+In Landing pages → Conversions, the Ad performance Include conversion goals switch adds the first five supported event or action goals and their cost per conversion.
 If more goals are configured, a warning directs users to the attribution report for other goals.
 This limits each search request to five attribution queries, or ten with period comparison.
 These conversions use the session attribution engine with the team's attribution model, lookback window, goal filters, and test-account exclusion setting.
@@ -30,7 +30,8 @@ When `marketing-analytics-live-session-resolution` is enabled, eligible landing-
 They do not read session or conversion precomputation tables.
 Organic rows have no cost per conversion, and pages with spend in multiple currencies leave PostHog metrics empty because credit cannot be assigned to individual ad accounts.
 Data warehouse goals are not supported by landing-page attribution.
-The checkbox only loads conversions in the Landing pages Conversions view; keyword detail views do not imply query-level PostHog attribution.
+Turning the switch off removes PostHog goal columns and stops their queries while keeping platform-reported conversions.
+The switch only loads search conversions in the Landing pages Conversions view; keyword detail views do not imply query-level PostHog attribution.
 For Google Ads landing pages, enable `landing_page_stats` and wait for its first sync to finish.
 
 ## X Ads

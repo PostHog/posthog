@@ -29,7 +29,6 @@ export function SearchPerformanceTab(): JSX.Element {
         readySources,
         displayMetrics,
         hasPaidSources,
-        includePostHogConversions,
         showPosition,
         canShowPosition,
         search,
@@ -38,17 +37,8 @@ export function SearchPerformanceTab(): JSX.Element {
         channel,
         hasActiveFilters,
     } = useValues(searchPerformanceLogic)
-    const {
-        loadSources,
-        setMetrics,
-        setSearch,
-        setBreakdown,
-        setChannel,
-        selectRow,
-        setShowPosition,
-        clearFilters,
-        setIncludePostHogConversions,
-    } = useActions(searchPerformanceLogic)
+    const { loadSources, setMetrics, setSearch, setBreakdown, setChannel, selectRow, setShowPosition, clearFilters } =
+        useActions(searchPerformanceLogic)
     const loading = !sourcesError && (dataWarehouseSourcesLoading || !dataWarehouseSources)
 
     return (
@@ -114,14 +104,6 @@ export function SearchPerformanceTab(): JSX.Element {
                                     data-attr="marketing-search-keyword-filter"
                                 />
                                 <div className="flex flex-wrap items-center gap-3">
-                                    {breakdown === 'page' && displayMetrics === 'conversions' && (
-                                        <LemonCheckbox
-                                            checked={includePostHogConversions}
-                                            onChange={setIncludePostHogConversions}
-                                            label="Include PostHog conversions"
-                                            data-attr="marketing-search-include-posthog-conversions"
-                                        />
-                                    )}
                                     {canShowPosition && (
                                         <LemonCheckbox
                                             checked={showPosition}

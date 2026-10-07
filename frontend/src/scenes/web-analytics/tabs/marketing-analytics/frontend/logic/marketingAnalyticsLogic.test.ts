@@ -149,17 +149,6 @@ describe('marketingAnalyticsLogic', () => {
             expect(searchLogic.values.sources.map((source) => source.id)).toEqual(['organic'])
             expect(searchLogic.values.query.search).toBe('')
             expect(logic.values.compareFilter).toEqual({ compare: true })
-            searchLogic.actions.setIncludePostHogConversions(true)
-            searchLogic.actions.setMetrics('conversions')
-            expect(searchLogic.values.query.includePostHogConversions).toBe(false)
-            searchLogic.actions.setBreakdown('page')
-            expect(searchLogic.values.displayMetrics).toBe('conversions')
-            expect(searchLogic.values.query.includePostHogConversions).toBe(true)
-            searchLogic.actions.setMetrics('traffic')
-            expect(searchLogic.values.query.includePostHogConversions).toBe(false)
-            searchLogic.actions.setMetrics('conversions')
-            searchLogic.actions.setBreakdown('keyword')
-            expect(searchLogic.values.query.includePostHogConversions).toBe(false)
             const organicSource = logic.values.dataWarehouseSources!.results[0]
             await expectLogic(logic, () =>
                 logic.actions.loadSourcesSuccess({
@@ -357,6 +346,8 @@ describe('marketingAnalyticsLogic', () => {
         logic.mount()
         const tiles = marketingAnalyticsTilesLogic()
         tiles.mount()
+        const search = searchPerformanceLogic()
+        search.mount()
         try {
             await expectLogic(logic).toFinishAllListeners()
             const goal: ConversionGoalFilter = {
@@ -375,6 +366,13 @@ describe('marketingAnalyticsLogic', () => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true })
             logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
             expect(logic.values.includeConversionGoals).toBe(true)
+            search.actions.setMetrics('conversions')
+            expect(search.values.query.includePostHogConversions).toBe(false)
+            search.actions.setBreakdown('page')
+            expect(search.values.query.includePostHogConversions).toBe(true)
+            search.actions.setMetrics('traffic')
+            expect(search.values.query.includePostHogConversions).toBe(false)
+            search.actions.setMetrics('conversions')
             const savedQuery: DataTableNode = {
                 kind: NodeKind.DataTableNode,
                 source: {
@@ -435,8 +433,10 @@ describe('marketingAnalyticsLogic', () => {
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION]: precomputed,
                 })
                 logic.actions.setAdPerformanceConversionGoals(true)
+                expect(search.values.query.includePostHogConversions).toBe(true)
                 const chartBefore = (tiles.values.marketingChartTile.query as InsightVizNode).source as TrendsQuery
                 logic.actions.setAdPerformanceConversionGoals(false)
+                expect(search.values.query.includePostHogConversions).toBe(false)
                 const chartAfter = (tiles.values.marketingChartTile.query as InsightVizNode).source as TrendsQuery
                 expect(chartAfter).toEqual(chartBefore)
                 expect(chartAfter.series).toHaveLength(1)
@@ -476,6 +476,7 @@ describe('marketingAnalyticsLogic', () => {
                 expect(marketingAnalyticsTableLogic.values.query).toEqual(savedQuery)
             }
         } finally {
+            search.unmount()
             tiles.unmount()
         }
     })
