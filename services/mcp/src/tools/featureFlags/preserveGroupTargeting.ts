@@ -24,6 +24,8 @@
  * (LEGACY_UNKNOWN_FILTER_KEYS in products/feature_flags/backend/api/filters_schema.py).
  */
 
+import { isDeepStrictEqual } from 'node:util'
+
 import { isRecord } from '@/lib/plain-object'
 
 export type FlagProperty = {
@@ -148,11 +150,15 @@ function hasSameKeys(incoming: ReadonlyMap<string, unknown>, existing: ReadonlyM
 function matchingValueCount(incoming: Map<string, FlagProperty[]>, existing: Map<string, FlagProperty[]>): number {
     let matching = 0
     for (const [key, props] of incoming) {
-        const storedValues = (existing.get(key) ?? []).map((prop) => JSON.stringify(prop.value))
-        matching += props.filter((prop) => storedValues.includes(JSON.stringify(prop.value))).length
+        const stored = existing.get(key) ?? []
+        matching += props.filter((prop) =>
+            stored.some((storedProp) => isDeepStrictEqual(storedProp.value, prop.value))
+        ).length
     }
     return matching
 }
+
+type SetScore = (incoming: Map<string, FlagProperty[]>, existing: Map<string, FlagProperty[]>) => number
 
 function soleItem<T>(items: T[]): T | undefined {
     return items.length === 1 ? items[0] : undefined
@@ -193,15 +199,18 @@ function attributeSourceSets(
         }
     }
 
-    const claimMutualBest = (
-        score: (incoming: Map<string, FlagProperty[]>, existing: Map<string, FlagProperty[]>) => number
-    ): void => {
+    const scoreRow = (
+        propsByKey: Map<string, FlagProperty[]>,
+        score: SetScore,
+        { skipClaimed }: { skipClaimed: boolean }
+    ): number[] =>
+        existingSets.map((candidate, existingIndex) =>
+            candidate && !(skipClaimed && claimed.has(existingIndex)) ? score(propsByKey, candidate.propsByKey) : 0
+        )
+
+    const claimMutualBest = (score: SetScore): void => {
         const scores = incoming.map((propsByKey, index) =>
-            existingSets.map((candidate, existingIndex) =>
-                propsByKey && candidate && needsSource(index) && !claimed.has(existingIndex)
-                    ? score(propsByKey, candidate.propsByKey)
-                    : 0
-            )
+            propsByKey && needsSource(index) ? scoreRow(propsByKey, score, { skipClaimed: true }) : []
         )
         const pairs = new Map<number, number>()
         for (const [index, row] of scores.entries()) {
@@ -248,14 +257,7 @@ function attributeSourceSets(
     const bestMatches = (
         propsByKey: Map<string, FlagProperty[]>,
         { skipClaimed }: { skipClaimed: boolean }
-    ): number[] =>
-        bestIndexes(
-            existingSets.map((candidate, existingIndex) =>
-                candidate && !(skipClaimed && claimed.has(existingIndex))
-                    ? sharedKeyCount(propsByKey, candidate.propsByKey)
-                    : 0
-            )
-        )
+    ): number[] => bestIndexes(scoreRow(propsByKey, sharedKeyCount, { skipClaimed }))
 
     // A tie is not evidence of where the set came from. When every tied set aggregates on the same
     // group type, the tie still decides the aggregation. The choice among the tied sets then does
@@ -339,7 +341,8 @@ function pickPersonAggregatedCandidate(
 
 function mergeProperty(
     incoming: FlagProperty,
-    candidates: FlagProperty[] | undefined,
+    sourceCandidates: FlagProperty[] | undefined,
+    otherCandidates: FlagProperty[] | undefined,
     setGroupTypeIndex: number | undefined
 ): FlagProperty {
     const out: FlagProperty = { ...incoming }
@@ -350,7 +353,11 @@ function mergeProperty(
         } else {
             // Leaving the type unset makes the API report the property the agent actually
             // sent. Restoring `group` here would name fields the agent never sent.
-            const restored = pickPersonAggregatedCandidate(candidates, out)
+            // A source set can lack the key, or hold it only as a group property that a person
+            // set cannot use. The type then comes from another set that holds the key.
+            const restored =
+                pickPersonAggregatedCandidate(sourceCandidates, out) ??
+                pickPersonAggregatedCandidate(otherCandidates, out)
             if (restored) {
                 out.type = restored.type
             }
@@ -397,14 +404,14 @@ function mergeConditionSet(
         out.aggregation_group_type_index = null
     }
 
-    const { pinnedToPerson } = options
+    const { pinnedToPerson, payloadChangesFlagAggregation } = options
 
     // Fill only when the key is absent. An explicit null means person aggregation. A payload
     // that changes the flag level already decides this set, the same way the API distributes
     // the flag level into every set that sends no index of its own. A group property that the
     // agent typed with an index names the group type of its own set. A retarget that the agent
     // sends only on the property therefore survives.
-    if (!pinnedToPerson && !options.payloadChangesFlagAggregation && !hasKey(out, 'aggregation_group_type_index')) {
+    if (!pinnedToPerson && !payloadChangesFlagAggregation && !hasKey(out, 'aggregation_group_type_index')) {
         const restored = explicitGroupPropertyIndex(incoming) ?? sourceSet?.group.aggregation_group_type_index
         if (isPresentGroupIndex(restored)) {
             out.aggregation_group_type_index = restored
@@ -421,13 +428,12 @@ function mergeConditionSet(
             if (typeof prop.key !== 'string') {
                 return prop
             }
-            // A source set can lack the key, or hold it only as a group property that a person
-            // set cannot use. The type then comes from another set that holds the key.
-            const sourceCandidates = sourceSet?.propsByKey.get(prop.key) ?? []
-            const candidates = sourceCandidates.some((candidate) => isPersonAggregatedType(candidate.type))
-                ? sourceCandidates
-                : crossSetPropsByKey.get(prop.key)
-            return mergeProperty(prop, candidates, setGroupTypeIndex)
+            return mergeProperty(
+                prop,
+                sourceSet?.propsByKey.get(prop.key),
+                crossSetPropsByKey.get(prop.key),
+                setGroupTypeIndex
+            )
         })
     }
 

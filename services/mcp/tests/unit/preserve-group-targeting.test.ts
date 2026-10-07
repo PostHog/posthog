@@ -880,6 +880,116 @@ describe('preserveGroupTargetingFilters', () => {
                 [0, 'group', 0],
             ],
         },
+        // The API rejects a property with no type. Both tied sets aggregate on group type 0, so the tie
+        // still decides the appended set's aggregation.
+        {
+            name: 'a set is appended and ties between two sets on one group type',
+            existing: {
+                aggregation_group_type_index: null,
+                groups: [
+                    {
+                        aggregation_group_type_index: 0,
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        aggregation_group_type_index: 0,
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'pro' },
+                        ],
+                        rollout_percentage: 50,
+                    },
+                    {
+                        aggregation_group_type_index: 1,
+                        properties: [
+                            { key: 'region', type: 'group', group_type_index: 1, operator: 'exact', value: 'eu' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            groups: [
+                { properties: [{ key: 'plan', operator: 'exact', value: 'enterprise' }], rollout_percentage: 100 },
+                { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 50 },
+                { properties: [{ key: 'region', operator: 'exact', value: 'eu' }], rollout_percentage: 100 },
+                { properties: [{ key: 'plan', operator: 'exact', value: 'free' }], rollout_percentage: 10 },
+            ],
+            expected: [
+                [0, 'group', 0],
+                [0, 'group', 0],
+                [1, 'group', 1],
+                [0, 'group', 0],
+            ],
+        },
+        {
+            name: 'an unclaimed source shares as many keys as a claimed one',
+            existing: {
+                aggregation_group_type_index: null,
+                groups: [
+                    {
+                        aggregation_group_type_index: 0,
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
+                            { key: 'seats', type: 'group', group_type_index: 0, operator: 'gt', value: 10 },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        aggregation_group_type_index: null,
+                        properties: [{ key: 'email', type: 'person', operator: 'icontains', value: '@acme.com' }],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        aggregation_group_type_index: 1,
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 1, operator: 'exact', value: 'pro' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            groups: [
+                {
+                    properties: [
+                        { key: 'plan', operator: 'exact', value: 'startup' },
+                        { key: 'seats', operator: 'gt', value: 20 },
+                    ],
+                    rollout_percentage: 100,
+                },
+                {
+                    properties: [
+                        { key: 'plan', operator: 'exact', value: 'growth' },
+                        { key: 'country', operator: 'exact', value: 'US' },
+                    ],
+                    rollout_percentage: 100,
+                },
+                {
+                    properties: [{ key: 'email', operator: 'icontains', value: '@globex.com' }],
+                    rollout_percentage: 100,
+                },
+            ],
+            expected: [
+                [0, 'group', 0],
+                [1, 'group', 1],
+                [undefined, 'person', undefined],
+            ],
+        },
+        {
+            name: 'another set claimed the existing set at a set index',
+            existing: existingMixedFlag,
+            groups: [
+                { properties: [{ key: 'country', operator: 'exact', value: 'US' }], rollout_percentage: 100 },
+                { properties: [{ key: 'browser', operator: 'exact', value: 'Chrome' }], rollout_percentage: 100 },
+                { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 },
+            ],
+            expected: [
+                [undefined, undefined, undefined],
+                [undefined, undefined, undefined],
+                [0, 'group', 0],
+            ],
+        },
     ])('keeps each condition set on its own aggregation when $name', ({ existing, groups, expected }) => {
         const merged = preserveGroupTargetingFilters(existing, { groups })
 
@@ -1162,48 +1272,6 @@ describe('preserveGroupTargetingFilters', () => {
         expect(aggregationViolations(existing, merged)).toEqual([])
     })
 
-    // The API rejects a property with no type. Both tied sets aggregate on group type 0, so the tie
-    // still decides the appended set's aggregation.
-    it('restores group targeting for an appended set when the tied sets share a group type', () => {
-        const existing = {
-            aggregation_group_type_index: null,
-            groups: [
-                {
-                    aggregation_group_type_index: 0,
-                    properties: [
-                        { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
-                    ],
-                    rollout_percentage: 100,
-                },
-                {
-                    aggregation_group_type_index: 0,
-                    properties: [{ key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'pro' }],
-                    rollout_percentage: 50,
-                },
-                {
-                    aggregation_group_type_index: 1,
-                    properties: [{ key: 'region', type: 'group', group_type_index: 1, operator: 'exact', value: 'eu' }],
-                    rollout_percentage: 100,
-                },
-            ],
-        }
-
-        const merged = preserveGroupTargetingFilters(existing, {
-            groups: [
-                { properties: [{ key: 'plan', operator: 'exact', value: 'enterprise' }], rollout_percentage: 100 },
-                { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 50 },
-                { properties: [{ key: 'region', operator: 'exact', value: 'eu' }], rollout_percentage: 100 },
-                { properties: [{ key: 'plan', operator: 'exact', value: 'free' }], rollout_percentage: 10 },
-            ],
-        })
-
-        expect(merged?.groups?.[3]).toEqual({
-            aggregation_group_type_index: 0,
-            properties: [{ key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'free' }],
-            rollout_percentage: 10,
-        })
-    })
-
     // The claimed source set holds only one of the two keys. The merge can type the other
     // property only from the set that still holds it.
     it('restores a property type from another set when two sets collapse into one', () => {
@@ -1274,72 +1342,6 @@ describe('preserveGroupTargetingFilters', () => {
 
         expect(merged?.groups?.[0]?.properties?.[0]?.type).toBe('person')
         expect(aggregationViolations(existing, merged)).toEqual([])
-    })
-
-    it('takes an unclaimed source over a claimed one that shares as many keys', () => {
-        const existing = {
-            aggregation_group_type_index: null,
-            groups: [
-                {
-                    aggregation_group_type_index: 0,
-                    properties: [
-                        { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
-                        { key: 'seats', type: 'group', group_type_index: 0, operator: 'gt', value: 10 },
-                    ],
-                    rollout_percentage: 100,
-                },
-                {
-                    aggregation_group_type_index: null,
-                    properties: [{ key: 'email', type: 'person', operator: 'icontains', value: '@acme.com' }],
-                    rollout_percentage: 100,
-                },
-                {
-                    aggregation_group_type_index: 1,
-                    properties: [{ key: 'plan', type: 'group', group_type_index: 1, operator: 'exact', value: 'pro' }],
-                    rollout_percentage: 100,
-                },
-            ],
-        }
-
-        const merged = preserveGroupTargetingFilters(existing, {
-            groups: [
-                {
-                    properties: [
-                        { key: 'plan', operator: 'exact', value: 'startup' },
-                        { key: 'seats', operator: 'gt', value: 20 },
-                    ],
-                    rollout_percentage: 100,
-                },
-                {
-                    properties: [
-                        { key: 'plan', operator: 'exact', value: 'growth' },
-                        { key: 'country', operator: 'exact', value: 'US' },
-                    ],
-                    rollout_percentage: 100,
-                },
-                {
-                    properties: [{ key: 'email', operator: 'icontains', value: '@globex.com' }],
-                    rollout_percentage: 100,
-                },
-            ],
-        })
-
-        expect(merged?.groups?.[1]?.aggregation_group_type_index).toBe(1)
-        expect(merged?.groups?.[1]?.properties?.[0]).toMatchObject({ type: 'group', group_type_index: 1 })
-        expect(aggregationViolations(existing, merged)).toEqual([])
-    })
-
-    it('does not pair a set by position with an existing set another set claimed', () => {
-        const merged = preserveGroupTargetingFilters(existingMixedFlag, {
-            groups: [
-                { properties: [{ key: 'country', operator: 'exact', value: 'US' }], rollout_percentage: 100 },
-                { properties: [{ key: 'browser', operator: 'exact', value: 'Chrome' }], rollout_percentage: 100 },
-                { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 },
-            ],
-        })
-
-        expect(merged?.groups?.[0]?.aggregation_group_type_index).toBeUndefined()
-        expect(merged?.groups?.[2]?.aggregation_group_type_index).toBe(0)
     })
 
     it('accepts group properties when both type and index are present (no strip)', () => {
