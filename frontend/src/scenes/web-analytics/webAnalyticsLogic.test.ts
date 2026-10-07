@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
-import { router } from 'kea-router'
+import { kea } from 'kea'
+import { router, urlToAction } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -509,6 +510,29 @@ describe('webAnalyticsLogic URL restoration', () => {
 
         expect(logic.values.graphsTab).toBe(GraphsTab.UNIQUE_USERS)
         expect(router.values.searchParams.graphs_tab).toBe(GraphsTab.UNIQUE_USERS)
+    })
+
+    it('does not reconcile again from its own URL write when another logic rewrites the same param', async () => {
+        const competingLogic = kea([
+            urlToAction(() => ({
+                '/web': (_, searchParams) => {
+                    if (searchParams.graphs_tab !== GraphsTab.PAGE_VIEWS) {
+                        router.actions.replace(router.values.location.pathname, {
+                            ...searchParams,
+                            graphs_tab: GraphsTab.PAGE_VIEWS,
+                        })
+                    }
+                },
+            })),
+        ])
+        competingLogic.mount()
+        const replaceSpy = jest.spyOn(router.actions, 'replace')
+
+        router.actions.push('/web', { 'conversionGoal.actionId': '42', graphs_tab: 'PAGE_VIEWS' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(replaceSpy.mock.calls.length).toBeLessThan(5)
+        competingLogic.unmount()
     })
 
     it('restores the date range and interval from the URL', async () => {
