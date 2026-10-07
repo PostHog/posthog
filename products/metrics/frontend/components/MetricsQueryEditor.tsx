@@ -71,19 +71,27 @@ export function MetricsQueryEditor({
     query,
     setQuery,
     onSwitchLanguage,
+    onRerun,
 }: {
     editorKey: string
     query: MetricsQuery
     setQuery: (query: MetricsQuery) => void
     /** Shows the builder / PromQL / SQL switch. Gets the query as it is now, including an unrun draft. */
     onSwitchLanguage?: (current: MetricsQuery, to: MetricsQueryLanguage) => void
+    /** Runs the current PromQL or SQL query again when Run is pressed without a change, as after a failure. */
+    onRerun?: () => void
 }): JSX.Element {
     // The query seeds the logic once. After that the builder only writes the query, so the two cannot loop.
     const logicProps = useMemo(() => ({ key: editorKey, initialQuery: query }), [editorKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <BindLogic logic={metricsViewerLogic} props={logicProps}>
-            <MetricsQueryEditorControls query={query} setQuery={setQuery} onSwitchLanguage={onSwitchLanguage} />
+            <MetricsQueryEditorControls
+                query={query}
+                setQuery={setQuery}
+                onSwitchLanguage={onSwitchLanguage}
+                onRerun={onRerun}
+            />
         </BindLogic>
     )
 }
@@ -91,12 +99,14 @@ export function MetricsQueryEditor({
 function MetricsQueryTextEditor({
     language,
     disabledReason,
+    onRun,
 }: {
     language: Exclude<MetricsQueryLanguage, 'builder'>
     disabledReason: string | null
+    onRun: () => void
 }): JSX.Element {
     const { queryDraft } = useValues(metricsViewerLogic)
-    const { setQueryDraft, runQueryText } = useActions(metricsViewerLogic)
+    const { setQueryDraft } = useActions(metricsViewerLogic)
     const { currentTeamId } = useValues(teamLogic)
 
     useEffect(() => {
@@ -116,7 +126,7 @@ function MetricsQueryTextEditor({
                 language={language === 'promql' ? 'promql' : 'sql'}
                 value={queryDraft}
                 onChange={(value) => setQueryDraft(value ?? '')}
-                onPressCmdEnter={() => runQueryText()}
+                onPressCmdEnter={onRun}
                 minHeight={language === 'sql' ? '8rem' : '2.5rem'}
                 maxHeight="24rem"
                 options={{
@@ -146,19 +156,24 @@ function MetricsQueryEditorControls({
     query,
     setQuery,
     onSwitchLanguage,
+    onRerun,
 }: {
     query: MetricsQuery
     setQuery: (query: MetricsQuery) => void
     onSwitchLanguage?: (current: MetricsQuery, to: MetricsQueryLanguage) => void
+    onRerun?: () => void
 }): JSX.Element {
     const { viewerClauses, activeClauseIndex, formula, namedClauses, dateFrom, dateTo, interval } =
         useValues(metricsViewerLogic)
-    const { displayType, metricsQueryNode, language, queryTextChanged } = useValues(metricsViewerLogic)
+    const { displayType, metricsQueryNode, language, queryDraft } = useValues(metricsViewerLogic)
     const { addClause, setDateFrom, setDateTo, setInterval, setDisplayType, runQueryText } =
         useActions(metricsViewerLogic)
     const logic = useMountedLogic(metricsViewerLogic)
     const dashboardPanelsEnabled = useFeatureFlag('METRICS_DASHBOARD_PANELS')
     const disabledReason = getAccessControlDisabledReason(AccessControlResourceType.Metrics, AccessControlLevel.Viewer)
+
+    // A changed query runs through the query node. An unchanged one (after a failure) runs again in place.
+    const runQuery = (): void => (logic.values.queryTextChanged ? runQueryText() : onRerun?.())
 
     const switchLanguage = (to: MetricsQueryLanguage): void => {
         // Read the logic at click time, so a draft the user has not run yet still converts.
@@ -275,7 +290,7 @@ function MetricsQueryEditorControls({
                     {language === 'builder' ? (
                         builderControls
                     ) : (
-                        <MetricsQueryTextEditor language={language} disabledReason={disabledReason} />
+                        <MetricsQueryTextEditor language={language} disabledReason={disabledReason} onRun={runQuery} />
                     )}
                 </>
             ) : (
@@ -300,8 +315,8 @@ function MetricsQueryEditorControls({
                     <LemonButton
                         type="primary"
                         size="small"
-                        onClick={() => runQueryText()}
-                        disabledReason={disabledReason ?? (queryTextChanged ? undefined : 'No changes to run')}
+                        onClick={runQuery}
+                        disabledReason={disabledReason ?? (queryDraft.trim() ? undefined : 'Write a query first')}
                         data-attr={`metrics-query-editor-run-${language}`}
                     >
                         Run

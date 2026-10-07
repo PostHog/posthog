@@ -27,6 +27,7 @@ const source = (): PromQLCompletionSource & { calls: string[] } => {
             calls.push(`values:${labelName}:${metricName ?? ''}:${search}`)
             return ['api', 'a.b "c"']
         },
+        metricNamesSearchedOnServer: () => false,
     }
 }
 
@@ -119,6 +120,8 @@ describe('PromQL autocomplete', () => {
         expect(byLabel['http.server.duration_bucket']).toMatchObject({ insertText: '{"http.server.duration_bucket"}' })
         expect(byLabel['rate']).toMatchObject({ insertText: 'rate($0)', snippet: true, kind: 'function' })
         expect(byLabel['quantile']).toMatchObject({ kind: 'aggregation' })
+        // Names loaded once are filtered locally, so Monaco need not ask again on each keystroke.
+        expect(result?.incomplete).toBe(false)
     })
 
     it('suggests unused label names for the selector metric, ready for a value', async () => {
@@ -128,6 +131,7 @@ describe('PromQL autocomplete', () => {
         expect(fake.calls).toEqual(['labels:x:ht'])
         expect(result?.items.map((item) => item.insertText)).toEqual(['service_name=', '"http.route"='])
         expect(result?.items.every((item) => item.retrigger)).toBe(true)
+        expect(result?.incomplete).toBe(true)
     })
 
     it.each([

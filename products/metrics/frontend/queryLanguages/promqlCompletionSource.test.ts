@@ -31,6 +31,7 @@ describe('createMetricsPromQLCompletionSource', () => {
         expect(await source.metricNames('HTTP')).toEqual([{ name: 'http.server.duration', type: 'histogram' }])
         expect(await source.metricNames('queue')).toEqual([{ name: 'queue_depth', type: 'gauge' }])
         expect(metricsNamesRetrieve).toHaveBeenCalledTimes(1)
+        expect(source.metricNamesSearchedOnServer?.()).toBe(false)
     })
 
     it('asks for the labels of the histogram behind a bucket series, and adds le', async () => {
