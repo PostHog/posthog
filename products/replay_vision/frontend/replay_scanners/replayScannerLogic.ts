@@ -2192,9 +2192,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             draftScannerFromGoalFailure: ({ errorObject }) => {
                 lemonToast.error(errorObject?.detail ?? "Couldn't draft a scanner. Try again in a moment.")
                 // The goal flow moved to the overview skeleton on request; with no draft to show,
-                // send the user back to the questions to try again, replacing the empty overview in history.
+                // send the user back to the questions, dropping the empty overview from history when it was pushed.
                 if (router.values.location.pathname.endsWith(urls.replayVisionScannerOverview('new'))) {
-                    router.actions.replace(urls.replayVisionScannerTemplate('new'))
+                    if (router.values.lastMethod === 'PUSH') {
+                        window.history.back()
+                    } else {
+                        router.actions.replace(urls.replayVisionScannerTemplate('new'))
+                    }
                 }
             },
 
