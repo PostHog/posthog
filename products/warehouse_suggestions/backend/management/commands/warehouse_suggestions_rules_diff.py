@@ -3,9 +3,9 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandParser
 from django.utils import timezone
 
-from ...logic.job import explain_team
+from ...logic.job import explain_team, is_eligible
 from ...logic.rules import RULES
-from ...logic.rules_diff import diff_candidates, override_rules
+from ...logic.rules_diff import diff_candidates, override_rules, results_the_job_would_keep
 
 
 class Command(BaseCommand):
@@ -24,8 +24,14 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         today = timezone.now().date()
         proposed = override_rules(RULES, options["assignments"])
-        _, before = explain_team(options["team"], today=today, rules=RULES)
-        _, after = explain_team(options["team"], today=today, rules=proposed)
+        current_context, current_results = explain_team(options["team"], today=today, rules=RULES)
+        proposed_context, proposed_results = explain_team(options["team"], today=today, rules=proposed)
+        self.stdout.write(
+            f"eligible: {is_eligible(current_context.reads, RULES.eligibility)} -> "
+            f"{is_eligible(proposed_context.reads, proposed.eligibility)}"
+        )
+        before = results_the_job_would_keep(current_context, current_results)
+        after = results_the_job_would_keep(proposed_context, proposed_results)
         for kind, diff in diff_candidates(before, after).items():
             self.stdout.write(f"{kind}: +{len(diff.added)} -{len(diff.removed)} ~{len(diff.reranked)}")
             for label, names in (("added", diff.added), ("removed", diff.removed), ("re-ranked", diff.reranked)):

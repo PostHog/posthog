@@ -83,6 +83,7 @@ def _earns_reproposal(row: WarehouseSuggestion, draft: SuggestionDraft, rules: L
     return (
         row.dismissal_reason == WarehouseSuggestionDismissalReason.NOT_NOW
         and row.dismissed_at_score is not None
+        and draft.score > row.dismissed_at_score
         and draft.score >= rules.reproposal_score_multiple * row.dismissed_at_score
     )
 

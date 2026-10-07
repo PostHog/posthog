@@ -12,6 +12,7 @@ from products.warehouse_suggestions.backend.logic.rules_diff import (
     KindDiff,
     diff_candidates,
     override_rules,
+    results_the_job_would_keep,
 )
 from products.warehouse_suggestions.backend.tests.factories import busy_reads, context, team_reads, view, view_subject
 
@@ -42,6 +43,25 @@ class TestRulesDiff(SimpleTestCase):
         )
 
         assert diff[WarehouseSuggestionKind.CERTIFY] == KindDiff(added=(), removed=("quiet",), reranked=())
+
+    def test_an_eligibility_floor_the_team_no_longer_meets_removes_every_candidate(self) -> None:
+        busy = view(uuid4(), name="busy")
+        reads = team_reads({view_subject(busy.id): busy_reads()})
+        current, proposed = (
+            context(reads, views=[busy], rules=override_rules(RULES, ["certify.top_share=1", *extra]))
+            for extra in ([], ["eligibility.min_view_readers=11"])
+        )
+
+        diff = diff_candidates(
+            results_the_job_would_keep(
+                current, {WarehouseSuggestionKind.CERTIFY: CertifyCandidate().evaluate(current)}
+            ),
+            results_the_job_would_keep(
+                proposed, {WarehouseSuggestionKind.CERTIFY: CertifyCandidate().evaluate(proposed)}
+            ),
+        )
+
+        assert diff[WarehouseSuggestionKind.CERTIFY] == KindDiff(added=(), removed=("busy",), reranked=())
 
     @parameterized.expand(
         [

@@ -99,17 +99,25 @@ class TestApplyRun(BaseTest):
 
     @parameterized.expand(
         [
-            ("not_now_below_three_times", WarehouseSuggestionDismissalReason.NOT_NOW, 29.0, False),
-            ("not_now_at_three_times", WarehouseSuggestionDismissalReason.NOT_NOW, 30.0, True),
-            ("not_useful_never_returns", WarehouseSuggestionDismissalReason.NOT_USEFUL, 1000.0, False),
+            ("not_now_below_three_times", WarehouseSuggestionDismissalReason.NOT_NOW, 10.0, 29.0, False),
+            ("not_now_at_three_times", WarehouseSuggestionDismissalReason.NOT_NOW, 10.0, 30.0, True),
+            ("not_now_zero_stays_zero", WarehouseSuggestionDismissalReason.NOT_NOW, 0.0, 0.0, False),
+            ("not_useful_never_returns", WarehouseSuggestionDismissalReason.NOT_USEFUL, 10.0, 1000.0, False),
         ]
     )
     def test_reproposes_a_dismissal_only_when_the_score_triples_after_not_now(
-        self, _name: str, reason: WarehouseSuggestionDismissalReason, new_score: float, expect_reproposed: bool
+        self,
+        _name: str,
+        reason: WarehouseSuggestionDismissalReason,
+        dismissed_score: float,
+        new_score: float,
+        expect_reproposed: bool,
     ) -> None:
         view_id = uuid4()
         ctx = self._context(view_id)
-        apply_run(ctx, [self._draft(ctx, WarehouseSuggestionKind.CERTIFY, view_id, 10)], NOW, surface=False)
+        apply_run(
+            ctx, [self._draft(ctx, WarehouseSuggestionKind.CERTIFY, view_id, dismissed_score)], NOW, surface=False
+        )
         row = WarehouseSuggestion.objects.for_team(self.team.pk).get()
         transition_to(row.id, self.team.pk, WarehouseSuggestionStatus.DISMISSED, user_id=self.user.id, reason=reason)
 

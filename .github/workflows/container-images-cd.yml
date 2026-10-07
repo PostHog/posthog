@@ -702,6 +702,7 @@ jobs:
                         - 'products/data_quality/**'
                         - 'products/data_modeling/**'
                         - 'products/data_warehouse/**'
+                        - 'products/warehouse_suggestions/**'
                         - 'posthog/management/commands/**'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml

@@ -6,7 +6,8 @@ from typing import Any
 from posthog.dataclasses import frozen
 
 from ..facade.enums import WarehouseSuggestionKind
-from .candidates.base import CandidateResult
+from .candidates.base import CandidateContext, CandidateResult
+from .job import is_eligible
 from .rules import Rules
 
 
@@ -33,6 +34,14 @@ def override_rules(rules: Rules, assignments: Sequence[str]) -> Rules:
         value = _parse_like(getattr(section, field_name), raw_value)
         rules = replace(rules, **{section_name: replace(section, **{field_name: value})})
     return rules
+
+
+def results_the_job_would_keep(
+    context: CandidateContext, results: Mapping[WarehouseSuggestionKind, CandidateResult]
+) -> dict[WarehouseSuggestionKind, CandidateResult]:
+    if is_eligible(context.reads, context.rules.eligibility):
+        return dict(results)
+    return {kind: CandidateResult(drafts=(), rejections=()) for kind in results}
 
 
 def diff_candidates(
