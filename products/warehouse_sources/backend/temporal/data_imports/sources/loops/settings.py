@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 PAGE_SIZE = 50
 
 
-@dataclass
+@dataclass(frozen=True)
 class LoopsEndpointConfig:
     name: str
     # Path under https://app.loops.so/api (e.g. "/v1/campaigns").

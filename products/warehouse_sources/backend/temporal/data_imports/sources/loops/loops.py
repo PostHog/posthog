@@ -76,6 +76,7 @@ def _client_config(api_key: str) -> ClientConfig:
         "headers": {
             "Accept": "application/json",
         },
+        "request_timeout": (10, 60),
     }
 
 
