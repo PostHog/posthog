@@ -22,7 +22,7 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 
 function CohortNotebookToolbar({ attributes }: NotebookNodeProps<CohortNotebookWidgetAttributes>): null {
     const { id } = attributes
-    const { cohort, cohortMissing } = useValues(cohortEditLogic({ id }))
+    const { cohort, cohortMissing } = useValues(cohortEditLogic({ id, embedded: true }))
     const { setExpanded, setActions, insertAfter, setTitlePlaceholder, setTitleStatus } = useActions(notebookNodeLogic)
 
     useEffect(() => {
@@ -122,8 +122,8 @@ const Component = ({ attributes }: NotebookNodeProps<CohortNotebookWidgetAttribu
     const { id } = attributes
 
     const { expanded } = useValues(notebookNodeLogic)
-    const { cohort, cohortLoading, cohortMissing, query } = useValues(cohortEditLogic({ id }))
-    const { setQuery } = useActions(cohortEditLogic({ id }))
+    const { cohort, cohortLoading, cohortMissing, query } = useValues(cohortEditLogic({ id, embedded: true }))
+    const { setQuery } = useActions(cohortEditLogic({ id, embedded: true }))
 
     const modifiedQuery = useMemo<DataTableNode>(() => {
         return {
