@@ -1324,42 +1324,46 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
             **extra,
         }
 
-    def test_experiment_targeting_round_trips_and_clears(self) -> None:
+    def test_experiment_targeting_is_rejected_on_create(self) -> None:
         resp = self.client.post(
             self.scanners_url, data=self._create_payload("ctx", experiment_targeting=self.targeting), format="json"
         )
-        self.assertEqual(resp.status_code, 201, resp.json())
-        self.assertEqual(resp.json()["experiment_targeting"], self.targeting)
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "experiment_targeting")
 
-        scanner_id = resp.json()["id"]
+    def test_a_retired_scanner_stays_off_keeps_its_experiment_and_can_still_be_edited(self) -> None:
+        scope = {"experiment_id": self.experiment.id, "variants": ["test"]}
+        scanner = self._create_scanner(
+            name="retired",
+            scanner_config={"prompt": "p", **scope},
+            experiment_targeting=self.targeting,
+            enabled=False,
+        )
+        url = f"{self.scanners_url}{scanner.id}/"
+
+        for body, attr in [
+            ({"enabled": True}, "enabled"),
+            ({"experiment_targeting": {**self.targeting, "variant": "control"}}, "experiment_targeting"),
+            (
+                {"scanner_config": {"prompt": "p", "experiment_id": self.experiment.id, "variants": ["control"]}},
+                "scanner_config",
+            ),
+        ]:
+            resp = self.client.patch(url, data=body, format="json")
+            self.assertEqual(resp.status_code, 400, resp.json())
+            self.assertEqual(resp.json()["attr"], attr)
+
+        # A config write that leaves the experiment keys out, as a caller denied the experiment sees it, keeps them.
         resp = self.client.patch(
-            f"{self.scanners_url}{scanner_id}/", data={"experiment_targeting": None}, format="json"
+            url,
+            data={"scanner_config": {"prompt": "renamed focus"}, "experiment_targeting": self.targeting},
+            format="json",
         )
         self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertIsNone(resp.json()["experiment_targeting"])
-
-    def test_draft_experiment_targeting_saves_without_an_estimate_error(self) -> None:
-        # The create wizard makes a scanner next to a fresh draft, so the exposed population cannot
-        # resolve yet. The real estimate call runs here, because that is what must stay quiet.
-        labels = {"outcome": "experiment_linkage_unresolved"}
-        before = REGISTRY.get_sample_value("replay_vision_estimate_outcomes_total", labels) or 0.0
-        self.refresh_estimate_patcher.stop()
-        try:
-            with patch("products.replay_vision.backend.api.scanners.logger") as mock_logger:
-                resp = self.client.post(
-                    self.scanners_url,
-                    data=self._create_payload("draft-target", experiment_targeting=self.targeting),
-                    format="json",
-                )
-        finally:
-            self.mock_refresh_estimate = self.refresh_estimate_patcher.start()
-
-        self.assertEqual(resp.status_code, 201, resp.json())
-        self.assertEqual(resp.json()["experiment_targeting"], self.targeting)
-        self.assertIsNone(resp.json()["estimated_monthly_observations"])
-        mock_logger.exception.assert_not_called()
-        # The save path records the skip, so the scanner is visible before the first hourly tick.
-        self.assertEqual(REGISTRY.get_sample_value("replay_vision_estimate_outcomes_total", labels), before + 1)
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_config, {"prompt": "renamed focus", **scope})
+        self.assertEqual(scanner.experiment_scope(), scope)
+        self.assertFalse(scanner.enabled)
 
     def test_unbuildable_query_keeps_the_estimate_failure_loud(self) -> None:
         # A deleted action or a bad cohort reference in the scanner's own query does not heal at
@@ -1478,19 +1482,18 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         # Session auth resolves to "web" (the app UI), MCP callers to "mcp".
         self.assertEqual(properties["source"], "web")
 
-    def test_create_with_experiment_targeting_reports_a_filtered_scanner(self) -> None:
-        # The population lives in experiment_targeting, not in query keys, so an experiment-scoped
-        # scanner must not read as unfiltered on launch dashboards.
-        experiment = create_experiment(self.team, "telemetry-targeting")
+    def test_create_experiment_scanner_reports_a_filtered_scanner(self) -> None:
+        # The population lives in the experiment scope, not in query keys, so an experiment scanner
+        # must not read as unfiltered on launch dashboards.
+        experiment = create_experiment(self.team, "telemetry-targeting", launched=True, variants=["control", "test"])
         with patch("posthoganalytics.capture") as capture:
             resp = self.client.post(
                 self.scanners_url,
                 data={
                     "name": "telemetry-targeting",
-                    "scanner_type": ScannerType.MONITOR,
-                    "scanner_config": {"prompt": "p"},
+                    "scanner_type": ScannerType.EXPERIMENT,
+                    "scanner_config": {"prompt": "p", "experiment_id": experiment.id},
                     "model": ScannerModel.GEMINI_3_8_FLASH,
-                    "experiment_targeting": {"experiment_id": experiment.id, "variant": None},
                     "query": {"kind": "RecordingsQuery", "filter_test_accounts": True},
                 },
                 format="json",
@@ -1713,15 +1716,12 @@ class TestScannerDuplicateAction(_VisionAPITestCase):
         return self.client.post(f"{self.scanners_url}{scanner_id}/duplicate/")
 
     def test_duplicate_copies_stored_fields_the_read_path_redacts(self) -> None:
-        experiment = create_experiment(self.team, "checkout-redesign")
-        targeting = {"experiment_id": experiment.id, "variant_keys": ["test"], "use_exposure_fallback": False}
         # A stored filter that no longer passes RecordingsQuery validation: the serializer's read
         # path nulls it, so a copy built from the list response would silently lose it.
         stale_query = {"kind": "RecordingsQuery", "duration": "not-a-list"}
         source = self._create_scanner(
             name="redacted-source",
             query=stale_query,
-            experiment_targeting=targeting,
             credit_limit=500,
             sampling_rate=0.25,
             enabled=True,
@@ -1738,7 +1738,6 @@ class TestScannerDuplicateAction(_VisionAPITestCase):
         self.assertIsNone(body["query"])
         copy = ReplayScanner.objects.get(id=body["id"])
         self.assertEqual(copy.query, stale_query)
-        self.assertEqual(copy.experiment_targeting, targeting)
         self.assertEqual(copy.credit_limit, 500)
         self.assertEqual(copy.sampling_rate, 0.25)
         self.assertEqual(copy.scanner_config, source.scanner_config)
@@ -1746,25 +1745,23 @@ class TestScannerDuplicateAction(_VisionAPITestCase):
         self.assertEqual(copy.created_by_id, self.user.id)
         self.assertEqual(sorted(copy.tagged_items.values_list("tag__name", flat=True)), ["billing", "checkout"])
 
-    def test_duplicate_drops_targeting_for_an_experiment_the_caller_cannot_view(self) -> None:
+    @parameterized.expand([("column_only", False), ("migrated", True)])
+    def test_duplicate_refuses_a_retired_legacy_scanner(self, _name: str, migrated: bool) -> None:
+        # A copy can't be turned on, and dropping the experiment would make one that watches everyone.
         experiment = create_experiment(self.team, "pricing-test")
-        targeting = {"experiment_id": experiment.id, "variant_keys": ["test"], "use_exposure_fallback": False}
-        source = self._create_scanner(name="targeted-source", experiment_targeting=targeting)
+        config: dict[str, Any] = {"prompt": "p"}
+        if migrated:
+            config.update({"experiment_id": experiment.id, "variants": ["test"]})
+        source = self._create_scanner(
+            name="targeted-source",
+            scanner_config=config,
+            experiment_targeting={"experiment_id": experiment.id, "variant": "test"},
+        )
 
-        # A scanner is viewable at a coarser grain than its experiment, so this caller reads the
-        # scanner with the targeting already nulled. Copying the stored row instead would hand them
-        # a scanner that scans against an experiment the create path refuses to target.
-        with patch(
-            "products.replay_vision.backend.api.scanners.is_experiment_accessible",
-            return_value=False,
-        ):
-            resp = self._duplicate(source.id)
+        resp = self._duplicate(source.id)
 
-        self.assertEqual(resp.status_code, 201, resp.json())
-        copy = ReplayScanner.objects.get(id=resp.json()["id"])
-        self.assertIsNone(copy.experiment_targeting)
-        source.refresh_from_db()
-        self.assertEqual(source.experiment_targeting, targeting)
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertFalse(ReplayScanner.objects.filter(name__startswith="targeted-source (copy").exists())
 
     def test_duplicate_numbers_the_copy_name_when_taken(self) -> None:
         source = self._create_scanner(name="my-scanner")

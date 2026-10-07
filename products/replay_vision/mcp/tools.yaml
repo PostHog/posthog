@@ -587,13 +587,13 @@ tools:
             experiment, create the `experiment` type rather than scoping another type to it: it scans only the
             experiment's exposed sessions, tells the model each session's variant, samples the variants evenly, and
             stops when the experiment ends. Leave exposure out of `query`: the API derives the person-scoped exposure
-            filter server-side, and rejects an `experiment_exposure` filter set directly in `query`.
-            `experiment_targeting` on the other types is legacy; don't set it. Pass the same `experiment_id` and
-            `variants` to `vision-scanners-estimate` as `experiment`, so the estimate counts only exposed sessions. Read
-            the results per variant with `vision-scanners-variants-list`. Create with `enabled: false`, so you can
-            preview the prompt on real sessions first. The `scanning-experiments-with-replay-vision` skill carries the
-            full flow (status guards, prompt templates, sizing). It is a built-in PostHog skill, not a team skill in the
-            skills store, so do not fetch it with `skill-get`. Load it with `learn
+            filter server-side, and rejects an `experiment_exposure` filter set directly in `query`. The API rejects
+            `experiment_targeting` on every type. Pass the same `experiment_id` and `variants` to
+            `vision-scanners-estimate` as `experiment`, so the estimate counts only exposed sessions. Read the results
+            per variant with `vision-scanners-variants-list`. Create with `enabled: false`, so you can preview the
+            prompt on real sessions first. The `scanning-experiments-with-replay-vision` skill carries the full flow
+            (status guards, prompt templates, sizing). It is a built-in PostHog skill, not a team skill in the skills
+            store, so do not fetch it with `skill-get`. Load it with `learn
             posthog:scanning-experiments-with-replay-vision` when the `learn` command is available, or read it from your
             installed PostHog skills (`.agents/skills/`). If you have neither, the facts above are sufficient to
             continue.

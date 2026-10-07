@@ -1245,31 +1245,38 @@ class TestFinalizeV2Experiments:
             allowed_experiments=[self._EXPERIMENT],
         )
 
-    def test_a_grounded_experiment_becomes_targeting_on_the_named_variant(self):
+    def test_a_grounded_experiment_becomes_an_experiment_scanner_on_the_named_variant(self):
         # A page filter would scan everyone who reached the same screen, control group included, so
-        # the variant the goal is about has to come through as targeting.
+        # the variant the goal is about has to come through as the experiment scanner's scope.
         draft = self._finalize(filter_experiment="AI creation flow", filter_experiment_variant="test")
 
-        assert draft.experiment_targeting == {"experiment_id": 11, "variant": "test"}
+        assert draft.scanner_type == ScannerType.EXPERIMENT
+        assert draft.scanner_config["experiment_id"] == 11
+        assert draft.scanner_config["variants"] == ["test"]
+        assert draft.experiment_targeting is None
         # Exposure never rides in the query blob; the API refuses it there.
         assert draft.query is not None and "experiment_exposure" not in draft.query
 
-    def test_no_named_variant_watches_every_variant(self):
-        draft = self._finalize(filter_experiment="AI creation flow")
+    @parameterized.expand(
+        [
+            ("no_named_variant", ""),
+            # The exposure filter refuses a variant the experiment does not define, which would take
+            # the whole scan down; every variant still answers a wider version of the goal.
+            ("invented_variant", "treatment"),
+        ]
+    )
+    def test_watches_every_variant_without_a_real_named_one(self, _name, variant):
+        draft = self._finalize(filter_experiment="AI creation flow", filter_experiment_variant=variant)
 
-        assert draft.experiment_targeting == {"experiment_id": 11, "variant": None}
+        assert draft.scanner_type == ScannerType.EXPERIMENT
+        assert draft.scanner_config["experiment_id"] == 11
+        assert "variants" not in draft.scanner_config
 
     def test_an_invented_experiment_name_is_dropped(self):
         draft = self._finalize(filter_experiment="Some other test", filter_experiment_variant="test")
 
-        assert draft.experiment_targeting is None
-
-    def test_an_invented_variant_falls_back_to_every_variant(self):
-        # The exposure filter refuses a variant the experiment does not define, which would take the
-        # whole scan down; every variant still answers a wider version of the goal.
-        draft = self._finalize(filter_experiment="AI creation flow", filter_experiment_variant="treatment")
-
-        assert draft.experiment_targeting == {"experiment_id": 11, "variant": None}
+        assert draft.scanner_type != ScannerType.EXPERIMENT
+        assert "experiment_id" not in draft.scanner_config
 
 
 class TestFinalizeV2:
@@ -1851,8 +1858,8 @@ class TestDraftV2(_VisionAPITestCase):
             {"key": "$survey_id", "value": [str(survey.id)], "operator": "exact", "type": "event"}
         ]
 
-    def test_the_experiment_the_goal_named_is_carried_as_targeting_and_counted(self):
-        # The whole point of the targeting: the projection has to count that experiment's
+    def test_the_experiment_the_goal_named_scopes_the_draft_and_is_counted(self):
+        # The whole point of the scope: the projection has to count that experiment's
         # participants, not every session the pages match, while the query the wizard saves stays
         # the exposure-free blob the API accepts.
         experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
@@ -1871,11 +1878,12 @@ class TestDraftV2(_VisionAPITestCase):
             estimate,
         )
 
-        assert draft.experiment_targeting == {"experiment_id": experiment.id, "variant": "test"}
+        assert draft.scanner_type == ScannerType.EXPERIMENT
+        assert (draft.scanner_config["experiment_id"], draft.scanner_config["variants"]) == (experiment.id, ["test"])
         assert draft.query is not None and "experiment_exposure" not in draft.query
         assert counted[0].experiment_exposure is not None
         assert counted[0].experiment_exposure.experiment_id == experiment.id
-        assert counted[0].experiment_exposure.variant == "test"
+        assert counted[0].experiment_exposure.variants == ["test"]
 
     def test_solved_dials_reach_the_draft(self):
         draft = self._run(pages=("/billing",), generate=_draft_v2(filter_pages=["/billing"]))

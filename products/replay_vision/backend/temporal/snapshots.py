@@ -46,9 +46,7 @@ class ScannerSnapshot(BaseModel, frozen=True):
     def experiment_scope(self) -> dict[str, Any] | None:
         """The experiment this scan watched, wherever the snapshot stores it; mirrors
         `ReplayScanner.experiment_scope`."""
-        if self.scanner_type == ScannerType.EXPERIMENT:
-            return config_experiment_scope(self.scanner_config)
-        return self.experiment_targeting
+        return config_experiment_scope(self.scanner_config) or self.experiment_targeting
 
     @classmethod
     def from_scanner(cls, scanner: "ReplayScanner") -> "ScannerSnapshot":

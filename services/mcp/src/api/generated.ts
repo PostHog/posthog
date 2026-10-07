@@ -69689,7 +69689,7 @@ export namespace Schemas {
       enabled?: boolean;
       /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
       emits_signals?: boolean;
-      /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
+      /** Legacy experiment targeting from before the experiment scanner type. Read-only: setting or changing it is rejected, so create an `experiment` scanner instead. Set null to clear it. */
       experiment_targeting?: ScannerExperimentTargeting | null;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version: number;
@@ -81134,7 +81134,7 @@ export namespace Schemas {
       enabled?: boolean;
       /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
       emits_signals?: boolean;
-      /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
+      /** Legacy experiment targeting from before the experiment scanner type. Read-only: setting or changing it is rejected, so create an `experiment` scanner instead. Set null to clear it. */
       experiment_targeting?: ScannerExperimentTargeting | null;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version?: number;

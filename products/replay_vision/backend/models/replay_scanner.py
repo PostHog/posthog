@@ -49,7 +49,7 @@ def apply_experiment_targeting(query: "RecordingsQuery", targeting: dict | None)
 
 
 def config_experiment_scope(scanner_config: "dict | None") -> dict | None:
-    """The experiment scope carried inside an experiment scanner's `scanner_config`, or None."""
+    """The experiment scope carried inside a scanner's `scanner_config`, or None."""
     config = scanner_config if isinstance(scanner_config, dict) else {}
     if config.get("experiment_id") is None:
         return None
@@ -503,13 +503,13 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
     def experiment_scope(self) -> dict | None:
         """The experiment this scanner watches, wherever it is stored.
 
-        The experiment scanner type keeps `experiment_id` and `variants` in `scanner_config`; the
-        other types use the legacy `experiment_targeting` column. Both stores are access-checked on
-        write and redacted on read, so this is the one place code may read a scanner's experiment.
+        The experiment scanner type keeps `experiment_id` and `variants` in `scanner_config`, and so
+        does a retired legacy targeted scanner of another type (migration 0106 copied it there).
+        Falls back to the legacy `experiment_targeting` column, which the copy left in place for a
+        scanner written by a pod still on the old code. Both stores are access-checked on write and
+        redacted on read, so this is the one place code may read a scanner's experiment.
         """
-        if self.scanner_type == ScannerType.EXPERIMENT:
-            return config_experiment_scope(self.scanner_config)
-        return self.experiment_targeting
+        return config_experiment_scope(self.scanner_config) or self.experiment_targeting
 
     def targeted_recordings_query(self) -> "RecordingsQuery":
         """The query every scan and estimate must run: the persisted filter plus the exposure
