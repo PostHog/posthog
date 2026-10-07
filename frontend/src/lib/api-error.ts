@@ -243,6 +243,8 @@ export function readableErrorMessage(error: unknown): string | undefined {
 }
 
 export class ApiError extends Error {
+    /** Numeric capacity hints can be used for automatic retries without relying on server or device clocks. */
+    readonly retryAfterSeconds: number | null
     /** An absolute deadline keeps rerenders and remounts from restarting a capacity cooldown. */
     readonly retryAfterTimestamp: number | null
     /** Django REST Framework `detail` - used in downstream error handling. */
@@ -271,9 +273,11 @@ export class ApiError extends Error {
         this.link = data?.link || null
         this.attr = data?.attr || null
         const retryAfter = status === 503 ? headers?.get('Retry-After') : null
+        const seconds = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) : NaN
+        this.retryAfterSeconds = Number.isSafeInteger(seconds) ? seconds : null
         let retryAfterTimestamp = NaN
-        if (retryAfter && /^\d+$/.test(retryAfter)) {
-            retryAfterTimestamp = Date.now() + Number(retryAfter) * 1000
+        if (this.retryAfterSeconds !== null) {
+            retryAfterTimestamp = Date.now() + this.retryAfterSeconds * 1000
         } else if (retryAfter?.endsWith('GMT')) {
             // Compare server dates to keep device clock skew out of the cooldown.
             const serverDate = headers?.get('Date')

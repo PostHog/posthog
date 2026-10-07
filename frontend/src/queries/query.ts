@@ -1,5 +1,5 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
-import { ApiError, isTransientServerError } from 'lib/api-error'
+import { ApiError } from 'lib/api-error'
 import posthog from 'lib/posthog-typed'
 import { delay, retryWithBackoff } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
@@ -78,30 +78,26 @@ function shortCapacityWaitMs(error: unknown): number | undefined {
     if (!(error instanceof ApiError) || error.status !== 503) {
         return undefined
     }
-    const retryAfter = error.headers?.get('Retry-After')
-    // The date form of Retry-After is read against the client clock, which can be off by more than a short wait.
-    if (!retryAfter || !/^\d+$/.test(retryAfter)) {
-        return undefined
-    }
-    const seconds = Number(retryAfter)
-    return seconds <= CAPACITY_RETRY_MAX_WAIT_SECONDS ? seconds * 1000 : undefined
+    const seconds = error.retryAfterSeconds
+    return seconds !== null && seconds <= CAPACITY_RETRY_MAX_WAIT_SECONDS ? seconds * 1000 : undefined
 }
 
 /**
  * Treat eligible 502/503 responses as potentially transient and retry within a bounded budget.
  * A 502 does not establish whether the original query started (RFC 9110, section 15.6.3).
- * For a 503 with `Retry-After` of at most CAPACITY_RETRY_MAX_WAIT_SECONDS, wait before resubmitting.
- * With a longer wait the error goes to the caller at once, because an early
+ * Only retry a 503 with a numeric `Retry-After` of at most CAPACITY_RETRY_MAX_WAIT_SECONDS.
+ * Without a short numeric hint the error goes to the caller at once, because an early
  * resubmit only adds load. A 504 means the gateway stopped waiting while the backend can still be
  * running the query, so a resubmit can compute it a second time.
  */
 function isRetryableSubmitFailure(error: unknown): boolean {
-    return (
-        error instanceof ApiError &&
-        isTransientServerError(error) &&
-        error.status !== 504 &&
-        (!error.headers?.has('Retry-After') || shortCapacityWaitMs(error) !== undefined)
-    )
+    if (!(error instanceof ApiError)) {
+        return false
+    }
+    if (error.status === 502) {
+        return !error.headers?.has('Retry-After')
+    }
+    return shortCapacityWaitMs(error) !== undefined
 }
 
 /**

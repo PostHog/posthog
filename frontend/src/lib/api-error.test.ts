@@ -13,6 +13,20 @@ describe('api-error', () => {
             jest.useRealTimers()
         })
 
+        it.each([0, 5, 45])(
+            'uses %i seconds without a server Date header and keeps the original deadline',
+            (seconds) => {
+                jest.useFakeTimers()
+                const receivedAt = Date.now()
+                const error = new ApiError('', 503, new Headers({ 'Retry-After': String(seconds) }))
+
+                jest.advanceTimersByTime(1000)
+
+                expect(error.retryAfterSeconds).toBe(seconds)
+                expect(error.retryAfterTimestamp).toBe(receivedAt + seconds * 1000)
+            }
+        )
+
         it.each([-3_600_000, 3_600_000])('honors HTTP dates with %i ms of device clock skew', (clockSkew) => {
             jest.useFakeTimers({ now: Date.parse('Mon, 05 Oct 2026 12:00:00 GMT') + clockSkew })
             const error = new ApiError(
@@ -25,6 +39,7 @@ describe('api-error', () => {
             )
 
             expect(error.retryAfterTimestamp).toBe(Date.now() + 45_000)
+            expect(error.retryAfterSeconds).toBeNull()
         })
 
         it.each([undefined, 'invalid'])(
@@ -35,7 +50,9 @@ describe('api-error', () => {
                     headers.set('Date', date)
                 }
 
-                expect(new ApiError('', 503, headers).retryAfterTimestamp).toBeNull()
+                const error = new ApiError('', 503, headers)
+                expect(error.retryAfterTimestamp).toBeNull()
+                expect(error.retryAfterSeconds).toBeNull()
             }
         )
 
@@ -43,7 +60,9 @@ describe('api-error', () => {
             'ignores an invalid Retry-After header: %s',
             (retryAfter) => {
                 const headers = new Headers(retryAfter === undefined ? {} : { 'Retry-After': retryAfter })
-                expect(new ApiError('', 503, headers).retryAfterTimestamp).toBeNull()
+                const error = new ApiError('', 503, headers)
+                expect(error.retryAfterTimestamp).toBeNull()
+                expect(error.retryAfterSeconds).toBeNull()
             }
         )
     })

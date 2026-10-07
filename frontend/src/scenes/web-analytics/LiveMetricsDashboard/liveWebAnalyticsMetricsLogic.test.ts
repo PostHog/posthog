@@ -68,7 +68,7 @@ describe('liveWebAnalyticsMetricsLogic', () => {
     it.each(
         [
             { statuses: [502], attempts: 3 },
-            { statuses: [503], attempts: 3 },
+            { statuses: [503], attempts: 1 },
             { statuses: [504], attempts: 1 },
             { statuses: [502, 502, 504], attempts: 3 },
             { statuses: [502, 504], attempts: 2 },

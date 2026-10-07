@@ -1,4 +1,6 @@
 // This is separate from utils.ts because here we don't include `funnelLogic`, `retentionLogic`, etc
+import { ApiError } from 'lib/api-error'
+
 import {
     ChartDisplayType,
     FilterType,
@@ -11,6 +13,29 @@ import {
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
+
+export function getCapacityRetryAt(tileError: unknown, queryError: unknown): number | null {
+    const tileRetryAt = tileError instanceof ApiError ? tileError.retryAfterTimestamp : null
+    const queryRetryAt = queryError instanceof ApiError ? queryError.retryAfterTimestamp : null
+    return Math.max(tileRetryAt ?? 0, queryRetryAt ?? 0) || null
+}
+
+export function getRetryCooldown(retryAt: number | null | undefined): {
+    secondsLeft: number
+    disabledReason: string | undefined
+    remediation: string | null
+} {
+    if (!retryAt) {
+        return { secondsLeft: 0, disabledReason: undefined, remediation: null }
+    }
+    const secondsLeft = Math.max(0, Math.ceil((retryAt - Date.now()) / 1000))
+    if (secondsLeft === 0) {
+        return { secondsLeft, disabledReason: undefined, remediation: 'You can try this query again now.' }
+    }
+    const unit = secondsLeft === 1 ? 'second' : 'seconds'
+    const message = `PostHog is busy. You can retry in ${secondsLeft} ${unit}.`
+    return { secondsLeft, disabledReason: message, remediation: message }
+}
 
 /**
  * Get a key function for InsightLogicProps.

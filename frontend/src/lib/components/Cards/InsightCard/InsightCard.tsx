@@ -25,6 +25,7 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { getCapacityRetryAt, getRetryCooldown } from 'scenes/insights/sharedUtils'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -335,16 +336,10 @@ function InsightCardInternal(
     const { insightDataLoading, insightDataError } = useValues(insightDataLogic(insightLogicProps))
 
     const [, setCooldownTick] = useState(0)
-    const tileRetryAt = apiErrored && apiError instanceof ApiError ? apiError.retryAfterTimestamp : null
     // The embedded query stores its own failure in insightDataLogic and does not set the apiError prop.
-    const queryRetryAt = insightDataError instanceof ApiError ? insightDataError.retryAfterTimestamp : null
-    const capacityRetryAt = Math.max(tileRetryAt ?? 0, queryRetryAt ?? 0) || null
-    const retrySecondsLeft = capacityRetryAt ? Math.max(0, Math.ceil((capacityRetryAt - Date.now()) / 1000)) : 0
+    const capacityRetryAt = getCapacityRetryAt(apiErrored ? apiError : null, insightDataError)
+    const { secondsLeft: retrySecondsLeft, disabledReason: refreshDisabledReason } = getRetryCooldown(capacityRetryAt)
     useInterval(() => setCooldownTick((tick) => tick + 1), retrySecondsLeft > 0 ? 1000 : null)
-    const refreshDisabledReason =
-        retrySecondsLeft > 0
-            ? `PostHog is busy. You can retry in ${retrySecondsLeft} ${retrySecondsLeft === 1 ? 'second' : 'seconds'}.`
-            : undefined
     const refreshAfterCooldown = useCallback((): void => {
         if (!capacityRetryAt || Date.now() >= capacityRetryAt) {
             refresh?.()

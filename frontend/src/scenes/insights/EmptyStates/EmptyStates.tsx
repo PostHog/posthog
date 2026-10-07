@@ -58,6 +58,7 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
+import { getRetryCooldown } from '../sharedUtils'
 import { SampleDataState, SampleDataVariant } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
 
@@ -850,21 +851,19 @@ export function InsightErrorState({
     const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission'
     // InsightCard passes the later of its own and its embedded query's deadlines, so a non-503 card error can carry one.
     const capacityRetryAt = canRetry ? retryAfterTimestamp : null
-    const retrySecondsLeft = capacityRetryAt ? Math.max(0, Math.ceil((capacityRetryAt - Date.now()) / 1000)) : 0
+    const {
+        secondsLeft: retrySecondsLeft,
+        disabledReason: retryDisabledReason,
+        remediation: capacityRemediation,
+    } = getRetryCooldown(capacityRetryAt)
     useInterval(() => setTick((tick) => tick + 1), retrySecondsLeft > 0 ? 1000 : null)
-    const retryDisabledReason =
-        retrySecondsLeft > 0
-            ? `PostHog is busy. You can retry in ${retrySecondsLeft} ${retrySecondsLeft === 1 ? 'second' : 'seconds'}.`
-            : undefined
     const safeTitle = typeof title === 'string' && isRawServerErrorTitle(title, titleStatus) ? null : title
     const displayTitle = getInsightErrorTitle(errorKind, safeTitle, titleStatus)
     const isExport = placement === DashboardPlacement.Export
     const showBugReport = !isExport && (errorKind === 'transient' || errorKind === 'server' || errorKind === 'unknown')
     // A 513 body is curated backend copy, unless a staff account got the raw ClickHouse trace back.
     const backendDetail = typeof title === 'string' && !isRawServerErrorTitle(title) ? title : null
-    const remediation = capacityRetryAt
-        ? (retryDisabledReason ?? 'You can try this query again now.')
-        : getInsightErrorRemediation(errorKind, retryAfter, backendDetail)
+    const remediation = capacityRemediation ?? getInsightErrorRemediation(errorKind, retryAfter, backendDetail)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
