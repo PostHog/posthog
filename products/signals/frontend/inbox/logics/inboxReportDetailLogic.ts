@@ -66,6 +66,7 @@ import {
     captureInboxReportAction,
     captureInboxReportFeedback,
     captureInboxReportFeedbackNote,
+    InboxReportActionSurface,
     InboxReportFeedbackSentiment,
 } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
@@ -557,8 +558,12 @@ export interface inboxReportDetailLogicActions {
     postReviewCommentFinished: () => {
         value: true
     }
-    rateReport: (sentiment: InboxReportFeedbackSentiment) => {
+    rateReport: (
+        sentiment: InboxReportFeedbackSentiment,
+        surface?: InboxReportActionSurface
+    ) => {
         sentiment: InboxReportFeedbackSentiment
+        surface: InboxReportActionSurface
     }
     searchAvailableReviewers: (query: string) => {
         query: string
@@ -587,8 +592,12 @@ export interface inboxReportDetailLogicActions {
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
     }
-    submitFeedbackNote: (note: string) => {
+    submitFeedbackNote: (
+        note: string,
+        surface?: InboxReportActionSurface
+    ) => {
         note: string
+        surface: InboxReportActionSurface
     }
     toggleExpandedTask: (taskId: string) => {
         taskId: string
@@ -721,12 +730,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         toggleExpandedTask: (taskId: string) => ({ taskId }),
         // Thumbs feedback at the end of the report body. Recorded server-side as a report action
         // (consumption evidence) – nothing about the report's state changes.
-        rateReport: (sentiment: InboxReportFeedbackSentiment) => ({ sentiment }),
+        rateReport: (sentiment: InboxReportFeedbackSentiment, surface: InboxReportActionSurface = 'detail_footer') => ({
+            sentiment,
+            surface,
+        }),
         // Optional note, offered only after a rating is in. The rating is never held up waiting for it.
         openFeedbackNote: true,
         setFeedbackNoteDraft: (draft: string) => ({ draft }),
         // The note rides on the payload: the reducers below clear the draft, and listeners run after them.
-        submitFeedbackNote: (note: string) => ({ note }),
+        submitFeedbackNote: (note: string, surface: InboxReportActionSurface = 'detail_footer') => ({ note, surface }),
         cancelReportCheck: (checkId: string) => ({ checkId }),
         // Fired whether the cancel succeeded or failed, so the row's button always comes back.
         cancelReportCheckDone: (checkId: string) => ({ checkId }),
@@ -1442,11 +1454,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 })
             }
         },
-        rateReport: ({ sentiment }) => {
+        rateReport: ({ sentiment, surface }) => {
             if (!values.report) {
                 return
             }
-            captureInboxReportFeedback({ report: values.report, sentiment, surface: 'detail_footer' })
+            captureInboxReportFeedback({ report: values.report, sentiment, surface })
             // Best-effort server-side record of the bare rating: consumption evidence the scout
             // inactivity sweep reads, so rating a report keeps its scout from being auto-paused.
             // The analytics event above stays the durable record of the rating itself.
@@ -1455,7 +1467,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             }).catch(() => {})
         },
         // Fires on its own event so the rating stays exactly one `Inbox report feedback` per click.
-        submitFeedbackNote: async ({ note }) => {
+        submitFeedbackNote: async ({ note, surface }) => {
             const trimmed = note.trim()
             if (!values.report || !values.feedbackSentiment || !trimmed) {
                 return
@@ -1475,7 +1487,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     report: values.report,
                     sentiment,
                     note: trimmed,
-                    surface: 'detail_footer',
+                    surface,
                 })
                 // Best-effort: also carry the note into the scout steering channel so the scout that filed
                 // the report reads it next run. The analytics event above is the durable record, so a

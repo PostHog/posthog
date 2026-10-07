@@ -141,7 +141,7 @@ def s3_compatible_integration(team, user):
 def hogql_batch_exports_enabled():
     """Enable the hogql-batch-exports feature flag for the duration of a test."""
     with mock.patch(
-        "products.batch_exports.backend.api.utils.posthoganalytics.feature_enabled", return_value=True
+        "products.batch_exports.backend.presentation.views.utils.posthoganalytics.feature_enabled", return_value=True
     ) as feature_enabled:
         yield feature_enabled
 

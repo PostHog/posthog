@@ -24,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
         SourceEvaluationInputs,
         SourceOutcomeInputs,
     )
+    from products.alerts_platform.backend.facade.temporal import DELIVERY_EXECUTION_TIMEOUT
 
 WORKFLOW_NAME = "logs-alert-evaluate"
 
@@ -42,7 +43,7 @@ EVALUATE_SCHEDULE_TO_CLOSE = EVALUATE_START_TO_CLOSE + EVALUATE_QUEUE_TOLERANCE
 # the next tick reaches it anyway, and holding the key meanwhile blocks its own re-dispatch.
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
-# What the source needs from the platform's `SOURCE_EVALUATION_TIMEOUT`, which has to hold both
+# What the source needs from its binding's `evaluation_timeout`, which has to hold both
 # activities and still leave room to start the delivery children.
 EVALUATION_BUDGET = EVALUATE_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE
 
@@ -107,7 +108,7 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
                     id=f"alerts-deliver-preview-{delivery.configuration_id}:{delivery.evaluation_key}",
                     task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                    execution_timeout=dt.timedelta(minutes=1),
+                    execution_timeout=DELIVERY_EXECUTION_TIMEOUT,
                 )
                 for delivery in evaluation.deliveries
             ),

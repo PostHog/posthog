@@ -154,6 +154,7 @@ import {
     sanitizeSurveyAppearance,
     surveyResponseColumnId,
     validateSurveyAppearance,
+    v1TargetingFlagFilters,
 } from './utils'
 
 export type SurveyBaseStatTuple = [
@@ -3188,7 +3189,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         feature_enrollment: undefined,
                     }
                 }
-                return survey.targeting_flag?.filters || undefined
+                return v1TargetingFlagFilters(survey)
             },
         ],
         urlMatchTypeValidationError: [

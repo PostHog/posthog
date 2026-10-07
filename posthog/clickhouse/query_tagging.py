@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 # from posthog.schema_enums import PersonsOnEventsMode
 import structlog
 from cachetools import cached
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from posthog.schema_enums import NodeKind, ProductKey
 
@@ -284,6 +284,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_QUERY
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY
             | NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY
+            | NodeKind.MARKETING_ANALYTICS_SEARCH_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
         case (
@@ -337,6 +338,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.LIFECYCLE_DATA_WAREHOUSE_NODE
             | NodeKind.DATA_TABLE_NODE
             | NodeKind.DATA_VISUALIZATION_NODE
+            | NodeKind.BI_VISUALIZATION_NODE
             | NodeKind.SAVED_INSIGHT_NODE
             | NodeKind.INSIGHT_VIZ_NODE
         ):
@@ -419,6 +421,9 @@ class QueryTags(BaseModel):
 
     route_id: Optional[str] = None
     workload: Optional[str] = None  # enum connection.Workload
+    # The user for a query that names none. sync_execute's product routes (MAX_AI, ENDPOINTS, BILLING,
+    # temporal LLM analytics) take precedence over it.
+    ch_user: Optional[str] = None  # enum connection.ClickHouseUser
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
     lookup: Optional[str] = None  # a runner's internal lookup before its real query, e.g. "earliest_timestamp"
@@ -541,6 +546,9 @@ class QueryTags(BaseModel):
     table_id: Optional[uuid.UUID] = None
     warehouse_query: Optional[bool] = None
     saved_query_ids: Optional[list[str]] = None
+    warehouse_table_ids: Optional[list[str]] = None
+    directly_read_ids: Optional[list[str]] = None
+    materialized_saved_query_id: Optional[str] = None
 
     trend_volume_type: Optional[str] = None
 
@@ -594,6 +602,16 @@ class QueryTags(BaseModel):
     service_name: Optional[str] = None
 
     model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
+
+    @field_validator("ch_user")
+    @classmethod
+    def _known_ch_user(cls, value: str | None) -> str | None:
+        # Rejected where the tag is set, so a bad value never reaches sync_execute.
+        from posthog.clickhouse.client.connection import (
+            ClickHouseUser,  # noqa: PLC0415 — connection imports this module via posthog.utils
+        )
+
+        return None if value is None else ClickHouseUser(value).value
 
     def update(self, **kwargs):
         for field, value in kwargs.items():

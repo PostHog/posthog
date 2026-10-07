@@ -99,22 +99,33 @@ class TestMerge:
     @parameterized.expand(
         [
             # 5 ratings behind the rule: one dissent marks it contested, five retire it.
-            ("well_backed_survives_one_dissent", 5, ["r6"], ["a1"]),
-            ("well_backed_retires_on_equal_dissent", 5, ["r5", "r6", "r7", "r8", "r9"], []),
-            ("thinly_backed_retires_on_one_dissent", 2, ["r6"], []),
+            ("well_backed_survives_one_dissent", 5, ["r6"], False, ["a1"]),
+            ("well_backed_retires_on_equal_dissent", 5, ["r5", "r6", "r7", "r8", "r9"], False, []),
+            ("thinly_backed_retires_on_one_dissent", 2, ["r6"], False, []),
+            # A rule that only repeats the scan prompt's built-in guidance goes however well backed it is.
+            ("well_backed_restating_a_built_in_retires", 5, [], True, []),
         ]
     )
     def test_retiring_a_rule_needs_as_much_evidence_as_backs_it(
-        self, _name: str, support: int, against: list[str], expected_ids: list[str]
+        self, _name: str, support: int, against: list[str], built_in: bool, expected_ids: list[str]
     ) -> None:
-        current = [_stored("a1", "Treat a declined card as normal.", [f"obs-{i}" for i in range(1, support + 1)])]
+        rule = "Do not report a masked card form as a failed load."
+        current = [_stored("a1", rule, [f"obs-{i}" for i in range(1, support + 1)])]
         ratings = {**_RATINGS, **{f"r{i}": f"obs-new-{i}" for i in range(5, 10)}}
 
-        kept = _merge(current, [], [_LlmRetired(id="a1", contradicted_by=against)], ratings, cap=12)
+        kept = _merge(current, [], [_LlmRetired(id="a1", contradicted_by=against, built_in=built_in)], ratings, cap=12)
 
         assert [r.id for r in kept] == expected_ids
         if kept:
             assert kept[0].support == support and len(kept[0].contradicted_by) == len(against)
+
+    def test_the_built_in_flag_cannot_drop_a_well_backed_rule_on_another_topic(self) -> None:
+        # The model's input carries recording-derived text, so the flag alone must not delete an unrelated rule.
+        current = [_stored("a1", "Treat a declined card as normal.", [f"obs-{i}" for i in range(1, 6)])]
+
+        kept = _merge(current, [], [_LlmRetired(id="a1", built_in=True)], _RATINGS, cap=12)
+
+        assert [r.id for r in kept] == ["a1"]
 
     def test_a_supporter_re_rated_into_a_dissent_does_not_drop_a_well_backed_rule(self) -> None:
         current = [_stored("a1", "Treat a declined card as normal.", ["obs-1", "obs-2", "obs-3"])]

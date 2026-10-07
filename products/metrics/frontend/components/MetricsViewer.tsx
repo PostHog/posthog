@@ -37,6 +37,7 @@ import { MetricsAnomalyPanel } from './MetricsAnomalyPanel'
 import { MetricsChartSettings } from './MetricsChartSettings'
 import { MetricsClauseRow } from './MetricsClauseRow'
 import { type MetricsExemplar } from './MetricsExemplarMarkers'
+import { MetricsIntervalPicker } from './MetricsIntervalPicker'
 import { MetricsLogsSourceTag } from './MetricsLogsSourceTag'
 import { MetricsRelatedMenu } from './MetricsRelatedMenu'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
@@ -50,7 +51,7 @@ const BASE_DISPLAY_TYPES: MetricsDisplayType[] = ['line', 'area', 'bar']
 const PANEL_DISPLAY_TYPES: MetricsDisplayType[] = ['stat', 'gauge', 'bargauge', 'table', 'heatmap']
 
 // Mirrors the curated set used by `LogsViewer/Filters/DateRangeFilter`.
-const DATE_OPTIONS: DateMappingOption[] = [
+export const METRICS_DATE_OPTIONS: DateMappingOption[] = [
     { key: CUSTOM_OPTION_KEY, values: [] },
     {
         key: 'Last 5 minutes',
@@ -99,6 +100,7 @@ export const MetricsViewer = (): JSX.Element => {
         metricName,
         dateFrom,
         dateTo,
+        interval,
         chartSeries,
         anomalyBadge,
         liveRefresh,
@@ -117,6 +119,7 @@ export const MetricsViewer = (): JSX.Element => {
     const {
         setDateFrom,
         setDateTo,
+        setInterval,
         setLiveRefresh,
         addClause,
         fetchQueryResults,
@@ -277,7 +280,7 @@ export const MetricsViewer = (): JSX.Element => {
                             size="small"
                             dateFrom={dateFrom}
                             dateTo={dateTo}
-                            dateOptions={DATE_OPTIONS}
+                            dateOptions={METRICS_DATE_OPTIONS}
                             onChange={(changedDateFrom, changedDateTo) => {
                                 setDateFrom(changedDateFrom)
                                 setDateTo(changedDateTo)
@@ -286,6 +289,11 @@ export const MetricsViewer = (): JSX.Element => {
                             allowFixedRangeWithTime
                             allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks']}
                             use24HourFormat
+                            disabledReason={metricsViewerDisabledReason}
+                        />
+                        <MetricsIntervalPicker
+                            value={interval}
+                            onChange={setInterval}
                             disabledReason={metricsViewerDisabledReason}
                         />
                         <LemonSwitch
@@ -448,7 +456,7 @@ export const MetricsViewer = (): JSX.Element => {
 // Committed on blur/Enter (mirroring TrendsFormula) so a half-typed formula doesn't fire
 // a query per keystroke. Input is lowercased — clause aliases are lowercase and the
 // backend parser is case-sensitive.
-const MetricsFormulaInput = ({ disabledReason }: { disabledReason: string | null }): JSX.Element => {
+export const MetricsFormulaInput = ({ disabledReason }: { disabledReason: string | null }): JSX.Element => {
     const { formula } = useValues(metricsViewerLogic)
     const { setFormula } = useActions(metricsViewerLogic)
     const [draft, setDraft] = useState(formula)

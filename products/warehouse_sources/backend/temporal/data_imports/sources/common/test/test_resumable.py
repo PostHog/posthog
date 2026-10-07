@@ -61,7 +61,7 @@ class TestResumableSourceManager:
 
         assert state == _SweepPosition(cursor="cus_1")
 
-    def test_state_reaches_redis_only_on_commit(self):
+    def test_only_a_confirmed_cursor_reaches_redis_and_only_on_commit(self):
         manager = _manager()
         redis = MagicMock()
 
@@ -69,6 +69,11 @@ class TestResumableSourceManager:
             get_redis.return_value.__enter__.return_value = redis
             manager.save_state(_SweepPosition(cursor="cus_1"))
             manager.save_state(_SweepPosition(cursor="cus_2"))
+            manager.commit()
+            redis.set.assert_not_called()
+
+            manager.confirm()
+            manager.save_state(_SweepPosition(cursor="cus_3"))
             redis.set.assert_not_called()
 
             manager.commit()
@@ -86,6 +91,7 @@ class TestResumableSourceManager:
         with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
             get_redis.return_value.__enter__.return_value = redis
             manager.save_state(_SweepPosition(cursor="sensitive-customer-id"))
+            manager.confirm()
             manager.commit()
             manager.load_state()
 
@@ -115,20 +121,25 @@ class TestResumableSourceManager:
         with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
             get_redis.return_value.__enter__.return_value = redis
             manager.with_namespace("deltas").save_state(_SweepPosition(cursor="cus_3"))
+            manager.confirm()
             manager.commit()
 
         redis.set.assert_called_once_with(
             "posthog:data_warehouse:resumable_source:1:job-1:deltas", '{"cursor":"cus_3"}', ex=60 * 60 * 24
         )
 
-    def test_clear_state_drops_the_staged_cursor(self):
+    @pytest.mark.parametrize("confirmed", [True, False], ids=["confirmed", "pending"])
+    def test_clear_state_drops_the_staged_cursor(self, confirmed: bool):
         manager = _manager()
         redis = MagicMock()
 
         with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
             get_redis.return_value.__enter__.return_value = redis
             manager.save_state(_SweepPosition(cursor="cus_1"))
+            if confirmed:
+                manager.confirm()
             manager.clear_state()
+            manager.confirm()
             manager.commit()
 
         redis.delete.assert_called_once_with("posthog:data_warehouse:resumable_source:1:job-1")
@@ -145,6 +156,7 @@ class TestResumableSourceManager:
         with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
             get_redis.return_value.__enter__.return_value = redis
             manager.save_state(_SweepPosition(cursor="cus_1"))
+            manager.confirm()
             manager.commit()
 
         redis.connection_pool.disconnect.assert_called_once()

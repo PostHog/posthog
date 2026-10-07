@@ -94,8 +94,8 @@ export function hasMixedSeriesTypes(yData: SqlLineYSeries[], visualizationType: 
 const getSeriesLabel = (series: SqlLineYSeries): string =>
     series.settings?.display?.label || ('name' in series ? series.name : series.column.name)
 
-const getSeriesKey = (series: SqlLineYSeries, index: number): string =>
-    'breakdownValue' in series ? series.breakdownValue : `${series.column.name}-${index}`
+export const getSeriesKey = (series: SqlLineYSeries, index: number): string =>
+    'breakdownValue' in series ? JSON.stringify([series.name, series.breakdownValue]) : `${series.column.name}-${index}`
 
 /** Shares {@link getSeriesKey} with {@link buildSeries} so each trend line's `seriesKey` matches its source series. */
 export function buildTrendLineConfigs(ySeriesData: SqlLineYSeries[] | null | undefined): TrendLineConfig[] {

@@ -261,7 +261,11 @@ class ClientErrorGroup(ExceptionGroup):
 
 class RedshiftClient(PostgreSQLClient):
     @contextlib.asynccontextmanager
-    async def connect(self) -> collections.abc.AsyncIterator[typing.Self]:
+    async def connect(
+        self,
+        *,
+        is_error_retryable: typing.Callable[[Exception], bool] | None = None,
+    ) -> collections.abc.AsyncIterator[typing.Self]:
         """Manage a Redshift connection.
 
         This just yields a Postgres connection but we adjust a couple of things required for
@@ -273,7 +277,7 @@ class RedshiftClient(PostgreSQLClient):
         psycopg._encodings._py_codecs["UNICODE"] = "utf-8"
         psycopg._encodings.py_codecs.update((k.encode(), v) for k, v in psycopg._encodings._py_codecs.items())
 
-        async with super().connect():
+        async with super().connect(is_error_retryable=is_error_retryable):
             self.connection.prepare_threshold = None
             yield self
 

@@ -134,6 +134,38 @@ class TestBuildParams:
         )
         assert "filter" not in params
 
+    @pytest.mark.parametrize(
+        "should_use_incremental_field, last_value, expected_filter",
+        [
+            (False, None, 'dateSent>="1970-01-01T00:00:00.000Z"'),
+            (True, None, 'dateSent>="1970-01-01T00:00:00.000Z"'),
+            (True, datetime(2024, 1, 1, tzinfo=UTC), 'dateSent>="2024-01-01T00:00:00.000Z"'),
+        ],
+    )
+    def test_mdm_commands_always_sends_a_filter(self, should_use_incremental_field, last_value, expected_filter):
+        params = _build_params(
+            JAMF_PRO_ENDPOINTS["mdm_commands"],
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
+        assert params["filter"] == expected_filter
+        assert params["sort"] == "dateSent:asc"
+
+    @pytest.mark.parametrize(
+        "should_use_incremental_field, last_value, expected",
+        [
+            (False, None, {}),
+            (True, datetime(2024, 1, 1, tzinfo=UTC), {"filter": 'updated>="2024-01-01T00:00:00.000Z"'}),
+        ],
+    )
+    def test_update_statuses_sends_no_paging_params(self, should_use_incremental_field, last_value, expected):
+        params = _build_params(
+            JAMF_PRO_ENDPOINTS["managed_software_update_statuses"],
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
+        assert params == expected
+
     def test_computers_requests_inventory_sections(self):
         params = _build_params(
             JAMF_PRO_ENDPOINTS["computers"], should_use_incremental_field=False, db_incremental_field_last_value=None
@@ -286,6 +318,30 @@ class TestValidateCredentials:
                 None,
             )
 
+    @pytest.mark.parametrize(
+        "schema_name, expected_path, expected_query",
+        [
+            ("patch_reports", "/api/v3/patch-software-title-configurations", ""),
+            ("patch_summaries", "/api/v3/patch-software-title-configurations", ""),
+            (
+                "mdm_commands",
+                "/api/v2/mdm/commands",
+                "page=0&page-size=1&filter=dateSent%3E%3D%221970-01-01T00%3A00%3A00.000Z%22",
+            ),
+        ],
+    )
+    def test_scoped_probe_targets_an_addressable_url(self, schema_name, expected_path, expected_query):
+        session = _session(post_responses=[_response(json_data=TOKEN_JSON)], get_responses=[_response(json_data=[])])
+        with self._patch_session(session):
+            assert validate_credentials("example.jamfcloud.com", CLIENT_CREDENTIALS, schema_name=schema_name) == (
+                True,
+                None,
+            )
+        url = session.get.call_args.args[0]
+        path, _, query = url.removeprefix("https://example.jamfcloud.com").partition("?")
+        assert path == expected_path
+        assert query == expected_query
+
     def test_request_exception_returns_failure(self):
         session = mock.MagicMock()
         session.post.side_effect = requests.exceptions.ConnectionError("boom")
@@ -398,6 +454,159 @@ class TestGetRows:
         assert rows == [{"id": "1", "name": "HQ"}]
         assert session.get.call_count == 1
         manager.save_state.assert_not_called()
+
+    def test_fan_out_walks_each_parent_and_tags_child_rows(self):
+        manager = self._manager()
+        parents = _response(json_data=[{"id": "10"}, {"id": "2"}, {"id": "7"}])
+        parent_2_page_0 = _response(json_data={"totalCount": 201, "results": [{"deviceId": "a"}] * 200})
+        parent_2_page_1 = _response(json_data={"totalCount": 201, "results": [{"deviceId": "b"}]})
+        parent_7_missing = _response(status_code=404)
+        parent_10_page_0 = _response(json_data={"totalCount": 1, "results": [{"deviceId": "c"}]})
+        rows, session = self._run(
+            manager,
+            [parents, parent_2_page_0, parent_2_page_1, parent_7_missing, parent_10_page_0],
+            endpoint="patch_reports",
+        )
+
+        urls = [call.args[0] for call in session.get.call_args_list]
+        assert urls[0] == "https://example.jamfcloud.com/api/v3/patch-software-title-configurations"
+        assert [url.split("?")[0].rsplit("/", 2)[1] for url in urls[1:]] == ["2", "2", "7", "10"]
+        assert "page=1" in urls[2]
+        assert len(rows) == 202
+        assert {row["softwareTitleConfigurationId"] for row in rows} == {"2", "10"}
+        assert rows[-1] == {"deviceId": "c", "softwareTitleConfigurationId": "10"}
+        assert manager.save_state.call_args_list == [
+            mock.call(JamfProResumeConfig(page=1, parent_id="2")),
+            mock.call(JamfProResumeConfig(page=0, parent_id="7")),
+            mock.call(JamfProResumeConfig(page=0, parent_id="10")),
+        ]
+
+    def test_fan_out_has_one_request_budget_across_all_parents(self):
+        manager = self._manager()
+        parents = _response(json_data=[{"id": str(parent_id)} for parent_id in range(4)])
+        child_page = _response(json_data={"totalCount": 1, "results": [{"deviceId": "a"}]})
+        session = _session(
+            post_responses=[_response(json_data=TOKEN_JSON)],
+            get_responses=[parents, child_page, child_page, child_page],
+        )
+        with (
+            mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session),
+            mock.patch.object(jamf_pro_module, "MAX_PAGES", 3),
+        ):
+            with pytest.raises(JamfProPaginationLimitError):
+                list(
+                    get_rows(
+                        host="example.jamfcloud.com",
+                        credentials=CLIENT_CREDENTIALS,
+                        endpoint="patch_reports",
+                        logger=mock.MagicMock(),
+                        resumable_source_manager=manager,
+                        team_id=1,
+                    )
+                )
+
+        # The parent-list request is outside the child-page budget; only three children are fetched.
+        assert session.get.call_count == 4
+
+    def test_fan_out_resumes_from_saved_parent_and_page(self):
+        manager = self._manager(resume=JamfProResumeConfig(page=3, parent_id="7"))
+        parents = _response(json_data=[{"id": "2"}, {"id": "7"}, {"id": "10"}])
+        parent_7 = _response(json_data={"totalCount": 601, "results": [{"deviceId": "a"}]})
+        parent_10 = _response(json_data={"totalCount": 1, "results": [{"deviceId": "b"}]})
+        _rows, session = self._run(manager, [parents, parent_7, parent_10], endpoint="patch_reports")
+
+        urls = [call.args[0] for call in session.get.call_args_list]
+        assert "/7/patch-report?" in urls[1]
+        assert "page=3" in urls[1]
+        assert "/10/patch-report?" in urls[2]
+        assert "page=0" in urls[2]
+
+    def test_fan_out_single_object_child_becomes_one_row(self):
+        manager = self._manager()
+        parents = _response(json_data=[{"id": "1"}])
+        summary = _response(json_data={"softwareTitleId": "s1", "upToDate": 4, "outOfDate": 1})
+        rows, _session_ = self._run(manager, [parents, summary], endpoint="patch_summaries")
+
+        assert rows == [{"softwareTitleId": "s1", "upToDate": 4, "outOfDate": 1, "softwareTitleConfigurationId": "1"}]
+
+    def test_fan_out_pages_through_a_paginated_parent(self):
+        manager = self._manager()
+        parents_page_0 = _response(json_data={"totalCount": 201, "results": [{"id": str(i)} for i in range(200)]})
+        parents_page_1 = _response(json_data={"totalCount": 201, "results": [{"id": "200"}]})
+        child = _response(json_data={"totalCount": 1, "results": [{"deviceId": "d1", "statusEnum": "COMPLETE"}]})
+        rows, session = self._run(
+            manager, [parents_page_0, parents_page_1] + [child] * 201, endpoint="patch_policy_logs"
+        )
+
+        urls = [call.args[0] for call in session.get.call_args_list]
+        assert urls[0].startswith("https://example.jamfcloud.com/api/v2/patch-policies?")
+        assert "page=1" in urls[1]
+        assert "/patch-policies/200/logs?" in urls[-1]
+        assert len(rows) == 201
+        assert rows[-1] == {"deviceId": "d1", "statusEnum": "COMPLETE", "patchPolicyId": "200"}
+
+    def test_fan_out_refuses_an_unbounded_parent_list(self):
+        manager = self._manager()
+        endless_parents = _response(json_data={"totalCount": 10**9, "results": [{"id": "1"}, {"id": "2"}]})
+        session = _session(post_responses=[_response(json_data=TOKEN_JSON)], get_responses=[endless_parents] * 3)
+        with (
+            mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session),
+            mock.patch.object(jamf_pro_module, "MAX_PARENT_IDS", 3),
+        ):
+            with pytest.raises(JamfProPaginationLimitError):
+                list(
+                    get_rows(
+                        host="example.jamfcloud.com",
+                        credentials=CLIENT_CREDENTIALS,
+                        endpoint="patch_policy_logs",
+                        logger=mock.MagicMock(),
+                        resumable_source_manager=manager,
+                        team_id=1,
+                    )
+                )
+
+        assert all("/logs" not in call.args[0] for call in session.get.call_args_list)
+
+    @pytest.mark.parametrize(
+        "endpoint, expected_parent_ids",
+        [
+            ("mobile_device_smart_group_memberships", ["1"]),
+            ("mobile_device_static_group_memberships", ["2"]),
+        ],
+    )
+    def test_mobile_group_membership_fans_out_by_group_type_and_keeps_only_device_ids(
+        self, endpoint, expected_parent_ids
+    ):
+        manager = self._manager()
+        groups = _response(json_data=[{"id": 1, "isSmartGroup": True}, {"id": 2, "isSmartGroup": False}])
+        members = _response(
+            json_data={
+                "totalCount": 1,
+                "results": [{"mobileDeviceId": "5", "displayName": "iPad", "airPlayPassword": "pw"}],
+            }
+        )
+        rows, session = self._run(manager, [groups, members], endpoint=endpoint)
+
+        urls = [call.args[0] for call in session.get.call_args_list]
+        assert [url.split("?")[0].rsplit("/", 1)[1] for url in urls[1:]] == expected_parent_ids
+        assert rows == [{"mobileDeviceId": "5", "mobileDeviceGroupId": expected_parent_ids[0]}]
+
+    def test_unpaginated_incremental_endpoint_sends_filter(self):
+        manager = self._manager()
+        page = _response(json_data={"totalCount": 1, "results": [{"osUpdatesStatusId": "1"}]})
+        rows, session = self._run(
+            manager,
+            [page],
+            endpoint="managed_software_update_statuses",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+
+        assert rows == [{"osUpdatesStatusId": "1"}]
+        assert session.get.call_args.args[0] == (
+            "https://example.jamfcloud.com/api/v1/managed-software-updates/update-statuses"
+            "?filter=updated%3E%3D%222024-01-01T00%3A00%3A00.000Z%22"
+        )
 
     def test_blocks_unsafe_host_before_any_request(self):
         manager = self._manager()
@@ -546,5 +755,4 @@ class TestJamfProSourceResponse:
             team_id=1,
         )
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
         assert response.sort_mode == "asc"

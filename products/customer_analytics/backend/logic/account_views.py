@@ -23,6 +23,7 @@ ACCOUNT_VIEW_COMPONENT_LABELS = {
     "Opportunities": "Opportunities",
     "Conversations": "Conversations",
     "Meetings": "Meetings",
+    "SessionReplays": "Session replays",
 }
 ACCOUNT_VIEW_ALLOWED_PROPS = {"config", "nodeId", "span", "title"}
 ACCOUNT_VIEW_COMPONENT_TITLE_MAX_LENGTH = 400

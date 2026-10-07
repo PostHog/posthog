@@ -1,6 +1,6 @@
 import { isObject } from 'lib/utils/guards'
 
-import type { Message, MessageRole, PromptConfig, ReasoningLevel } from './llmPlaygroundPromptsLogic'
+import type { Message, MessageRole, MessageToolCall, PromptConfig, ReasoningLevel } from './llmPlaygroundPromptsLogic'
 
 export interface PlaygroundModelConfig {
     model: string
@@ -23,7 +23,7 @@ const PLAYGROUND_CONFIG_KEYS = new Set([
     'messages',
 ])
 
-const MESSAGE_ROLES: MessageRole[] = ['user', 'assistant', 'system']
+const MESSAGE_ROLES: MessageRole[] = ['user', 'assistant', 'system', 'tool']
 const REASONING_LEVELS: Exclude<ReasoningLevel, null>[] = ['minimal', 'low', 'medium', 'high']
 
 export interface ParsedPlaygroundConfig {
@@ -89,7 +89,21 @@ export function serializePlaygroundConfig(
         config.tools = prompt.tools
     }
     if (prompt.messages.length > 0) {
-        config.messages = prompt.messages.map((message) => ({ role: message.role, content: message.content }))
+        config.messages = prompt.messages.map((message) => ({
+            role: message.role,
+            content: message.content,
+            ...(message.toolCalls?.length
+                ? {
+                      tool_calls: message.toolCalls.map((toolCall) => ({
+                          id: toolCall.id,
+                          name: toolCall.name,
+                          arguments: toolCall.arguments,
+                      })),
+                  }
+                : {}),
+            ...(message.toolCallId ? { tool_call_id: message.toolCallId } : {}),
+            ...(message.toolName ? { tool_name: message.toolName } : {}),
+        }))
     }
 
     return Object.keys(config).length > 0 ? config : null
@@ -106,11 +120,36 @@ export function parsePlaygroundConfig(config: unknown): ParsedPlaygroundConfig |
     }
 
     const messages: Message[] = Array.isArray(config.messages)
-        ? config.messages.flatMap((entry): Message[] =>
-              isObject(entry) && MESSAGE_ROLES.includes(entry.role as MessageRole) && typeof entry.content === 'string'
-                  ? [{ role: entry.role as MessageRole, content: entry.content }]
+        ? config.messages.flatMap((entry): Message[] => {
+              if (
+                  !isObject(entry) ||
+                  !MESSAGE_ROLES.includes(entry.role as MessageRole) ||
+                  typeof entry.content !== 'string'
+              ) {
+                  return []
+              }
+              const toolCalls: MessageToolCall[] = Array.isArray(entry.tool_calls)
+                  ? entry.tool_calls.flatMap((call): MessageToolCall[] =>
+                        isObject(call) &&
+                        typeof call.id === 'string' &&
+                        typeof call.name === 'string' &&
+                        typeof call.arguments === 'string'
+                            ? [{ id: call.id, name: call.name, arguments: call.arguments }]
+                            : []
+                    )
                   : []
-          )
+              return [
+                  {
+                      role: entry.role as MessageRole,
+                      content: entry.content,
+                      ...(toolCalls.length > 0 ? { toolCalls } : {}),
+                      ...(typeof entry.tool_call_id === 'string' && entry.tool_call_id
+                          ? { toolCallId: entry.tool_call_id }
+                          : {}),
+                      ...(typeof entry.tool_name === 'string' && entry.tool_name ? { toolName: entry.tool_name } : {}),
+                  },
+              ]
+          })
         : []
 
     const tools =

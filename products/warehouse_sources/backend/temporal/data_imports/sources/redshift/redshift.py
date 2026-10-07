@@ -113,6 +113,12 @@ __all__ = [
 # keepalives a dead peer is detected in ~30-60s and raised as a fast,
 # retryable `OperationalError` instead. These only fire when the peer stops
 # responding, so they never interrupt a healthy long-running streaming sync.
+# Session statement timeout for a connection that reads metadata. The keepalives below end a query
+# whose peer went away. This ends a catalog query that the cluster accepts and then never answers,
+# for example one that waits behind a lock. Schema discovery must end before the 10 minute
+# `start_to_close_timeout` of its Temporal activity.
+METADATA_STATEMENT_TIMEOUT_MS = 1000 * 60 * 5
+
 _REDSHIFT_CONNECT_OPTS: dict[str, Any] = {
     "sslmode": "require",
     "connect_timeout": 15,
@@ -576,6 +582,22 @@ def _rollback_if_aborted(connection: psycopg.Connection) -> None:
         connection.rollback()
 
 
+def _set_session_statement_timeout(connection: psycopg.Connection, timeout_ms: int) -> None:
+    """Set the session statement timeout on a new connection.
+
+    Commits, because a `SET` is undone when its transaction rolls back, and because the callers
+    switch the connection to autocommit, which psycopg refuses inside a transaction. Best-effort:
+    a cluster that rejects the setting keeps its own default.
+    """
+    try:
+        connection.execute(sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(timeout_ms)))
+        connection.commit()
+    except psycopg.Error as e:
+        if _is_transient_connection_drop_error(e):
+            raise
+        _rollback_if_aborted(connection)
+
+
 def _recover_after_failed_probe(connection: psycopg.Connection) -> None:
     """Roll back a best-effort probe's aborted transaction, swallowing a lost connection."""
     try:
@@ -975,7 +997,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
     # ------------------------------------------------------------------
 
     @contextmanager
-    def connect(self, config: RedshiftSourceConfig, *, team_id: int | None = None) -> Iterator[psycopg.Connection]:
+    def connect(
+        self,
+        config: RedshiftSourceConfig,
+        *,
+        team_id: int | None = None,
+        statement_timeout_ms: int | None = METADATA_STATEMENT_TIMEOUT_MS,
+    ) -> Iterator[psycopg.Connection]:
         """Open a psycopg connection for the duration of the context.
 
         Opens the SSH tunnel (if configured) and connects with the
@@ -986,6 +1014,9 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         Redshift speaks the Postgres wire protocol through the same libpq, so it dials the
         addresses it validated the same way: `pinned_host_kwargs` resolves the host once, checks
         that answer against the host policy, and pins it through the `host`/`hostaddr` pair.
+
+        `statement_timeout_ms` is the session statement timeout. The default suits metadata work.
+        Pass None for the connection that reads the rows.
         """
         with open_ssh_tunnel(config, team_id) as (host, port):
             connect_kwargs: dict[str, Any] = {
@@ -1002,6 +1033,8 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 conn.adapters.register_loader("date", SafeDateLoader)
                 conn.adapters.register_loader("timestamp", SafeTimestampLoader)
                 conn.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
+                if statement_timeout_ms is not None:
+                    _set_session_statement_timeout(conn, statement_timeout_ms)
                 yield conn
 
     # ------------------------------------------------------------------
@@ -1559,6 +1592,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             # error tracking. Mirrors `get_rows_to_sync`/`fetch_table_stats`.
             logger.debug(f"has_duplicate_primary_keys: no privilege to run duplicate-key probe, skipping check: {e}")
             return None
+        except psycopg.errors.UndefinedTable as e:
+            # The table existed when schema discovery ran but was dropped or renamed before this
+            # probe executed — the same already-known, non-actionable condition
+            # `get_non_retryable_errors` stops the sync for entirely. The duplicate-key probe is
+            # best-effort, so skip gracefully instead of reporting the expected error to error
+            # tracking. Mirrors `get_rows_to_sync`.
+            logger.debug(f"has_duplicate_primary_keys: table no longer exists, skipping check: {e}")
+            return None
         except Exception as e:
             # A Redshift system-requested query abort (error code 1020, "system requested abort")
             # is the cluster's WLM/QMR cancelling the query — the same transient, non-actionable
@@ -2030,7 +2071,10 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 # yet. `ExitStack.enter_context` only registers cleanup after `__enter__` succeeds,
                 # so a failed attempt leaves nothing to tear down and the next attempt opens clean.
                 streaming_connection = _retry_on_transient_connection_drop(
-                    lambda: stack.enter_context(self.connect(config, team_id=inputs.team_id)), logger
+                    lambda: stack.enter_context(
+                        self.connect(config, team_id=inputs.team_id, statement_timeout_ms=None)
+                    ),
+                    logger,
                 )
                 streaming_connection.adapters.register_loader("json", JsonAsStringLoader)
                 projection = _refreshed_projection(streaming_connection)

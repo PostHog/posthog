@@ -2311,6 +2311,7 @@ dependencies = [
  "opentelemetry-proto 0.29.0",
  "prometheus-rw-proto",
  "prost 0.13.5",
+ "redis",
  "rustls 0.23.37",
  "serde",
  "serde_json",
@@ -3947,17 +3948,22 @@ dependencies = [
  "arrow-buffer",
  "arrow-cast",
  "arrow-data",
+ "arrow-ord",
  "arrow-row",
  "arrow-schema",
  "arrow-select",
  "async-trait",
+ "buoyant_kernel",
  "bytes",
+ "chrono",
  "deltalake",
  "futures",
+ "indexmap 2.13.0",
  "metrics",
  "object_store",
  "parquet",
  "serde_json",
+ "sqlparser",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -3968,7 +3974,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.9"
+version = "0.1.11"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -6342,6 +6348,7 @@ dependencies = [
 name = "ingestion-consumer"
 version = "0.1.0"
 dependencies = [
+ "ahash 0.8.12",
  "anyhow",
  "axum 0.7.9",
  "chrono",
@@ -9116,6 +9123,7 @@ dependencies = [
  "common-alloc",
  "common-database",
  "common-kafka",
+ "common-liveness",
  "common-metrics",
  "envconfig",
  "futures",

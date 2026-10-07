@@ -451,6 +451,12 @@ class CodexConnectUserThrottle(UserRateThrottle):
     rate = "10/hour"
 
 
+# Each internal feedback post lands in a shared Slack channel, so cap it per user.
+class InternalFeedbackUserThrottle(UserRateThrottle):
+    scope = "internal_feedback_user"
+    rate = "60/hour"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -785,6 +791,21 @@ class ReplayVisionSearchBurstRateThrottle(_UserBucketRateThrottle):
 class ReplayVisionSearchSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "replay_vision_search_sustained"
     rate = "300/hour"
+
+
+# Creating an export renders it, and an API-created export holds a web worker while the render
+# runs. The default Burst/Sustained throttles bucket per personal API key and skip session traffic,
+# so a script with several keys, or a burst from the UI, is not capped per project. A person
+# exports one asset per click, so these rates leave room for normal use and scripts while capping
+# a bulk script that starts hundreds of exports at once.
+class ExportCreateBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "export_create_burst"
+    rate = "60/minute"
+
+
+class ExportCreateSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "export_create_sustained"
+    rate = "600/hour"
 
 
 class _AIThrottleBase(UserRateThrottle):

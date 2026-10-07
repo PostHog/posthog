@@ -62,6 +62,7 @@ Create a service user API key (prefixed `cog_`) in your [Devin organization sett
 - `ViewOrgSessions` — Sessions, session insights and session messages
 - `ViewOrgConsumption` — Daily ACU consumption, per org and per user
 - `ManageAccountKnowledge` — Playbooks and Knowledge notes
+- `ViewOrgAutomations` — Automations
 - `ViewOrgMembership` — Members, and the per-user consumption that fans out from them
 - `ManageOrgSecrets` — Secrets (metadata only; values are never synced)
 

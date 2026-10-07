@@ -1,13 +1,14 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
-import type { AccountExpansionTab } from '../../components/Accounts/accountsExpansionLogic'
 import type { AccountViewComponentKind } from '../../components/Accounts/accountViewComponents'
 import type { AccountViewTileConfig } from '../../components/Accounts/accountViewTileConfig'
+import { AccountsEvents } from '../../components/Accounts/constants'
 import {
     accountViewsCreate,
     accountViewsDestroy,
@@ -88,7 +89,7 @@ export interface accountViewsLogicActions {
         variants: Record<string, boolean | string>
     } // featureFlagLogic
     addEditorComponent: (kind: AccountViewComponentKind) => {
-        kind: AccountExpansionTab
+        kind: AccountViewComponentKind
     }
     closeTileEditor: () => {
         value: true
@@ -256,6 +257,10 @@ export type accountViewsLogicType = MakeLogicType<
     AccountViewsLogicProps,
     accountViewsLogicMeta
 >
+
+function getAccountViewFailureType(error: unknown): 'conflict' | 'request' {
+    return error instanceof ApiError && error.status === 409 ? 'conflict' : 'request'
+}
 
 function updateAccountViewComponents(
     projectId: number,
@@ -604,18 +609,40 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                 actions.setConfigDraft(config.account_detail_tabs)
             }
         },
-        openCreateEditor: () => actions.setEditorOpen(true),
-        openEditEditor: () => actions.setEditorOpen(true),
-        openConfigure: () => actions.setConfigureOpen(true),
+        openCreateEditor: () => {
+            if (!values.editorOpen) {
+                posthog.capture(AccountsEvents.AccountViewEditorOpened, { is_new: true })
+            }
+            actions.setEditorOpen(true)
+        },
+        openEditEditor: () => {
+            // Reloading an open editor reuses this action.
+            if (!values.editorOpen) {
+                posthog.capture(AccountsEvents.AccountViewEditorOpened, { is_new: false })
+            }
+            actions.setEditorOpen(true)
+        },
+        openTileEditor: () => {
+            posthog.capture(AccountsEvents.AccountViewTileEditorOpened)
+        },
+        openConfigure: () => {
+            if (!values.configureOpen) {
+                posthog.capture(AccountsEvents.AccountViewTabSettingsOpened)
+            }
+            actions.setConfigureOpen(true)
+        },
         saveEditor: async () => {
             const editingView = values.editingView
+            const isNew = !editingView
             const canEditContent = !editingView || editingView.can_edit
             if (canEditContent && (!values.editorDraft.name.trim() || values.editorDraft.components.length === 0)) {
+                posthog.capture(AccountsEvents.AccountViewSaveFailed, { is_new: isNew, failure_type: 'validation' })
                 actions.saveEditorFailure()
                 return
             }
             try {
                 const content = createAccountViewContent(values.editorDraft.components)
+                const componentCount = values.editorDraft.components.length
                 const view = editingView
                     ? await accountViewsPartialUpdate(String(props.projectId), editingView.id, {
                           ...(editingView.can_edit ? { name: values.editorDraft.name.trim(), content } : {}),
@@ -626,10 +653,19 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                           name: values.editorDraft.name.trim(),
                           content,
                       })
+                posthog.capture(AccountsEvents.AccountViewSaved, {
+                    is_new: isNew,
+                    component_count: componentCount,
+                })
                 actions.saveEditorSuccess(view)
                 actions.setEditorOpen(false)
             } catch (error) {
-                if (error instanceof ApiError && error.status === 409) {
+                const failureType = getAccountViewFailureType(error)
+                posthog.capture(AccountsEvents.AccountViewSaveFailed, {
+                    is_new: isNew,
+                    failure_type: failureType,
+                })
+                if (failureType === 'conflict') {
                     actions.setEditorConflict(true)
                 } else {
                     lemonToast.error("Couldn't save the view. Try again.")
@@ -650,12 +686,18 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
             }
         },
         deleteView: async ({ viewId, version }) => {
+            posthog.capture(AccountsEvents.AccountViewDeletionStarted)
             try {
                 await accountViewsDestroy(String(props.projectId), viewId, { version })
+                posthog.capture(AccountsEvents.AccountViewDeleted)
                 actions.deleteViewSuccess(viewId)
                 actions.setEditorOpen(false)
             } catch (error) {
-                if (error instanceof ApiError && error.status === 409) {
+                const failureType = getAccountViewFailureType(error)
+                posthog.capture(AccountsEvents.AccountViewDeletionFailed, {
+                    failure_type: failureType,
+                })
+                if (failureType === 'conflict') {
                     actions.setEditorConflict(true)
                 } else {
                     lemonToast.error("Couldn't delete the view. Try again.")
@@ -666,6 +708,7 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
         saveTileEditor: async () => {
             const tileEditor = values.tileEditor
             if (!tileEditor) {
+                posthog.capture(AccountsEvents.AccountViewTileRenameFailed, { failure_type: 'validation' })
                 actions.saveViewComponentFailure()
                 return
             }
@@ -673,6 +716,7 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                 const view = values.views.find((candidate) => candidate.id === tileEditor.viewId)
                 const name = tileEditor.name.trim()
                 if (!view || !name) {
+                    posthog.capture(AccountsEvents.AccountViewTileRenameFailed, { failure_type: 'validation' })
                     actions.saveViewComponentFailure()
                     return
                 }
@@ -680,11 +724,17 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                     component.nodeId === tileEditor.nodeId ? { ...component, title: name } : component
                 )
                 try {
-                    actions.saveEditorSuccess(await updateAccountViewComponents(props.projectId, view, components))
+                    const updatedView = await updateAccountViewComponents(props.projectId, view, components)
+                    posthog.capture(AccountsEvents.AccountViewTileRenamed, { component_count: components.length })
+                    actions.saveEditorSuccess(updatedView)
                     actions.closeTileEditor()
                 } catch (error) {
+                    const failureType = getAccountViewFailureType(error)
+                    posthog.capture(AccountsEvents.AccountViewTileRenameFailed, {
+                        failure_type: failureType,
+                    })
                     lemonToast.error(
-                        error instanceof ApiError && error.status === 409
+                        failureType === 'conflict'
                             ? 'This view changed. Refresh and try again.'
                             : "Couldn't rename the tile. Try again."
                     )
@@ -727,16 +777,25 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
         },
         saveConfig: async () => {
             if (values.configError || !values.config) {
+                posthog.capture(AccountsEvents.AccountViewTabSettingsSaveFailed, { failure_type: 'unavailable' })
                 actions.saveConfigFailure()
                 return
             }
+            const settingsSummary = {
+                has_default: !!values.configDraft.default_tab_id,
+                ordered_count: values.configDraft.ordered_tab_ids.length,
+                hidden_count: values.configDraft.hidden_tab_ids.length,
+            }
+            posthog.capture(AccountsEvents.AccountViewTabSettingsSaveStarted)
             try {
                 const config = await userCustomerAnalyticsConfigPartialUpdate(String(props.projectId), '@me', {
                     account_detail_tabs: values.configDraft,
                 })
+                posthog.capture(AccountsEvents.AccountViewTabSettingsSaved, settingsSummary)
                 actions.saveConfigSuccess(config)
                 actions.setConfigureOpen(false)
             } catch {
+                posthog.capture(AccountsEvents.AccountViewTabSettingsSaveFailed, { failure_type: 'request' })
                 actions.saveConfigFailure()
                 lemonToast.error("Couldn't save the tab settings. Try again.")
             }
@@ -745,6 +804,7 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
             await queueViewWrite(cache, viewId, async () => {
                 const view = values.views.find((candidate) => candidate.id === viewId)
                 if (!view) {
+                    posthog.capture(AccountsEvents.AccountViewTileRemovalFailed, { failure_type: 'validation' })
                     actions.saveViewComponentFailure()
                     return
                 }
@@ -752,14 +812,22 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                     (component) => component.nodeId !== nodeId
                 )
                 if (components.length === 0) {
+                    posthog.capture(AccountsEvents.AccountViewTileRemovalFailed, { failure_type: 'validation' })
                     actions.saveViewComponentFailure()
                     return
                 }
+                posthog.capture(AccountsEvents.AccountViewTileRemovalStarted)
                 try {
-                    actions.saveEditorSuccess(await updateAccountViewComponents(props.projectId, view, components))
+                    const updatedView = await updateAccountViewComponents(props.projectId, view, components)
+                    posthog.capture(AccountsEvents.AccountViewTileRemoved, { component_count: components.length })
+                    actions.saveEditorSuccess(updatedView)
                 } catch (error) {
+                    const failureType = getAccountViewFailureType(error)
+                    posthog.capture(AccountsEvents.AccountViewTileRemovalFailed, {
+                        failure_type: failureType,
+                    })
                     lemonToast.error(
-                        error instanceof ApiError && error.status === 409
+                        failureType === 'conflict'
                             ? 'This view changed. Refresh and try again.'
                             : "Couldn't remove the tile. Try again."
                     )

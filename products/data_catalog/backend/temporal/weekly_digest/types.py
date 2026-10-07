@@ -40,6 +40,9 @@ class DataCatalogWeeklyDigestInput:
     batch_size: int = 25
     max_concurrent: int = 4
     failure_threshold: float = 0.2
+    # While the rollout flag skips almost every organization, the run attempts only a few. One
+    # transient error in so few attempts goes over the rate, so the rate applies only from this count.
+    min_attempted_orgs: int = 20
     active_since_days: int | None = 30
     org_ids: list[str] | None = None
 
@@ -49,6 +52,9 @@ class DataCatalogWeeklyDigestInput:
     @property
     def publishes_metrics(self) -> bool:
         return self.org_ids is None and not self.dry_run
+
+    def exceeds_failure_threshold(self, totals: DigestBatchTotals) -> bool:
+        return totals.orgs_attempted >= self.min_attempted_orgs and totals.failure_rate > self.failure_threshold
 
 
 @dataclasses.dataclass(frozen=True)
