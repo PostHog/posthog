@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
+import review_pr  # noqa: E402
 import luna_reviewer  # noqa: E402
 from github import PRData  # noqa: E402
 from luna_reviewer import LunaReviewer, RepoTools  # noqa: E402
@@ -169,12 +170,26 @@ def test_tool_loop_reads_the_diff_and_derives_the_verdict_from_the_final_facts(c
     assert diff_path.exists()
 
 
-def test_tool_loop_stops_at_the_turn_limit_with_the_non_retryable_error(checkout: Path) -> None:
+@pytest.mark.parametrize(
+    "shadow_budget_spent, expected_error",
+    [
+        (False, "Reached maximum number of turns"),
+        (True, "time budget exhausted"),
+    ],
+)
+def test_tool_loop_stops_with_an_error_the_pipeline_does_not_retry(
+    checkout: Path, shadow_budget_spent: bool, expected_error: str
+) -> None:
     calls = [_tool_call("glob", {"pattern": "src/*"}) for _ in range(5)]
-    reviewer = LunaReviewer(checkout, client=SimpleNamespace(responses=_FakeResponses(calls)))
+    reviewer = LunaReviewer(
+        checkout, shadow=shadow_budget_spent, client=SimpleNamespace(responses=_FakeResponses(calls))
+    )
+    if shadow_budget_spent:
+        reviewer.deadline = 0.0
     gate_context = {"gate_verdict": "DENIED", "gates": []}
     diff_path = checkout / ".pr-review-diff-test.patch"
     diff_path.write_text("")
 
-    with pytest.raises(RuntimeError, match="Reached maximum number of turns"):
+    with pytest.raises(RuntimeError, match=expected_error) as raised:
         reviewer.review(_pr(), {"tier": "T2-never", "breadth": "narrow", "ownership": {}}, gate_context, diff_path)
+    assert not review_pr._is_retryable_error(str(raised.value))

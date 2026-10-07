@@ -355,6 +355,8 @@ class LunaReviewer(Reviewer):
                 return result
             conversation.extend(response.output)
             for call in calls:
+                # A grep can run for its own timeout, so the shadow budget is checked per tool call too.
+                self._request_timeout()
                 if self.verbose:
                     print(f"\033[2m    {call.name} {call.arguments[:100]}\033[0m", flush=True)
                 output = tools.call(call.name, call.arguments)
