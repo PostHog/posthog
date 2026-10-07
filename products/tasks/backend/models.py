@@ -945,6 +945,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                         "run_environment": task_run.environment,
                         "is_resume": is_resume,
                         "has_pending_message": has_pending,
+                        "internal": task.internal,
+                        "loop_internal": task.loop.internal if task.loop_id else None,
                         # Loop attribution: this event uses Task.capture_event (not TaskRun's),
                         # so carry it from the run state the same way TaskRun.capture_event does.
                         "loop_id": state.get("loop_id"),
@@ -3158,6 +3160,9 @@ class TaskRun(models.Model):
             or self.task.repositories
             or ([self.task.repository] if self.task.repository else []),
             "origin_product": self.task.origin_product,
+            "internal": self.task.internal,
+            # Every loop firing creates an internal task, so only the loop's own flag marks a customer loop.
+            "loop_internal": self.task.loop.internal if self.task.loop_id else None,
             "title": self.task.title,
             "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
             "loop_id": (self.state or {}).get("loop_id"),

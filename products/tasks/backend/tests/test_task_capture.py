@@ -8,7 +8,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.models import Channel, Task, TaskRun
+from products.tasks.backend.models import Channel, Loop, Task, TaskRun
 
 
 class TestTaskCaptureEvent(TestCase):
@@ -50,6 +50,38 @@ class TestTaskCaptureEvent(TestCase):
         task.capture_event("task_created", capture_fn=capture)
 
         self.assertEqual(capture.call_args.kwargs["properties"]["channel_id"], str(channel.id))
+
+    @parameterized.expand(
+        [
+            ("customer_task", False, None),
+            ("internal_task", True, None),
+            ("customer_loop", True, False),
+            ("internal_loop", True, True),
+        ]
+    )
+    def test_run_events_carry_internal_flags(self, _name: str, internal: bool, loop_internal: bool | None) -> None:
+        loop = (
+            Loop.objects.unscoped().create(
+                team=self.team, name="digest", instructions="run", runtime_adapter="agent", internal=loop_internal
+            )
+            if loop_internal is not None
+            else None
+        )
+        task = self._task(internal=internal, loop=loop)
+
+        with (
+            patch("products.tasks.backend.models.posthoganalytics.capture") as capture,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            run = task.create_run(environment=TaskRun.Environment.LOCAL, extra_state={"use_dedicated_stream": False})
+            run.capture_event("task_run_completed")
+
+        flags = {
+            call.kwargs["event"]: (call.kwargs["properties"]["internal"], call.kwargs["properties"]["loop_internal"])
+            for call in capture.call_args_list
+        }
+        expected = (internal, loop_internal)
+        self.assertEqual(flags, {"task_run_created": expected, "task_run_completed": expected})
 
     @parameterized.expand(
         [
