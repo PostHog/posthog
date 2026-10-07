@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any
 
 import pytest
@@ -50,11 +51,9 @@ class TestGustoSource:
         assert self.source.default_version == GUSTO_API_VERSION_2026_06_15
         assert self.source.api_docs_url.startswith("https://")
 
-    def test_older_version_is_deprecated_without_a_sunset_date(self) -> None:
-        # Gusto publishes no end-of-life date for 2024-04-01, so the deprecation is advisory only
-        # (sunset_at=None) and the default is never itself deprecated.
+    def test_older_version_is_deprecated_with_the_vendor_sunset_date(self) -> None:
         deprecation = self.source.get_version_deprecation(GUSTO_API_VERSION_2024_04_01)
-        assert deprecation is not None and deprecation.sunset_at is None
+        assert deprecation is not None and deprecation.sunset_at == date(2026, 6, 15)
         assert self.source.get_version_deprecation(GUSTO_API_VERSION_2026_06_15) is None
 
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
