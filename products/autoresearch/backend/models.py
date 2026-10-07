@@ -7,7 +7,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDModel, uuid7
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDModel, uuid7
 
 # AUC and confidence scores are probabilities: NULL until measured, otherwise in [0, 1].
 # An out-of-range score corrupts model comparison, so the database rejects it too.
@@ -28,7 +28,7 @@ def min_value_constraint(field: str, minimum: int, name: str, *, nullable: bool 
     return models.CheckConstraint(check=at_least, name=name)
 
 
-class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
+class AutoresearchPipeline(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     # Framework internals (admin querysets, FK form fields, raw-id widget lookups) read
     # `_default_manager` with no team context, where the fail-closed `objects` would raise.
     # Route them through this unscoped sibling via `Meta.default_manager_name`, mirroring
@@ -50,16 +50,6 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
     # boundary crossing no import linter can see, and nothing needs to read autoresearch rows
     # off a team. Callers go through the facade.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    # nosemgrep: created-by-uses-created-meta-mixin -- db_index=False, and the mixin would add an index
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_index=False,
-        db_constraint=False,
-        related_name="+",
-    )
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
 
@@ -118,7 +108,6 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
     )
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     last_scored_at = models.DateTimeField(null=True, blank=True)
 
