@@ -177,6 +177,18 @@ describe('suggest-actions', () => {
             )
         const suggested = async (tools: Tool<ZodObjectAny>[], command: string): Promise<SuggestActionsResult> =>
             JSON.parse((await execCall(tools, command)).content[0]!.text) as SuggestActionsResult
+        const withSlotlessTestSend = async (check: () => Promise<void>): Promise<void> => {
+            const definition = getToolDefinitions()['workflows-create']!
+            const actions = definition.actions
+            definition.actions = actions?.map((action) =>
+                action.key === 'test-send' ? { ...action, message: 'Send yourself a test email.' } : action
+            )
+            try {
+                await check()
+            } finally {
+                definition.actions = actions
+            }
+        }
 
         it('accepts an id the offering tool returned in this session and refuses any other', async () => {
             const tools = sessionTools(
@@ -232,29 +244,33 @@ describe('suggest-actions', () => {
         })
 
         it('refuses the slotted pick and keeps the rest when the binding store fails', async () => {
-            const failingStore = new MemoryCache<Record<string, true>>(randomUUID())
-            failingStore.get = async () => Promise.reject(new Error('store unavailable'))
-            const tools = sessionTools(
-                fakeTool('workflows-create', async () => ({ id: 'wf_created' })),
-                new ChatActionBindings(failingStore)
-            )
+            await withSlotlessTestSend(async () => {
+                const failingStore = new MemoryCache<Record<string, true>>(randomUUID())
+                failingStore.get = async () => Promise.reject(new Error('store unavailable'))
+                const tools = sessionTools(
+                    fakeTool('workflows-create', async () => ({ id: 'wf_created' })),
+                    new ChatActionBindings(failingStore)
+                )
 
-            const result = await suggested(
-                tools,
-                'call --json suggest-actions {"actions":[{"key":"workflows-create.test-send"},{"key":"workflows-create.enable","args":{"id":"wf_created"}}]}'
-            )
-            expect(result.actions.map((action) => action.key)).toEqual(['workflows-create.test-send'])
-            expect(result.errors).toEqual([{ key: 'workflows-create.enable', reason: 'unbound_slot: id' }])
+                const result = await suggested(
+                    tools,
+                    'call --json suggest-actions {"actions":[{"key":"workflows-create.test-send"},{"key":"workflows-create.enable","args":{"id":"wf_created"}}]}'
+                )
+                expect(result.actions.map((action) => action.key)).toEqual(['workflows-create.test-send'])
+                expect(result.errors).toEqual([{ key: 'workflows-create.enable', reason: 'unbound_slot: id' }])
+            })
         })
 
         it('needs no earlier result for an action without slots', async () => {
-            const tools = sessionTools(fakeTool('workflows-create', async () => ({ id: 'wf_created' })))
-            const result = await suggested(
-                tools,
-                'call --json suggest-actions {"actions":[{"key":"workflows-create.test-send"}]}'
-            )
-            expect(result.errors).toEqual([])
-            expect(result.actions).toHaveLength(1)
+            await withSlotlessTestSend(async () => {
+                const tools = sessionTools(fakeTool('workflows-create', async () => ({ id: 'wf_created' })))
+                const result = await suggested(
+                    tools,
+                    'call --json suggest-actions {"actions":[{"key":"workflows-create.test-send"}]}'
+                )
+                expect(result.errors).toEqual([])
+                expect(result.actions).toHaveLength(1)
+            })
         })
     })
 
