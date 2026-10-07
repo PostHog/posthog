@@ -995,6 +995,11 @@ export const PhoneWidthMorePane: Story = {
     },
 }
 
+// A root page: the phone header shows the title and a sidebar button, and the scene title row keeps only its actions.
+export const PhoneWidthListScene: Story = {
+    parameters: { pageUrl: urls.featureFlags(), testOptions: { viewport: { width: 390, height: 844 } } },
+}
+
 // The card opens on hover, which a static story can't hold, so these render its contents in the same frame.
 const noop = (): void => {}
 

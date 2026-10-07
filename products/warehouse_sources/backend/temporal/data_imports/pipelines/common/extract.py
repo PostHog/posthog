@@ -484,6 +484,21 @@ async def setup_row_tracking_with_billing_check(
             )
 
 
+def resets_table_before_extraction(
+    reset_pipeline: bool, should_resume: bool, schema: "ExternalDataSchema", webhook_only: bool = False
+) -> bool:
+    """Whether `handle_reset_or_full_refresh` deletes the table for these inputs."""
+    from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
+        ExternalDataSchema,
+    )
+
+    if should_resume:
+        return False
+    if reset_pipeline:
+        return not webhook_only
+    return schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+
 async def handle_reset_or_full_refresh(
     reset_pipeline: bool,
     should_resume: bool,
@@ -559,6 +574,8 @@ async def handle_corrupted_delta_log(
     job: "ExternalDataJob",
     delta_table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
+    *,
+    table_will_be_reset: bool = False,
 ) -> bool:
     """Detect and revive a corrupt Delta table before extraction.
 
@@ -579,10 +596,17 @@ async def handle_corrupted_delta_log(
     - Otherwise the table is reset so this run rebuilds it from source, and the job is marked
       non-billable — the corruption is our fault, not the customer's.
 
+    `table_will_be_reset` says that this run deletes the table before extraction in any case (a
+    scheduled full refresh or a requested reset). The delete does not read the log, so an unreadable
+    log needs no detection there, and the open is skipped. A revive marker and a staged swap are
+    still handled, because they need more than the delete.
+
     Returns True if a revive happened. Best-effort: any failure here must not block the sync.
     """
     revive_marker = schema.delta_revive_required
     if revive_marker is None:
+        if table_will_be_reset and schema.repartition_swap is None:
+            return False
         try:
             if not await delta_table_ref.is_table_corrupted():
                 return False
