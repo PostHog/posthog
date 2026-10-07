@@ -6,19 +6,29 @@ import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from products.posthog_ai.eval_harness import base
+import httpx
+
+from products.posthog_ai.eval_harness import base, log_sink
 from products.posthog_ai.eval_harness.acp_log import GenerationDescriptor, ParsedLog
 from products.posthog_ai.eval_harness.config import AgentArtifacts, SandboxedEvalCase
-from products.posthog_ai.eval_harness.engines.types import AggregateScore, EvalSummary, NullCaseHooks
+from products.posthog_ai.eval_harness.engines.types import (
+    AggregateScore,
+    CaseResult,
+    EvalSummary,
+    ExperimentResult,
+    NullCaseHooks,
+)
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter, SuiteRunResult
 from products.posthog_ai.eval_harness.harness.transcript import RunTranscript
+from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite
 from products.posthog_ai.eval_harness.scorers import ExitCodeZero
+from products.posthog_ai.evals.sql import eval_sql as sql_eval
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 
@@ -232,6 +242,158 @@ def test_sandboxed_eval_run_adds_exit_code_scorer(monkeypatch: pytest.MonkeyPatc
             is_public=False,
             no_send_logs=True,
         )
+
+
+@pytest.mark.parametrize(
+    "enrolled,no_send_logs,configuration,http_status",
+    [
+        (True, False, "valid", 200),
+        (True, False, "valid", 403),
+        (True, False, "partial", 200),
+        (True, False, "absent", 200),
+        (True, True, "valid", 200),
+        (False, False, "valid", 200),
+    ],
+)
+@pytest.mark.asyncio
+async def test_sandboxed_eval_publishes_existing_results_without_disrupting_reporting(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    enrolled: bool,
+    no_send_logs: bool,
+    configuration: Literal["valid", "partial", "absent"],
+    http_status: int,
+) -> None:
+    for key in ("API_KEY", "PROJECT_ID", "SCORER_VERSIONS", "HOST"):
+        monkeypatch.delenv(f"POSTHOG_OFFLINE_EVAL_{key}", raising=False)
+    monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
+    monkeypatch.setattr(log_sink, "LOGS_ROOT", tmp_path)
+    monkeypatch.setattr(log_sink, "INDEX_FILE", tmp_path / "runs.jsonl")
+    version_id = "00000000-0000-4000-8000-000000000001"
+    if configuration != "absent":
+        monkeypatch.setenv("POSTHOG_OFFLINE_EVAL_API_KEY", "fake-offline-test-key")
+    if configuration == "valid":
+        monkeypatch.setenv("POSTHOG_OFFLINE_EVAL_HOST", "https://posthog.example.com")
+        monkeypatch.setenv("POSTHOG_OFFLINE_EVAL_PROJECT_ID", "123")
+        monkeypatch.setenv("POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS", json.dumps({"exit_code_zero": version_id}))
+
+    requests: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(http_status, json={})
+
+    client_type = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kwargs: client_type(transport=httpx.MockTransport(respond), **kwargs)
+    )
+    result = ExperimentResult(
+        summary=EvalSummary(
+            engine_name="braintrust",
+            experiment_name="offline-pilot",
+            scores={"exit_code_zero": AggregateScore("exit_code_zero", 1.0)},
+            experiment_url="https://braintrust.example.com/experiment/test",
+        ),
+        results=[
+            CaseResult(
+                input={"name": "example-case", "prompt": "Run the task"},
+                output={"last_message": "Done"},
+                scores={"exit_code_zero": 1.0},
+            )
+        ],
+    )
+    engine = MagicMock(run_experiment=AsyncMock(return_value=result))
+    event_client = MagicMock()
+    reporter = ProgressReporter(total_suites=1)
+    ctx = MagicMock(
+        posthog_client=None,
+        posthog_evaluation_client=event_client,
+        case_filter=None,
+        agent_model="test-model",
+        agent_runtime="claude",
+        skill_delivery="bundled",
+        trials=1,
+        engine=engine,
+        reporter=reporter,
+    )
+
+    returned = await base.SandboxedEval(
+        experiment_name="offline-pilot",
+        cases=[SandboxedEvalCase(name="example-case", prompt="Run the task")],
+        scorers=[],
+        ctx=ctx,
+        is_public=not no_send_logs,
+        no_send_logs=no_send_logs,
+        offline_suite=OfflineEvalSuite(key="example/suite", scorer_kinds={"exit_code_zero": "boolean"})
+        if enrolled
+        else None,
+    )
+
+    assert returned is result
+    engine.run_experiment.assert_awaited_once()
+    engine_spec = engine.run_experiment.call_args.args[0]
+    assert engine_spec.no_send_logs is no_send_logs
+    assert reporter.mean_score() == 1.0
+    if no_send_logs:
+        event_client.capture.assert_not_called()
+    else:
+        event_client.capture.assert_called_once()
+        captured = event_client.capture.call_args.kwargs
+        assert captured["event"] == "$ai_evaluation"
+        assert captured["properties"]["$ai_metric_name"] == "exit_code_zero"
+        assert captured["properties"]["$ai_score"] == 1.0
+
+    reporter.print_final_summary([], exit_code=0, fail_under=None, duration_seconds=0)
+    output = capsys.readouterr().out
+    assert "Braintrust: https://braintrust.example.com/experiment/test" in output
+    assert "exit_code_zero: 100.0%" in output
+    saved_path = tmp_path / "offline-pilot" / "latest" / "posthog-offline-upload.json"
+    if enrolled and not no_send_logs and configuration == "valid":
+        saved = json.loads(saved_path.read_text())
+        assert json.loads(requests[0].content) == saved["experiment"]
+        assert saved["batches"][0]["results"][0]["scorer_version_id"] == version_id
+        assert saved["batches"][0]["results"][0]["value"] is True
+        if http_status == 200:
+            assert len(requests) == 3
+            assert json.loads(requests[1].content) == saved["batches"][0]
+            assert requests[2].url.path.endswith("/complete/")
+            assert "PostHog: https://posthog.example.com/project/123/" in output
+        else:
+            assert len(requests) == 1
+            assert "upload failed: PostHog upload returned HTTP 403" in output
+            assert "Saved requests:" in output
+    else:
+        assert requests == []
+        assert not saved_path.exists()
+        if enrolled and not no_send_logs:
+            assert "PostHog offline: disabled:" in output
+            assert "POSTHOG_OFFLINE_EVAL_" in output
+        else:
+            assert "POSTHOG OFFLINE" not in output
+
+
+@pytest.mark.asyncio
+async def test_sql_suite_enrolls_every_scorer_in_offline_publishing(monkeypatch: pytest.MonkeyPatch) -> None:
+    run = AsyncMock()
+    monkeypatch.setattr(sql_eval, "SandboxedPublicEval", run)
+
+    await sql_eval.eval_sql(MagicMock())
+
+    run.assert_awaited_once()
+    suite = run.call_args.kwargs["offline_suite"]
+    assert suite.key == "sql/eval_sql::eval_sql"
+    assert suite.scorer_kinds == {
+        "exit_code_zero": "boolean",
+        "no_persistent_insight_save": "boolean",
+        "execute_sql_called": "boolean",
+        "answer_tool_not_typed_query": "boolean",
+        "querying_posthog_data_skill_loaded": "boolean",
+        "sql_schema_alignment": "numeric",
+        "sql_result_message_alignment": "numeric",
+    }
+    configured_names = {scorer._name() for scorer in run.call_args.kwargs["scorers"]}
+    assert set(suite.scorer_kinds) == {"exit_code_zero", *configured_names}
 
 
 @pytest.mark.parametrize(

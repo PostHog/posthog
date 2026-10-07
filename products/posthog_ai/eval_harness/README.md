@@ -277,3 +277,31 @@ Raw per-case agent logs land on local disk (`<case>.jsonl`, `<case>.artifacts.js
 `SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service; local logs are still written.
 PostHog result uploads follow `no_send_logs` independently of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients.
 See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-reporting.md) for capture settings and scope.
+
+### SQL offline experiment pilot
+
+The `sql/eval_sql::eval_sql` suite can also send its seven scorer results to PostHog's offline experiment API.
+It publishes the same completed case results and keeps sending to Braintrust and the existing `$ai_evaluation` event path.
+Other suites are unchanged, and `no_send_logs=True` suppresses the new upload too.
+
+Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal or project secret key with `offline_evaluation_ingestion:write`, `POSTHOG_OFFLINE_EVAL_PROJECT_ID` to the destination project/environment, and `POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS` to a JSON object mapping all seven SQL metric names to their immutable scorer version UUIDs.
+`POSTHOG_OFFLINE_EVAL_HOST` defaults to `https://us.posthog.com`.
+The [pilot configuration](../../../docs/internal/ai-offline-evaluation-reporting.md#sql-offline-experiment-pilot) lists the metric names, scorer kinds, and a placeholder mapping.
+
+```bash
+hogli evals sql/eval_sql::eval_sql
+```
+
+With no publishing configuration, the SQL run reports that offline uploads are disabled.
+Partial or invalid configuration and upload failures produce warnings while Braintrust and legacy reporting continue.
+Successful uploads use separate items for each case and trial; skipped scores and execution errors remain distinct from scores of zero.
+Raw agent logs stay in the existing local and Braintrust outputs; oversized fields are omitted from the new API payload with omission metadata.
+
+The experiment's agent-log directory contains `posthog-offline-upload.json` with the exact requests prepared for upload.
+To retry without rerunning the agent or scorers, use the original destination's API key, host, and project environment settings:
+
+```bash
+python -m products.posthog_ai.eval_harness.offline_results PATH_TO_posthog-offline-upload.json
+```
+
+Replay keeps the saved experiment, item, and scorer version identities, even if the current scorer mapping has changed.

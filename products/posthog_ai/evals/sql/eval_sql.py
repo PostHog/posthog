@@ -23,6 +23,7 @@ from __future__ import annotations
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
+from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite
 from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS
 from products.posthog_ai.evals.retrieval.scorers import SkillLoaded
@@ -382,6 +383,18 @@ WHERE properties.interests IS NOT NULL
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-sql-cli",
+        offline_suite=OfflineEvalSuite(
+            key="sql/eval_sql::eval_sql",
+            scorer_kinds={
+                "exit_code_zero": "boolean",
+                "no_persistent_insight_save": "boolean",
+                "execute_sql_called": "boolean",
+                "answer_tool_not_typed_query": "boolean",
+                "querying_posthog_data_skill_loaded": "boolean",
+                "sql_schema_alignment": "numeric",
+                "sql_result_message_alignment": "numeric",
+            },
+        ),
         cases=cases,
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),

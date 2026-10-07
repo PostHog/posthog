@@ -2,6 +2,7 @@
 
 The sandboxed evaluation harness in `products/posthog_ai/eval_harness/` reports scorer results as PostHog `$ai_evaluation` events.
 With the Braintrust engine, each suite runs once and the harness sends the resulting scores to PostHog when uploads are enabled.
+The SQL suite can also publish those results to the offline experiment API while retaining both existing destinations.
 Reporting does not run the agent or scorers again.
 
 ## Capture settings
@@ -21,10 +22,79 @@ Each event contains the existing experiment, case, and metric properties, includ
 Result reporting uses the existing event schema.
 The legacy SQL evaluation path in `ee/hogai/eval/offline/` has a separate reporter and is outside this behavior.
 
+## SQL offline experiment pilot
+
+The `sql/eval_sql::eval_sql` suite (`sandboxed-sql-cli`) opts into the offline experiment publisher.
+Other suites continue using Braintrust and the existing event reporting path.
+The publisher runs after scoring and uses the same per-case results; it does not execute another agent run or judge call.
+`no_send_logs=True` suppresses this upload too.
+
+Configure the destination through the environment before running the SQL suite:
+
+| Variable                               | Purpose                                                                                                                                             |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POSTHOG_OFFLINE_EVAL_API_KEY`         | Personal or project secret API key with `offline_evaluation_ingestion:write`. A public project token cannot authenticate uploads.                   |
+| `POSTHOG_OFFLINE_EVAL_PROJECT_ID`      | Exact destination project/environment ID.                                                                                                           |
+| `POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS` | JSON object mapping each of the seven metric names below to an existing immutable scorer **version UUID**, not a definition UUID or version number. |
+| `POSTHOG_OFFLINE_EVAL_HOST`            | App origin; defaults to `https://us.posthog.com`.                                                                                                   |
+
+Create the scorer definitions in the destination project before configuring their versions:
+
+| Metric name                          | Scorer kind                      |
+| ------------------------------------ | -------------------------------- |
+| `exit_code_zero`                     | Boolean                          |
+| `no_persistent_insight_save`         | Boolean                          |
+| `execute_sql_called`                 | Boolean                          |
+| `answer_tool_not_typed_query`        | Boolean                          |
+| `querying_posthog_data_skill_loaded` | Boolean                          |
+| `sql_schema_alignment`               | Numeric, minimum 0 and maximum 1 |
+| `sql_result_message_alignment`       | Numeric, minimum 0 and maximum 1 |
+
+For example, the mapping has this shape. Replace every placeholder with the corresponding version UUID returned by the scorer API or MCP:
+
+```bash
+export POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS='{
+  "exit_code_zero": "00000000-0000-4000-8000-000000000001",
+  "no_persistent_insight_save": "00000000-0000-4000-8000-000000000002",
+  "execute_sql_called": "00000000-0000-4000-8000-000000000003",
+  "answer_tool_not_typed_query": "00000000-0000-4000-8000-000000000004",
+  "querying_posthog_data_skill_loaded": "00000000-0000-4000-8000-000000000005",
+  "sql_schema_alignment": "00000000-0000-4000-8000-000000000006",
+  "sql_result_message_alignment": "00000000-0000-4000-8000-000000000007"
+}'
+hogli evals sql/eval_sql::eval_sql
+```
+
+Without publishing configuration, the SQL run reports that offline uploads are disabled.
+Partial or invalid configuration produces a warning and skips this destination; Braintrust and legacy event reporting continue.
+An upload failure also warns without changing the evaluation's score gate.
+
+Each case and trial becomes a separate item, with one result per configured scorer.
+Boolean scores convert `0` and `1` to `false` and `true`; numeric scores retain their values.
+Both `false` and numeric zero have status `ok`: this status means scoring produced a value, not that the agent passed.
+A `None` score becomes `skipped`; a task error or missing scorer result becomes `error`, with no score value.
+The judges' existing error fallback of zero remains zero, matching Braintrust's score.
+Successful scorer reasoning is not available in the engine's returned results and is not uploaded by this pilot.
+
+Items include available input, output, expected output, and case metadata.
+The publisher excludes `raw_log` from the new API payload; the existing local logs and Braintrust output retain it.
+Fields that exceed payload limits are omitted, with omission details recorded in metadata.
+
+The publisher saves the exact create and upload requests in `posthog-offline-upload.json` inside the experiment's agent-log directory before sending them.
+Transient failures receive at most three attempts with the same experiment and item identities.
+After correcting a configuration or connectivity problem, replay the saved requests without rerunning the eval:
+
+```bash
+python -m products.posthog_ai.eval_harness.offline_results PATH_TO_posthog-offline-upload.json
+```
+
+Replay uses the API key, host, and project environment settings for the original destination.
+It retains the saved scorer version UUIDs regardless of the current `POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS` mapping, then completes the experiment after all uploads succeed.
+
 ## Postgres experiment ingestion
 
 The project API accepts offline experiment results behind the `ai-observability-offline-evaluations` feature flag.
-The harness above still uses event capture; it does not call this API yet.
+The configured SQL pilot calls this API in addition to the harness's existing event capture.
 
 Experiments and their items, results, and payloads belong to the exact project/environment in the request path.
 Scorers and hosted datasets must belong to that same environment.
@@ -120,7 +190,7 @@ Automatic payload deletion and usage billing are not enabled by these endpoints.
 ## Postgres experiment reads
 
 Read endpoints use the same feature flag as ingestion.
-The offline UI uses these APIs. The harness above still reports through event capture until its producer migration.
+The offline UI uses these APIs. The configured SQL pilot publishes results here; legacy `$ai_evaluation` events do not populate these views.
 
 The following GET paths are relative to `/api/projects/{project_id}/ai_observability/`:
 

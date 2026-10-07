@@ -49,6 +49,7 @@ class ProgressReporter:
         self._summary_error_counts: dict[str, int] = defaultdict(int)
         self._experiment_totals: dict[str, int] = {}
         self._posthog_urls: dict[str, str] = {}
+        self._posthog_offline_statuses: dict[str, str] = {}
         self._log_dirs: dict[str, Path] = {}
 
     def print_run_header(
@@ -125,7 +126,16 @@ class ProgressReporter:
 
     async def record_posthog_evaluations_url(self, experiment_name: str, experiment_id: str) -> None:
         async with self._lock:
-            self._posthog_urls[experiment_name] = POSTHOG_EVALUATIONS_URL.format(experiment_id=experiment_id)
+            if experiment_name not in self._posthog_offline_statuses:
+                self._posthog_urls[experiment_name] = POSTHOG_EVALUATIONS_URL.format(experiment_id=experiment_id)
+
+    async def record_posthog_offline_result(self, experiment_name: str, status: str, *, url: str | None = None) -> None:
+        async with self._lock:
+            self._posthog_offline_statuses[experiment_name] = status
+            self._posthog_urls.pop(experiment_name, None)
+            if url is not None:
+                self._posthog_urls[experiment_name] = url
+            _emit(f"POSTHOG OFFLINE  {experiment_name}  {url or status}")
 
     def print_final_summary(
         self,
@@ -216,6 +226,8 @@ class ProgressReporter:
         posthog_url = self._posthog_urls.get(experiment_name)
         if posthog_url:
             lines.append(f"  PostHog: {posthog_url}")
+        elif offline_status := self._posthog_offline_statuses.get(experiment_name):
+            lines.append(f"  PostHog offline: {offline_status}")
         lines.append(f"  {summary.engine_name.title()}: {summary.experiment_url or '(local run, not uploaded)'}")
         log_dir = self._log_dirs.get(experiment_name)
         if log_dir:
