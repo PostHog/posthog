@@ -9929,9 +9929,9 @@ snapshots:
     scenes-app-insights-error-empty-states--funnel-single-step--light:
         hash: v1.k794b7964.626d7b24f478d96503b5bcc6216687d4298eaf0fe26aad7c19534a8485d7eee0.dzDHV0PyHfmpesJwqNCSFPdOb5kmNEuSV95PDYgJYec
     scenes-app-insights-error-empty-states--long-loading--dark:
-        hash: v1.k794b7964.7e56525084d4787f75387ff2977d2c5871949141847d8aeaabe3f0c031dea5d1.xbYPGGVGgGHRAiaBBV8qoKBbczjZzTiE4hq9rW_ENgA
+        hash: v1.k794b7964.f48b42fdf67454fb4933dd0c346c79875db7ab08024b9acbbe865c1736f53bd9.txQbwv8-6_1Fzy1zoB3tgVdyR7OGOZVJEpki5EfYwQ8
     scenes-app-insights-error-empty-states--long-loading--light:
-        hash: v1.k794b7964.c17cf8b6b9ca9b3fa5cd570116c12705ec424367a8cf0cbe3934f7057a64bad6.xV9MB_rar116TwlG94C5F8W9YaSMd7NPI_AOO1OD9Ic
+        hash: v1.k794b7964.48b72670610c929db07e8089e69542edb05c7d14899af99a19224a2f631ec1dd.b0wSwuaUsbUp_pzSJHzwHfT0kJc0OGSWeIlA8kIeFAA
     scenes-app-insights-error-empty-states--memory-limit-exceeded--dark:
         hash: v1.k794b7964.e8b79340ef63aee44b50d162d6d7f443cc86b44ca32507047938cb0fc09d32cc.QFw3ZM5YE1tILnnHyFEf6BPmV2YOArlAEiGK1mwbN-o
     scenes-app-insights-error-empty-states--memory-limit-exceeded--light:
@@ -10668,6 +10668,14 @@ snapshots:
         hash: v1.k794b7964.730f63a37031a8670713c04b565dee44eb0daf7ca1739d3ec65fb46cf1fb6022.P67NSd6TYkZMOWMhgH7gK0ia88hUc1NU3u0rPO5Gn08
     scenes-app-people-cohorts-add-person-to-cohort-modal--modal-with-all-selected--light:
         hash: v1.k794b7964.c8a802919fbe8b57ddd3484e0736960c6e7aef3e5236f3518ad5d78b5de0741f.qL7rlejiasuC6pwlUE5inv_GZ1tjujnDGsZQk48MiHI
+    scenes-app-people-delete-cohort-dialog--blocked--dark:
+        hash: v1.k794b7964.3047015a473f1973f8fc3716286e62fca90219b94817d1d01071fc3b5d2b38a7.jlHL-UHmMnZvoFY33Vp-JdEH3j-OqE50BMioduxOrO4
+    scenes-app-people-delete-cohort-dialog--blocked--light:
+        hash: v1.k794b7964.da4bdedb2385609dd8ff54b6dc9ce5c8173f49501def312976f677496316e917.69g97ERsYYr1r_jBUMG4fVTZut2JmNzayNJ9hENVKWo
+    scenes-app-people-delete-cohort-dialog--nothing-uses-it--dark:
+        hash: v1.k794b7964.1036b577e333ae40ff2ee8c0e2609ceec376629b7346bd75de99ecc961506f3e.DDcGYkamva7AsNLt4uq1aaDwe994LzINpnYXJn4yQkM
+    scenes-app-people-delete-cohort-dialog--nothing-uses-it--light:
+        hash: v1.k794b7964.428bcd8a708c88c2a7d7b1a818acb2519b725b4c2e7bac2645c017f07f9edff4.dJ49PgER13-hNZHFarklzAbYeGH9-1TQLUQiJc_xr_E
     scenes-app-people-groups--groups--dark:
         hash: v1.k794b7964.2d4773874a3d8bbc406527b9b5d185df7d9010babc19f5a62bc0fa16675615c4.IuI9xkAW29Da9IY8jlHEqbBNUeXuRchIFeZAF2Rzglo
     scenes-app-people-groups--groups--light:
