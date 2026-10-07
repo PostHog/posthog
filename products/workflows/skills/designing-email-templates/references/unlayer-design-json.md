@@ -12,8 +12,10 @@ Adapted from [unlayer/unlayer-skills](https://github.com/unlayer/unlayer-skills)
 - Column structure
 - Content item structure
 - Content types
+- Native blocks and spacing
 - Validation constants
 - Minimal working example
+- Editing blocks with operations
 
 ## Top-level structure
 
@@ -123,7 +125,8 @@ interface ContentItem {
     // --- Tool-specific properties vary per type ---
     // text/heading: { text: string }                                  — text is an HTML fragment
     // image: { src: { url, width, height }, alt, action }             — url from media-image-upload-complete or media-images-list, see SKILL.md#images
-    // button: { text, href, buttonColors, size, borderRadius, ... }
+    // button: { text, href: { name: 'web', values: { href, target } }, buttonColors, size, borderRadius, ... }
+    // divider: { width, border: { borderTopWidth, borderTopStyle, borderTopColor } }
     // html: { html: string }                                          — raw HTML block
   }
 }
@@ -134,6 +137,18 @@ interface ContentItem {
 `text` | `heading` | `button` | `image` | `divider` | `social` | `html` | `video` | `menu` | `timer` | `table` | `carousel`
 
 The `html` content type is an escape hatch: a single raw-HTML block inside the design. Useful for fragments the block editor can't express, but humans can only edit it as a markup blob.
+
+## Native blocks and spacing
+
+Compose every email from native blocks: a `heading`, one `text` block per paragraph, a `button` per call to action, and a `divider` between sections. People edit each block on its own in the visual editor, and patch operations address it by id.
+
+- **Paragraphs** are `text` blocks, one paragraph each. The editor's Paragraph block (`type: "paragraph"`) needs editor-only `textJson` state and loads empty without it.
+- **Spacing values** live on the block: `containerPadding` on every block, plus `fontSize` and `lineHeight` on `heading` and `text`. `"8px 24px"`, `"16px"`, and `"150%"` on every paragraph give a 16px gap.
+- **Markup spacing** shows only in the inbox: the editor canvas strips `<p>` margins, so spacing written as markup looks cramped in the editor. The spacing values are the one place spacing goes.
+- **Defaults** fill a missing spacing value (`10px` padding, `14px` text), so that block sits closer and smaller than its neighbors. Every block, including one added later by a patch operation, carries its own spacing values.
+- **Button links** are an object: `"href": { "name": "web", "values": { "href": "https://example.com/setup", "target": "_blank" } }`. The editor shows the URL in the button's own link field.
+
+Write only these values. The editor fills every other key (`anchor`, `linkStyle`, `hideDesktop`, `selectable`, and so on) with its default when it loads the design.
 
 ## Validation constants
 
@@ -146,71 +161,143 @@ The `html` content type is an escape hatch: a single raw-HTML block inside the d
 
 ## Minimal working example
 
+A heading, two paragraphs, a button, and a divider, spaced as described above:
+
 ```json
 {
-  "counters": { "u_row": 1, "u_column": 1, "u_content_text": 1 },
+  "counters": {
+    "u_row": 1,
+    "u_column": 1,
+    "u_content_heading": 1,
+    "u_content_text": 2,
+    "u_content_button": 1,
+    "u_content_divider": 1
+  },
   "schemaVersion": 16,
   "body": {
-    "id": "_BZCs8S2YW",
-    "rows": [
-      {
-        "id": "LB2ltnM2OZ",
-        "cells": [1],
-        "columns": [
-          {
-            "id": "HI7oaTElxq",
-            "contents": [
-              {
-                "id": "PKtuJs3uBF",
-                "type": "text",
-                "values": {
-                  "containerPadding": "10px",
-                  "anchor": "",
-                  "textAlign": "left",
-                  "lineHeight": "140%",
-                  "linkStyle": {
-                    "inherit": true,
-                    "linkColor": "#0000ee",
-                    "linkHoverColor": "#0000ee",
-                    "linkUnderline": true,
-                    "linkHoverUnderline": true
-                  },
-                  "hideDesktop": false,
-                  "displayCondition": null,
-                  "_meta": { "htmlID": "u_content_text_1", "htmlClassNames": "u_content_text" },
-                  "selectable": true,
-                  "draggable": true,
-                  "duplicatable": true,
-                  "deletable": true,
-                  "hideable": true,
-                  "text": "<p>Hello World</p>"
-                }
-              }
-            ],
-            "values": {
-              "_meta": { "htmlID": "u_column_1", "htmlClassNames": "u_column" },
-              "border": {},
-              "padding": "0px",
-              "backgroundColor": ""
-            }
-          }
-        ],
-        "values": {
-          "displayCondition": null,
-          "columns": false,
-          "backgroundColor": "",
-          "columnsBackgroundColor": "",
-          "backgroundImage": { "url": "", "fullWidth": true, "repeat": false, "center": true, "cover": false },
-          "padding": "0px"
-        }
-      }
-    ],
+    "id": "welcome-body",
     "headers": [],
     "footers": [],
     "values": {
       "backgroundColor": "#ffffff",
       "contentWidth": "600px",
+      "textColor": "#1d1f27",
       "fontFamily": { "label": "Arial", "value": "arial,helvetica,sans-serif" }
+    },
+    "rows": [
+      {
+        "id": "row-main",
+        "cells": [1],
+        "values": { "padding": "0px", "_meta": { "htmlID": "u_row_1", "htmlClassNames": "u_row" } },
+        "columns": [
+          {
+            "id": "col-main",
+            "values": { "_meta": { "htmlID": "u_column_1", "htmlClassNames": "u_column" } },
+            "contents": [
+              {
+                "id": "heading-welcome",
+                "type": "heading",
+                "values": {
+                  "headingType": "h1",
+                  "text": "Welcome, {{ person.properties.first_name | default: 'there' }}",
+                  "fontSize": "26px",
+                  "lineHeight": "130%",
+                  "textAlign": "left",
+                  "containerPadding": "32px 24px 8px",
+                  "_meta": { "htmlID": "u_content_heading_1", "htmlClassNames": "u_content_heading" }
+                }
+              },
+              {
+                "id": "text-intro",
+                "type": "text",
+                "values": {
+                  "text": "<p>Thanks for signing up. Over the next week we will send you a few short emails that help you get set up.</p>",
+                  "fontSize": "16px",
+                  "lineHeight": "150%",
+                  "textAlign": "left",
+                  "containerPadding": "8px 24px",
+                  "_meta": { "htmlID": "u_content_text_1", "htmlClassNames": "u_content_text" }
+                }
+              },
+              {
+                "id": "text-next-step",
+                "type": "text",
+                "values": {
+                  "text": "<p>Start by connecting your first data source. Everything else builds on it.</p>",
+                  "fontSize": "16px",
+                  "lineHeight": "150%",
+                  "textAlign": "left",
+                  "containerPadding": "8px 24px",
+                  "_meta": { "htmlID": "u_content_text_2", "htmlClassNames": "u_content_text" }
+                }
+              },
+              {
+                "id": "button-setup",
+                "type": "button",
+                "values": {
+                  "text": "Connect a data source",
+                  "href": { "name": "web", "values": { "href": "https://example.com/setup", "target": "_blank" } },
+                  "buttonColors": {
+                    "color": "#FFFFFF",
+                    "backgroundColor": "#1d4aff",
+                    "hoverColor": "#FFFFFF",
+                    "hoverBackgroundColor": "#1d4aff"
+                  },
+                  "fontSize": "16px",
+                  "padding": "12px 24px",
+                  "borderRadius": "6px",
+                  "textAlign": "left",
+                  "containerPadding": "16px 24px",
+                  "_meta": { "htmlID": "u_content_button_1", "htmlClassNames": "u_content_button" }
+                }
+              },
+              {
+                "id": "divider-footer",
+                "type": "divider",
+                "values": {
+                  "width": "100%",
+                  "border": { "borderTopWidth": "1px", "borderTopStyle": "solid", "borderTopColor": "#E5E7EB" },
+                  "textAlign": "center",
+                  "containerPadding": "16px 24px",
+                  "_meta": { "htmlID": "u_content_divider_1", "htmlClassNames": "u_content_divider" }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+## Editing blocks with operations
+
+`workflows-patch-action-email` and `workflows-patch-email-template` address blocks by id. An `update_content` patch deep-merges into the block, so this changes only the button URL and keeps `name` and `target`:
+
+```json
+{
+  "op": "update_content",
+  "id": "button-setup",
+  "patch": { "values": { "href": { "values": { "href": "https://example.com/get-started" } } } }
+}
+```
+
+A paragraph added with `add_content` carries the same spacing values as the other paragraphs:
+
+```json
+{
+  "op": "add_content",
+  "column_id": "col-main",
+  "index": 3,
+  "content": {
+    "type": "text",
+    "values": {
+      "text": "<p>Questions? Reply to this email and we will help.</p>",
+      "fontSize": "16px",
+      "lineHeight": "150%",
+      "textAlign": "left",
+      "containerPadding": "8px 24px"
     }
   }
 }
