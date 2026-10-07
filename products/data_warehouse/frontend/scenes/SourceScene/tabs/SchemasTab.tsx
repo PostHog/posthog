@@ -453,15 +453,29 @@ function ManagedSchemaTable({
                                 }).url
                             )
                         }
+                        // An empty table after a completed sync usually means a wrong filter, a missing
+                        // permission, or an empty source. An incremental sync that finds no new rows
+                        // still leaves rows in the table, so it doesn't trigger this.
+                        const completedWithNoRows =
+                            schema.status === ExternalDataSchemaStatus.Completed &&
+                            !!schema.last_synced_at &&
+                            (schema.table ? schema.table.row_count === 0 : true)
                         const tagContent = (
                             <LemonTag
-                                type={StatusTagSetting[schema.status] || 'default'}
+                                type={completedWithNoRows ? 'warning' : StatusTagSetting[schema.status] || 'default'}
                                 forceClickable
                                 onClick={openSyncsForSchema}
                             >
-                                {schema.status}
+                                {completedWithNoRows ? 'Completed, no rows' : schema.status}
                             </LemonTag>
                         )
+                        if (completedWithNoRows) {
+                            return (
+                                <Tooltip title="The sync finished but brought in no rows. Check that the source has data and that the account you connected can read it. Open the sync logs for details.">
+                                    {tagContent}
+                                </Tooltip>
+                            )
+                        }
                         return schema.latest_error && schema.status === 'Failed' ? (
                             <Tooltip title={schema.latest_error} interactive>
                                 {tagContent}
