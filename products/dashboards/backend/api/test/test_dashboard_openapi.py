@@ -60,6 +60,10 @@ class TestDashboardPatchOpenApiContract:
             "DashboardPatchTileOpenApiSerializer must document 'layouts' so the dashboard-update MCP tool can "
             f"set a tile's grid position and size. Got: {sorted(tile_fields)}."
         )
+        assert "color" in tile_fields, (
+            "DashboardPatchTileOpenApiSerializer must document 'color' so the dashboard-update MCP tool can "
+            f"set a tile's ribbon color. Got: {sorted(tile_fields)}."
+        )
         layouts_field = tile_fields["layouts"]
         assert isinstance(layouts_field, serializers.Serializer)
         breakpoints = layouts_field.fields
