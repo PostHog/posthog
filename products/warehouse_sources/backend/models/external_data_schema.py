@@ -50,6 +50,36 @@ logger = structlog.get_logger(__name__)
 
 type IncrementalFieldValue = str | int | float | None
 
+# Sync type strings that early clients wrote to the column. They name a real mode, so they map to it.
+LEGACY_SYNC_TYPE_ALIASES: dict[str, ExternalDataSchemaSyncType] = {
+    "full": ExternalDataSchemaSyncType.FULL_REFRESH,
+}
+
+# Matched by `Any_Source_Errors`, so the exception text must keep this prefix.
+UNSUPPORTED_SYNC_TYPE_ERROR = "Unsupported sync type"
+UNSUPPORTED_SYNC_TYPE_DISABLED_MESSAGE = (
+    "This table has a sync type that PostHog does not support. Choose a sync type in the table's "
+    "sync settings, then re-enable the sync."
+)
+
+
+class UnsupportedSyncTypeError(ValueError):
+    """The stored `sync_type` is not a mode PostHog can run. A retry reads the same value."""
+
+
+def resolve_sync_type(value: str | None) -> ExternalDataSchemaSyncType | None:
+    """Turn a stored `sync_type` into the enum. The column does not enforce its choices."""
+    if value is None:
+        return None
+    try:
+        return ExternalDataSchemaSyncType(value)
+    except ValueError:
+        alias = LEGACY_SYNC_TYPE_ALIASES.get(value)
+        if alias is not None:
+            return alias
+        raise UnsupportedSyncTypeError(f"{UNSUPPORTED_SYNC_TYPE_ERROR}: '{value}'") from None
+
+
 # Recorded as the job's latest_error, which the syncs UI shows to the customer.
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
 SCHEMA_DELETED_JOB_ERROR = "Sync stopped because the table was deleted"

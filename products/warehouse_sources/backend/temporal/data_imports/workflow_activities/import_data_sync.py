@@ -33,9 +33,11 @@ from posthog.temporal.common.utils import is_stale_connection_read_only_error
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
+    UnsupportedSyncTypeError,
     apply_incremental_lookback,
     get_schema_if_exists,
     process_incremental_value,
+    resolve_sync_type,
     staged_handoff_resume_point,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -591,9 +593,16 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 new_source, schema.sync_type_config if use_stored_cursors else None, logger
             )
 
+            try:
+                resolved_sync_type = resolve_sync_type(schema.sync_type)
+            except UnsupportedSyncTypeError as e:
+                await handle_non_retryable_error(
+                    job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(e), logger, e
+                )
+
             source_inputs = SourceInputs(
                 schema_name=schema.name,
-                sync_type=ExternalDataSchema.SyncType(schema.sync_type) if schema.sync_type is not None else None,
+                sync_type=resolved_sync_type,
                 schema_id=str(schema.id),
                 source_id=str(inputs.source_id),
                 team_id=inputs.team_id,
