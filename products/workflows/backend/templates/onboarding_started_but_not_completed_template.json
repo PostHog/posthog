@@ -1,6 +1,11 @@
 {
     "id": "019b6fc7-ab48-0000-e2ac-82b2f714513a",
     "name": "Onboarding started but not completed",
+    "starts_on": {
+        "kind": "event",
+        "events": ["$pageview"],
+        "detail": "on /onboarding"
+    },
     "description": "Remind people who start onboarding but do not finish, without bothering the ones who did.",
     "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Hoggies_cover_thumbnail_94a9b19d5a.png",
     "scope": "global",
@@ -33,56 +38,12 @@
                             "type": "event",
                             "value": "messaging/campaigns",
                             "operator": "icontains"
-                        },
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": ["sara@posthog.com"],
-                            "operator": "exact"
                         }
                     ]
                 }
             ],
             "source": "events",
-            "actions": [],
-            "bytecode": [
-                "_H",
-                1,
-                32,
-                "$pageview",
-                32,
-                "event",
-                1,
-                1,
-                11,
-                32,
-                "%messaging/campaigns%",
-                32,
-                "$current_url",
-                32,
-                "properties",
-                1,
-                2,
-                2,
-                "toString",
-                1,
-                18,
-                32,
-                "sara@posthog.com",
-                32,
-                "email",
-                32,
-                "properties",
-                32,
-                "person",
-                1,
-                3,
-                11,
-                3,
-                2,
-                3,
-                2
-            ]
+            "actions": []
         }
     },
     "trigger_masking": {
@@ -171,56 +132,12 @@
                                     "type": "event",
                                     "value": "messaging/campaigns",
                                     "operator": "icontains"
-                                },
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": ["sara@posthog.com"],
-                                    "operator": "exact"
                                 }
                             ]
                         }
                     ],
                     "source": "events",
-                    "actions": [],
-                    "bytecode": [
-                        "_H",
-                        1,
-                        32,
-                        "$pageview",
-                        32,
-                        "event",
-                        1,
-                        1,
-                        11,
-                        32,
-                        "%messaging/campaigns%",
-                        32,
-                        "$current_url",
-                        32,
-                        "properties",
-                        1,
-                        2,
-                        2,
-                        "toString",
-                        1,
-                        18,
-                        32,
-                        "sara@posthog.com",
-                        32,
-                        "email",
-                        32,
-                        "properties",
-                        32,
-                        "person",
-                        1,
-                        3,
-                        11,
-                        3,
-                        2,
-                        3,
-                        2
-                    ]
+                    "actions": []
                 }
             },
             "output_variable": null
