@@ -119,7 +119,67 @@ const OPERATORS = [
     '@',
 ]
 
-const STRING_ESCAPES: Record<string, string> = { n: '\n', t: '\t', r: '\r', '\\': '\\', '"': '"', "'": "'", '`': '`' }
+const STRING_ESCAPES: Record<string, string> = {
+    a: '\x07',
+    b: '\b',
+    f: '\f',
+    n: '\n',
+    r: '\r',
+    t: '\t',
+    v: '\v',
+    '\\': '\\',
+    '"': '"',
+    "'": "'",
+    '`': '`',
+}
+
+/** Reads the body of a quoted string that starts at `start`, with the Go escapes the Prometheus lexer accepts.
+ * \x and octal escapes are bytes, so a run of them decodes as UTF-8. An unknown escape keeps its backslash. */
+function readQuotedString(input: string, start: number): { value: string; end: number } {
+    const quote = input[start]
+    let value = ''
+    let bytes: number[] = []
+    const flushBytes = (): void => {
+        if (bytes.length) {
+            value += new TextDecoder().decode(new Uint8Array(bytes))
+            bytes = []
+        }
+    }
+    let j = start + 1
+    while (j < input.length && input[j] !== quote) {
+        if (input[j] !== '\\' || quote === '`') {
+            flushBytes()
+            value += input[j]
+            j++
+            continue
+        }
+        const next = input[j + 1]
+        const hex = input.slice(j + 2, j + 4)
+        const octal = input.slice(j + 1, j + 4)
+        if (next === 'x' && /^[0-9a-fA-F]{2}$/.test(hex)) {
+            bytes.push(parseInt(hex, 16))
+            j += 4
+            continue
+        }
+        if (/^[0-3][0-7]{2}$/.test(octal)) {
+            bytes.push(parseInt(octal, 8))
+            j += 4
+            continue
+        }
+        flushBytes()
+        const digits = next === 'u' ? 4 : next === 'U' ? 8 : 0
+        const codePoint = digits ? input.slice(j + 2, j + 2 + digits) : ''
+        if (digits && new RegExp(`^[0-9a-fA-F]{${digits}}$`).test(codePoint) && parseInt(codePoint, 16) <= 0x10ffff) {
+            value += String.fromCodePoint(parseInt(codePoint, 16))
+            j += 2 + digits
+            continue
+        }
+        value += next in STRING_ESCAPES ? STRING_ESCAPES[next] : '\\' + next
+        j += 2
+    }
+    flushBytes()
+    return { value, end: j }
+}
 
 function tokenize(input: string): Token[] {
     const tokens: Token[] = []
@@ -138,23 +198,12 @@ function tokenize(input: string): Token[] {
         }
         const rest = input.slice(i)
         if (ch === '"' || ch === "'" || ch === '`') {
-            let value = ''
-            let j = i + 1
-            while (j < input.length && input[j] !== ch) {
-                if (input[j] === '\\' && ch !== '`') {
-                    const next = input[j + 1]
-                    value += next in STRING_ESCAPES ? STRING_ESCAPES[next] : '\\' + next
-                    j += 2
-                    continue
-                }
-                value += input[j]
-                j++
-            }
-            if (j >= input.length) {
+            const { value, end } = readQuotedString(input, i)
+            if (end >= input.length) {
                 throw new PromQLParseError('Unterminated string', i)
             }
             tokens.push({ kind: 'string', value, pos: i })
-            i = j + 1
+            i = end + 1
             continue
         }
         const variable = /^\$\{?(__rate_interval|__interval|__range)\}?/.exec(rest)

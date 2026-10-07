@@ -99,6 +99,24 @@ export const LOSSLESS_BUILDER_FIXTURES: Record<string, BuilderQuery> = {
             }),
         ],
     },
+    'regex with an escaped dot': {
+        clauses: [
+            clause({
+                metricName: 'build_info',
+                aggregation: 'count',
+                filters: [{ key: 'version', op: 'regex', value: '^v1\\.2' }],
+            }),
+        ],
+    },
+    'non-ASCII and spaced names': {
+        clauses: [
+            clause({
+                metricName: 'größe_bytes',
+                filters: [{ key: 'queue name', op: 'eq', value: 'é' }],
+                groupBy: [{ key: 'région' }],
+            }),
+        ],
+    },
     'group by one': { clauses: [clause({ metricName: 'queue_depth', groupBy: [{ key: 'service_name' }] })] },
     'group by two dotted': {
         clauses: [
@@ -144,6 +162,14 @@ export const LOSSLESS_BUILDER_FIXTURES: Record<string, BuilderQuery> = {
             }),
         ],
         formula: 'a / b',
+    },
+    'right-nested formula': {
+        clauses: [
+            clause({ name: 'a', metricName: 'queue_depth' }),
+            clause({ name: 'b', metricName: 'retry_queue_depth' }),
+            clause({ name: 'c', metricName: 'dead_queue_depth' }),
+        ],
+        formula: 'a - (b - c)',
     },
     'unary minus formula': {
         clauses: [clause({ name: 'a', metricName: 'queue_depth' })],
@@ -299,6 +325,37 @@ const PROMQL_CASES: [string, BuilderQuery | null, 'lossless' | 'lossy'][] = [
     ],
     ['sum(http.server.request.count)', { clauses: [clause({ metricName: 'http.server.request.count' })] }, 'lossless'],
     [
+        "sum(queue_depth{queue='main', path=`C:\\tmp`})",
+        {
+            clauses: [
+                clause({
+                    metricName: 'queue_depth',
+                    filters: [
+                        { key: 'queue', op: 'eq', value: 'main' },
+                        { key: 'path', op: 'eq', value: 'C:\\tmp' },
+                    ],
+                }),
+            ],
+        },
+        'lossless',
+    ],
+    [
+        'sum(queue_depth{queue="caf\\xc3\\xa9", region="\\u00e9u", zone="\\303\\251"})',
+        {
+            clauses: [
+                clause({
+                    metricName: 'queue_depth',
+                    filters: [
+                        { key: 'queue', op: 'eq', value: 'café' },
+                        { key: 'region', op: 'eq', value: 'éu' },
+                        { key: 'zone', op: 'eq', value: 'é' },
+                    ],
+                }),
+            ],
+        },
+        'lossless',
+    ],
+    [
         'sum({__name__="queue_depth", queue="main"})',
         { clauses: [clause({ metricName: 'queue_depth', filters: [{ key: 'queue', op: 'eq', value: 'main' }] })] },
         'lossless',
@@ -342,6 +399,12 @@ const PROMQL_CASES: [string, BuilderQuery | null, 'lossless' | 'lossy'][] = [
         },
         'lossless',
     ],
+    [
+        'histogram_quantile(0.99, rate(latency_bucket))',
+        { clauses: [clause({ metricName: 'latency', aggregation: 'histogram_quantile', quantile: 0.99 })] },
+        'lossy',
+    ],
+    ['histogram_quantile(0.9, latency)', null, 'lossy'],
     [
         'histogram_quantile(0.9, sum(rate(latency_bucket)) by (le))',
         { clauses: [clause({ metricName: 'latency', aggregation: 'histogram_quantile', quantile: 0.9 })] },
@@ -451,6 +514,24 @@ const PROMQL_CASES: [string, BuilderQuery | null, 'lossless' | 'lossy'][] = [
         },
         'lossy',
     ],
+    [
+        'sum by (job) (rate(errors_total)) / ignoring(instance) sum by (job) (rate(requests_total))',
+        {
+            clauses: [
+                clause({ name: 'a', metricName: 'errors_total', aggregation: 'rate', groupBy: [{ key: 'job' }] }),
+                clause({ name: 'b', metricName: 'requests_total', aggregation: 'rate', groupBy: [{ key: 'job' }] }),
+            ],
+            formula: 'a / b',
+        },
+        'lossy',
+    ],
+    ['sum(errors_total) % sum(requests_total)', { clauses: [clause({ metricName: 'errors_total' })] }, 'lossy'],
+    [
+        'label_replace(sum(queue_depth), "queue_alias", "$1", "queue", "(.*)")',
+        { clauses: [clause({ metricName: 'queue_depth' })] },
+        'lossy',
+    ],
+    ['avg(sum by (job) (queue_depth))', { clauses: [clause({ metricName: 'queue_depth' })] }, 'lossy'],
     ['sum(queue_depth) offset 1h', { clauses: [clause({ metricName: 'queue_depth' })] }, 'lossy'],
     ['sum(queue_depth offset 1h)', { clauses: [clause({ metricName: 'queue_depth' })] }, 'lossy'],
     ['sum(queue_depth) > 5', { clauses: [clause({ metricName: 'queue_depth' })] }, 'lossy'],
@@ -522,6 +603,7 @@ describe('metrics query languages', () => {
             'a - (b - c)',
             '2 ^ 3 ^ 2',
             'sum(x) offset 1h',
+            'x > bool 1',
             'quantile by (k) (0.9, x)',
             'label_replace(x, "clause", "a", "", "") or y',
             'x @ 1700000000',
