@@ -10,9 +10,9 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { urls } from 'scenes/urls'
 
-import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { ExperimentStatusTag } from 'products/experiments/frontend/components/ExperimentStatusTag'
 import { TruncatedText } from 'products/experiments/frontend/components/TruncatedText'
-import { getExperimentStatus, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
+import { EXPERIMENT_PAUSED_TOOLTIP, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
 import { RunningTimeConfigModal } from 'products/experiments/frontend/modals/RunningTimeConfigModal/RunningTimeConfigModal'
 
 import { ExperimentConclusionCard } from './ExperimentConclusionCard'
@@ -22,8 +22,6 @@ import { ExperimentFlagCleanupStatus } from './ExperimentFlagCleanupStatus'
 import { getExperimentMetaBarVisibility, getExperimentStatsSummary } from './experimentMetaBarUtils'
 import { ExperimentRefreshButton } from './ExperimentRefreshButton'
 import { ExperimentRemainingTime } from './ExperimentRemainingTime'
-
-const PAUSED_TOOLTIP = 'This experiment is paused. The linked flag is disabled and no data is collected.'
 
 // Every item carries its own leading divider and the row starts inside a clipped gutter, so the
 // first item on each wrapped line hides its divider there instead of leaving one dangling.
@@ -44,7 +42,6 @@ export function ExperimentMetaBar(): JSX.Element | null {
         return null
     }
 
-    const status = getExperimentStatus(experiment)
     const isPaused = isExperimentPaused(experiment)
     const visibility = getExperimentMetaBarVisibility(experiment)
     const stats = getExperimentStatsSummary(experiment, statsMethod)
@@ -58,13 +55,7 @@ export function ExperimentMetaBar(): JSX.Element | null {
                 <div className="flex items-start justify-between gap-x-3 -ml-[25px] text-sm">
                     <div className="flex flex-wrap items-center gap-y-2 min-w-0">
                         <MetaItem className="gap-1" data-attr="experiment-status">
-                            {isPaused ? (
-                                <Tooltip title={PAUSED_TOOLTIP}>
-                                    <StatusTag status={status} />
-                                </Tooltip>
-                            ) : (
-                                <StatusTag status={status} />
-                            )}
+                            <ExperimentStatusTag experiment={experiment} />
                             {isSingleVariantShipped && (
                                 <Tooltip title={`Variant "${shippedVariantKey}" is rolled out to 100% of users`}>
                                     <LemonTag type="completion" className="cursor-default">
@@ -82,7 +73,7 @@ export function ExperimentMetaBar(): JSX.Element | null {
 
                         <MetaItem className="min-w-0" data-attr="experiment-feature-flag">
                             {isPaused && (
-                                <Tooltip title={PAUSED_TOOLTIP}>
+                                <Tooltip title={EXPERIMENT_PAUSED_TOOLTIP}>
                                     <IconWarning className="text-danger text-base shrink-0" />
                                 </Tooltip>
                             )}

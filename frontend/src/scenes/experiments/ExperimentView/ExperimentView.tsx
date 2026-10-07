@@ -158,28 +158,35 @@ export function ExperimentView(): JSX.Element {
 
     return (
         <SceneContent>
-            <PageHeaderCustom />
+            <PageHeaderCustom
+                collapsibleContent={
+                    experimentLoading ? null : (
+                        <>
+                            <ExperimentWarningBanner />
+                            {showDebugPanel && (
+                                <div className="mb-4">
+                                    <ExperimentDebugPanel
+                                        experimentId={typeof experiment.id === 'number' ? experiment.id : null}
+                                    />
+                                </div>
+                            )}
+                            {experiment.feature_flag?.id && (
+                                <PendingChangeRequestBanner
+                                    resourceType="feature_flag"
+                                    resourceId={experiment.feature_flag.id}
+                                    context="experiment"
+                                />
+                            )}
+                            <ExperimentMetaBar />
+                            <ExperimentHeader />
+                        </>
+                    )
+                }
+            />
             {experimentLoading ? (
                 <LoadingState />
             ) : (
                 <>
-                    <ExperimentWarningBanner />
-                    {showDebugPanel && (
-                        <div className="mb-4">
-                            <ExperimentDebugPanel
-                                experimentId={typeof experiment.id === 'number' ? experiment.id : null}
-                            />
-                        </div>
-                    )}
-                    {experiment.feature_flag?.id && (
-                        <PendingChangeRequestBanner
-                            resourceType="feature_flag"
-                            resourceId={experiment.feature_flag.id}
-                            context="experiment"
-                        />
-                    )}
-                    <ExperimentMetaBar />
-                    <ExperimentHeader />
                     <LemonTabs
                         // Fall back to the default tab if the active one is conditionally hidden
                         activeKey={tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : DEFAULT_EXPERIMENT_TAB}

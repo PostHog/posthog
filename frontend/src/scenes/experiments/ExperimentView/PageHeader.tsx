@@ -14,10 +14,12 @@ import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { CopyExperimentToProjectModal } from 'products/experiments/frontend/components/CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from 'products/experiments/frontend/components/DuplicateExperimentModal'
+import { ExperimentStatusTag } from 'products/experiments/frontend/components/ExperimentStatusTag'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -26,7 +28,7 @@ import { FinishExperimentModal, PauseExperimentModal, ResumeExperimentModal } fr
 import { ExperimentSceneMenuBar } from './ExperimentSceneMenuBar'
 import { useExperimentActions } from './useExperimentActions'
 
-export function PageHeaderCustom(): JSX.Element {
+export function PageHeaderCustom({ collapsibleContent }: { collapsibleContent?: React.ReactNode }): JSX.Element {
     const {
         experiment,
         isExperimentDraft,
@@ -39,6 +41,7 @@ export function PageHeaderCustom(): JSX.Element {
     const { isDuplicateExperimentModalOpen, isCopyToProjectModalOpen, isQuickSurveyModalOpen } = useValues(modalsLogic)
     const { openFinishExperimentModal, closeDuplicateExperimentModal, closeCopyToProjectModal, closeQuickSurveyModal } =
         useActions(modalsLogic)
+    const { showDescription } = useValues(sceneLayoutLogic)
     const actionSections = useExperimentActions()
     const { trigger, HogfettiComponent } = useHogfetti()
 
@@ -51,6 +54,8 @@ export function PageHeaderCustom(): JSX.Element {
         AccessControlLevel.Editor,
         experiment.user_access_level
     )
+    // The meta bar shows the status while the collapsible block is open.
+    const showStatusInTitle = !!collapsibleContent && !showDescription && !experimentLoading
 
     return (
         <>
@@ -58,6 +63,15 @@ export function PageHeaderCustom(): JSX.Element {
             <SceneTitleSection
                 name={experiment?.name}
                 description={null}
+                collapsibleContent={collapsibleContent}
+                nameSuffix={
+                    showStatusInTitle ? (
+                        // data-not-quill restores the Lemon color tokens that the quill title rebinds.
+                        <span data-not-quill className="flex shrink-0 items-center">
+                            <ExperimentStatusTag experiment={experiment} />
+                        </span>
+                    ) : undefined
+                }
                 resourceType={{
                     type: 'experiment',
                 }}

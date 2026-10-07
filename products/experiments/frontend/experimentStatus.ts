@@ -2,6 +2,9 @@
 // experimentsLogic (whose kea graph reaches the app's scene manifest).
 import { Experiment, ExperimentStatus } from '~/types'
 
+export const EXPERIMENT_PAUSED_TOOLTIP =
+    'This experiment is paused. The linked flag is disabled and no data is collected.'
+
 export type ExperimentStatusInput = Pick<Experiment, 'status' | 'start_date' | 'end_date'> | null | undefined
 
 export function getExperimentStatus(experiment: ExperimentStatusInput): ExperimentStatus {
