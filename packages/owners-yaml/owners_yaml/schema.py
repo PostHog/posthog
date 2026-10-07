@@ -146,6 +146,9 @@ class OwnersFile:
     # consumer's policy.
     additions: list[str] = field(default_factory=list)
     sensitive: bool | _Unset = UNSET
+    # A field from a newer version of the format. The parser drops its value, so a tool that
+    # rewrites or moves this file would lose it.
+    has_unknown_fields: bool = False
     # Root-only Slack registry: team slug -> TeamEntry. Empty everywhere but the repo-root
     # file; lets a team declare its channels once instead of per file.
     teams: dict[str, TeamEntry] = field(default_factory=dict)
@@ -454,6 +457,8 @@ def parse_owners_file(
     errors: list[str] = []
     if warnings is None:
         warnings = []
+    # Every warning the parser emits is an unknown field, so the count tells whether the file has one.
+    warnings_before = len(warnings)
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError as exc:
@@ -505,6 +510,7 @@ def parse_owners_file(
         else:
             for i, raw_rule in enumerate(raw_rules):
                 file.rules.extend(_parse_rule(raw_rule, i, errors, warnings))
+    file.has_unknown_fields = len(warnings) > warnings_before
 
     # A missing version or owners makes the file unusable for resolution.
     if not version_ok or "owners" not in data:
@@ -547,8 +553,8 @@ def match_is_glob(match: str) -> bool:
 def is_simple_owners_file(parsed: OwnersFile | None, *, allow_anchored_rules: bool = False) -> bool:
     """Whether a file is "simple" — mechanically relocatable, nothing but ownership.
 
-    Both callers agree that status/``inherit: false``/``additions``/``sensitive`` (and
-    being an alias file) disqualify a file. So does a ``teams:`` registry:
+    Both callers agree that status/``inherit: false``/``additions``/``sensitive``, a field
+    this version does not know (and being an alias file) disqualify a file. So does a ``teams:`` registry:
     it is root-only content relocation would strand. So does any rule carrying
     more than match+owners: relocation only preserves owners, so rule-level
     ``status``/``inherit``/``additions``/``sensitive`` must pin the file. They differ on rules:
@@ -564,6 +570,7 @@ def is_simple_owners_file(parsed: OwnersFile | None, *, allow_anchored_rules: bo
         parsed.inherit is False
         or parsed.status is not UNSET
         or parsed.sensitive is not UNSET
+        or parsed.has_unknown_fields
         or parsed.teams
         or parsed.additions
     ):

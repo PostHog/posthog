@@ -50,8 +50,10 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSchemaDestination,
     ExternalDataSource,
+    UnsupportedSyncTypeError,
     mark_schema_running_unless_halted,
     resolve_destinations,
+    resolve_sync_type,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
     update_sync_type_config_keys,
@@ -771,7 +773,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def to_representation(self, instance: ExternalDataSchema) -> dict:
         ret = super().to_representation(instance)
-        ret["sync_type"] = ExternalDataSchema.SyncType(instance.sync_type) if instance.sync_type is not None else None
+        try:
+            ret["sync_type"] = resolve_sync_type(instance.sync_type)
+        except UnsupportedSyncTypeError:
+            # Returning None keeps the list and settings pages loading so the user can pick a valid type.
+            ret["sync_type"] = None
         ret["sync_frequency"] = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
         ret["sync_time_of_day"] = (
             self.fields["sync_time_of_day"].to_representation(instance.sync_time_of_day)
