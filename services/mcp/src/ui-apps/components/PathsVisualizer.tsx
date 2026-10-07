@@ -28,8 +28,12 @@ const MAX_STEPS_IN_FRAME = 5
 // to thousands of percent of the frame.
 const MAX_SCROLL_COLUMNS = 25
 
+const NODE_PADDING = 6
+// Total gap one column may take out of the h-80 chart's plot, under half its height. When a dense
+// column's gaps fill the plot, the layout engine draws its nodes and ribbons with no height.
+const MAX_COLUMN_PADDING = 120
+
 const CHART_CONFIG: SankeyChartConfig = {
-    nodePadding: 6,
     linkOpacity: 0.35,
     showNodeValues: true,
     valueFormatter: formatNumber,
@@ -54,7 +58,19 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
         () => (graph.stepsPinned ? Array.from({ length: graph.stepCount }, (_, i) => `Step ${i + 1}`) : []),
         [graph.stepsPinned, graph.stepCount]
     )
-    const config = useMemo<SankeyChartConfig>(() => ({ ...CHART_CONFIG, columnLabels }), [columnLabels])
+    const nodePadding = useMemo(() => {
+        const perStep = new Map<number, number>()
+        for (const node of graph.nodes) {
+            const step = parsePathNodeKey(node.id).step
+            perStep.set(step, (perStep.get(step) ?? 0) + 1)
+        }
+        const densest = Math.max(1, ...perStep.values())
+        return densest > 1 ? Math.min(NODE_PADDING, MAX_COLUMN_PADDING / (densest - 1)) : NODE_PADDING
+    }, [graph.nodes])
+    const config = useMemo<SankeyChartConfig>(
+        () => ({ ...CHART_CONFIG, columnLabels, nodePadding }),
+        [columnLabels, nodePadding]
+    )
     const labelOf = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node.label])), [graph.nodes])
 
     if (allEdges.length === 0) {

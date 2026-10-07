@@ -12,6 +12,18 @@ const LABEL_STYLE_BASE: React.CSSProperties = {
     transform: 'translateY(-50%)',
 }
 
+export function TruncatedText({ text, shown }: { text: string; shown: string }): React.ReactElement {
+    if (shown === text) {
+        return <>{text}</>
+    }
+    return (
+        <>
+            <span aria-hidden="true">{shown}</span>
+            <span className="sr-only">{text}</span>
+        </>
+    )
+}
+
 export interface SankeyNodeLabelsProps {
     boxes: SankeyLabelBox[]
     color: string
@@ -33,7 +45,7 @@ export function SankeyNodeLabels({ boxes, color }: SankeyNodeLabelsProps): React
                         ...(box.side === 'right' ? { left: box.x0 } : { right: `calc(100% - ${box.x1}px)` }),
                     }}
                 >
-                    {box.shown}
+                    <TruncatedText text={box.text} shown={box.shown} />
                 </div>
             ))}
         </>

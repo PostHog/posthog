@@ -1,5 +1,12 @@
 import { FONT_FAMILY, measureLabelWidth, truncateToWidth } from '../../utils/text-measure'
-import type { SankeyChartLayout, SankeyLinkInput, SankeyNodeDatum, SankeyNodeInput } from './sankey-data'
+import { lastColumnSinkIds } from './sankey-data'
+import type {
+    SankeyChartLayout,
+    SankeyLinkInput,
+    SankeyNodeAlign,
+    SankeyNodeDatum,
+    SankeyNodeInput,
+} from './sankey-data'
 
 export const LABEL_FONT_SIZE = 11
 export const LABEL_FONT = `${LABEL_FONT_SIZE}px ${FONT_FAMILY}`
@@ -111,7 +118,11 @@ export function sankeyLabelBoxes(
         if (inLastColumn && lastColumnLabels === 'outside') {
             room = Math.max(0, outsideWidth - LABEL_GAP)
         }
-        const shown = truncateToWidth(text, isFinite(room) ? room : 0, LABEL_FONT)
+        // A narrow chart can leave a label no room at all; drawing it would cover the next column.
+        if (room <= 0) {
+            return
+        }
+        const shown = isFinite(room) ? truncateToWidth(text, room, LABEL_FONT) : text
         const width = measureLabelWidth(shown, LABEL_FONT)
         const side = inLastColumn && lastColumnLabels === 'inside' ? 'left' : 'right'
         const x0 = side === 'right' ? node.x1 + LABEL_GAP : node.x0 - LABEL_GAP - width
@@ -130,23 +141,23 @@ export function sankeyLabelBoxes(
     return boxes
 }
 
-/** Width to reserve right of the plot for `outside` labels: the widest sink-node label, capped.
+/** Width to reserve right of the plot for `outside` labels: the widest last-column label, capped.
  *  Measured from the inputs because the margin must be known before the layout runs. */
 export function outsideLabelWidth(
     nodes: readonly SankeyNodeInput<unknown>[],
     links: readonly SankeyLinkInput<unknown>[],
+    nodeAlign: SankeyNodeAlign,
     showValues: boolean,
     valueFormatter: (value: number) => string
 ): number {
+    const lastColumn = lastColumnSinkIds(nodes, links, nodeAlign)
     const inflow = new Map<string, number>()
-    const hasOutgoing = new Set<string>()
     for (const link of links) {
-        hasOutgoing.add(link.source)
         inflow.set(link.target, (inflow.get(link.target) ?? 0) + link.value)
     }
     let widest = 0
     for (const node of nodes) {
-        if (hasOutgoing.has(node.id)) {
+        if (!lastColumn.has(node.id)) {
             continue
         }
         const label = node.label ?? node.id

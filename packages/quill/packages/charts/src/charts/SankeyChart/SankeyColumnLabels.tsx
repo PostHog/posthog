@@ -2,6 +2,7 @@ import React from 'react'
 
 import { FONT_FAMILY, ELLIPSIS, measureLabelWidth } from '../../utils/text-measure'
 import { useSankeyLayout } from './sankey-context'
+import { TruncatedText } from './SankeyNodeLabels'
 
 const HEADER_FONT_SIZE = 10
 const HEADER_FONT = `${HEADER_FONT_SIZE}px ${FONT_FAMILY}`
@@ -18,11 +19,17 @@ export function fitHeader(label: string, maxWidth: number): string {
     if (headerWidth(label) <= maxWidth) {
         return label
     }
-    let end = label.length
-    while (end > 0 && headerWidth(label.slice(0, end) + ELLIPSIS) > maxWidth) {
-        end--
+    let low = 0
+    let high = label.length - 1
+    while (low < high) {
+        const mid = Math.ceil((low + high) / 2)
+        if (headerWidth(label.slice(0, mid).trimEnd() + ELLIPSIS) <= maxWidth) {
+            low = mid
+        } else {
+            high = mid - 1
+        }
     }
-    return end > 0 ? label.slice(0, end).trimEnd() + ELLIPSIS : ''
+    return low > 0 ? label.slice(0, low).trimEnd() + ELLIPSIS : ''
 }
 
 const LABEL_STYLE_BASE: React.CSSProperties = {
@@ -61,28 +68,31 @@ export function SankeyColumnLabels({ labels, color, trailingRoom = 0 }: SankeyCo
                 if (!label || x === undefined) {
                     return null
                 }
-                // With room past the last column, its header starts over the nodes and runs into that room.
-                const trailing = column === lastColumn && trailingRoom > 0
                 let room = column === 0 || column === lastColumn ? edgeWidth : middleWidth
-                if (trailing) {
-                    room = layout.nodeWidth + trailingRoom
-                }
-                const shown = isFinite(room) ? fitHeader(label, room) : label
                 let placement: React.CSSProperties
-                if (column === 0 || trailing) {
+                if (column === lastColumn && trailingRoom > 0) {
+                    // With room past the last column, the header starts over the nodes and runs into
+                    // that room. A header too long for it ends at the room's far edge instead, so it
+                    // also gets the free span left of the nodes.
+                    const rightOfNodes = layout.nodeWidth + trailingRoom
+                    const fitsRight = headerWidth(label) <= rightOfNodes
+                    room = fitsRight ? rightOfNodes : edgeWidth + trailingRoom
+                    placement = fitsRight ? { left: x } : { right: `calc(100% - ${x + rightOfNodes}px)` }
+                } else if (column === 0) {
                     placement = { left: x }
                 } else if (column === lastColumn) {
                     placement = { right: `calc(100% - ${x + layout.nodeWidth}px)` }
                 } else {
                     placement = { left: x + layout.nodeWidth / 2, transform: 'translateX(-50%)' }
                 }
+                const shown = isFinite(room) ? fitHeader(label, room) : label
                 return (
                     <div
                         key={column}
                         data-attr="hog-chart-sankey-column-label"
                         style={{ ...LABEL_STYLE_BASE, ...placement, color }}
                     >
-                        {shown}
+                        <TruncatedText text={label} shown={shown} />
                     </div>
                 )
             })}

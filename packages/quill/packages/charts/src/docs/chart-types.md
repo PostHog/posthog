@@ -89,7 +89,7 @@ There is no `series` or `labels`.
   A node with `column` set is pinned there whatever its depth, and the graph grows to fit the highest pin; use it when the data names its own stage, so `columnLabels` stay truthful for flows that end early or start late.
 - `columnLabels` renders headers above each column and reserves room for them; a header too wide for its column truncates.
   Node labels are DOM overlays beside each node, truncated to the free space before the next column; the last column's labels sit to its left.
-  `lastColumnLabels: 'outside'` moves the last column's labels to the right of the nodes and reserves a margin for them (capped at 160px), so names in that column read in full on a narrow chart.
+  `lastColumnLabels: 'outside'` moves the last column's labels to the right of the nodes and reserves a margin for them (capped at 160px), so names in that column read in full on a narrow chart. The margin counts only the nodes that land in the last column under `nodeAlign`, and it adds to a consumer `margins.right` rather than being replaced by it.
   Hovering a label counts as hovering its node, so a truncated name shows in full in the tooltip.
   A label that would print over a larger neighbor's label in the same column is dropped; the tooltip still names that node.
   `showNodeValues` appends the node value.

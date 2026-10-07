@@ -4,7 +4,7 @@ import type { ChartTheme } from '../../core/types'
 import { getHogChartTooltip, renderHogChart } from '../../testing'
 import { computeSankeyLayout } from './sankey-data'
 import type { SankeyLinkInput, SankeyNodeDatum, SankeyNodeInput } from './sankey-data'
-import { labelsSharingLastGap, sankeyLabelBoxes } from './sankey-labels'
+import { labelsSharingLastGap, outsideLabelWidth, sankeyLabelBoxes } from './sankey-labels'
 import { SankeyChart } from './SankeyChart'
 import { fitHeader } from './SankeyColumnLabels'
 
@@ -222,6 +222,7 @@ describe('SankeyChart', () => {
             broken: { links: [LINKS[0], { source: 'a', target: 'missing', value: 12 }] },
         },
         { name: 'the node padding', broken: { config: { nodePadding: -1 } } },
+        { name: 'a NaN pin', broken: { nodes: [{ ...NODES[0], column: NaN }, ...NODES.slice(1)] } },
     ])('recovers from an invalid graph when only $name is corrected', ({ broken }) => {
         jest.spyOn(console, 'error').mockImplementation(() => {})
         const onError = jest.fn()
@@ -289,5 +290,36 @@ describe('SankeyChart', () => {
 
         expect(fitHeader('Outcome', 1000)).toBe('Outcome')
         expect(fitHeader('4th tool', 8)).toBe('4th…')
+    })
+
+    it('draws no label where a narrow chart leaves it no room', () => {
+        const layout = computeSankeyLayout({
+            nodes: NODES,
+            links: LINKS,
+            plot: { plotLeft: 8, plotTop: 8, plotWidth: 40, plotHeight: 300 },
+            nodeWidth: 12,
+            nodePadding: 8,
+            nodeAlign: 'justify',
+            preserveNodeOrder: false,
+            colorForLabel: () => '#000',
+            resolveColor: (c) => c,
+        })
+        const boxes = sankeyLabelBoxes(layout, {
+            showValues: false,
+            valueFormatter: String,
+            lastColumnLabels: 'inside',
+            outsideWidth: 0,
+        })
+        expect(boxes).toEqual([])
+    })
+
+    it.each([
+        { nodeAlign: 'left' as const, sizedBy: 'Completed' },
+        { nodeAlign: 'justify' as const, sizedBy: 'Left after the first tool' },
+    ])('sizes the outside margin by the sinks in the last column under $nodeAlign', ({ nodeAlign, sizedBy }) => {
+        const nodes: SankeyNodeInput[] = [...NODES, { id: 'early', label: 'Left after the first tool' }]
+        const links: SankeyLinkInput[] = [...LINKS, { source: 'start', target: 'early', value: 3 }]
+        const onlySink = outsideLabelWidth([{ id: 'only', label: sizedBy }], [], nodeAlign, false, String)
+        expect(outsideLabelWidth(nodes, links, nodeAlign, false, String)).toBe(onlySink)
     })
 })

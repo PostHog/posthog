@@ -147,11 +147,20 @@ function columnCountOf(nodes: readonly SankeyNodeInput<unknown>[], links: readon
 }
 
 /** Nodes on the longest path through the graph, which is the column count the layout engine
- *  gives it. A cycle stops the count early; the engine reports the cycle itself. */
+ *  gives it. */
 function longestPathLength(
     nodes: readonly SankeyNodeInput<unknown>[],
     links: readonly SankeyLinkInput<unknown>[]
 ): number {
+    return Math.max(1, ...nodeDepths(nodes, links).values())
+}
+
+/** Each node's 1-based depth: the nodes on the longest path that ends at it. A cycle stops the
+ *  count early; the engine reports the cycle itself. */
+function nodeDepths(
+    nodes: readonly SankeyNodeInput<unknown>[],
+    links: readonly SankeyLinkInput<unknown>[]
+): Map<string, number> {
     const incoming = new Map<string, number>(nodes.map((node) => [node.id, 0]))
     const outgoing = new Map<string, string[]>()
     for (const link of links) {
@@ -163,14 +172,12 @@ function longestPathLength(
             outgoing.set(link.source, [link.target])
         }
     }
-    const depth = new Map<string, number>()
+    const depth = new Map<string, number>(nodes.map((node) => [node.id, 1]))
     const ready = nodes.filter((node) => incoming.get(node.id) === 0).map((node) => node.id)
-    let longest = 1
     for (let id = ready.pop(); id !== undefined; id = ready.pop()) {
         const next = (depth.get(id) ?? 1) + 1
         for (const target of outgoing.get(id) ?? []) {
             depth.set(target, Math.max(depth.get(target) ?? 1, next))
-            longest = Math.max(longest, next)
             const remaining = (incoming.get(target) ?? 0) - 1
             incoming.set(target, remaining)
             if (remaining === 0) {
@@ -178,7 +185,32 @@ function longestPathLength(
             }
         }
     }
-    return longest
+    return depth
+}
+
+/** Ids of the flow-ending nodes the layout puts in its last column. Known before the layout runs,
+ *  so the chart can size the right margin for their labels first. */
+export function lastColumnSinkIds(
+    nodes: readonly SankeyNodeInput<unknown>[],
+    links: readonly SankeyLinkInput<unknown>[],
+    nodeAlign: SankeyNodeAlign
+): Set<string> {
+    const hasOutgoing = new Set(links.map((link) => link.source))
+    const lastColumn = columnCountOf(nodes, links) - 1
+    const depths = nodeDepths(nodes, links)
+    // `justify` and `right` move every sink to the last column; `left` and `center` keep it at its depth.
+    const sinksMoveLast = nodeAlign === 'justify' || nodeAlign === 'right'
+    const ids = new Set<string>()
+    for (const node of nodes) {
+        if (hasOutgoing.has(node.id)) {
+            continue
+        }
+        const column = node.column ?? (sinksMoveLast ? lastColumn : (depths.get(node.id) ?? 1) - 1)
+        if (column === lastColumn) {
+            ids.add(node.id)
+        }
+    }
+    return ids
 }
 
 /** Lays the graph out inside `plot`. Pure: safe to call from a memo or a test. Throws when a link

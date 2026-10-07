@@ -43,8 +43,9 @@ function graphKey(
     config: SankeyChartProps['config']
 ): string {
     // Structured serialization: ids are free-form strings, so a delimiter inside one must not collide.
+    // JSON writes both NaN and a missing pin as null, so pins go in as strings to keep them apart.
     return JSON.stringify([
-        nodes.map((node) => [node.id, node.column ?? null]),
+        nodes.map((node) => [node.id, String(node.column)]),
         links.map(({ source, target, value }) => [source, target, value]),
         [config?.nodeWidth, config?.nodePadding, config?.nodeAlign, config?.preserveNodeOrder],
     ])
@@ -101,18 +102,16 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
     const outsideWidth = useMemo(
         () =>
             showNodeLabels && lastColumnLabels === 'outside'
-                ? outsideLabelWidth(nodes, links, showNodeValues, valueFormatter)
+                ? outsideLabelWidth(nodes, links, nodeAlign, showNodeValues, valueFormatter)
                 : 0,
-        [showNodeLabels, lastColumnLabels, nodes, links, showNodeValues, valueFormatter]
+        [showNodeLabels, lastColumnLabels, nodes, links, nodeAlign, showNodeValues, valueFormatter]
     )
 
     const margins = useMemo<ChartMargins>(() => {
-        const computed = {
-            ...BASE_MARGINS,
-            top: BASE_MARGINS.top + (hasColumnLabels ? COLUMN_LABEL_HEIGHT : 0),
-            right: BASE_MARGINS.right + outsideWidth,
-        }
-        return marginsOverride ? applyMarginOverride(computed, marginsOverride) : computed
+        const computed = { ...BASE_MARGINS, top: BASE_MARGINS.top + (hasColumnLabels ? COLUMN_LABEL_HEIGHT : 0) }
+        const applied = marginsOverride ? applyMarginOverride(computed, marginsOverride) : computed
+        // `outside` labels are sized for this room, so an override cannot take it away from them.
+        return { ...applied, right: applied.right + outsideWidth }
     }, [hasColumnLabels, outsideWidth, marginsOverride])
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
