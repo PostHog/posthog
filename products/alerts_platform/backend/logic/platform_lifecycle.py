@@ -4,7 +4,7 @@ A source decides whether its data breached; everything about what that means for
 and every write to these rows, stays here. A source never holds one of these models.
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 
 from django.db import transaction
@@ -89,16 +89,24 @@ def suppressed() -> Exists:
     )
 
 
-def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> tuple[PlatformAlertCheckInput, ...]:
-    """Every configuration in one batch key, with its runtime state, ready to evaluate."""
-    configurations = list(
+def due_checks(
+    team_id: int, source_kind: str, slot: str, cutoff: datetime, *, configuration_ids: Collection[str] | None = None
+) -> tuple[PlatformAlertCheckInput, ...]:
+    """Every configuration in one batch key, with its runtime state, ready to evaluate.
+
+    `configuration_ids` narrows the batch to those rows, for a source that evaluates one check at
+    a time and must still read nothing the batch would not.
+    """
+    due = (
         PlatformAlertConfiguration.objects.for_team(team_id)
         .filter(enabled=True, source_kind=source_kind)
         .filter(due_q(cutoff))
         .exclude(suppressed())
-        # Ordered so a retried attempt keeps the same alerts under any downstream cap.
-        .order_by("id")
     )
+    if configuration_ids is not None:
+        due = due.filter(id__in=list(configuration_ids))
+    # Ordered so a retried attempt keeps the same alerts under any downstream cap.
+    configurations = list(due.order_by("id"))
     configurations = [c for c in configurations if slot_of(c.next_check_at, cutoff) == slot]
     if not configurations:
         return ()

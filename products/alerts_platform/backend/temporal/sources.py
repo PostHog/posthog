@@ -20,8 +20,10 @@ from products.alerts_platform.backend.logic.demand import DISCOVERY_LIMIT_PER_SO
 class SourceBinding:
     workflow: str
     # The evaluation workflow runs here, and so does every activity it starts without naming a
-    # queue. A source with slow checks gets its own queue, so it cannot hold the worker slots that
-    # another source's checks need.
+    # queue. Sources share the evaluation queue while their checks finish in seconds. A source
+    # whose checks hold a worker slot for minutes, such as one that calls a model per check,
+    # needs a queue of its own so that it cannot take the slots another source needs. That queue
+    # must also register the record-outcomes activity.
     task_queue: str
     # What an evaluation gets end to end: its reads, its write, and the delivery children it
     # starts. It has to hold every attempt a source's activities allow, because an attempt cut
@@ -45,6 +47,14 @@ SOURCE_BINDINGS: dict[SourceKind, SourceBinding] = {
         task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
         evaluation_timeout=dt.timedelta(seconds=75),
         discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
+    ),
+    SourceKind.INSIGHT: SourceBinding(
+        workflow="insight-alert-platform-evaluate",
+        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+        evaluation_timeout=dt.timedelta(minutes=15),
+        # A key holds at least one check and the pool admits this many, so more keys than this
+        # only start workflows that find the pool full.
+        discovery_limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
     ),
 }
 

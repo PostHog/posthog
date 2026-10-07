@@ -634,8 +634,11 @@ def test_every_source_evaluation_binding_names_a_workflow_registered_on_its_queu
     import temporalio.workflow  # noqa: PLC0415 — read after the registry
 
     # The registry imports every product's workflows, so it stays off this module's import path.
-    from posthog.management.commands.start_temporal_worker import WORKFLOWS_DICT  # noqa: PLC0415
+    from posthog.management.commands.start_temporal_worker import ACTIVITIES_DICT, WORKFLOWS_DICT  # noqa: PLC0415
 
+    from products.alerts_platform.backend.temporal.outcomes import (  # noqa: PLC0415 — read after the registry
+        alerts_platform_record_outcomes_activity,
+    )
     from products.alerts_platform.backend.temporal.sources import (  # noqa: PLC0415 — read after the registry
         SOURCE_BINDINGS,
     )
@@ -645,10 +648,12 @@ def test_every_source_evaluation_binding_names_a_workflow_registered_on_its_queu
         return {definition.name for definition in definitions if definition is not None}
 
     # A binding naming a workflow its queue's worker does not register leaves every dispatch for
-    # that source queued until it times out.
+    # that source queued until it times out. The source's workflow records its outcomes on the
+    # same queue, so a queue without that activity evaluates every check and records none.
     unregistered = {
-        source: binding.workflow
+        source: binding.task_queue
         for source, binding in SOURCE_BINDINGS.items()
         if binding.workflow not in registered_on(binding.task_queue)
+        or alerts_platform_record_outcomes_activity not in ACTIVITIES_DICT[binding.task_queue]
     }
     assert unregistered == {}

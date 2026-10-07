@@ -166,6 +166,12 @@ class SkipReason(StrEnum):
 
     BROKEN_CONFIG = "broken_config"
     QUERY_FAILED = "query_failed"
+    # The source's own stack runs no query for this check, so the source does not either: a
+    # snooze or a schedule restriction where that stack gates evaluation, or data not ready yet.
+    SOURCE_RULE = "source_rule"
+    # ClickHouse refused the query for load, not because of the alert. The check leaves the alert's
+    # state alone, so a comparison can set it aside instead of reading load as a disagreement.
+    CAPACITY = "capacity"
 
 
 class MuteReason(StrEnum):

@@ -40,6 +40,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.lifecycle import (
+    NOTIFICATION_EVENT_KINDS,
     PLATFORM_LOGS_ALERT_POLICY,
     AlertCheckOutcome,
     AlertSnapshot,
@@ -101,17 +102,6 @@ BATCH_QUERY_BUDGET_SECONDS = 25
 MAX_QUERY_SECONDS = 20
 # Below this there is no point starting another query; the cohort keeps its due time instead.
 MIN_QUERY_SECONDS = 2
-
-# A check that announced nothing is a CHECK even when it moved the alert; the row's two states
-# carry the move. `AlertEventKind`'s other four values are the `EventKind` strings the destination
-# config is keyed on, so this is also the only table mapping an action to a destination.
-_NOTIFICATION_OUTCOME_KINDS: dict[NotificationAction, AlertEventKind] = {
-    NotificationAction.NONE: AlertEventKind.CHECK,
-    NotificationAction.FIRE: AlertEventKind.FIRING,
-    NotificationAction.RESOLVE: AlertEventKind.RESOLVED,
-    NotificationAction.ERROR: AlertEventKind.ERRORED,
-    NotificationAction.BROKEN: AlertEventKind.BROKEN,
-}
 
 
 @frozen
@@ -352,7 +342,7 @@ def _delivery(
         check,
         outcome=outcome,
         evaluation_key=_evaluation_key(check, window_end),
-        kind=_NOTIFICATION_OUTCOME_KINDS[outcome.notification],
+        kind=NOTIFICATION_EVENT_KINDS[outcome.notification],
         notified=outcome.update_last_notified_at,
         now=now,
         value=value,

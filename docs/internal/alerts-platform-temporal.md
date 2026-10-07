@@ -10,7 +10,7 @@ The alerts platform registers three queues through `products/alerts_platform/bac
 
 These queue names are hardcoded and stay separate even with `DEBUG=True`.
 Shared orchestration registers the orchestration workflow, the source dispatcher and a synthetic demand-discovery activity.
-The evaluation queue registers the evaluation workflow (`alerts-platform-evaluate`), each bound source evaluation, and the probe activity.
+The evaluation queue registers the evaluation workflow (`alerts-platform-evaluate`), the logs and insight source evaluations, the probe activity and the record-outcomes activity.
 Each schedule tick starts orchestration, which discovers demand once and then pages source dispatchers until the demand is exhausted or its dispatch budget is spent.
 Each dispatcher starts one evaluation child for its source. Evaluation runs the probe and starts its independent delivery child on the delivery queue.
 Start one worker for each queue:
@@ -169,7 +169,7 @@ The limit that will matter is the evaluation workflow's own history, which depen
 It starts one evaluation child per key with `ParentClosePolicy.ABANDON` and one attempt.
 A source with an entry in `SOURCE_BINDINGS` (`temporal/sources.py`) starts the binding's workflow on the binding's `task_queue`, under its `evaluation_timeout`.
 A source with no binding starts `alerts-platform-evaluate` on the evaluation queue, under the 75-second `NOOP_EVALUATION_TIMEOUT`.
-A source with slow checks gets its own queue and its own timeout, so it neither shares the logs ceiling nor holds the logs worker's slots.
+Each source has its own timeout, so no source adopts the logs ceiling. Sources share the evaluation queue while their checks finish in seconds. A source whose checks hold a worker slot for minutes needs its own queue, so that it does not hold the slots the other sources need.
 The timeout has to hold every attempt a source's activities allow, because an attempt cut off here is a batch that decided something and recorded nothing.
 Evaluations are abandoned rather than awaited, so it does not have to fit inside the tick.
 It waits for the child to start, never for it to finish, then returns the dispatched count and the remaining IDs.
