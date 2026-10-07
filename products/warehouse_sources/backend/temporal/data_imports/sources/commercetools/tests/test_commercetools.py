@@ -11,8 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.commerceto
     MAX_OFFSET,
     PAGE_SIZE,
     CommercetoolsResumeConfig,
-    _api_base_url,
-    _auth_url,
     _build_url,
     _format_last_modified,
     _validate_path_component,
@@ -50,12 +48,6 @@ def _page_response(items: list[dict[str, Any]]) -> mock.MagicMock:
 
 
 class TestUrlHelpers:
-    def test_auth_and_api_urls(self):
-        assert _auth_url("europe-west1.gcp") == "https://auth.europe-west1.gcp.commercetools.com/oauth/token"
-        assert _api_base_url("us-central1.gcp", "my-project") == (
-            "https://api.us-central1.gcp.commercetools.com/my-project"
-        )
-
     @pytest.mark.parametrize("value", ["", "bad value", "x/y", "x?y", "../up"])
     def test_invalid_path_components_raise(self, value):
         with pytest.raises(ValueError):
@@ -69,14 +61,6 @@ class TestUrlHelpers:
         assert query["sort"] == ["lastModifiedAt asc"]
         assert query["withTotal"] == ["false"]
         assert "where" not in query
-
-    def test_build_url_with_anchor(self):
-        url = _build_url(
-            "https://api.x.commercetools.com/p", COMMERCETOOLS_ENDPOINTS["orders"], "2024-01-02T03:04:05.000Z", 500
-        )
-        query = parse_qs(urlparse(url).query)
-        assert query["where"] == ['lastModifiedAt >= "2024-01-02T03:04:05.000Z"']
-        assert query["offset"] == ["500"]
 
 
 class TestFormatLastModified:

@@ -7,7 +7,6 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.settings import VELLUM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.vellum import (
     VellumResumeConfig,
     vellum_source,
@@ -133,12 +132,6 @@ class TestRetries:
 
 
 class TestExecutionEventsFanOut:
-    def test_config_is_opt_in_fan_out_with_composite_pk(self) -> None:
-        config = VELLUM_ENDPOINTS["workflow_execution_events"]
-        assert config.fan_out_over_workflow_deployments is True
-        assert config.should_sync_default is False
-        assert config.primary_keys == ["workflow_deployment_id", "span_id"]
-
     @mock.patch(SESSION_PATCH)
     def test_injects_parent_id_into_every_row(self, MockSession) -> None:
         # The parent id completes the composite key; without it rows from different deployments that

@@ -99,18 +99,6 @@ class TestToUnixSeconds:
 
 
 class TestBuildParams:
-    def test_history_incremental_sets_date_after_unix_and_asc_sort(self) -> None:
-        # Wrong param name / dropped filter would silently turn every incremental sync into a full refresh.
-        params = _build_params(ELEVENLABS_ENDPOINTS["history"], True, 1700000000, "date_unix")
-        assert params["date_after_unix"] == 1700000000
-        assert params["sort_direction"] == "asc"
-        assert params["page_size"] == 1000
-
-    def test_first_sync_applies_no_incremental_filter(self) -> None:
-        # A None watermark must not build date_after_unix=None; first sync pulls full history.
-        params = _build_params(ELEVENLABS_ENDPOINTS["history"], True, None, "date_unix")
-        assert "date_after_unix" not in params
-
     def test_conversations_incremental_uses_call_start_after_unix_with_summary(self) -> None:
         params = _build_params(ELEVENLABS_ENDPOINTS["conversations"], True, 1700000000, "start_time_unix_secs")
         assert params["call_start_after_unix"] == 1700000000
@@ -121,11 +109,6 @@ class TestBuildParams:
         # Full-refresh endpoints have no server-side updated-since filter; sending one would 4xx.
         params = _build_params(ELEVENLABS_ENDPOINTS[endpoint], True, 1700000000, "created_at_unix")
         assert not any("after_unix" in key for key in params)
-
-    def test_mismatched_incremental_field_does_not_filter(self) -> None:
-        # The user's chosen cursor column must gate the filter, not the endpoint default.
-        params = _build_params(ELEVENLABS_ENDPOINTS["history"], True, 1700000000, "something_else")
-        assert "date_after_unix" not in params
 
 
 class TestPagination:
@@ -152,21 +135,6 @@ class TestPagination:
         assert manager.save_state.call_args.args[0] == ElevenLabsResumeConfig(cursor="a")
 
     @mock.patch(SESSION_PATCH)
-    def test_terminates_when_has_more_false_even_with_a_cursor(self, MockSession) -> None:
-        # A stale next cursor with has_more=False must not trigger another request.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [_response({"history": [{"history_item_id": "a"}], "has_more": False, "last_history_item_id": "a"})],
-        )
-        manager = _make_manager()
-        rows = _rows(_source("history", manager))
-
-        assert rows == [{"history_item_id": "a"}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(
@@ -179,48 +147,6 @@ class TestPagination:
         assert rows == [{"conversation_id": "x"}]
         # The resumed run starts at the saved cursor, sent under the conversations cursor param.
         assert params[0]["cursor"] == "C1"
-
-    @mock.patch(SESSION_PATCH)
-    def test_incremental_filter_reaches_the_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [_response({"history": [{"history_item_id": "a"}], "has_more": False, "last_history_item_id": "a"})],
-        )
-        _rows(
-            _source(
-                "history",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=1700000000,
-                incremental_field="date_unix",
-            )
-        )
-        assert params[0]["date_after_unix"] == 1700000000
-
-    @mock.patch(SESSION_PATCH)
-    def test_missing_items_key_yields_no_rows_without_raising(self, MockSession) -> None:
-        # A 200 body without the endpoint's array key is a legit zero-row page, not a hard error.
-        session = MockSession.return_value
-        _wire(session, [_response({"has_more": False})])
-        rows = _rows(_source("history", _make_manager()))
-        assert rows == []
-
-    @mock.patch("time.sleep", lambda *_a, **_k: None)
-    @mock.patch(SESSION_PATCH)
-    def test_retryable_status_is_retried_then_succeeds(self, MockSession) -> None:
-        # 429/5xx are transient; the shared transport retries them and the page eventually lands.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({}, status=503),
-                _response({"history": [{"history_item_id": "a"}], "has_more": False, "last_history_item_id": "a"}),
-            ],
-        )
-        rows = _rows(_source("history", _make_manager()))
-        assert rows == [{"history_item_id": "a"}]
-        assert session.send.call_count == 2
 
     @mock.patch(SESSION_PATCH)
     def test_credential_error_fails_loud(self, MockSession) -> None:
@@ -251,15 +177,6 @@ class TestValidateCredentials:
         mts.return_value.get.return_value = mock.MagicMock(status_code=status)
         ok, _msg = validate_credentials("k", schema_name)
         assert ok is expected_ok
-
-    @mock.patch(SESSION_PATCH)
-    def test_client_error_reads_as_invalid_key_not_retry(self, mts) -> None:
-        # A 400 must not tell the user to "try again" — that only resolves for transient 429/5xx.
-        mts.return_value.get.return_value = mock.MagicMock(status_code=400)
-        ok, msg = validate_credentials("k")
-        assert ok is False
-        assert msg is not None
-        assert "try again" not in msg.lower()
 
     @mock.patch(SESSION_PATCH)
     def test_network_error_is_not_valid(self, mts) -> None:

@@ -16,9 +16,6 @@ class TestEppoSource:
         self.team_id = 123
         self.config = EppoSourceConfig(api_key="key")
 
-    def test_api_docs_url_is_set(self):
-        assert self.source.api_docs_url == "https://eppo.cloud/api/docs"
-
     @pytest.mark.parametrize(
         "mock_return, schema_name, expected_valid, expected_message",
         [

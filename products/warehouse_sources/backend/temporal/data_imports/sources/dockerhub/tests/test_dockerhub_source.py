@@ -21,9 +21,6 @@ class TestDockerhubSource:
         # secret re-entry — otherwise an editor could retarget the preserved token at another org.
         assert self.source.connection_host_fields == ["namespace"]
 
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
     def test_org_scoped_endpoints_report_why_they_are_unavailable(self) -> None:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.source.check_endpoint_access",

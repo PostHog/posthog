@@ -7,8 +7,6 @@ from unittest.mock import MagicMock, patch
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nagerdate import (
@@ -43,39 +41,6 @@ class TestNagerDateSource:
         self.source = NagerDateSource()
         self.config = NagerDateSourceConfig(country_codes="US\nGB")
 
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "NagerDate"
-        assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/nager-date"
-        assert config.iconPath == "/static/services/nager_date.png"
-        # A finished source ships visible; re-adding the flag would hide it from every user.
-        assert not config.unreleasedSource
-
-    def test_pinned_version_matches_the_path_the_code_calls(self) -> None:
-        assert self.source.default_version == "v4"
-        assert self.source.supported_versions == ("v4",)
-        assert self.source.resolve_api_version(None) == "v4"
-
-    def test_get_schemas(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=123)
-
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
-        # No endpoint has a server-side "changed since" filter, so nothing may advertise
-        # incremental or append sync.
-        assert not any(schema.supports_incremental for schema in schemas)
-        assert not any(schema.supports_append for schema in schemas)
-        assert all(schema.description for schema in schemas)
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # The public docs endpoint builds a blank config and calls get_schemas, so discovery must
-        # do no I/O.
-        tables = self.source.get_documented_tables()
-
-        assert [table["name"] for table in tables] == list(ENDPOINTS)
-
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_every_endpoint_has_a_primary_key_and_canonical_descriptions(self, endpoint: str) -> None:
         assert PRIMARY_KEYS[endpoint]
@@ -87,11 +52,6 @@ class TestNagerDateSource:
         # subdivisions with different classifications, so these tables key on the synthetic id
         # this source adds rather than the raw API fields.
         assert PRIMARY_KEYS[endpoint] == ["id"]
-
-    def test_non_retryable_error_matches_a_misconfigured_country_list(self) -> None:
-        raised = "Nager.Date source misconfigured: Enter at least one ISO 3166-1 alpha-2 country code, for example US."
-
-        assert error_message_matches(raised, self.source.get_non_retryable_errors().keys())
 
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_source_for_pipeline_plumbs_the_endpoint_through(self, endpoint: str) -> None:

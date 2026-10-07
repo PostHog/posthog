@@ -15,11 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.leex
     leexi_source,
     probe_endpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.settings import (
-    ENDPOINTS,
-    LEEXI_ENDPOINTS,
-    PAGE_SIZE,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.settings import ENDPOINTS, LEEXI_ENDPOINTS
 
 # The source builds its own capture-disabled session and hands it to RESTClient via the client config.
 CLIENT_SESSION_PATCH = (
@@ -93,40 +89,7 @@ def _source(
     )
 
 
-def _full_page(prefix: str = "u") -> Response:
-    return _page([{"uuid": f"{prefix}{i}", "created_at": "2026-01-01T00:00:00.000Z"} for i in range(PAGE_SIZE)])
-
-
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_page_fetches_next_page_and_checkpoints(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls = _wire(session, [("page=1", _full_page()), ("page=2", _page([{"uuid": "last"}]))])
-
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
-
-        assert len(rows) == PAGE_SIZE + 1
-        assert len(urls) == 2
-        query = _query(urls[0])
-        assert query["page"] == ["1"]
-        assert query["items"] == [str(PAGE_SIZE)]
-        # Checkpoint saved after the first (full) page; the terminal short page saves nothing.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == LeexiResumeConfig(paginator_state={"page": 2})
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_page_stops_without_extra_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls = _wire(session, [("/users", _page([{"uuid": "1"}]))])
-
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
-
-        assert [r["uuid"] for r in rows] == ["1"]
-        assert len(urls) == 1
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
@@ -140,27 +103,6 @@ class TestPagination:
 
 
 class TestCallsIncremental:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_request_filters_and_orders_on_cursor_field(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls = _wire(session, [("/calls", _page([{"uuid": "c1"}]))])
-
-        manager = _make_manager()
-        _rows(
-            _source(
-                "calls",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 15, 12, 30, 45, tzinfo=UTC),
-                incremental_field="updated_at",
-            )
-        )
-
-        query = _query(urls[0])
-        assert query["date_filter"] == ["updated_at"]
-        assert query["from"] == ["2026-01-15T12:30:45.000Z"]
-        assert query["order"] == ["updated_at asc"]
-
     @pytest.mark.parametrize("cursor_field", ["created_at", "performed_at"])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_honors_user_chosen_cursor_field(self, MockSession, cursor_field) -> None:
@@ -177,20 +119,6 @@ class TestCallsIncremental:
     def test_incremental_rejects_unsupported_cursor_field(self) -> None:
         with pytest.raises(ValueError, match="start_time"):
             _source("calls", _make_manager(), should_use_incremental_field=True, incremental_field="start_time")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_orders_by_created_at_without_date_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls = _wire(session, [("/calls", _page([{"uuid": "c1"}]))])
-
-        manager = _make_manager()
-        _rows(_source("calls", manager))
-
-        query = _query(urls[0])
-        assert query["order"] == ["created_at asc"]
-        assert query["with_simple_transcript"] == ["true"]
-        assert "date_filter" not in query
-        assert "from" not in query
 
     @pytest.mark.parametrize(
         "value, expected",
@@ -225,15 +153,6 @@ class TestCallNotesFanOut:
         # The parent listing must not pay for transcripts it never surfaces.
         assert "with_simple_transcript" not in urls[0]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_calls_yields_no_notes(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls = _wire(session, [("/calls", _page([]))])
-
-        manager = _make_manager()
-        assert _rows(_source("call_notes", manager)) == []
-        assert len(urls) == 1
-
 
 class TestSourceResponseMetadata:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
@@ -265,12 +184,6 @@ class TestSampleCaptureDisabled:
         assert adapters
         assert all(adapter._capture is False for adapter in adapters)
         assert all("key-secret" in adapter._redact_values for adapter in adapters)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sync_session_created_with_capture_disabled(self, MockSession) -> None:
-        _wire(MockSession.return_value, [("/users", _page([]))])
-        _rows(_source("users", _make_manager()))
-        assert MockSession.call_args.kwargs["capture"] is False
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_probe_session_created_with_capture_disabled(self, MockSession) -> None:

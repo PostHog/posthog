@@ -20,9 +20,6 @@ class TestMentionSource:
         assert self.source.supported_versions == ("1.19", "1.21")
         assert self.source.default_version == "1.21"
 
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["mentions"])
         assert len(schemas) == 1

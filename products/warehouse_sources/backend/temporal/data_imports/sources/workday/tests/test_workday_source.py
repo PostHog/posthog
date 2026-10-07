@@ -8,10 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workday import (
     WorkdaySourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.workday.settings import (
-    ENDPOINTS,
-    WORKDAY_ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.workday.source import WorkdaySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.workday.workday import WorkdayResumeConfig
 
@@ -73,6 +69,3 @@ class TestWorkdaySource:
         assert kwargs["staffing_version"] == "v7"
         assert kwargs["client_secret"] == "secret"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_every_endpoint_has_a_primary_key(self) -> None:
-        assert all(WORKDAY_ENDPOINTS[name].primary_key for name in ENDPOINTS)

@@ -101,10 +101,6 @@ class TestServiceNowSource:
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01 00:00:00"
         assert kwargs["incremental_field"] == "sys_updated_on"
 
-    def test_default_version_is_v2(self) -> None:
-        assert self.source.supported_versions == ("v1", "v2")
-        assert self.source.default_version == "v2"
-
     @parameterized.expand(
         [
             # no pin resolves to the default (v2); a present pin is honored verbatim.

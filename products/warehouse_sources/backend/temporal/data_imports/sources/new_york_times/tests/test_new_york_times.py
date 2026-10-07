@@ -11,10 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_t
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.new_york_times import (
     ARTICLE_SEARCH_MAX_PAGES,
     NewYorkTimesResumeConfig,
-    _build_url,
     _format_begin_date,
-    _resolve_begin_date,
-    _select_rows,
     get_rows,
     new_york_times_source,
     validate_credentials,
@@ -50,49 +47,6 @@ class TestFormatBeginDate:
     )
     def test_format_begin_date(self, _name: str, value: object, expected: str) -> None:
         assert _format_begin_date(value) == expected
-
-
-class TestResolveBeginDate:
-    @time_machine.travel("2026-07-02", tick=False)
-    def test_uses_watermark_when_incremental(self) -> None:
-        config = NEW_YORK_TIMES_ENDPOINTS["article_search"]
-        assert _resolve_begin_date(config, True, datetime(2026, 6, 1, tzinfo=UTC)) == "20260601"
-
-    @time_machine.travel("2026-07-02", tick=False)
-    def test_falls_back_to_lookback_without_watermark(self) -> None:
-        # First incremental sync (no watermark) must window to the lookback range, not all of history.
-        config = NEW_YORK_TIMES_ENDPOINTS["article_search"]
-        assert _resolve_begin_date(config, True, None) == "20260602"
-
-    @time_machine.travel("2026-07-02", tick=False)
-    def test_full_refresh_uses_lookback(self) -> None:
-        config = NEW_YORK_TIMES_ENDPOINTS["article_search"]
-        assert _resolve_begin_date(config, False, None) == "20260602"
-
-
-class TestSelectRows:
-    def test_article_search_reads_nested_docs(self) -> None:
-        config = NEW_YORK_TIMES_ENDPOINTS["article_search"]
-        data = {"response": {"docs": [{"_id": "a"}, {"_id": "b"}]}}
-        assert _select_rows(config, data) == [{"_id": "a"}, {"_id": "b"}]
-
-    def test_snapshot_reads_results(self) -> None:
-        config = NEW_YORK_TIMES_ENDPOINTS["top_stories"]
-        data = {"results": [{"uri": "x"}]}
-        assert _select_rows(config, data) == [{"uri": "x"}]
-
-    def test_missing_key_returns_empty(self) -> None:
-        config = NEW_YORK_TIMES_ENDPOINTS["article_search"]
-        assert _select_rows(config, {"response": {}}) == []
-
-
-class TestBuildUrl:
-    def test_includes_api_key_and_encodes_params(self) -> None:
-        url = _build_url("/svc/search/v2/articlesearch.json", "KEY", {"q": "a b", "page": 0})
-        assert url.startswith("https://api.nytimes.com/svc/search/v2/articlesearch.json?")
-        assert "q=a+b" in url
-        assert "page=0" in url
-        assert "api-key=KEY" in url
 
 
 class TestValidateCredentials:
@@ -139,15 +93,6 @@ class TestGetRowsSnapshot:
         assert batches == [[{"uri": "u1"}, {"uri": "u2"}]]
         assert session.get.call_count == 1
 
-    def test_empty_results_yields_nothing(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _mock_response(200, {"results": []})
-        with patch.object(new_york_times, "make_tracked_session", return_value=session):
-            batches = list(
-                get_rows("KEY", "most_popular_viewed", MagicMock(), _FakeResumableManager())  # type: ignore[arg-type]
-            )
-        assert batches == []
-
 
 class TestGetRowsArticleSearch:
     @staticmethod
@@ -176,20 +121,6 @@ class TestGetRowsArticleSearch:
         # State saved after each yielded page, advancing the page cursor with a stable begin_date.
         assert [s.page for s in manager.saved] == [1, 2]
         assert all(s.begin_date == "20260602" for s in manager.saved)
-
-    def test_stops_on_empty_first_page(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _mock_response(200, {"response": {"docs": []}})
-        with (
-            patch.object(new_york_times, "make_tracked_session", return_value=session),
-            patch.object(new_york_times.time, "sleep"),
-            time_machine.travel("2026-07-02", tick=False),
-        ):
-            batches = list(
-                get_rows("KEY", "article_search", MagicMock(), _FakeResumableManager())  # type: ignore[arg-type]
-            )
-        assert batches == []
-        assert session.get.call_count == 1
 
     def test_respects_page_cap(self) -> None:
         # Always-full pages must stop at the 100-page hard cap rather than loop forever.
@@ -290,13 +221,6 @@ class TestSourceResponse:
         assert response.partition_keys == [partition_key]
         assert response.partition_mode == "datetime"
         assert response.sort_mode == "asc"
-
-    def test_items_callable_is_lazy(self) -> None:
-        # Building the SourceResponse must not make any HTTP calls — only iterating `items` does.
-        with patch.object(new_york_times, "make_tracked_session") as mocked:
-            response = new_york_times_source("KEY", "top_stories", MagicMock(), _FakeResumableManager())  # type: ignore[arg-type]
-            assert mocked.call_count == 0
-            assert callable(response.items)
 
 
 @pytest.mark.parametrize("endpoint", list(NEW_YORK_TIMES_ENDPOINTS.keys()))

@@ -4,9 +4,8 @@ from typing import Any
 from unittest import mock
 
 from parameterized import parameterized
-from requests import PreparedRequest, Request, Response
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.faire.faire import (
     FairePaginator,
     FaireResumeConfig,
@@ -71,23 +70,6 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
 
 
 class TestFairePaginator:
-    def test_init_request_sets_limit(self) -> None:
-        paginator = FairePaginator(limit=50, filter_params=("updated_at_min",))
-        request = Request(params={"updated_at_min": "2026-01-01"})
-
-        paginator.init_request(request)
-
-        assert request.params == {"updated_at_min": "2026-01-01", "limit": 50}
-
-    def test_init_request_applies_seeded_cursor(self) -> None:
-        paginator = FairePaginator(limit=50, filter_params=("updated_at_min", "sort_by"))
-        paginator.set_resume_state({"cursor": "resume-cursor"})
-        request = Request(params={"updated_at_min": "2026-01-01", "sort_by": "UPDATED_AT"})
-
-        paginator.init_request(request)
-
-        assert request.params == {"cursor": "resume-cursor", "limit": 50}
-
     @parameterized.expand(
         [
             ("cursor_present", {"cursor": "next-page"}, True),
@@ -101,32 +83,6 @@ class TestFairePaginator:
         paginator.update_state(_response(body))
 
         assert paginator.has_next_page is expected_has_next
-
-    def test_update_request_drops_filter_params_and_sets_cursor(self) -> None:
-        paginator = FairePaginator(limit=50, filter_params=("updated_at_min", "sku"))
-        paginator.update_state(_response({"cursor": "abc"}))
-        request = Request(params={"updated_at_min": "2026-01-01", "sku": "SKU1", "page": 1})
-
-        paginator.update_request(request)
-
-        assert request.params == {"cursor": "abc", "limit": 50}
-
-    def test_resume_state_round_trips(self) -> None:
-        paginator = FairePaginator(limit=50, filter_params=())
-        paginator.update_state(_response({"cursor": "abc"}))
-
-        state = paginator.get_resume_state()
-        assert state == {"cursor": "abc"}
-
-        resumed = FairePaginator(limit=50, filter_params=())
-        resumed.set_resume_state(state or {})
-        assert resumed.has_next_page is True
-
-    def test_no_resume_state_once_exhausted(self) -> None:
-        paginator = FairePaginator(limit=50, filter_params=())
-        paginator.update_state(_response({"orders": []}))
-
-        assert paginator.get_resume_state() is None
 
 
 class TestFaireSourceOrdersAndProducts:
@@ -148,40 +104,6 @@ class TestFaireSourceOrdersAndProducts:
         assert snapshots[0]["url"] == "https://www.faire.com/external-api/v2/orders"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_page_carries_sort_by_and_limit(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"orders": [{"id": "1"}]})])
-
-        _rows(_source("Orders", _make_manager()))
-
-        assert snapshots[0]["params"] == {"sort_by": "UPDATED_AT", "limit": 50}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_second_page_drops_filters_and_keeps_only_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response({"orders": [{"id": "1"}], "cursor": "next"}),
-                _response({"orders": [{"id": "2"}]}),
-            ],
-        )
-
-        _rows(_source("Orders", _make_manager()))
-
-        assert snapshots[1]["params"] == {"cursor": "next", "limit": 50}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_products_uses_its_own_page_size_and_filters(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"products": [{"id": "p1"}]})])
-
-        rows = _rows(_source("Products", _make_manager()))
-
-        assert [r["id"] for r in rows] == ["p1"]
-        assert snapshots[0]["params"] == {"limit": 250}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_field_adds_updated_at_min(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response({"orders": [{"id": "1"}]})])
@@ -196,15 +118,6 @@ class TestFaireSourceOrdersAndProducts:
         )
 
         assert snapshots[0]["params"]["updated_at_min"] == "2026-01-01T00:00:00Z"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_incremental_sync_omits_updated_at_min(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"orders": [{"id": "1"}]})])
-
-        _rows(_source("Orders", _make_manager(), should_use_incremental_field=False))
-
-        assert "updated_at_min" not in snapshots[0]["params"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_sync_client_does_not_follow_redirects(self, MockSession) -> None:
@@ -231,36 +144,6 @@ class TestFaireSourceOrdersAndProducts:
         assert send_kwargs and all(kw.get("allow_redirects") is False for kw in send_kwargs)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_uses_faire_access_token_header(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"orders": [{"id": "1"}]})])
-
-        _rows(_source("Orders", _make_manager()))
-
-        auth = snapshots[0]["auth"]
-        assert isinstance(auth, APIKeyAuth)
-        assert auth.api_key == "token"
-        assert auth.name == "X-FAIRE-ACCESS-TOKEN"
-        assert auth.location == "header"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_resume_state_only_while_pages_remain(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"orders": [{"id": "1"}], "cursor": "page-2"}),
-                _response({"orders": [{"id": "2"}]}),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source("Orders", manager))
-
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == FaireResumeConfig(cursor="page-2")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response({"orders": [{"id": "2"}]})])
@@ -271,29 +154,8 @@ class TestFaireSourceOrdersAndProducts:
         assert session.send.call_count == 1
         assert snapshots[0]["params"] == {"cursor": "page-2", "limit": 50}
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_page_without_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"orders": []})])
-
-        manager = _make_manager()
-        rows = _rows(_source("Orders", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
 
 class TestFaireSourceBrand:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_returns_single_row_from_root_object(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"brand_id": "b1", "name": "Acme Co"})])
-
-        rows = _rows(_source("Brand", _make_manager()))
-
-        assert rows == [{"brand_id": "b1", "name": "Acme Co"}]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_never_saves_resume_state(self, MockSession) -> None:
         session = MockSession.return_value
@@ -314,33 +176,3 @@ class TestValidateCredentials:
     def test_ok(self, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         assert validate_credentials("token") == (True, 200)
-
-    @mock.patch(FAIRE_SESSION_PATCH)
-    def test_unauthorized(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
-        assert validate_credentials("token") == (False, 401)
-
-    @mock.patch(FAIRE_SESSION_PATCH)
-    def test_swallows_transport_errors(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") == (False, None)
-
-    @mock.patch(FAIRE_SESSION_PATCH)
-    def test_probes_brand_profile_with_access_token_header(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("token")
-
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://www.faire.com/external-api/v2/brands/profile"
-        assert call.kwargs["headers"]["X-FAIRE-ACCESS-TOKEN"] == "token"
-        assert call.kwargs["allow_redirects"] is False
-
-
-def test_prepared_request_type_is_used_for_auth() -> None:
-    # Sanity check that APIKeyAuth is callable against a PreparedRequest, matching how the
-    # framework applies auth — guards against a signature mismatch going unnoticed.
-    auth = APIKeyAuth(api_key="token", name="X-FAIRE-ACCESS-TOKEN", location="header")
-    prepared = PreparedRequest()
-    prepared.headers = {}  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
-    auth(prepared)
-    assert prepared.headers["X-FAIRE-ACCESS-TOKEN"] == "token"

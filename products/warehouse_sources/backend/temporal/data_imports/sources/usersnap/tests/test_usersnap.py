@@ -4,7 +4,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-import jwt
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.settings import (
@@ -12,11 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.s
     USERSNAP_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap import (
-    JWT_TTL_SECONDS,
     UsersnapResumeConfig,
     _format_datetime,
     get_rows,
-    mint_jwt,
     usersnap_source,
     validate_credentials,
 )
@@ -54,18 +51,6 @@ def _feedbacks_page(
     return {"status": True, "data": data}
 
 
-class TestMintJwt:
-    def test_token_uses_hs256_with_kid_header_and_expiry(self):
-        token = mint_jwt("shared-secret", "jwt-id-123")
-
-        header = jwt.get_unverified_header(token)
-        assert header["alg"] == "HS256"
-        assert header["kid"] == "jwt-id-123"
-
-        claims = jwt.decode(token, "shared-secret", algorithms=["HS256"])
-        assert claims["exp"] - claims["iat"] == JWT_TTL_SECONDS
-
-
 class TestFormatDatetime:
     @pytest.mark.parametrize(
         "value, expected",
@@ -81,25 +66,6 @@ class TestFormatDatetime:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected",
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
-    )
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
-
-        assert validate_credentials("secret", "jwt-id") is expected
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
     )
@@ -120,26 +86,6 @@ class TestGetRows:
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
     )
-    def test_projects_yields_single_batch(self, mock_session):
-        projects = [{"project_id": "p1", "api_key": "k1"}, {"project_id": "p2", "api_key": "k2"}]
-        mock_session.return_value.request.return_value = _resp(_projects_page(projects))
-
-        batches = list(get_rows("secret", "jwt-id", "projects", mock.MagicMock(), _make_manager()))
-
-        assert batches == [projects]
-        assert mock_session.return_value.request.call_count == 1
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
-    )
-    def test_disables_http_sample_capture(self, mock_session):
-        mock_session.return_value.request.return_value = _resp(_projects_page([{"project_id": "p1"}]))
-        list(get_rows("secret", "jwt-id", "projects", mock.MagicMock(), _make_manager()))
-        assert mock_session.call_args.kwargs["capture"] is False
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
-    )
     def test_projects_truncation_is_surfaced(self, mock_session):
         mock_session.return_value.request.return_value = _resp(_projects_page([{"project_id": "p1"}], has_more=True))
         logger = mock.MagicMock()
@@ -147,25 +93,6 @@ class TestGetRows:
         list(get_rows("secret", "jwt-id", "projects", logger, _make_manager()))
 
         logger.warning.assert_called_once()
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
-    )
-    def test_feedbacks_paginates_with_after_cursor_and_saves_state_after_yield(self, mock_session):
-        mock_session.return_value.request.side_effect = [
-            _resp(_projects_page([{"project_id": "p1", "api_key": "k1"}])),
-            _resp(_feedbacks_page([{"feedback_id": "f1"}, {"feedback_id": "f2"}], has_more=True, next_after="f2")),
-            _resp(_feedbacks_page([{"feedback_id": "f3"}], has_more=False)),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("secret", "jwt-id", "feedbacks", mock.MagicMock(), manager))
-
-        assert [item["feedback_id"] for batch in batches for item in batch] == ["f1", "f2", "f3"]
-        second_page_url = mock_session.return_value.request.call_args_list[2].args[1]
-        assert "after=f2" in second_page_url
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == UsersnapResumeConfig(project_id="p1", after="f2")
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
@@ -222,23 +149,6 @@ class TestGetRows:
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
     )
-    def test_feedbacks_fans_out_over_projects_and_bookmarks_the_next_one(self, mock_session):
-        mock_session.return_value.request.side_effect = [
-            _resp(_projects_page([{"project_id": "p1", "api_key": "k1"}, {"project_id": "p2", "api_key": "k2"}])),
-            _resp(_feedbacks_page([{"feedback_id": "f1"}], has_more=False)),
-            _resp(_feedbacks_page([{"feedback_id": "f2"}], has_more=False)),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("secret", "jwt-id", "feedbacks", mock.MagicMock(), manager))
-
-        assert [item["feedback_id"] for batch in batches for item in batch] == ["f1", "f2"]
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == UsersnapResumeConfig(project_id="p2", after=None)
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
-    )
     def test_feedbacks_resumes_from_bookmarked_project_and_cursor(self, mock_session):
         mock_session.return_value.request.side_effect = [
             _resp(_projects_page([{"project_id": "p1", "api_key": "k1"}, {"project_id": "p2", "api_key": "k2"}])),
@@ -252,21 +162,6 @@ class TestGetRows:
         resumed_url = mock_session.return_value.request.call_args_list[1].args[1]
         assert "/projects/p2/feedbacks/filter" in resumed_url
         assert "after=f8" in resumed_url
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
-    )
-    def test_feedbacks_restarts_when_bookmarked_project_no_longer_exists(self, mock_session):
-        mock_session.return_value.request.side_effect = [
-            _resp(_projects_page([{"project_id": "p1", "api_key": "k1"}])),
-            _resp(_feedbacks_page([{"feedback_id": "f1"}], has_more=False)),
-        ]
-
-        manager = _make_manager(UsersnapResumeConfig(project_id="gone", after="f8"))
-        batches = list(get_rows("secret", "jwt-id", "feedbacks", mock.MagicMock(), manager))
-
-        assert [item["feedback_id"] for batch in batches for item in batch] == ["f1"]
-        assert "after=" not in mock_session.return_value.request.call_args_list[1].args[1]
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"

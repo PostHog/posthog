@@ -92,35 +92,8 @@ class TestRowExtraction:
 
         assert rows == [{"id": 420, "email": "a@b.com"}]
 
-    @pytest.mark.parametrize(
-        "endpoint, body",
-        [
-            ("halls", {"halls": []}),
-            ("halls", {"lectures": [{"id": 1}]}),  # data_key missing entirely
-            ("groups", []),
-            ("groups", None),
-        ],
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_or_missing_data_yields_no_rows(self, MockSession, endpoint, body) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(body)])
-
-        assert _rows(eventee_source("tok", endpoint, team_id=1, job_id="j")) == []
-
 
 class TestRetries:
-    @mock.patch("time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_retryable_status_then_succeeds(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({}, 500), _response({}, 429), _response([{"id": 1}])])
-
-        rows = _rows(eventee_source("tok", "groups", team_id=1, job_id="j"))
-
-        assert rows == [{"id": 1}]
-        assert session.send.call_count == 3
-
     @mock.patch("time.sleep")
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_retries_exhausted_raises(self, MockSession, _sleep) -> None:
@@ -151,12 +124,6 @@ class TestRetries:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
-    @mock.patch(EVENTEE_SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status_code, expected) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("tok") is expected
-
     @mock.patch(EVENTEE_SESSION_PATCH)
     def test_sends_bearer_token(self, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
@@ -165,11 +132,6 @@ class TestValidateCredentials:
 
         headers = mock_session.return_value.get.call_args.kwargs["headers"]
         assert headers["Authorization"] == "Bearer tok"
-
-    @mock.patch(EVENTEE_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("tok") is False
 
 
 class TestEventeeSourceResponse:

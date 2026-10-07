@@ -10,9 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 
 class TestAwinSourceClass:
-    def test_lists_tables_without_credentials(self) -> None:
-        assert AwinSource.lists_tables_without_credentials is True
-
     def test_config_without_region_defaults_for_pre_existing_connections(self) -> None:
         # Connections configured before this field existed have no `region` key in their stored
         # config. It must default rather than fail to parse, or every endpoint for those

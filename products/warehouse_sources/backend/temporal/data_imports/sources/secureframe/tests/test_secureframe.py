@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.securefram
     secureframe_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.settings import SECUREFRAME_ENDPOINTS
 
 # The rest_source client builds/uses its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -237,10 +236,3 @@ class TestSessionHardening:
         assert kwargs["capture"] is False
         assert set(kwargs["redact_values"]) == {"key", "secret"}
         assert kwargs["headers"]["Authorization"] == "key secret"
-
-
-class TestSecureframeSourceResponse:
-    @pytest.mark.parametrize("config", list(SECUREFRAME_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "created_at"

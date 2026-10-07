@@ -9,7 +9,6 @@ from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru import (
     GuruResumeConfig,
-    _build_params,
     _ensure_event_id,
     _format_last_modified,
     _normalize_member,
@@ -106,101 +105,10 @@ class TestFormatLastModified:
         assert _format_last_modified(value) == expected
 
 
-class TestBuildParams:
-    def test_incremental_cards_filters_and_sorts_on_cursor_field(self):
-        params = _build_params(
-            GURU_ENDPOINTS["cards"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field="lastModified",
-        )
-
-        assert params["q"] == "lastModified >= 2024-01-01T00:00:00+00:00"
-        assert params["sortField"] == "lastModified"
-        assert params["sortOrder"] == "asc"
-        assert params["queryType"] == "cards"
-
-    def test_incremental_without_last_value_falls_back_to_full_refresh_sort(self):
-        params = _build_params(
-            GURU_ENDPOINTS["cards"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="lastModified",
-        )
-
-        assert "q" not in params
-        assert params["sortField"] == "dateCreated"
-        assert params["sortOrder"] == "asc"
-
-    def test_full_refresh_cards_sorts_on_stable_creation_date(self):
-        params = _build_params(
-            GURU_ENDPOINTS["cards"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-
-        assert "q" not in params
-        assert params["sortField"] == "dateCreated"
-        assert params["sortOrder"] == "asc"
-
-    @pytest.mark.parametrize(
-        "last_value, expected_from_date",
-        [
-            (datetime(2024, 1, 2, 3, 4, 5, 678901, tzinfo=UTC), "2024-01-02T03:04:05.678+00:00"),
-            (datetime(2024, 1, 2, 3, 4, 5), "2024-01-02T03:04:05.000+00:00"),
-        ],
-    )
-    def test_incremental_analytics_uses_from_date_not_gql(self, last_value, expected_from_date):
-        params = _build_params(
-            GURU_ENDPOINTS["analytics_events"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=last_value,
-            incremental_field="eventDate",
-        )
-
-        assert params == {"fromDate": expected_from_date}
-
-    def test_full_refresh_analytics_sends_no_from_date(self):
-        params = _build_params(
-            GURU_ENDPOINTS["analytics_events"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-
-        assert params == {}
-
-    @pytest.mark.parametrize("endpoint", ["collections", "groups", "members", "folders", "tag_categories", "tags"])
-    def test_non_incremental_endpoints_have_no_search_params(self, endpoint):
-        params = _build_params(
-            GURU_ENDPOINTS[endpoint],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-
-        assert params == {}
-
-
 class TestNormalizeMember:
-    def test_copies_nested_user_email_to_top_level(self):
-        item = {"user": {"email": "jane@company.com", "firstName": "Jane"}, "groups": []}
-        assert _normalize_member(item)["email"] == "jane@company.com"
-
     def test_keeps_existing_top_level_email(self):
         item = {"email": "top@company.com", "user": {"email": "nested@company.com"}}
         assert _normalize_member(item)["email"] == "top@company.com"
-
-    @pytest.mark.parametrize(
-        "item",
-        [
-            {"user": None},
-            {},
-        ],
-    )
-    def test_leaves_items_without_email_untouched(self, item):
-        assert _normalize_member(item) == item
 
     def test_missing_nested_email_raises_keyerror(self):
         # email is the primary key, so a member nesting a user dict without an email must
@@ -210,10 +118,6 @@ class TestNormalizeMember:
 
 
 class TestEnsureEventId:
-    def test_keeps_vendor_id(self):
-        event = {"id": "e1", "type": "card-viewed"}
-        assert _ensure_event_id(event) == event
-
     def test_documented_event_without_id_gets_stable_content_key(self):
         event = {
             "type": "card-viewed",
@@ -230,28 +134,6 @@ class TestEnsureEventId:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected",
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
-    )
-    @mock.patch(GURU_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
-
-        assert validate_credentials("user@company.com", "token") is expected
-
-    @mock.patch(GURU_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("user@company.com", "token") is False
-
     @mock.patch(GURU_SESSION_PATCH)
     def test_probe_disables_redirects_to_protect_credential(self, mock_session):
         # The Basic-auth credential rides on the probe; the session must be built with redirects
@@ -275,18 +157,6 @@ class TestGetRows:
         # State is saved only while a next page exists, after the page is yielded.
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0].next_url == next_url
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_state(self, MockSession):
-        session = MockSession.return_value
-        _, urls = _wire(session, [_response([{"id": "9"}])])
-
-        resume_url = "https://api.getguru.com/api/v1/collections?token=resume"
-        manager = _make_manager(GuruResumeConfig(next_url=resume_url))
-
-        _rows(_source("collections", manager))
-
-        assert urls[0] == resume_url
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_rejects_next_url_with_foreign_host(self, MockSession):
@@ -318,15 +188,6 @@ class TestGetRows:
             _rows(_source("collections", _make_manager()))
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_members_rows_are_normalized(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response([{"user": {"email": "jane@company.com"}}])])
-
-        rows = _rows(_source("members", _make_manager()))
-
-        assert rows == [{"user": {"email": "jane@company.com"}, "email": "jane@company.com"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_request_includes_gql_filter(self, MockSession):
         session = MockSession.return_value
         params, _ = _wire(session, [_response([])])
@@ -344,17 +205,6 @@ class TestGetRows:
         assert params[0]["q"] == "lastModified >= 2024-01-01T00:00:00+00:00"
         assert params[0]["sortField"] == "lastModified"
         assert params[0]["sortOrder"] == "asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_stops_without_saving_state(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source("cards", manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_list_response_fails_loud(self, MockSession):

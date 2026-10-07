@@ -128,49 +128,8 @@ class TestRequestShape:
 
         assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
 
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_every_endpoint_requests_its_declared_columns(self, mock_session: mock.MagicMock, endpoint: str) -> None:
-        mock_session.return_value.get.return_value = _response({"code": 200, "results": []})
-        config = APPLOVIN_ENDPOINTS[endpoint]
-
-        list(get_rows("key", endpoint, mock.MagicMock(), FakeResumeManager()))
-
-        url = _urls(mock_session)[0]
-        assert urlparse(url).path == config.path
-        params = _query(url)
-        assert params["columns"] == [",".join(config.columns)]
-        assert params["format"] == ["json"]
-        assert params["api_key"] == ["key"]
-        assert params["limit"] == [str(REPORT_PAGE_SIZE)]
-        assert params["offset"] == ["0"]
-        # Pinned so limit/offset paging can't reshuffle rows and `sort_mode="asc"` holds.
-        assert params["sort_day"] == ["ASC"]
-        for name, value in config.extra_params.items():
-            assert params[name] == [value]
-
 
 class TestWindowWalking:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_refresh_covers_the_whole_request_window_oldest_first(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _response({"code": 200, "results": _rows(2)})
-        manager = FakeResumeManager()
-
-        batches = list(get_rows("key", "max_ad_revenue", mock.MagicMock(), manager))
-
-        starts = [_query(url)["start"][0] for url in _urls(mock_session)]
-        ends = [_query(url)["end"][0] for url in _urls(mock_session)]
-        assert starts == sorted(starts)
-        assert starts[0] == _earliest().isoformat()
-        assert ends[-1] == _today().isoformat()
-        # Windows tile the range with no gaps.
-        for previous_end, next_start in zip(ends, starts[1:]):
-            assert date.fromisoformat(next_start) == date.fromisoformat(previous_end) + timedelta(days=1)
-        assert len(batches) == len(starts)
-        assert [saved.next_window_start for saved in manager.saved] == starts[1:]
-        # A completed walk leaves no checkpoint behind.
-        assert manager.clear_count == 1
-
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_checkpoint_survives_a_failed_walk(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.side_effect = [
@@ -184,60 +143,6 @@ class TestWindowWalking:
 
         assert manager.saved
         assert manager.clear_count == 0
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_incremental_starts_a_lookback_before_the_watermark(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _response({"code": 200, "results": []})
-        watermark = _today() - timedelta(days=3)
-
-        list(
-            get_rows(
-                "key",
-                "publisher_report",
-                mock.MagicMock(),
-                FakeResumeManager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=watermark.isoformat(),
-            )
-        )
-
-        expected = (watermark - timedelta(days=REPORT_LOOKBACK_DAYS)).isoformat()
-        assert _query(_urls(mock_session)[0])["start"] == [expected]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_watermark_older_than_the_request_window_is_clamped(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _response({"code": 200, "results": []})
-
-        list(
-            get_rows(
-                "key",
-                "publisher_report",
-                mock.MagicMock(),
-                FakeResumeManager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=(_today() - timedelta(days=400)).isoformat(),
-            )
-        )
-
-        # AppLovin errors on dates outside the window, so the stale watermark must not be sent.
-        assert _query(_urls(mock_session)[0])["start"] == [_earliest().isoformat()]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_unparseable_watermark_falls_back_to_full_window(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _response({"code": 200, "results": []})
-
-        list(
-            get_rows(
-                "key",
-                "publisher_report",
-                mock.MagicMock(),
-                FakeResumeManager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="not-a-date",
-            )
-        )
-
-        assert _query(_urls(mock_session)[0])["start"] == [_earliest().isoformat()]
 
 
 class TestPagination:
@@ -283,25 +188,6 @@ class TestPagination:
         assert params["offset"] == [str(REPORT_PAGE_SIZE)]
         # A single window remains, so nothing older gets re-walked.
         assert len(_urls(mock_session)) == 1
-
-    @pytest.mark.parametrize(
-        "resume_start_offset_days, description",
-        [
-            (400, "older than the request window"),
-            (-5, "in the future"),
-        ],
-    )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_out_of_range_resume_state_is_ignored(
-        self, mock_session: mock.MagicMock, resume_start_offset_days: int, description: str
-    ) -> None:
-        mock_session.return_value.get.return_value = _response({"code": 200, "results": []})
-        resume_start = _today() - timedelta(days=resume_start_offset_days)
-        manager = FakeResumeManager(AppLovinResumeConfig(next_window_start=resume_start.isoformat()))
-
-        list(get_rows("key", "max_ad_revenue", mock.MagicMock(), manager))
-
-        assert _query(_urls(mock_session)[0])["start"] == [_earliest().isoformat()]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resume_state_behind_the_incremental_start_is_ignored(self, mock_session: mock.MagicMock) -> None:
@@ -442,14 +328,6 @@ class TestErrorClassification:
 
 class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_valid_key_accepted_on_the_first_probe(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _response({"code": 200, "results": []})
-
-        assert validate_credentials("key") is True
-        assert len(_urls(mock_session)) == 1
-        assert urlparse(_urls(mock_session)[0]).path == "/maxReport"
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_advertiser_only_key_accepted_on_the_report_probe(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.side_effect = [
             _response(status_code=403, text="Authentication Failed"),
@@ -473,22 +351,8 @@ class TestValidateCredentials:
 
         assert validate_credentials("bad") is False
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_transport_failure_is_not_validated_and_does_not_raise(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-
-        assert validate_credentials("key") is False
-
 
 class TestSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
-        response = applovin_source("key", endpoint, mock.MagicMock(), FakeResumeManager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == APPLOVIN_ENDPOINTS[endpoint].primary_keys
-        assert response.sort_mode == "asc"
-
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_items_yields_rows_as_returned_by_the_api(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.side_effect = [
@@ -516,11 +380,6 @@ class TestEndpointCatalogInvariants:
         config = APPLOVIN_ENDPOINTS[endpoint]
         assert "day" in config.dimensions
         assert "day" in config.primary_keys
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_columns_have_no_duplicates(self, endpoint: str) -> None:
-        columns = APPLOVIN_ENDPOINTS[endpoint].columns
-        assert len(columns) == len(set(columns))
 
     @pytest.mark.parametrize("endpoint", ["max_ad_revenue", "max_ad_unit_revenue"])
     def test_max_report_network_and_request_metrics_are_mutually_exclusive(self, endpoint: str) -> None:

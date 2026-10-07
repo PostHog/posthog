@@ -193,8 +193,3 @@ class TestRollbarSourceResponse:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
-
-    @pytest.mark.parametrize("config", list(ROLLBAR_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_event_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "timestamp"

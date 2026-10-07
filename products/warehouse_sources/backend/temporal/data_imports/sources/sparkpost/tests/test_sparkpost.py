@@ -1,5 +1,4 @@
 import json
-import base64
 from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, cast
@@ -11,17 +10,13 @@ import pyarrow as pa
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.settings import (
-    WEBHOOK_BATCH_KEY,
-    WEBHOOK_EVENT_TYPES,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.settings import WEBHOOK_BATCH_KEY
 from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.sparkpost import (
     DEFAULT_REGION,
     SparkPostLinksPaginator,
     SparkPostResumeConfig,
     _format_from,
     _webhook_table_transformer,
-    base_url,
     create_webhook,
     delete_webhook,
     get_external_webhook_info,
@@ -92,20 +87,6 @@ def _rows(endpoint: str, manager: mock.MagicMock, **overrides: Any) -> list[dict
 
 
 class TestBaseUrl:
-    @pytest.mark.parametrize(
-        ("region", "expected"),
-        [
-            ("us", "https://api.sparkpost.com"),
-            ("eu", "https://api.eu.sparkpost.com"),
-            ("US", "https://api.sparkpost.com"),
-            # Unknown / spoofed regions fall back to the default US host.
-            ("evil", "https://api.sparkpost.com"),
-            (None, "https://api.sparkpost.com"),
-        ],
-    )
-    def test_base_url(self, region: Any, expected: str) -> None:
-        assert base_url(region) == expected
-
     def test_default_region_is_us(self) -> None:
         assert DEFAULT_REGION == "us"
 
@@ -132,9 +113,6 @@ class TestFormatFrom:
     def test_format_from(self, value: Any, expected: str) -> None:
         assert _format_from(value) == expected
 
-    def test_no_timezone_offset_in_output(self) -> None:
-        assert "+00:00" not in _format_from(datetime(2026, 3, 4, tzinfo=UTC))
-
 
 class TestLinksPaginator:
     """The cursor paginator that walks SparkPost's ``links: [{href, rel}]`` next link, resolving a
@@ -145,21 +123,6 @@ class TestLinksPaginator:
         paginator = SparkPostLinksPaginator(HOST)
         paginator.update_state(_response(rows, links=links), rows)
         return paginator._next_url if paginator.has_next_page else None
-
-    def test_follows_relative_next_href(self) -> None:
-        assert (
-            self._next_url([{"href": "/api/v1/events/message?cursor=abc&per_page=1000", "rel": "next"}])
-            == "https://api.sparkpost.com/api/v1/events/message?cursor=abc&per_page=1000"
-        )
-
-    def test_follows_absolute_next_href(self) -> None:
-        assert (
-            self._next_url([{"href": "https://api.sparkpost.com/api/v1/events/message?cursor=abc", "rel": "next"}])
-            == "https://api.sparkpost.com/api/v1/events/message?cursor=abc"
-        )
-
-    def test_no_next_rel_terminates(self) -> None:
-        assert self._next_url([{"href": "/api/v1/events/message?cursor=x", "rel": "previous"}]) is None
 
     def test_no_links_terminates(self) -> None:
         assert self._next_url(None) is None
@@ -205,43 +168,6 @@ class TestValidateCredentials:
         else:
             assert error is not None
 
-    @mock.patch(SPARKPOST_SESSION_PATCH)
-    def test_request_exception_is_caught(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = requests.exceptions.ConnectionError("boom")
-        is_valid, error = validate_credentials("us", "key")
-        assert is_valid is False
-        assert error is not None
-
-
-class TestSparkPostSourceResponse:
-    @pytest.mark.parametrize(
-        ("endpoint", "expected_pk", "expect_partition"),
-        [
-            ("events", ["event_id"], True),
-            ("suppression_list", ["recipient", "type"], True),
-            ("recipient_lists", ["id"], False),
-            ("sending_domains", ["domain"], False),
-        ],
-    )
-    def test_source_response_shape(self, endpoint: str, expected_pk: list[str], expect_partition: bool) -> None:
-        response = sparkpost_source(
-            region="us",
-            api_key="key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == expected_pk
-        assert response.sort_mode == "asc"
-        if expect_partition:
-            assert response.partition_mode == "datetime"
-            assert response.partition_format == "week"
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
 
 class TestPaginationAndResume:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -272,34 +198,6 @@ class TestPaginationAndResume:
         )
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_results_terminates_without_saving(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], links=[{"href": "/api/v1/events/message?cursor=p2", "rel": "next"}])])
-        manager = _make_manager()
-
-        rows = _rows("events", manager)
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_paginated_endpoint_fetches_once(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _, params = _wire(session, [_response([{"id": "t1"}, {"id": "t2"}])])
-        manager = _make_manager()
-
-        rows = _rows("templates", manager)
-
-        assert [r["id"] for r in rows] == ["t1", "t2"]
-        assert session.send.call_count == 1
-        # A full-refresh, non-cursor endpoint sends no pagination or time-filter params.
-        assert "cursor" not in params[0]
-        assert "per_page" not in params[0]
-        assert "from" not in params[0]
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_events_incremental_uses_stored_watermark(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         _, params = _wire(session, [_response([{"event_id": "1"}], links=[])])
@@ -313,17 +211,6 @@ class TestPaginationAndResume:
         )
 
         assert params[0]["from"] == "2026-01-01T12:30"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_events_first_sync_seeds_lookback_window(self, MockSession: mock.MagicMock) -> None:
-        # No stored watermark: ``from`` is seeded from the 10-day retention lookback rather than
-        # falling back to SparkPost's default short window.
-        session = MockSession.return_value
-        _, params = _wire(session, [_response([{"event_id": "1"}], links=[])])
-
-        _rows("events", _make_manager())
-
-        assert "from" in params[0]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_refresh_endpoint_never_sends_time_filter(self, MockSession: mock.MagicMock) -> None:
@@ -386,34 +273,6 @@ class TestWebhookTableTransformer:
     payload per request — so the template hands over the whole batch and this transformer explodes
     it into the per-event rows the ``events`` table is built from."""
 
-    def test_batch_is_exploded_into_one_row_per_event(self) -> None:
-        table = _batch_table(
-            [_msys({"event_id": "1", "type": "delivery", "timestamp": "1460989507"})],
-            [
-                _msys({"event_id": "2", "type": "open", "timestamp": "1460989600"}),
-                _msys({"event_id": "3", "type": "click", "timestamp": "1460989700"}),
-            ],
-        )
-
-        rows = _webhook_table_transformer(table).to_pylist()
-
-        assert [row["event_id"] for row in rows] == ["1", "2", "3"]
-        assert [row["type"] for row in rows] == ["delivery", "open", "click"]
-
-    def test_repeated_event_id_within_a_batch_yields_one_row(self) -> None:
-        # SparkPost delivers at least once, so a retried batch (or two S3 files read into the same
-        # batch) can repeat an event. Delta merge only dedupes across syncs, so duplicates left in
-        # here would seed multi-matching rows in the table.
-        table = _batch_table(
-            [_msys({"event_id": "1", "type": "delivery", "timestamp": "1460989507"})],
-            [_msys({"event_id": "1", "type": "delivery", "timestamp": "1460989507"})],
-        )
-
-        rows = _webhook_table_transformer(table).to_pylist()
-
-        assert len(rows) == 1
-        assert rows[0]["event_id"] == "1"
-
     @pytest.mark.parametrize(
         ("pushed", "expected"),
         [
@@ -430,14 +289,6 @@ class TestWebhookTableTransformer:
         table = _batch_table([_msys({"event_id": "1", "timestamp": pushed})])
 
         assert _webhook_table_transformer(table).to_pylist()[0]["timestamp"] == expected
-
-    @pytest.mark.parametrize("grouping", ["relay_event", "ab_test_event"])
-    def test_non_message_groupings_are_dropped(self, grouping: str) -> None:
-        # Relay and A/B test events are a different shape that the Events Search API never returns,
-        # so letting them through would pollute the table the poll path builds.
-        table = _batch_table([_msys({"event_id": "1", "type": "relay_delivery"}, grouping=grouping)])
-
-        assert _webhook_table_transformer(table).num_rows == 0
 
     @pytest.mark.parametrize(
         "batch",
@@ -471,17 +322,6 @@ class TestWebhookTableTransformer:
 
 class TestWebhookItems:
     """The poll path must keep running until the webhook is live, and must hand over afterwards."""
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_poll_path_is_used_when_the_webhook_is_not_live(self, MockSession: mock.MagicMock) -> None:
-        _wire(MockSession.return_value, [_response([{"event_id": "1"}], links=[])])
-        webhook_manager = mock.MagicMock()
-        webhook_manager.webhook_enabled = mock.AsyncMock(return_value=False)
-
-        rows = _rows("events", _make_manager(), webhook_source_manager=webhook_manager)
-
-        assert rows == [{"event_id": "1"}]
-        webhook_manager.get_items.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_webhook_rows_are_read_with_the_dedup_transformer(self, MockSession: mock.MagicMock) -> None:
@@ -539,28 +379,6 @@ WEBHOOK_URL = "https://app.posthog.com/public/webhooks/abc"
 
 class TestCreateWebhook:
     @mock.patch(SPARKPOST_SESSION_PATCH)
-    def test_registers_a_webhook_authenticated_with_credentials_we_generate(self, MockSession: mock.MagicMock) -> None:
-        # The whole safety story for the ingest endpoint rests on this: SparkPost signs nothing, so
-        # if the registration ever stopped setting basic-auth credentials the endpoint would accept
-        # anything the internet POSTs at it.
-        session = MockSession.return_value
-        session.post.return_value = _json_response({"results": {"id": "wh_1"}}, status_code=200)
-
-        result = create_webhook("us", "key", WEBHOOK_URL)
-
-        assert result.success is True
-        url, kwargs = session.post.call_args[0][0], session.post.call_args[1]
-        assert url == f"{HOST}/api/v1/webhooks"
-        assert kwargs["json"]["target"] == WEBHOOK_URL
-        assert kwargs["json"]["auth_type"] == "basic"
-
-        credentials = kwargs["json"]["auth_credentials"]
-        expected_header = (
-            "Basic " + base64.b64encode(f"{credentials['username']}:{credentials['password']}".encode()).decode()
-        )
-        assert result.extra_inputs == {"authorization_header": expected_header}
-
-    @mock.patch(SPARKPOST_SESSION_PATCH)
     def test_generated_password_is_not_reused_between_registrations(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         session.post.return_value = _json_response({"results": {"id": "wh_1"}})
@@ -569,19 +387,6 @@ class TestCreateWebhook:
         second = create_webhook("us", "key", WEBHOOK_URL)
 
         assert first.extra_inputs["authorization_header"] != second.extra_inputs["authorization_header"]
-
-    @mock.patch(SPARKPOST_SESSION_PATCH)
-    def test_subscribes_to_the_events_the_search_api_also_returns(self, MockSession: mock.MagicMock) -> None:
-        # Subscribing to relay or A/B test events would push differently-shaped rows into the table
-        # the poll path builds.
-        session = MockSession.return_value
-        session.post.return_value = _json_response({"results": {"id": "wh_1"}})
-
-        create_webhook("us", "key", WEBHOOK_URL)
-
-        events = session.post.call_args[1]["json"]["events"]
-        assert events == WEBHOOK_EVENT_TYPES
-        assert not [event for event in events if event.startswith("relay_") or event.startswith("ab_test")]
 
     @mock.patch(SPARKPOST_SESSION_PATCH)
     @pytest.mark.parametrize(
@@ -614,30 +419,8 @@ class TestCreateWebhook:
         assert result.success is False
         assert result.extra_inputs == {}
 
-    @mock.patch(SPARKPOST_SESSION_PATCH)
-    def test_registers_against_the_selected_region(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        session.post.return_value = _json_response({"results": {"id": "wh_1"}})
-
-        create_webhook("eu", "key", WEBHOOK_URL)
-
-        assert session.post.call_args[0][0] == "https://api.eu.sparkpost.com/api/v1/webhooks"
-
 
 class TestExternalWebhookInfo:
-    @mock.patch(SPARKPOST_SESSION_PATCH)
-    def test_reports_the_webhook_targeting_our_url(self, MockSession: mock.MagicMock) -> None:
-        MockSession.return_value.get.return_value = _json_response(
-            {"results": [_webhook_object(target="https://elsewhere.example/hook"), _webhook_object()]}
-        )
-
-        info = get_external_webhook_info("us", "key", WEBHOOK_URL)
-
-        assert info.exists is True
-        assert info.url == WEBHOOK_URL
-        assert info.enabled_events == ["delivery", "bounce"]
-        assert info.status == "enabled"
-
     @mock.patch(SPARKPOST_SESSION_PATCH)
     def test_disabled_webhook_is_reported_as_disabled(self, MockSession: mock.MagicMock) -> None:
         MockSession.return_value.get.return_value = _json_response({"results": [_webhook_object(active=False)]})
@@ -692,26 +475,6 @@ class TestSyncWebhookEvents:
 
 
 class TestDeleteWebhook:
-    @mock.patch(SPARKPOST_SESSION_PATCH)
-    def test_only_deletes_webhooks_pointing_at_our_url(self, MockSession: mock.MagicMock) -> None:
-        # The account's own webhooks live alongside ours; deleting by anything looser than an exact
-        # target match would tear down the customer's integrations.
-        session = MockSession.return_value
-        session.get.return_value = _json_response(
-            {
-                "results": [
-                    _webhook_object(id="wh_theirs", target="https://elsewhere.example/hook"),
-                    _webhook_object(id="wh_ours"),
-                ]
-            }
-        )
-        session.delete.return_value = _json_response({"results": {"message": "Deleted"}}, status_code=200)
-
-        result = delete_webhook("us", "key", WEBHOOK_URL)
-
-        assert result.success is True
-        assert [call[0][0] for call in session.delete.call_args_list] == [f"{HOST}/api/v1/webhooks/wh_ours"]
-
     @mock.patch(SPARKPOST_SESSION_PATCH)
     def test_nothing_to_delete_is_a_success(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value

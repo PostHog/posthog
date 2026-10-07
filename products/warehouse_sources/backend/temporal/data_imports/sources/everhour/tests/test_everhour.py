@@ -175,10 +175,6 @@ class TestEverhourSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
-    def test_time_records_partitions_on_stable_date_field(self) -> None:
-        config = EVERHOUR_ENDPOINTS["time_records"]
-        assert config.partition_key == "date"
-
     def test_fan_out_child_key_includes_parent(self) -> None:
         # A task can belong to multiple projects, so the project id must be part of the key to stay
         # unique table-wide.

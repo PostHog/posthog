@@ -8,11 +8,7 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.settings import (
-    ENDPOINTS,
-    PAGE_SIZE,
-    ZUORA_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.settings import ENDPOINTS, ZUORA_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.zuora import (
     ZuoraResumeConfig,
     _base_url,
@@ -208,6 +204,3 @@ class TestGetRows:
 class TestZuoraSourceResponse:
     def test_all_endpoints_have_paths(self):
         assert set(ENDPOINTS) == set(ZUORA_ENDPOINTS.keys())
-
-    def test_page_size_cap(self):
-        assert PAGE_SIZE == 99

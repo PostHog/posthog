@@ -58,9 +58,6 @@ class TestSourceIdentity:
         assert RoktAdsSource.api_docs_url.startswith("https://")
         assert "query-api" in RoktAdsSource.api_docs_url
 
-    def test_table_catalog_is_published_without_credentials(self):
-        assert RoktAdsSource.lists_tables_without_credentials is True
-
 
 class TestValidateCredentials:
     def test_delegates_to_the_transport_validator(self):

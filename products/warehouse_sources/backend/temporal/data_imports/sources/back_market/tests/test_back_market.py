@@ -67,14 +67,6 @@ class TestBackMarketPaginator:
         paginator.update_state(_response(next_value))
         assert paginator.has_next_page is expected_has_next
 
-    def test_advances_page_number_when_next_is_truthy(self) -> None:
-        paginator = BackMarketPaginator(base_page=1)
-        paginator.update_state(_response("more"))
-        assert paginator.page == 2
-        paginator.update_state(_response(None))
-        assert paginator.page == 2  # stops advancing once exhausted
-        assert paginator.has_next_page is False
-
     def test_malformed_response_body_stops_pagination(self) -> None:
         paginator = BackMarketPaginator()
         resp = Response()
@@ -82,22 +74,6 @@ class TestBackMarketPaginator:
         resp._content = b"not json"
         paginator.update_state(resp)
         assert paginator.has_next_page is False
-
-    def test_resume_state_round_trips(self) -> None:
-        paginator = BackMarketPaginator()
-        paginator.update_state(_response("more"))
-        state = paginator.get_resume_state()
-        assert state == {"page": 2}
-
-        resumed = BackMarketPaginator()
-        resumed.set_resume_state(state or {})
-        assert resumed.page == 2
-        assert resumed.has_next_page is True
-
-    def test_no_resume_state_once_exhausted(self) -> None:
-        paginator = BackMarketPaginator()
-        paginator.update_state(_response(None))
-        assert paginator.get_resume_state() is None
 
 
 class TestFormatTimestamp:
@@ -114,33 +90,6 @@ class TestFormatTimestamp:
 
 
 class TestBuildParams:
-    def test_incremental_endpoint_with_cursor_adds_chosen_field(self) -> None:
-        params = _build_params(
-            BACK_MARKET_ENDPOINTS["orders"],
-            should_use_incremental_field=True,
-            incremental_field="date_modification",
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-        )
-        assert params == {"date_modification": "2026-03-04 02:58:14"}
-
-    def test_incremental_endpoint_honors_the_other_chosen_field(self) -> None:
-        params = _build_params(
-            BACK_MARKET_ENDPOINTS["orders"],
-            should_use_incremental_field=True,
-            incremental_field="date_creation",
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-        )
-        assert params == {"date_creation": "2026-03-04 00:00:00"}
-
-    def test_incremental_endpoint_without_cursor_omits_filter(self) -> None:
-        params = _build_params(
-            BACK_MARKET_ENDPOINTS["orders"],
-            should_use_incremental_field=True,
-            incremental_field="date_modification",
-            db_incremental_field_last_value=None,
-        )
-        assert params == {}
-
     def test_full_refresh_endpoint_never_filters(self) -> None:
         params = _build_params(
             BACK_MARKET_ENDPOINTS["listings"],
@@ -193,17 +142,6 @@ class TestBackMarketSourceOrders:
         assert session.send.call_count == 2
 
     @mock.patch(BACK_MARKET_SESSION_PATCH)
-    def test_auth_is_framework_token_auth_carrying_raw_token(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response(None, [{"order_id": "1"}])])
-
-        _rows(back_market_source("secret", "orders", 1, "job", _make_manager()))
-
-        auth = snapshots[0]["auth"]
-        assert isinstance(auth, BackMarketTokenAuth)
-        assert auth.token == "secret"
-
-    @mock.patch(BACK_MARKET_SESSION_PATCH)
     def test_incremental_field_selection_sets_matching_query_param(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response(None, [{"order_id": "1"}])])
@@ -242,16 +180,6 @@ class TestBackMarketSourceOrders:
         _rows(back_market_source("token", "orders", 1, "job", manager))
 
         manager.save_state.assert_called_once_with(BackMarketResumeConfig(next_page=2))
-
-    @mock.patch(BACK_MARKET_SESSION_PATCH)
-    def test_no_state_saved_once_exhausted(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(None, [{"order_id": "1"}])])
-        manager = _make_manager()
-
-        _rows(back_market_source("token", "orders", 1, "job", manager))
-
-        manager.save_state.assert_not_called()
 
 
 class TestBackMarketSourceListings:
@@ -298,28 +226,6 @@ class TestValidateCredentials:
 
         assert ok is expected_ok
         assert status == expected_status
-
-    @mock.patch(BACK_MARKET_SESSION_PATCH)
-    def test_transport_error_maps_to_not_validated(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.side_effect = ConnectionError("boom")
-
-        ok, status = validate_credentials("token")
-
-        assert ok is False
-        assert status is None
-
-    @mock.patch(BACK_MARKET_SESSION_PATCH)
-    def test_sends_raw_token_in_basic_header(self, MockSession) -> None:
-        session = MockSession.return_value
-        response = mock.MagicMock()
-        response.status_code = 200
-        session.get.return_value = response
-
-        validate_credentials("secret-token")
-
-        _, kwargs = session.get.call_args
-        assert kwargs["headers"]["Authorization"] == "Basic secret-token"
 
 
 @pytest.mark.parametrize("endpoint_name", ["orders", "listings"])

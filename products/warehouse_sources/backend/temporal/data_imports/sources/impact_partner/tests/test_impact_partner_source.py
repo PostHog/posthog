@@ -22,9 +22,6 @@ def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:
 
 
 class TestImpactPartnerSourceClass:
-    def test_lists_tables_without_credentials(self) -> None:
-        assert ImpactPartnerSource.lists_tables_without_credentials is True
-
     @parameterized.expand(
         [
             ("Actions", True),

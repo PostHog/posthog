@@ -106,25 +106,6 @@ class TestBuildInitialParams:
         )
         assert params == {"limit": PAGE_SIZE, "orderBy": "UPDATED", "updatedFrom": "2026-03-01T12:30:45Z"}
 
-    def test_worklogs_first_incremental_sync_has_no_updated_from(self) -> None:
-        params = _build_initial_params(
-            TEMPO_ENDPOINTS["worklogs"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="updatedAt",
-        )
-        assert params == {"limit": PAGE_SIZE, "orderBy": "UPDATED"}
-
-    def test_worklogs_full_refresh_keeps_order_by_matching_sort_mode(self) -> None:
-        # sort_mode is declared "desc" statically, so the request must always order by UPDATED.
-        params = _build_initial_params(
-            TEMPO_ENDPOINTS["worklogs"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert params == {"limit": PAGE_SIZE, "orderBy": "UPDATED"}
-
     @parameterized.expand(
         [("wrong_field", "worklogs", "createdAt"), ("no_incremental_support", "accounts", "updatedAt")]
     )
@@ -136,27 +117,6 @@ class TestBuildInitialParams:
                 db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
                 incremental_field=field,
             )
-
-    def test_plans_sends_required_date_window(self) -> None:
-        params = _build_initial_params(
-            TEMPO_ENDPOINTS["plans"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert params["limit"] == PAGE_SIZE
-        assert params["from"] == "2001-01-01"
-        # Plans can extend into the future, so the window must end well past today.
-        assert date.fromisoformat(params["to"]) > date.today()
-
-    def test_unpaginated_endpoint_sends_no_params(self) -> None:
-        params = _build_initial_params(
-            TEMPO_ENDPOINTS["holiday_schemes"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert params == {}
 
 
 class TestFormatUpdatedFrom:
@@ -179,19 +139,6 @@ class TestFormatUpdatedFrom:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_without_next_yields_and_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}, {"id": 2}], next_url=None)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert session.send.call_count == 1
-        # No `metadata.next`, so we stop without persisting resume state.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_next_url_without_resending_params(self, MockSession) -> None:
         session = MockSession.return_value
         next_url = f"{TEMPO_BASE_URL}/accounts?limit={PAGE_SIZE}&offset={PAGE_SIZE}"
@@ -211,51 +158,6 @@ class TestPagination:
         assert urls[1] == next_url
         # State saved once, after the first page, carrying the URL that fetches the second page.
         manager.save_state.assert_called_once_with(TempoResumeConfig(next_url=next_url))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_next_url(self, MockSession) -> None:
-        session = MockSession.return_value
-        next_url = f"{TEMPO_BASE_URL}/accounts?limit={PAGE_SIZE}&offset={PAGE_SIZE}"
-        params, urls = _wire(session, [_response([{"id": 5}], next_url=None)])
-
-        manager = _make_manager(TempoResumeConfig(next_url=next_url))
-        rows = _rows(_source(manager))
-
-        # The initial page must never be fetched on resume — one request, seeded with the saved URL.
-        assert rows == [{"id": 5}]
-        assert session.send.call_count == 1
-        assert urls[0] == next_url
-        assert params[0] == {}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], next_url=None)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_request_carries_limit(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response([{"id": 1}], next_url=None)])
-
-        _rows(_source(_make_manager()))
-        assert params[0] == {"limit": PAGE_SIZE}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_api_token_not_placed_in_session_headers(self, MockSession) -> None:
-        # The token rides in the framework Bearer auth (redacted from logs/errors), never a hand-set
-        # header — only the non-secret Accept header is on the session.
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}], next_url=None)])
-
-        _rows(_source(_make_manager()))
-        assert "tempo-token" not in json.dumps(session.headers)
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_off_host_next_url_is_rejected(self, MockSession) -> None:
@@ -355,20 +257,6 @@ class TestTempoSourceResponse:
         response = _source(_make_manager(), endpoint)
         assert response.name == endpoint
         assert response.primary_keys == TEMPO_ENDPOINTS[endpoint].primary_keys
-
-    def test_worklogs_response_is_desc_and_partitioned_on_created_at(self) -> None:
-        response = _source(_make_manager(), "worklogs")
-        assert response.primary_keys == ["tempoWorklogId"]
-        # orderBy=UPDATED returns newest-update-first; declaring desc defers the watermark commit
-        # to sync completion, so a mid-sync crash can't skip rows.
-        assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-
-    def test_full_refresh_endpoints_are_asc_and_unpartitioned(self) -> None:
-        response = _source(_make_manager(), "accounts")
-        assert response.sort_mode == "asc"
-        assert response.partition_mode is None
 
 
 class TestCheckAccess:

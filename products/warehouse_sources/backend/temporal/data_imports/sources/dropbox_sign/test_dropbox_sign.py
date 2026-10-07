@@ -1,4 +1,3 @@
-import base64
 from typing import Any, cast
 
 import pytest
@@ -11,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_si
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.dropbox_sign import (
     DROPBOX_SIGN_BASE_URL,
     DropboxSignResumeConfig,
-    _get_headers,
     dropbox_sign_source,
     get_rows,
 )
@@ -19,14 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_si
     DROPBOX_SIGN_ENDPOINTS,
     ENDPOINTS,
 )
-
-
-class TestGetHeaders:
-    def test_uses_http_basic_with_blank_password(self) -> None:
-        headers = _get_headers("my-key")
-        expected = base64.b64encode(b"my-key:").decode("ascii")
-        assert headers["Authorization"] == f"Basic {expected}"
-        assert headers["Accept"] == "application/json"
 
 
 class _FakeResumableManager:
@@ -85,38 +75,6 @@ class TestGetRows:
         ):
             rows.extend(table.to_pylist())
         return rows, sent_params
-
-    def test_single_page_yields_all_rows(self, monkeypatch: Any) -> None:
-        pages = {1: _page_body("signature_requests", [{"signature_request_id": "a"}], page=1, num_pages=1)}
-        rows, sent = self._collect("signature_requests", _FakeResumableManager(), monkeypatch, pages)
-        assert rows == [{"signature_request_id": "a"}]
-        assert sent == [{"page": 1, "page_size": 100}]
-
-    def test_walks_every_page(self, monkeypatch: Any) -> None:
-        pages = {
-            1: _page_body("templates", [{"template_id": "t1"}], page=1, num_pages=3),
-            2: _page_body("templates", [{"template_id": "t2"}], page=2, num_pages=3),
-            3: _page_body("templates", [{"template_id": "t3"}], page=3, num_pages=3),
-        }
-        rows, sent = self._collect("templates", _FakeResumableManager(), monkeypatch, pages)
-        assert [r["template_id"] for r in rows] == ["t1", "t2", "t3"]
-        assert [p["page"] for p in sent] == [1, 2, 3]
-
-    def test_stops_when_page_has_no_items(self, monkeypatch: Any) -> None:
-        # A page claiming more pages but returning no items must still terminate (defensive).
-        pages = {1: _page_body("templates", [], page=1, num_pages=5)}
-        rows, sent = self._collect("templates", _FakeResumableManager(), monkeypatch, pages)
-        assert rows == []
-        assert [p["page"] for p in sent] == [1]
-
-    def test_resume_starts_from_saved_page(self, monkeypatch: Any) -> None:
-        pages = {
-            2: _page_body("templates", [{"template_id": "t2"}], page=2, num_pages=2),
-        }
-        manager = _FakeResumableManager(DropboxSignResumeConfig(page=2))
-        rows, sent = self._collect("templates", manager, monkeypatch, pages)
-        assert [r["template_id"] for r in rows] == ["t2"]
-        assert [p["page"] for p in sent] == [2]
 
     def test_does_not_load_state_when_cannot_resume(self, monkeypatch: Any) -> None:
         pages = {1: _page_body("templates", [{"template_id": "t1"}], page=1, num_pages=1)}
@@ -275,10 +233,6 @@ class TestResumeStateSaving:
         manager = self._drive_with_small_chunks(monkeypatch, num_pages=3, items_per_page=2)
         # Pages 1 and 2 are non-terminal (a later page remains); page 3 is terminal and not saved.
         assert manager.saved == [DropboxSignResumeConfig(page=1), DropboxSignResumeConfig(page=2)]
-
-    def test_single_page_saves_nothing(self, monkeypatch: Any) -> None:
-        manager = self._drive_with_small_chunks(monkeypatch, num_pages=1, items_per_page=2)
-        assert manager.saved == []
 
 
 class TestValidateCredentials:

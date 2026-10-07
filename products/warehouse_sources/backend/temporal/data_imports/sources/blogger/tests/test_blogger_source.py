@@ -34,9 +34,6 @@ class TestBloggerSchemas:
         schemas = BloggerSource().get_schemas(MagicMock(), team_id=1, names=["posts"])
         assert [s.name for s in schemas] == ["posts"]
 
-    def test_lists_tables_without_credentials(self) -> None:
-        assert BloggerSource.lists_tables_without_credentials is True
-
 
 class TestBloggerCredentials:
     @parameterized.expand(

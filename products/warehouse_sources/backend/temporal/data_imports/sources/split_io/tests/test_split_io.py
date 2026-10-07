@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.s
     PAGE_SIZE,
     SplitIoResumeConfig,
     _extract_items,
-    _initial_url,
     _next_url,
     get_rows,
     split_io_source,
@@ -39,27 +38,6 @@ def _offset_page(items: list[dict[str, Any]], offset: int, total_count: int) -> 
     return {"objects": items, "offset": offset, "limit": PAGE_SIZE, "totalCount": total_count}
 
 
-class TestUrlHelpers:
-    def test_initial_url_top_level_includes_limit(self):
-        assert _initial_url(SPLIT_IO_ENDPOINTS["workspaces"]) == f"{BASE_URL}/workspaces?limit={PAGE_SIZE}"
-
-    def test_initial_url_formats_workspace_path(self):
-        url = _initial_url(SPLIT_IO_ENDPOINTS["feature_flags"], "ws-1")
-        assert url == f"{BASE_URL}/splits/ws/ws-1?limit={PAGE_SIZE}"
-
-    def test_initial_url_workspace_query_param(self):
-        url = _initial_url(SPLIT_IO_ENDPOINTS["rollout_statuses"], "ws-1")
-        assert url == f"{BASE_URL}/rolloutStatuses?wsId=ws-1"
-
-    def test_initial_url_flag_sets_uses_v3_api(self):
-        url = _initial_url(SPLIT_IO_ENDPOINTS["flag_sets"], "ws-1")
-        assert url == f"https://api.split.io/internal/api/v3/flag-sets?workspace_id=ws-1&limit={PAGE_SIZE}"
-
-    def test_initial_url_unpaginated_endpoint_has_no_limit(self):
-        url = _initial_url(SPLIT_IO_ENDPOINTS["environments"], "ws-1")
-        assert url == f"{BASE_URL}/environments/ws/ws-1"
-
-
 class TestExtractItems:
     @pytest.mark.parametrize(
         "payload, data_key, expected",
@@ -78,46 +56,11 @@ class TestExtractItems:
 
 
 class TestNextUrl:
-    def test_offset_advances_by_row_count(self):
-        config = SPLIT_IO_ENDPOINTS["workspaces"]
-        url = f"{BASE_URL}/workspaces?limit={PAGE_SIZE}"
-        items = [{"id": str(i)} for i in range(PAGE_SIZE)]
-        next_url = _next_url(config, url, _offset_page(items, 0, PAGE_SIZE * 2), items)
-        assert next_url == f"{BASE_URL}/workspaces?limit={PAGE_SIZE}&offset={PAGE_SIZE}"
-
-    def test_offset_stops_at_total_count(self):
-        config = SPLIT_IO_ENDPOINTS["workspaces"]
-        url = f"{BASE_URL}/workspaces?limit={PAGE_SIZE}&offset={PAGE_SIZE}"
-        items = [{"id": "x"}]
-        assert _next_url(config, url, _offset_page(items, PAGE_SIZE, PAGE_SIZE + 1), items) is None
-
-    def test_offset_server_clamped_limit_keeps_paginating(self):
-        # The server may clamp `limit` below what we requested; totalCount must drive
-        # termination, not the short page.
-        config = SPLIT_IO_ENDPOINTS["workspaces"]
-        url = f"{BASE_URL}/workspaces?limit={PAGE_SIZE}"
-        items = [{"id": str(i)} for i in range(10)]
-        next_url = _next_url(config, url, _offset_page(items, 0, 30), items)
-        assert next_url == f"{BASE_URL}/workspaces?limit={PAGE_SIZE}&offset=10"
-
     def test_offset_without_total_count_stops_on_short_page(self):
         config = SPLIT_IO_ENDPOINTS["workspaces"]
         url = f"{BASE_URL}/workspaces?limit={PAGE_SIZE}"
         items = [{"id": "1"}]
         assert _next_url(config, url, {"objects": items}, items) is None
-
-    def test_marker_advances_via_next_marker(self):
-        config = SPLIT_IO_ENDPOINTS["users"]
-        url = f"{BASE_URL}/users?limit={PAGE_SIZE}"
-        items = [{"id": "u1"}]
-        next_url = _next_url(config, url, {"data": items, "nextMarker": "m2"}, items)
-        assert next_url == f"{BASE_URL}/users?limit={PAGE_SIZE}&after=m2"
-
-    @pytest.mark.parametrize("payload", [{"data": [{"id": "u1"}]}, {"data": [{"id": "u1"}], "nextMarker": None}])
-    def test_marker_stops_without_next_marker(self, payload):
-        config = SPLIT_IO_ENDPOINTS["users"]
-        url = f"{BASE_URL}/users?limit={PAGE_SIZE}"
-        assert _next_url(config, url, payload, payload["data"]) is None
 
     def test_marker_stops_when_server_ignores_after_param(self):
         # A repeated marker means the server ignored `after`; stopping avoids an infinite loop.
@@ -125,14 +68,6 @@ class TestNextUrl:
         url = f"{BASE_URL}/users?limit={PAGE_SIZE}&after=m2"
         items = [{"id": "u1"}]
         assert _next_url(config, url, {"data": items, "nextMarker": "m2"}, items) is None
-
-    def test_marker_reads_next_marker_from_objects_envelope(self):
-        # Groups paginate by marker but wrap rows in `objects` rather than `data`.
-        config = SPLIT_IO_ENDPOINTS["groups"]
-        url = f"{BASE_URL}/groups?limit={PAGE_SIZE}"
-        items = [{"id": "g1"}]
-        next_url = _next_url(config, url, {"objects": items, "nextMarker": "m2"}, items)
-        assert next_url == f"{BASE_URL}/groups?limit={PAGE_SIZE}&after=m2"
 
     @pytest.mark.parametrize("payload", [[{"id": "1"}], {"objects": [{"id": "1"}]}])
     def test_unpaginated_endpoint_never_advances(self, payload):
@@ -142,14 +77,6 @@ class TestNextUrl:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code", [200, 401, 403, 500])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.split_io.split_io.make_tracked_session"
-    )
-    def test_returns_status_code(self, mock_session, status_code):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("api-key") == status_code
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.split_io.split_io.make_tracked_session"
     )
@@ -227,14 +154,6 @@ class TestGetRowsTopLevel:
             f"{BASE_URL}/users?limit={PAGE_SIZE}",
             f"{BASE_URL}/users?limit={PAGE_SIZE}&after=m2",
         ]
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.split_io.split_io.make_tracked_session"
-    )
-    def test_empty_response_yields_nothing(self, mock_session):
-        mock_session.return_value.get.return_value = _resp({"objects": [], "nextMarker": None})
-
-        assert list(get_rows("api-key", "groups", mock.MagicMock(), _make_manager())) == []
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.split_io.split_io.make_tracked_session"

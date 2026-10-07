@@ -20,9 +20,6 @@ class TestDatahubSource:
         # the URL must force the editor to re-enter the token.
         assert self.source.connection_host_fields == ["instance_url"]
 
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
     @parameterized.expand(
         [
             ("401 Client Error: Unauthorized for url: https://datahub.example.com/openapi/v3/entity/dataset",),

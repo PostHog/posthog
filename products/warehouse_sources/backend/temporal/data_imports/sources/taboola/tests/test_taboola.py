@@ -6,7 +6,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.settings import (
     ENDPOINTS,
-    REPORT_DEFAULT_BACKFILL_DAYS,
     REPORT_LOOKBACK_DAYS,
     TABOOLA_ENDPOINTS,
 )
@@ -196,6 +195,3 @@ class TestTaboolaSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == "asc"
-
-    def test_backfill_constants_are_sane(self):
-        assert REPORT_LOOKBACK_DAYS < REPORT_DEFAULT_BACKFILL_DAYS

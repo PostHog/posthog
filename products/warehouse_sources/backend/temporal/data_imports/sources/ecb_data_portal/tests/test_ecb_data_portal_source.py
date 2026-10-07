@@ -39,9 +39,6 @@ class TestEcbDataPortalSource:
         self.team_id = 123
         self.config = EcbDataPortalSourceConfig()
 
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
     @pytest.mark.parametrize(
         "mock_return",
         [

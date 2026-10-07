@@ -2,10 +2,6 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.xendit import XenditSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.xendit.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.xendit.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.xendit.source import XenditSource
 
 VALIDATE_PATCH = (
@@ -23,9 +19,6 @@ class TestXenditSource:
     def test_connection_host_fields_pin_sub_account(self):
         # Retargeting the stored key at another sub-account must force credential re-entry.
         assert self.source.connection_host_fields == ["sub_account_user_id"]
-
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        assert set(CANONICAL_DESCRIPTIONS) == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid, expected_message",

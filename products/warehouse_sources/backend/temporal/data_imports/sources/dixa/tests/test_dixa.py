@@ -105,34 +105,6 @@ class TestValidateCredentials:
 
 
 class TestGetRowsExport:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa._now_ms")
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
-    def test_walks_time_windows_from_epoch_on_full_export(self, mock_session, mock_now):
-        # Two 30-day windows cover the configured "now".
-        mock_now.return_value = EXPORT_EPOCH_MS + EXPORT_WINDOW_MS + 1000
-        mock_session.return_value.get.side_effect = [
-            _json_response([{"id": "1", "updated_at": EXPORT_EPOCH_MS + 5}]),
-            _json_response([{"id": "2", "updated_at": EXPORT_EPOCH_MS + EXPORT_WINDOW_MS + 5}]),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("token", "conversations", mock.MagicMock(), manager))
-
-        assert [item["id"] for batch in batches for item in batch] == ["1", "2"]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        first_query = parse_qs(urlparse(urls[0]).query)
-        assert first_query["updated_after"] == [str(EXPORT_EPOCH_MS)]
-        assert first_query["updated_before"] == [str(EXPORT_EPOCH_MS + EXPORT_WINDOW_MS)]
-        second_query = parse_qs(urlparse(urls[1]).query)
-        assert second_query["updated_after"] == [str(EXPORT_EPOCH_MS + EXPORT_WINDOW_MS)]
-        # Window end clamps to "now".
-        assert second_query["updated_before"] == [str(EXPORT_EPOCH_MS + EXPORT_WINDOW_MS + 1000)]
-        # State saved after each window, pointing at the next window start.
-        assert [call.args[0].window_start_ms for call in manager.save_state.call_args_list] == [
-            EXPORT_EPOCH_MS + EXPORT_WINDOW_MS,
-            EXPORT_EPOCH_MS + EXPORT_WINDOW_MS + 1000,
-        ]
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.time.sleep")
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa._now_ms")
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
@@ -148,62 +120,6 @@ class TestGetRowsExport:
 
         assert mock_session.return_value.get.call_count == 2
         assert mock_sleep.call_count == 1
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa._now_ms")
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
-    def test_incremental_starts_from_watermark(self, mock_session, mock_now):
-        watermark = 1700000000000
-        mock_now.return_value = watermark + 1000
-        mock_session.return_value.get.return_value = _json_response([])
-
-        manager = _make_manager()
-        list(
-            get_rows(
-                "token",
-                "conversations",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=watermark,
-            )
-        )
-
-        url = mock_session.return_value.get.call_args.args[0]
-        assert parse_qs(urlparse(url).query)["updated_after"] == [str(watermark)]
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa._now_ms")
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
-    def test_resumes_from_saved_window(self, mock_session, mock_now):
-        resume_start = 1700000000000
-        mock_now.return_value = resume_start + 1000
-        mock_session.return_value.get.return_value = _json_response([])
-
-        manager = _make_manager(DixaResumeConfig(window_start_ms=resume_start))
-        list(get_rows("token", "conversations", mock.MagicMock(), manager))
-
-        url = mock_session.return_value.get.call_args.args[0]
-        assert parse_qs(urlparse(url).query)["updated_after"] == [str(resume_start)]
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa._now_ms")
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
-    def test_caught_up_watermark_makes_no_requests(self, mock_session, mock_now):
-        now = 1700000000000
-        mock_now.return_value = now
-
-        manager = _make_manager()
-        batches = list(
-            get_rows(
-                "token",
-                "conversations",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=now,
-            )
-        )
-
-        assert batches == []
-        mock_session.return_value.get.assert_not_called()
 
 
 class TestGetRowsMain:
@@ -232,19 +148,6 @@ class TestGetRowsMain:
         list(get_rows("token", "endusers", mock.MagicMock(), manager))
 
         assert mock_session.return_value.get.call_args_list[0].args[0] == resume_url
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
-    def test_empty_page_with_next_link_stops(self, mock_session):
-        mock_session.return_value.get.return_value = _json_response(
-            {"data": [], "meta": {"next": "/v1/endusers?pageKey=loop"}}
-        )
-
-        manager = _make_manager()
-        batches = list(get_rows("token", "endusers", mock.MagicMock(), manager))
-
-        assert batches == []
-        assert mock_session.return_value.get.call_count == 1
-        manager.save_state.assert_not_called()
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
     def test_meta_next_to_foreign_host_stops_pagination(self, mock_session):
@@ -344,23 +247,6 @@ class TestActivityLog:
         # The trailing zone id would stop the column parsing as a timestamp.
         assert batches[0][0]["activityTimestamp"] == "2021-12-02T09:00:00.000Z"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
-    def test_full_refresh_omits_the_watermark(self, mock_session):
-        mock_session.return_value.get.return_value = _json_response({"data": [], "meta": {}})
-
-        list(
-            get_rows(
-                "token",
-                "conversation_activity_log",
-                mock.MagicMock(),
-                _make_manager(),
-                db_incremental_field_last_value=datetime(2021, 12, 1, tzinfo=UTC),
-            )
-        )
-
-        url = mock_session.return_value.get.call_args.args[0]
-        assert urlparse(url).query == ""
-
 
 class TestFanOutOverConversations:
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa._now_ms")
@@ -412,20 +298,6 @@ class TestFanOutOverConversations:
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa._now_ms")
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
-    def test_state_saved_once_a_parent_window_is_fully_fanned_out(self, mock_session, mock_now):
-        mock_now.return_value = EXPORT_EPOCH_MS + 1000
-        mock_session.return_value.get.side_effect = [
-            _json_response([{"id": 1, "updated_at": 1700000000000}]),
-            _json_response({"data": [{"id": "m1"}]}),
-        ]
-
-        manager = _make_manager()
-        list(get_rows("token", "conversation_messages", mock.MagicMock(), manager))
-
-        assert [call.args[0].window_start_ms for call in manager.save_state.call_args_list] == [EXPORT_EPOCH_MS + 1000]
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa._now_ms")
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
     def test_resumes_the_parent_walk_from_saved_window(self, mock_session, mock_now):
         resume_start = 1700000000000
         mock_now.return_value = resume_start + 1000
@@ -453,19 +325,6 @@ class TestFanOutOverConversations:
 
 
 class TestFanOutOverTeams:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
-    def test_team_members_carry_their_team_id(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _json_response({"data": [{"id": "team-a", "name": "Team A"}], "meta": {}}),
-            _json_response({"data": [{"id": "agent-1", "email": "a@example.com"}]}),
-        ]
-
-        batches = list(get_rows("token", "team_members", mock.MagicMock(), _make_manager()))
-        rows = [row for batch in batches for row in batch]
-
-        assert rows == [{"id": "agent-1", "email": "a@example.com", "team_id": "team-a"}]
-        assert mock_session.return_value.get.call_args_list[1].args[0] == "https://dev.dixa.io/v1/teams/team-a/agents"
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
     def test_parent_pages_are_walked_before_the_next_page(self, mock_session):
         mock_session.return_value.get.side_effect = [

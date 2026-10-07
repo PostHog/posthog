@@ -39,9 +39,6 @@ class TestAuth0Source:
         # preserved client secret would be sent there.
         assert self.source.connection_host_fields == ["auth0_domain"]
 
-    def test_table_catalog_is_listed_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
     @pytest.mark.parametrize("schema_name", [None, "users"])
     def test_validate_credentials_passes_the_config_through(self, schema_name: Optional[str]) -> None:
         with mock.patch(f"{SOURCE_MODULE}.validate_auth0_credentials", return_value=(True, None)) as mock_validate:

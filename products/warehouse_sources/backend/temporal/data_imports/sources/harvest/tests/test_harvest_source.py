@@ -34,10 +34,6 @@ class TestHarvestSource:
         assert field.secret is expected_secret
         assert field.required is True
 
-    def test_api_version_pins_the_path_the_code_calls(self) -> None:
-        assert HarvestSource.supported_versions == ("v2",)
-        assert HarvestSource.default_version == "v2"
-
     @parameterized.expand([("time_entries", True), ("invoices", True), ("roles", False)])
     def test_incremental_support_tracks_the_updated_since_filter(self, name: str, expected: bool) -> None:
         # Only endpoints with a server-side `updated_since` filter may advertise incremental

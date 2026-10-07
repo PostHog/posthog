@@ -19,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_budget
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_budgets.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_budgets.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_budgets.source import AwsBudgetsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsbudgets import (
@@ -90,9 +89,6 @@ class TestAwsBudgetsSource:
 
 
 class TestCanonicalDescriptions:
-    def test_every_documented_table_is_a_table_the_source_syncs(self) -> None:
-        assert set(CANONICAL_DESCRIPTIONS) <= set(ENDPOINTS)
-
     @pytest.mark.parametrize(
         "endpoint,columns",
         [

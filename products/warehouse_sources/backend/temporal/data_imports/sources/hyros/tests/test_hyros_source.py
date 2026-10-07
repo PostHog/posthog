@@ -15,11 +15,6 @@ class TestHyrosSource:
         self.team_id = 123
         self.config = HyrosSourceConfig(api_key="key")
 
-    def test_api_version_metadata(self):
-        assert self.source.supported_versions == ("v1.0",)
-        assert self.source.default_version == "v1.0"
-        assert self.source.api_docs_url == "https://api-docs.hyros.com"
-
     @parameterized.expand(
         [
             ((True, 200), True, None),

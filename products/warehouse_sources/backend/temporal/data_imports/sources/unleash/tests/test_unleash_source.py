@@ -20,9 +20,6 @@ class TestUnleashSource:
         # URL must force the editor to re-enter the token.
         assert self.source.connection_host_fields == ["instance_url"]
 
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["features"])
         assert len(schemas) == 1

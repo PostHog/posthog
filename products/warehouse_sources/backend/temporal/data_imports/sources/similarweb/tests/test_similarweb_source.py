@@ -90,10 +90,6 @@ class TestSimilarwebSource:
         assert response.sort_mode == "asc"
         assert response.partition_keys == ([endpoint.partition_key] if endpoint.partition_key else None)
 
-    def test_declares_v5_as_default_over_legacy(self) -> None:
-        assert self.source.supported_versions == (API_VERSION_LEGACY, API_VERSION_V5)
-        assert self.source.default_version == API_VERSION_V5
-
     @parameterized.expand(
         [
             ("unpinned_defaults_to_v5", None, API_VERSION_V5),

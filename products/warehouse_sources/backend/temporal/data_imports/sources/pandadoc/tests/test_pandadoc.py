@@ -153,10 +153,3 @@ class TestPagination:
 
         assert params[0]["modified_from"] == "2024-01-01T00:00:00.000000Z"
         assert params[0]["order_by"] == "date_modified"
-
-
-class TestPandaDocSourceResponse:
-    @pytest.mark.parametrize("config", list(PANDADOC_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "date_created"

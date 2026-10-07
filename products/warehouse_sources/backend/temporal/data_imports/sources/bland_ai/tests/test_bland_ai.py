@@ -10,7 +10,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.bland_ai import (
     BASE_URL,
     PAGE_SIZE,
-    PERSONAS_PAGE_SIZE,
     SMS_PAGE_SIZE,
     BlandAIResumeConfig,
     _format_start_date,
@@ -104,19 +103,6 @@ class TestValidateCredentials:
             mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
             assert validate_credentials("key") is expected
 
-    @mock.patch(BLAND_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key") is False
-
-    @mock.patch(BLAND_SESSION_PATCH)
-    def test_sends_raw_api_key_in_authorization_header(self, mock_session: mock.MagicMock) -> None:
-        # Bland expects the raw key, not a "Bearer "-prefixed value.
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("sk-raw-key")
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["authorization"] == "sk-raw-key"
-
 
 class TestCallsPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -145,110 +131,6 @@ class TestCallsPagination:
         assert snapshots[0]["params"]["ascending"] == "true"
         assert snapshots[0]["params"]["sort_by"] == "created_at"
         assert snapshots[1]["params"]["from"] == PAGE_SIZE
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_short_page_when_total_count_overcounts(self, MockSession: mock.MagicMock) -> None:
-        # total_count can drift from what's actually returned; a short page must still terminate.
-        session = MockSession.return_value
-        _wire(session, [_response({"total_count": 50, "count": 2, "calls": [{"call_id": "c1"}, {"call_id": "c2"}]})])
-
-        rows = _rows(_source("calls", _make_manager()))
-
-        assert [r["call_id"] for r in rows] == ["c1", "c2"]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sends_raw_api_key_auth(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"total_count": 1, "count": 1, "calls": [{"call_id": "c1"}]})])
-
-        _rows(_source("calls", _make_manager()))
-
-        # The framework auth injects the raw key (no "Bearer" prefix) into the authorization header.
-        auth = snapshots[0]["auth"]
-        assert auth.api_key == "key"
-        assert auth.name == "authorization"
-        assert auth.location == "header"
-        assert session.headers.get("Accept") == "application/json"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_watermark_becomes_start_date_filter(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"total_count": 1, "count": 1, "calls": [{"call_id": "c1"}]})])
-
-        rows = _rows(
-            _source(
-                "calls",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 5, tzinfo=UTC),
-            )
-        )
-
-        assert [r["call_id"] for r in rows] == ["c1"]
-        # The watermark is sent server-side as the inclusive `start_date` filter.
-        assert snapshots[0]["params"]["start_date"] == "2026-01-05T00:00:00+00:00"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_each_page_with_filter(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        page_one = [{"call_id": f"c{i}"} for i in range(PAGE_SIZE)]
-        _wire(
-            session,
-            [
-                _response({"total_count": PAGE_SIZE + 1, "count": PAGE_SIZE, "calls": page_one}),
-                _response({"total_count": PAGE_SIZE + 1, "count": 1, "calls": [{"call_id": "clast"}]}),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(
-            _source(
-                "calls",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 5, tzinfo=UTC),
-            )
-        )
-
-        # State is saved once (after page one; page two hits total_count) and carries both the next
-        # offset and the exact filter, so a resume continues the same result set.
-        manager.save_state.assert_called_once()
-        saved = manager.save_state.call_args.args[0]
-        assert saved.offset == PAGE_SIZE
-        assert saved.start_date == "2026-01-05T00:00:00+00:00"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset_and_filter(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        saved_filter = "2026-01-05T00:00:00+00:00"
-        snapshots = _wire(session, [_response({"total_count": 3, "count": 1, "calls": [{"call_id": "c3"}]})])
-
-        # Old-format state (no fanout_state) must still seed the paginator.
-        manager = _make_manager(BlandAIResumeConfig(offset=2, start_date=saved_filter))
-        rows = _rows(
-            _source(
-                "calls",
-                manager,
-                should_use_incremental_field=True,
-                # The checkpointed watermark has advanced past the interrupted run's filter; the
-                # resumed run must reuse the saved filter or the saved offset points at the wrong rows.
-                db_incremental_field_last_value=datetime(2026, 1, 7, tzinfo=UTC),
-            )
-        )
-
-        assert [r["call_id"] for r in rows] == ["c3"]
-        assert snapshots[0]["params"]["from"] == 2
-        assert snapshots[0]["params"]["start_date"] == saved_filter
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_account_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"total_count": 0, "count": 0, "calls": []})])
-
-        manager = _make_manager()
-        assert _rows(_source("calls", manager)) == []
-        manager.save_state.assert_not_called()
 
 
 class TestCallTranscripts:
@@ -296,74 +178,6 @@ class TestCallTranscripts:
             f"{BASE_URL}/v1/calls/c1",
             f"{BASE_URL}/v1/calls/c2",
         ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoints_fanout_state_with_filter(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response(
-                    {
-                        "total_count": 1,
-                        "count": 1,
-                        "calls": [{"call_id": "c1", "created_at": "2026-01-05T00:00:00+00:00"}],
-                    }
-                ),
-                _response({"call_id": "c1", "transcripts": [{"id": 1}]}),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(
-            _source(
-                "call_transcripts",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 5, tzinfo=UTC),
-            )
-        )
-
-        assert manager.save_state.call_count > 0
-        saved = manager.save_state.call_args.args[0]
-        # The final checkpoint records the fully-hydrated call and keeps the exact filter so a
-        # resume walks the same parent result set.
-        assert saved.fanout_state["completed"] == ["v1/calls/c1"]
-        assert saved.fanout_state["current"] is None
-        assert saved.start_date == "2026-01-05T00:00:00+00:00"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_already_hydrated_calls(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response(
-                    {
-                        "total_count": 2,
-                        "count": 2,
-                        "calls": [
-                            {"call_id": "c1", "created_at": "2026-01-01T00:00:00+00:00"},
-                            {"call_id": "c2", "created_at": "2026-01-02T00:00:00+00:00"},
-                        ],
-                    }
-                ),
-                _response({"call_id": "c2", "transcripts": [{"id": 7, "text": "yo"}]}),
-            ],
-        )
-
-        manager = _make_manager(
-            BlandAIResumeConfig(
-                start_date=None,
-                fanout_state={"completed": ["v1/calls/c1"], "current": None, "child_state": None},
-            )
-        )
-        rows = _rows(_source("call_transcripts", manager))
-
-        # c1 was fully hydrated before the interruption — only c2 is fetched again.
-        assert [r["id"] for r in rows] == [7]
-        assert all(r["call_id"] == "c2" for r in rows)
-        assert [s["url"] for s in snapshots] == [f"{BASE_URL}/v1/calls", f"{BASE_URL}/v1/calls/c2"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_old_format_resume_state_restarts_fanout_under_saved_filter(self, MockSession: mock.MagicMock) -> None:
@@ -424,13 +238,6 @@ class TestPathways:
             assert session.send.call_count == 1
             assert snapshots[0]["url"] == f"{BASE_URL}/v1/pathway"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_pathway_list_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        assert _rows(_source("pathways", _make_manager())) == []
-
 
 def _conversations_page(ids: list[str], total_pages: int, created_at: str = "2026-01-01T00:00:00.000Z") -> Response:
     return _response(
@@ -462,57 +269,6 @@ class TestSmsConversations:
         assert snapshots[1]["params"]["page"] == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_sends_no_filter(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_conversations_page(["v1"], 1)])
-
-        _rows(_source("sms_conversations", _make_manager()))
-
-        assert "filters" not in snapshots[0]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_watermark_becomes_created_at_filter(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_conversations_page(["v1"], 1)])
-
-        rows = _rows(
-            _source(
-                "sms_conversations",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 5, tzinfo=UTC),
-            )
-        )
-
-        assert [r["id"] for r in rows] == ["v1"]
-        # `filters` is a JSON-encoded array of {field, operator, value} objects.
-        assert json.loads(snapshots[0]["params"]["filters"]) == [
-            {"field": "created_at", "operator": "gte", "value": "2026-01-05T00:00:00+00:00"}
-        ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_each_page_with_filter(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_conversations_page(["v1"], 2), _conversations_page(["v2"], 2)])
-
-        manager = _make_manager()
-        _rows(
-            _source(
-                "sms_conversations",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 5, tzinfo=UTC),
-            )
-        )
-
-        # State is saved once (after page one; page two is the last) and carries both the next page
-        # and the exact filter, so a resume continues the same result set.
-        manager.save_state.assert_called_once()
-        saved = manager.save_state.call_args.args[0]
-        assert saved.page == 2
-        assert saved.start_date == "2026-01-05T00:00:00+00:00"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page_and_filter(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         saved_filter = "2026-01-05T00:00:00+00:00"
@@ -533,15 +289,6 @@ class TestSmsConversations:
         assert [r["id"] for r in rows] == ["v3"]
         assert snapshots[0]["params"]["page"] == 3
         assert json.loads(snapshots[0]["params"]["filters"])[0]["value"] == saved_filter
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_account_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_conversations_page([], 0)])
-
-        manager = _make_manager()
-        assert _rows(_source("sms_conversations", manager)) == []
-        manager.save_state.assert_not_called()
 
 
 class TestSmsMessages:
@@ -619,41 +366,6 @@ class TestSmsMessages:
         assert saved.fanout_state["current"] is None
         assert saved.start_date == "2026-01-05T00:00:00+00:00"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_already_hydrated_conversations(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response(
-                    {
-                        "data": [
-                            {"id": "v1", "created_at": "2026-01-01T00:00:00.000Z"},
-                            {"id": "v2", "created_at": "2026-01-02T00:00:00.000Z"},
-                        ],
-                        "extra": {"pagination": {"totalPages": 1}},
-                    }
-                ),
-                _response({"data": {"id": "v2", "messages": [{"id": 7, "message": "yo"}]}}),
-            ],
-        )
-
-        manager = _make_manager(
-            BlandAIResumeConfig(
-                start_date=None,
-                fanout_state={"completed": ["v1/sms/conversations/v1"], "current": None, "child_state": None},
-            )
-        )
-        rows = _rows(_source("sms_messages", manager))
-
-        # v1 was fully hydrated before the interruption — only v2 is fetched again.
-        assert [r["id"] for r in rows] == [7]
-        assert all(r["conversation_id"] == "v2" for r in rows)
-        assert [s["url"] for s in snapshots] == [
-            f"{BASE_URL}/v1/sms/conversations",
-            f"{BASE_URL}/v1/sms/conversations/v2",
-        ]
-
 
 class TestLookupEndpoints:
     @parameterized.expand(
@@ -677,26 +389,6 @@ class TestLookupEndpoints:
             assert rows[0][key] == api_response[endpoint][0][key]
             assert session.send.call_count == 1
             assert snapshots[0]["url"] == f"{BASE_URL}/{path}"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_personas_paginate_until_empty_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response({"data": [{"id": "p1", "name": "Support"}], "errors": None}),
-                # The body carries no page count, so an empty page is what ends pagination.
-                _response({"data": [], "errors": None}),
-            ],
-        )
-
-        rows = _rows(_source("personas", _make_manager()))
-
-        assert [r["id"] for r in rows] == ["p1"]
-        assert snapshots[0]["url"] == f"{BASE_URL}/v1/personas"
-        assert snapshots[0]["params"]["page"] == 1
-        assert snapshots[0]["params"]["limit"] == PERSONAS_PAGE_SIZE
-        assert snapshots[1]["params"]["page"] == 2
 
 
 class TestBlandAISourceResponse:

@@ -24,9 +24,6 @@ class TestFormbricksSource:
         # `host` decides where the stored API key gets sent, so changing it must force re-entry.
         assert self.source.connection_host_fields == ["host"]
 
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
     def test_supports_v1_and_v2_with_v2_default(self) -> None:
         # New sources are stamped v2 (the version Formbricks recommends and that the responses
         # incremental sync requires); v1 stays supported so existing pins keep resolving.

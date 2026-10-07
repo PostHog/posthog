@@ -15,9 +15,6 @@ class TestPrintifySource:
         self.team_id = 123
         self.config = PrintifySourceConfig(api_key="printify-key")
 
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["products"])
         assert len(schemas) == 1

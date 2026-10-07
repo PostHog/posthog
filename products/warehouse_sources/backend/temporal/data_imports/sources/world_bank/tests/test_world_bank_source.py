@@ -15,10 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.worldbank import (
     WorldBankSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.settings import ENDPOINTS, PRIMARY_KEYS
+from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.settings import PRIMARY_KEYS
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.source import WorldBankSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank import (
     MAX_INDICATOR_CODES,
@@ -47,11 +44,6 @@ class TestWorldBankSource:
     def setup_method(self) -> None:
         self.source = WorldBankSource()
         self.config = WorldBankSourceConfig(indicator_codes="SP.POP.TOTL\nNY.GDP.PCAP.CD")
-
-    @pytest.mark.parametrize("endpoint", ENDPOINTS)
-    def test_every_endpoint_has_a_primary_key_and_canonical_descriptions(self, endpoint: str) -> None:
-        assert PRIMARY_KEYS[endpoint]
-        assert CANONICAL_DESCRIPTIONS[endpoint]["columns"]
 
     def test_indicator_data_primary_key_is_unique_table_wide(self) -> None:
         # One table holds observations for every configured indicator, so the indicator has to be

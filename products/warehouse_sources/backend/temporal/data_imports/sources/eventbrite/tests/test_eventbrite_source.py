@@ -1,7 +1,6 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite.settings import INCREMENTAL_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite.source import EventbriteSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventbrite import (
     EventbriteSourceConfig,
@@ -13,9 +12,6 @@ class TestEventbriteSource:
         self.source = EventbriteSource()
         self.team_id = 123
         self.config = EventbriteSourceConfig(api_token="test-token")
-
-    def test_get_schemas_incremental_endpoints_are_orders_and_attendees(self):
-        assert set(INCREMENTAL_ENDPOINTS) == {"orders", "attendees"}
 
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["events"])

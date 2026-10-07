@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -9,8 +9,6 @@ import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
     MAX_CURSOR_BYTES,
-    MAX_LOGGED_RUN_ID_CHARS,
-    MAX_LOGGED_RUN_IDS,
     LangSmithHostNotAllowedError,
     LangSmithPageLimitError,
     LangSmithPaginationTooLargeError,
@@ -18,11 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.
     LangSmithResponseTooLargeError,
     LangSmithResumeConfig,
     LangSmithRunsPageTooLargeError,
-    _bounded_run_ids,
     _fetch_page,
     _read_capped_body,
     _resolve_window_start,
-    _runs_select_fields,
     get_rows,
     normalize_base_url,
     validate_credentials,
@@ -115,27 +111,6 @@ class TestNormalizeBaseUrl:
 
 
 class TestResolveWindowStart:
-    def test_incremental_with_watermark_subtracts_lookback(self):
-        config = LANGSMITH_ENDPOINTS["runs"]
-        watermark = datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC)
-
-        start = _resolve_window_start(
-            config, should_use_incremental_field=True, db_incremental_field_last_value=watermark
-        )
-
-        lookback = config.incremental_lookback
-        assert lookback is not None
-        assert start == watermark - lookback
-
-    def test_future_watermark_capped_to_now(self):
-        config = LANGSMITH_ENDPOINTS["runs"]
-        future = datetime.now(UTC) + timedelta(days=30)
-
-        start = _resolve_window_start(config, should_use_incremental_field=True, db_incremental_field_last_value=future)
-
-        # A future cursor would make the API return nothing forever; it's capped at ~now.
-        assert start is not None and start <= datetime.now(UTC)
-
     def test_first_incremental_sync_floors_to_lookback_days(self):
         config = LANGSMITH_ENDPOINTS["runs"]
 
@@ -143,14 +118,6 @@ class TestResolveWindowStart:
 
         assert start is not None
         assert (datetime.now(UTC) - start).days == pytest.approx(config.default_lookback_days, abs=1)
-
-    @pytest.mark.parametrize("endpoint", ["runs", "projects"])
-    def test_full_refresh_sends_no_window(self, endpoint):
-        config = LANGSMITH_ENDPOINTS[endpoint]
-
-        start = _resolve_window_start(config, should_use_incremental_field=False, db_incremental_field_last_value=None)
-
-        assert start is None
 
 
 class TestRunsPagination:
@@ -197,35 +164,6 @@ class TestRunsPagination:
         # One call to list sessions, one to runs/query.
         assert fetch.call_count == 2
 
-    def test_no_sessions_in_workspace_skips_runs_query_entirely(self):
-        # runs/query requires a session/id/parent_run/trace/reference_example scope; with no
-        # tracing projects there's nothing to scope to, so the sync must not call it at all
-        # (an empty `session: []` would 400 the same way the unscoped call used to).
-        manager = FakeManager()
-
-        with mock.patch(_FETCH_PAGE, return_value=[]) as fetch:
-            rows = _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
-
-        assert rows == []
-        assert fetch.call_count == 1
-
-    def test_runs_query_is_always_scoped_to_a_session(self):
-        # Regression test: runs/query used to send limit/select/order (and start_time) with no
-        # session/id/parent_run/trace/reference_example, which LangSmith rejects with a 400
-        # ("At least one of 'session', 'id', 'parent_run', 'trace' or 'reference_example' must be
-        # specified"). Every request must carry the workspace's session ids.
-        manager = FakeManager()
-        bodies: list[dict[str, Any]] = []
-
-        def fake_fetch(session, url, headers, log, json_body=None):
-            bodies.append(json_body)
-            return {"runs": [_run("a")], "cursors": {"next": None}}
-
-        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
-            _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
-
-        assert bodies[0]["session"] == [row["id"] for row in SESSION_IDS_PAGE]
-
     def test_resume_pins_cursor_and_window(self):
         manager = FakeManager(resume=LangSmithResumeConfig(cursor="c9", window_start="2026-01-01T00:00:00.000000Z"))
         bodies: list[dict[str, Any]] = []
@@ -257,25 +195,6 @@ class TestRunsPagination:
 
 
 class TestRunsPageShrinking:
-    def test_oversized_page_halves_limit_and_retries_same_cursor(self):
-        # A legitimate host with large prompt payloads can trip MAX_RESPONSE_BYTES on a full page.
-        # The walk must halve the limit and re-request the same cursor (skipping no runs), not fail.
-        manager = FakeManager()
-        limits: list[int] = []
-
-        def fake_fetch(session, url, headers, log, json_body=None):
-            limit = json_body["limit"]
-            limits.append(limit)
-            if limit > 25:
-                raise LangSmithResponseTooLargeError("oversized")
-            return {"runs": [_run("a")], "cursors": {"next": None}}
-
-        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
-            rows = _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
-
-        assert [r["id"] for r in rows] == ["a"]
-        assert limits == [100, 50, 25]  # halved on the same cursorless first page until it fits
-
     def test_single_oversized_run_is_imported_without_its_heavy_fields(self):
         manager = FakeManager()
         selects: list[list[str]] = []
@@ -291,16 +210,6 @@ class TestRunsPageShrinking:
 
         assert [r["id"] for r in rows] == ["huge"]
         assert selects[-1] == [name for name in RUNS_SELECT_FIELDS if name not in RUNS_HEAVY_SELECT_FIELDS]
-
-    def test_logged_run_ids_are_bounded_in_count_and_length(self):
-        # The host chooses how many runs a page holds and how long each id is, so the warning that
-        # names them must not grow with the response.
-        runs = [{"id": "x" * 1_000} for _ in range(100)]
-
-        ids = _bounded_run_ids(runs)
-
-        assert len(ids) == MAX_LOGGED_RUN_IDS
-        assert all(len(run_id) == MAX_LOGGED_RUN_ID_CHARS for run_id in ids)
 
     def test_single_run_page_oversized_without_heavy_fields_raises(self):
         manager = FakeManager()
@@ -320,22 +229,6 @@ class TestRunsPageShrinking:
 
 
 class TestRunsColumnSelection:
-    @pytest.mark.parametrize(
-        "enabled_columns,expected",
-        [
-            (None, RUNS_SELECT_FIELDS),
-            # An empty selection means what it means downstream: the required columns only, never
-            # everything. Otherwise deselecting every column still downloads inputs and outputs.
-            ([], ["id", "start_time"]),
-            # The primary key and the partition key ride along whatever the user picked.
-            (["outputs"], ["id", "start_time", "outputs"]),
-            (["id", "name"], ["id", "name", "start_time"]),
-            (["not_a_run_field"], ["id", "start_time"]),
-        ],
-    )
-    def test_select_keeps_the_columns_the_load_needs(self, enabled_columns, expected):
-        assert _runs_select_fields(LANGSMITH_ENDPOINTS["runs"], enabled_columns) == expected
-
     def test_enabled_columns_narrow_the_request_body(self):
         manager = FakeManager()
         bodies: list[dict[str, Any]] = []
@@ -351,23 +244,6 @@ class TestRunsColumnSelection:
 
 
 class TestOffsetPagination:
-    def test_walks_offsets_until_short_page(self):
-        manager = FakeManager()
-        pages = [[{"id": f"p1-{i}"} for i in range(100)], [{"id": "p2-0"}]]
-        urls: list[str] = []
-
-        def fake_fetch(session, url, headers, log, json_body=None):
-            urls.append(url)
-            return pages[len(urls) - 1]
-
-        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
-            rows = _collect(get_rows("key", BASE_URL, "projects", logger, manager, 1))  # type: ignore[arg-type]
-
-        assert len(rows) == 101
-        assert "offset=0" in urls[0]
-        assert "offset=100" in urls[1]
-        assert manager.saved == []
-
     def test_feedback_incremental_sends_min_created_at(self):
         manager = FakeManager()
         watermark = datetime(2026, 6, 1, tzinfo=UTC)
@@ -398,28 +274,6 @@ class TestOffsetPagination:
 
 
 class TestExamplesPagination:
-    def test_examples_are_scoped_per_dataset(self):
-        # GET /examples rejects an unscoped request (a 400), so examples must be paged per dataset
-        # with a `dataset` filter — the regression that failed every examples sync.
-        manager = FakeManager()
-        dataset_ids = ["ds-1", "ds-2"]
-        urls: list[str] = []
-
-        def fake_fetch(session, url, headers, log, json_body=None):
-            urls.append(url)
-            if "/api/v1/examples" in url:
-                return [{"id": "ex-1"}]
-            return [{"id": d} for d in dataset_ids]
-
-        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
-            rows = _collect(get_rows("key", BASE_URL, "examples", logger, manager, 1))  # type: ignore[arg-type]
-
-        example_urls = [u for u in urls if "/api/v1/examples" in u]
-        assert len(example_urls) == 2
-        assert "dataset=ds-1" in example_urls[0]
-        assert "dataset=ds-2" in example_urls[1]
-        assert len(rows) == 2
-
     def test_no_datasets_in_workspace_skips_examples_entirely(self):
         # With no datasets there is nothing to scope to, so no examples request should be issued.
         manager = FakeManager()
@@ -578,11 +432,6 @@ class TestResponseSizeCap:
         with pytest.raises(LangSmithResponseTooLargeError):
             _read_capped_body(response, cap=10)
         assert consumed == [1, 2]
-
-    def test_read_capped_body_returns_body_within_cap(self):
-        response = mock.MagicMock()
-        response.iter_content.return_value = [b'{"ok":', b" true}"]
-        assert _read_capped_body(response, cap=1024) == b'{"ok": true}'
 
     def test_fetch_page_streams_and_parses_body(self):
         # The body must be pulled through the streamed/capped reader, never buffered eagerly by

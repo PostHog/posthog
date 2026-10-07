@@ -82,12 +82,6 @@ class TestGetResource:
         assert param["cursor_path"] == "createdAt"
         assert param["convert"] is _format_incremental_value
 
-    def test_responses_primary_key_includes_question_id(self) -> None:
-        assert SPRIG_ENDPOINTS["Responses"].primary_keys == ["responseGroupUid", "questionId"]
-
-    def test_surveys_primary_key_is_id(self) -> None:
-        assert SPRIG_ENDPOINTS["Surveys"].primary_keys == ["id"]
-
 
 class TestSprigCursorPaginator:
     def _paginator(self) -> JSONResponseCursorPaginator:

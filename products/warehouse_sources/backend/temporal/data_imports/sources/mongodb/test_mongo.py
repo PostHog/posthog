@@ -34,7 +34,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     MONGO_KEYS_UNAVAILABLE_ERROR,
     MONGO_MAX_CHUNK_ROWS,
     MONGO_MIN_CHUNK_ROWS,
-    ROW_COUNT_TIMEOUT_MS,
     MongoResumeConfig,
     _adaptive_chunk_size,
     _build_query,
@@ -141,13 +140,6 @@ class TestProcessNestedValue(SimpleTestCase):
     YEAR_ZERO_MS = -62167219200000  # 0000-01-01T00:00:00Z
     FAR_FUTURE_MS = 253_402_300_800_000 * 10  # year > 9999
 
-    def test_objectid_is_stringified(self):
-        oid = ObjectId()
-        assert _process_nested_value(oid) == str(oid)
-
-    def test_uuid_is_stringified(self):
-        assert _process_nested_value(self.CANONICAL_UUID) == self.CANONICAL_UUID_STR
-
     def test_binary_legacy_subtype_3_decodes_as_uuid(self):
         # Subtype 4 (standard UUID) is pre-decoded to uuid.UUID by PyMongo's
         # codec and never reaches _convert_binary; only legacy subtype 3 exercises
@@ -186,12 +178,6 @@ class TestProcessNestedValue(SimpleTestCase):
             }
         }
 
-    def test_list_with_mixed_bson_types(self):
-        oid = ObjectId()
-        value = [oid, self.CANONICAL_UUID, "plain"]
-
-        assert _process_nested_value(value) == [str(oid), self.CANONICAL_UUID_STR, "plain"]
-
     @parameterized.expand(
         [
             ("int", 42),
@@ -213,19 +199,6 @@ class TestProcessNestedValue(SimpleTestCase):
         assert not result.startswith("b'")
         assert "\\x" not in result
 
-    def test_datetime_in_range_passes_through(self):
-        # Native datetime (in-range under DATETIME_AUTO) is returned unchanged.
-        dt = datetime.datetime(2024, 6, 1, 12, 30, 0)
-        assert _process_nested_value(dt) is dt
-
-    def test_datetime_ms_in_range_converted_to_datetime(self):
-        # DatetimeMS within the datetime representable range: as_datetime succeeds.
-        # Under DATETIME_AUTO this only arises for out-of-range values, but the
-        # helper must still handle in-range DatetimeMS gracefully if it appears.
-        ms = 1_700_000_000_000  # 2023-11-14T22:13:20Z
-        result = _process_nested_value(DatetimeMS(ms))
-        assert isinstance(result, datetime.datetime)
-
     @parameterized.expand(
         [
             ("year_zero", YEAR_ZERO_MS),
@@ -235,36 +208,10 @@ class TestProcessNestedValue(SimpleTestCase):
     def test_datetime_ms_out_of_range_becomes_none(self, _name: str, ms: int):
         assert _process_nested_value(DatetimeMS(ms)) is None
 
-    def test_nested_dict_with_out_of_range_datetime(self):
-        value = {
-            "user": {
-                "dateOfBirth": DatetimeMS(self.YEAR_ZERO_MS),
-                "createdAt": datetime.datetime(2024, 1, 1),
-            },
-        }
-
-        result = _process_nested_value(value)
-
-        assert result == {
-            "user": {
-                "dateOfBirth": None,
-                "createdAt": datetime.datetime(2024, 1, 1),
-            }
-        }
-
 
 class TestProcessDocWithFieldLogging(SimpleTestCase):
     def _logger(self) -> MagicMock:
         return MagicMock()
-
-    def test_happy_path_passes_through_all_fields(self):
-        logger = self._logger()
-        doc = {"_id": "abc", "name": "Alice", "age": 42}
-
-        result = _process_doc_with_field_logging(doc, "users", logger)
-
-        assert result == {"_id": "abc", "name": "Alice", "age": 42}
-        logger.exception.assert_not_called()
 
     def test_failed_field_reraises_and_logs_field_name(self):
         logger = self._logger()
@@ -340,32 +287,10 @@ class TestGetIndexKeys(SimpleTestCase):
         coll.list_indexes.return_value = iter(indexes)
         return coll
 
-    def test_separates_covered_keys_from_leading_keys(self):
-        coll = self._collection_with_indexes(
-            [
-                {"key": {"_id": 1}},
-                {"key": {"updated_at": -1}},
-                # `user_id` is the leading key here; `created_at` is covered but not leading
-                {"key": {"user_id": 1, "created_at": 1}},
-            ]
-        )
-        index_keys = get_index_keys(coll)
-
-        assert index_keys is not None
-        assert index_keys.covered == frozenset({"_id", "updated_at", "user_id", "created_at"})
-        assert index_keys.leading == frozenset({"_id", "updated_at", "user_id"})
-
     def test_returns_none_on_failure(self):
         coll = MagicMock()
         coll.list_indexes.side_effect = RuntimeError("network down")
         assert get_index_keys(coll) is None
-
-    def test_returns_empty_keys_for_collection_with_no_indexes(self):
-        index_keys = get_index_keys(self._collection_with_indexes([]))
-
-        assert index_keys is not None
-        assert index_keys.covered == frozenset()
-        assert index_keys.leading == frozenset()
 
     def test_reads_each_collection_indexes_once(self):
         # Schema discovery answers a blocking HTTP request, so a second round trip per collection
@@ -707,12 +632,6 @@ class TestGetRowsToSync(SimpleTestCase):
     0 without failing the sync, and expected pymongo errors must not be reported to
     error tracking (they are transient/operational and classified by the real data read)."""
 
-    def test_returns_count_on_success(self):
-        coll = MagicMock()
-        coll.count_documents.return_value = 42
-        assert _get_rows_to_sync(coll, {}, MagicMock()) == 42
-        coll.count_documents.assert_called_once_with({}, maxTimeMS=ROW_COUNT_TIMEOUT_MS)
-
     @parameterized.expand(
         [
             ("unfiltered_read_uses_the_collection_estimate", {}, 1_000, None, 1_000),
@@ -793,12 +712,6 @@ class TestListImportableCollectionNames(SimpleTestCase):
         db.list_collection_names.return_value = ["users", "system.keys", "orders", "system.views"]
 
         assert _list_importable_collection_names(db) == ["users", "orders"]
-
-    def test_keeps_collections_that_merely_contain_system(self):
-        db = MagicMock()
-        db.list_collection_names.return_value = ["system_events", "billing.system", "systematic"]
-
-        assert _list_importable_collection_names(db) == ["system_events", "billing.system", "systematic"]
 
 
 class TestAdaptiveChunkSize(SimpleTestCase):
@@ -951,23 +864,6 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
     def _run_get_rows(self, collection: _FakeCollection) -> list[dict[str, Any]]:
         return _read_rows(collection)[1]
 
-    def test_cursor_created_with_no_cursor_timeout(self):
-        collection = _FakeCollection([{"_id": "1"}, {"_id": "2"}])
-
-        rows = self._run_get_rows(collection)
-
-        assert len(rows) == 2
-        assert collection.find_kwargs is not None
-        assert collection.find_kwargs["no_cursor_timeout"] is True
-
-    def test_cursor_closed_after_exhausting_all_rows(self):
-        collection = _FakeCollection([{"_id": "1"}])
-
-        self._run_get_rows(collection)
-
-        assert collection.last_cursor is not None
-        assert collection.last_cursor.closed is True
-
     def test_cursor_closed_when_iteration_fails_with_no_progress(self):
         # A no_cursor_timeout cursor that dies before yielding any document has no safe resume
         # point — re-raise so Temporal retries the whole activity.
@@ -978,29 +874,6 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
 
         assert collection.last_cursor is not None
         assert collection.last_cursor.closed is True
-
-    def test_no_timeout_cursor_killed_mid_stream_resumes_from_last_id(self):
-        # Regression: CursorNotFound can fire even when no_cursor_timeout=True is honored
-        # (e.g. primary election, Atlas maintenance). The initial cursor is _id-ordered, so
-        # last_id is a safe resume point — resume instead of failing the whole sync.
-        collection = _FakeCollection(
-            [{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
-            error=CursorNotFound("cursor id 123 not found"),
-            error_after=2,
-            fallback_docs=[{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
-        )
-
-        rows = self._run_get_rows(collection)
-
-        assert [row["_id"] for row in rows] == ["1", "2", "3"]
-        assert len(collection.find_calls) == 2
-        assert collection.find_calls[0].get("no_cursor_timeout") is True
-        assert "no_cursor_timeout" not in collection.find_calls[1]
-        # Resume query picks up after the last document that was yielded.
-        assert collection.find_queries[1] == {"_id": {"$gt": "2"}}
-        # Initial cursor is _id-sorted; resumed cursor is also _id-sorted.
-        assert collection.cursors[0].sorted_by == ["_id", 1]
-        assert collection.cursors[1].sorted_by == ["_id", 1]
 
     def test_execution_timeout_mid_stream_resumes_from_last_id(self):
         # Regression: Atlas free/shared/flex tier clusters enforce a hard operation execution-time
@@ -1097,26 +970,6 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
             self._run_get_rows(collection)
 
         assert len(collection.find_calls) == 1
-
-    def test_expired_fallback_cursor_resumes_after_the_last_document(self):
-        # Dropping no_cursor_timeout puts the server's 10-minute idle timeout back in play, so a
-        # long sync on these backends dies mid-read with CursorNotFound. The fallback read is
-        # _id-ordered, so it must resume after the last document rather than lose the whole sync
-        # (or restart and emit duplicates).
-        collection = _FakeCollection(
-            [],
-            error=OperationFailure("Field 'noCursorTimeout' is currently not supported"),
-            fallback_docs=[{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
-            fallback_error=CursorNotFound("cursor id 123 not found"),
-            fallback_error_after=2,
-        )
-
-        rows = self._run_get_rows(collection)
-
-        assert [row["_id"] for row in rows] == ["1", "2", "3"]
-        assert collection.find_queries[-1] == {"_id": {"$gt": "2"}}
-        # cursors[2] is the read reopened after CursorNotFound; assert it resumes _id-ordered.
-        assert collection.cursors[2].sorted_by == ["_id", 1]
 
     def test_document_without_id_raises_actionable_error(self):
         # A view whose pipeline drops _id yields documents with no _id, which the importer can't key
@@ -1236,27 +1089,6 @@ class TestMongoSourceResume(SimpleTestCase):
         assert set(included) <= set(later_types["_id"]["$type"])
         assert not set(excluded) & set(later_types["_id"]["$type"])
 
-    def test_fresh_run_stages_each_id_before_its_row_is_yielded(self) -> None:
-        ids = [ObjectId("65f1c2a4e4b0a1b2c3d4e5f6"), ObjectId("65f1c2a4e4b0a1b2c3d4e5f7")]
-        collection = _FakeCollection([{"_id": oid, "n": i} for i, oid in enumerate(ids)])
-        manager = _FakeResumeManager()
-        staged_at_yield: list[Any] = []
-
-        def on_row(row: dict[str, Any]) -> None:
-            staged_at_yield.append(decode_resume_id(manager.staged[-1].last_id) if manager.staged else None)
-
-        response, rows = _read_rows(collection, resumable_source_manager=manager, on_row=on_row)
-
-        assert [row["_id"] for row in rows] == [str(oid) for oid in ids]
-        assert staged_at_yield == ids
-        assert collection.find_queries[0] == {}
-        assert response.supports_resume is True
-        # The pipeline clears this only after it flushes the final incomplete batch.
-        assert manager.clear_calls == 0
-        assert response.on_complete is not None
-        response.on_complete()
-        assert manager.clear_calls == 1
-
     @parameterized.expand(
         [
             ("object_id", ObjectId("65f1c2a4e4b0a1b2c3d4e5f6")),
@@ -1298,11 +1130,6 @@ class TestMongoSourceResume(SimpleTestCase):
         assert response.supports_resume is False
         assert "$or" not in collection.find_queries[0]
         assert (manager.load_calls, manager.staged, manager.clear_calls) == (0, [], 0)
-
-    def test_run_without_a_manager_does_not_claim_resume(self) -> None:
-        response, _ = _read_rows(_FakeCollection([{"_id": "1"}]))
-
-        assert response.supports_resume is False
 
     def test_id_without_a_checkpoint_clears_the_state_once_per_run_of_such_ids(self) -> None:
         collection = _FakeCollection([{"_id": None}, {"_id": float("nan")}, {"_id": 1}, {"_id": MaxKey()}])

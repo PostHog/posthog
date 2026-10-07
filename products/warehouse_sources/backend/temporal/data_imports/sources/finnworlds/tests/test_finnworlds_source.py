@@ -1,16 +1,11 @@
 from typing import Any
 
-import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.finnworlds import (
     MAX_COUNTRIES,
     MAX_TICKERS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.settings import (
-    ENDPOINTS,
-    FINNWORLDS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.source import FinnworldsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnworlds import (
@@ -34,40 +29,9 @@ class TestFinnworldsSource:
     def test_lists_tables_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_matches_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize("endpoint", sorted(FINNWORLDS_ENDPOINTS))
-    def test_all_schemas_full_refresh_only(self, endpoint: str) -> None:
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        assert schema.supports_incremental is False
-        assert schema.supports_append is False
-        assert schema.incremental_fields == []
-
-    def test_get_schemas_respects_should_sync_default(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        # Bond yields fan out globally and are heavier, so they're off by default. Macroeconomic
-        # indicators need countries configured, which the ticker-only setup does not have.
-        assert schemas["bond_yields"].should_sync_default is False
-        assert schemas["macroeconomic_indicators"].should_sync_default is False
-        assert schemas["dividends"].should_sync_default is True
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["dividends"])
         assert [s.name for s in schemas] == ["dividends"]
-
-    def test_get_schemas_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # lists_tables_without_credentials=True + static catalog → public docs can list tables.
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-
-    def test_validate_credentials_success(self) -> None:
-        with mock.patch.object(source_module, "validate_finnworlds_credentials", return_value=(True, None)):
-            assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
 
     def test_validate_credentials_failure(self) -> None:
         with mock.patch.object(

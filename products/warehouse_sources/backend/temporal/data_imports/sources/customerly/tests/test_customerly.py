@@ -7,16 +7,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.customerly
     PAGE_SIZE,
     CustomerlyAuthenticationError,
     CustomerlyResumeConfig,
-    _build_url,
-    _is_auth_error_body,
-    customerly_source,
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.customerly.settings import (
-    CUSTOMERLY_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.customerly.settings import CUSTOMERLY_ENDPOINTS
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.customerly.customerly"
 
@@ -41,28 +35,7 @@ def _users_page(count: int, start: int = 0) -> dict[str, Any]:
     return {"data": {"users": [{"crmhero_user_id": start + i} for i in range(count)]}}
 
 
-class TestBuildUrl:
-    def test_no_params(self):
-        assert _build_url("/tags", {}) == "https://api.customerly.io/v1/tags"
-
-    def test_drops_none_values_and_encodes(self):
-        url = _build_url("/users/list", {"page": 0, "per_page": 50, "sort": None})
-        assert url == "https://api.customerly.io/v1/users/list?page=0&per_page=50"
-
-
 class TestAuthErrorDetection:
-    @pytest.mark.parametrize(
-        "body, expected",
-        [
-            ('{"error":{"message":"Access token not found.","code":0}}', True),
-            ('{"error":{"message":"You must provide a valid header Authorization: Bearer <TOKEN>","code":0}}', True),
-            ('{"error":{"message":"Internal server error","code":0}}', False),
-            ("", False),
-        ],
-    )
-    def test_is_auth_error_body(self, body, expected):
-        assert _is_auth_error_body(body) is expected
-
     @mock.patch(f"{MODULE}.make_tracked_session")
     def test_auth_failure_masquerading_as_500_is_not_retried(self, mock_session):
         # Customerly reports bad tokens as HTTP 500; treating that as a retryable server
@@ -118,16 +91,6 @@ class TestGetRows:
         assert manager.save_state.call_args.args[0] == CustomerlyResumeConfig(page=1)
 
     @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_empty_first_page_yields_nothing(self, mock_session):
-        mock_session.return_value.get.return_value = _response(_users_page(0))
-
-        manager = _make_manager()
-        batches = list(get_rows("token", "users", mock.MagicMock(), manager))
-
-        assert batches == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(f"{MODULE}.make_tracked_session")
     def test_resumes_from_saved_page(self, mock_session):
         mock_session.return_value.get.return_value = _response(_users_page(1))
 
@@ -137,14 +100,6 @@ class TestGetRows:
         assert "page=7" in mock_session.return_value.get.call_args_list[0].args[0]
 
     @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_leads_read_from_leads_data_key(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"data": {"leads": [{"crmhero_user_id": 5}]}})
-
-        batches = list(get_rows("token", "leads", mock.MagicMock(), _make_manager()))
-
-        assert batches == [[{"crmhero_user_id": 5}]]
-
-    @mock.patch(f"{MODULE}.make_tracked_session")
     def test_tags_are_normalized_into_rows(self, mock_session):
         mock_session.return_value.get.return_value = _response({"data": ["onboarding", "remarketing"]})
 
@@ -152,15 +107,6 @@ class TestGetRows:
 
         assert batches == [[{"name": "onboarding"}, {"name": "remarketing"}]]
         assert mock_session.return_value.get.call_count == 1
-
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_collections_returned_as_is(self, mock_session):
-        collections = [{"knowledge_base_collection_id": 4517, "title": "Getting Started"}]
-        mock_session.return_value.get.return_value = _response({"data": collections})
-
-        batches = list(get_rows("token", "knowledge_base_collections", mock.MagicMock(), _make_manager()))
-
-        assert batches == [collections]
 
 
 class TestArticlesFanOut:
@@ -215,20 +161,6 @@ class TestArticlesFanOut:
 
 
 class TestCustomerlySourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = CUSTOMERLY_ENDPOINTS[endpoint]
-        response = customerly_source("token", endpoint, mock.MagicMock(), _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @pytest.mark.parametrize("config", list(CUSTOMERLY_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:

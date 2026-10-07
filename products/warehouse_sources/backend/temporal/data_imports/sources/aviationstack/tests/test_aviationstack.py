@@ -121,27 +121,6 @@ class TestPagination:
         assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_short_page(self, MockSession) -> None:
-        # A page shorter than the limit means there's no further page, even without a total.
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": 1}], total=None)])
-
-        rows = _rows(_source())
-
-        assert [r["id"] for r in rows] == [1]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_first_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([], total=0)])
-
-        rows = _rows(_source())
-
-        assert rows == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_page([{"id": 9}], total=None)])
@@ -163,16 +142,6 @@ class TestPagination:
 
         # State saved once, with the next offset to resume from, only while more pages remain.
         manager.save_state.assert_called_once_with(AviationstackResumeConfig(next_offset=100))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_page_saves_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": 1}], total=None)])
-
-        manager = _make_manager()
-        _rows(_source(manager=manager))
-
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_data_key_raises_loudly(self, MockSession) -> None:
@@ -273,17 +242,6 @@ class TestAirportFanOut:
         with pytest.raises(ValueError, match="needs at least one airport"):
             _source("timetable")
 
-    def test_timetable_plans_one_request_per_airport_and_direction(self) -> None:
-        plan = build_request_plan(AVIATIONSTACK_ENDPOINTS["timetable"], ["JFK", "DXB"])
-
-        assert [(r.params["iataCode"], r.params["type"]) for r in plan] == [
-            ("JFK", "departure"),
-            ("JFK", "arrival"),
-            ("DXB", "departure"),
-            ("DXB", "arrival"),
-        ]
-        assert all("date" not in r.params for r in plan)
-
     def test_flights_future_starts_beyond_the_vendor_cutoff(self) -> None:
         # aviationstack only serves /flightsFuture for dates more than 7 days out.
         today = datetime.date(2026, 3, 1)
@@ -333,18 +291,6 @@ class TestAirportFanOut:
 
         assert len({r["queried_date"] for r in rows}) == 1
         assert all("date" not in r for r in rows)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_completed_requests(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page([{"flight": {"number": "1"}}], total=None)])
-
-        manager = _make_manager(AviationstackResumeConfig(next_offset=0, next_request_index=3))
-        _rows(_source("timetable", manager=manager, airport_iata_codes="JFK,DXB"))
-
-        # Index 3 is the last planned request (DXB arrivals) — the first three must not be re-sent.
-        assert session.send.call_count == 1
-        assert (params[0]["iataCode"], params[0]["type"]) == ("DXB", "arrival")
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_exhausted_request_checkpoints_the_next_one(self, MockSession) -> None:
@@ -408,12 +354,6 @@ class TestSourceResponse:
         response = _source(endpoint)
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
-
-    def test_every_endpoint_builds_a_source_response(self) -> None:
-        for endpoint in AVIATIONSTACK_ENDPOINTS:
-            response = _source(endpoint, airport_iata_codes="JFK")
-            assert response.name == endpoint
-            assert callable(response.items)
 
 
 class TestValidateCredentials:

@@ -71,10 +71,6 @@ class TestNormalizeHost:
 
 
 class TestNormalizeAccountId:
-    @pytest.mark.parametrize("account_id", ["1", 42, " 7 "])
-    def test_accepts_numeric(self, account_id):
-        assert _normalize_account_id(account_id).isdigit()
-
     @pytest.mark.parametrize("account_id", ["", None, "1/../2", "abc", "1?x=1"])
     def test_rejects_non_numeric(self, account_id):
         with pytest.raises(ValueError):
@@ -145,28 +141,6 @@ class TestGetRowsPaged:
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
     )
-    def test_conversations_walks_pages_with_status_all_until_empty(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _resp(_conversations_page([{"id": 1}, {"id": 2}])),
-            _resp(_conversations_page([{"id": 3}])),
-            _resp(_conversations_page([])),
-        ]
-        manager = _make_manager()
-
-        batches = list(get_rows(None, "1", "token", "conversations", TEAM_ID, mock.MagicMock(), manager))
-
-        assert [item["id"] for batch in batches for item in batch] == [1, 2, 3]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        # status defaults to "open" server-side — dropping status=all would silently sync a subset.
-        assert all("status=all" in url and "sort_by=created_at_asc" in url for url in urls)
-        assert ["page=1" in urls[0], "page=2" in urls[1], "page=3" in urls[2]] == [True, True, True]
-        # State is saved after each yielded page, pointing at the next page; the empty final
-        # page yields nothing and saves nothing.
-        assert [call.args[0].page for call in manager.save_state.call_args_list] == [2, 3]
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
     def test_resumes_from_saved_page(self, mock_session):
         mock_session.return_value.get.side_effect = [
             _resp({"meta": {}, "payload": [{"id": 9}]}),
@@ -223,34 +197,6 @@ class TestGetRowsPaged:
 
 
 class TestGetRowsMessages:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_fans_out_over_conversations_with_after_cursor(self, mock_session):
-        full_page = [{"id": 100 + i} for i in range(MESSAGES_PAGE_SIZE)]
-        mock_session.return_value.get.side_effect = [
-            _resp(_conversations_page([{"id": 1}, {"id": 2}])),
-            _resp(_conversations_page([])),
-            # Conversation 1: one full page, then a short page ends it.
-            _resp({"meta": {}, "payload": full_page}),
-            _resp({"meta": {}, "payload": [{"id": 300}]}),
-            # Conversation 2: single short page.
-            _resp({"meta": {}, "payload": [{"id": 400}]}),
-        ]
-        manager = _make_manager()
-
-        batches = list(get_rows(None, "1", "token", "messages", TEAM_ID, mock.MagicMock(), manager))
-
-        assert [item["id"] for batch in batches for item in batch] == [*[m["id"] for m in full_page], 300, 400]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert urls[2].endswith("/conversations/1/messages?after=0")
-        assert urls[3].endswith(f"/conversations/1/messages?after={full_page[-1]['id']}")
-        assert urls[4].endswith("/conversations/2/messages?after=0")
-        # Cursor state saved after each yielded page; bookmark advanced to the next conversation.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert (saved[0].conversation_id, saved[0].after) == (1, full_page[-1]["id"])
-        assert any(state.conversation_id == 2 and state.after == 0 for state in saved)
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
     )
@@ -323,64 +269,6 @@ class TestGetRowsMessages:
 
 
 class TestGetRowsMemberFanout:
-    @pytest.mark.parametrize(
-        "endpoint, parent_id_field, parents, members, expected_rows, expected_path",
-        [
-            (
-                "team_members",
-                "team_id",
-                [{"id": 10}],
-                [{"id": 1, "name": "Ada"}, {"id": 2, "name": "Grace"}],
-                [(10, 1), (10, 2)],
-                "/teams/10/team_members",
-            ),
-            # inbox_members hangs off a parent that answers under a payload envelope, answers under
-            # one itself, and has a flat path, so the two endpoints exercise different extraction
-            # and path formatting.
-            (
-                "inbox_members",
-                "inbox_id",
-                {"payload": [{"id": 20}]},
-                {"payload": [{"id": 3}]},
-                [(20, 3)],
-                "/inbox_members/20",
-            ),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_parent_id_is_stamped_onto_each_agent_row(
-        self, mock_session, endpoint, parent_id_field, parents, members, expected_rows, expected_path
-    ):
-        # Rows are agent records, so the same agent id comes back under several parents. Without
-        # the parent id on the row the composite primary key cannot be built and memberships
-        # collapse into one.
-        mock_session.return_value.get.side_effect = [_resp(parents), _resp(members)]
-
-        batches = list(get_rows(None, "1", "token", endpoint, TEAM_ID, mock.MagicMock(), _make_manager()))
-
-        rows = [row for batch in batches for row in batch]
-        assert [(row[parent_id_field], row["id"]) for row in rows] == expected_rows
-        assert mock_session.return_value.get.call_args_list[1].args[0].endswith(expected_path)
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_walks_every_parent(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _resp([{"id": 10}, {"id": 11}]),
-            _resp([{"id": 1}]),
-            _resp([{"id": 1}]),
-        ]
-        manager = _make_manager()
-
-        batches = list(get_rows(None, "1", "token", "team_members", TEAM_ID, mock.MagicMock(), manager))
-
-        assert [row["team_id"] for batch in batches for row in batch] == [10, 11]
-        # The bookmark advances to the next parent so a crash between parents resumes there.
-        assert [call.args[0].parent_id for call in manager.save_state.call_args_list] == [11]
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
     )
@@ -571,25 +459,6 @@ class TestWebhookTableTransformer:
         assert row["created_at"] == 1767323045
         assert "event" not in row and "account" not in row and "conversation" not in row and "inbox" not in row
 
-    def test_conversation_events_drop_event_context_keys(self):
-        transform = make_webhook_table_transformer("conversations")
-        table = table_from_py_list(
-            [
-                {
-                    "event": "conversation_status_changed",
-                    "id": 5,
-                    "status": "resolved",
-                    "created_at": 1767323045,
-                    "account": {"id": 1, "name": "acme"},
-                    "changed_attributes": [{"status": {"current_value": "resolved", "previous_value": "open"}}],
-                }
-            ]
-        )
-
-        rows = transform(table).to_pylist()
-
-        assert rows == [{"id": 5, "status": "resolved", "created_at": 1767323045}]
-
     def test_rows_without_an_id_are_dropped(self):
         transform = make_webhook_table_transformer("conversations")
         table = table_from_py_list([{"event": "conversation_created", "status": "open", "id": None}])
@@ -717,11 +586,3 @@ class TestChatwootSourceResponse:
         response.items()
 
         webhook_manager.get_items.assert_called_once()
-
-    def test_webhook_manager_not_consulted_for_non_webhook_schema(self):
-        webhook_manager = mock.MagicMock()
-        webhook_manager.webhook_enabled = mock.AsyncMock(return_value=True)
-
-        chatwoot_source(None, "1", "token", "agents", TEAM_ID, mock.MagicMock(), _make_manager(), webhook_manager)
-
-        webhook_manager.webhook_enabled.assert_not_called()

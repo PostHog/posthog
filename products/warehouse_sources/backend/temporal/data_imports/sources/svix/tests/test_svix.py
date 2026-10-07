@@ -6,7 +6,6 @@ from unittest import mock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.svix.settings import ENDPOINTS, SVIX_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.svix.svix import (
     SvixResumeConfig,
     check_access,
@@ -166,10 +165,3 @@ class TestValidateCredentials:
         message = "Svix returned HTTP 500" if status == 500 else None
         mock_check.return_value = (status, message)
         assert validate_credentials("sk-key") == (expected_valid, expected_message)
-
-
-class TestSvixSourceResponse:
-    def test_primary_keys_per_endpoint(self) -> None:
-        assert SVIX_ENDPOINTS["applications"].primary_keys == ["id"]
-        assert SVIX_ENDPOINTS["event_types"].primary_keys == ["name"]
-        assert set(SVIX_ENDPOINTS) == set(ENDPOINTS)

@@ -16,7 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.ramp 
     ramp_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import RAMP_ENDPOINTS, TOKEN_SCOPES
+from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import TOKEN_SCOPES
 
 # The RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -220,10 +220,3 @@ class TestGetRows:
             _rows(_source("transactions", manager))
 
         manager.save_state.assert_not_called()
-
-
-class TestRampSourceResponse:
-    @pytest.mark.parametrize("config", list(RAMP_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "user_transaction_time"

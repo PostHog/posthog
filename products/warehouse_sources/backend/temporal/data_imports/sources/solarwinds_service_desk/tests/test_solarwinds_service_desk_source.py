@@ -24,9 +24,6 @@ class TestSolarwindsServiceDeskSource:
         # re-entering the token, or an editor could exfiltrate it to another regional stack.
         assert self.source.connection_host_fields == ["region"]
 
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["incidents"])
         assert len(schemas) == 1

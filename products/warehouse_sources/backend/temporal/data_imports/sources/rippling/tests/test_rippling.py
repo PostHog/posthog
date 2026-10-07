@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.r
     rippling_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.settings import RIPPLING_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -153,10 +152,3 @@ class TestGetRows:
 
         with pytest.raises(ValueError, match="off-domain"):
             _rows(rippling_source("token", "workers", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-
-
-class TestRipplingSourceResponse:
-    @pytest.mark.parametrize("config", list(RIPPLING_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "created_at"

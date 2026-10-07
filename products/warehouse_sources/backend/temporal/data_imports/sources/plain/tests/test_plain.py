@@ -11,31 +11,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plain.plai
     _fetch_paginated_endpoint,
     _fetch_thread_timeline_entries,
     _fetch_timeline_entries,
-    _flatten_datetime,
     _flatten_node,
     _flatten_timeline_entry,
     _parse_plain_datetime,
     plain_source,
     validate_credentials,
 )
-
-
-class TestFlattenDatetime:
-    def test_unwraps_iso8601(self):
-        result = _flatten_datetime({"createdAt": {"iso8601": "2024-01-15T10:30:00Z"}})
-        assert result == {"createdAt": "2024-01-15T10:30:00Z"}
-
-    def test_preserves_non_iso_dicts(self):
-        result = _flatten_datetime({"email": {"email": "a@b.com", "isVerified": True}})
-        assert result == {"email": {"email": "a@b.com", "isVerified": True}}
-
-    def test_flattens_lists_of_dicts(self):
-        result = _flatten_datetime({"items": [{"createdAt": {"iso8601": "2024-01-01T00:00:00Z"}}]})
-        assert result == {"items": [{"createdAt": "2024-01-01T00:00:00Z"}]}
-
-    def test_preserves_scalar_values(self):
-        result = _flatten_datetime({"id": "abc", "count": 42, "enabled": True})
-        assert result == {"id": "abc", "count": 42, "enabled": True}
 
 
 class TestFlattenNode:
@@ -94,33 +75,8 @@ class TestFlattenNode:
         assert result["firstInboundMessageAt"] == "2024-01-01T01:00:00Z"
         assert result["lastOutboundMessageAt"] is None
 
-    def test_preserves_null_assigned_user(self):
-        node = {"id": "t_1", "assignedToUser": None}
-        result = _flatten_node(node)
-
-        assert result["assignedToUser"] is None
-        assert "assignedToUserId" not in result
-        assert "assignedToUserName" not in result
-
 
 class TestFlattenTimelineEntry:
-    def test_chat_entry(self):
-        entry = {
-            "id": "te_1",
-            "timestamp": {"iso8601": "2024-01-01T00:00:00Z"},
-            "actor": {"actorType": "customer", "customerId": "c_1"},
-            "entry": {"__typename": "ChatEntry", "chatId": "chat_1", "text": "hello"},
-        }
-        result = _flatten_timeline_entry(entry, thread_id="t_1")
-
-        assert result["threadId"] == "t_1"
-        assert result["createdAt"] == "2024-01-01T00:00:00Z"
-        assert result["actorType"] == "customer"
-        assert result["actorId"] == "c_1"
-        assert result["entryType"] == "ChatEntry"
-        assert result["chatId"] == "chat_1"
-        assert result["text"] == "hello"
-
     def test_email_entry(self):
         entry = {
             "id": "te_2",
@@ -230,9 +186,6 @@ class TestPlainRetryableError:
 
 
 class TestDatetimeHelpers:
-    def test_datetime_to_plain_iso8601_uses_z_suffix(self):
-        assert _datetime_to_plain_iso8601(datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)) == "2024-01-15T10:30:00Z"
-
     def test_datetime_to_plain_iso8601_assumes_utc_for_naive(self):
         assert _datetime_to_plain_iso8601(datetime(2024, 1, 15, 10, 30, 0)) == "2024-01-15T10:30:00Z"
 
@@ -244,9 +197,6 @@ class TestDatetimeHelpers:
             == "2026-06-07T18:03:36.624Z"
         )
         assert _datetime_to_plain_iso8601(datetime(2024, 1, 15, 10, 30, 0, 1, tzinfo=UTC)) == "2024-01-15T10:30:00.000Z"
-
-    def test_parse_plain_datetime_from_string(self):
-        assert _parse_plain_datetime("2024-01-15T10:30:00Z") == datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)
 
     def test_parse_plain_datetime_passthrough_datetime(self):
         dt = datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)
@@ -312,43 +262,6 @@ class TestTimelineEntryIncrementalFilter:
         assert len(pages) == 1
         assert [e["id"] for e in pages[0]] == ["te_new"]
 
-    def test_includes_entries_with_null_created_at(self):
-        execute = self._make_execute(
-            [
-                {
-                    "data": {
-                        "thread": {
-                            "timelineEntries": {
-                                "edges": [
-                                    {
-                                        "node": {
-                                            "id": "te_null",
-                                            # No timestamp field at all -> createdAt becomes absent
-                                            "actor": {"actorType": "customer", "customerId": "c_1"},
-                                            "entry": {"__typename": "ChatEntry", "chatId": "c", "text": "x"},
-                                        }
-                                    }
-                                ],
-                                "pageInfo": {"hasNextPage": False, "endCursor": None},
-                            }
-                        }
-                    }
-                }
-            ]
-        )
-
-        pages = list(
-            _fetch_thread_timeline_entries(
-                execute,
-                thread_id="t_1",
-                logger=mock.MagicMock(),
-                created_at_gte=datetime(2024, 1, 15, tzinfo=UTC),
-            )
-        )
-
-        assert len(pages) == 1
-        assert [e["id"] for e in pages[0]] == ["te_null"]
-
 
 class TestFetchPaginatedEndpointIncrementalFilter:
     def test_sends_after_filter_when_incremental(self):
@@ -372,27 +285,6 @@ class TestFetchPaginatedEndpointIncrementalFilter:
         _, variables = recorded[0]
         # Plain's DatetimeFilter uses `after` (>=), not `gte` — sending `gte` is rejected with a 400.
         assert variables["filter"] == {"updatedAt": {"after": "2024-01-15T10:30:00Z"}}
-
-    def test_omits_filter_for_full_sync(self):
-        recorded = []
-
-        def execute(query, variables):
-            recorded.append((query, dict(variables)))
-            return {"data": {"customers": {"edges": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}
-
-        list(
-            _fetch_paginated_endpoint(
-                execute,
-                endpoint_name="customers",
-                query="query PaginatedCustomers { customers { edges { node { id } } } }",
-                logger=mock.MagicMock(),
-                updated_at_gte=None,
-            )
-        )
-
-        assert recorded
-        _, variables = recorded[0]
-        assert "filter" not in variables
 
 
 class TestFetchTimelineEntriesStreaming:

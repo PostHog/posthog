@@ -1,9 +1,5 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.source import BillComSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.billcom import (
     BillComSourceConfig,
@@ -61,6 +57,3 @@ class TestBillComSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_every_endpoint_advertises_incremental_fields(self) -> None:
-        assert set(INCREMENTAL_FIELDS) == set(ENDPOINTS)

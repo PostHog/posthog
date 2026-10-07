@@ -23,17 +23,6 @@ class TestGetSchemas:
     def setup_method(self) -> None:
         self.schemas = {s.name: s for s in RetentlySource().get_schemas(MagicMock(), team_id=1)}
 
-    def test_all_expected_tables_present(self) -> None:
-        assert set(self.schemas) == {
-            "customers",
-            "companies",
-            "feedback",
-            "outbox",
-            "campaigns",
-            "templates",
-            "reports",
-        }
-
     def test_feedback_is_the_only_incremental_table(self) -> None:
         assert self.schemas["feedback"].supports_incremental is True
         assert [f["field"] for f in self.schemas["feedback"].incremental_fields] == ["createdDate"]

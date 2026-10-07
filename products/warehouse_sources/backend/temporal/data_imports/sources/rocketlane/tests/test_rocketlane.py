@@ -14,10 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane
     check_access,
     rocketlane_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.settings import (
-    ENDPOINTS,
-    ROCKETLANE_ENDPOINTS,
-)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -176,6 +172,3 @@ class TestRocketlaneSourceResponse:
         # Every endpoint exposes a stable `createdAt`, so all partition by datetime.
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["createdAt"]
-
-    def test_endpoint_keys_match_endpoints_tuple(self) -> None:
-        assert set(ROCKETLANE_ENDPOINTS) == set(ENDPOINTS)

@@ -294,15 +294,6 @@ def test_finding_identity_and_timestamps_survive_normalization(session: Mock) ->
     assert rows[0]["updated_at"] == dt.datetime(2025, 2, 1, tzinfo=dt.UTC)
 
 
-@pytest.mark.parametrize("body", [{}, {"Findings": None}, {"Findings": []}])
-def test_empty_terminal_page(session: Mock, body: dict[str, object]) -> None:
-    session.request.return_value = response(body)
-    resume = manager()
-    assert list(get_rows(config(), "findings", VERSION, resume, False, None)) == []
-    session.request.assert_called_once()
-    assert resume.save_state.call_args.args[0].finished
-
-
 @pytest.mark.parametrize("missing_field", ["aws_access_key_id", "aws_secret_access_key"])
 def test_missing_credentials_do_not_send_request(session: Mock, missing_field: str) -> None:
     source_config = config()

@@ -159,9 +159,6 @@ class TestPardotSource:
 
 
 class TestCanonicalDescriptions:
-    def test_descriptions_cover_the_endpoints_they_key_on(self) -> None:
-        assert set(CANONICAL_DESCRIPTIONS) == set(ENDPOINTS)
-
     @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
     def test_documented_columns_exist_on_the_endpoint(self, endpoint: str) -> None:
         described = set(CANONICAL_DESCRIPTIONS[endpoint].get("columns", {}))

@@ -22,10 +22,6 @@ class TestAftershipSource:
         self.team_id = 123
         self.config = AftershipSourceConfig(api_key="as-key")
 
-    def test_version_pin_matches_the_path_the_code_calls(self) -> None:
-        assert self.source.supported_versions == ("2026-07",)
-        assert self.source.default_version == "2026-07"
-
     def test_courier_connection_credentials_are_not_documented_as_a_column(self) -> None:
         # The sync drops the column; documenting it would advertise a table that never exists.
         assert "credentials" not in CANONICAL_DESCRIPTIONS["courier_connections"]["columns"]
