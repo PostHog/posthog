@@ -39,13 +39,15 @@ Revoke or expire private tokens before rolling the gateway back to a version wit
 
 ## Run one trial
 
-1. Open `/project/2/inbox/scouts/trials`, search for and select the scout, then select **New trial**. Resolve any setup blocker shown. The picker lists scouts by display name; the old `/project/2/scout-trials` address redirects here.
+1. Open `/project/2/inbox/scout-trials`, search for and select the scout, then select **New trial**. Resolve any setup blocker shown. The picker lists scouts by display name; the old `/project/2/scout-trials` address redirects here. Trials have a separate path so existing scout names remain valid.
 2. Start with two versions and one run per version. Change the second version's model, effort or prompt.
 3. Select **Start trial**. Scouts run and judging follows automatically; closing the page does not stop them.
 4. Compare the results, then open a run to inspect its report and evidence for each rubric check. Cost and speed are shown separately from rubric results.
 5. Reopen the saved trial or export its JSON report. Reading saved results makes no further model calls.
 
 The rubric stays fixed across scout edits, and saved results retain the rubric used for that trial. If a run is interrupted, reopen the existing trial before starting another paid attempt.
+
+Variants and retries share a saved copy of the project's scout memory, notes and recent scout runs. This starting context lives in private object storage and can exceed the 16 MiB limit on launch settings without being shortened.
 
 Each completed scout run gets its own judge sandbox. The judge reads the saved rubric and searches attached copies of the complete run log, reports, summary, instructions and starting context. These files live in private object storage; Temporal receives only their identifiers. Evidence larger than 128 MiB is refused explicitly instead of being silently shortened.
 

@@ -276,7 +276,6 @@ new_relic/new_relic.py::_get_event_rows
 new_york_times/new_york_times.py::_get_article_search_rows
 notion/notion.py::_page_fan_out
 notion/notion.py::_search_stream
-notion/notion.py::_users_stream
 npm_registry/npm_registry.py::_iter_downloads
 npm_registry/npm_registry.py::get_rows
 nuget/nuget.py::_get_catalog_event_rows

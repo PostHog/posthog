@@ -11,6 +11,7 @@ import {
     BIValue,
     BIFilter,
     BIFilterOperator,
+    BIResultFilter,
 } from '~/queries/schema/schema-business-intelligence'
 import {
     ChartSettings,
@@ -35,7 +36,13 @@ import {
     isBIAnalysisConfig,
     isBITableCalculation,
 } from './biAnalysis'
-import { getBIComparisonDisabledReason, getBIComparisonDateExpression } from './biComparison'
+import { biComparisonCategory, getBIComparisonDisabledReason, getBIComparisonDateExpression } from './biComparison'
+import {
+    buildBIConditionExpression,
+    isBIConditionGroup,
+    isBIResultFilter,
+    normalizeBIConditionGroup,
+} from './biFilterGroups'
 import { getBIMeasureSettings, isBIMeasureSettings, mergeBIMeasureSettings } from './biMeasureSettings'
 import { getBIFiltersPlaceholder, getBIQueryFilters, normalizeBIDates } from './biQueryFilters'
 
@@ -153,6 +160,24 @@ export function normalizeBIConfig(config: BIConfig): BIConfig {
         normalized = { ...normalized, topN: undefined }
     }
 
+    if (normalized.rowFilterGroup) {
+        normalized = {
+            ...normalized,
+            rowFilterGroup: normalizeBIConditionGroup(
+                normalized.rowFilterGroup,
+                normalized.filters.map((filter) => filter.field.id)
+            ),
+        }
+    }
+    if (normalized.resultFilterGroup) {
+        normalized = {
+            ...normalized,
+            resultFilterGroup: normalizeBIConditionGroup(
+                normalized.resultFilterGroup,
+                (normalized.resultFilters ?? []).map((filter) => filter.id)
+            ),
+        }
+    }
     return normalized
 }
 
@@ -560,6 +585,10 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
 
     if (
         source === undefined ||
+        (candidate.rowFilterGroup !== undefined && !isBIConditionGroup(candidate.rowFilterGroup)) ||
+        (candidate.resultFilterGroup !== undefined && !isBIConditionGroup(candidate.resultFilterGroup)) ||
+        (candidate.resultFilters !== undefined &&
+            (!Array.isArray(candidate.resultFilters) || !candidate.resultFilters.every(isBIResultFilter))) ||
         sort === undefined ||
         !Object.values(ChartDisplayType).includes(candidate.chartType as ChartDisplayType) ||
         !rows ||
@@ -577,6 +606,9 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
 
     const config: BIConfig = {
         source,
+        ...(candidate.rowFilterGroup ? { rowFilterGroup: candidate.rowFilterGroup } : {}),
+        ...(candidate.resultFilterGroup ? { resultFilterGroup: candidate.resultFilterGroup } : {}),
+        ...(candidate.resultFilters ? { resultFilters: candidate.resultFilters } : {}),
         ...(candidate.topN ? { topN: candidate.topN } : {}),
         ...(candidate.totals ? { totals: candidate.totals } : {}),
         ...(candidate.compareFilter !== undefined ? { compareFilter: candidate.compareFilter } : {}),
@@ -640,7 +672,7 @@ function aggregationAlias(value: BIValue, index: number): string {
 
 const DOTTED_IDENTIFIER_REGEX = /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$/
 
-function fieldExpression(field: BIField): string {
+export function fieldExpression(field: BIField): string {
     const expression = field.expression.trim() || field.name
     const escapedExpression = DOTTED_IDENTIFIER_REGEX.test(expression)
         ? escapeDottedHogQLIdentifier(expression)
@@ -813,6 +845,84 @@ function filterExpression(filter: BIFilter): string | null {
     }
 }
 
+export function buildBIRowFilterExpressions(config: BIConfig, excludedIndex?: number): string[] {
+    const filters = config.filters.filter(
+        (filter, index) =>
+            index !== excludedIndex &&
+            (filter.field.expression.trim() || filter.field.name.trim() || filter.operator === 'custom')
+    )
+    if (!config.rowFilterGroup) {
+        return filters.map(filterExpression).filter((expression): expression is string => !!expression)
+    }
+    const group = normalizeBIConditionGroup(
+        config.rowFilterGroup,
+        filters.map((filter) => filter.field.id)
+    )
+    const expression = buildBIConditionExpression(
+        group,
+        new Map(filters.map((filter) => [filter.field.id, filterExpression(filter)]))
+    )
+    return expression ? [expression] : []
+}
+
+function resultAsRowFilter(config: BIConfig, filter: BIResultFilter): BIFilter | null {
+    const value = config.values[filter.measureIndex]
+    const alias = config.values.length
+        ? computeBIQueryParts(config).configuredValues.find((part) => part.value === value)?.alias
+        : filter.measureIndex === 0
+          ? 'count'
+          : undefined
+    if (!alias || !config.source) {
+        return null
+    }
+    return {
+        field: {
+            id: filter.id,
+            name: alias,
+            expression: escapeRawPropertyAsHogQLIdentifier(alias),
+            type: 'float',
+            source: config.source,
+        },
+        operator:
+            filter.operator === 'greater_than_or_equal' || filter.operator === 'less_than_or_equal'
+                ? 'between'
+                : filter.operator,
+        value: filter.operator === 'less_than_or_equal' ? '' : filter.value,
+        valueTo:
+            filter.operator === 'less_than_or_equal'
+                ? filter.value
+                : filter.operator === 'greater_than_or_equal'
+                  ? ''
+                  : filter.valueTo,
+        enabled: filter.enabled,
+    }
+}
+
+export function getBIResultFilterValidationError(config: BIConfig, filter: BIResultFilter): string | null {
+    if (filter.enabled === false) {
+        return null
+    }
+    const row = resultAsRowFilter(config, filter)
+    return row ? getBIFilterValidationError(row) : 'Select a valid measure for this result filter.'
+}
+
+function buildBIResultFilterExpression(config: BIConfig): string | null {
+    const filters = config.resultFilters ?? []
+    const group = normalizeBIConditionGroup(
+        config.resultFilterGroup,
+        filters.map((filter) => filter.id)
+    )
+    return buildBIConditionExpression(
+        group,
+        new Map(
+            filters.map((filter) => {
+                const row = resultAsRowFilter(config, filter)
+                return [filter.id, row ? filterExpression(row) : null]
+            })
+        )
+    )
+}
+
 export function buildBIFilterOptionsQuery(config: BIConfig, index: number): HogQLQuery | null {
     config = normalizeBIConfig(config)
     const filter = config.filters[index]
@@ -824,14 +934,7 @@ export function buildBIFilterOptionsQuery(config: BIConfig, index: number): HogQ
         return null
     }
     const expression = fieldExpression(filter.field)
-    const conditions = config.filters
-        .filter(
-            (other, otherIndex) =>
-                otherIndex !== index &&
-                (other.field.expression.trim() || other.field.name.trim() || other.operator === 'custom')
-        )
-        .map(filterExpression)
-        .filter((condition): condition is string => !!condition)
+    const conditions = buildBIRowFilterExpressions(config, index)
     return {
         kind: NodeKind.HogQLQuery,
         connectionId: config.source.connectionId,
@@ -908,6 +1011,67 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
     })
 
     return { rowDimensions, columnDimensions, configuredValues }
+}
+
+export function getBIResultDimensions(config: BIConfig): { field: BIField; column: string; position?: number }[] {
+    const { rowDimensions, columnDimensions } = computeBIQueryParts(config)
+    const dimensions = [...rowDimensions, ...columnDimensions]
+    if (config.chartType === ChartDisplayType.TwoDimensionalHeatmap) {
+        return [rowDimensions, columnDimensions].flatMap((side, index) =>
+            side.map(({ field, alias }, position) => ({
+                field,
+                column: side.length === 1 ? alias : index === 0 ? 'bi_rows' : 'bi_columns',
+                position: side.length > 1 ? position : undefined,
+            }))
+        )
+    }
+    const aliased =
+        hasBIAnalysis(config) ||
+        config.compareFilter?.compare ||
+        (dimensions.length === 2 &&
+            [
+                ChartDisplayType.Auto,
+                ChartDisplayType.ActionsBar,
+                ChartDisplayType.ActionsStackedBar,
+                ChartDisplayType.ActionsLineGraph,
+                ChartDisplayType.ActionsAreaGraph,
+            ].includes(config.chartType))
+    return dimensions.map(({ field, alias }) => ({ field, column: aliased ? alias : fieldExpression(field) }))
+}
+
+export function buildBIRowsQuery(config: BIConfig, previous = false): HogQLQuery | null {
+    if (!config.source || config.filters.some(getBIFilterValidationError)) {
+        return null
+    }
+    const placeholder = getBIFiltersPlaceholder(config)
+    const conditions = [
+        previous ? placeholder.replace('{filters', '{filters.previous') : placeholder,
+        ...buildBIRowFilterExpressions(config),
+    ]
+    return {
+        kind: NodeKind.HogQLQuery,
+        connectionId: config.source.connectionId,
+        filters: getBIQueryFilters(config),
+        query: `SELECT * FROM ${escapePropertyAsHogQLIdentifier(config.source.table)} WHERE ${conditions.map((condition) => `(${condition})`).join(' AND ')} LIMIT 1000`,
+    }
+}
+
+export function buildBITopMembership(config: BIConfig): string | null {
+    const { rowDimensions, columnDimensions, configuredValues } = computeBIQueryParts(config)
+    const dimension = [...rowDimensions, ...columnDimensions].find(({ field }) => field.id === config.topN?.fieldId)
+    if (!dimension || !config.topN || !config.source) {
+        return null
+    }
+    const expression = fieldExpression(dimension.field)
+    const measure = config.values.length
+        ? configuredValues.find(({ value }) => value === config.values[config.topN!.measureIndex])?.expression
+        : 'count(*)'
+    if (!measure) {
+        return null
+    }
+    const conditions = [getBIFiltersPlaceholder(config), ...buildBIRowFilterExpressions(config)]
+    const top = `SELECT ${expression} AS bi_key FROM ${escapePropertyAsHogQLIdentifier(config.source.table)} WHERE ${conditions.map((condition) => `(${condition})`).join(' AND ')} GROUP BY bi_key ORDER BY ${measure} DESC, bi_key ASC LIMIT ${config.topN.count}`
+    return `((${expression} IS NOT NULL AND ${expression} IN (SELECT bi_key FROM (${top}) WHERE bi_key IS NOT NULL)) OR (${expression} IS NULL AND (SELECT count(*) FROM (${top}) WHERE bi_key IS NULL) > 0))`
 }
 
 const SORT_AGGREGATION_LABELS: Record<Exclude<BIAggregation, 'custom'>, string> = {
@@ -1043,7 +1207,11 @@ function buildOrderByExpression(
 
 export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQueryBuildResult | null {
     config = normalizeBIConfig(config)
-    if (!config.source || config.filters.some(getBIFilterValidationError)) {
+    if (
+        !config.source ||
+        config.filters.some(getBIFilterValidationError) ||
+        config.resultFilters?.some((filter) => getBIResultFilterValidationError(config, filter))
+    ) {
         return null
     }
 
@@ -1079,15 +1247,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
               )
             : ['count(*) AS count']
     const selectExpressions = [...dimensionSelectExpressions, ...valueExpressions]
-    const filters = config.filters
-        .filter(
-            (filter) =>
-                filter.field.expression.trim() ||
-                filter.field.name.trim() ||
-                (filter.operator === 'custom' && filter.customExpression?.trim())
-        )
-        .map(filterExpression)
-        .filter((filter): filter is string => !!filter)
+    const filters = buildBIRowFilterExpressions(config)
     const queryParts = [
         `SELECT\n    ${selectExpressions.join(',\n    ')}`,
         `FROM ${escapePropertyAsHogQLIdentifier(config.source.table)}`,
@@ -1137,7 +1297,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
         const periodLabel = config.compareFilter?.compare_to ? 'Comparison period' : 'Previous period'
         const periodExpression = (label: string): string =>
             breakdownDimension
-                ? `concat(${escapeHogQLString(label + ' · ')}, toString(${fieldExpression(breakdownDimension.field)}))`
+                ? `concat(${escapeHogQLString(label + ' · ')}, ${biComparisonCategory(fieldExpression(breakdownDimension.field))})`
                 : escapeHogQLString(label)
         const buildPeriod = (previous: boolean): string => {
             const expressions = dimensions.map(({ field }) =>
@@ -1204,6 +1364,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
             where: where(false),
             orderBy: orderByExpression,
             resultLimit,
+            resultWhere: buildBIResultFilterExpression(config),
             ...(comparing
                 ? {
                       previousWhere: where(true),

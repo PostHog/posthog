@@ -86,11 +86,6 @@ class TestAllocateScoutSlug(BaseTest):
         assert allocated.startswith("scout-")
         validate_skill_name_value(allocated)
 
-    def test_skips_a_slug_the_inbox_reserves(self) -> None:
-        # The create path stores the generated slug without the serializer's name check, so a
-        # display name of "Trials" would otherwise mint a scout whose link opens the trials page.
-        assert self._allocate("Trials") == "trials-2"
-
     def test_holds_back_the_slugs_a_concurrent_create_already_won(self) -> None:
         assert (
             allocate_scout_slug(team_id=self.team.id, display_name="Checkout failures", taken={"checkout-failures"})

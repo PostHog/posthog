@@ -215,7 +215,7 @@ class NavigationEntry(BaseModel, frozen=True):
     """One page-URL change in the session, precomputed for the prompt's navigation timeline."""
 
     rec_t: int = Field(ge=0)
-    # Interned `window_N` token, matching what the events tool returns. None when the session has no window ids.
+    # Interned `window_N` token, matching what the event lookups return. None when the session has no window ids.
     window: str | None = None
     url: str
     # First entry seen for a window token other than the session's initial one (a tab or window opening).
@@ -235,7 +235,7 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     # Chronological URL-change timeline rendered into the preamble. Defaults keep pre-existing Redis blobs loadable.
     navigation: list[NavigationEntry] = Field(default_factory=list)
     navigation_dropped: int = Field(default=0, ge=0)
-    # True when the session hit the fetch row cap, so the events tool can't see the whole session.
+    # True when the session hit the fetch row cap, so the event lookups can't see the whole session.
     events_truncated: bool = False
     # Customer product context rendered into the preamble; empty for teams without core memory / descriptions.
     product_context: str = ""
@@ -249,6 +249,8 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     identity: SessionIdentity = Field(default_factory=SessionIdentity)
     # Group keys by group type index, for the observation row's group attribution.
     group_keys: dict[int, str] = Field(default_factory=dict)
+    # `$geoip_*` of the recorded session, for the emitted event. Kept off `SessionIdentity` so it never reaches the LLM.
+    session_geoip: dict[str, str] = Field(default_factory=dict)
 
 
 class EnsureSessionAssetInputs(BaseModel, frozen=True):

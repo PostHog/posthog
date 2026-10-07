@@ -477,7 +477,6 @@ describe('scoutCreateModalLogic', () => {
         ['scratchpad', "'scratchpad' is reserved by the inbox. Pick another name."],
         ['findings', "'findings' is reserved by the inbox. Pick another name."],
         ['runs', "'runs' is reserved by the inbox. Pick another name."],
-        ['trials', "'trials' is reserved by the inbox. Pick another name."],
         ['checkout-failures', undefined],
         ['signals-scout-checkout-failures', undefined],
     ])('validates a prefilled skill name %p', async (name, expectedError) => {

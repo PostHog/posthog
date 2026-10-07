@@ -99,10 +99,29 @@ describe('TraceWaterfallView', () => {
     })
 
     it('does not render a collapse toggle for leaf spans', () => {
-        const { container } = render(<TraceWaterfallView spans={[child]} />)
+        const { container } = render(<TraceWaterfallView spans={[root]} />)
 
         expect(within(container).queryByLabelText('Collapse child spans')).toBeNull()
         expect(within(container).queryByLabelText('Collapse all spans')).toBeNull()
+    })
+
+    it('puts spans whose parent is not loaded under one parent span missing row, which selects the missing id', () => {
+        const onSpanSelect = jest.fn()
+        const sibling = makeSpan({
+            uuid: 'uuid-sibling',
+            span_id: 'span-sibling',
+            parent_span_id: 'span-root',
+            name: 'sibling-operation',
+        })
+        const { container } = render(<TraceWaterfallView spans={[child, sibling]} onSpanSelect={onSpanSelect} />)
+
+        expect(container.querySelectorAll('[data-row-key^="missing-parent-"]')).toHaveLength(1)
+        clickSpanRow(container, '<parent span missing>')
+        expect(onSpanSelect).toHaveBeenCalledWith('span-root')
+
+        fireEvent.click(within(container).getByLabelText('Collapse child spans'))
+        expect(within(container).queryByText('child-operation')).toBeNull()
+        expect(within(container).queryByText('sibling-operation')).toBeNull()
     })
 
     it('does not request more spans when hasMore is false', () => {

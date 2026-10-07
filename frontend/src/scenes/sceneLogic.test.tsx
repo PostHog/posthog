@@ -6,6 +6,7 @@ import { expectLogic, partial, testUtilsContext, truth } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -54,6 +55,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.PasswordResetComplete]: sceneImport,
     [Scene.ProjectCreateFirst]: sceneImport,
     [Scene.Settings]: sceneImport,
+    Inbox: sceneImport,
     ScoutTrials: sceneImport,
     [Scene.ProjectFiles]: sceneImport,
 }
@@ -97,6 +99,8 @@ describe('sceneLogic', () => {
         [urls.settings('user'), Scene.Settings],
         [urls.projectFiles(), Scene.ProjectFiles],
         [urls.projectFiles('Research'), Scene.ProjectFiles],
+        [urls.inboxScout('trials'), 'Inbox'],
+        [urls.inboxScout('trials', 'finding-1'), 'Inbox'],
     ])('changing URL to %s loads its own scene', async (url, sceneId) => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             sceneId: Scene.DataManagement,
@@ -137,8 +141,8 @@ describe('sceneLogic', () => {
     })
 
     it.each<[string, boolean]>([
-        ['/inbox/scouts/trials', false],
-        ['/inbox/scouts/trials', true],
+        ['/inbox/scout-trials', false],
+        ['/inbox/scout-trials', true],
         ['/scout-trials', false],
         ['/scout-trials', true],
     ])(
@@ -156,7 +160,7 @@ describe('sceneLogic', () => {
                     .toDispatchActions(['openScene', 'loadScene', 'setScene'])
                     .toMatchValues({ activeSceneId: 'ScoutTrials' })
 
-                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual('/inbox/scouts/trials')
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual('/inbox/scout-trials')
                 expect(router.values.searchParams).toEqual({ source: 'bookmark' })
                 expect(router.values.hashParams).toEqual({ comparison: 'comparison-1' })
                 if (inbox) {
@@ -498,6 +502,16 @@ describe('sceneLogic', () => {
             router.actions.push(urls.projectHomepage())
             await expectLogic(logic).delay(1)
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+        })
+
+        it('stays on /home with the rail nav even when a homepage is configured', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.projectHomepage())
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
         })
 
         it('stays on the launchpad at /home when no homepage is configured', async () => {

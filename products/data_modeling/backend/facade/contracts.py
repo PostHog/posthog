@@ -11,6 +11,7 @@ surface is intentionally small and grows as consumers migrate to data reads.
 """
 
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
@@ -45,6 +46,20 @@ class SavedQuerySummary:
     team_id: int
     name: str
     last_run_at: datetime | None
+
+
+@dataclass(frozen=True)
+class SavedQueryDefinition:
+    """A saved query with its HogQL and materialization settings."""
+
+    id: UUID
+    name: str
+    hogql: str
+    is_materialized: bool
+    sync_frequency_interval: timedelta | None
+    is_test: bool
+    is_managed: bool
+    created_at: datetime
 
 
 @dataclass(frozen=True)

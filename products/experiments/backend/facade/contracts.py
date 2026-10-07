@@ -98,7 +98,12 @@ class ExperimentStatus:
 class ExperimentHealthFindingCode(LabeledStrEnum):
     # pinned: the page sends these values as `finding_code` on the health finding events
     # (products/experiments/frontend/health/experimentHealthFindingEvents.ts), and insights group on them.
+    FLAG_OFF_WHILE_RUNNING = "flag_off_while_running"
+    VARIANT_SHIPPED_WHILE_RUNNING = "variant_shipped_while_running"
+    FLAG_LIVE_AFTER_END = "flag_live_after_end"
+    FLAG_LIVE_BEFORE_LAUNCH = "flag_live_before_launch"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
+    NO_METRIC = "no_metric"
 
 
 class ExperimentHealthFindingSeverity(LabeledStrEnum):
@@ -111,8 +116,11 @@ class ExperimentHealthFindingSeverity(LabeledStrEnum):
 
 
 class ExperimentHealthFindingActionKind(LabeledStrEnum):
+    OPEN_FEATURE_FLAG = "open_feature_flag"
     ADJUST_DISTRIBUTION = "adjust_distribution"
     USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
+    ADD_PRIMARY_METRIC = "add_primary_metric"
+    ADD_SECONDARY_METRIC = "add_secondary_metric"
 
 
 @frozen

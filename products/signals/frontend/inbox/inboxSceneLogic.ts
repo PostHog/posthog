@@ -1341,6 +1341,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 closeAllSurfaces()
             },
             [urls.inbox(':tab')]: ({ tab }: { tab?: string }, searchParams, hashParams) => {
+                if (tab === 'scout-trials') {
+                    return
+                }
                 // Tab segments from the other inbox layout still arrive from Slack messages, bookmarks,
                 // and a flag that flipped between visits: send them to the surface that replaced them.
                 const redirectPath = inboxTabRedirectPath(tab, values.isRedesign)
@@ -1373,12 +1376,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 searchParams: Record<string, string | undefined>
             ) => {
                 // Static scout pages also match this pattern and must not select a scout.
-                if (
-                    skillName === 'scratchpad' ||
-                    skillName === 'findings' ||
-                    skillName === 'runs' ||
-                    skillName === 'trials'
-                ) {
+                if (skillName === 'scratchpad' || skillName === 'findings' || skillName === 'runs') {
                     return
                 }
                 const name = skillName ?? null

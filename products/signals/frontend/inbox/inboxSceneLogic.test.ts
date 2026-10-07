@@ -239,14 +239,17 @@ describe('inboxSceneLogic routing', () => {
     // Selecting a scout resets the tab, so the URL's tab had to be applied after that reset.
     describe('the scout page tab in the URL', () => {
         it.each([true, false])(
-            'keeps the nested trials page separate from scout details with redesign=%p',
+            'keeps trials separate from an existing scout named trials with redesign=%p',
             (redesign) => {
                 mountWithRedesign(redesign)
                 router.actions.push(urls.inboxScoutTrials())
                 expect(logic.values.selectedScoutSkillName).toBeNull()
-                expect(router.values.location.pathname.endsWith('/inbox/scouts/trials')).toBe(true)
-                router.actions.push(urls.inboxScout('comparisons'))
-                expect(logic.values.selectedScoutSkillName).toBe('comparisons')
+                expect(router.values.location.pathname.endsWith('/inbox/scout-trials')).toBe(true)
+                router.actions.push(urls.inboxScout('trials'))
+                expect(logic.values.selectedScoutSkillName).toBe('trials')
+                router.actions.push(urls.inboxScout('trials', 'finding-1'))
+                expect(logic.values.selectedScoutSkillName).toBe('trials')
+                expect(logic.values.selectedScoutFindingId).toBe('finding-1')
             }
         )
 
