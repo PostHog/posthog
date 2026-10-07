@@ -34,6 +34,7 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
+from requests import HTTPError
 from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
@@ -1383,6 +1384,13 @@ class SocialAuthExceptionMiddleware:
         if isinstance(exception, AuthCanceled):
             return redirect(sso_failure_redirect_url(request, "oauth_cancelled"))
 
+        # social_core lets a refused GitHub profile fetch escape as a raw HTTPError. GitHub refuses it
+        # when an enterprise or organization policy blocks the PostHog OAuth app.
+        if self._is_github_access_denied(request, exception):
+            logger.warning("github_oauth_access_denied", path=request.path)
+            statsd.incr("social_auth_github_access_denied")
+            exception = AuthFailed(None, "github_access_denied")
+
         # Handle AuthFailed with specific error codes that have dedicated frontend messages
         if isinstance(exception, AuthFailed) and len(exception.args) >= 1:
             error = exception.args[0]
@@ -1393,6 +1401,7 @@ class SocialAuthExceptionMiddleware:
                 "gitlab_sso_enforced",
                 "sso_enforced",
                 "reauth_user_mismatch",
+                "github_access_denied",
             ):
                 return redirect(sso_failure_redirect_url(request, error))
 
@@ -1404,6 +1413,14 @@ class SocialAuthExceptionMiddleware:
             return redirect(f"{url}{separator}{urlencode({'error_detail': error_detail})}")
 
         return None
+
+    def _is_github_access_denied(self, request: HttpRequest, exception: Exception) -> bool:
+        return (
+            isinstance(exception, HTTPError)
+            and request.path.startswith("/complete/github/")
+            and exception.response is not None
+            and exception.response.status_code == 403
+        )
 
     def _get_error_detail(self, exception: AuthException) -> str:
         error_detail = str(exception).strip()
