@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT picked.distinct_id AS \"distinct_id!\", picked.version AS \"version?\", picked.id AS \"id!\"\n                    FROM (\n                        (\n                            SELECT capped.distinct_id, capped.version, capped.id, false AS anonymous\n                            FROM (\n                                SELECT distinct_id, version, id\n                                FROM posthog_persondistinctid\n                                WHERE team_id = $1 AND person_id = $2 AND is_deleted = false\n                                LIMIT 2500\n                            ) capped\n                            WHERE capped.distinct_id !~ '^([a-z0-9]+-){4}[a-z0-9]+$'\n                            LIMIT $3\n                        )\n                        UNION ALL\n                        (\n                            SELECT capped.distinct_id, capped.version, capped.id, true AS anonymous\n                            FROM (\n                                SELECT distinct_id, version, id\n                                FROM posthog_persondistinctid\n                                WHERE team_id = $1 AND person_id = $2 AND is_deleted = false\n                                LIMIT 2500\n                            ) capped\n                            WHERE capped.distinct_id ~ '^([a-z0-9]+-){4}[a-z0-9]+$'\n                            LIMIT $3\n                        )\n                        LIMIT $3\n                    ) picked\n                    ORDER BY picked.anonymous, picked.id\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "distinct_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "version?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "id!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "45a72258c44f3e0bfe90de13d23290cc656061d2d7d03c09534b644f68ffa735"
+}
