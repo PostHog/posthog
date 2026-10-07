@@ -26,10 +26,14 @@ from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALL
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
+from posthog.constants import AvailableFeature
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
+from posthog.models import OrganizationMembership
 from posthog.models.utils import UUIDT
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
@@ -551,3 +555,40 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = runner.calculate()
         self.assertEqual(len(response.results), 5)
+
+
+@patch("posthoganalytics.feature_enabled", new=MagicMock(return_value=True))
+class TestQueryRunnerWarehouseAccessBypass(APIBaseTest):
+    def test_bypass_rebuilds_the_database_and_changes_the_cache_key(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="denied_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(view.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        runner = get_query_runner(
+            {"kind": "HogQLQuery", "query": "SELECT id FROM denied_view"}, self.team, user=self.user
+        )
+        assert "denied_view" in runner.shared_database._denied_tables
+        denied_cache_key = runner.get_cache_key()
+
+        runner.bypass_warehouse_access_control()
+
+        # A bypass result must never be served from the denied user's cache entry, or the other way round.
+        assert "denied_view" not in runner.shared_database._denied_tables
+        assert runner.get_cache_key() != denied_cache_key
