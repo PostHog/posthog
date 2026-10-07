@@ -296,7 +296,7 @@ export function TrendsPieChart({
             <InsightEmptyState
                 heading={context?.emptyStateHeading}
                 detail={context?.emptyStateDetail}
-                sampleDataVariant="pie"
+                sampleDataVariant={isProportionBar ? 'proportionBar' : 'pie'}
             />
         )
     }
