@@ -179,7 +179,7 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
             }
             const rect = e.currentTarget.getBoundingClientRect()
             const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top }
-            const hit = originatesInInteractiveOverlay(e) ? null : sankeyHitAt(current, cursor)
+            const hit = sankeyHitAt(current, cursor)
             if (!hit) {
                 clearTooltip()
                 reportHover(null)

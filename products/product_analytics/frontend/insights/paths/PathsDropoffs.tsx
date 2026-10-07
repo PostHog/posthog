@@ -32,7 +32,7 @@ export function PathsDropoffs(): JSX.Element {
                     <div
                         key={node.id}
                         // The block covers ribbons the canvas still hit-tests, so it opts out of the
-                        // chart's hover tracking as the SVG renderer's drop-off rect did.
+                        // chart's hover tracking to keep a dropped-off area from showing a ribbon.
                         data-hog-charts-interactive-overlay
                         className="absolute bg-gradient-to-b from-[var(--paths-dropoff)] to-[var(--color-bg-surface-primary)]"
                         // eslint-disable-next-line react/forbid-dom-props
