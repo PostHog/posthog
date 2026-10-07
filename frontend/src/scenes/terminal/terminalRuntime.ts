@@ -94,6 +94,13 @@ export class TerminalRuntime {
         this.emulator?.send({ type: 'display', visible: false })
     }
 
+    private attachNetplay(emulator: TerminalWorkerClient, netplay?: TerminalNetplay): void {
+        if (netplay) {
+            netplay.attach((bytes) => emulator.serial_send_bytes(2, bytes))
+            emulator.add_listener('serial2-output-byte', (byte: number) => netplay.receive(byte))
+        }
+    }
+
     async start(
         server: NinePServer,
         signal: AbortSignal,
@@ -153,10 +160,7 @@ export class TerminalRuntime {
         const abort = (): void => this.dispose()
         signal.addEventListener('abort', abort, { once: true })
         this.removeAbortListener = () => signal.removeEventListener('abort', abort)
-        if (netplay) {
-            netplay.attach((bytes) => emulator.serial_send_bytes(2, bytes))
-            emulator.add_listener('serial2-output-byte', (byte: number) => netplay.receive(byte))
-        }
+        this.attachNetplay(emulator, netplay)
         let boot = ''
         let configured = false
         emulator.add_listener('serial1-output-byte', (byte: number) => {

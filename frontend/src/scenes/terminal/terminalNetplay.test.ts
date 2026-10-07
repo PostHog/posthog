@@ -17,6 +17,7 @@ class FakeChannel extends EventTarget {
 
 class FakeConnection extends EventTarget {
     static created: FakeConnection[] = []
+    static configure?: (connection: FakeConnection) => void
     iceGatheringState: RTCIceGatheringState = 'complete'
     localDescription: { sdp: string } | null = null
     channel = new FakeChannel()
@@ -30,6 +31,7 @@ class FakeConnection extends EventTarget {
     constructor() {
         super()
         FakeConnection.created.push(this)
+        FakeConnection.configure?.(this)
     }
 }
 
@@ -51,6 +53,7 @@ describe('terminal Doom netplay', () => {
     beforeEach(() => {
         jest.useFakeTimers()
         FakeConnection.created = []
+        FakeConnection.configure = undefined
         globalThis.RTCPeerConnection = FakeConnection as unknown as typeof RTCPeerConnection
         mailbox.mockReset().mockResolvedValue({ signals: [] })
         signal.mockReset().mockResolvedValue(undefined)
@@ -104,6 +107,8 @@ describe('terminal Doom netplay', () => {
             { room, sender: 'host', recipient: 'abc', description: { type: 'answer', sdp: 'local sdp 0' } },
             expect.anything()
         )
+        expect(mailbox.mock.calls[0][2].headers['X-Terminal-Netplay-Token']).toMatch(/^[a-f0-9]{64}$/)
+        expect(signal.mock.calls[0][2].headers).toEqual(mailbox.mock.calls[0][2].headers)
 
         connection.channel.dispatchEvent(new MessageEvent('message', { data: Uint8Array.from([1, 2, 3]).buffer }))
         fromGuest(1, [9, 8])
@@ -138,6 +143,8 @@ describe('terminal Doom netplay', () => {
         )
         expect(connection.setRemoteDescription).toHaveBeenCalledWith({ type: 'answer', sdp: 'answer' })
         expect(guest).toEqual([{ peer: 255, text: 'joined', bytes: expect.any(Array) }])
+        expect(signal.mock.calls[0][2].headers['X-Terminal-Netplay-Token']).toMatch(/^[a-f0-9]{64}$/)
+        expect(mailbox.mock.calls[0][2].headers).toEqual(signal.mock.calls[0][2].headers)
 
         connection.channel.dispatchEvent(new MessageEvent('message', { data: Uint8Array.from([4]).buffer }))
         fromGuest(0, [5])
@@ -145,6 +152,106 @@ describe('terminal Doom netplay', () => {
         expect(guest[1].peer).toBe(0)
         expect(guest[1].bytes).toEqual([4])
         expect(connection.channel.send).toHaveBeenCalledWith(Uint8Array.from([5]))
+    })
+
+    it('ignores repeated offers from the same player', async () => {
+        const offer = { sender: 'abc', description: { type: 'offer', sdp: 'offer' } }
+        mailbox.mockResolvedValue({ signals: [offer, offer] })
+
+        fromGuest(255, 'host')
+        await jest.advanceTimersByTimeAsync(2000)
+
+        expect(FakeConnection.created).toHaveLength(1)
+        expect(signal).toHaveBeenCalledTimes(1)
+    })
+
+    it('closes rejected offers and reuses their peer slots', async () => {
+        FakeConnection.configure = (connection) => {
+            connection.setRemoteDescription.mockRejectedValue(new Error('Invalid SDP'))
+        }
+        mailbox.mockResolvedValueOnce({
+            signals: ['a', 'b', 'c'].map((sender) => ({ sender, description: { type: 'offer', sdp: 'invalid' } })),
+        })
+        fromGuest(255, 'host')
+        await jest.advanceTimersByTimeAsync(0)
+        for (const connection of FakeConnection.created) {
+            expect(connection.close).toHaveBeenCalledTimes(1)
+        }
+        expect(signal).not.toHaveBeenCalled()
+
+        FakeConnection.configure = undefined
+        mailbox.mockResolvedValueOnce({ signals: [{ sender: 'a', description: { type: 'offer', sdp: 'valid' } }] })
+        await jest.advanceTimersByTimeAsync(1000)
+        const connection = FakeConnection.created[3]
+        fromGuest(1, [7])
+
+        expect(connection.channel.send).toHaveBeenCalledWith(Uint8Array.from([7]))
+        expect(signal).toHaveBeenCalledTimes(1)
+    })
+
+    it('bounds pending connections and releases them when the channel never opens', async () => {
+        FakeConnection.configure = (connection) => {
+            connection.channel.readyState = 'connecting'
+        }
+        mailbox.mockResolvedValueOnce({
+            signals: Array.from({ length: 17 }, (_, index) => ({
+                sender: `player${index}`,
+                description: { type: 'offer', sdp: 'offer' },
+            })),
+        })
+        fromGuest(255, 'host')
+        await jest.advanceTimersByTimeAsync(0)
+        expect(FakeConnection.created).toHaveLength(16)
+
+        await jest.advanceTimersByTimeAsync(20_000)
+        for (const connection of FakeConnection.created) {
+            expect(connection.close).toHaveBeenCalledTimes(1)
+        }
+        FakeConnection.configure = undefined
+        mailbox.mockResolvedValueOnce({
+            signals: [{ sender: 'player0', description: { type: 'offer', sdp: 'retry' } }],
+        })
+        await jest.advanceTimersByTimeAsync(1000)
+        fromGuest(1, [7])
+        expect(FakeConnection.created[16].channel.send).toHaveBeenCalledWith(Uint8Array.from([7]))
+    })
+
+    it('ignores answers from anyone other than the host', async () => {
+        mailbox
+            .mockResolvedValueOnce({ signals: [{ sender: 'other', description: { type: 'answer', sdp: 'forged' } }] })
+            .mockResolvedValueOnce({ signals: [{ sender: 'host', description: { type: 'answer', sdp: 'answer' } }] })
+        fromGuest(255, 'join ABC123')
+        await jest.advanceTimersByTimeAsync(500)
+        const [connection] = FakeConnection.created
+        expect(connection.setRemoteDescription).not.toHaveBeenCalled()
+
+        await jest.advanceTimersByTimeAsync(500)
+        expect(connection.setRemoteDescription).toHaveBeenCalledWith({ type: 'answer', sdp: 'answer' })
+    })
+
+    it('discards a mailbox response that arrives after the session ends', async () => {
+        let respond!: (value: unknown) => void
+        mailbox.mockReturnValueOnce(new Promise((resolve) => (respond = resolve)))
+        fromGuest(255, 'host')
+        session.abort()
+        respond({ signals: [{ sender: 'abc', description: { type: 'offer', sdp: 'offer' } }] })
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(FakeConnection.created).toHaveLength(0)
+        expect(guest).toEqual([])
+    })
+
+    it('closes pending negotiations when the host launches', async () => {
+        FakeConnection.configure = (connection) => {
+            connection.channel.readyState = 'connecting'
+        }
+        mailbox.mockResolvedValueOnce({ signals: [{ sender: 'abc', description: { type: 'offer', sdp: 'offer' } }] })
+        fromGuest(255, 'host')
+        await jest.advanceTimersByTimeAsync(0)
+        fromGuest(255, 'launched')
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(FakeConnection.created[0].close).toHaveBeenCalledTimes(1)
     })
 
     it.each([
@@ -164,5 +271,6 @@ describe('terminal Doom netplay', () => {
         await jest.advanceTimersByTimeAsync(30_000)
 
         expect(guest).toEqual([{ peer: 255, text: message, bytes: expect.any(Array) }])
+        expect(FakeConnection.created[0].close).toHaveBeenCalledTimes(1)
     })
 })

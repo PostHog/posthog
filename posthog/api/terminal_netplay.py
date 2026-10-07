@@ -1,11 +1,13 @@
+import re
 import json
-from typing import cast
+import hashlib
+from typing import TYPE_CHECKING, cast
 
 from django.http import HttpResponse
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -16,6 +18,9 @@ from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.redis import get_client
 
+if TYPE_CHECKING:
+    from redis.client import Pipeline
+
 # Browser terminals exchange WebRTC session descriptions through short-lived mailboxes.
 # Game traffic flows directly between browsers, so this only carries a few messages per player.
 HOST = "host"
@@ -24,6 +29,89 @@ MAILBOX_TTL_SECONDS = 60
 MAILBOX_LIMIT = 16
 PEER_PATTERN = r"^[a-z0-9]{1,32}$"
 ROOM_PATTERN = r"^[A-Z0-9]{4,12}$"
+TOKEN_HEADER = "X-Terminal-Netplay-Token"
+TOKEN_PARAMETER = OpenApiParameter(
+    TOKEN_HEADER,
+    str,
+    OpenApiParameter.HEADER,
+    required=True,
+    pattern=r"^[a-f0-9]{64}$",
+    description="Random token unique to this terminal's game. Keep it private and reuse it for all signaling requests.",
+)
+
+
+class TerminalNetplayRoom:
+    def __init__(self, team_id: int, room: str, owner: str) -> None:
+        self.key = f"terminal_netplay:{team_id}:{room}"
+        self.owner = owner.encode()
+        self.client = get_client()
+
+    def _host(self, pipeline: Pipeline) -> bytes:
+        host = cast(bytes | None, pipeline.get(self.key))
+        if host is None:
+            raise NotFound("No deathmatch room has this code. Check the code and try again.")
+        return host
+
+    def _check_owner(self, owner: bytes | None) -> None:
+        if owner != self.owner:
+            raise PermissionDenied("This terminal does not own that player. Start a new game and try again.")
+
+    def _mailbox_key(self, host: bytes, peer: str) -> str:
+        # A new host token isolates mailboxes left behind by an expired room with the same code.
+        return f"{self.key}:{host.decode()}:{peer}"
+
+    def _peer_owner(self, pipeline: Pipeline, host: bytes, peer: str) -> bytes | None:
+        if peer == HOST:
+            return host
+        key = f"{self._mailbox_key(host, peer)}:owner"
+        pipeline.watch(key)
+        return cast(bytes | None, pipeline.get(key))
+
+    def send(self, sender: str, recipient: str, description: dict[str, str]) -> None:
+        is_offer = sender != HOST and recipient == HOST and description["type"] == "offer"
+        is_answer = sender == HOST and recipient != HOST and description["type"] == "answer"
+        if not (is_offer or is_answer):
+            raise ValidationError("Send offers to the host and answers to the joining player.")
+
+        def deliver(pipeline: Pipeline) -> None:
+            host = self._host(pipeline)
+            registered_owner = self._peer_owner(pipeline, host, sender)
+            if is_answer or registered_owner is not None:
+                self._check_owner(registered_owner)
+            recipient_owner = self._peer_owner(pipeline, host, recipient) if is_answer else None
+            if is_answer and recipient_owner is None:
+                raise NotFound("This player is no longer in the room. Ask them to join again.")
+            key = self._mailbox_key(host, recipient)
+            message = json.dumps({"sender": sender, "description": description})
+            pipeline.multi()
+            if is_offer:
+                pipeline.set(f"{self._mailbox_key(host, sender)}:owner", self.owner, ex=MAILBOX_TTL_SECONDS)
+            elif recipient_owner is not None:
+                pipeline.set(f"{key}:owner", recipient_owner, ex=MAILBOX_TTL_SECONDS)
+            pipeline.rpush(key, message)
+            pipeline.ltrim(key, -MAILBOX_LIMIT, -1)
+            pipeline.expire(key, MAILBOX_TTL_SECONDS)
+
+        self.client.transaction(deliver, self.key)
+
+    def read(self, peer: str) -> list[bytes]:
+        def consume(pipeline: Pipeline) -> None:
+            host = cast(bytes | None, pipeline.get(self.key))
+            if peer == HOST:
+                if host is not None:
+                    self._check_owner(host)
+                host = self.owner
+            else:
+                host = self._host(pipeline)
+                self._check_owner(self._peer_owner(pipeline, host, peer))
+            key = self._mailbox_key(host, peer)
+            pipeline.multi()
+            if peer == HOST:
+                pipeline.set(self.key, self.owner, ex=ROOM_TTL_SECONDS)
+            pipeline.lrange(key, 0, -1)
+            pipeline.delete(key)
+
+        return cast(list[bytes], self.client.transaction(consume, self.key)[-2])
 
 
 class TerminalNetplayDescriptionSerializer(serializers.Serializer):
@@ -57,6 +145,8 @@ class TerminalNetplayViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication]
 
     def _check_enabled(self, request: Request) -> None:
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            raise PermissionDenied("Sign in to use the terminal.")
         user = cast(User, request.user)
         if not feature_enabled_or_false(
             "posthog-terminal",
@@ -65,15 +155,18 @@ class TerminalNetplayViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ):
             raise PermissionDenied("The terminal is not enabled for this account.")
 
-    def _room_key(self, room: str) -> str:
-        return f"terminal_netplay:{self.team.id}:{room}"
-
-    def _mailbox_key(self, room: str, peer: str) -> str:
-        return f"{self._room_key(room)}:{peer}"
+    def _room(self, request: Request, room: str) -> TerminalNetplayRoom:
+        token = request.headers.get(TOKEN_HEADER, "")
+        if re.fullmatch(r"[a-f0-9]{64}", token) is None:
+            raise PermissionDenied("The game token is missing or invalid. Start a new game and try again.")
+        user = cast(User, request.user)
+        owner = hashlib.sha256(f"{user.pk}:{token}".encode()).hexdigest()
+        return TerminalNetplayRoom(self.team_id, room, owner)
 
     @extend_schema(
         tags=["core"],
         request=TerminalNetplaySignalSerializer,
+        parameters=[TOKEN_PARAMETER],
         responses={204: OpenApiResponse(description="Delivered."), 404: OpenApiResponse(description="No such room.")},
         description="Send a WebRTC session description to another terminal in a Doom room.",
     )
@@ -83,21 +176,12 @@ class TerminalNetplayViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = TerminalNetplaySignalSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        client = get_client()
-        if data["recipient"] == HOST and not client.exists(self._room_key(data["room"])):
-            raise NotFound("No deathmatch room has this code. Check the code and try again.")
-        key = self._mailbox_key(data["room"], data["recipient"])
-        message = json.dumps({"sender": data["sender"], "description": data["description"]})
-        pipeline = client.pipeline()
-        pipeline.rpush(key, message)
-        pipeline.ltrim(key, -MAILBOX_LIMIT, -1)
-        pipeline.expire(key, MAILBOX_TTL_SECONDS)
-        pipeline.execute()
+        self._room(request, data["room"]).send(data["sender"], data["recipient"], data["description"])
         return HttpResponse(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         tags=["core"],
-        parameters=[TerminalNetplayMailboxQuerySerializer],
+        parameters=[TerminalNetplayMailboxQuerySerializer, TOKEN_PARAMETER],
         responses={200: TerminalNetplayMailboxSerializer},
         description="Read and clear a terminal's WebRTC mailbox. Reading the host mailbox keeps the room open.",
     )
@@ -108,11 +192,5 @@ class TerminalNetplayViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         room = serializer.validated_data["room"]
         peer = serializer.validated_data["peer"]
-        key = self._mailbox_key(room, peer)
-        pipeline = get_client().pipeline()
-        if peer == HOST:
-            pipeline.set(self._room_key(room), 1, ex=ROOM_TTL_SECONDS)
-        pipeline.lrange(key, 0, -1)
-        pipeline.delete(key)
-        messages = pipeline.execute()[-2]
+        messages = self._room(request, room).read(peer)
         return Response({"signals": [json.loads(message) for message in messages]})

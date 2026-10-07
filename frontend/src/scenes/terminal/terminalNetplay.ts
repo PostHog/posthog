@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 import { ApiError } from 'lib/api-error'
 
 import { terminalNetplayMailboxRetrieve, terminalNetplaySignalCreate } from '~/generated/core/api'
+import type { TerminalNetplayReceivedSignalApi } from '~/generated/core/api.schemas'
 
 // Doom's network module in PostHog/terminal-assets sends SLIP frames over the guest's third serial port.
 // The first byte names the peer: guest frames name the destination, and host frames name the source.
@@ -20,6 +21,16 @@ const HOST_POLL_MS = 1000
 const JOIN_POLL_MS = 500
 const JOIN_TIMEOUT_MS = 20_000
 const GATHER_TIMEOUT_MS = 3000
+const MAX_PENDING_PEERS = 16
+
+interface HostLobby {
+    room: string
+    token: string
+    game: AbortSignal
+    signal: AbortSignal
+    peers: Map<string, number>
+    pending: Set<string>
+}
 
 export function encodeFrame(peer: number, payload: Uint8Array): Uint8Array {
     const bytes = [SLIP_END]
@@ -74,6 +85,10 @@ function randomCode(alphabet: string, length: number): string {
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
     return new Promise((resolve) => {
+        if (signal.aborted) {
+            resolve()
+            return
+        }
         const timer = setTimeout(done, ms)
         signal.addEventListener('abort', done, { once: true })
         function done(): void {
@@ -85,26 +100,32 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 // Sending complete descriptions avoids a second signaling round trip for each ICE candidate.
-function gathered(connection: RTCPeerConnection): Promise<void> {
+function gathered(connection: RTCPeerConnection, signal: AbortSignal): Promise<void> {
     return new Promise((resolve) => {
         const timer = setTimeout(done, GATHER_TIMEOUT_MS)
         connection.addEventListener('icegatheringstatechange', check)
+        signal.addEventListener('abort', done, { once: true })
         check()
         function check(): void {
-            if (connection.iceGatheringState === 'complete') {
+            if (signal.aborted || connection.iceGatheringState === 'complete') {
                 done()
             }
         }
         function done(): void {
             clearTimeout(timer)
             connection.removeEventListener('icegatheringstatechange', check)
+            signal.removeEventListener('abort', done)
             resolve()
         }
     })
 }
 
-function opened(channel: RTCDataChannel, timeout: number): Promise<boolean> {
+function opened(channel: RTCDataChannel, timeout: number, signal: AbortSignal): Promise<boolean> {
     return new Promise((resolve) => {
+        if (signal.aborted) {
+            resolve(false)
+            return
+        }
         if (channel.readyState === 'open') {
             resolve(true)
             return
@@ -114,10 +135,12 @@ function opened(channel: RTCDataChannel, timeout: number): Promise<boolean> {
         const close = (): void => done(false)
         channel.addEventListener('open', open)
         channel.addEventListener('close', close)
+        signal.addEventListener('abort', close, { once: true })
         function done(result: boolean): void {
             clearTimeout(timer)
             channel.removeEventListener('open', open)
             channel.removeEventListener('close', close)
+            signal.removeEventListener('abort', close)
             resolve(result)
         }
     })
@@ -187,7 +210,10 @@ export class TerminalNetplay {
         this.channels.clear()
     }
 
-    private connect(peer: number, game: AbortSignal): { connection: RTCPeerConnection; channel: RTCDataChannel } {
+    private connect(
+        peer: number,
+        game: AbortSignal
+    ): { connection: RTCPeerConnection; channel: RTCDataChannel; close: () => void } {
         const connection = new RTCPeerConnection({ iceServers: ICE_SERVERS })
         // Doom resends lost packets itself, so late packets are worse than lost ones.
         const channel = connection.createDataChannel('doom', {
@@ -197,39 +223,53 @@ export class TerminalNetplay {
             maxRetransmits: 0,
         })
         channel.binaryType = 'arraybuffer'
+        let closed = false
         channel.addEventListener('message', ({ data }: MessageEvent<ArrayBuffer>) => {
-            if (!game.aborted && data.byteLength <= MAX_FRAME) {
+            if (!closed && !game.aborted && data.byteLength <= MAX_FRAME) {
                 this.send?.(encodeFrame(peer, new Uint8Array(data)))
             }
         })
-        game.addEventListener('abort', () => connection.close(), { once: true })
+        const close = (): void => {
+            if (closed) {
+                return
+            }
+            closed = true
+            game.removeEventListener('abort', close)
+            channel.removeEventListener('close', close)
+            connection.close()
+            if (this.channels.get(peer) === channel) {
+                this.channels.delete(peer)
+            }
+        }
+        game.addEventListener('abort', close, { once: true })
+        channel.addEventListener('close', close, { once: true })
         this.channels.set(peer, channel)
-        return { connection, channel }
+        return { connection, channel, close }
     }
 
     private async host(game: AbortSignal): Promise<void> {
         const room = randomCode(ROOM_ALPHABET, 6)
         const lobby = (this.lobby = new AbortController())
         const signal = lobby.signal
-        let nextPeer = HOST_PEER + 1
+        const token = randomCode('0123456789abcdef', 64)
+        const state: HostLobby = { room, token, game, signal, peers: new Map(), pending: new Set() }
         let announced = false
         while (!signal.aborted) {
             try {
                 const { signals } = await terminalNetplayMailboxRetrieve(
                     this.projectId,
                     { room, peer: 'host' },
-                    { signal }
+                    { signal, headers: { 'X-Terminal-Netplay-Token': token } }
                 )
+                if (signal.aborted) {
+                    return
+                }
                 if (!announced) {
                     announced = true
                     this.reply(`room ${room}`)
                     posthog.capture('terminal deathmatch hosted')
                 }
-                for (const { sender, description } of signals) {
-                    if (description.type === 'offer' && nextPeer < CONTROL_PEER) {
-                        void this.accept(room, sender, description.sdp, nextPeer++, game)
-                    }
-                }
+                this.acceptOffers(state, signals)
             } catch (error) {
                 if (signal.aborted) {
                     return
@@ -243,37 +283,112 @@ export class TerminalNetplay {
         }
     }
 
-    private async accept(room: string, sender: string, sdp: string, peer: number, game: AbortSignal): Promise<void> {
+    private acceptOffers(lobby: HostLobby, signals: TerminalNetplayReceivedSignalApi[]): void {
+        for (const { sender, description } of signals) {
+            if (description.type !== 'offer' || lobby.peers.has(sender) || lobby.pending.size >= MAX_PENDING_PEERS) {
+                continue
+            }
+            const allocated = new Set(lobby.peers.values())
+            let peer = HOST_PEER + 1
+            while (allocated.has(peer)) {
+                peer++
+            }
+            if (peer < CONTROL_PEER) {
+                lobby.peers.set(sender, peer)
+                lobby.pending.add(sender)
+                void this.accept(lobby, sender, description.sdp, peer)
+            }
+        }
+    }
+
+    private async accept(lobby: HostLobby, sender: string, sdp: string, peer: number): Promise<void> {
+        const negotiation = new AbortController()
+        const signal = negotiation.signal
+        const abort = (): void => negotiation.abort()
+        const timeout = setTimeout(abort, JOIN_TIMEOUT_MS)
+        lobby.signal.addEventListener('abort', abort, { once: true })
+        let close: (() => void) | undefined
+        let connected = false
         try {
-            const { connection } = this.connect(peer, game)
+            const client = this.connect(peer, lobby.game)
+            close = client.close
+            signal.addEventListener('abort', client.close, { once: true })
+            const { connection, channel } = client
             await connection.setRemoteDescription({ type: 'offer', sdp })
+            if (signal.aborted) {
+                return
+            }
             await connection.setLocalDescription()
-            await gathered(connection)
-            if (game.aborted || !connection.localDescription) {
+            await gathered(connection, signal)
+            if (signal.aborted || !connection.localDescription) {
                 return
             }
             await terminalNetplaySignalCreate(
                 this.projectId,
                 {
-                    room,
+                    room: lobby.room,
                     sender: 'host',
                     recipient: sender,
                     description: { type: 'answer', sdp: connection.localDescription.sdp },
                 },
-                { signal: game }
+                { signal, headers: { 'X-Terminal-Netplay-Token': lobby.token } }
             )
+            connected = await opened(channel, JOIN_TIMEOUT_MS, signal)
         } catch {
             // The joining player reports the failure when the answer does not arrive.
+        } finally {
+            clearTimeout(timeout)
+            lobby.signal.removeEventListener('abort', abort)
+            if (close) {
+                signal.removeEventListener('abort', close)
+            }
+            lobby.pending.delete(sender)
+            if (!connected) {
+                close?.()
+                lobby.peers.delete(sender)
+            }
+        }
+    }
+
+    private async waitForAnswer(
+        room: string,
+        peer: string,
+        token: string,
+        deadline: number,
+        game: AbortSignal
+    ): Promise<string | undefined> {
+        while (!game.aborted) {
+            if (Date.now() > deadline) {
+                throw new NetplayError('The host did not answer. Check the room code and try again.')
+            }
+            await sleep(JOIN_POLL_MS, game)
+            if (game.aborted) {
+                return
+            }
+            const { signals } = await terminalNetplayMailboxRetrieve(
+                this.projectId,
+                { room, peer },
+                { signal: game, headers: { 'X-Terminal-Netplay-Token': token } }
+            )
+            const answer = signals.find(({ sender, description }) => sender === 'host' && description.type === 'answer')
+            if (answer) {
+                return answer.description.sdp
+            }
         }
     }
 
     private async join(room: string, game: AbortSignal): Promise<void> {
         const id = randomCode('abcdefghijklmnopqrstuvwxyz0123456789', 16)
+        const token = randomCode('0123456789abcdef', 64)
         const deadline = Date.now() + JOIN_TIMEOUT_MS
+        let close: (() => void) | undefined
+        let connected = false
         try {
-            const { connection, channel } = this.connect(HOST_PEER, game)
+            const client = this.connect(HOST_PEER, game)
+            close = client.close
+            const { connection, channel } = client
             await connection.setLocalDescription()
-            await gathered(connection)
+            await gathered(connection, game)
             if (game.aborted || !connection.localDescription) {
                 return
             }
@@ -285,26 +400,15 @@ export class TerminalNetplay {
                     recipient: 'host',
                     description: { type: 'offer', sdp: connection.localDescription.sdp },
                 },
-                { signal: game }
+                { signal: game, headers: { 'X-Terminal-Netplay-Token': token } }
             )
-            let answer: string | undefined
-            while (!answer) {
-                if (Date.now() > deadline) {
-                    throw new NetplayError('The host did not answer. Check the room code and try again.')
-                }
-                await sleep(JOIN_POLL_MS, game)
-                if (game.aborted) {
-                    return
-                }
-                const { signals } = await terminalNetplayMailboxRetrieve(
-                    this.projectId,
-                    { room, peer: id },
-                    { signal: game }
-                )
-                answer = signals.find(({ description }) => description.type === 'answer')?.description.sdp
+            const answer = await this.waitForAnswer(room, id, token, deadline, game)
+            if (game.aborted || !answer) {
+                return
             }
             await connection.setRemoteDescription({ type: 'answer', sdp: answer })
-            if (!(await opened(channel, Math.max(deadline - Date.now(), 5000)))) {
+            connected = await opened(channel, Math.max(deadline - Date.now(), 5000), game)
+            if (!connected) {
                 throw new NetplayError(
                     'Could not connect to the host. A firewall or VPN may block peer-to-peer connections.'
                 )
@@ -317,6 +421,10 @@ export class TerminalNetplay {
             if (!game.aborted) {
                 this.reply(`error ${this.describe(error, 'Could not join the deathmatch. Try again.')}`)
                 posthog.capture('terminal deathmatch joined', { success: false })
+            }
+        } finally {
+            if (!connected) {
+                close?.()
             }
         }
     }
