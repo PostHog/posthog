@@ -14,6 +14,14 @@ const SINGLE = funnelFromCounts([
     { label: STEPS[3], count: 1289 },
 ])
 
+// An empty step and a near-empty step, where only the drop-off track would otherwise fill the band.
+const ZERO_STEP = funnelFromCounts([
+    { label: STEPS[0], count: 12840 },
+    { label: STEPS[1], count: 7921 },
+    { label: STEPS[2], count: 0 },
+    { label: STEPS[3], count: 26 },
+])
+
 // Multi-variant comparison: every variant starts at 100% (the first step is the basis).
 const VARIANT_STEPS = ['Viewed pricing', 'Started checkout']
 const VARIANT_SERIES: Series[] = [
@@ -32,6 +40,17 @@ export const SingleSeries: Story = {
         return (
             <Stage width={640}>
                 <FunnelChart steps={SINGLE.steps} series={SINGLE.series} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+export const ZeroConversionStep: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={640}>
+                <FunnelChart steps={ZERO_STEP.steps} series={ZERO_STEP.series} theme={theme} />
             </Stage>
         )
     },
