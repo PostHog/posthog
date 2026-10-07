@@ -9,7 +9,12 @@ from posthog.hogql.utils import deserialize_hx_ast, is_simple_value
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from common.hogvm.python.stl import BLOCKING_FUNCTIONS
-from common.hogvm.python.utils import MAX_MEMORY, HogVMMemoryExceededException, HogVMRuntimeExceededException
+from common.hogvm.python.utils import (
+    MAX_MEMORY,
+    HogVMMemoryExceededException,
+    HogVMRuntimeExceededException,
+    calculate_cost,
+)
 
 # Placeholder expressions run through the Hog VM on the request thread. Bound the work per query,
 # not per expression: one deadline shared across all placeholders, and a cap on how many a single
@@ -108,6 +113,14 @@ class ReplacePlaceholders(CloningVisitor):
             and isinstance(value := self.placeholders.get(str(node.expr.chain[0])), ast.Expr)
         ):
             expr = deepcopy(value)
+            # Charge the same cost the VM charges for this lookup, so the shared budgets still apply.
+            self._remaining_memory -= calculate_cost(value)
+            if self._remaining_memory < 0:
+                raise QueryError(
+                    "Expanding this query's placeholders needs too much memory. Simplify it and try again."
+                )
+            if time.monotonic() >= self._deadline:
+                raise QueryError("Expanding this query's placeholders took too long. Simplify it and try again.")
             expr.start = node.start
             expr.end = node.end
             return expr
