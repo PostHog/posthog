@@ -169,7 +169,7 @@ class TestEnforceSelfDrivingRunQuotaActivity:
             patch(f"{MODULE}.capture_signal_report_quota_paused"),
             patch("products.tasks.backend.facade.cancellation.cancel_task_run", return_value=("accepted", None)),
             patch(
-                "products.signals.backend.task_run_artefacts.release_quota_cancelled_implementation",
+                "products.signals.backend.facade.api.release_quota_cancelled_implementation",
                 side_effect=RuntimeError("db down"),
             ),
         ):

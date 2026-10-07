@@ -2125,7 +2125,7 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
         from products.signals.backend.quota import SelfDrivingQuotaGate
 
         return patch(
-            "products.signals.backend.quota.self_driving_quota_gate",
+            "products.signals.backend.facade.api.self_driving_quota_gate",
             return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
         )
 
@@ -2136,7 +2136,7 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
 
         with (
             self._enforced_gate(),
-            patch("products.signals.backend.quota.capture_signal_report_quota_paused") as capture_mock,
+            patch("products.signals.backend.facade.api.capture_signal_report_quota_paused") as capture_mock,
             self.assertRaises(QuotaLimitExceeded),
         ):
             facade.create_and_run_task(
@@ -2180,10 +2180,10 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
         Integration.objects.create(team=self.team, kind="github", config={})
         with (
             patch(
-                "products.signals.backend.quota.self_driving_quota_gate",
+                "products.signals.backend.facade.api.self_driving_quota_gate",
                 return_value=SelfDrivingQuotaGate(limited=True, enforced=False),
             ),
-            patch("products.signals.backend.quota.capture_signal_report_quota_paused") as capture_mock,
+            patch("products.signals.backend.facade.api.capture_signal_report_quota_paused") as capture_mock,
         ):
             created = facade.create_and_run_task(
                 team=self.team,
@@ -2225,7 +2225,7 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
         report = SignalReport.objects.create(team=self.team, status="ready", title="t", summary="s")
         with (
             self._enforced_gate(),
-            patch("products.signals.backend.quota.capture_signal_report_quota_paused") as capture_mock,
+            patch("products.signals.backend.facade.api.capture_signal_report_quota_paused") as capture_mock,
             self.assertRaises(QuotaLimitExceeded),
         ):
             facade.create_task(
@@ -2568,7 +2568,7 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
         cls.user = User.objects.create(email="trial-facade@test.com", distinct_id="trial-facade-distinct")
 
     def _on_trial(self):
-        return patch("products.signals.backend.free_trial.self_driving_free_trial_enabled", return_value=True)
+        return patch("products.signals.backend.facade.api.self_driving_free_trial_enabled", return_value=True)
 
     def _report(self):
         SignalReport = apps.get_model("signals", "SignalReport")
@@ -2583,7 +2583,7 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
         report = self._report()
         with (
             self._on_trial(),
-            patch("products.signals.backend.free_trial.capture_signal_report_free_trial_paused") as capture_mock,
+            patch("products.signals.backend.facade.api.capture_signal_report_free_trial_paused") as capture_mock,
             self.assertRaises(FreeTrialPullRequestRefused) as raised,
         ):
             facade.create_task(
@@ -2641,7 +2641,7 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
 
         with (
             self._on_trial(),
-            patch("products.signals.backend.free_trial.capture_signal_report_free_trial_paused") as capture_mock,
+            patch("products.signals.backend.facade.api.capture_signal_report_free_trial_paused") as capture_mock,
             patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None),
         ):
             if expect_refusal:
@@ -2660,7 +2660,7 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
 
         with (
             self._on_trial(),
-            patch("products.signals.backend.free_trial.capture_signal_report_free_trial_paused") as capture_mock,
+            patch("products.signals.backend.facade.api.capture_signal_report_free_trial_paused") as capture_mock,
             self.assertRaises(FreeTrialPullRequestRefused),
         ):
             facade.create_and_run_task(
