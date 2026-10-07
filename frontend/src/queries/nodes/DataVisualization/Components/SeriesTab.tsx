@@ -29,7 +29,7 @@ import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, Column, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { BoxPlotSeriesTab } from './BoxPlotSeriesTab'
-import { hasLabelColumn } from './Charts/sqlPieGraphAdapter'
+import { drawsOnePartPerSeries } from './Charts/sqlPieGraphAdapter'
 import { HeatmapSeriesTab } from './Heatmap/HeatmapSeriesTab'
 import { AxisBreakdownSeries, BREAKDOWN_LIMIT_LABEL, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { getAvailableSeriesBreakdownColumns } from './seriesBreakdownUtils'
@@ -121,8 +121,6 @@ export const SeriesTab = (): JSX.Element => {
     const xAxisOptions = isScatterPlot ? numericalColumns.map(toColumnOption) : options
 
     if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
-        const drawsOnePartPerColumn =
-            effectiveVisualizationType === ChartDisplayType.ActionsProportionBar && !hasLabelColumn(xData)
         const valueColumn = selectedYAxis?.find((series) => series !== null)?.name ?? null
         const valueOptions = numericalColumns.map(({ name, type }) => ({
             value: name,
@@ -165,7 +163,7 @@ export const SeriesTab = (): JSX.Element => {
                     }}
                 />
 
-                {drawsOnePartPerColumn ? (
+                {drawsOnePartPerSeries(xData, yData) ? (
                     <YSeriesList label="Values" addLabel="Add value" showAdd={!hideAddYSeries} />
                 ) : (
                     <>

@@ -54,8 +54,11 @@ const seriesToSlices = (yData: SqlPieYSeries[]): PieSlice[] =>
         }))
         .filter((slice) => slice.value > 0)
 
-export const hasLabelColumn = (xData: AxisSeries<string> | null): xData is AxisSeries<string> =>
+const hasLabelColumn = (xData: AxisSeries<string> | null): xData is AxisSeries<string> =>
     !!xData && xData.column.name !== 'None'
+
+export const drawsOnePartPerSeries = (xData: AxisSeries<string> | null, yData: SqlPieYSeries[]): boolean =>
+    yData.length !== 1 || !hasLabelColumn(xData) || yData.some(isBreakdownSeries)
 
 export const buildPieSlices = (
     xData: AxisSeries<string> | null,
@@ -65,29 +68,24 @@ export const buildPieSlices = (
         return []
     }
 
-    if (yData.some(isBreakdownSeries)) {
+    if (drawsOnePartPerSeries(xData, yData) || !xData) {
         return seriesToSlices(yData)
     }
 
-    if (yData.length === 1 && hasLabelColumn(xData)) {
-        const totalsByLabel = new Map<string, number>()
+    const totalsByLabel = new Map<string, number>()
+    xData.data.forEach((rawLabel, index) => {
+        const label = toSliceLabel(rawLabel)
+        const value = toFiniteValue(yData[0].data[index])
+        totalsByLabel.set(label, (totalsByLabel.get(label) ?? 0) + value)
+    })
 
-        xData.data.forEach((rawLabel, index) => {
-            const label = toSliceLabel(rawLabel)
-            const value = toFiniteValue(yData[0].data[index])
-            totalsByLabel.set(label, (totalsByLabel.get(label) ?? 0) + value)
-        })
-
-        return Array.from(totalsByLabel.entries())
-            .map(([label, value], index) => ({
-                label,
-                value,
-                color: getSeriesColor(index),
-            }))
-            .filter((slice) => slice.value > 0)
-    }
-
-    return seriesToSlices(yData)
+    return Array.from(totalsByLabel.entries())
+        .map(([label, value], index) => ({
+            label,
+            value,
+            color: getSeriesColor(index),
+        }))
+        .filter((slice) => slice.value > 0)
 }
 
 /** One quill `Series` per slice, with the slice's resolved color pinned so per-breakdown

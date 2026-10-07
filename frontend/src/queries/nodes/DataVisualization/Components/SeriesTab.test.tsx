@@ -23,21 +23,31 @@ describe('SeriesTab', () => {
             name: 'lists every value column for a proportion bar with no label column',
             display: ChartDisplayType.ActionsProportionBar,
             xAxis: undefined,
+            valueColumns: ['signups', 'logins'],
             listsEveryValueColumn: true,
         },
         {
-            name: 'picks one value column for a proportion bar with a label column',
+            name: 'lists every value column when several value columns ignore the label column',
             display: ChartDisplayType.ActionsProportionBar,
             xAxis: { column: 'day' },
+            valueColumns: ['signups', 'logins'],
+            listsEveryValueColumn: true,
+        },
+        {
+            name: 'picks one value column for a proportion bar grouped by a label column',
+            display: ChartDisplayType.ActionsProportionBar,
+            xAxis: { column: 'day' },
+            valueColumns: ['signups'],
             listsEveryValueColumn: false,
         },
         {
-            name: 'picks one value column for a pie',
+            name: 'picks one value column for a pie grouped by a label column',
             display: ChartDisplayType.ActionsPie,
-            xAxis: undefined,
+            xAxis: { column: 'day' },
+            valueColumns: ['signups'],
             listsEveryValueColumn: false,
         },
-    ])('$name', ({ display, xAxis, listsEveryValueColumn }) => {
+    ])('$name', ({ display, xAxis, valueColumns, listsEveryValueColumn }) => {
         initKeaTests()
         const cachedResults: HogQLQueryResponse = {
             results: [['Mon', 3, 5]],
@@ -52,10 +62,10 @@ describe('SeriesTab', () => {
             kind: NodeKind.DataVisualizationNode,
             source: { kind: NodeKind.HogQLQuery, query: 'select day, signups, logins from daily' },
             display,
-            chartSettings: { xAxis, yAxis: [{ column: 'signups' }, { column: 'logins' }] },
+            chartSettings: { xAxis, yAxis: valueColumns.map((column) => ({ column })) },
         }
         const props: DataVisualizationLogicProps = {
-            key: `series-tab-part-of-whole-${display}-${!!xAxis}`,
+            key: `series-tab-part-of-whole-${display}-${!!xAxis}-${valueColumns.length}`,
             query,
             cachedResults,
             dataNodeCollectionId: 'series-tab-part-of-whole',
