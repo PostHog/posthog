@@ -755,7 +755,8 @@ def _execute_plan(
     for mapping in owned:
         stored_version = stored_versions.get(mapping.distinct_id)
         if stored_version is None:
-            mapping_actions.append(_mapping_action(plan, mapping, "skipped_owner_changed"))
+            # The primary no longer lists the mapping under this person: it moved or was tombstoned after the raise.
+            mapping_actions.append(_mapping_action(plan, mapping, "skipped_mapping_gone"))
         elif stored_version < mapping.target_version:
             mapping_actions.append(_mapping_action(plan, mapping, "skipped_reread_lagging"))
         else:

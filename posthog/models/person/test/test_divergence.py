@@ -40,6 +40,7 @@ from posthog.models.person.util import (
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team import Team
 from posthog.personhog_client.fake_client import get_active_fake
+from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG
 from posthog.test.persons import add_distinct_id, create_person
 
 PG_PROPERTIES = {"email": "postgres@example.com"}
@@ -655,6 +656,29 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             ("moved", "skipped_owner_changed"),
         ]
         assert self._ch_mapping("moved") == (str(person.uuid), 1, 100)
+
+    def test_leaves_a_mapping_unpublished_once_the_primary_no_longer_lists_it_after_the_raise(self) -> None:
+        person = self._pg_person(version=3, distinct_ids={"gone": 0})
+        self._ch_person_row(person.uuid, 3)
+        self._ch_mapping_row("gone", person.uuid, 100, deleted=True)
+        fake = get_active_fake()
+        list_distinct_ids = fake.get_distinct_ids_for_persons
+
+        def primary_lost_the_mapping(
+            request: person_pb2.GetDistinctIdsForPersonsRequest,
+        ) -> person_pb2.GetDistinctIdsForPersonsResponse:
+            if request.read_options.consistency == CONSISTENCY_LEVEL_STRONG:
+                return person_pb2.GetDistinctIdsForPersonsResponse()
+            return list_distinct_ids(request)
+
+        with patch.object(fake, "get_distinct_ids_for_persons", side_effect=primary_lost_the_mapping):
+            _, actions = self._repair(person.uuid)
+
+        assert [(a.distinct_id, a.outcome) for a in actions] == [
+            (None, "skipped_not_divergent"),
+            ("gone", "skipped_mapping_gone"),
+        ]
+        assert self._ch_mapping("gone") == (str(person.uuid), 1, 100)
 
 
 class TestWritePacer(SimpleTestCase):
