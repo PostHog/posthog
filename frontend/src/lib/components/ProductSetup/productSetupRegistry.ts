@@ -59,6 +59,16 @@ export const AI_TASKS: SetupTask[] = [
         featureFlag: FEATURE_FLAGS.POSTHOG_DESKTOP_ENTRY_POINTS,
     },
     {
+        id: SetupTaskId.UsePosthogCode,
+        title: 'Try PostHog tasks',
+        description:
+            'Give work to an agent that understands your product. It triages bugs and opens pull requests from your product data.',
+        taskType: 'ai',
+        requiresManualCompletion: true,
+        getUrl: () => urls.taskNew(),
+        hiddenByFeatureFlag: FEATURE_FLAGS.POSTHOG_DESKTOP_ENTRY_POINTS,
+    },
+    {
         id: SetupTaskId.UsePosthogMcp,
         title: 'Try PostHog MCP',
         description:
@@ -724,7 +734,11 @@ export function getTasksForProduct(
         return []
     }
 
-    const tasks = [...config.tasks, ...AI_TASKS].filter((t) => !t.featureFlag || !!featureFlags[t.featureFlag])
+    const tasks = [...config.tasks, ...AI_TASKS].filter(
+        (t) =>
+            (!t.featureFlag || !!featureFlags[t.featureFlag]) &&
+            (!t.hiddenByFeatureFlag || !featureFlags[t.hiddenByFeatureFlag])
+    )
     if (!taskType || taskType === 'all') {
         return tasks
     }

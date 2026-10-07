@@ -312,12 +312,10 @@ export function AgentPromptButton({
     const { askSidePanelMax } = useActions(maxGlobalLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
     const showDesktopEntryPoints = useFeatureFlag('POSTHOG_DESKTOP_ENTRY_POINTS')
-    const tasksEnabled = useFeatureFlag('TASKS')
     const availableAgents = AGENTS.filter((agent) => {
         if (agent.key === 'posthog-task') {
             return (
                 !showDesktopEntryPoints &&
-                tasksEnabled &&
                 (!agentKeys || agentKeys.includes('posthog-task') || agentKeys.includes('posthog-code'))
             )
         }

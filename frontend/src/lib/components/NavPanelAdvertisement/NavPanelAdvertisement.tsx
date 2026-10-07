@@ -9,7 +9,6 @@ import { userLogic } from 'scenes/userLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
-import { ProductKey } from '~/queries/schema/schema-general'
 
 import { BroadcastPayload, isBroadcastPayload } from './navPanelAdShared'
 import { NavPanelBroadcastAd } from './NavPanelBroadcastAd'
@@ -23,7 +22,6 @@ export function NavPanelAdvertisement(): JSX.Element | null {
     const { isCloudOrDev } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const isSimpleSidepanelEnabled = useFeatureFlag('SIMPLE_SIDEPANEL')
-    const showDesktopEntryPoints = useFeatureFlag('POSTHOG_DESKTOP_ENTRY_POINTS')
     const { starredProductsSetupCompleted } = useValues(uiCustomizationLogic)
     const { customProducts } = useValues(customProductsLogic)
 
@@ -48,12 +46,7 @@ export function NavPanelAdvertisement(): JSX.Element | null {
 
     // The org-wide product push campaign, driven by the growth backend. Respects the
     // user's "no product suggestions" setting.
-    if (
-        isCloudOrDev &&
-        activeCampaign &&
-        user?.allow_sidebar_suggestions !== false &&
-        (showDesktopEntryPoints || activeCampaign.product_key !== ProductKey.POSTHOG_DESKTOP)
-    ) {
+    if (isCloudOrDev && activeCampaign && user?.allow_sidebar_suggestions !== false) {
         return <NavPanelProductPushAd campaign={activeCampaign} />
     }
 

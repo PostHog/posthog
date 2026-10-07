@@ -8,6 +8,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { urls } from 'scenes/urls'
 
 import posthogCodeLogo from 'public/posthog-icon.svg'
 
@@ -137,7 +138,7 @@ export function MCPToolCallPreview({ mode }: { mode: ProductEmptyStateMode }): J
                 </div>
 
                 <div className="MCPSpark__clients">
-                    {showDesktopEntryPoints && (
+                    {showDesktopEntryPoints ? (
                         <Link
                             className="MCPSpark__code"
                             to="https://posthog.com/desktop?utm_medium=in-product&utm_campaign=mcp-analytics-empty-state"
@@ -145,6 +146,10 @@ export function MCPToolCallPreview({ mode }: { mode: ProductEmptyStateMode }): J
                             title="PostHog Desktop"
                         >
                             <img src={posthogCodeLogo} alt="PostHog Desktop" />
+                        </Link>
+                    ) : (
+                        <Link className="MCPSpark__code" to={urls.taskTracker()} title="PostHog tasks">
+                            <img src={posthogCodeLogo} alt="PostHog tasks" />
                         </Link>
                     )}
                     {CLIENT_LOGOS.map((logo, i) => (

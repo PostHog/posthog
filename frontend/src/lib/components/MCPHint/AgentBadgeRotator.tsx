@@ -8,6 +8,8 @@ import { useInterval } from 'lib/hooks/useInterval'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { isExternalLink } from 'lib/utils/url'
+import { urls } from 'scenes/urls'
 
 import { AgentLogo, claudeLogo, cursorLogo, geminiLogo, openaiLogo } from '../AgentPromptButton/AgentLogo'
 
@@ -52,7 +54,11 @@ export function AgentBadgeRotator(): JSX.Element {
     // Pin to "PostHog Desktop" inside Storybook so visual snapshots don't flake on rotation.
     const isStorybook = inStorybook() || inStorybookTestRunner()
     const showDesktopEntryPoints = useFeatureFlag('POSTHOG_DESKTOP_ENTRY_POINTS')
-    const agents = showDesktopEntryPoints ? AGENTS : AGENTS.filter((agent) => agent.url !== POSTHOG_CODE_URL)
+    const agents = showDesktopEntryPoints
+        ? AGENTS
+        : AGENTS.map((agent) =>
+              agent.url === POSTHOG_CODE_URL ? { ...agent, name: 'PostHog tasks', url: urls.taskTracker() } : agent
+          )
 
     const [index, setIndex] = useState(() => (isStorybook ? 0 : Math.floor(Math.random() * AGENTS.length)))
 
@@ -61,10 +67,10 @@ export function AgentBadgeRotator(): JSX.Element {
             return
         }
 
-        setIndex((current) => (current + 1) % agents.length)
+        setIndex((current) => (current + 1) % AGENTS.length)
     }, ROTATE_INTERVAL_MS)
 
-    const agent = agents[index % agents.length]
+    const agent = agents[index]
 
     const wrapperClassname = 'inline-flex items-center gap-1'
     const textClassname = cn('font-semibold rainbow-text-fading', {
@@ -74,12 +80,16 @@ export function AgentBadgeRotator(): JSX.Element {
     return (
         <div className="inline-flex items-center relative align-text-bottom mb-[-2px]" aria-live="polite">
             {agent.url ? (
-                <Link to={agent.url} target="_blank" className={wrapperClassname}>
+                <Link
+                    to={agent.url}
+                    target={isExternalLink(agent.url) ? '_blank' : undefined}
+                    className={wrapperClassname}
+                >
                     <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
                     <span key={agent.name} className={textClassname}>
                         {agent.name}
                     </span>
-                    <IconExternal className="size-3 text-muted" />
+                    {isExternalLink(agent.url) && <IconExternal className="size-3 text-muted" />}
                 </Link>
             ) : (
                 <span className={wrapperClassname}>

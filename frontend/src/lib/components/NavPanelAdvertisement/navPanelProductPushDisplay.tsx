@@ -241,6 +241,15 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
     },
 }
 
+export const POSTHOG_TASKS_PUSH_DISPLAY: ProductPushDisplay = {
+    Icon: <Logomark size="xl" />,
+    iconUpright: true,
+    accentColor: 'var(--color-accent)',
+    tagline: 'Run AI agents that use your product data as context to ship changes.',
+    label: 'PostHog tasks',
+    href: urls.taskTracker(),
+}
+
 export function getProductPushDisplay(productKey: string): ProductPushDisplay {
     return PRODUCT_PUSH_DISPLAY[productKey as ProductKey] ?? DEFAULT_PRODUCT_PUSH_DISPLAY
 }

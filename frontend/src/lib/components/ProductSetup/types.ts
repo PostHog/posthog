@@ -51,6 +51,7 @@ export interface SetupTask {
      */
     requiresManualCompletion?: boolean
     featureFlag?: FeatureFlagKey
+    hiddenByFeatureFlag?: FeatureFlagKey
 }
 
 export interface SetupTaskWithState extends SetupTask {

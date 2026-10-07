@@ -8,4 +8,5 @@ export {
     buildCodexDeepLink,
     buildCursorDeepLink,
     buildPostHogCodeDeepLink,
+    buildPostHogTaskUrl,
 } from './AgentPromptButton'

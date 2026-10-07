@@ -32,7 +32,7 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
     const [instructions, setInstructions] = useState('')
     const showDesktopEntryPoints = useFeatureFlag('POSTHOG_DESKTOP_ENTRY_POINTS')
     const implementationAgents = IMPLEMENTATION_AGENTS.filter(
-        (agent) => showDesktopEntryPoints || agent.key !== 'posthog-code'
+        (agent) => agent.key !== (showDesktopEntryPoints ? 'posthog-task' : 'posthog-code')
     )
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 

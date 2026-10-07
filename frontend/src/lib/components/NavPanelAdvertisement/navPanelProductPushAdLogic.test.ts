@@ -1,3 +1,5 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import * as productIntents from 'lib/utils/product-intents'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -50,5 +52,19 @@ describe('navPanelProductPushAdLogic', () => {
         expect(navPanelProductPushWelcomeLogic.findMounted()?.values.pending?.productKey ?? null).toBe(
             queued ? productKey : null
         )
+    })
+
+    it.each([
+        ['the desktop download page for staff', true, 'https://posthog.com/desktop', 'PostHog Desktop'],
+        ['web tasks for everyone else', false, '/tasks', 'PostHog tasks'],
+    ])('sends a desktop campaign to %s', (_description, desktopEntryPoints, destination, label) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.POSTHOG_DESKTOP_ENTRY_POINTS]: desktopEntryPoints,
+        })
+        logic = navPanelProductPushAdLogic({ campaign: campaignFor(ProductKey.POSTHOG_DESKTOP, null) })
+        logic.mount()
+
+        expect(logic.values).toMatchObject({ destination, label, shouldRender: true })
     })
 })

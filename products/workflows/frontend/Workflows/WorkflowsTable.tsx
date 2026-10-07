@@ -51,11 +51,8 @@ function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
     const showDesktopEntryPoints = useFeatureFlag('POSTHOG_DESKTOP_ENTRY_POINTS')
 
     if (workflow.origin_product === 'loops') {
-        if (!showDesktopEntryPoints) {
-            return <LemonTag type="highlight">Loop</LemonTag>
-        }
         return (
-            <Link to={urls.codeLoopLink(workflow.id)}>
+            <Link to={showDesktopEntryPoints ? urls.codeLoopLink(workflow.id) : urls.workflow(workflow.id, 'workflow')}>
                 <LemonTag type="highlight">Loop</LemonTag>
             </Link>
         )
