@@ -31,6 +31,8 @@ from products.tasks.backend.facade.api import SANDBOX_REPOSITORIES_ROOT
 # headless pre-computed suggestion run (`suggestions.py`), so the two voices never drift.
 SCOUT_PROJECT_SCAN_GUIDANCE = "take a quick scan of this PostHog project to ground your suggestions: skim its events, insights, dashboards, recently emitted signals, and the existing scout fleet so you understand what this product is and where automated monitoring would add value."
 
+SUGGESTED_SOURCE_PRODUCTS = ", ".join(f"`{product.value}`" for product in SuggestedSourceProduct)
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -81,7 +83,7 @@ _RENDERED_IMPORTS: dict[str, object] = {
     "MAX_SUGGESTED_PROMPTS": MAX_SUGGESTED_PROMPTS,
     "MAX_SUGGESTED_PROMPT_LENGTH": MAX_SUGGESTED_PROMPT_LENGTH,
     "MAX_SOURCE_SUGGESTION_REASON_LENGTH": MAX_SOURCE_SUGGESTION_REASON_LENGTH,
-    "SuggestedSourceProduct": [product.value for product in SuggestedSourceProduct],
+    "SUGGESTED_SOURCE_PRODUCTS": SUGGESTED_SOURCE_PRODUCTS,
     "PLAIN_TEXT_FIELDS_RULE": PLAIN_TEXT_FIELDS_RULE,
     "PULL_REQUEST_LINK_RULE": PULL_REQUEST_LINK_RULE,
     "WHEN_TO_CHART": WHEN_TO_CHART,
@@ -727,7 +729,7 @@ Optional, and worth it only when you can name a prompt worth an agent run. Write
 
 _REPORT_SOURCE_SUGGESTION = f"""# Suggesting a product to turn on
 
-When a report would have had better evidence from a product this project does not use, record that on the report. After `emit_report` or `edit_report` returns the report id, call `inbox-report-artefacts-create` with `artefact_type: "source_suggestion"` and `content: {{"product": ..., "reason": ...}}`. `product` is one of {", ".join(f"`{product.value}`" for product in SuggestedSourceProduct)}. The inbox shows the suggestion under the report's evidence with a link to that product, and hides it once the project uses the product.
+When a report would have had better evidence from a product this project does not use, record that on the report. After `emit_report` or `edit_report` returns the report id, call `inbox-report-artefacts-create` with `artefact_type: "source_suggestion"` and `content: {{"product": ..., "reason": ...}}`. `product` is one of {SUGGESTED_SOURCE_PRODUCTS}. The inbox shows the suggestion under the report's evidence with a link to that product, and hides it once the project uses the product.
 
 - **Only for a gap you hit this run.** Suggest a product when it would have answered a question you could not answer, for example the backend logs around an error you saw in a replay. Confirm first that the project does not use it: a `not-in-use:` memory, or a probe that came back empty.
 - **`reason` is one sentence about this report, at most {MAX_SOURCE_SUGGESTION_REASON_LENGTH} characters.** Name what the product would have shown: "Logs from the checkout service could show whether the timeout starts at the payment provider." A generic pitch for the product does not help the reader.
