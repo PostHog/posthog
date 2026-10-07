@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import sys
 import copy
 import time
 import pickle
@@ -318,6 +319,14 @@ type DatabaseSchemaTable = (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _raise_if_temporal_cancellation(error: Exception) -> None:
+    # Temporal cancels a sync activity by raising its CancelledError (an Exception) in the activity thread.
+    # Swallowing it keeps a cancelled activity running. Read sys.modules to keep temporalio off the startup path.
+    temporal_exceptions = sys.modules.get("temporalio.exceptions")
+    if temporal_exceptions is not None and isinstance(error, temporal_exceptions.CancelledError):
+        raise error
 
 
 def is_reserved_system_name(name: str) -> bool:
@@ -988,6 +997,7 @@ class Database(BaseModel):
                         try:
                             views_node.add_child(TableNode.create_nested_for_chain(view.name.split("."), view))
                         except Exception as e:
+                            _raise_if_temporal_cancellation(e)
                             capture_exception(e)
                     self._add_views(views_node)
             finally:
@@ -1060,7 +1070,8 @@ class Database(BaseModel):
             candidates.update(self._warehouse_table_names)
             candidates.update(self._warehouse_self_managed_table_names)
             candidates.update(self._view_table_names)
-        except Exception:
+        except Exception as e:
+            _raise_if_temporal_cancellation(e)
             return []
         # Drop any candidate that matches the input — suggesting `persons` for `persons`
         # is noise, and on a direct connection the same name can exist in the broader
@@ -2033,6 +2044,7 @@ class Database(BaseModel):
                         else:
                             revenue_views = list(build_all_revenue_analytics_views(team, timings))
                 except Exception as e:
+                    _raise_if_temporal_cancellation(e)
                     capture_exception(e)
 
         # Materialized views store their backing table under the saved-query-specific S3 path.
@@ -2416,6 +2428,7 @@ class Database(BaseModel):
                                 table_conflict_mode="ignore",
                             )
                 except Exception as e:
+                    _raise_if_temporal_cancellation(e)
                     capture_exception(e)
 
         with timings.measure("revenue_analytics_views", emit_span=True):
@@ -2446,6 +2459,7 @@ class Database(BaseModel):
                     try:
                         views.add_child(TableNode.create_nested_for_chain(view.name.split("."), view))
                     except Exception as e:
+                        _raise_if_temporal_cancellation(e)
                         capture_exception(e)
                         continue
 
@@ -2862,6 +2876,7 @@ class Database(BaseModel):
                             )
 
                 except Exception as e:
+                    _raise_if_temporal_cancellation(e)
                     capture_exception(e)
 
         # After joins, so a saved expression can never shadow a join field either.
@@ -2892,6 +2907,7 @@ class Database(BaseModel):
                     # overridable when the deferred build runs.
                     database._deferred_overridable_expression_field_ids.add(id(saved_expression_field))
                 except Exception as e:
+                    _raise_if_temporal_cancellation(e)
                     capture_exception(e)
 
         database.apply_schema_scope()
