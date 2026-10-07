@@ -1014,6 +1014,13 @@ def test_throttle_spaces_requests_per_site(monkeypatch):
         ("Https://example.com/Blog", "https://example.com/Blog/"),
         # Surrounding whitespace.
         ("  https://example.com/  ", "https://example.com/"),
+        # Quotes copied along with the value, matched or not.
+        ("'sc-domain:example.com'", "sc-domain:example.com"),
+        ("'sc-domain:example.com", "sc-domain:example.com"),
+        ('"https://example.com"', "https://example.com/"),
+        ("\u2018sc-domain:example.com\u2019", "sc-domain:example.com"),
+        # A quote inside a URL path is part of the property, not a wrapper.
+        ("https://example.com/blog'", "https://example.com/blog'/"),
         # The full Search Console UI URL — the property lives in resource_id.
         (
             "https://search.google.com/search-console/performance/search-analytics"
@@ -1046,8 +1053,12 @@ def test_normalize_site_url(raw, expected):
         ("EXAMPLE.COM", ["sc-domain:example.com"], "sc-domain:example.com"),
         # No registered property matches — nothing to suggest.
         ("plotlens.ai", ["https://other.com/"], None),
-        # Already scheme-qualified or a domain property: not ambiguous, so no suggestion.
-        ("https://plotlens.ai/", ["https://plotlens.ai/"], None),
+        # A root URL whose site is registered only as a domain property.
+        ("https://example.com/", ["sc-domain:example.com"], "sc-domain:example.com"),
+        ("https://www.example.com/", ["sc-domain:example.com"], "sc-domain:example.com"),
+        # A URL with a path would widen to the whole domain, so no suggestion.
+        ("https://example.com/blog/", ["sc-domain:example.com"], None),
+        ("https://plotlens.ai/", ["https://other.com/"], None),
         ("sc-domain:plotlens.ai", ["sc-domain:plotlens.ai"], None),
     ],
 )

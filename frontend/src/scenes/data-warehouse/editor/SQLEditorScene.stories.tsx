@@ -1111,3 +1111,67 @@ export const BITableAnalysis: Story = {
         await waitFor(() => expect(canvas.getAllByText('Total').length).toBeGreaterThan(0))
     },
 }
+
+const BI_COMBO_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsBar,
+    columns: [],
+    values: [
+        {
+            field: biEventsField('revenue', 'float'),
+            aggregation: 'sum',
+            formatting: { style: 'number', prefix: '$', decimalPlaces: 2 },
+            display: { label: 'Revenue', displayType: 'bar', yAxisPosition: 'left' },
+        },
+        {
+            field: biEventsField('revenue', 'float'),
+            aggregation: 'average',
+            formatting: { style: 'number', prefix: '$', decimalPlaces: 2 },
+            display: { label: 'Average order', displayType: 'line', yAxisPosition: 'right' },
+        },
+    ],
+}
+
+export const BICombinedMeasures: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_COMBO_CONFIG)!.query, mode: 'bi', bi: JSON.stringify(BI_COMBO_CONFIG) })}`,
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters?.msw.mocks,
+                post: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: ['toStartOfDay(timestamp)', 'sum_revenue', 'average_revenue_2'],
+                        types: [
+                            ['toStartOfDay(timestamp)', 'DateTime'],
+                            ['sum_revenue', 'Float64'],
+                            ['average_revenue_2', 'Float64'],
+                        ],
+                        results: [
+                            ['2026-06-01', 1200, 12.5],
+                            ['2026-06-02', 2100, 15.2],
+                            ['2026-06-03', 1800, 13.4],
+                            ['2026-06-04', 2450, 16.8],
+                        ],
+                        hasMore: false,
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible())
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await waitFor(() => expect(canvasElement.querySelector('canvas')).not.toBeNull())
+    },
+}
+
+export const BIMeasureDisplay: Story = {
+    ...BICombinedMeasures,
+    play: async ({ canvasElement }) => {
+        await userEvent.click((await within(canvasElement).findAllByRole('button', { name: 'Format and display' }))[0])
+    },
+}

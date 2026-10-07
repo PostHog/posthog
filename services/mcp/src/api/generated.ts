@@ -10754,7 +10754,9 @@ export namespace Schemas {
     export interface BIValue {
       aggregation: BIAggregation;
       customExpression?: string | null;
+      display?: ChartSettingsDisplay | null;
       field: BIField;
+      formatting?: ChartSettingsFormatting | null;
       label?: string | null;
       tableCalculation?: BITableCalculation | null;
     }
@@ -12552,6 +12554,24 @@ export namespace Schemas {
       totals: AppMetricsTotalsResponseTotals;
     }
 
+    export interface AppSourceFileContract {
+      /** Project-relative path of the file, for example 'app.py' or 'pages/1_Overview.py'. */
+      path: string;
+      /** File size in bytes. */
+      size: number;
+      /** SHA-256 hash of the file bytes, as hex. */
+      sha256: string;
+      /** MIME type guessed from the file extension. */
+      content_type: string;
+      /** True when the file is not UTF-8 text. Binary content is never inlined. */
+      is_binary: boolean;
+      /**
+         * Full text of the file. Null for binary files and for files that the paths filter excludes.
+         * @nullable
+         */
+      content: string | null;
+    }
+
     export interface AppSummaryContract {
       /** User who created this app. */
       created_by?: StreamlitAppUserInfo | null;
@@ -12564,6 +12584,13 @@ export namespace Schemas {
       status: string;
       created_at: string;
       updated_at: string;
+    }
+
+    export interface AppVersionSourceContract {
+      /** Version number that this source belongs to. */
+      version_number: number;
+      /** Every file in the version, sorted by path. The manifest always lists all files. */
+      files: AppSourceFileContract[];
     }
 
     export interface AppfiguresReviewSignalExtra {
@@ -37550,6 +37577,39 @@ export namespace Schemas {
     }
 
     /**
+     * New text files keyed by project-relative path, each value the file's full text (max 1 MB). The path must not exist in the base version.
+     */
+    export type EditVersionSourceInputCreateFiles = {[key: string]: string};
+
+    export interface SourceTextEdit {
+      /** Exact text to find in the file. Must match exactly once. Use an empty string only to fill an empty file. */
+      old: string;
+      /** Replacement text. */
+      new: string;
+    }
+
+    export interface SourceFileEdit {
+      /** Path of an existing text file in the base version, for example 'app.py'. */
+      path: string;
+      /** Find-and-replace operations, applied in order to the file's text. At most 100 edits per request across all files. */
+      edits: SourceTextEdit[];
+    }
+
+    export interface EditVersionSourceInput {
+      /**
+         * Version number that the changes apply to. Must be the active version of the app, otherwise the request fails with 409 and returns the active version number.
+         * @minimum 1
+         */
+      base_version: number;
+      /** Exact text edits to existing text files. Files that no change touches stay byte-for-byte the same. */
+      file_edits?: SourceFileEdit[];
+      /** New text files keyed by project-relative path, each value the file's full text (max 1 MB). The path must not exist in the base version. */
+      create_files?: EditVersionSourceInputCreateFiles;
+      /** Paths of files to remove from the base version. app.py cannot be removed. */
+      delete_files?: string[];
+    }
+
+    /**
      * * `needs_approval` - Require approval
      * * `do_not_use` - Block
      */
@@ -44937,6 +44997,15 @@ export namespace Schemas {
       session_duration_s?: number | null;
     }
 
+    export type PromptValenceEnum = typeof PromptValenceEnum[keyof typeof PromptValenceEnum];
+
+
+    export const PromptValenceEnum = {
+      Good: 'good',
+      Bad: 'bad',
+      Neutral: 'neutral',
+    } as const;
+
     /**
      * * `schedule` - Schedule
      * * `on_demand` - On demand
@@ -45042,6 +45111,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly prompt_question: string | null;
+      /** For a monitor or scorer: `good` when a yes or a high score is good news for the team, `bad` when it is a problem, `neutral` when neither. Judged by AI from the prompt. Null for other scanner types, when not judged, or when the prompt has changed since this observation was scanned. */
+      readonly prompt_valence: PromptValenceEnum | null;
       /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
        *
        * * `schedule` - Schedule
@@ -99058,6 +99129,21 @@ export namespace Schemas {
       destination_ids: string[];
     }
 
+    export interface SourceEditError {
+      /** Why the change could not be applied. */
+      detail: string;
+      /**
+         * Path of the file that caused the error, if any.
+         * @nullable
+         */
+      path: string | null;
+      /**
+         * Zero-based index of the failed edit inside that file's edits, if any.
+         * @nullable
+         */
+      edit_index: number | null;
+    }
+
     export interface SourceMappingSuggestion {
       /** The raw utm_source value seen on events */
       raw_utm_source: string;
@@ -107514,6 +107600,13 @@ export namespace Schemas {
       uuid: string;
       /** The 6-digit verification code from the email. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
       code: string;
+    }
+
+    export interface VersionConflict {
+      /** Why the change was refused. */
+      detail: string;
+      /** Active version number of the app. Read it and retry. */
+      current_version: number;
     }
 
     export interface ViewLinkValidation {
@@ -123931,6 +124024,19 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type StreamlitAppsSourceRetrieveParams = {
+    /**
+     * Comma-separated file paths whose content to return, for example 'app.py,utils.py'. Other files appear in the manifest without content. Defaults to all text files.
+     * @minLength 1
+     */
+    paths?: string;
+    /**
+     * Version number to read. Defaults to the active version.
+     * @minimum 1
+     */
+    version_number?: number;
     };
 
     export type SubscriptionsListParams = {
