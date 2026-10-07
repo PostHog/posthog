@@ -447,7 +447,7 @@ impl KafkaSink {
                     });
                 }
                 // A backfill request can carry recent rows, so row age cannot identify it.
-                // The Node consumer reads this header to apply the per-project backfill flag.
+                // The Node consumer reads this header to apply its per-team backfill list.
                 if let Some(days) = backfill_days {
                     headers = headers.insert(Header {
                         key: "backfill_days",
