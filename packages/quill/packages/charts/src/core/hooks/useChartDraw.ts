@@ -84,8 +84,8 @@ export function useChartDraw({
                 })
             } finally {
                 ctx.restore()
+                markPaintDone(ctx.canvas)
             }
-            markPaintDone(ctx.canvas)
         })
         return () => {
             if (staticRafRef.current != null) {
