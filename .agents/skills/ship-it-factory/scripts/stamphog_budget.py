@@ -104,10 +104,12 @@ def main() -> int:
         )
         # git restore needs both paths of a rename in one group, or the old file stays behind.
         report["split_renames"] = sorted(
-            f"{old} -> {new}"
-            for paths in plan.values()
-            for new, old in renames.items()
-            if (new in paths) != (old in paths)
+            {
+                f"{old} -> {new}"
+                for paths in plan.values()
+                for new, old in renames.items()
+                if (new in paths) != (old in paths)
+            }
         )
         report["prs"] = {
             name: check({path: lines[path] for path in paths if path in lines}) for name, paths in plan.items()
