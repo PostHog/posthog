@@ -129,6 +129,9 @@ def is_search_console_ui_url(site: str) -> bool:
     return site.strip().lower().startswith(SEARCH_CONSOLE_UI_PREFIX)
 
 
+_PASTED_QUOTES = "'\"`\u2018\u2019\u201c\u201d"
+
+
 def normalize_site_url(raw: str) -> str:
     """Coerce a user-entered property URL toward Google's canonical form.
 
@@ -136,11 +139,13 @@ def normalize_site_url(raw: str) -> str:
     trailing slash required) or ``sc-domain:example.com`` (domain). The API matches these
     strings byte-for-byte, but users routinely enter values that don't: a percent-encoded
     string copied from a URL bar (``sc-domain%3Aexample.com``), the full Search Console UI
-    URL, or a URL-prefix property with the trailing slash dropped. Resolve the cases we can
-    handle unambiguously and leave the rest untouched — a bare hostname (no scheme, no
-    ``sc-domain:`` prefix) stays as-is because we can't tell which property type was meant.
+    URL, a value still wrapped in the quotes it was copied with, or a URL-prefix property
+    with the trailing slash dropped. Resolve the cases we can handle unambiguously and leave
+    the rest untouched — a bare hostname (no scheme, no ``sc-domain:`` prefix) stays as-is
+    because we can't tell which property type was meant.
     """
-    site = raw.strip()
+    # No property contains a quote, so any around the value came along with the copy.
+    site = raw.strip().strip(_PASTED_QUOTES).strip()
 
     # The Search Console UI URL carries the property in its `resource_id` query param.
     if is_search_console_ui_url(site):
@@ -166,15 +171,29 @@ def normalize_site_url(raw: str) -> str:
 
 
 def suggest_registered_site(site_url: str, registered: collections.abc.Iterable[str]) -> str | None:
-    """Return the registered property a bare-hostname entry most likely meant, else None.
+    """Return the registered property an unmatched entry most likely meant, else None.
 
     ``normalize_site_url`` deliberately leaves a bare hostname (e.g. ``example.com``)
     untouched because it can't tell a URL-prefix property (``https://example.com/``) from
     a domain property (``sc-domain:example.com``). When such an entry matches no property,
     check whether either canonical form *is* registered and point the user at it, so a
     dead-end "not visible" error becomes "enter this exact value instead".
+
+    A site's root URL entered where only its domain property is registered gets the domain
+    property suggested. A URL with a path doesn't: the domain property covers the whole
+    site, so syncing it would import more than the entry asked for.
     """
-    if urlparse(site_url).scheme or site_url.startswith("sc-domain:"):
+    if site_url.startswith("sc-domain:"):
+        return None
+    parsed = urlparse(site_url)
+    if parsed.scheme:
+        if parsed.path not in ("", "/") or parsed.query or not parsed.hostname:
+            return None
+        registered_set = set(registered)
+        host = parsed.hostname.lower()
+        for domain in (host, host.removeprefix("www.")):
+            if f"sc-domain:{domain}" in registered_set:
+                return f"sc-domain:{domain}"
         return None
     host = site_url.strip().strip("/").lower()
     if not host:
