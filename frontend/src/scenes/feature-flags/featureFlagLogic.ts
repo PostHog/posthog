@@ -178,6 +178,7 @@ function flagCohortNamePrefix(flagKey: string): string {
 function newestReusableFlagCohort(
     cohorts: CohortApi[],
     flag: Pick<FeatureFlagType, 'key' | 'updated_at'>,
+    userUuid: string,
     now: number
 ): CohortApi | null {
     // A cohort made before the flag's last save can hold people the current conditions no longer match.
@@ -189,6 +190,8 @@ function newestReusableFlagCohort(
     const reusable = cohorts.filter(
         (cohort) =>
             !!cohort.name?.startsWith(prefix) &&
+            // Any project member can create a cohort with this name, so only the current user's own snapshot is trusted.
+            cohort.created_by?.uuid === userUuid &&
             cohort.is_static === true &&
             !cohort.deleted &&
             cohort.errors_calculating === 0 &&
@@ -3627,11 +3630,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     const projectId = String(values.currentProjectId)
                     const search = flagCohortNamePrefix(values.featureFlag.key)
+                    const userUuid = values.user?.uuid
                     let cohortId: number | null = null
-                    if (search.length <= COHORT_SEARCH_MAX_LENGTH) {
+                    if (userUuid && search.length <= COHORT_SEARCH_MAX_LENGTH) {
                         const { results } = await cohortsList(projectId, { search, limit: 20 })
                         breakpoint()
-                        cohortId = newestReusableFlagCohort(results, values.featureFlag, Date.now())?.id ?? null
+                        cohortId =
+                            newestReusableFlagCohort(results, values.featureFlag, userUuid, Date.now())?.id ?? null
                     }
                     if (cohortId === null) {
                         // nosemgrep: prefer-codegen-api-namespaced-feature_flags -- The generated function returns void, so it can't return the new cohort.

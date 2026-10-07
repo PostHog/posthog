@@ -925,9 +925,14 @@ describe('featureFlagLogic', () => {
 
         const NOW = new Date('2026-10-07T12:00:00Z')
         const minutesAgo = (minutes: number): string => new Date(NOW.getTime() - minutes * 60_000).toISOString()
-        const listedCohort = (flagKey: string, createdAt: string): Record<string, any> => ({
+        const listedCohort = (
+            flagKey: string,
+            createdAt: string,
+            createdByUuid: string = MOCK_DEFAULT_BASIC_USER.uuid
+        ): Record<string, any> => ({
             id: 7,
             name: `Users with feature flag ${flagKey} enabled at 2026-10-07 11:50:00`,
+            created_by: { id: 1, uuid: createdByUuid },
             is_static: true,
             deleted: false,
             errors_calculating: 0,
@@ -950,6 +955,11 @@ describe('featureFlagLogic', () => {
                 scenario: 'creates a cohort when the flag was saved after the recent one was made',
                 listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)),
                 flagUpdatedAt: minutesAgo(5),
+                usesCohortId: 42,
+            },
+            {
+                scenario: 'creates a cohort when another user made the recent one',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10), 'another-user-uuid'),
                 usesCohortId: 42,
             },
             {
