@@ -89,10 +89,10 @@ export interface sessionReplaySceneLogicActions {
         variants: Record<string, boolean | string>
     } // featureFlagLogic
     loadCurrentOrganizationSuccess: (
-        currentOrganization: null | import('~/types').OrganizationType,
+        currentOrganization: OrganizationType | null,
         payload?: any
     ) => {
-        currentOrganization: null | import('~/types').OrganizationType
+        currentOrganization: OrganizationType | null
         payload?: any
     } // organizationLogic
     setPickSeekSessionId: (sessionId: string | null) => {
