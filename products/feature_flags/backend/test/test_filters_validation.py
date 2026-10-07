@@ -360,7 +360,7 @@ class TestFiltersValidation(SimpleTestCase):
     def test_group_is_the_only_property_type_outside_person_aggregation(self) -> None:
         assert set(FEATURE_FLAG_PROPERTY_TYPES) - set(PERSON_AGGREGATED_PROPERTY_TYPES) == {"group"}, (
             "services/mcp/src/tools/featureFlags/preserveGroupTargeting.ts encodes the person-aggregation rule as "
-            "`type !== 'group'` (in mergeConditionSet and pickPersonAggregatedCandidate). That is the complement of "
+            "`type !== 'group'` (in isPersonAggregatedType). That is the complement of "
             "PERSON_AGGREGATED_PROPERTY_TYPES only while 'group' is the sole type outside it. A group-side type "
             "that slips through as person-aggregated lets that merge helper silently clear a flag's group "
             "targeting. If the new type belongs under person aggregation, add it to "

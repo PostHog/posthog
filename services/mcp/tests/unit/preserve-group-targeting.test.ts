@@ -7,8 +7,8 @@ const PERSON_AGGREGATED_PROPERTY_TYPES = ['person', 'cohort', 'flag']
 /**
  * Mirrors check_property_types_match_aggregation in
  * products/feature_flags/backend/filters_validation.py, over the state that validator sees:
- * the flag level the backend keeps when the payload omits it, then each set's own key. A
- * property with no type is skipped, so a property left untyped is asserted by field instead.
+ * the flag level the backend keeps when the payload omits it, then each set's own key. The check
+ * skips a property with no type. A test asserts the fields of a property left untyped instead.
  */
 function aggregationViolations(existing: FlagFilters, merged: FlagFilters | null | undefined): string[] {
     const violations: string[] = []
@@ -373,8 +373,8 @@ describe('preserveGroupTargetingFilters', () => {
         expect(merged?.groups?.[0]?.properties?.[0]?.value).toBe('pro')
     })
 
-    // The set aggregates on a group type, so that decides the property type and the
-    // candidates are never consulted, whichever operator the agent sends.
+    // The set aggregates on a group type, which decides the property type. The merge never reads
+    // the candidates, whichever operator the agent sends.
     it('restores group type and index for a duplicate key', () => {
         const existing = {
             aggregation_group_type_index: 0,
@@ -411,7 +411,7 @@ describe('preserveGroupTargetingFilters', () => {
     })
 
     // The set aggregates on person, so the candidates decide the type. The operator picks
-    // between two candidates that share a key, and falls back to the first one.
+    // between two candidates that share a key. Without an operator match, the first one wins.
     it.each([
         { name: 'the operator matches the cohort candidate', operator: 'in', expectedType: 'cohort' },
         { name: 'the operator matches the person candidate', operator: 'icontains', expectedType: 'person' },
@@ -550,8 +550,8 @@ describe('preserveGroupTargetingFilters', () => {
         expect(merged?.groups?.[0]?.properties?.[0]?.type).toBe('group')
     })
 
-    // A reordered payload carries no flag-level key and no set-level index, so a positional
-    // restore lands on the wrong set.
+    // A reordered payload carries no flag-level key and no set-level index. A positional restore
+    // would read the aggregation of the wrong set.
     it('attributes reordered condition sets to the set each one came from', () => {
         const merged = preserveGroupTargetingFilters(existingMixedFlag, {
             groups: [
@@ -679,7 +679,7 @@ describe('preserveGroupTargetingFilters', () => {
     })
 
     // The first set shares one key with the set at its own index and two with the other set.
-    // Its own index wins, so a set that gained a key does not steal the other set's group type.
+    // Its own index wins. A set that gained a key therefore does not take the other set's group type.
     it('keeps each set at its own index when another set is a stronger key match', () => {
         const existing = {
             groups: [
@@ -719,8 +719,8 @@ describe('preserveGroupTargetingFilters', () => {
         expect(aggregationViolations(existing, merged)).toEqual([])
     })
 
-    // A set holding no properties has no key to be matched by, so only elimination says which
-    // existing set it came from.
+    // A set with no properties has no key to match. Only elimination decides which existing set
+    // it came from.
     it('attributes a condition set with no properties when the sets are reordered', () => {
         const existing = {
             aggregation_group_type_index: null,
@@ -748,7 +748,7 @@ describe('preserveGroupTargetingFilters', () => {
         expect(merged?.groups?.[1]?.properties?.[0]?.group_type_index).toBe(0)
     })
 
-    // The merge walks both sides by index, so a malformed entry must not throw.
+    // The merge walks both sides by index. A malformed entry on either side must not throw.
     it.each([
         { name: 'null groups on the existing flag', existing: { groups: null } },
         { name: 'a null condition set', existing: { groups: [null] } },
@@ -833,8 +833,8 @@ describe('preserveGroupTargetingFilters', () => {
         expect(aggregationViolations(existing, merged)).toEqual([])
     })
 
-    // The claimed source set holds only one of the two keys, so the other property can only be
-    // typed from the set that still holds it.
+    // The claimed source set holds only one of the two keys. The merge can type the other
+    // property only from the set that still holds it.
     it('restores a property type from another set when two sets collapse into one', () => {
         const existing = {
             aggregation_group_type_index: null,

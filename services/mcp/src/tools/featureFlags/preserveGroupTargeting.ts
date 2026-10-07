@@ -4,9 +4,11 @@
  * reads an omitted property `type` as person, which silently converts a group flag to a
  * person flag (PostHog/posthog#46501).
  *
- * Each incoming condition set is attributed to the existing set it came from, by the property
- * keys the two share. Array position is the fallback, not the identity. Two sets that filter
- * the same key cannot be told apart by key, so a reorder of those falls back to position.
+ * Each incoming condition set is attributed to the existing set it came from. A set keeps the
+ * existing set at its own index when the two share a property key. A moved set that shares a key
+ * with the set now at its index therefore keeps that set as its source. Otherwise a set takes the
+ * existing set that shares the most keys with it, when exactly one set does. A set with no key
+ * match falls back to elimination, and then to position.
  *
  * A set's aggregation then decides its property types, in both directions. A group-aggregated
  * set types its untyped properties as `group` against the set's own group type index. A
@@ -19,11 +21,13 @@
  *
  * A condition set pinned to person aggregation never gains group targeting. A set is
  * pinned when the payload clears aggregation with an explicit null, or when it carries an
- * explicit person, cohort, or flag property without setting a group index itself.
+ * explicit property of any type except `group` without setting a group index itself.
  *
  * `super_groups` is ignored: the flags API drops it from writes
  * (LEGACY_UNKNOWN_FILTER_KEYS in products/feature_flags/backend/api/filters_schema.py).
  */
+
+import { isRecord } from '@/lib/plain-object'
 
 export type FlagProperty = {
     key?: string
@@ -59,8 +63,14 @@ function isPresentGroupIndex(index: unknown): index is number {
     return typeof index === 'number' && Number.isFinite(index)
 }
 
-function isConditionGroup(group: unknown): group is FlagConditionGroup {
-    return !!group && typeof group === 'object' && !Array.isArray(group)
+/**
+ * `!== 'group'` is the complement of PERSON_AGGREGATED_PROPERTY_TYPES in filters_validation.py.
+ * It holds only while 'group' is the sole type outside that tuple. A Python test asserts that:
+ * products/feature_flags/backend/test/test_filters_validation.py. The complement also accepts a
+ * stored type the backend tuples omit, such as `person_metadata`, which a hardcoded list drops.
+ */
+function isPersonAggregatedType(type: unknown): type is string {
+    return isPresentType(type) && type !== 'group'
 }
 
 function hasKey(obj: Record<string, unknown> | null | undefined, key: string): boolean {
@@ -95,22 +105,17 @@ function indexExistingSets(existing: FlagFilters | null | undefined): (ExistingS
         return []
     }
     return groups.map((group) =>
-        isConditionGroup(group) ? { group, propsByKey: indexProperties(group.properties) } : undefined
+        isRecord(group) ? { group, propsByKey: indexProperties(group.properties) } : undefined
     )
 }
 
-/** Keyed across every existing set, so a property can still be typed once its own set is gone. */
+/** Spans every existing set. The merge can then type a property after its own set is gone. */
 function indexPropertiesAcrossSets(existingSets: (ExistingSet | undefined)[]): Map<string, FlagProperty[]> {
-    const byKey = new Map<string, FlagProperty[]>()
-    for (const existingSet of existingSets) {
-        if (!existingSet) {
-            continue
-        }
-        for (const [key, props] of existingSet.propsByKey) {
-            byKey.set(key, [...(byKey.get(key) ?? []), ...props])
-        }
-    }
-    return byKey
+    return indexProperties(
+        existingSets.flatMap((existingSet) =>
+            Array.isArray(existingSet?.group.properties) ? existingSet.group.properties : []
+        )
+    )
 }
 
 function sharedKeyCount(incoming: ReadonlyMap<string, unknown>, existing: ReadonlyMap<string, unknown>): number {
@@ -123,20 +128,29 @@ function sharedKeyCount(incoming: ReadonlyMap<string, unknown>, existing: Readon
     return shared
 }
 
+function soleItem<T>(items: T[]): T | undefined {
+    return items.length === 1 ? items[0] : undefined
+}
+
 /**
- * Map each incoming condition set to the existing set it came from. Shared property keys are
- * the evidence, and position decides only where no key matches. A set claims the set it came
- * from, so a moved set cannot take a source another set has a stronger claim on.
+ * Map each incoming condition set to the existing set it came from, by the property keys they
+ * share. The set at the same index wins whenever it shares any key, even when another existing
+ * set shares more. Otherwise the existing set that shares the most keys wins. The search tries the
+ * existing sets that no incoming set has claimed first. It tries the claimed sets only when none
+ * of the unclaimed sets match.
  */
 function attributeSourceSets(
     incomingGroups: FlagConditionGroup[],
     existingSets: (ExistingSet | undefined)[]
 ): (ExistingSet | undefined)[] {
-    const incoming = incomingGroups.map((group) =>
-        isConditionGroup(group) ? indexProperties(group.properties) : undefined
-    )
+    const incoming = incomingGroups.map((group) => (isRecord(group) ? indexProperties(group.properties) : undefined))
     const sources: (ExistingSet | undefined)[] = incomingGroups.map(() => undefined)
     const claimed = new Set<number>()
+
+    const claim = (index: number, existingIndex: number): void => {
+        sources[index] = existingSets[existingIndex]
+        claimed.add(existingIndex)
+    }
 
     const claimSamePosition = ({ requireSharedKey }: { requireSharedKey: boolean }): void => {
         for (const [index, propsByKey] of incoming.entries()) {
@@ -145,88 +159,75 @@ function attributeSourceSets(
                 continue
             }
             if (!requireSharedKey || sharedKeyCount(propsByKey, candidate.propsByKey) > 0) {
-                sources[index] = candidate
-                claimed.add(index)
+                claim(index, index)
             }
         }
     }
 
-    const attributeBestMatch = ({ onlyUnclaimed }: { onlyUnclaimed: boolean }): void => {
-        for (const [index, propsByKey] of incoming.entries()) {
-            if (!propsByKey || sources[index]) {
+    // A tie is not evidence of where the set came from. A tied set gets no match from this search.
+    const uniqueBestMatch = (
+        propsByKey: Map<string, FlagProperty[]>,
+        { skipClaimed }: { skipClaimed: boolean }
+    ): number => {
+        let bestIndex = -1
+        let bestShared = 0
+        let tied = false
+        for (const [existingIndex, candidate] of existingSets.entries()) {
+            if (!candidate || (skipClaimed && claimed.has(existingIndex))) {
                 continue
             }
-            let bestIndex = -1
-            let bestShared = 0
-            let tied = false
-            for (const [existingIndex, candidate] of existingSets.entries()) {
-                if (!candidate || (onlyUnclaimed && claimed.has(existingIndex))) {
-                    continue
-                }
-                const shared = sharedKeyCount(propsByKey, candidate.propsByKey)
-                if (shared === 0) {
-                    continue
-                }
-                if (shared > bestShared) {
-                    bestIndex = existingIndex
-                    bestShared = shared
-                    tied = false
-                } else if (shared === bestShared) {
-                    tied = true
-                }
-            }
-            // A tie is not evidence of where the set came from, so those sets fall through.
-            if (bestIndex < 0 || tied) {
+            const shared = sharedKeyCount(propsByKey, candidate.propsByKey)
+            if (shared === 0) {
                 continue
             }
-            sources[index] = existingSets[bestIndex]
-            if (onlyUnclaimed) {
-                claimed.add(bestIndex)
+            if (shared > bestShared) {
+                bestIndex = existingIndex
+                bestShared = shared
+                tied = false
+            } else if (shared === bestShared) {
+                tied = true
             }
         }
-    }
-
-    // A set that holds no properties, such as a plain rollout, has no key to be matched by.
-    const pairLastRemaining = (): void => {
-        let incomingIndex = -1
-        for (const [index, propsByKey] of incoming.entries()) {
-            if (!propsByKey || sources[index]) {
-                continue
-            }
-            if (incomingIndex >= 0) {
-                return
-            }
-            incomingIndex = index
-        }
-        let existingIndex = -1
-        for (const [index, candidate] of existingSets.entries()) {
-            if (!candidate || claimed.has(index)) {
-                continue
-            }
-            if (existingIndex >= 0) {
-                return
-            }
-            existingIndex = index
-        }
-        const candidate = existingSets[existingIndex]
-        if (incomingIndex < 0 || !candidate) {
-            return
-        }
-        sources[incomingIndex] = candidate
-        claimed.add(existingIndex)
+        return tied ? -1 : bestIndex
     }
 
     claimSamePosition({ requireSharedKey: true })
-    attributeBestMatch({ onlyUnclaimed: true })
-    // A set split off another set reads it without owning it, before elimination gets a turn.
-    attributeBestMatch({ onlyUnclaimed: false })
-    pairLastRemaining()
+
+    for (const [index, propsByKey] of incoming.entries()) {
+        if (!propsByKey || sources[index]) {
+            continue
+        }
+        const unclaimedMatch = uniqueBestMatch(propsByKey, { skipClaimed: true })
+        if (unclaimedMatch >= 0) {
+            claim(index, unclaimedMatch)
+            continue
+        }
+        // A set split off another set reads that set without claiming it. The split-off set then
+        // has a source, and the elimination below does not pair it with an unrelated leftover set.
+        const anyMatch = uniqueBestMatch(propsByKey, { skipClaimed: false })
+        if (anyMatch >= 0) {
+            sources[index] = existingSets[anyMatch]
+        }
+    }
+
+    // A plain rollout has no property key to match. When exactly one incoming set and exactly one
+    // existing set are left without a match, the two pair.
+    const incomingIndex = soleItem(
+        incoming.flatMap((propsByKey, index) => (propsByKey && !sources[index] ? [index] : []))
+    )
+    const existingIndex = soleItem(
+        existingSets.flatMap((candidate, index) => (candidate && !claimed.has(index) ? [index] : []))
+    )
+    if (incomingIndex !== undefined && existingIndex !== undefined) {
+        claim(incomingIndex, existingIndex)
+    }
+
     claimSamePosition({ requireSharedKey: false })
 
     return sources
 }
 
-/** Callers fold an explicit null into `pinnedToPerson` first: `explicitIndex` cannot tell a
+/** Callers fold an explicit null into `pinnedToPerson` first. `explicitIndex` cannot tell a
  * null from an absent key. */
 function resolveGroupIndex(
     pinnedToPerson: boolean,
@@ -243,12 +244,7 @@ function pickPersonAggregatedCandidate(
     candidates: FlagProperty[] | undefined,
     incoming: FlagProperty
 ): FlagProperty | undefined {
-    if (!candidates) {
-        return undefined
-    }
-    // `!== 'group'` is the complement rule documented in mergeConditionSet. It also restores a
-    // stored type the backend tuples omit, such as `person_metadata`, which a hardcoded list drops.
-    const usable = candidates.filter((candidate) => isPresentType(candidate?.type) && candidate.type !== 'group')
+    const usable = (candidates ?? []).filter((candidate) => isPersonAggregatedType(candidate.type))
     if (incoming.operator) {
         const byOperator = usable.find((candidate) => candidate.operator === incoming.operator)
         if (byOperator) {
@@ -278,8 +274,8 @@ function mergeProperty(
         }
     }
 
-    // A group property carries the index its own set aggregates on, so the set's index replaces
-    // an index the agent echoed back from the group type it is retargeting away from.
+    // A group property carries the index its own set aggregates on. The set's index therefore
+    // replaces an index the agent echoed back from the group type it retargets away from.
     if (out.type === 'group' && isPresentGroupIndex(setGroupTypeIndex)) {
         out.group_type_index = setGroupTypeIndex
     }
@@ -303,16 +299,11 @@ function mergeConditionSet(
 ): FlagConditionGroup {
     const out: FlagConditionGroup = { ...incoming }
 
-    // One explicit person, cohort, or flag property stops this set from keeping or
-    // gaining group targeting. An explicit incoming group index still wins, and the API
-    // then reports the contradiction in the agent's own payload.
-    // `!== 'group'` is the complement of PERSON_AGGREGATED_PROPERTY_TYPES in
-    // filters_validation.py. It holds only while 'group' is the sole type outside that
-    // tuple. A Python test asserts that:
-    // products/feature_flags/backend/test/test_filters_validation.py
+    // One explicit property of a person-aggregated type stops this set from keeping or
+    // gaining group targeting. An explicit incoming group index still wins. The API then
+    // reports the contradiction in the agent's own payload.
     const hasExplicitNonGroupProperty =
-        Array.isArray(incoming.properties) &&
-        incoming.properties.some((p) => isPresentType(p?.type) && p.type !== 'group')
+        Array.isArray(incoming.properties) && incoming.properties.some((p) => isPersonAggregatedType(p?.type))
     const propertiesPinSetToPerson =
         hasExplicitNonGroupProperty && !isPresentGroupIndex(out.aggregation_group_type_index)
     if (propertiesPinSetToPerson) {
@@ -323,12 +314,12 @@ function mergeConditionSet(
 
     // Fill only when the key is absent. An explicit null means person aggregation. A payload
     // that states its own flag level already decides this set, the same way the API
-    // distributes the flag level into every set that sends no index of its own. A payload that
-    // only echoes the stored flag level back is skipped too. That is safe because
-    // validate_filters in products/feature_flags/backend/api/feature_flag.py re-derives the
-    // stored flag level from the condition sets on every write, and sets it to null when the
-    // sets disagree. A stored flag therefore never pairs a numeric flag level with a set that
-    // aggregates on a different group type.
+    // distributes the flag level into every set that sends no index of its own. The merge also
+    // skips the fill when the payload only echoes the stored flag level back. That is safe
+    // because validate_filters in products/feature_flags/backend/api/feature_flag.py re-derives
+    // the stored flag level from the condition sets on every write. It sets the flag level to
+    // null when the sets disagree. A stored flag therefore never pairs a numeric flag level with
+    // a set that aggregates on a different group type.
     if (
         !pinnedToPerson &&
         !options.payloadStatesFlagAggregation &&
@@ -399,7 +390,7 @@ export function preserveGroupTargetingFilters(
         const sourceSets = attributeSourceSets(result.groups, existingSets)
 
         result.groups = result.groups.map((group, index) => {
-            if (!isConditionGroup(group)) {
+            if (!isRecord(group)) {
                 return group
             }
 
