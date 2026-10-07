@@ -315,9 +315,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except api.ZipTooLargeError as e:
             return Response({"detail": str(e)}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
         except api.InvalidZipError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except api.ConcurrentUploadError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
+            return Response({"detail": str(e), "path": None, "edit_index": None}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(StreamlitAppVersionSerializer(version).data, status=status.HTTP_201_CREATED)
 

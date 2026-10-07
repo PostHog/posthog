@@ -456,6 +456,10 @@ def _store_version(
             app.save(update_fields=["active_version", "updated_at"])
     except IntegrityError:
         _cleanup_orphan()
+        if expected_latest_version is not None:
+            # A concurrent edit from the same base passed the same check and took the next number first.
+            latest_number = app.versions.order_by("-version_number").values_list("version_number", flat=True).first()
+            raise VersionConflictError(latest_number or 0) from None
         raise ConcurrentUploadError() from None
     except Exception:
         _cleanup_orphan()

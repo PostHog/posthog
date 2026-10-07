@@ -7,6 +7,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import IntegrityError
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -856,17 +857,39 @@ class TestVersionSourceAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         assert response.json()["current_version"] == 2
         assert self.app.versions.count() == 2
 
-    def test_edit_source_names_failed_edit_400(self):
+    def test_edit_source_that_loses_the_version_number_race_409(self):
         self._add_version(1, {"app.py": "v1"})
+
+        with (
+            patch.object(StreamlitAppVersion.objects, "create", side_effect=IntegrityError),
+            patch("posthog.storage.object_storage.delete"),
+        ):
+            response = self.client.post(
+                self._url("edit_source/"),
+                data={"base_version": 1, "file_edits": [{"path": "app.py", "edits": [{"old": "v1", "new": "v2"}]}]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json() | {"detail": None} == {"detail": None, "current_version": 1}
+
+    @parameterized.expand(
+        [
+            ("failed_edit", {"app.py": "v1"}, "app.py", "nope", "app.py", 0),
+            ("invalid_result_zip", {"main.py": "x = 1"}, "main.py", "1", None, None),
+        ]
+    )
+    def test_edit_source_invalid_change_400(self, _name, base_files, path, old, error_path, error_index):
+        self._add_version(1, base_files)
 
         response = self.client.post(
             self._url("edit_source/"),
-            data={"base_version": 1, "file_edits": [{"path": "app.py", "edits": [{"old": "nope", "new": "x"}]}]},
+            data={"base_version": 1, "file_edits": [{"path": path, "edits": [{"old": old, "new": "x"}]}]},
             format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() | {"detail": None} == {"detail": None, "path": "app.py", "edit_index": 0}
+        assert response.json() | {"detail": None} == {"detail": None, "path": error_path, "edit_index": error_index}
         assert self.app.versions.count() == 1
 
 
