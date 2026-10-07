@@ -187,22 +187,26 @@ function ProportionBarInner<Meta = unknown>({
         [seriesByKey, drawnKeys, valueByKey, visibleTotal, onSliceClick, colorByKey, fractionOf]
     )
 
+    // `ChartLegend` grows to fill a flex parent. Holding it in a box sized to its content keeps the
+    // legend right next to the bar, and lets the consumer place the pair, for example centered.
     return (
-        <ChartLegend {...legendProps} items={legendItems} legendDataAttr="hog-chart-proportion-legend">
-            {/* eslint-disable-next-line react/forbid-dom-props -- dynamic pixel height from config */}
-            <div className="relative flex flex-col" style={{ height: barHeight }}>
-                <BarChart
-                    series={barSeries}
-                    labels={BAND_LABELS}
-                    theme={theme}
-                    config={barConfig}
-                    tooltip={renderTooltip}
-                    onPointClick={onSliceClick ? handlePointClick : undefined}
-                    className={className}
-                    dataAttr={dataAttr}
-                    onError={onError}
-                />
-            </div>
-        </ChartLegend>
+        <div className="flex flex-col min-w-0">
+            <ChartLegend {...legendProps} items={legendItems} legendDataAttr="hog-chart-proportion-legend">
+                {/* eslint-disable-next-line react/forbid-dom-props -- dynamic pixel height from config */}
+                <div className="relative flex flex-col" style={{ height: barHeight }}>
+                    <BarChart
+                        series={barSeries}
+                        labels={BAND_LABELS}
+                        theme={theme}
+                        config={barConfig}
+                        tooltip={renderTooltip}
+                        onPointClick={onSliceClick ? handlePointClick : undefined}
+                        className={className}
+                        dataAttr={dataAttr}
+                        onError={onError}
+                    />
+                </div>
+            </ChartLegend>
+        </div>
     )
 }

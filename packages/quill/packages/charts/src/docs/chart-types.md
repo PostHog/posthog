@@ -72,7 +72,7 @@ It takes the same `series` as `PieChart` and sizes each part the same way as a p
 - A part thinner than about a pixel cannot be hovered or clicked. Its legend row still shows its share, and the legend can isolate it.
 - The legend shows below the bar by default. Each row shows `share · value` as its `secondaryLabel`, because the bar has no axis to read a size from. A part hidden through the legend leaves the total, and its row shows no share.
 - A `tooltip` render prop receives the hovered part as `seriesData[0]`, with its raw `value` and its `fraction` of the visible parts, as on `PieChart`.
-- `barHeight` sets the bar thickness. The chart takes its height from the bar and the legend, so it does not need a parent with a fixed height.
+- `barHeight` sets the bar thickness. The chart takes its height from the bar and the legend, so it does not need a parent with a fixed height. It does not grow to fill a flex parent either, so the legend stays next to the bar; center the pair in the parent if you want it in the middle.
 
 ## BoxPlot
 
