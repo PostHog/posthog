@@ -92,6 +92,7 @@ import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/fronten
 import {
     FeatureFlagConfigFormat,
     featureFlagConfigFormat,
+    featureFlagDeleteOptions,
     isV1FeatureFlagConfig,
     reloadIfStaleRowVersion,
     rowVersionToken,
@@ -4244,16 +4245,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
-            const versioned = rowVersionToken(featureFlag)
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 object: { id: featureFlag.id },
                 label: featureFlag.key,
-                // A row in another config version refuses `id`, so the body is `deleted` and the row version only.
-                payload: versioned,
-                // The server refuses to restore a row in another config version, so there is nothing to undo.
-                undoable: featureFlagConfigFormat(featureFlag.filters) === 'v1',
-                onError: (error) => reloadIfStaleRowVersion(versioned, error, actions.refreshFeatureFlag),
+                // Read the row version now: an inline save may have moved it on since the dialog opened.
+                ...featureFlagDeleteOptions(values.featureFlag, actions.refreshFeatureFlag),
                 callback: (undo) => {
                     if (undo) {
                         refreshTreeItem('feature_flag', String(featureFlag.id))

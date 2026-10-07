@@ -62,10 +62,9 @@ import {
     canArchiveFeatureFlag,
     featureFlagConfigFormat,
     featureFlagConfigFormatLabel,
+    featureFlagDeleteOptions,
     isRulesV2FeatureFlagConfig,
     isV1FeatureFlagConfig,
-    reloadIfStaleRowVersion,
-    rowVersionToken,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { FeatureFlagRequestUsage } from 'products/feature_flags/frontend/requestUsage/FeatureFlagRequestUsage'
 
@@ -333,15 +332,11 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     status="danger"
                                     onClick={() => {
                                         openFeatureFlagDeleteDialog(featureFlag, () => {
-                                            const versioned = rowVersionToken(featureFlag)
                                             void deleteWithUndo({
                                                 endpoint: `projects/${currentProjectId}/feature_flags`,
                                                 object: { id: featureFlag.id },
                                                 label: featureFlag.key,
-                                                payload: versioned,
-                                                undoable: isV1Config,
-                                                onError: (error) =>
-                                                    reloadIfStaleRowVersion(versioned, error, loadFeatureFlags),
+                                                ...featureFlagDeleteOptions(featureFlag, loadFeatureFlags),
                                                 callback: () => loadFeatureFlags(),
                                             }).catch((e) => {
                                                 lemonToast.error(`Failed to delete feature flag: ${e.detail}`)

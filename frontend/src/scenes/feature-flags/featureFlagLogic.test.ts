@@ -3150,6 +3150,7 @@ describe('featureFlagLogic', () => {
                     `${MOCK_FEATURE_FLAG.key} has been deleted`
                 )
 
+                expect(options?.button?.label).toBe('Undo')
                 await expectLogic(logic, async () => {
                     await options?.button?.action()
                 }).toNotHaveDispatchedActions(['deleteFlag'])
@@ -4396,6 +4397,23 @@ describe('a flag in config version 2', () => {
         await expectLogic(logic, act).toFinishAllListeners()
 
         expect(update).toHaveBeenCalledWith(`api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7`, body)
+    })
+
+    it('deletes with the row version an inline save returned after the delete dialog opened', async () => {
+        const update = jest
+            .spyOn(api, 'update')
+            .mockImplementation(async (_url, payload) => ({ ...V2_FLAG, ...(payload as object), version: 4 }))
+        // The dialog's confirm passes the flag it was opened with, at version 3.
+        const flagWhenDialogOpened = logic.values.featureFlag
+
+        logic.actions.saveTagsInline(['checkout'])
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.deleteFeatureFlag(flagWhenDialogOpened)).toFinishAllListeners()
+
+        expect(update).toHaveBeenLastCalledWith(`api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7`, {
+            deleted: true,
+            version: 4,
+        })
     })
 
     it('offers no undo after a delete, because the server refuses to restore this flag', async () => {

@@ -31,14 +31,14 @@ describe('deleteWithUndo', () => {
         await deleteWithUndo({
             endpoint: 'projects/1/feature_flags',
             object: { id: 7, name: 'checkout-redesign' },
-            payload: {},
+            payload: { version: 3 },
         })
-        expect(updateSpy).toHaveBeenLastCalledWith('api/projects/1/feature_flags/7', { deleted: true })
+        expect(updateSpy).toHaveBeenLastCalledWith('api/projects/1/feature_flags/7', { version: 3, deleted: true })
 
         const undoButton = infoSpy.mock.calls[0][1]?.button
         expect(undoButton?.label).toBe('Undo')
         await undoButton?.action()
-        expect(updateSpy).toHaveBeenLastCalledWith('api/projects/1/feature_flags/7', { deleted: false })
+        expect(updateSpy).toHaveBeenLastCalledWith('api/projects/1/feature_flags/7', { version: 3, deleted: false })
     })
 
     it('offers no undo when the item is not undoable', async () => {

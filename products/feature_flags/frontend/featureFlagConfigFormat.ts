@@ -36,6 +36,11 @@ export function canArchiveFeatureFlag(filters: FeatureFlagConfig | null | undefi
     return featureFlagConfigFormat(filters) === 'v1'
 }
 
+/** The server refuses `deleted: false` on every config version but v1. */
+export function canRestoreFeatureFlag(filters: FeatureFlagConfig | null | undefined): boolean {
+    return featureFlagConfigFormat(filters) === 'v1'
+}
+
 /**
  * A write to a row in another config version must carry the row version. For a v1 row this returns
  * `{}`, so the write sends no version and the server applies it without a version check.
@@ -60,6 +65,22 @@ export function reloadIfStaleRowVersion(token: { version?: number }, error: any,
     lemonToast.error(error?.detail || STALE_ROW_VERSION_RELOADED_MESSAGE)
     reload()
     return true
+}
+
+/**
+ * The `deleteWithUndo` options for a flag. A row in another config version refuses `id`, so the body is `deleted`
+ * and the row version only, and there is no Undo for a flag the server will not restore.
+ */
+export function featureFlagDeleteOptions(
+    flag: { filters?: FeatureFlagConfig | null; version?: number | null },
+    reload: () => void
+): { payload: { version?: number }; undoable: boolean; onError: (error: any) => boolean } {
+    const versioned = rowVersionToken(flag)
+    return {
+        payload: versioned,
+        undoable: canRestoreFeatureFlag(flag.filters),
+        onError: (error) => reloadIfStaleRowVersion(versioned, error, reload),
+    }
 }
 
 export function featureFlagConfigFormatLabel(filters: FeatureFlagConfig | null | undefined): string {

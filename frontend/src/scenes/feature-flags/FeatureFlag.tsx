@@ -82,6 +82,7 @@ import {
     ARCHIVE_UNAVAILABLE_DISABLED_REASON,
     RESTORE_UNAVAILABLE_DISABLED_REASON,
     canArchiveFeatureFlag,
+    canRestoreFeatureFlag,
     featureFlagConfigFormatLabel,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
@@ -147,7 +148,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         configFormat,
     } = useValues(featureFlagLogic)
     const isV1Config = configFormat === 'v1'
-    const restoreUnavailable = !!featureFlag.deleted && !isV1Config
+    const canRestore = canRestoreFeatureFlag(featureFlag.filters)
+    const restoreUnavailable = !!featureFlag.deleted && !canRestore
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
         deleteFeatureFlag,
@@ -485,7 +487,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         <LemonBanner
                             type="error"
                             action={
-                                featureFlag.can_edit && isV1Config
+                                featureFlag.can_edit && canRestore
                                     ? {
                                           children: 'Restore',
                                           onClick: () => restoreFeatureFlag(featureFlag),
@@ -496,7 +498,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             }
                         >
                             This feature flag is deleted. It's hidden from the flag list and can't be evaluated.{' '}
-                            {!isV1Config
+                            {!canRestore
                                 ? RESTORE_UNAVAILABLE_DISABLED_REASON
                                 : featureFlag.can_edit
                                   ? 'Restore it to use it again.'

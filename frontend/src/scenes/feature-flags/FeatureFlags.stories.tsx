@@ -231,6 +231,28 @@ export const DeletedFeatureFlag: Story = {
     },
 }
 
+// The banner has no Restore button, because the server refuses to restore a flag in another config version.
+export const DeletedRulesV2FeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(RULES_V2_FLAG_ID),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/feature_flags/${RULES_V2_FLAG_ID}/`]: () => [
+                    200,
+                    {
+                        ...featureFlags.results.find((r) => r.id === RULES_V2_FLAG_ID),
+                        deleted: true,
+                        active: false,
+                        can_edit: true,
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
 export const FeatureFlagNotFound: Story = {
     parameters: {
         pageUrl: urls.featureFlag(1111111111111),
