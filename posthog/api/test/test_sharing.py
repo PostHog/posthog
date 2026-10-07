@@ -2385,6 +2385,8 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             ("notebook", "this insight is publicly shared"),
             ("subscription", "a subscription delivers this insight"),
             ("dashboard_subscription", "a subscription delivers this insight"),
+            # Restoring the dashboard resumes delivery without a subscription write.
+            ("deleted_dashboard_subscription", "a subscription delivers this insight"),
         ]
     )
     def test_query_update_blocked_when_insight_is_shared_or_delivered(self, coverage: str, expected_reason: str):
@@ -2397,8 +2399,10 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
         elif coverage == "subscription":
             self._subscription(insight=self.insight)
-        elif coverage == "dashboard_subscription":
-            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        elif coverage in ("dashboard_subscription", "deleted_dashboard_subscription"):
+            dashboard = Dashboard.objects.create(
+                team=self.team, created_by=self.user, deleted=coverage == "deleted_dashboard_subscription"
+            )
             DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
             self._subscription(dashboard=dashboard)
         else:

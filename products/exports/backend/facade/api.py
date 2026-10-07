@@ -150,8 +150,9 @@ def subscription_delivers_insight(*, team_id: int, insight_id: int) -> bool:
 
     A subscription delivers the insight when it targets the insight, when its dashboard selection
     names the insight, or when it has no selection and the insight is a live tile of its dashboard.
-    A selected insight counts even while it is not a live tile, because the selection keeps it and
-    delivers it again when the tile comes back.
+    A selected insight counts even while it is not a live tile, and a tile of a deleted dashboard
+    counts too: restoring the tile or the dashboard delivers the insight again without a
+    subscription write, so the check must stay on the insight edit meanwhile.
     """
     active = _active_subscriptions(team_id)
     if active.filter(insight_id=insight_id).exists():
@@ -162,7 +163,6 @@ def subscription_delivers_insight(*, team_id: int, insight_id: int) -> bool:
     return active.filter(
         Q(dashboard__tiles__deleted__isnull=True) | Q(dashboard__tiles__deleted=False),
         dashboard__tiles__insight_id=insight_id,
-        dashboard__deleted=False,
         dashboard_export_insights__isnull=True,
     ).exists()
 
