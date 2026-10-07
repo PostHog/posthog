@@ -5,8 +5,11 @@ from uuid import uuid4
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
 from posthog.schema import (
     BillingSpendResponseBreakdownType,
@@ -103,6 +106,28 @@ def _billing_context_with_amounts() -> MaxBillingContext:
         trial=None,
         settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=3),
     )
+
+
+class TestPartnerBillingCreditHistory(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("usage_key", "ai_credits_used_in_period"),
+            ("display_label", "PostHog AI"),
+            ("project_usage_key", "Synthetic project::ai_credits_used_in_period"),
+            ("project_display_label", "Synthetic project::PostHog AI"),
+        ]
+    )
+    def test_recognizes_credit_usage_from_label(self, _name: str, label: str) -> None:
+        item = UsageHistoryItem(
+            id=1,
+            label=label,
+            dates=["2026-01-01"],
+            data=[12345],
+            breakdown_type=BillingUsageResponseBreakdownType.TYPE,
+            breakdown_value="unknown_metric",
+        )
+
+        assert ReadBillingTool._counts_credits(item)
 
 
 class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):

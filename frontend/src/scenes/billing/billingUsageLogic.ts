@@ -473,9 +473,12 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         ],
         actions: [eventUsageLogic, ['reportBillingUsageInteraction']],
     })),
-    actions({
+    actions(({ values }) => ({
         setFilters: (filters: Partial<BillingFilters>, shouldDebounce: boolean = true) => ({
-            filters,
+            filters:
+                values.isBillingManagedByPartner && filters.usage_types
+                    ? { ...filters, usage_types: filters.usage_types.filter((type) => !isCreditUsageType(type)) }
+                    : filters,
             shouldDebounce,
         }),
         setDateRange: (dateFrom: string | null, dateTo: string | null, shouldDebounce: boolean = true) => ({
@@ -494,7 +497,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         toggleTeamBreakdown: true,
         resetFilters: true,
         setBillingUsageError: (error: BillingUsageError | null) => ({ error }),
-    }),
+    })),
     loaders(({ values, actions }) => ({
         reportedProjectIds: [
             [] as number[],
@@ -524,7 +527,11 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                     // Before the try below, deliberately: a breakpoint reports itself by throwing,
                     // and catching that as a failure would show the person an error toast.
                     await breakpoint(1)
-                    if (!values.canViewUsageAndSpend || values.isHobby) {
+                    if (
+                        !values.canViewUsageAndSpend ||
+                        values.isHobby ||
+                        (!values.billing && values.filters.usage_types?.some(isCreditUsageType))
+                    ) {
                         return null
                     }
                     actions.setBillingUsageError(null)
@@ -957,6 +964,11 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        [billingLogic.actionTypes.loadBillingSuccess]: () => {
+            if (values.filters.usage_types?.some(isCreditUsageType)) {
+                actions.setFilters(values.filters, false)
+            }
+        },
         setFilters: async ({ shouldDebounce }, breakpoint) => {
             if (shouldDebounce) {
                 await breakpoint(200)

@@ -560,6 +560,72 @@ describe('billing section URL scoping', () => {
         expect(usageRequests).toEqual(afterMount)
     })
 
+    it.each([
+        {
+            partner: true,
+            billingLoaded: true,
+            usageTypes: ['event_count_in_period', 'sandbox_compute_credits_used_in_period'],
+        },
+        {
+            partner: true,
+            billingLoaded: false,
+            usageTypes: ['event_count_in_period', 'sandbox_compute_credits_used_in_period'],
+        },
+        { partner: true, billingLoaded: false, usageTypes: ['sandbox_compute_credits_used_in_period'] },
+        {
+            partner: false,
+            billingLoaded: false,
+            usageTypes: ['event_count_in_period', 'sandbox_compute_credits_used_in_period'],
+        },
+    ])(
+        'handles credit usage links with partner=$partner and billingLoaded=$billingLoaded ($usageTypes)',
+        async ({ partner, billingLoaded, usageTypes }) => {
+            const requestedTypes: (string[] | null)[] = []
+            let resolveBilling: () => void = () => {}
+            const billingReady = new Promise<void>((resolve) => {
+                resolveBilling = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/billing': async () => {
+                        await billingReady
+                        return [200, { ...billingJson, billing_managed_by_partner: partner }]
+                    },
+                    '/api/organizations/@current/billing/usage/timeseries/': ({ request }) => {
+                        requestedTypes.push(JSON.parse(new URL(request.url).searchParams.get('usage_types') ?? 'null'))
+                        return [200, { count: 0, next: null, previous: null, results: [] }]
+                    },
+                },
+            })
+            billingLogic.mount()
+            billingLogic.actions.loadBilling()
+            if (billingLoaded) {
+                resolveBilling()
+                await expectLogic(billingLogic).toFinishAllListeners()
+            }
+            router.actions.push(urls.organizationBillingSection('usage'), { usage_types: usageTypes })
+            logic = billingUsageLogic({ syncWithUrl: true })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadBillingUsageSuccess'])
+            const requestsBeforeBilling = [...requestedTypes]
+            if (!billingLoaded) {
+                resolveBilling()
+                await expectLogic(billingLogic).toFinishAllListeners()
+            }
+            await expectLogic(logic).toFinishAllListeners()
+            const expectedTypes = partner ? usageTypes.filter((type) => !type.includes('credits')) : usageTypes
+            const expectedRequests = [expectedTypes.length ? expectedTypes : null]
+            expect(requestsBeforeBilling).toEqual(billingLoaded ? expectedRequests : [])
+            expect(requestedTypes).toEqual(expectedRequests)
+            expect(logic.values.filters.usage_types).toEqual(expectedTypes)
+            for (const exportUrl of [logic.values.usageExportUrl, logic.values.usageChartExportUrl]) {
+                expect(new URL(exportUrl, 'http://localhost').searchParams.get('usage_types')).toEqual(
+                    expectedTypes.length ? JSON.stringify(expectedTypes) : null
+                )
+            }
+        }
+    )
+
     it('still follows filter changes made on its own page', async () => {
         router.actions.push(urls.organizationBillingSection('usage'))
         logic = billingUsageLogic({ syncWithUrl: true })

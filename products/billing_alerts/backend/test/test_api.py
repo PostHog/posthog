@@ -336,7 +336,7 @@ class TestBillingAlertAPI(APIBaseTest):
             ("events", "get", "{alert_id}/events/"),
         ]
     )
-    def test_spend_reads_are_refused_while_a_partner_pays(self, _name: str, method: str, path: str) -> None:
+    def test_billing_alert_endpoints_are_refused_while_a_partner_pays(self, _name: str, method: str, path: str) -> None:
         alert = self._alert()
         application = OAuthApplication.objects.create(
             name="Example Partner",

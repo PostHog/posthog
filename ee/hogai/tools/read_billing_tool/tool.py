@@ -188,7 +188,12 @@ class ReadBillingTool(MaxSubtool):
     @staticmethod
     def _counts_credits(item: UsageHistoryItem) -> bool:
         values = item.breakdown_value if isinstance(item.breakdown_value, list) else [item.breakdown_value]
-        return any(is_credit_denominated(value) for value in values)
+        label = item.label.rsplit("::", 1)[-1]
+        return (
+            any(is_credit_denominated(value) for value in values)
+            or is_credit_denominated(label)
+            or any(option["label"] == label and is_credit_denominated(option["value"]) for option in USAGE_TYPE_OPTIONS)
+        )
 
     def _get_teams_map(self) -> dict[int, str]:
         if self._teams_map:

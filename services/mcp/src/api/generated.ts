@@ -17570,7 +17570,7 @@ export namespace Schemas {
       account_owner?: unknown;
       customer_trust_scores?: unknown;
       never_drop_data?: boolean;
-      /** Set when a provisioning partner pays for this organization. While it is set, self-serve subscription, payment, and billing limit changes are refused, and reads of spend, invoices, and credit balances are refused. Coupon claims and reads are refused too, as are billing alert creation, checks, and event reads. Amounts, prices, and dollar limits in billing responses are null. Usage counted in credits is null or left out, because one credit is one cent. Other usage, and usage limits in units, stay readable. Null when no partner pays. */
+      /** Set when a provisioning partner pays for this organization. While it is set, self-serve subscription, payment, and billing limit changes are refused, and reads of spend, invoices, and credit balances are refused. Coupon claims and reads are refused too, as are billing alert creation, manual 'check now' requests, and event reads. Amounts, prices, and dollar limits in billing responses are null. Usage counted in credits is null or left out, because one credit is one cent. Other usage, and usage limits in units, stay readable. Null when no partner pays. */
       billing_managed_by_partner: BillingManagedByPartner | null;
     }
 
@@ -17804,7 +17804,7 @@ export namespace Schemas {
       billing_portal_url: string;
       invoices_url?: string;
       license: License;
-      /** Set when a provisioning partner pays for this organization. While it is set, self-serve subscription, payment, and billing limit changes are refused, and reads of spend, invoices, and credit balances are refused. Coupon claims and reads are refused too, as are billing alert creation, checks, and event reads. Amounts, prices, and dollar limits in billing responses are null. Usage counted in credits is null or left out, because one credit is one cent. Other usage, and usage limits in units, stay readable. Null when no partner pays. */
+      /** Set when a provisioning partner pays for this organization. While it is set, self-serve subscription, payment, and billing limit changes are refused, and reads of spend, invoices, and credit balances are refused. Coupon claims and reads are refused too, as are billing alert creation, manual 'check now' requests, and event reads. Amounts, prices, and dollar limits in billing responses are null. Usage counted in credits is null or left out, because one credit is one cent. Other usage, and usage limits in units, stay readable. Null when no partner pays. */
       billing_managed_by_partner: BillingManagedByPartner | null;
     }
 
