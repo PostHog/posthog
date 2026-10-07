@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:posthog:feature-flag-rules-v2:config:1.0.0",
+  "$id": "urn:posthog:feature-flag-rules-v2:config:2.0.0",
   "title": "Feature Flag Rules v2 config",
   "description": "Canonical stored configuration for Feature Flag Rules config version 2.",
   "type": "object",
@@ -371,7 +371,11 @@
       ],
       "properties": {
         "id": {
-          "type": "integer"
+          "description": "The shared Holdout row, or null for a rule-local holdout whose seed and exclusion percentage live on the rule.",
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "seed": {
           "$ref": "#/$defs/seed"
@@ -491,7 +495,11 @@
           "$ref": "#/$defs/metadata"
         },
         "experiment_id": {
-          "type": "integer"
+          "description": "The linked Experiment row, or null for a rule without an experiment: a standalone variant split that creates and links no Experiment row.",
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "paused": {
           "type": "boolean"
@@ -526,7 +534,36 @@
           "$ref": "#/$defs/holdout"
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "experiment_id": {
+            "type": "null"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "holdout": {
+            "properties": {
+              "id": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "holdout": {
+            "properties": {
+              "id": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
     },
     "rule": {
       "oneOf": [

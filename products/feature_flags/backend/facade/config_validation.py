@@ -14,14 +14,16 @@ request input into the final document, calls ``rule_warnings.review_config`` (wh
 validates through this module and reports warnings) and persists under the existing row
 lock. No production caller exists yet.
 
-Admitted family: person-assigned flags of every return type with targeted_release and
-percentage_rollout rules whose targeting uses person properties. Everything else the
-published contract describes (experiment rules, group assignment, cohort/group/flag
-properties) is rejected with the ``unsupported`` code, so a
-canonical fixture is never relabelled as malformed and no partially checked document is
-accepted. Shape errors use the other codes. The canonical shape is the harness config
-schema 1.0.0 in contract package 2.0.0; the semantic constraints (unique rule ids, two
-decimal places, byte limits) come from its literal registry.
+Admitted family: person-assigned flags of every return type with targeted_release,
+percentage_rollout and experiment rules whose targeting uses person properties. An experiment
+rule is admitted only without an experiment (``experiment_id: null``), with at most a
+rule-local holdout. Everything else the published contract describes (experiment-linked
+rules, group assignment, cohort/group/flag properties) is rejected with the ``unsupported``
+code, so a canonical fixture is never relabelled as malformed and no partially checked
+document is accepted. Shape errors use the other codes. The canonical shape is the harness
+config schema 2.0.0 in contract package 3.0.0; the semantic constraints (unique rule ids and
+variant keys, two decimal places, weights totalling 100, byte limits) come from its literal
+registry.
 """
 
 import re
@@ -47,13 +49,17 @@ MAX_SEED_LENGTH = 400
 MAX_PERCENTAGE_DECIMALS = 2
 MAX_SAFE_INTEGER = 2**53 - 1
 MAX_OBJECT_DEPTH = 20
+MIN_VARIANTS = 2
+MAX_VARIANTS = 20
 
 ConfigErrorCode = Literal["required", "invalid", "unknown_field", "not_unique", "unsupported", "limit_exceeded"]
 RolloutMissPolicy = Literal["continue", "return_default"]
-AdmittedRuleType = Literal["targeted_release", "percentage_rollout"]
+AdmittedRuleType = Literal["targeted_release", "percentage_rollout", "experiment"]
 
 RETURN_TYPES: tuple[str, ...] = get_args(FlagReturnType)
 RULE_TYPES: tuple[str, ...] = get_args(RuleType)
+# Rule types that assign by hash: they carry a rollout and a server-owned seed.
+RANDOMIZED_RULE_TYPES: tuple[str, ...] = ("percentage_rollout", "experiment")
 ROLLOUT_MISS_POLICIES: tuple[RolloutMissPolicy, ...] = get_args(RolloutMissPolicy)
 ASSIGNMENT_ALGORITHM = "sha1_60_v1"
 PERSON_ASSIGNMENT = "person"
@@ -123,10 +129,15 @@ _V1_ONLY_ROOT_FIELDS = frozenset(
 )
 _COMMON_RULE_FIELDS = frozenset({"id", "rule_type", "targeting", "description", "metadata", "value"})
 _ROLLOUT_RULE_FIELDS = frozenset({"rollout_percentage", "on_rollout_miss", "assignment_algorithm", "seed", "assign_by"})
+_EXPERIMENT_ONLY_FIELDS = frozenset({"experiment_id", "paused", "variants", "holdout"})
 _RULE_FIELDS: dict[str, frozenset[str]] = {
     "targeted_release": _COMMON_RULE_FIELDS,
     "percentage_rollout": _COMMON_RULE_FIELDS | _ROLLOUT_RULE_FIELDS,
+    "experiment": (_COMMON_RULE_FIELDS - {"value"}) | _ROLLOUT_RULE_FIELDS | _EXPERIMENT_ONLY_FIELDS,
 }
+_VARIANT_FIELDS = frozenset({"key", "weight", "value"})
+_HOLDOUT_FIELDS = frozenset({"id", "seed", "exclusion_percentage"})
+_VARIANT_KEY = re.compile(r"^[a-zA-Z0-9_-]+$")
 _PROPERTY_FIELDS = frozenset(
     {"key", "value", "type", "operator", "group_type_index", "negation", "cohort_name", "group_key_names", "label"}
 )
@@ -193,15 +204,33 @@ class Predicate:
 
 
 @frozen
+class ValidatedVariant:
+    key: str
+    weight: Decimal
+    value: str  # canonical JSON text, see ``canonical_value``
+
+
+@frozen
+class ValidatedHoldout:
+    """A rule-local holdout: its seed lives on the rule, not on a shared holdout row."""
+
+    exclusion_percentage: Decimal
+    seed: str = field(repr=False)
+
+
+@frozen
 class ValidatedRule:
     id: str
     rule_type: AdmittedRuleType
     predicates: frozenset[Predicate]
-    value: str  # canonical JSON text, see ``canonical_value``
+    value: str | None  # canonical JSON text, see ``canonical_value``; None for an experiment rule
     rollout_percentage: Decimal | None = None
     on_rollout_miss: RolloutMissPolicy | None = None
     # Assignment seeds must not reach logs or tracebacks; the detectors only compare them.
     seed: str | None = field(default=None, repr=False)
+    paused: bool = False
+    variants: tuple[ValidatedVariant, ...] = ()
+    holdout: ValidatedHoldout | None = None
 
 
 @frozen
@@ -319,15 +348,9 @@ def _validate_rule(
     if not _field(rule, "rule_type", path, errors, _one_of(RULE_TYPES)):
         return None
     rule_type = rule["rule_type"]
-    if rule_type not in _RULE_FIELDS:
-        errors.append(
-            ConfigError(code="unsupported", detail="Experiment rules are not available yet.", attr=f"{path}.rule_type")
-        )
-        return None
     for name in rule:
         if name not in _RULE_FIELDS[rule_type]:
-            rollout_only = "Only percentage_rollout rules have this field."
-            errors.append(_unknown_field(f"{path}.{name}", rollout_only if name in _ROLLOUT_RULE_FIELDS else None))
+            errors.append(_unknown_field(f"{path}.{name}", _UNKNOWN_RULE_FIELD_DETAILS.get((rule_type, name))))
 
     before = len(errors)
     _field(rule, "id", path, errors, (lambda v: isinstance(v, str) and bool(_UUID.fullmatch(v)), "Must be a UUID."))
@@ -335,20 +358,25 @@ def _validate_rule(
     _field(rule, "description", path, errors, (lambda v: isinstance(v, str), "Must be a string."), False)
     if "metadata" in rule:
         _validate_metadata(rule["metadata"], f"{path}.metadata", limits, errors)
-    if value_check is not None:
+    if value_check is not None and rule_type != "experiment":
         _field(rule, "value", path, errors, value_check)
 
     rollout: Decimal | None = None
-    if rule_type == "percentage_rollout":
-        rollout = _validate_percentage(rule, path, errors)
+    if rule_type in RANDOMIZED_RULE_TYPES:
+        rollout = _validate_percentage(rule, "rollout_percentage", path, errors)
         _field(rule, "on_rollout_miss", path, errors, _one_of(ROLLOUT_MISS_POLICIES))
         _field(rule, "assignment_algorithm", path, errors, _one_of((ASSIGNMENT_ALGORITHM,)))
-        seed_ok = (
-            lambda v: isinstance(v, str) and 1 <= len(v) <= MAX_SEED_LENGTH,
-            f"Must be between 1 and {MAX_SEED_LENGTH} characters.",
-        )
-        _field(rule, "seed", path, errors, seed_ok)
+        _field(rule, "seed", path, errors, _SEED_CHECK)
         _field(rule, "assign_by", path, errors, _one_of((PERSON_ASSIGNMENT,)), False)
+    variants: tuple[ValidatedVariant, ...] = ()
+    holdout: ValidatedHoldout | None = None
+    if rule_type == "experiment":
+        linked = _validate_experiment_id(rule, path, errors)
+        _field(rule, "paused", path, errors, _VALUE_CHECKS["boolean"])
+        variants = _validate_variants(rule, path, value_check, errors)
+        # A linked rule is already unsupported, and its holdout is a shared row's.
+        if "holdout" in rule and not linked:
+            holdout = _validate_holdout(rule["holdout"], f"{path}.holdout", errors)
 
     if len(errors) > before or predicates is None or value_check is None:
         return None
@@ -356,11 +384,113 @@ def _validate_rule(
         id=rule["id"],
         rule_type=rule_type,
         predicates=predicates,
-        value=canonical_value(rule["value"]),
+        value=None if rule_type == "experiment" else canonical_value(rule["value"]),
         rollout_percentage=rollout,
         on_rollout_miss=rule["on_rollout_miss"] if rollout is not None else None,
         seed=rule["seed"] if rollout is not None else None,
+        paused=rule.get("paused", False),
+        variants=variants,
+        holdout=holdout,
     )
+
+
+_ROLLOUT_ONLY = "Only percentage_rollout and experiment rules have this field."
+_UNKNOWN_RULE_FIELD_DETAILS: dict[tuple[str, str], str] = {
+    **{("targeted_release", name): _ROLLOUT_ONLY for name in _ROLLOUT_RULE_FIELDS},
+    ("experiment", "value"): "Experiment rules return the values of their variants.",
+}
+_SEED_CHECK: "_Check" = (
+    lambda v: isinstance(v, str) and 1 <= len(v) <= MAX_SEED_LENGTH,
+    f"Must be between 1 and {MAX_SEED_LENGTH} characters.",
+)
+_ARRAY_CHECK: "_Check" = (lambda v: isinstance(v, list), "Must be an array.")
+_VARIANT_KEY_CHECK: "_Check" = (
+    lambda v: isinstance(v, str) and bool(_VARIANT_KEY.fullmatch(v)),
+    "Must be letters, digits, hyphens or underscores.",
+)
+_LOCAL_HOLDOUT_ID_CHECK: "_Check" = (
+    lambda v: v is None,
+    "Must be null: a rule without an experiment has a rule-local holdout. Shared holdouts are not available yet.",
+)
+
+
+def _validate_experiment_id(rule: Mapping[str, Any], path: str, errors: list[ConfigError]) -> bool:
+    """Whether the rule links an experiment, which is valid contract but needs the experiment lifecycle."""
+    check = (lambda v: v is None or _is_int(v), "Must be an integer or null.")
+    if not _field(rule, "experiment_id", path, errors, check) or rule["experiment_id"] is None:
+        return False
+    errors.append(
+        ConfigError(
+            code="unsupported",
+            detail="Linking an experiment is not available yet. Use null for a rule without an experiment.",
+            attr=f"{path}.experiment_id",
+        )
+    )
+    return True
+
+
+def _validate_variants(
+    rule: Mapping[str, Any], path: str, value_check: "_Check | None", errors: list[ConfigError]
+) -> tuple[ValidatedVariant, ...]:
+    if not _field(rule, "variants", path, errors, _ARRAY_CHECK):
+        return ()
+    items, path = rule["variants"], f"{path}.variants"
+    if len(items) > MAX_VARIANTS:
+        errors.append(
+            ConfigError(code="limit_exceeded", detail=f"At most {MAX_VARIANTS} variants are allowed.", attr=path)
+        )
+        return ()
+    if len(items) < MIN_VARIANTS:
+        errors.append(ConfigError(code="invalid", detail=f"At least {MIN_VARIANTS} variants are required.", attr=path))
+        return ()
+    before = len(errors)
+    variants: list[ValidatedVariant] = []
+    seen_keys: set[str] = set()
+    for index, variant in enumerate(items):
+        validated = _validate_variant(variant, f"{path}[{index}]", value_check, seen_keys, errors)
+        if validated is not None:
+            variants.append(validated)
+    if len(errors) == before and sum(variant.weight for variant in variants) != 100:
+        errors.append(ConfigError(code="invalid", detail="Variant weights must total exactly 100.", attr=path))
+    return tuple(variants)
+
+
+def _validate_variant(
+    variant: object, path: str, value_check: "_Check | None", seen_keys: set[str], errors: list[ConfigError]
+) -> ValidatedVariant | None:
+    if not isinstance(variant, Mapping):
+        errors.append(ConfigError(code="invalid", detail="Must be an object.", attr=path))
+        return None
+    before = len(errors)
+    for name in variant:
+        if name not in _VARIANT_FIELDS:
+            errors.append(_unknown_field(f"{path}.{name}"))
+    if _field(variant, "key", path, errors, _VARIANT_KEY_CHECK):
+        if variant["key"] in seen_keys:
+            errors.append(ConfigError(code="not_unique", detail="Variant keys must be unique.", attr=f"{path}.key"))
+        seen_keys.add(variant["key"])
+    weight = _validate_percentage(variant, "weight", path, errors)
+    if value_check is not None:
+        _field(variant, "value", path, errors, value_check)
+    if len(errors) > before or weight is None or value_check is None:
+        return None
+    return ValidatedVariant(key=variant["key"], weight=weight, value=canonical_value(variant["value"]))
+
+
+def _validate_holdout(holdout: object, path: str, errors: list[ConfigError]) -> ValidatedHoldout | None:
+    if not isinstance(holdout, Mapping):
+        errors.append(ConfigError(code="invalid", detail="Must be an object.", attr=path))
+        return None
+    before = len(errors)
+    for name in holdout:
+        if name not in _HOLDOUT_FIELDS:
+            errors.append(_unknown_field(f"{path}.{name}"))
+    _field(holdout, "id", path, errors, _LOCAL_HOLDOUT_ID_CHECK)
+    _field(holdout, "seed", path, errors, _SEED_CHECK)
+    exclusion = _validate_percentage(holdout, "exclusion_percentage", path, errors)
+    if len(errors) > before or exclusion is None:
+        return None
+    return ValidatedHoldout(exclusion_percentage=exclusion, seed=holdout["seed"])
 
 
 def _validate_targeting(rule: Mapping[str, Any], path: str, errors: list[ConfigError]) -> frozenset[Predicate] | None:
@@ -501,11 +631,11 @@ def _validate_metadata(metadata: object, path: str, limits: ValidationLimits, er
         errors.append(ConfigError(code="limit_exceeded", detail="The rule metadata is too large.", attr=path))
 
 
-def _validate_percentage(rule: Mapping[str, Any], path: str, errors: list[ConfigError]) -> Decimal | None:
-    if not _field(rule, "rollout_percentage", path, errors, (_is_number, "Must be a finite number.")):
+def _validate_percentage(obj: Mapping[str, Any], name: str, path: str, errors: list[ConfigError]) -> Decimal | None:
+    if not _field(obj, name, path, errors, (_is_number, "Must be a finite number.")):
         return None
-    value = rule["rollout_percentage"]
-    path = f"{path}.rollout_percentage"
+    value = obj[name]
+    path = f"{path}.{name}"
     if not 0 <= value <= 100:
         errors.append(ConfigError(code="invalid", detail="Must be between 0 and 100.", attr=path))
         return None
