@@ -44,6 +44,15 @@ describe('SeriesTab', () => {
             labelDisabled: false,
         },
         {
+            name: 'lists the breakdown parts and disables the label when a breakdown ignores it',
+            display: ChartDisplayType.ActionsProportionBar,
+            xAxis: { column: 'day' },
+            valueColumns: ['signups'],
+            seriesBreakdownColumn: 'country',
+            listsEveryValueColumn: true,
+            labelDisabled: true,
+        },
+        {
             name: 'picks one value column for a pie grouped by a label column',
             display: ChartDisplayType.ActionsPie,
             xAxis: { column: 'day' },
@@ -51,25 +60,26 @@ describe('SeriesTab', () => {
             listsEveryValueColumn: false,
             labelDisabled: false,
         },
-    ])('$name', ({ display, xAxis, valueColumns, listsEveryValueColumn, labelDisabled }) => {
+    ])('$name', ({ display, xAxis, valueColumns, seriesBreakdownColumn, listsEveryValueColumn, labelDisabled }) => {
         initKeaTests()
         const cachedResults: HogQLQueryResponse = {
-            results: [['Mon', 3, 5]],
-            columns: ['day', 'signups', 'logins'],
+            results: [['Mon', 3, 5, 'US']],
+            columns: ['day', 'signups', 'logins', 'country'],
             types: [
                 ['day', 'String'],
                 ['signups', 'Float64'],
                 ['logins', 'Float64'],
+                ['country', 'String'],
             ],
         }
         const query: VisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
-            source: { kind: NodeKind.HogQLQuery, query: 'select day, signups, logins from daily' },
+            source: { kind: NodeKind.HogQLQuery, query: 'select day, signups, logins, country from daily' },
             display,
-            chartSettings: { xAxis, yAxis: valueColumns.map((column) => ({ column })) },
+            chartSettings: { xAxis, yAxis: valueColumns.map((column) => ({ column })), seriesBreakdownColumn },
         }
         const props: DataVisualizationLogicProps = {
-            key: `series-tab-part-of-whole-${display}-${!!xAxis}-${valueColumns.length}`,
+            key: `series-tab-part-of-whole-${display}-${!!xAxis}-${valueColumns.length}-${seriesBreakdownColumn}`,
             query,
             cachedResults,
             dataNodeCollectionId: 'series-tab-part-of-whole',

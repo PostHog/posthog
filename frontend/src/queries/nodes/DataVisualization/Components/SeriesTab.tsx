@@ -29,7 +29,7 @@ import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, Column, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { BoxPlotSeriesTab } from './BoxPlotSeriesTab'
-import { drawsOnePartPerSeries } from './Charts/sqlPieGraphAdapter'
+import { drawsOnePartPerSeries, isBreakdownSeries, partOfWholeChartData } from './Charts/sqlPieGraphAdapter'
 import { HeatmapSeriesTab } from './Heatmap/HeatmapSeriesTab'
 import { AxisBreakdownSeries, BREAKDOWN_LIMIT_LABEL, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { getAvailableSeriesBreakdownColumns } from './seriesBreakdownUtils'
@@ -53,7 +53,7 @@ export const SeriesTab = (): JSX.Element => {
     const { updateXSeries, addYSeries, updateSeriesIndex, deleteYSeries, setTransposeResults } =
         useActions(dataVisualizationLogic)
     const breakdownLogic = seriesBreakdownLogic({ key: dataVisualizationProps.key })
-    const { selectedSeriesBreakdownColumn, showSeriesBreakdown } = useValues(breakdownLogic)
+    const { selectedSeriesBreakdownColumn, showSeriesBreakdown, seriesBreakdownData } = useValues(breakdownLogic)
     const { addSeriesBreakdown } = useActions(breakdownLogic)
 
     const isScatterPlot = effectiveVisualizationType === ChartDisplayType.ScatterPlot
@@ -121,6 +121,7 @@ export const SeriesTab = (): JSX.Element => {
     const xAxisOptions = isScatterPlot ? numericalColumns.map(toColumnOption) : options
 
     if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
+        const parts = partOfWholeChartData(seriesBreakdownData, xData, yData)
         const valueColumn = selectedYAxis?.find((series) => series !== null)?.name ?? null
         const valueOptions = numericalColumns.map(({ name, type }) => ({
             value: name,
@@ -159,7 +160,9 @@ export const SeriesTab = (): JSX.Element => {
                             ? 'Query loading...'
                             : yData.length > 1
                               ? 'A label splits one value column. Remove the other values to use it.'
-                              : undefined
+                              : parts.yData.some(isBreakdownSeries)
+                                ? 'The breakdown already splits the value. Remove the breakdown to use a label.'
+                                : undefined
                     }
                     data-attr="part-of-whole-label-column"
                     onChange={(value) => {
@@ -170,7 +173,7 @@ export const SeriesTab = (): JSX.Element => {
                     }}
                 />
 
-                {drawsOnePartPerSeries(xData, yData) ? (
+                {drawsOnePartPerSeries(parts.xData, parts.yData) ? (
                     <YSeriesList label="Values" addLabel="Add value" showAdd={!hideAddYSeries} />
                 ) : (
                     <>

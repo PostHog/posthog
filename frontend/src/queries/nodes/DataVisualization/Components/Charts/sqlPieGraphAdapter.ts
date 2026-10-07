@@ -17,7 +17,7 @@ export interface PieSlice {
 
 export type SqlPieYSeries = AxisSeries<number | null> | AxisBreakdownSeries<number | null>
 
-const isBreakdownSeries = (series: SqlPieYSeries): series is AxisBreakdownSeries<number | null> => {
+export const isBreakdownSeries = (series: SqlPieYSeries): series is AxisBreakdownSeries<number | null> => {
     return !('column' in series)
 }
 
@@ -92,12 +92,17 @@ export const buildPieSlices = (
  *  `resultCustomizations` survive the move off chart.js. */
 export const buildPieSeries = (slices: PieSlice[]): Series[] => {
     // Keyed by label, not position, so a part hidden in the legend stays hidden when the results reorder.
-    const seen = new Map<string, number>()
+    // A repeat skips a numbered key that another part has as its own label, so no two parts share a key.
+    const labels = new Set(slices.map((slice) => slice.label))
+    const usedKeys = new Set<string>()
     return slices.map((slice) => {
-        const count = (seen.get(slice.label) ?? 0) + 1
-        seen.set(slice.label, count)
+        let key = slice.label
+        for (let count = 2; usedKeys.has(key) || (key !== slice.label && labels.has(key)); count++) {
+            key = `${slice.label}-${count}`
+        }
+        usedKeys.add(key)
         return {
-            key: count === 1 ? slice.label : `${slice.label}-${count}`,
+            key,
             label: slice.label,
             color: slice.color,
             data: [slice.value],

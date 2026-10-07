@@ -203,6 +203,11 @@ describe('sqlPieGraphAdapter', () => {
                 labels: ['alpha', 'alpha', 'beta'],
                 keys: ['alpha', 'alpha-2', 'beta'],
             },
+            {
+                name: 'skips a numbered key that another label already takes',
+                labels: ['alpha', 'alpha', 'alpha-2'],
+                keys: ['alpha', 'alpha-3', 'alpha-2'],
+            },
         ])('$name', ({ labels, keys }) => {
             const slices = labels.map((label) => ({ label, value: 1, color: '#111111' }))
 
