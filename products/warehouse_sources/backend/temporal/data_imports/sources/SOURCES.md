@@ -863,6 +863,7 @@ the row lists both.
 | vendr                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | veracode                         | HTTP                        | requests (custom HMAC signing)                                  | ✅                          |
 | vercel                           | HTTP                        | requests                                                        | ✅                          |
+| vimeo                            | HTTP                        | requests                                                        | ✅                          |
 | vitally                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vultr                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wasabi                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1496,7 +1497,6 @@ doesn't conflict with concurrent PRs.
 - uservoice
 - vanta
 - vespa
-- vimeo
 - virtuous
 - visma_economic
 - vonage
