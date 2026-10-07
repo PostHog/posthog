@@ -457,27 +457,21 @@ describe('RequestStateResolver MCP client contexts', () => {
         { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0' },
     ])('enables production render-ui for OpenAI transport %j', async (identity) => {
         vi.stubEnv('NODE_ENV', 'production')
-        vi.stubEnv('POSTHOG_MCP_FORCE_RENDER_UI', undefined)
         const result = await makeResolver().resolve(makeProps(identity))
 
         expect(result.renderUiEnabled).toBe(true)
         expect(result.useSingleExec).toBe(true)
     })
 
-    it.each([
-        ['development', 'true', true],
-        ['development', undefined, false],
-        ['production', 'true', false],
-        [undefined, 'true', false],
-    ])('resolves terminal Codex render-ui with NODE_ENV=%s and override=%s', async (nodeEnv, override, enabled) => {
-        vi.stubEnv('NODE_ENV', nodeEnv)
-        vi.stubEnv('POSTHOG_MCP_FORCE_RENDER_UI', override)
-        const result = await makeResolver().resolve(makeProps({ mcpClientName: 'codex' }))
+    it.each(['codex', 'codex-mcp-client'])(
+        'does not enable render-ui for terminal client %s',
+        async (mcpClientName) => {
+            const result = await makeResolver().resolve(makeProps({ mcpClientName }))
 
-        expect(result.renderUiEnabled).toBe(enabled)
-        expect(result.useSingleExec).toBe(true)
-        expect(result.clientProfile.clientName).toBe('codex')
-    })
+            expect(result.renderUiEnabled).toBe(false)
+            expect(result.useSingleExec).toBe(true)
+        }
+    )
 
     it('detects Claude web/desktop via the Claude-User user agent and enables render-ui', async () => {
         const props = makeProps({ mcpClientName: 'Claude Desktop', clientUserAgent: 'Claude-User' })

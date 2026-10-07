@@ -1,6 +1,5 @@
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
-import { env } from '@/lib/env'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -189,9 +188,7 @@ export class RequestStateResolver {
             userAgent: props.clientUserAgent,
         })
 
-        const renderUiEnabled =
-            clientProfile.isRenderUiHost() ||
-            (env.NODE_ENV === 'development' && env.POSTHOG_MCP_FORCE_RENDER_UI === 'true')
+        const renderUiEnabled = clientProfile.isRenderUiHost()
 
         const { mode: resolvedMode, useSingleExec } = resolveMode({
             mode: requestContext.mode,
