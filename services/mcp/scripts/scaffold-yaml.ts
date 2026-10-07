@@ -464,7 +464,9 @@ function buildAddedTool(
 
     // Title and description fall back to the spec in codegen, so the entry only overrides them when needed.
     const entry: Record<string, unknown> = { operation: operationId, enabled: true }
-    return { toolName, op, entry }
+    // The entry names this exact variant, so its scopes decide the next-step hints.
+    const selected = rawOps.find((candidate) => candidate.operationId === operationId) ?? op
+    return { toolName, op: selected, entry }
 }
 
 function defaultProductFile(product: string): string | undefined {
