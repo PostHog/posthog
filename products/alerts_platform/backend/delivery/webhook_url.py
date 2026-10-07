@@ -40,7 +40,7 @@ class WebhookUrlTransport(ABC):
         if not url:
             raise DeliveryError(f"This {self.display_name} destination has no webhook URL.")
         self.check_url(url)
-        self._post(self.send_url(url), self.body_for(message))
+        post_json(self.send_url(url), self.body_for(message), display_name=self.display_name, headers=self.headers)
         return None
 
     def check_url(self, url: str) -> None:
@@ -53,6 +53,3 @@ class WebhookUrlTransport(ABC):
 
     @abstractmethod
     def body_for(self, message: AlertMessage) -> dict[str, Any]: ...
-
-    def _post(self, url: str, body: dict[str, Any]) -> None:
-        post_json(url, body, display_name=self.display_name, headers=self.headers)

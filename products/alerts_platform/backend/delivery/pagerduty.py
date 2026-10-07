@@ -11,8 +11,9 @@ These sends do not go through `posthog/egress`. The routing key belongs to the c
 PagerDuty account, and PagerDuty limits events per integration key, so no PostHog-wide budget
 models it. A 429 fails the send, and the activity's retry backs off.
 
-The thread store claims each send, which keeps a retried trigger that lands after its resolve
-from reopening the incident under the same dedup key.
+The thread store claims each send, so a retry of a send that already landed does not post again.
+It does not order sends across evaluations: a trigger whose delivery failed and is retried after
+its resolve landed reopens the incident under the same dedup key.
 """
 
 import hashlib
