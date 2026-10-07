@@ -5446,6 +5446,7 @@ class TestExperimentService(APIBaseTest):
             ("archived_true", {"archived": "true"}, {"Archived search"}),
             ("archived_false", {"archived": "false"}, {"Creator self", "Creator other", "Search match"}),
             ("search", {"search": "Search"}, {"Search match"}),
+            ("search_by_flag_key", {"search": "BY-OTHER"}, {"Creator other"}),
         ]
     )
     def test_filter_experiments_queryset_filters_by_common_query_params(
