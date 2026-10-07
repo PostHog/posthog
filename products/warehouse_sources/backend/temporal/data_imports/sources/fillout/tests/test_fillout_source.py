@@ -47,6 +47,7 @@ class TestFilloutSource:
             "403 Client Error: Forbidden for url: https://api.fillout.com/v1/api/forms",
             "400 Client Error: Bad Request for url: https://api.fillout.com/v1/api/forms/abc123/submissions?limit=150&offset=0&sort=asc",
             "400 Client Error: Bad Request for url: https://eu-api.fillout.com/v1/api/forms/abc123/submissions?limit=150&offset=0&sort=asc",
+            "400 Client Error: Bad Request for url: https://api.zite.com/v1/api/forms/abc123/submissions?limit=150&offset=0&sort=asc",
         ],
     )
     def test_non_retryable_errors_match_known_failures(self, observed_error: str) -> None:

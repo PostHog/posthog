@@ -10,7 +10,9 @@ DEFAULT_FILLOUT_API_BASE_URL = "https://api.fillout.com/v1/api"
 ALLOWED_FILLOUT_API_BASE_URLS = (
     DEFAULT_FILLOUT_API_BASE_URL,
     "https://eu-api.fillout.com/v1/api",
+    "https://api.zite.com/v1/api",
 )
+INVALID_API_BASE_URL_MESSAGE = f"API base URL must be one of {', '.join(ALLOWED_FILLOUT_API_BASE_URLS)}."
 
 # Fillout's `/forms/{formId}/submissions` endpoint caps `limit` at 150.
 SUBMISSIONS_PAGE_SIZE = 150

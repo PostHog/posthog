@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.se
     ALLOWED_FILLOUT_API_BASE_URLS,
     DEFAULT_FILLOUT_API_BASE_URL,
     FILLOUT_ENDPOINTS,
+    INVALID_API_BASE_URL_MESSAGE,
     FilloutEndpointConfig,
 )
 
@@ -42,9 +43,7 @@ def _normalize_api_base_url(api_base_url: str | None) -> str:
 def _validated_api_base_url(api_base_url: str | None) -> str:
     normalized_url = _normalize_api_base_url(api_base_url)
     if normalized_url not in ALLOWED_FILLOUT_API_BASE_URLS:
-        raise ValueError(
-            "API base URL must be one of https://api.fillout.com/v1/api or https://eu-api.fillout.com/v1/api."
-        )
+        raise ValueError(INVALID_API_BASE_URL_MESSAGE)
     return normalized_url
 
 

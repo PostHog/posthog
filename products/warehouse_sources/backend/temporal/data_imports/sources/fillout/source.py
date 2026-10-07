@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.se
     DEFAULT_FILLOUT_API_BASE_URL,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    INVALID_API_BASE_URL_MESSAGE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fillout import (
     FilloutSourceConfig,
@@ -74,13 +75,7 @@ You can generate an API key in your Fillout account under **Settings → Develop
                         required=False,
                         defaultValue=DEFAULT_FILLOUT_API_BASE_URL,
                         options=[
-                            SourceFieldSelectConfigOption(
-                                label=DEFAULT_FILLOUT_API_BASE_URL, value=DEFAULT_FILLOUT_API_BASE_URL
-                            ),
-                            SourceFieldSelectConfigOption(
-                                label="https://eu-api.fillout.com/v1/api",
-                                value="https://eu-api.fillout.com/v1/api",
-                            ),
+                            SourceFieldSelectConfigOption(label=url, value=url) for url in ALLOWED_FILLOUT_API_BASE_URLS
                         ],
                     ),
                 ],
@@ -94,9 +89,10 @@ You can generate an API key in your Fillout account under **Settings → Develop
             "403 Client Error": "Fillout API key is missing the required permissions. Please update the key and reconnect.",
             # A 400 replays identically on every retry, unlike 401 (a key the REST engine's own
             # retry can't fix, but that's already caught above) or 429/5xx (already
-            # RESTClientRetryableError). Matched on both regional hosts, same as the 401/403 entries.
+            # RESTClientRetryableError). Matched on every allowed host, same as the 401/403 entries.
             "400 Client Error: Bad Request for url: https://api.fillout.com": "Fillout rejected the request. Check that the API key can access this form, then reconnect. If this keeps happening, contact support.",
             "400 Client Error: Bad Request for url: https://eu-api.fillout.com": "Fillout rejected the request. Check that the API key can access this form, then reconnect. If this keeps happening, contact support.",
+            "400 Client Error: Bad Request for url: https://api.zite.com": "Fillout rejected the request. Check that the API key can access this form, then reconnect. If this keeps happening, contact support.",
         }
 
     def get_schemas(
@@ -134,10 +130,7 @@ You can generate an API key in your Fillout account under **Settings → Develop
     ) -> tuple[bool, str | None]:
         api_base_url = config.api_base_url or DEFAULT_FILLOUT_API_BASE_URL
         if api_base_url not in ALLOWED_FILLOUT_API_BASE_URLS:
-            return (
-                False,
-                "API base URL must be one of https://api.fillout.com/v1/api or https://eu-api.fillout.com/v1/api.",
-            )
+            return False, INVALID_API_BASE_URL_MESSAGE
 
         return validate_fillout_credentials(
             api_key=config.api_key,
