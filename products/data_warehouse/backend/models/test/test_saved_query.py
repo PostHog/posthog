@@ -144,6 +144,11 @@ class TestGetColumnsReadsNoRows(ClickhouseTestMixin, BaseTest):
                 "SELECT event AS name FROM events UNION ALL SELECT distinct_id AS name FROM events LIMIT 3",
                 {"name": "String"},
             ),
+            (
+                "in_subquery",
+                "SELECT event FROM events WHERE distinct_id IN (SELECT distinct_id FROM events WHERE event = 'sign up')",
+                {"event": "String"},
+            ),
         ]
     )
     def test_infers_types_without_reading_rows(self, _name: str, sql: str, expected_types: dict[str, str]) -> None:
@@ -154,6 +159,19 @@ class TestGetColumnsReadsNoRows(ClickhouseTestMixin, BaseTest):
 
         assert {name: column["clickhouse"] for name, column in columns.items()} == expected_types
         assert len(queries) == 1
-        for branch in queries[0].split("UNION ALL"):
-            assert branch.count("LIMIT 0") == 1
+        assert queries[0].count("LIMIT 0") == queries[0].count("SELECT")
         assert "OFFSET" not in queries[0]
+
+    def test_keeps_the_rows_of_a_scalar_subquery(self) -> None:
+        saved_query = DataWarehouseSavedQuery(
+            team=self.team,
+            name="my_view",
+            query={"query": "SELECT event FROM events WHERE timestamp > (SELECT min(timestamp) FROM events)"},
+        )
+
+        with self.capture_select_queries() as queries:
+            columns = saved_query.get_columns(user=self.user)
+
+        assert columns["event"]["clickhouse"] == "String"
+        assert queries[0].count("SELECT") == 2
+        assert queries[0].count("LIMIT 0") == 1

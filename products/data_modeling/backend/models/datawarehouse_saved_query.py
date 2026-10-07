@@ -38,6 +38,7 @@ from posthog.hogql.database.s3_table import (
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import extract_select_queries
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_contains_user_hogql, tags_context
 from posthog.exceptions_capture import capture_exception
@@ -57,6 +58,28 @@ from products.warehouse_sources.backend.facade.sources import NamingConvention
 logger = structlog.get_logger(__name__)
 
 TEST_VIEW_EXPIRY_INTERVAL = timedelta(days=7)
+
+_IN_SUBQUERY_OPS = (
+    ast.CompareOperationOp.In,
+    ast.CompareOperationOp.NotIn,
+    ast.CompareOperationOp.GlobalIn,
+    ast.CompareOperationOp.GlobalNotIn,
+)
+
+
+def _limit_to_zero_rows(select_query: ast.SelectQuery | ast.SelectSetQuery) -> None:
+    for branch in extract_select_queries(select_query):
+        branch.limit = ast.Constant(value=0)
+        branch.offset = None
+
+
+class _InSubqueryZeroRows(TraversingVisitor):
+    # ClickHouse builds the set of an IN subquery before it plans the outer read, so the outer LIMIT 0
+    # does not stop that read. A scalar subquery keeps its rows, because an empty one is a ClickHouse error.
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        super().visit_compare_operation(node)
+        if node.op in _IN_SUBQUERY_OPS and isinstance(node.right, ast.SelectQuery | ast.SelectSetQuery):
+            _limit_to_zero_rows(node.right)
 
 
 def validate_saved_query_name(value: str) -> None:
@@ -474,9 +497,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         # ClickHouse returns the column names and types for a LIMIT 0 query without reading any data.
         select_query = parse_select(query["query"])
-        for branch in extract_select_queries(select_query):
-            branch.limit = ast.Constant(value=0)
-            branch.offset = None
+        _limit_to_zero_rows(select_query)
+        _InSubqueryZeroRows().visit(select_query)
 
         # Resolve as the acting user so warehouse access control is enforced against them - a userless
         # build fails closed and denies every warehouse table, breaking column inference for all users.
