@@ -1,0 +1,23 @@
+.SearchPerformanceTable {
+    .LemonTable__content {
+        display: flex;
+        flex-direction: column;
+
+        // Reserve ten 4rem rows plus the header and pagination on every page.
+        min-height: 48rem;
+    }
+
+    .PaginationControl {
+        margin-top: auto;
+    }
+
+    &__metric > span {
+        flex-direction: column;
+        gap: 0;
+        align-items: flex-end;
+    }
+
+    tbody td {
+        height: 4rem;
+    }
+}

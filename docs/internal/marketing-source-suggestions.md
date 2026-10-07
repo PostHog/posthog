@@ -36,3 +36,12 @@ Clicks include the engagement clicks reported by X, not only outbound link click
 The current import provides spend, clicks, and impressions; platform-reported conversions and revenue are not imported.
 PostHog conversion goals still work through campaign attribution.
 Ad-level reporting is unavailable because the connector does not import promoted-post statistics.
+
+## Search performance
+
+Keywords and queries includes paid keywords from ad platforms and organic queries from Google Search Console.
+Search Console requires a synced `search_analytics_by_query` or `search_analytics_by_query_page` table; the integration and paid/organic filters determine which sources appear.
+Each search table has a reload control and query duration.
+Pagination stays within the table without scrolling the scene, and changing between keywords and landing pages starts on page 1.
+Rows reserve consistent space for values and comparisons, and the table keeps room for ten rows on shorter pages.
+Use the page selector to jump directly to a page, or the arrows to move one page at a time.
