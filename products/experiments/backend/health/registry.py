@@ -4,11 +4,13 @@ from posthog.exceptions_capture import capture_exception
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.health.checks.bias_risk import bias_risk_multiple_excluded
+from products.experiments.backend.health.checks.flag_state import flag_state
+from products.experiments.backend.health.checks.no_metric import no_metric
 from products.experiments.backend.health.context import HealthContext
 
 HealthCheck = Callable[[HealthContext], ExperimentHealthFinding | None]
 
-HEALTH_CHECKS: tuple[HealthCheck, ...] = (bias_risk_multiple_excluded,)
+HEALTH_CHECKS: tuple[HealthCheck, ...] = (flag_state, no_metric, bias_risk_multiple_excluded)
 
 
 def evaluate(ctx: HealthContext) -> list[ExperimentHealthFinding]:
