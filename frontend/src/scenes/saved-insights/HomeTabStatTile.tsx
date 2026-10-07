@@ -10,6 +10,11 @@ import { formatItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
 import type { TrendsQueryResponse } from '~/queries/schema/schema-general'
 import type { TrendResult } from '~/types'
 
+import {
+    homeTabDataCollectionId,
+    homeTabStatKey,
+} from 'products/product_analytics/frontend/insights/home/homeTabQueryKeys'
+
 import { homeTabDefaultLogic } from './homeTabDefaultLogic'
 import { getHomeTabStatValue, type HomeTabStatQuery } from './homeTabDefaultTiles'
 
@@ -22,8 +27,12 @@ interface HomeTabStatTileProps {
 
 export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabStatTileProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const key = `HomeTabStatTile.${currentTeamId}.${stat.key}`
-    const logic = dataNodeLogic({ query: stat.query, key, dataNodeCollectionId: key })
+    const key = homeTabStatKey(currentTeamId, stat.key)
+    const logic = dataNodeLogic({
+        query: stat.query,
+        key,
+        dataNodeCollectionId: homeTabDataCollectionId(currentTeamId),
+    })
     useAttachedLogic(logic, homeTabDefaultLogic)
     const { response, responseError, responseLoading } = useValues(logic)
     const loading = responseLoading || (!response && !responseError)

@@ -11,6 +11,11 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { Query } from '~/queries/Query/Query'
 
+import {
+    homeTabChartInsightId,
+    homeTabDataCollectionId,
+} from 'products/product_analytics/frontend/insights/home/homeTabQueryKeys'
+
 import { homeTabDefaultLogic } from './homeTabDefaultLogic'
 import { getHomeTabExploreUrl, type HomeTabChartOption } from './homeTabDefaultTiles'
 
@@ -59,6 +64,13 @@ export function HomeTabChartCard({ option, size, control, source }: HomeTabChart
                     query={option.query}
                     readOnly
                     uniqueKey={`HomeTab.${currentTeamId}.${option.key}`}
+                    context={{
+                        insightProps: {
+                            dashboardItemId: homeTabChartInsightId(currentTeamId, option.key),
+                            dataNodeCollectionId: homeTabDataCollectionId(currentTeamId),
+                            query: option.query,
+                        },
+                    }}
                     attachTo={homeTabDefaultLogic}
                 />
             </div>
