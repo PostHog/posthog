@@ -2660,6 +2660,42 @@ snapshots:
         hash: v1.k794b7964.536f41c62e83935877a0b961d6b2a1aa0e4199dfab49f84587178447e844a8ba.tpDdDBmJuJBZKOX_RFz8CcNUGsUdse6LfVJWG1XNDeQ
     components-verticalnesteddnd--base--light:
         hash: v1.k794b7964.d5489b1b81f5796e1828217bfd382f980062e90cae10ebe23fb4e8aa5aea07e6.12qSy0lIe-5pOxJ9lBpDJoSa1oh-a24bC0-yeEIbfrg
+    customer-analytics-account-views-session-replays--denied--dark:
+        hash: v1.k794b7964.2304f82c1c16764ec651e0b4bb28cb3c7c658780abfb01f2dd5635f38de72d81.bvPDtHA-qvNVNIwVaFMcp8CY6zisesc0e9rO9IVL7LE
+    customer-analytics-account-views-session-replays--denied--light:
+        hash: v1.k794b7964.5fd2d77f341908e1263c5d8151935fad6e2bc35ef2d37b6a4669c4fc8e097dc0.NV6-YDNwQlazqwQLlRo40Ti57xPRy2-VHIZQLSW4gZg
+    customer-analytics-account-views-session-replays--empty--dark:
+        hash: v1.k794b7964.f38e5695ba545d90f9de15331e9a1c544145dde8f08e5b298879e659b6dcc1cd.9vKvWsk1rV-hyPUyGG1o-XS_HulyglDB0ESnJ-_0b24
+    customer-analytics-account-views-session-replays--empty--light:
+        hash: v1.k794b7964.63bfb3f2f9b46ac1d3d4aae4e6b81431c2a2dfa265345ee353e9f6db0a2bd2cc.GRS_6ZMwsadhKeD53cgLVuF0iPf5klJAr5JxDCv7Fw0
+    customer-analytics-account-views-session-replays--error--dark:
+        hash: v1.k794b7964.6c97e24bbf0c777704806b00a7424e7ecda891197f5371c852f05e563387fa81.MFgng_JIgopDqoKquLU9ki13D_ks65yzsiF-CgG3gB4
+    customer-analytics-account-views-session-replays--error--light:
+        hash: v1.k794b7964.d8ca1a70dd8dda763e6afc024bf19f46b0d4eb1f338a20ef13f701cba0756533.O-YUl8OvNknCFPhXtYs7rPDqSu0No0LYvkQFm0D7Mc0
+    customer-analytics-account-views-session-replays--loading--dark:
+        hash: v1.k794b7964.e81523805afa09476dffb79c9751488da2eb71d8f4b1b9e8e55c41778b0ffa59.jn2yLM6-LK9qW6aXUqjuK9T2oQzaNrU5QT_P6c_qxOM
+    customer-analytics-account-views-session-replays--loading--light:
+        hash: v1.k794b7964.310f75db8eef88aa07b3f320d2b6849f16783e1cae5af5b5ab61e260bea87be9.Bgp5CG2xRkpZbuUnmiFIRcYH-d2H817rNCyuxqeM-ZY
+    customer-analytics-account-views-session-replays--narrow--dark:
+        hash: v1.k794b7964.353e509e28487bcdeda7f0462f793c1087b4ed3a152115b62772bfa2d91438d3.FwD_ls_e3uXDXQq97-l-aXHI7qKk8EJJEF8whls_VHk
+    customer-analytics-account-views-session-replays--narrow--light:
+        hash: v1.k794b7964.a52a77cdeb1c310a814f01b5c66dd5aad17dbb9cf31b085d48ad0f9feaacc6d5.Dyb3reK46v-HllwaUPsNIWKrqG2bmQdYY-iNbJa-AIA
+    customer-analytics-account-views-session-replays--overflow--dark:
+        hash: v1.k794b7964.ff2494d2091341f5a597d188e11739eaf19827463be16087f2aeee518be716ee.iwB0gZquU2VflkC1fijdx216F6Enkd2TYIwGQhquImc
+    customer-analytics-account-views-session-replays--overflow--light:
+        hash: v1.k794b7964.cdf3f4fcaee9999d83714aac8888a08359e8d4a9e63fa4ef7bbb854a5b04da45.s-g2jEzSNzmxLaGKYrI_ev2efkYPkOGD185J_r5gcv8
+    customer-analytics-account-views-session-replays--overflow-narrow--dark:
+        hash: v1.k794b7964.d650b533a1161facc303eafbf8fdef3717a0b62938b05f8ad97de0d65dfb7f07.-b8VgSZKht4_MEeuWZBF6Z8equYKj0gGaZdncNStSwU
+    customer-analytics-account-views-session-replays--overflow-narrow--light:
+        hash: v1.k794b7964.e7f51c3d53a789180080f15df41fad182fae26ea01376c0650ffa78a900b74b6.rUG9oZqpurqr57b5w1sX-91puAoq_bLF2VggOPHePxo
+    customer-analytics-account-views-session-replays--recordings--dark:
+        hash: v1.k794b7964.02a6c1bd4de1f441e7db24741f9372fe3dd3aa222503331a36730f45bebb47eb.prHzwGOYg2eKXPZfD4X5vsbDk6zLePZTcRBzlH4qylU
+    customer-analytics-account-views-session-replays--recordings--light:
+        hash: v1.k794b7964.2669829deff8c7a44b583e41b5de3372ea81256b9f6cad46e02363db31090134.F15A4WWV6eoSYPH-vF3VAV1T7IFKbkjYzZRpVm64C9A
+    customer-analytics-account-views-session-replays--setup--dark:
+        hash: v1.k794b7964.2405cba5f543579b53954f29c8f5c5ca7eb4c9d289d1c952347ba1bbde7f75cb.pe0E5bRxPnNA2UtHGjIVJC5XLvuSXgMTf5phaPFUSUw
+    customer-analytics-account-views-session-replays--setup--light:
+        hash: v1.k794b7964.d29506555b71927bd36ed55b64336cb5da13f1c014d06bf72df89598c28fb248.szC9Unwuopg3KVYDYKX3VIol0LEd7NWscfNKgdwX4JM
     customer-analytics-custom-property-sync-runs--account-lifecycle--dark:
         hash: v1.k794b7964.4c68902b4f73221926fdd50c1aec035ad5342b685c967b040bf217264747ea5a.NpTBSnGrlQly4iiuvI6iXwVcpKA3PLSxc9pbDo4Vrqs
     customer-analytics-custom-property-sync-runs--account-lifecycle--light:
