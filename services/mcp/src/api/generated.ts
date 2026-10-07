@@ -105336,6 +105336,16 @@ export namespace Schemas {
       run_error?: string;
     }
 
+    export interface TaskDelegateRequest {
+      /**
+         * What the agent should do, in plain words. Keep the concrete details: names, ids, URLs, time ranges and what the result should look like. The server writes the agent's instructions from this text and picks the model, skills and PostHog tools for the run.
+         * @maxLength 20000
+         */
+      description: string;
+      /** Restrict the run to PostHog tools that only read. By default the run may be given write tools when the request asks for a change, and the run's token carries only the write scopes those tools need. */
+      read_only_tools?: boolean;
+    }
+
     export interface TaskDigestPreferences {
       /** Whether the task digest email is sent to this user. */
       enabled: boolean;

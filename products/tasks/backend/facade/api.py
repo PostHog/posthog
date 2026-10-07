@@ -7292,6 +7292,85 @@ def create_task_and_run(
         return contracts.TaskRunResult(task=task, run_error="Failed to create task run.")
 
 
+def delegate_task(
+    team_id: int,
+    user_id: int,
+    *,
+    description: str,
+    read_only: bool,
+    client_provenance: TaskClientProvenance | None = None,
+) -> contracts.TaskRunResult:
+    """Create a task from a free-text request and a run the delegate workflow briefs.
+
+    The task keeps the request as its description. The run is created with its dispatch
+    deferred (NOT_STARTED, stage ``briefing``) and read-only dispatch scopes; the workflow's
+    brief sets the title, writes the run prompt into ``initial_prompt_override``, widens the
+    scopes to what its tool allowlist needs, then queues the run. A workflow that cannot start
+    fails the run and reports ``run_error``, so the caller keeps the ids either way.
+    """
+    from products.tasks.backend.logic.services.task_brief import (  # noqa: PLC0415 — keeps the gateway client off the api import path
+        BRIEFING_STAGE,
+        placeholder_title,
+    )
+    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
+        _terminalize_unstarted_task_run,
+        execute_delegate_task_workflow,
+    )
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        RunSource,
+        mcp_scopes_for_run_source,
+    )
+
+    task_dto = create_task(
+        team_id,
+        user_id,
+        validated_data={
+            "title": placeholder_title(description),
+            "title_manually_set": False,
+            "description": description,
+            "origin_product": Task.OriginProduct.USER_CREATED,
+        },
+        client_provenance=client_provenance,
+    )
+    refusal = task_run_start_refusal(str(task_dto.id), team_id, user_id)
+    if refusal is not None:
+        return contracts.TaskRunResult(task=task_dto, run_error=refusal)
+
+    task = Task.objects.select_related("team", "created_by").get(id=task_dto.id)
+    # The same keys ``Task.create_and_run`` persists, so the reconciler and the brief read the
+    # dispatch parameters off the row the same way for every run.
+    task_run = task.create_run(
+        mode="background",
+        extra_state={
+            "run_source": RunSource.AGENT.value,
+            "pending_dispatch": {
+                "create_pr": True,
+                "posthog_mcp_scopes": mcp_scopes_for_run_source(RunSource.AGENT),
+                "user_id": user_id,
+                "slack_thread_context": None,
+                "workflow_id_prefix": None,
+            },
+        },
+        acting_user_id=user_id,
+        defer_dispatch=True,
+        stage=BRIEFING_STAGE,
+    )
+
+    run_error: str | None = None
+    try:
+        execute_delegate_task_workflow(str(task_run.id), read_only=read_only)
+    except Exception:
+        logger.exception("Failed to start the delegate workflow for run %s", task_run.id)
+        run_error = "Failed to start the delegate workflow."
+        _terminalize_unstarted_task_run(str(task_run.id), run_error)
+    task_run.refresh_from_db()
+    return contracts.TaskRunResult(
+        task=_task_detail_to_dto(task, user_id=user_id, latest_run=task_run, prior_pr_output=None),
+        run_id=task_run.id,
+        run_error=run_error,
+    )
+
+
 def create_task(
     team_id: int,
     user_id: int | None,

@@ -45,6 +45,20 @@ The `state` field must be a JSON object.
 
 Run responses omit internal cost accounting, including gateway request IDs.
 
+## Delegated tasks
+
+`POST /api/projects/{team_id}/tasks/delegate/` creates a task from a plain-language `description` and queues its first cloud run in one request.
+It is gated by the `tasks-delegate` feature flag, the internal-project restriction, and the same Desktop access and usage limits as `start_run`.
+Sandbox tokens cannot delegate.
+The response has status `201` and contains the task and its `latest_run`, with `run_error` set when the run could not be queued.
+The run starts in status `not_started` and stage `briefing`, so the queued-run reconciler leaves it alone until it is briefed.
+A `delegate-task` workflow then writes the agent's instructions from the description, picks the model, reasoning effort, skills and PostHog MCP tools, then queues the run through the normal dispatch path.
+The task keeps the description as given; the brief sets the title and writes the instructions into the run's `initial_prompt_override`.
+The run's token carries every read scope plus only the write scopes its allowed tools declare.
+Set `read_only_tools` to restrict the brief to tools that only read.
+A brief that fails marks the run failed with an error message, and the stale-run sweep fails a run that is still waiting for its brief after 24 hours.
+The start endpoint refuses a run that is waiting for its brief, the same way it refuses a scheduled run.
+
 ## Model selection
 
 Task runs accept `gpt-6.1-sol` with the `codex` runtime adapter and `low`, `medium`, `high`, `xhigh`, or `max` reasoning effort.

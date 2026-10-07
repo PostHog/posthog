@@ -1102,7 +1102,8 @@ describe('Tool Filtering - Feature Flags', () => {
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
-        expect(flags).toHaveLength(39)
+        expect(flags).toContain('tasks-delegate')
+        expect(flags).toHaveLength(40)
     })
 
     it('every loops tool is gated on the loops flag', () => {

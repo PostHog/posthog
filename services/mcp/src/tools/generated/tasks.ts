@@ -727,6 +727,37 @@ const tasksCreateAndRun = (): ToolBase<ReturnType<typeof TasksCreateAndRunSchema
     },
 })
 
+const TasksDelegateSchema = () => {
+    const TasksDelegateCreateBody = orvalSchemas.TasksDelegateCreateBody()
+    return TasksDelegateCreateBody
+}
+
+const tasksDelegate = (): ToolBase<ReturnType<typeof TasksDelegateSchema>, Schemas.TaskCreateResponseDTO> => ({
+    name: 'tasks-delegate',
+    schema: TasksDelegateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksDelegateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.read_only_tools !== undefined) {
+            body['read_only_tools'] = params.read_only_tools
+        }
+        const result = await context.api.request<Schemas.TaskCreateResponseDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/delegate/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, [
+            'latest_run.log_url',
+            'latest_run.state.sandbox_connect_token',
+            'latest_run.state.sandbox_url',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const TasksListSchema = () => {
     const TasksListQueryParams = orvalSchemas.TasksListQueryParams()
     return TasksListQueryParams
@@ -1092,6 +1123,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'tasks-config-list': tasksConfigList,
     'tasks-create': tasksCreate,
     'tasks-create-and-run': tasksCreateAndRun,
+    'tasks-delegate': tasksDelegate,
     'tasks-list': tasksList,
     'tasks-me-config-agent-instructions-create': tasksMeConfigAgentInstructionsCreate,
     'tasks-me-config-create': tasksMeConfigCreate,

@@ -91,19 +91,19 @@ Output the title now:""",
             return truncated_title
 
         logger.warning("Generated title empty or too short, using fallback")
-        return _fallback_title(description)
+        return fallback_title(description)
 
     except Exception as e:
         logger.exception(f"Failed to generate title with Haiku: {e}")
-        return _fallback_title(description)
+        return fallback_title(description)
 
 
-def _fallback_title(description: str) -> str:
-    """Generate a fallback title from the description."""
+def fallback_title(description: str, max_length: int = 60) -> str:
+    """The first line of the description, clipped to `max_length`."""
     clean_desc = description.strip()
     first_line = clean_desc.split("\n")[0] if clean_desc else ""
 
-    if len(first_line) <= 60:
+    if len(first_line) <= max_length:
         return first_line or "Untitled Task"
 
-    return first_line[:57] + "..."
+    return first_line[: max_length - 3] + "..."

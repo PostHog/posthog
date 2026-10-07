@@ -3823,6 +3823,29 @@ export const TasksConfigAgentInstructionsCreateBody = /* @__PURE__ */ zod
     .describe('Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.')
 
 /**
+ * Create a task from a plain-language request and its first cloud run. The run starts in status `not_started` and stage `briefing` while the server writes the agent's instructions and picks the model, skills and PostHog tools, then it is queued and runs like any other cloud run. The response carries the task and its `latest_run`; `run_error` is set when the run could not be created.
+ * @summary Delegate a task
+ */
+export const tasksDelegateCreateBodyDescriptionMax = 20000
+
+export const tasksDelegateCreateBodyReadOnlyToolsDefault = false
+
+export const TasksDelegateCreateBody = /* @__PURE__ */ zod.object({
+    description: zod
+        .string()
+        .max(tasksDelegateCreateBodyDescriptionMax)
+        .describe(
+            "What the agent should do, in plain words. Keep the concrete details: names, ids, URLs, time ranges and what the result should look like. The server writes the agent's instructions from this text and picks the model, skills and PostHog tools for the run."
+        ),
+    read_only_tools: zod
+        .boolean()
+        .default(tasksDelegateCreateBodyReadOnlyToolsDefault)
+        .describe(
+            "Restrict the run to PostHog tools that only read. By default the run may be given write tools when the request asks for a change, and the run's token carries only the write scopes those tools need."
+        ),
+})
+
+/**
  * Returns the GitHub titles of the pull requests that the latest run of each task opened.
  * @summary Fetch pull request titles for tasks
  */
