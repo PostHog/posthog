@@ -24,6 +24,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.transforms.prompt_jev import PromptJevColumn, PromptJevTable
 
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.data_quality.backend.facade.enums import CheckRunStatus, SubjectType
 from products.data_quality.backend.logic.compiler import print_check_query
@@ -41,6 +42,7 @@ from products.data_quality.backend.logic.jev_manifest import (
     QuestionResult,
     evaluate_question_manifest,
     freeze_question_inputs,
+    warehouse_question_inputs,
 )
 from products.data_quality.backend.logic.jev_question import (
     QuestionChunkEvaluator,
@@ -274,6 +276,49 @@ def test_exhaustive_question_projection_has_typed_fields_and_no_limit() -> None:
     assert "LIMIT" not in sql
     assert sql.count("toJSONString(tuple(") == 2
     assert "arrayStringConcat" in sql
+
+
+@pytest.mark.usefixtures("clickhouse_database")
+def test_row_inputs_keep_null_and_non_finite_numbers_distinct() -> None:
+    subject = SubjectRef(SubjectType.TABLE, "example-table", "orders", "orders", exists=True)
+    config = QuestionConfig(input_mode="row", question="Valid?", columns=["amount"])
+    team = Team(id=999, project_id=999)
+    context = HogQLContext(
+        team_id=999,
+        team=team,
+        database=Database(include_posthog_tables=False),
+        enable_select_queries=True,
+        limit_top_select=False,
+        restricted_properties=set(),
+        use_new_events_schema=False,
+        output_format="ArrowStream",
+    )
+    PromptJevTable(
+        name="orders",
+        columns=[PromptJevColumn(name="amount", clickhouse_type="Nullable(Float64)")],
+        rows=[[None], [float("nan")], [float("inf")], [float("-inf")]],
+    ).register(context)
+    sql, _ = prepare_and_print_ast(question_input_query(subject, config, ""), context=context, dialect="clickhouse")
+
+    async def collect() -> list[WeightedInput]:
+        return [
+            item
+            async for item in warehouse_question_inputs(
+                team=team, user=cast(User, SimpleNamespace()), subject=subject, config=config, column_name=""
+            )
+        ]
+
+    with patch(
+        "products.data_quality.backend.logic.jev_manifest.prepare_warehouse_question_inputs",
+        return_value=(sql, context),
+    ):
+        inputs = async_to_sync(collect)()
+    assert sorted((item.text or "", item.row_count) for item in inputs) == [
+        ('[["amount","Nullable(Float64)","-inf"]]', 1),
+        ('[["amount","Nullable(Float64)","inf"]]', 1),
+        ('[["amount","Nullable(Float64)","nan"]]', 1),
+        ('[["amount","Nullable(Float64)",null]]', 1),
+    ]
 
 
 def test_full_manifest_coverage_cold_warm_and_retry() -> None:

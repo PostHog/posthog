@@ -42,6 +42,7 @@ Query and inference tags carry check and run identifiers without source values.
 
 `QuestionConfig` accepts a column input or explicitly selected row fields, a yes/no assertion, an inclusive minimum probability (default 0.8), and an inclusive allowed failure rate (default 0).
 Row fields are sorted by label and serialized with their types and explicit null values.
+NaN and infinities serialize as quoted strings, so they stay distinct from null.
 Column nulls contribute deterministic row failures without inference.
 Nulls do not contribute to the decision counters.
 Warehouse fields must appear in the subject's column catalog, and the projection is compiled as the executing user after checking subject access.

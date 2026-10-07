@@ -235,6 +235,8 @@ async def warehouse_question_inputs(
         group_by_overflow_mode="throw",
         max_result_rows=0,
         max_result_bytes=0,
+        # toJSONString writes NaN and infinities as null by default, which merges them with SQL NULL in row inputs.
+        output_format_json_quote_denormals=1,
     ) as client:
         async for batch in client.astream_query_as_arrow(
             sql, query_parameters=context.values, external_tables=list(context.external_tables.values())
