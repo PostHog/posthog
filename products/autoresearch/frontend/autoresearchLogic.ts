@@ -19,6 +19,7 @@ import {
     autoresearchList,
     autoresearchPauseCreate,
     autoresearchResumeCreate,
+    autoresearchTrainCreate,
 } from './generated/api'
 import { AutoresearchPipelineApi } from './generated/api.schemas'
 
@@ -60,6 +61,9 @@ export interface autoresearchLogicActions {
         name: string
     }
     loadPipelines: (_: void) => void
+    modelCardOpened: (id: string) => {
+        id: string
+    }
     loadPipelinesFailure: (
         error: string,
         errorObject?: any
@@ -93,6 +97,9 @@ export interface autoresearchLogicActions {
         id: string
         mutating: boolean
     }
+    startTraining: (pipeline: AutoresearchPipelineApi) => {
+        pipeline: AutoresearchPipelineApi
+    }
 }
 
 export type autoresearchLogicType = MakeLogicType<autoresearchLogicValues, autoresearchLogicActions>
@@ -121,6 +128,8 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
         deletePipeline: (id: string, name: string) => ({ id, name }),
         pausePipeline: (pipeline: AutoresearchPipelineApi) => ({ pipeline }),
         resumePipeline: (pipeline: AutoresearchPipelineApi) => ({ pipeline }),
+        startTraining: (pipeline: AutoresearchPipelineApi) => ({ pipeline }),
+        modelCardOpened: (id: string) => ({ id }),
         setPipelineMutating: (id: string, mutating: boolean) => ({ id, mutating }),
         pipelineUpdated: (pipeline: AutoresearchPipelineApi) => ({ pipeline }),
         pipelineRemoved: (id: string) => ({ id }),
@@ -265,6 +274,26 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
             } finally {
                 actions.setPipelineMutating(pipeline.id, false)
             }
+        },
+        startTraining: async ({ pipeline }: { pipeline: AutoresearchPipelineApi }) => {
+            if (!values.currentTeamId || values.mutatingPipelineIds[pipeline.id]) {
+                return
+            }
+            actions.setPipelineMutating(pipeline.id, true)
+            try {
+                await autoresearchTrainCreate(String(values.currentTeamId), pipeline.id)
+                posthog.capture('autoresearch model training started', { pipeline_id: pipeline.id, source: 'list' })
+                lemonToast.success(`Started training "${pipeline.name}"`)
+                actions.loadPipelines()
+            } catch (error: any) {
+                posthog.capture('autoresearch model action failed', { action: 'train', pipeline_id: pipeline.id })
+                lemonToast.error(error?.detail ?? error?.data?.detail ?? 'Failed to start training')
+            } finally {
+                actions.setPipelineMutating(pipeline.id, false)
+            }
+        },
+        modelCardOpened: ({ id }: { id: string }) => {
+            posthog.capture('autoresearch model card clicked', { pipeline_id: id })
         },
     })),
     urlToAction(({ actions, values }) => ({
