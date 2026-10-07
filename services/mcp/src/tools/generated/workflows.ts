@@ -62,6 +62,48 @@ const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>,
     },
 })
 
+const WorkflowsEmailSendingSuspensionSchema = () => z.object({})
+
+const workflowsEmailSendingSuspension = (): ToolBase<
+    ReturnType<typeof WorkflowsEmailSendingSuspensionSchema>,
+    Schemas.EmailSendingSuspensionStatus
+> => ({
+    name: 'workflows-email-sending-suspension',
+    schema: WorkflowsEmailSendingSuspensionSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof WorkflowsEmailSendingSuspensionSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EmailSendingSuspensionStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/email_sending_suspension/`,
+        })
+        return result
+    },
+})
+
+const WorkflowsEmailReputationSchema = () => {
+    const HogFlowsReputationRetrieveQueryParams = orvalSchemas.HogFlowsReputationRetrieveQueryParams()
+    return HogFlowsReputationRetrieveQueryParams
+}
+
+const workflowsEmailReputation = (): ToolBase<
+    ReturnType<typeof WorkflowsEmailReputationSchema>,
+    Schemas.TeamEmailReputationResponse
+> => ({
+    name: 'workflows-email-reputation',
+    schema: WorkflowsEmailReputationSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsEmailReputationSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TeamEmailReputationResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/reputation/`,
+            query: {
+                search: params.search,
+            },
+        })
+        return result
+    },
+})
+
 const WorkflowsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
     return HogFlowsCreateBody
@@ -730,6 +772,8 @@ const workflowsVersionStats = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'broadcasts-create': broadcastsCreate,
+    'workflows-email-sending-suspension': workflowsEmailSendingSuspension,
+    'workflows-email-reputation': workflowsEmailReputation,
     'workflows-create': workflowsCreate,
     'workflows-discard-draft': workflowsDiscardDraft,
     'workflows-get': workflowsGet,
