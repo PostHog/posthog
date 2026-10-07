@@ -41,6 +41,7 @@ export function MetricsClauseRow({
     index,
     isActive,
     showAlias,
+    showExplain = true,
     disabledReason,
 }: {
     clause: MetricsViewerClause
@@ -48,6 +49,8 @@ export function MetricsClauseRow({
     isActive: boolean
     /** Aliases only mean something once there is more than one series. */
     showAlias: boolean
+    /** The explain button opens the `/metrics` Fundamentals tab, so only the viewer shows it. */
+    showExplain?: boolean
     disabledReason: string | null
 }): JSX.Element {
     const { viewerClauses, attributeEndpointFilters } = useValues(metricsViewerLogic)
@@ -85,9 +88,6 @@ export function MetricsClauseRow({
     const recommendedAggregation = clause.selectedMetricType
         ? RECOMMENDED_AGGREGATION_BY_TYPE[clause.selectedMetricType]
         : undefined
-    const { setActiveTab } = useActions(metricsSceneLogic)
-    const { explainMetric } = useActions(metricsFundamentalsLogic)
-
     return (
         <div className="flex flex-wrap items-start gap-2" data-attr="metrics-clause-row">
             {showAlias && (
@@ -117,22 +117,8 @@ export function MetricsClauseRow({
                         disabled={!!disabledReason}
                         disabledReason={disabledReason}
                     />
-                    {clause.metricName && clause.selectedMetricType && (
-                        <Tooltip title="Take this metric apart: see how its chart value is recomputed from raw samples.">
-                            <LemonButton
-                                size="small"
-                                type="tertiary"
-                                icon={<IconInfo />}
-                                onClick={() => {
-                                    explainMetric({
-                                        metricName: clause.metricName,
-                                        aggregation: clause.aggregation,
-                                    })
-                                    setActiveTab('fundamentals')
-                                }}
-                                data-attr="metrics-clause-explain"
-                            />
-                        </Tooltip>
+                    {showExplain && clause.metricName && clause.selectedMetricType && (
+                        <MetricsClauseExplainButton clause={clause} />
                     )}
                 </div>
                 {clause.selectedMetricType &&
@@ -205,5 +191,29 @@ export function MetricsClauseRow({
                 />
             </LemonMenu>
         </div>
+    )
+}
+
+// A separate component, so the scene logics it uses only mount where the button shows.
+function MetricsClauseExplainButton({ clause }: { clause: MetricsViewerClause }): JSX.Element {
+    const { setActiveTab } = useActions(metricsSceneLogic)
+    const { explainMetric } = useActions(metricsFundamentalsLogic)
+
+    return (
+        <Tooltip title="Take this metric apart: see how its chart value is recomputed from raw samples.">
+            <LemonButton
+                size="small"
+                type="tertiary"
+                icon={<IconInfo />}
+                onClick={() => {
+                    explainMetric({
+                        metricName: clause.metricName,
+                        aggregation: clause.aggregation,
+                    })
+                    setActiveTab('fundamentals')
+                }}
+                data-attr="metrics-clause-explain"
+            />
+        </Tooltip>
     )
 }

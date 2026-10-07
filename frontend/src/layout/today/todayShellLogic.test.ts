@@ -114,4 +114,75 @@ describe('todayShellLogic', () => {
             Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
         }
     })
+
+    it('on phone widths, drops the rail width and opens More without leaving the page', () => {
+        const originalWidth = window.innerWidth
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+        try {
+            const logic = todayShellLogic()
+            logic.mount()
+            expect(logic.values.leftNavWidth).toBe(0)
+
+            router.actions.push('/project/1/airplane')
+            logic.actions.pickPane('more')
+            expect(router.values.location.pathname).toBe('/project/1/airplane')
+            expect(logic.values.activePane).toBe('more')
+            expect(logic.values.sidebarVisible).toBe(true)
+        } finally {
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+        }
+    })
+
+    test.each([
+        ['/project/1/ai', { task: 'task-1' }, true],
+        ['/project/1/ai', { chat: 'chat-1' }, false],
+        ['/project/1/ai', {}, false],
+        ['/project/1/ai-observability', { task: 'task-1' }, false],
+        ['/project/1/tasks', { task: 'task-1' }, false],
+    ])('on phone widths, %s with %o hides the phone header: %s', (pathname, searchParams, hidden) => {
+        const originalWidth = window.innerWidth
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+        try {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+            const logic = todayShellLogic()
+            logic.mount()
+
+            router.actions.push(pathname, searchParams)
+            expect(logic.values.phoneHeaderHidden).toBe(hidden)
+        } finally {
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+        }
+    })
+
+    it('on phone widths, goes back through pages and then to the pane', () => {
+        const originalWidth = window.innerWidth
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+        try {
+            const logic = todayShellLogic()
+            logic.mount()
+
+            logic.actions.pickPane('tools')
+            router.actions.push('/project/1/sql')
+            expect(logic.values.phoneCanGoBack).toBe(false)
+            router.actions.push('/project/1/sql?open_query=abc')
+            router.actions.push('/project/1/insights/abc')
+            expect(logic.values.sidebarVisible).toBe(false)
+            expect(logic.values.phoneCanGoBack).toBe(true)
+
+            logic.actions.goBackOnPhone()
+            expect(router.values.location.pathname).toBe('/project/1/sql')
+            expect(router.values.location.search).toBe('?open_query=abc')
+            expect(logic.values.sidebarVisible).toBe(false)
+            expect(logic.values.phoneCanGoBack).toBe(false)
+
+            logic.actions.goBackOnPhone()
+            expect(logic.values.sidebarVisible).toBe(true)
+            expect(logic.values.activePane).toBe('tools')
+        } finally {
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+        }
+    })
 })

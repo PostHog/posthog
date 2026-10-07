@@ -130,7 +130,7 @@ describe('ToolExecutor metrics', () => {
             const tools = catalog
                 .getPreBuiltEntries()
                 .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
-            const state = makeToolExecutorState(tools, { useSingleExec })
+            const state = makeToolExecutorState(tools, { useSingleExec, suppressAnalytics: false })
             state.context.api = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
             state.context.stateManager.getProjectId = vi.fn().mockResolvedValue(2)
             const content = 'Tool failed: private caller query. You may retry with adjusted inputs.'
@@ -167,7 +167,15 @@ describe('ToolExecutor metrics', () => {
                 isError: true,
                 errorMessage: `Tool failed: ${type}`,
             }
-            expect(trackToolSpan).toHaveBeenCalledWith(tool, state, expect.objectContaining(errorMetadata))
+            expect(trackToolSpan).toHaveBeenCalledWith(
+                tool,
+                expect.objectContaining({
+                    distinctId: state.distinctId,
+                    requestContext: state.requestContext,
+                    suppressAnalytics: false,
+                }),
+                expect.objectContaining(errorMetadata)
+            )
             if (tool === 'execute-sql') {
                 expect(trackExecuteSqlGeneration).toHaveBeenCalledOnce()
                 expect(vi.mocked(trackExecuteSqlGeneration).mock.calls[0]?.[3]).toMatchObject(errorMetadata)

@@ -90,7 +90,7 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         group: 'Replay vision',
         label: 'Replay vision scanners',
         description:
-            'Create and update scanners, rate observations, and apply prompt suggestions. A scanner spends credits as it runs, so a scout has to give any it creates a credit limit. Scouts cannot delete scanners',
+            'Create and update scanners and rate observations. A scanner spends credits as it runs, so a scout has to give any it creates a credit limit. Scouts cannot delete scanners',
     },
     {
         scope: 'hog_flow_proposal:write',

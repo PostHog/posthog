@@ -460,7 +460,6 @@ class TestAppCspHeaderName(SimpleTestCase):
             ("shared_dashboard", "/shared_dashboard/abc123"),
             ("shared", "/shared/abc123"),
             ("embedded", "/embedded/abc123"),
-            ("interview", "/interview/abc123"),
             ("exporter_with_token", "/exporter/abc123"),
             ("exporter_render", "/exporter"),
             ("render_query", "/render_query"),

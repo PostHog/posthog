@@ -23,6 +23,15 @@ TEMPORAL_FALLBACK_SECRET_KEYS: list[str] = get_list(os.getenv("TEMPORAL_FALLBACK
 GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int | None = get_from_env(
     "GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS", None, optional=True, type_cast=int
 )
+# After SIGTERM plus the grace, the worker exits when every activity that still runs is one the
+# Temporal server already closed (timed out, and retried on another worker if attempts remain).
+# Off by default: without it, such an activity holds the worker for the full graceful shutdown timeout.
+TEMPORAL_WORKER_ZOMBIE_EXIT_ENABLED: bool = get_from_env(
+    "TEMPORAL_WORKER_ZOMBIE_EXIT_ENABLED", False, type_cast=str_to_bool
+)
+TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS: float = get_from_env(
+    "TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS", 180.0, type_cast=float
+)
 MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
@@ -330,9 +339,9 @@ ERROR_TRACKING_TASK_QUEUE = _set_temporal_task_queue("error-tracking-task-queue"
 ERROR_TRACKING_LIFECYCLE_TASK_QUEUE = _set_temporal_task_queue("error-tracking-lifecycle-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
-# Defaults to the general-purpose fleet so the daily coordinator always has a live worker. Deploy a
-# fleet polling "autoresearch-task-queue" before setting this env, or the schedule strands its runs.
-AUTORESEARCH_TASK_QUEUE = _set_temporal_task_queue(os.getenv("AUTORESEARCH_TASK_QUEUE", "general-purpose-task-queue"))
+# Polled by the temporal-worker-self-driving fleet. The default matches it, so a deploy without the
+# env var still registers the autoresearch coordinator schedule on the queue that fleet polls.
+AUTORESEARCH_TASK_QUEUE = _set_temporal_task_queue(os.getenv("AUTORESEARCH_TASK_QUEUE", "self-driving-task-queue"))
 # Polled by the temporal-worker-self-driving fleet. The default matches it, so a deploy without the
 # env var still registers the ranking sweep schedule on the queue that fleet polls.
 SELF_DRIVING_TASK_QUEUE = _set_temporal_task_queue(os.getenv("SELF_DRIVING_TASK_QUEUE", "self-driving-task-queue"))

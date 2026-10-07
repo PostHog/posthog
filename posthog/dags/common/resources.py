@@ -319,10 +319,8 @@ class PostgresURL(dagster.ConfigurableResource):
 def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_KafkaProducer]:
     """Yield a singleton Kafka producer bound to the INGESTION (WarpStream) profile; flush on teardown.
 
-    Every existing consumer of this resource (`detach_distinct_id_op`,
-    `person_property_reconciliation`, `person_property_reconciliation_restore`)
-    produces to `clickhouse_person` / `clickhouse_person_distinct_id`, which the
-    routing map sends to the INGESTION profile. Binding the resource here keeps
+    Consumers of this resource produce to `clickhouse_person` / `clickhouse_person_distinct_id`,
+    which the routing map sends to the INGESTION profile. Binding the resource here keeps
     that explicit so a chart misconfiguration (missing `KAFKA_INGESTION_HOSTS`)
     fails loud rather than silently dropping writes via the DEFAULT fallback.
 

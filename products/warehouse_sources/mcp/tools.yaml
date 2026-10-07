@@ -163,7 +163,7 @@ tools:
         operation: external_data_schemas_destinations_retrieve
         enabled: true
         scopes:
-            - external_data_source:read
+            - external_data_source:write
         annotations:
             readOnly: true
             destructive: false
@@ -438,7 +438,7 @@ tools:
         operation: external_data_sources_destinations_retrieve
         enabled: true
         scopes:
-            - external_data_source:read
+            - external_data_source:write
         annotations:
             readOnly: true
             destructive: false

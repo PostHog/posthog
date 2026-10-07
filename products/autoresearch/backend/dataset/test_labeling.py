@@ -22,6 +22,9 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from products.autoresearch.backend.dataset.labeling import (
     LABELER_QUERY_MODIFIERS,
     PREDICTION_EVENT_NAME,
+    ROLLING_SCORE_LIMIT,
+    SHADOW_MODEL_ROLE,
+    RollingSelection,
     TrainingSample,
     TrainingSampleTooLarge,
     _build_labeled_users_cte,
@@ -33,6 +36,8 @@ from products.autoresearch.backend.dataset.labeling import (
     build_inference_features_sql,
     build_random_t0_labeler_sql,
     build_training_features_sql,
+    rolling_rescore_runs,
+    rolling_selection,
     strip_sql_comments,
 )
 from products.autoresearch.backend.query import run_hogql_rows
@@ -105,6 +110,26 @@ class TestBuildInferenceFeaturesSql(BaseTest):
         )
         self.assertNotIn("{anchors}", sql)
         self.assertNotIn("--", sql)
+
+
+class TestRollingSelection(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("at_the_cap", 50_000, 1),
+            ("one_cycle_past_the_minimum_window", 1_400_000, 1),
+            ("huge", 9_000_000, 1),
+            ("weekly_cadence", 1_400_000, 7),
+        ]
+    )
+    def test_score_history_window_outlasts_a_full_cycle(self, _name: str, eligible: int, cadence_days: int) -> None:
+        rolling = rolling_selection(eligible=eligible, pipeline_id="p", cadence_days=cadence_days)
+        assert rolling is not None
+        assert rolling.limit == ROLLING_SCORE_LIMIT
+        cycle_days = rolling_rescore_runs(eligible=eligible, scored=rolling.limit) * cadence_days
+        assert rolling.scored_lookback_days > cycle_days
+
+    def test_a_population_below_the_cap_scores_whole(self) -> None:
+        assert rolling_selection(eligible=49_999, pipeline_id="p", cadence_days=1) is None
 
 
 class TestPopulationFilterCompilation(SimpleTestCase):
@@ -671,3 +696,86 @@ class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest)
         anchors_sql, anchors_values = build_inference_anchors_sql(lookback_days=30, inference_population=population)
         assert [int(v) for v in run(eligible_sql, eligible_values)] == [1, 2]
         assert int(run(f"SELECT count() FROM ({anchors_sql.strip()})", anchors_values)[0]) == 1
+
+    def test_rolling_selection_ranks_by_staleness_and_covers_everyone_in_ceil_m_over_n_runs(self) -> None:
+        now = timezone.now()  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
+        first_cutoff = now.replace(microsecond=0) - timedelta(days=3)
+        pipeline_id = "11111111-1111-1111-1111-111111111111"
+        # (days of activity before the first cutoff, days of this pipeline's last score before it)
+        people: dict[str, tuple[int, int | None]] = {
+            "active_never_scored": (1, None),
+            "idle_never_scored": (5, None),
+            "scored_by_another_pipeline": (3, None),
+            "scored_long_ago": (1, 10),
+            "scored_recently": (1, 2),
+        }
+        name_by_uuid: dict[str, str] = {}
+        for name, (active_days_ago, scored_days_ago) in people.items():
+            person = _create_person(team_id=self.team.pk, distinct_ids=[name], is_identified=True)
+            name_by_uuid[str(person.uuid)] = name
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=name,
+                timestamp=first_cutoff - timedelta(days=active_days_ago),
+            )
+            if scored_days_ago is not None:
+                _create_event(
+                    team=self.team,
+                    event=PREDICTION_EVENT_NAME,
+                    distinct_id=name,
+                    timestamp=first_cutoff - timedelta(days=scored_days_ago),
+                    properties={"$autoresearch_pipeline_id": pipeline_id},
+                )
+        _create_event(
+            team=self.team,
+            event=PREDICTION_EVENT_NAME,
+            distinct_id="scored_by_another_pipeline",
+            timestamp=first_cutoff - timedelta(days=1),
+            properties={"$autoresearch_pipeline_id": "22222222-2222-2222-2222-222222222222"},
+        )
+        # A shadow model's prediction is not a score of the person, so it must not move them down the ranking.
+        _create_event(
+            team=self.team,
+            event=PREDICTION_EVENT_NAME,
+            distinct_id="active_never_scored",
+            timestamp=first_cutoff - timedelta(days=1),
+            properties={"$autoresearch_pipeline_id": pipeline_id, "$autoresearch_model_role": SHADOW_MODEL_ROLE},
+        )
+        flush_persons_and_events()
+
+        def select(cutoff: Any) -> list[str]:
+            sql, values = build_inference_anchors_sql(
+                lookback_days=30,
+                inference_population={},
+                cutoff_ts=int(cutoff.timestamp()),
+                rolling=RollingSelection(pipeline_id=pipeline_id, limit=2, scored_lookback_days=30),
+            )
+            rows = run_hogql_rows(
+                team=self.team,
+                query=HogQLQuery(query=sql, values=values, modifiers=LABELER_QUERY_MODIFIERS),
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            )
+            return sorted(name_by_uuid[str(row[0])] for row in rows)
+
+        selections: list[list[str]] = []
+        for day in range(3):
+            cutoff = first_cutoff + timedelta(days=day)
+            selected = select(cutoff)
+            assert select(cutoff) == selected
+            selections.append(selected)
+            for name in selected:
+                _create_event(
+                    team=self.team,
+                    event=PREDICTION_EVENT_NAME,
+                    distinct_id=name,
+                    timestamp=cutoff + timedelta(hours=1),
+                    properties={"$autoresearch_pipeline_id": pipeline_id},
+                )
+            flush_persons_and_events()
+
+        assert selections == [
+            ["active_never_scored", "scored_by_another_pipeline"],
+            ["idle_never_scored", "scored_long_ago"],
+            ["active_never_scored", "scored_recently"],
+        ]

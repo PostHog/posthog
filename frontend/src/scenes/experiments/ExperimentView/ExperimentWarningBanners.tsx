@@ -9,6 +9,9 @@ import { urls } from 'scenes/urls'
 
 import type { Experiment } from '~/types'
 
+import { healthFindingForExperimentWarning } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
+import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
+
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentWarning } from '../experimentLogic'
 
@@ -84,6 +87,9 @@ function WarningDetail({
 
 export function ExperimentWarningBanner(): JSX.Element | null {
     const { experimentWarning, experiment } = useValues(experimentLogic)
+    const { reportActedOn } = useHealthFindingReporting(
+        experimentWarning ? healthFindingForExperimentWarning(experimentWarning.key) : null
+    )
 
     useEffect(() => {
         if (experimentWarning) {
@@ -96,7 +102,11 @@ export function ExperimentWarningBanner(): JSX.Element | null {
     }
 
     const flagLink = experiment.feature_flag ? (
-        <Link target="_blank" to={urls.featureFlag(experiment.feature_flag.id)}>
+        <Link
+            target="_blank"
+            to={urls.featureFlag(experiment.feature_flag.id)}
+            onClick={() => reportActedOn('open_feature_flag')}
+        >
             {experiment.feature_flag.key}
         </Link>
     ) : null

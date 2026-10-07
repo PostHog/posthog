@@ -1,6 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
-from products.batch_exports.backend.api import (
+from products.batch_exports.backend.presentation.views import (
     batch_export as batch_exports,
     file_download,
 )

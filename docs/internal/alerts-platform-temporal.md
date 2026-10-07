@@ -237,7 +237,7 @@ The alerts product imports nothing from a source: the binding holds a name, and 
 
 ## Logs source evaluation
 
-`logs-alert-evaluate` evaluates one batch key, a team's alerts due in one minute, and previews one delivery per notification.
+`logs-alert-evaluate` evaluates one batch key, a team's alerts due in one minute, and previews one delivery per notification or incident edge.
 The evaluation is a plain function in `products/logs/backend/alert_source_cycle.py`, so a test calls it without Temporal.
 
 It writes its own state and never the logs product's rows.
@@ -343,6 +343,33 @@ Three consequences worth stating:
 `AlertCheckOutcome.muted_notification` carries what was held, and
 `alerts_platform_notifications_muted_total{source,reason}` counts it by `snooze` or `quiet_hours`.
 
+### Incident edges ignore cooldown and mute
+
+A paging destination such as PagerDuty holds an incident open until it receives a resolve, so it needs one
+resolve for every trigger. Cooldown and mute hold back announcements while the state still moves, so a paging
+destination cannot follow announcements.
+
+`decide_incident_action` in `facade/lifecycle.py` reads the state before and after a transition: entering a
+firing is a trigger, leaving it for any reason is a resolve. It shares its firing rule with
+`decide_firing_episode`, so a policy that parks a firing alert in SNOOZED keeps its incident open there, and
+a snooze under any other policy ends the firing and resolves the incident.
+The legacy logs stack's `incident_edge` wraps the same rule.
+
+- The source decides the action under its own policy and puts it on `AlertDeliveryRequest.incident_actions`,
+  keyed by grouping key, because the history row does not record the policy.
+- The source sets an action only when the alert has a destination subscribed to its incident events, so an
+  alert without a paging destination starts no extra delivery.
+- A source sends a delivery whenever a check announces or moves a firing. A delivery that exists only for its
+  incident actions has `sends_messages=False`, and none of its rows reach a message destination.
+- `announcement()` also returns the held CHECK row of a group in `incident_grouping_keys`.
+- A mute never holds an incident edge: a fire inside quiet hours or a snooze triggers the incident.
+- Delivery routes each action to the event id in `event_ids_by_incident_action`, which only an incident
+  manager destination subscribes to. A message destination never sees an incident action.
+- The PagerDuty transport sends a trigger or a resolve with the `dedup_key`
+  `<configuration_id>:<grouping_key>:<episode_started_at>`, so a resolve closes the incident of its own
+  firing episode. It names the platform in `source`, because a team on the pilot also gets the HogFunction
+  path's incident.
+
 A fire a mute swallowed is still owed an announcement.
 `_firing_is_unannounced` in `facade/lifecycle.py` decides that, and its docstring holds the rule.
 Without it an alert reaches the end of its quiet hours already FIRING, and `renotify_while_firing`
@@ -368,7 +395,7 @@ The write is safe to run twice. An attempt that commits leaves every configurati
 and a replay skips those rows rather than advancing them again and skipping a cycle.
 It runs in one transaction, so no alert is marked as notified while its schedule still says the check is due.
 
-`MAX_PREVIEWS_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
+`MAX_DELIVERIES_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
 Recording an outcome whose preview the batch cannot carry would leave an alert firing with nothing announcing it,
 and a firing alert does not fire again. Dropping the pair leaves it due, the way a truncated cohort already behaves.
 `alerts_platform_deliveries_deferred_total` counts them.

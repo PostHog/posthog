@@ -18,7 +18,11 @@ export function QuillSceneHeader({ back, icon, title, actions, className }: Quil
     return (
         <header
             data-quill
-            className={cn('flex h-12 shrink-0 items-center gap-1 border-b border-[var(--border)] px-4', className)}
+            className={cn(
+                'flex h-12 shrink-0 items-center gap-1 border-b border-[var(--border)] px-4',
+                '@max-xl/main-content:h-auto @max-xl/main-content:min-h-12 @max-xl/main-content:flex-wrap @max-xl/main-content:gap-y-2 @max-xl/main-content:py-2',
+                className
+            )}
         >
             {back}
             {icon && (
@@ -26,8 +30,12 @@ export function QuillSceneHeader({ back, icon, title, actions, className }: Quil
                     {icon}
                 </span>
             )}
-            <div className="flex min-w-0 flex-1 items-center gap-1">{title}</div>
-            {actions && <div className="ml-auto flex shrink-0 items-center gap-1">{actions}</div>}
+            <div className="flex min-w-0 flex-1 items-center gap-1 @max-xl/main-content:min-w-48">{title}</div>
+            {actions && (
+                <div className="ml-auto flex shrink-0 items-center gap-1 @max-xl/main-content:shrink @max-xl/main-content:flex-wrap @max-xl/main-content:justify-end">
+                    {actions}
+                </div>
+            )}
         </header>
     )
 }

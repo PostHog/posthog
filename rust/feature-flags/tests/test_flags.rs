@@ -6334,3 +6334,65 @@ async fn test_realtime_cohort_without_backfill_falls_through_to_dynamic_eval() -
 
     Ok(())
 }
+
+#[tokio::test]
+async fn it_degrades_person_flags_when_the_persons_db_stops_answering() -> Result<()> {
+    // Accepted connections sit in the listen backlog and never get a reply, like a frozen database.
+    let stalled_persons_db = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.persons_read_database_url = format!(
+        "postgres://posthog:posthog@{}/posthog_persons",
+        stalled_persons_db.local_addr()?
+    );
+    // The deadline is shorter than the pool acquire timeout. Only the deadline can then produce
+    // the reason code that the test asserts below.
+    config.persons_db_deadline_ms = 500;
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    let flag_json = json!([
+        {
+            "id": 1,
+            "key": "rollout-flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        },
+        {
+            "id": 2,
+            "key": "person-flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {"groups": [{
+                "properties": [{"key": "email", "value": "user@example.com", "operator": "exact", "type": "person"}],
+                "rollout_percentage": 100
+            }]}
+        }
+    ]);
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+    let payload = json!({"token": team.api_token, "distinct_id": "stalled_user"});
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_json_include!(
+        actual: res.json::<Value>().await?,
+        expected: json!({
+            "errorsWhileComputingFlags": true,
+            "flags": {
+                "rollout-flag": {"enabled": true},
+                "person-flag": {"enabled": false, "reason": {"code": "timeout:persons_db_deadline"}}
+            }
+        })
+    );
+
+    Ok(())
+}

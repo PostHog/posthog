@@ -60,6 +60,7 @@ import {
     TrendsFilterType,
 } from '~/types'
 
+import { BIVisualizationNode } from './schema-business-intelligence'
 import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
@@ -123,6 +124,7 @@ export enum NodeKind {
     // Interface nodes
     DataTableNode = 'DataTableNode',
     DataVisualizationNode = 'DataVisualizationNode',
+    BIVisualizationNode = 'BIVisualizationNode',
     SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
 
@@ -160,6 +162,7 @@ export enum NodeKind {
     MarketingAnalyticsAttributionQuery = 'MarketingAnalyticsAttributionQuery',
     MarketingAnalyticsAttributionPathsQuery = 'MarketingAnalyticsAttributionPathsQuery',
     MarketingAnalyticsRetentionQuery = 'MarketingAnalyticsRetentionQuery',
+    MarketingAnalyticsSearchQuery = 'MarketingAnalyticsSearchQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -245,6 +248,7 @@ export type AnyDataNode =
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
     | MarketingAnalyticsRetentionQuery
+    | MarketingAnalyticsSearchQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -363,9 +367,11 @@ export type QuerySchema =
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
     | MarketingAnalyticsRetentionQuery
+    | MarketingAnalyticsSearchQuery
 
     // Interface nodes
     | DataVisualizationNode
+    | BIVisualizationNode
     | DataTableNode
     | SavedInsightNode
     | InsightVizNode
@@ -692,6 +698,8 @@ export type CachedHogQLQueryResponse = CachedQueryResponse<HogQLQueryResponse>
 export interface HogQLFilters {
     properties?: AnyPropertyFilter[]
     dateRange?: DateRange
+    /** Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}. */
+    compareFilter?: CompareFilter
     filterTestAccounts?: boolean
     /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
     interval?: IntervalType
@@ -936,6 +944,13 @@ export interface PredicateIndexUsage {
     end?: integer
 }
 
+export interface HogQLMetadataColumn {
+    /** Output column name, in the same order as the SELECT list. */
+    name: string
+    /** Inferred runtime type, including nullability. Unknown means inference could not determine the type; execution remains authoritative. */
+    type: string
+}
+
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
@@ -948,6 +963,8 @@ export interface HogQLMetadataResponse {
     query_status?: never
     table_names?: string[]
     ch_table_names?: string[]
+    /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
+    output_columns?: HogQLMetadataColumn[]
 }
 
 export type AutocompleteCompletionItemKind =
@@ -1051,6 +1068,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     debug?: boolean
     /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
     indexUsage?: boolean
+    /** Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in. */
+    includeOutputTypes?: boolean
 }
 
 export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
@@ -1595,6 +1614,8 @@ export interface DataVisualizationNode extends Node<never> {
     chartSettings?: ChartSettings
     tableSettings?: TableSettings
 }
+
+export type VisualizationNode = DataVisualizationNode | BIVisualizationNode
 
 export type DataTableNodeViewPropsContextType = 'event_definition' | 'team_columns'
 
@@ -4993,7 +5014,7 @@ export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
     clauses: MetricsQueryClause[]
     /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
     dateRange?: DateRange
-    /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted */
+    /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
     interval?: string
     /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
     formula?: string
@@ -5417,6 +5438,7 @@ export type FileSystemIconType =
     | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
+    | 'business_intelligence'
     | 'web_analytics'
     | 'error_tracking'
     | 'heatmap'
@@ -5425,7 +5447,6 @@ export type FileSystemIconType =
     | 'session_profile'
     | 'survey'
     | 'product_tour'
-    | 'user_interview'
     | 'early_access_feature'
     | 'experiment'
     | 'feature_flag'
@@ -5435,8 +5456,6 @@ export type FileSystemIconType =
     | 'data_pipeline_metadata'
     | 'data_warehouse'
     | 'task'
-    | 'link'
-    | 'live_debugger'
     | 'logs'
     | 'tracing'
     | 'metrics'
@@ -5529,6 +5548,17 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     intents?: ProductKey[]
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
+    /** Other terms that find this item in search, for example the names of its tabs or common synonyms */
+    searchKeywords?: string[]
+    /** Tabs of this item that search lists as their own results */
+    searchTabs?: FileSystemSearchTab[]
+}
+
+export interface FileSystemSearchTab {
+    name: string
+    href: string
+    flag?: string
+    searchKeywords?: string[]
 }
 
 export interface FileSystemViewLogEntry {
@@ -6705,6 +6735,7 @@ export type MultipleBreakdownType =
     | 'person'
     | 'event'
     | 'event_metadata'
+    | 'element'
     | 'group'
     | 'session'
     | 'hogql'
@@ -8133,6 +8164,50 @@ export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQuery
 export type CachedMarketingAnalyticsRetentionQueryResponse =
     CachedQueryResponse<MarketingAnalyticsRetentionQueryResponse>
 
+export interface MarketingAnalyticsSearchSource {
+    sourceType: 'GoogleAds' | 'BingAds' | 'GoogleSearchConsole'
+    statsTable: string
+    keywordTable?: string
+    queryPageTable?: boolean
+}
+
+export interface MarketingAnalyticsSearchQuery extends DataNode<MarketingAnalyticsSearchQueryResponse> {
+    kind: NodeKind.MarketingAnalyticsSearchQuery
+    dateRange?: DateRange
+    sources: MarketingAnalyticsSearchSource[]
+    compareFilter?: CompareFilter
+    search?: string
+    breakdown?: 'keyword' | 'page'
+    keyword?: string
+    page?: string
+}
+
+export interface MarketingAnalyticsSearchMetrics {
+    clicks: number
+    impressions: number
+    cost: number | null
+    conversions: number | null
+    ctr: number | null
+    cpc: number | null
+    cpa: number | null
+    position?: number | null
+}
+
+export interface MarketingAnalyticsSearchRow extends MarketingAnalyticsSearchMetrics {
+    keyword: string | null
+    page?: string | null
+    platform: 'GoogleAds' | 'BingAds' | 'GoogleSearchConsole'
+    matchType: string | null
+    currency: string | null
+    previous?: MarketingAnalyticsSearchMetrics | null
+}
+
+export interface MarketingAnalyticsSearchQueryResponse extends AnalyticsQueryResponseBase {
+    results: MarketingAnalyticsSearchRow[]
+}
+
+export type CachedMarketingAnalyticsSearchQueryResponse = CachedQueryResponse<MarketingAnalyticsSearchQueryResponse>
+
 export interface WebAnalyticsExternalSummaryRequest {
     date_from: string
     date_to: string
@@ -8496,6 +8571,7 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'OpenAIAds',
     'AmazonAds',
     'RoktAds',
+    'TwitterAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -8695,6 +8771,17 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         defaultSources: ['amazon', 'amazon_ads'] as const,
         primarySource: 'amazon',
     },
+    TwitterAds: {
+        sourceType: 'TwitterAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_stats',
+        defaultSources: ['twitter', 'x', 'twitter_ads', 'x_ads'] as const,
+        primarySource: 'twitter',
+        adsetTableName: 'line_items' as const,
+        adsetStatsTableName: 'line_item_stats' as const,
+    },
     RoktAds: {
         sourceType: 'RoktAds' as const,
         nameField: 'campaign_name',
@@ -8709,6 +8796,7 @@ export const MARKETING_INTEGRATION_CONFIGS = {
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
 
 export type AmazonAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['AmazonAds']['defaultSources'][number]
+export type TwitterAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['TwitterAds']['defaultSources'][number]
 export type RoktAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['RoktAds']['defaultSources'][number]
 export type AppleSearchAdsDefaultSources =
     (typeof MARKETING_INTEGRATION_CONFIGS)['AppleSearchAds']['defaultSources'][number]
@@ -9025,6 +9113,18 @@ export interface SidebarConfiguration {
     [key: string]: unknown
 }
 
+/** Customization of the SQL editor. Extra keys are tolerated so older servers accept configs written by newer clients. */
+export interface SQLEditorConfiguration {
+    /** Whether the SQL editor uses Vim keybindings. An absent value falls back to the legacy browser preference. */
+    vim_mode_enabled?: boolean
+    /**
+     * Vim commands to run when Vim mode starts, one per line, such as `imap jj <Esc>` or `set cursorblink`.
+     * @maxLength 10000
+     */
+    vimrc?: string
+    [key: string]: unknown
+}
+
 /**
  * Per-user UI customization, persisted on the User model as a single JSONB blob.
  * A null configuration and any absent key mean "default", which for visibility is "shown",
@@ -9038,6 +9138,7 @@ export interface UserUIConfiguration {
      */
     version: number
     sidebar?: SidebarConfiguration
+    sql_editor?: SQLEditorConfiguration
     [key: string]: unknown
 }
 
@@ -9069,8 +9170,6 @@ export enum ProductKey {
     HISTORY = 'history',
     INGESTION_WARNINGS = 'ingestion_warnings',
     INTEGRATIONS = 'integrations',
-    LINKS = 'links',
-    LIVE_DEBUGGER = 'live_debugger',
     LLM_CLUSTERS = 'llm_clusters',
     LLM_DATASETS = 'llm_datasets',
     LLM_EVALUATIONS = 'llm_evaluations',
@@ -9109,7 +9208,6 @@ export enum ProductKey {
     TOOLBAR = 'toolbar',
     TRACING = 'tracing',
     METRICS = 'metrics',
-    USER_INTERVIEWS = 'user_interviews',
     VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',
     WORKFLOWS = 'workflows',

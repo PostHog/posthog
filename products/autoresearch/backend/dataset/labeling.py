@@ -89,6 +89,8 @@ def _identified_users_and_clause() -> str:
 # activity scan that counted it would keep a person eligible forever on nothing but their
 # own predictions, and would count the prediction as the first or last thing they did.
 PREDICTION_EVENT_NAME = "autoresearch_prediction"
+# The `$autoresearch_model_role` of a prediction a shadow-set model emits next to the champion's.
+SHADOW_MODEL_ROLE = "shadow"
 
 
 def _own_events_excluded_clause(alias: str = "") -> str:
@@ -98,7 +100,8 @@ def _own_events_excluded_clause(alias: str = "") -> str:
 
 # The most persons one training or scoring run materializes. HogQL otherwise caps a query at its
 # default of 100 rows; the materializers fail a result that fills this bound, and validation
-# refuses a larger population before a run is spent on it.
+# refuses a larger training population before a run is spent on it. A larger scoring population
+# scores on a rolling basis instead (ROLLING_SCORE_LIMIT).
 MATERIALIZE_ROW_LIMIT = 50_000
 
 # The share of MATERIALIZE_ROW_LIMIT a sampled training population aims at. The rate is chosen
@@ -157,6 +160,53 @@ def negative_sample_threshold(negative_sample_rate: float) -> int:
     if not 0.0 < negative_sample_rate <= 1.0:
         raise ValueError(f"negative_sample_rate must be in (0, 1], got {negative_sample_rate!r}")
     return math.floor(negative_sample_rate * _HASH_RANGE)
+
+
+# The most persons one scoring run scores when its population reaches MATERIALIZE_ROW_LIMIT. The
+# run takes the people whose last score is oldest, so consecutive runs cycle through the whole
+# population. The headroom keeps a materialized result clear of the truncation check.
+ROLLING_SCORE_LIMIT = MATERIALIZE_ROW_LIMIT * 9 // 10
+
+# The shortest window a rolling selection reads the pipeline's own predictions over. A larger
+# population gets a longer window, see `rolling_selection()`.
+ROLLING_SCORE_MIN_LOOKBACK_DAYS = 30
+
+
+def rolling_score_limit(eligible: int) -> int | None:
+    """The rolling selection size for a scoring population of ``eligible`` persons, or None when it scores whole."""
+    return ROLLING_SCORE_LIMIT if eligible >= MATERIALIZE_ROW_LIMIT else None
+
+
+def rolling_rescore_runs(*, eligible: int, scored: int) -> int:
+    """How many scoring runs a rolling selection of ``scored`` persons takes to cover ``eligible`` persons."""
+    return max(1, -(-eligible // max(scored, 1)))
+
+
+@frozen
+class RollingSelection:
+    """The subset one scoring run takes from a population at or above the cap."""
+
+    pipeline_id: str
+    limit: int
+    # How far back the ranking reads the pipeline's own predictions. A person scored before the
+    # window ranks with the never-scored, so the window covers a whole cycle with room to grow.
+    scored_lookback_days: int
+
+
+def rolling_selection(*, eligible: int, pipeline_id: str, cadence_days: int) -> RollingSelection | None:
+    """
+    The rolling subset for a scoring population of ``eligible`` persons, or None when it scores whole.
+    ``cadence_days`` is the pipeline's days between runs, so the history window covers a cycle in days.
+    """
+    limit = rolling_score_limit(eligible)
+    if limit is None:
+        return None
+    cycle_days = rolling_rescore_runs(eligible=eligible, scored=limit) * max(cadence_days, 1)
+    return RollingSelection(
+        pipeline_id=pipeline_id,
+        limit=limit,
+        scored_lookback_days=max(ROLLING_SCORE_MIN_LOOKBACK_DAYS, 2 * cycle_days),
+    )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -920,6 +970,7 @@ def build_inference_anchors_sql(
     target_event: str = "",
     target_definition: dict[str, Any] | None = None,
     team: "Team | None" = None,
+    rolling: RollingSelection | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build a HogQL query producing (person_id, cutoff_ts) rows for scoring.
@@ -935,6 +986,12 @@ def build_inference_anchors_sql(
     Substituted as the {anchors} table when running the agent's feature_sql
     at inference time. Same SQL the trainer executed against per-user T0;
     only the anchors table changes.
+
+    ``rolling`` keeps only ``rolling.limit`` eligible persons: first the ones the pipeline never
+    scored, then the oldest last score, then the most recent member event, then a hash of the
+    person. Every key reads events before the cutoff, so a retry of the same prediction date
+    selects the same people. Shadow predictions do not count as scores, so shadow scoring does
+    not change who the champion scores next.
     """
     inference_properties = (inference_population or {}).get("properties", []) if inference_population else []
     compiled_filters = _compile_population_filters(inference_properties)
@@ -955,13 +1012,12 @@ def build_inference_anchors_sql(
     row_clause = f" AND ({' AND '.join(row_parts)})" if row_parts else ""
     member_clause = _member_clause(compiled_filters, compiled_kind)
 
-    members_sql = (
-        "SELECT person_id FROM events"
-        f" WHERE timestamp >= {cutoff_expr} - toIntervalDay({{lookback}})"
+    member_scan = (
+        f"timestamp >= {cutoff_expr} - toIntervalDay({{lookback}})"
         f" AND timestamp < {cutoff_expr}{_own_events_excluded_clause()}{member_clause}{row_clause}"
     )
     sql = _person_rows_sql(
-        members_sql,
+        f"SELECT person_id FROM events WHERE {member_scan}",
         compiled_filters.person_parts + compiled_kind.person_parts,
         select=f"id AS person_id, {cutoff_select} AS cutoff_ts",
     )
@@ -973,6 +1029,37 @@ def build_inference_anchors_sql(
     }
     if cutoff_ts is not None:
         values["cutoff_ts"] = cutoff_ts
+    if rolling is not None:
+        # A live prediction attaches to the real person, so its person_id joins the anchor. A
+        # backfill is person-less, so it does not count as a score that refreshed the person.
+        sql = f"""
+            SELECT a.person_id AS person_id, a.cutoff_ts AS cutoff_ts
+            FROM ({sql}) AS a
+            LEFT JOIN (
+                SELECT person_id, toInt(toUnixTimestamp(max(timestamp))) AS last_scored_ts
+                FROM events
+                WHERE event = '{PREDICTION_EVENT_NAME}'
+                  AND timestamp >= {cutoff_expr} - toIntervalDay({{rolling_scored_lookback}})
+                  AND timestamp < {cutoff_expr}
+                  AND properties.$autoresearch_pipeline_id = {{rolling_pipeline_id}}
+                  AND ifNull(properties.$autoresearch_model_role, '') != '{SHADOW_MODEL_ROLE}'
+                GROUP BY person_id
+            ) AS s ON a.person_id = s.person_id
+            LEFT JOIN (
+                SELECT person_id, toInt(toUnixTimestamp(max(timestamp))) AS last_active_ts
+                FROM events
+                WHERE {member_scan}
+                GROUP BY person_id
+            ) AS m ON a.person_id = m.person_id
+            ORDER BY
+                ifNull(s.last_scored_ts, 0) ASC,
+                ifNull(m.last_active_ts, 0) DESC,
+                cityHash64(toString(a.person_id)) ASC,
+                toString(a.person_id) ASC
+            LIMIT {int(rolling.limit)}
+        """
+        values["rolling_scored_lookback"] = rolling.scored_lookback_days
+        values["rolling_pipeline_id"] = rolling.pipeline_id
     return sql, values
 
 
@@ -1140,6 +1227,7 @@ def build_inference_features_sql(
     target_event: str = "",
     target_definition: dict[str, Any] | None = None,
     team: "Team | None" = None,
+    rolling: RollingSelection | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build the inference-time query: the agent's feature_sql with {anchors}
@@ -1149,6 +1237,7 @@ def build_inference_features_sql(
     columns — no labels, no fold.
 
     Caller substitutes {lookback_days} in feature_sql before calling.
+    ``rolling`` selects a rolling subset of the anchors, as in ``build_inference_anchors_sql``.
     """
     anchors_sql, anchors_values = build_inference_anchors_sql(
         lookback_days=lookback_days,
@@ -1157,6 +1246,7 @@ def build_inference_features_sql(
         target_event=target_event,
         target_definition=target_definition,
         team=team,
+        rolling=rolling,
     )
     # Wrap the inference anchors query as the {anchors} subquery — agent's
     # feature_sql references columns (person_id, cutoff_ts) just like training.

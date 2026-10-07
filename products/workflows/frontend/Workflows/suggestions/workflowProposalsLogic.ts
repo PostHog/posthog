@@ -25,6 +25,9 @@ import { workflowLogic } from '../workflowLogic'
 
 // Applied is terminal and each one costs an outcome request, so only the newest few load.
 const APPLIED_OUTCOME_LIMIT = 3
+// The list endpoint orders rejected suggestions by when they were filed, not when they were rejected,
+// so read well past what a workflow carries and order by rejection time here.
+const REJECTED_LIST_LIMIT = 50
 // Pending and approved both render whole, so ask for more than a workflow can realistically carry
 // rather than the server's page size — a second page nobody fetches reads as suggestions vanishing.
 const QUEUE_LIMIT = 100
@@ -58,6 +61,9 @@ export interface workflowProposalsLogicValues {
     pendingProposals: WorkflowProposalApi[]
     proposalsResponse: PaginatedWorkflowProposalListApi | null
     proposalsResponseLoading: boolean
+    rejectedProposals: WorkflowProposalApi[]
+    rejectedResponse: PaginatedWorkflowProposalListApi | null
+    rejectedResponseLoading: boolean
     resolvingAction: 'approve' | 'reject' | null
     resolvingId: string | null
 }
@@ -141,6 +147,21 @@ export interface workflowProposalsLogicActions {
         proposalsResponse: PaginatedWorkflowProposalListApi
         payload?: any
     }
+    loadRejected: () => any
+    loadRejectedFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRejectedSuccess: (
+        rejectedResponse: PaginatedWorkflowProposalListApi,
+        payload?: any
+    ) => {
+        rejectedResponse: PaginatedWorkflowProposalListApi
+        payload?: any
+    }
     rejectProposal: (proposalId: string) => {
         proposalId: string
     }
@@ -203,6 +224,7 @@ export interface workflowProposalsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         approvedProposals: (approvedResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
         appliedProposals: (appliedResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
+        rejectedProposals: (rejectedResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
         optimizationEnabled: (optimization: HogFlowOptimizationApi | null) => boolean
         pendingProposals: (proposalsResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
         approveDisabledReason: (hasUnsavedChanges: boolean, showDraftActions: boolean) => string | undefined
@@ -272,6 +294,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 loadProposalsFailure: () => true,
                 loadApprovedFailure: () => true,
                 loadAppliedFailure: () => true,
+                loadRejectedFailure: () => true,
                 reloadLists: () => false,
             },
         ],
@@ -359,6 +382,24 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 },
             },
         ],
+        rejectedResponse: [
+            null as PaginatedWorkflowProposalListApi | null,
+            {
+                loadRejected: async () => {
+                    try {
+                        return await hogFlowsProposalsList(String(values.currentTeamIdStrict), props.id, {
+                            status: 'rejected',
+                            limit: REJECTED_LIST_LIMIT,
+                        })
+                    } catch (error) {
+                        if (error instanceof ApiError && error.status === 404) {
+                            return { count: 0, results: [] }
+                        }
+                        throw error
+                    }
+                },
+            },
+        ],
         optimization: [
             null as HogFlowOptimizationApi | null,
             {
@@ -408,6 +449,11 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
             (s) => [s.appliedResponse],
             (response: PaginatedWorkflowProposalListApi | null): WorkflowProposalApi[] => response?.results ?? [],
         ],
+        rejectedProposals: [
+            (s) => [s.rejectedResponse],
+            (response: PaginatedWorkflowProposalListApi | null): WorkflowProposalApi[] =>
+                [...(response?.results ?? [])].sort((a, b) => (b.resolved_at ?? '').localeCompare(a.resolved_at ?? '')),
+        ],
         optimizationEnabled: [
             (s) => [s.optimization],
             (optimization: HogFlowOptimizationApi | null): boolean => !!optimization?.enabled,
@@ -437,6 +483,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
             actions.loadProposals()
             actions.loadApproved()
             actions.loadApplied()
+            actions.loadRejected()
         },
         approveProposal: ({ proposalId }) => {
             if (values.resolvingId !== null || values.approveDisabledReason) {
@@ -529,6 +576,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 lemonToast.success('Suggestion rejected')
                 actions.removeResolvedProposal(proposalId)
                 actions.loadProposals()
+                actions.loadRejected()
             } catch (error) {
                 if (error instanceof ApiError && error.code === 'proposal_already_resolved') {
                     // Already resolved elsewhere, so "try again" would point at a button that cannot work.
@@ -576,6 +624,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
             actions.loadProposals()
             actions.loadApproved()
             actions.loadApplied()
+            actions.loadRejected()
         },
     })),
     afterMount(({ actions, values }) => {
@@ -583,6 +632,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         actions.loadProposals()
         actions.loadApproved()
         actions.loadApplied()
+        actions.loadRejected()
         actions.loadOptimization()
     }),
 ])

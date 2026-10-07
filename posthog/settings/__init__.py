@@ -94,11 +94,6 @@ SLACK_WORKFLOW_TRIGGERS_ENABLED: bool = get_from_env("SLACK_WORKFLOW_TRIGGERS_EN
 # firehose, and this is the only thing admitting it.
 GITHUB_WORKFLOW_TRIGGERS_ENABLED: bool = get_from_env("GITHUB_WORKFLOW_TRIGGERS_ENABLED", False, type_cast=str_to_bool)
 
-# Vapi voice-AI integration (used by user_interviews to host public interview pages).
-VAPI_PUBLIC_KEY: str = os.getenv("VAPI_PUBLIC_KEY", "")
-VAPI_ASSISTANT_ID: str = os.getenv("VAPI_ASSISTANT_ID", "")
-VAPI_WEBHOOK_SECRET: str = os.getenv("VAPI_WEBHOOK_SECRET", "")
-
 if DEBUG:
     JS_URL: str = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")
 else:

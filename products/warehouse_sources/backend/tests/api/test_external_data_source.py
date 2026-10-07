@@ -145,7 +145,14 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
 
     The update path also asks the source whether an edit introduces a new connection host or leaves
     row-backed credentials preserved; a bare MagicMock returns truthy for both, which would wrongly
-    trip the credential-reentry gate. Stub them to their real (falsy) defaults."""
+    trip the credential-reentry gate. Stub them to their real (falsy) defaults.
+
+    Both the create and update paths persist `source.serialize_config(source_config)` rather than
+    `source_config.to_dict()` directly, so a source stays able to retain rollout-compatible fields
+    (see `AppleSearchAdsSource.serialize_config`). A bare MagicMock's `serialize_config` otherwise
+    returns an unconfigured MagicMock, which Django's ORM then tries to treat as a query expression
+    and rejects. Delegate it to the parsed config's own `to_dict()`, matching the base class's
+    default implementation, so a test that only sets up `parse_config` keeps working."""
     mock_get_source.return_value.default_version = "v1"
     mock_get_source.return_value.get_version_deprecation.return_value = None
     mock_get_source.return_value.max_instances_per_team = None
@@ -154,6 +161,7 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
     mock_get_source.return_value.server_managed_job_input_fields.return_value = []
     mock_get_source.return_value.job_inputs_add_connection_host.return_value = False
     mock_get_source.return_value.has_preserved_row_backed_credentials.return_value = False
+    mock_get_source.return_value.serialize_config.side_effect = lambda config: config.to_dict()
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -216,15 +224,29 @@ class TestExternalDataSource(APIBaseTest):
         # The sources list embeds every schema of every source, so it serializes a trimmed per-schema
         # shape (the fields the list UI reads); the single-source view keeps the full schema.
         source = self._make_source("trim")
-        self._make_schema_with_table(source, "Customers", row_count=42)
+        schema = self._make_schema_with_table(source, "Customers", row_count=42)
+        schema.sync_frequency_interval = timedelta(hours=6)
+        schema.save(update_fields=["sync_frequency_interval"])
 
         list_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         self.assertEqual(list_response.status_code, 200)
         listed_schema = list_response.json()["results"][0]["schemas"][0]
         self.assertEqual(
             set(listed_schema.keys()),
-            {"id", "name", "label", "should_sync", "status", "sync_type", "last_synced_at", "latest_error", "table"},
+            {
+                "id",
+                "name",
+                "label",
+                "should_sync",
+                "status",
+                "sync_type",
+                "last_synced_at",
+                "sync_frequency",
+                "latest_error",
+                "table",
+            },
         )
+        self.assertEqual(listed_schema["sync_frequency"], "6hour")
         self.assertEqual(listed_schema["table"]["row_count"], 42)
         self.assertEqual(listed_schema["table"]["name"], "Customers")
         # sync_type is kept for the PostHog Desktop app, which reads it from the list; without it the
@@ -237,6 +259,13 @@ class TestExternalDataSource(APIBaseTest):
         # fields the settings page needs that the list intentionally drops
         self.assertIn("sync_type", detail_schema)
         self.assertIn("available_columns", detail_schema)
+
+        ExternalDataSchema.objects.filter(team_id=self.team.pk, pk=schema.pk).update(
+            sync_frequency_interval=timedelta(hours=7)
+        )
+        list_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertIsNone(list_response.json()["results"][0]["schemas"][0]["sync_frequency"])
 
     def test_list_source_status_and_latest_error_reflect_syncing_schemas(self):
         # `active_schemas` is derived in Python from the single schemas prefetch; the derived subset
@@ -439,7 +468,7 @@ class TestExternalDataSource(APIBaseTest):
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_a_source_created_without_destinations_is_unchanged(self, _mock_validate):
+    def test_a_source_created_without_destinations_is_linked_to_the_warehouse(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -453,11 +482,9 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert (
-            not ExternalDataSourceDestination.objects.for_team(self.team.pk)
-            .filter(source_id=response.json()["id"])
-            .exists()
-        )
+        link = ExternalDataSourceDestination.objects.for_team(self.team.pk).get(source_id=response.json()["id"])
+        assert link.enabled is True
+        assert link.destination.type == ExternalDataDestination.Type.POSTHOG_WAREHOUSE
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -1205,7 +1232,6 @@ class TestExternalDataSource(APIBaseTest):
                 "cdc_lag_warning_threshold_mb": 512,
                 "cdc_lag_critical_threshold_mb": 1024,
                 "cdc_consistent_point": "0/AA",
-                "cdc_ingest_mode": "buffered",
             },
         )
 
@@ -1226,7 +1252,6 @@ class TestExternalDataSource(APIBaseTest):
                     "cdc_lag_warning_threshold_mb": 1,
                     "cdc_lag_critical_threshold_mb": 2,
                     "cdc_consistent_point": "0/BAD",
-                    "cdc_ingest_mode": "legacy",
                 }
             },
             format="json",
@@ -1243,7 +1268,6 @@ class TestExternalDataSource(APIBaseTest):
         assert str(source.job_inputs["cdc_lag_warning_threshold_mb"]) == "512"
         assert str(source.job_inputs["cdc_lag_critical_threshold_mb"]) == "1024"
         assert source.job_inputs["cdc_consistent_point"] == "0/AA"
-        assert source.job_inputs["cdc_ingest_mode"] == "buffered"
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -6965,6 +6989,54 @@ class TestExternalDataSource(APIBaseTest):
         assert source.auto_sync_new_schemas is True
 
     @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.source.AppleSearchAdsSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_apple_ads_key_pair_unrelated_field_does_not_reprobe(self, mock_validate_credentials):
+        # Apple Ads' serialize_config adds the four key-pair fields back onto the flat dict for a
+        # key_pair source, which parse_config().to_dict() alone does not. Comparing those two shapes
+        # always disagreed, so every save re-probed Apple's API — even one that only flips an
+        # unrelated setting. Compare like for like instead: serialize_config on both sides.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="AppleSearchAds",
+            created_by=self.user,
+            prefix="test_apple_ads_no_reprobe",
+            job_inputs={
+                "source_type": "AppleSearchAds",
+                "org_id": "4242",
+                "ad_account_id": "acct-1",
+                "client_id": "cid",
+                "apple_team_id": "tid",
+                "key_id": "kid",
+                "private_key": "pem",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "org_id": "4242",
+                    "ad_account_id": "acct-1",
+                    "client_id": "cid",
+                    "apple_team_id": "tid",
+                    "key_id": "kid",
+                    "private_key": "pem",
+                },
+                "auto_sync_new_schemas": True,
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.auto_sync_new_schemas is True
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
         return_value=(True, None),
     )
@@ -12022,7 +12094,6 @@ class TestRepairCDC(APIBaseTest):
             sync_type_config={
                 "cdc_mode": "streaming",
                 "cdc_last_log_position": "0/123",
-                "cdc_deferred_runs": [{"run": "stale"}],
                 "cdc_broken": BROKEN_MARKER,
             },
         )
@@ -12069,7 +12140,6 @@ class TestRepairCDC(APIBaseTest):
             assert config["reset_pipeline"] is True
             assert "cdc_broken" not in config
             assert "cdc_last_log_position" not in config
-            assert "cdc_deferred_runs" not in config
             assert schema.initial_sync_complete is False
             assert schema.latest_error is None
 
@@ -12307,7 +12377,6 @@ class TestRepairCDC(APIBaseTest):
         # `awaiting_slot`: the slot this table would snapshot against is gone until repair
         # recreates it, so a capture run firing meanwhile must hold the reset instead of starting.
         assert cdc_schema.sync_type_config["cdc_reset_pending"] == {
-            "clear_deferred_runs": True,
             "trigger": True,
             "awaiting_slot": True,
             "generation": 1,
@@ -12872,7 +12941,10 @@ class TestExternalDataSourceSetup(APIBaseTest):
                 },
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["message"] == "Your Stripe API key has expired. Please create a new key and reconnect."
+        assert (
+            response.json()["message"]
+            == "Your Stripe credentials have expired. If you connected with OAuth, reconnect your Stripe account. If you use an API key, create a new key and update the source."
+        )
         mock_capture_exception.assert_not_called()
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
 

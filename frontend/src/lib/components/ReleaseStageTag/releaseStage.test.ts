@@ -20,7 +20,6 @@ describe('releaseStage', () => {
         ['Inbox', 'Self-driving inbox', 'beta'],
         ['CustomerAnalytics', 'Customer analytics', 'beta'],
         ['CustomerAnalyticsAccount', 'Acme Inc', null],
-        ['LiveDebugger', 'Live debugger', 'internal'],
         ['Dashboard', 'Dashboard', null],
         ['AIObservability', 'AI observability', null],
         ['AIObservabilityTags', 'Taggers', 'alpha'],

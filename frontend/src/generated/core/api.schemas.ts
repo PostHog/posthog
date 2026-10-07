@@ -4000,6 +4000,7 @@ export interface ExportedAssetApi {
      * * `application/x-ndjson` - application/x-ndjson */
     readonly export_format: ExportedAssetExportFormatEnumApi
     readonly created_at: string
+    /** Whether the export finished and its content is ready to download. Create can return before the export finishes; poll the asset until has_content is true or exception is set. */
     readonly has_content: boolean
     export_context?: unknown
     readonly filename: string
@@ -4069,6 +4070,7 @@ export interface ExportedAssetCreateApi {
      * * `application/json` - application/json */
     export_format: ExportedAssetCreateExportFormatEnumApi
     readonly created_at: string
+    /** Whether the export finished and its content is ready to download. Create can return before the export finishes; poll the asset until has_content is true or exception is set. */
     readonly has_content: boolean
     export_context?: unknown
     readonly filename: string
@@ -4620,7 +4622,7 @@ export interface UploadedMediaUploadStartedApi {
 
 export interface LeakedKeyReportApi {
     /**
-     * The leaked PostHog personal API key, project secret API key, or OAuth access/refresh token to revoke.
+     * The leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access/refresh token to revoke.
      * @maxLength 200
      */
     token: string
@@ -4629,6 +4631,7 @@ export interface LeakedKeyReportApi {
 /**
  * * `personal_api_key` - personal_api_key
  * * `project_secret_api_key` - project_secret_api_key
+ * * `team_secret_token` - team_secret_token
  * * `oauth_access_token` - oauth_access_token
  * * `oauth_refresh_token` - oauth_refresh_token
  */
@@ -4638,17 +4641,19 @@ export type LeakedKeyReportResponseTypeEnumApi =
 export const LeakedKeyReportResponseTypeEnumApi = {
     PersonalApiKey: 'personal_api_key',
     ProjectSecretApiKey: 'project_secret_api_key',
+    TeamSecretToken: 'team_secret_token',
     OauthAccessToken: 'oauth_access_token',
     OauthRefreshToken: 'oauth_refresh_token',
 } as const
 
 export interface LeakedKeyReportResponseApi {
-    /** Whether a matching PostHog key or token was found and revoked. */
+    /** Whether a matching PostHog key or token was found. It was revoked, or, for team_secret_token, its project admins were told to rotate it. */
     found: boolean
-    /** The type of key that was found and revoked, or null if no match was found.
+    /** The type of key that was found and revoked, or null if no match was found. team_secret_token means the string is a legacy feature flags secure API key: its migrated project secret API key row was removed, but the legacy key itself cannot be auto-rotated, so project admins are emailed to rotate it.
      *
      * * `personal_api_key` - personal_api_key
      * * `project_secret_api_key` - project_secret_api_key
+     * * `team_secret_token` - team_secret_token
      * * `oauth_access_token` - oauth_access_token
      * * `oauth_refresh_token` - oauth_refresh_token */
     type: LeakedKeyReportResponseTypeEnumApi | null
@@ -4719,6 +4724,29 @@ export const OrganizationPluginsAccessLevelEnumApi = {
     Number9: 9,
 } as const
 
+export interface OrganizationMemberNoticeActionApi {
+    /**
+     * Text on the button shown next to the notice.
+     * @maxLength 40
+     */
+    label: string
+    /**
+     * Link the button opens in a new tab. Must use http or https.
+     * @maxLength 2000
+     */
+    url: string
+}
+
+export interface OrganizationMemberNoticeApi {
+    /**
+     * HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.
+     * @maxLength 1000
+     */
+    message: string
+    /** Optional link button shown on the right of the banner. */
+    action?: OrganizationMemberNoticeActionApi | null
+}
+
 export type OrganizationApiTeamsItem = { [key: string]: unknown }
 
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
@@ -4769,6 +4797,8 @@ export interface OrganizationApi {
      * @nullable
      */
     read_only_mcp_access?: boolean | null
+    /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
+    member_notice?: OrganizationMemberNoticeApi | null
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
@@ -4995,7 +5025,7 @@ export interface UserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
     ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at: string | null
@@ -5111,7 +5141,7 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
     ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at?: string | null

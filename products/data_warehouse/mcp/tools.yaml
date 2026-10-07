@@ -453,7 +453,7 @@ tools:
         operation: warehouse_column_annotations_create
         enabled: true
         scopes:
-            - external_data_source:write
+            - warehouse_table:write
         annotations:
             readOnly: false
             destructive: false
@@ -473,7 +473,7 @@ tools:
         operation: warehouse_column_annotations_list
         enabled: true
         scopes:
-            - external_data_source:read
+            - warehouse_table:read
         annotations:
             readOnly: true
             destructive: false
@@ -489,7 +489,7 @@ tools:
         operation: warehouse_column_annotations_partial_update
         enabled: true
         scopes:
-            - external_data_source:write
+            - warehouse_table:write
         annotations:
             readOnly: false
             destructive: false

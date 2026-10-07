@@ -112,6 +112,7 @@ from products.error_tracking.backend.facade.temporal import (
 from products.experiments.backend.temporal.schedule import (
     create_experiment_precompute_canary_schedule,
     create_experiment_precompute_enrollment_census_schedule,
+    create_experiment_scheduled_recalculation_schedules,
 )
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from products.growth.backend.temporal.signup_enrichment.schedule import (
@@ -126,6 +127,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
 from products.replay_vision.backend.temporal.jev_watch_rank import create_replay_vision_jev_watch_rank_schedule
+from products.replay_vision.backend.temporal.learned_rules import create_replay_vision_learned_rules_schedule
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.replay_vision.backend.temporal.search_suggestions import create_replay_vision_search_suggestions_schedule
@@ -951,6 +953,7 @@ schedules = [
     create_experiment_saved_metrics_schedules,
     create_experiment_precompute_canary_schedule,
     create_experiment_precompute_enrollment_census_schedule,
+    create_experiment_scheduled_recalculation_schedules,
     cleanup_cohort_calculation_schedules,
     cleanup_non_cloud_ai_observability_schedules,
     create_ingestion_acceptance_test_schedule,
@@ -984,6 +987,7 @@ schedules = [
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
     create_replay_vision_search_suggestions_schedule,
+    create_replay_vision_learned_rules_schedule,
     create_vision_alert_check_schedule,
     create_replay_vision_read_meter_schedule,
     create_replay_vision_jev_watch_rank_schedule,

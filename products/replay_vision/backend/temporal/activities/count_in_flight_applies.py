@@ -9,9 +9,10 @@ from posthog.temporal.common.client import async_connect
 
 from products.replay_vision.backend.enqueue_claims import pending_enqueue_claims
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.temporal.constants import in_flight_headroom
+from products.replay_vision.backend.temporal.constants import COUNT_IN_FLIGHT_APPLIES_TIMEOUT, in_flight_headroom
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
+from products.replay_vision.backend.temporal.query_budget import bounded_queries
 from products.replay_vision.backend.temporal.sweep_types import CountInFlightAppliesInputs, InFlightApplyCounts
 
 logger = structlog.get_logger(__name__)
@@ -69,7 +70,9 @@ def count_in_flight(
 @activity.defn
 @track_activity()
 def count_in_flight_by_team_activity(inputs: CountInFlightAppliesInputs) -> InFlightApplyCounts:
-    counts = count_in_flight(inputs.team_id, inputs.scanner_id)
+    with bounded_queries(COUNT_IN_FLIGHT_APPLIES_TIMEOUT):
+        rows = count_in_flight_rows(inputs.team_id, inputs.scanner_id)
+    counts = count_in_flight(inputs.team_id, inputs.scanner_id, rows=rows)
     team = counts["team"]
     scanner = counts["scanner"]
     # The workflow makes the same call on these counts; recorded here because metrics

@@ -131,7 +131,7 @@ from products.customer_analytics.backend.facade.contracts import PinnedAccountPr
 from products.customer_analytics.backend.facade.enums import ACCOUNT_PROPERTY_PIN_KIND_CHOICES
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_usage_tab_flag_evaluations_mode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.logs.backend.models import TeamLogsConfig
@@ -1524,7 +1524,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Team) -> int:
-        return get_usage_tab_flag_evaluations_mode(obj.organization_id)
+        return get_flag_evaluations_read_mode(obj.organization_id)
 
     @extend_schema_field(
         serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))
@@ -1923,31 +1923,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def validate_conversations_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
-        if not isinstance(value, dict):
-            raise serializers.ValidationError("Conversation settings must be an object or null.")
+        strip_managed_conversations_settings(value)
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
             validate_authorized_url_wildcards(value["widget_domains"])
-        # Strip widget_public_token from user input - it's auto-generated only
-        if "widget_public_token" in value:
-            value.pop("widget_public_token")
-        # Integration state is managed only by dedicated endpoints, not user input
-        for managed_key in (
-            "slack_bot_token",
-            "slack_team_id",
-            "slack_enabled",
-            "slack_scopes",
-            "email_enabled",
-            "teams_enabled",
-            "teams_tenant_id",
-            "teams_team_id",
-            "teams_team_name",
-            "teams_channel_id",
-            "teams_channel_name",
-            "teams_channels",
-        ):
-            value.pop(managed_key, None)
         # Normalize multi-channel list: must be a list of non-empty strings, deduped, capped at 50
         if "slack_channel_ids" in value:
             raw = value.get("slack_channel_ids")
@@ -2256,6 +2236,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def update(self, instance: Team, validated_data: dict[str, Any]) -> Team:
         before_update = instance.__dict__.copy()
+        # The settings patch persisted under lock below must not be written again from the
+        # stale request snapshot; the token handler can add the key later, so capture the
+        # client's intent now.
+        patch_conversations_settings = "conversations_settings" in validated_data
+        # Captured before the locked block pops the keys, so the refresh/re-cache step
+        # below still knows this request touched the team row.
+        conversations_lock_applied = patch_conversations_settings or "conversations_enabled" in validated_data
 
         # Should be validated already, but let's be extra sure
         if config_data := validated_data.pop("revenue_analytics_config", None):
@@ -2337,16 +2324,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **validated_data["session_replay_config"],
             }
 
-        # Merge conversations_settings with existing values, unless explicitly clearing with null
-        if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
-            existing_settings = conversations_settings_as_dict(instance.conversations_settings)
-            new_settings = validated_data["conversations_settings"]
-            validated_data["conversations_settings"] = {**existing_settings, **new_settings}
-
-        validated_data = handle_conversations_token_on_update(
-            validated_data, instance.conversations_enabled, instance.conversations_settings
-        )
-
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data and validated_data["modifiers"] is not None:
             validated_data["modifiers"] = {
@@ -2359,15 +2336,25 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
         # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
         # bouncing freshly onboarded users back into onboarding.
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        if validated_data:
+        other_team_fields = [attr for attr in validated_data if attr not in LOCKED_CONVERSATIONS_COLUMNS]
+        for attr in other_team_fields:
+            setattr(instance, attr, validated_data[attr])
+
+        # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
+        if conversations_lock_applied:
+            locked_conversations = merge_conversations_settings_locked(
+                instance, validated_data, patch_conversations_settings, other_team_fields
+            )
+            # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
+            before_update["conversations_settings"] = locked_conversations["conversations_settings"]
+            before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
+        elif other_team_fields:
             # auto_now fields only refresh when included in update_fields
-            instance.save(update_fields=[*validated_data.keys(), "updated_at"])
+            instance.save(update_fields=[*other_team_fields, "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         after_update = instance.__dict__.copy()
-        if validated_data:
+        if other_team_fields or conversations_lock_applied:
             # The in-memory instance may hold stale values for fields a concurrent request
             # changed, and the post-save receiver has already cached that snapshot. Reload
             # and re-cache so the team cache reflects the merged row.
@@ -2394,6 +2381,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         report_conversations_settings_changes(
             cast(User, self.context["request"].user),
             before_update.get("conversations_settings"),
+            after_update.get("conversations_settings"),
             updated_team,
         )
 
@@ -3184,13 +3172,17 @@ def conversations_settings_as_dict(value: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def report_conversations_settings_changes(user: User, before_settings: dict | None, team: Team) -> None:
+def report_conversations_settings_changes(
+    user: User, before_settings: dict | None, after_settings: dict | None, team: Team
+) -> None:
     """Fire one "support setting changed" event per changed conversations_settings key.
 
     Shared by the team and project serializers — both endpoints can PATCH the settings.
+    Pass the settings this request wrote, not the refreshed row: a write that commits
+    after this request's write would otherwise be reported as this user's change.
     """
     old_settings = conversations_settings_as_dict(before_settings)
-    new_settings = conversations_settings_as_dict(team.conversations_settings)
+    new_settings = conversations_settings_as_dict(after_settings)
     changed_keys = sorted(
         k for k in old_settings.keys() | new_settings.keys() if old_settings.get(k) != new_settings.get(k)
     )
@@ -3202,6 +3194,97 @@ def report_conversations_settings_changes(user: User, before_settings: dict | No
         if isinstance(new_value, (bool, int, float, type(None))):
             properties["value"] = new_value
         report_user_action(user, "support setting changed", properties, team=team)
+
+
+MANAGED_CONVERSATIONS_SETTINGS = (
+    # Strip widget_public_token from user input - it's auto-generated only
+    "widget_public_token",
+    # Integration state is managed only by dedicated endpoints, not user input
+    "slack_bot_token",
+    "slack_team_id",
+    "slack_enabled",
+    "slack_scopes",
+    "email_enabled",
+    "teams_enabled",
+    "teams_tenant_id",
+    "teams_team_id",
+    "teams_team_name",
+    "teams_channel_id",
+    "teams_channel_name",
+    "teams_channels",
+    "github_enabled",
+    "github_integration_id",
+    "github_repos",
+)
+
+LOCKED_CONVERSATIONS_COLUMNS = ("conversations_settings", "conversations_enabled")
+
+
+def merge_conversations_settings_locked(
+    team: Team,
+    validated_data: dict[str, Any],
+    patch_conversations_settings: bool,
+    other_update_fields: list[str],
+) -> dict[str, Any]:
+    """Merge the conversations columns this request writes under one lock on the team row.
+
+    Shared by the team and project serializers — both endpoints can PATCH the settings.
+    The merge reads and the save must share one locked view of the team row: a dedicated
+    integration update (Slack/Teams OAuth, support token rotation) commits whole-blob
+    conversations_settings writes too, and a merge built on the pre-request snapshot would
+    silently restore the state that update had just replaced. Keyed on the columns this
+    request writes, not on which key the client sent: the token handler can inject
+    conversations_settings into a payload that only sent conversations_enabled.
+    The same save writes other_update_fields, which the caller already set on the team, so a
+    PATCH that mixes conversation and other fields saves the row once and commits all or nothing.
+    Returns the locked row's pre-merge conversations_settings and conversations_enabled,
+    so the caller can correct its before-snapshot: that snapshot was taken before this
+    lock re-read the row, and a concurrent integration write in between would otherwise
+    get attributed to this request in the activity log and the settings-changed event.
+    """
+    with transaction.atomic():
+        locked_team = (
+            Team.objects.select_for_update(no_key=True)
+            .only("conversations_settings", "conversations_enabled")
+            .get(pk=team.pk)
+        )
+        if patch_conversations_settings:
+            validated_data["conversations_settings"] = merge_conversations_settings(
+                validated_data["conversations_settings"], locked_team.conversations_settings
+            )
+
+        validated_data = handle_conversations_token_on_update(
+            validated_data, locked_team.conversations_enabled, locked_team.conversations_settings
+        )
+        team.conversations_settings = validated_data.get("conversations_settings", locked_team.conversations_settings)
+        # Sync the flag even when this request does not write it. Otherwise the caller's
+        # after-snapshot keeps a stale value and a concurrent toggle is logged as this user's.
+        team.conversations_enabled = validated_data.get("conversations_enabled", locked_team.conversations_enabled)
+        update_fields = ["conversations_settings", *other_update_fields, "updated_at"]
+        if "conversations_enabled" in validated_data:
+            update_fields.append("conversations_enabled")
+        team.save(update_fields=update_fields)
+        for column in LOCKED_CONVERSATIONS_COLUMNS:
+            validated_data.pop(column, None)
+
+    return {
+        "conversations_settings": locked_team.conversations_settings,
+        "conversations_enabled": locked_team.conversations_enabled,
+    }
+
+
+def strip_managed_conversations_settings(value: dict[str, Any]) -> None:
+    if not isinstance(value, dict):
+        raise serializers.ValidationError("Conversation settings must be an object or null.")
+    for managed_key in MANAGED_CONVERSATIONS_SETTINGS:
+        value.pop(managed_key, None)
+
+
+def merge_conversations_settings(value: dict[str, Any] | None, existing: object) -> dict[str, Any] | None:
+    existing = conversations_settings_as_dict(existing)
+    if value is None:
+        return {key: existing[key] for key in MANAGED_CONVERSATIONS_SETTINGS if key in existing} or None
+    return {**existing, **value}
 
 
 def handle_conversations_token_on_update(
@@ -3222,11 +3305,11 @@ def handle_conversations_token_on_update(
         # Check if token already exists in current DB state (not user input, which is stripped)
         has_token = stored_settings.get("widget_public_token")
         if not has_token:
-            conv_settings = dict(validated_data.get("conversations_settings") or stored_settings)
+            conv_settings = dict(validated_data.get("conversations_settings", stored_settings) or {})
             conv_settings["widget_public_token"] = secrets.token_urlsafe(32)
             validated_data["conversations_settings"] = conv_settings
     elif is_disabling:
-        conv_settings = dict(validated_data.get("conversations_settings") or stored_settings)
+        conv_settings = dict(validated_data.get("conversations_settings", stored_settings) or {})
         conv_settings["widget_public_token"] = None
         validated_data["conversations_settings"] = conv_settings
 

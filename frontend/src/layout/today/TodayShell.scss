@@ -63,9 +63,114 @@
     }
 }
 
+.TodayAppLayout--phone {
+    --today-phone-header-height: 52px;
+    --today-tab-bar-height: calc(76px + env(safe-area-inset-bottom));
+
+    padding-top: var(--today-phone-header-height);
+    padding-bottom: var(--today-tab-bar-height);
+
+    &.TodayAppLayout--no-phone-header {
+        --today-phone-header-height: 0px;
+    }
+}
+
+.TodayPhoneHeader {
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: var(--z-layout-navbar);
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    height: var(--today-phone-header-height);
+    padding: 0 12px 0 8px;
+    color: var(--today-ink);
+    background: var(--today-paper);
+    border-bottom: 1px solid transparent;
+    transition: border-color 200ms var(--today-ease);
+
+    &[data-scrolled='true'] {
+        border-bottom-color: var(--today-line);
+    }
+}
+
+.TodayShell--phone {
+    display: contents;
+}
+
+@media (pointer: coarse) {
+    .TodayAppLayout--phone:has(:is(input, textarea, [contenteditable='true']):focus) {
+        --today-tab-bar-height: 0px;
+
+        .TodayTabBar {
+            display: none;
+        }
+    }
+}
+
+body.has-today-phone-layout :is(input, textarea, select) {
+    font-size: 1rem;
+}
+
+body.has-today-phone-layout .Toastify__toast-container--bottom-right {
+    bottom: calc(84px + env(safe-area-inset-bottom));
+}
+
+.TodayShell__page {
+    position: fixed;
+    inset: 0 0 var(--today-tab-bar-height);
+    z-index: var(--z-layout-navbar);
+    height: auto;
+    visibility: hidden;
+    background: var(--today-paper);
+    opacity: 0;
+    transition:
+        transform 240ms var(--today-ease),
+        opacity 180ms var(--today-ease),
+        visibility 240ms;
+    transform: translateY(8px);
+
+    &[data-open='true'] {
+        visibility: visible;
+        opacity: 1;
+        transform: none;
+    }
+
+    .quill-button--size-row {
+        -webkit-touch-callout: none;
+        height: 2.75rem;
+    }
+
+    .quill-input-group {
+        height: 2.5rem;
+    }
+}
+
+.TodayTabBar {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: var(--z-layout-navbar);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    height: var(--today-tab-bar-height);
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    user-select: none;
+    background: var(--today-paper);
+    border-top: 1px solid var(--border);
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .TodayShell__scrim,
-    .TodayShell__drawer {
+    .TodayShell__drawer,
+    .TodayShell__page,
+    .TodayPhoneHeader {
         transition: none;
     }
 }
@@ -82,7 +187,7 @@
     flex: 1 1 auto;
     flex-direction: column;
     min-height: 0;
-    padding: 12px 12px 0;
+    padding: 8px 8px 0;
 }
 
 .TodayPane__filters {

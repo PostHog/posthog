@@ -62,7 +62,8 @@ The list is paginated and does not put quarantined rows first, so follow `next` 
 - A quarantined story that your change renders differently needs its new picture approved by identifier, then finalized.
   "Approve all" and `approve_all` skip quarantined snapshots.
   Without the approval, the default branch keeps the old entry, and every run fails on the day the quarantine is lifted or expires.
-- A quarantined story that your change does not touch can still show `changed`, because it is flaky. Leave it.
+- A quarantined story that your change does not touch can still show `changed`, because it is flaky. Leave it, and do not approve it.
+  Approving re-baselines the story to whatever this run rendered, which can be the flaky picture or one from before a fix, and a pending lift request for that story then fails on the baseline check.
 - A fix for the flake changes nothing VR can see in one run, so the story renders `unchanged` and the list above leaves it out.
   Record the fix with `posthog:visual-review-runs-lift-on-merge-create { id: <run_id>, identifier: <identifier> }` for each identifier the fix should release, and name the identifiers in the PR description.
   The quarantine lifts only after the PR merges and a default-branch run that contains the merge renders the same picture against a matching entry.

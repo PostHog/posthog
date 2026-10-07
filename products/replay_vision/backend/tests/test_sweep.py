@@ -51,9 +51,6 @@ from products.replay_vision.backend.temporal.activities.count_in_flight_applies 
     count_in_flight_by_team_activity,
 )
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
-from products.replay_vision.backend.temporal.activities.refresh_prompt_suggestion import (
-    refresh_prompt_suggestion_activity,
-)
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SPEND_WINDOW_DAYS,
     DEEP_SWEEP_INTERVAL,
@@ -216,13 +213,19 @@ class TestFindScannerCandidatesActivity:
             experiment.deleted = True
         experiment.save()
 
-        with _patched_queries() as (fast_query, deep_query):
+        with (
+            _patched_queries() as (fast_query, deep_query),
+            patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts,
+        ):
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
         assert result.candidates == []
         assert not fast_query.called and not deep_query.called
+        # Once the data stops changing, the variant analysis scout would only re-read it on the
+        # customer's bill. A pause resumes, so its scout sits the pause out.
+        assert pause_scouts.called is (state != "paused")
         scanner.refresh_from_db()
         assert scanner.enabled is (state != "deleted")
         if state != "deleted":
@@ -230,6 +233,35 @@ class TestFindScannerCandidatesActivity:
             assert result.swept_through is not None and result.deep_swept_through is not None
             assert abs(result.swept_through - settled_now) < dt.timedelta(minutes=1)
             assert result.deep_swept_through == result.swept_through
+
+    def test_a_deleted_experiment_keeps_its_scanner_on_until_the_scout_is_paused(self) -> None:
+        # A disabled scanner has no schedule left to retry the pause, and the scout would keep
+        # running on the customer's bill. So the scanner stays on until a later tick pauses it.
+        scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT)
+        experiment = create_experiment(scanner.team, "deleted-flag", launched=True, variants=["control", "test"])
+        scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
+        scanner.save()
+        experiment.deleted = True
+        experiment.save()
+        inputs = FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+
+        with (
+            _patched_queries() as (fast_query, deep_query),
+            patch(f"{_ACTIVITY}.pause_variant_analysis_scouts", side_effect=RuntimeError("signals down")),
+        ):
+            result = find_scanner_candidates_activity(inputs)
+
+        assert result.candidates == []
+        assert not fast_query.called and not deep_query.called
+        scanner.refresh_from_db()
+        assert scanner.enabled is True
+
+        with _patched_queries(), patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts:
+            find_scanner_candidates_activity(inputs)
+
+        assert pause_scouts.called
+        scanner.refresh_from_db()
+        assert scanner.enabled is False
 
     @parameterized.expand([("fast_walk_behind_the_end", False), ("only_the_deep_pass_behind", True)])
     def test_an_ended_experiment_is_swept_up_to_its_end_before_it_stops(self, _name: str, fast_at_end: bool) -> None:
@@ -899,7 +931,9 @@ class TestFindScannerCandidatesActivity:
 
     def test_raises_non_retryable_on_malformed_query(self) -> None:
         scanner = _make_scanner()
-        scanner.query = {"kind": "TrendsQuery"}
+        # A payload RecordingsQuery validation rejects; a real (non-recordings) query kind would
+        # read as this test driving that product's query runner.
+        scanner.query = {"kind": "RecordingsQuery", "date_from": 123}
         scanner.save(update_fields=["query"])
 
         with pytest.raises(ApplicationError) as exc_info:
@@ -1493,7 +1527,6 @@ async def test_empty_batch_skips_dispatch_and_advance() -> None:
     await _run_sweep(mocks)
 
     assert [fn for fn, _ in mocks.activity_calls] == [
-        refresh_prompt_suggestion_activity,
         check_scanner_budget_activity,
         count_in_flight_by_team_activity,
         find_scanner_candidates_activity,
@@ -1707,7 +1740,6 @@ async def test_inflight_cap_gates_the_sweep(
     if expected_candidate_limit is None:
         # Throttled: no find, no apply dispatch.
         assert [fn for fn, _ in mocks.activity_calls] == [
-            refresh_prompt_suggestion_activity,
             check_scanner_budget_activity,
             count_in_flight_by_team_activity,
         ]
@@ -1728,8 +1760,6 @@ async def test_capped_scanner_skips_the_sweep_entirely() -> None:
     await _run_sweep(mocks)
 
     called = [fn for fn, _ in mocks.activity_calls]
-    # Capped means no session scans; the heartbeats spend no scanner credits, so they still run.
-    assert refresh_prompt_suggestion_activity in called
     assert find_scanner_candidates_activity not in called
     assert count_in_flight_by_team_activity not in called
     assert mocks.child_calls == []
