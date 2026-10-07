@@ -281,6 +281,7 @@ def _read(
         if index == stop_after and not write_last:
             break
         written.extend(table.to_pylist())
+        manager.confirm()
         manager.commit()
         if index == stop_after:
             break
@@ -337,6 +338,7 @@ class TestKeysetFullRefresh:
         store: dict[str, str] = {}
         manager = _MemoryResumeManager(store)
         manager.save_state(MSSQLResumeState(key_columns=["legacy_id"], last_key=[10**12]))
+        manager.confirm()
         manager.commit()
 
         source, manager = _build(store)
