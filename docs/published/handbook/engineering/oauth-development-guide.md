@@ -237,6 +237,10 @@ See [Client Types](#client-types) section for detailed explanation.
    }
    ```
 
+## Domain Connect access
+
+The default-off `workflows-email-domain-agent-setup` flag enables OAuth tokens and Personal API Keys with `integration:write` to request an email Domain Connect apply URL. Scoped credentials cannot request reverse proxy apply URLs. Existing session calls for email and reverse proxy setup do not require this flag.
+
 ## Available Scopes
 
 OAuth supports all the same scopes as Personal API Keys. Each scope has a `read` and/or `write` action (e.g., `experiment:read`, `experiment:write`).

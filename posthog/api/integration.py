@@ -2738,11 +2738,10 @@ class IntegrationViewSet(
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=False, url_path="domain-connect/apply-url")
     def domain_connect_apply_url(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        if not email_domain_agent_setup_enabled(self.team, cast(User, request.user)):
-            raise NotFound()
-
         data = request.validated_data
         context = data["context"]
+        if context != "email" and get_authenticator_scopes(request.successful_authenticator) is not None:
+            raise PermissionDenied("Scoped credentials only support email Domain Connect.")
         redirect_uri = self._redirect_back_to_posthog(data.get("redirect_uri"))
         provider_endpoint = data.get("provider_endpoint")
 

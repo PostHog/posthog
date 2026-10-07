@@ -72,6 +72,7 @@ from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.proxy_record import ProxyRecord
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import (
@@ -1605,6 +1606,60 @@ class TestIntegrationAPIKeyAccess:
             sensitive_config={"auth_token": "twilio-token"},
         )
 
+    @pytest.mark.parametrize("authentication", ["pak", "oauth", "session"])
+    @pytest.mark.parametrize("flag_enabled", [False, True])
+    @patch("posthog.api.integration.generate_apply_url", return_value="https://dns.example.com/apply")
+    def test_proxy_domain_connect_requires_session_access(
+        self, generate_url: MagicMock, client: HttpClient, authentication: str, flag_enabled: bool
+    ) -> None:
+        OrganizationMembership.objects.filter(user=self.user).update(level=OrganizationMembership.Level.ADMIN)
+        proxy = ProxyRecord.objects.create(
+            organization=self.organization, domain="events.example.com", target_cname="proxy.example.com"
+        )
+        token = "pha_synthetic_domain_connect_token" if authentication == "oauth" else "synthetic_domain_connect_key"
+        authorization = ""
+        if authentication == "session":
+            client.force_login(self.user)
+        elif authentication == "pak":
+            PersonalAPIKey.objects.create(
+                user=self.user,
+                label="Domain Connect test",
+                secure_value=hash_key_value(token),
+                scopes=["integration:write"],
+                scoped_teams=[self.team.pk],
+            )
+            authorization = f"Bearer {token}"
+        else:
+            application = OAuthApplication.objects.create(
+                user=self.user,
+                name="Domain Connect test client",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                algorithm="RS256",
+                redirect_uris="https://example.com/callback",
+            )
+            OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token=token,
+                expires=timezone.now() + timedelta(hours=1),
+                scope="integration:write",
+                scoped_teams=[self.team.pk],
+            )
+            authorization = f"Bearer {token}"
+        with patch_email_domain_agent_setup_flag(flag_enabled):
+            response = client.post(
+                f"/api/projects/{self.team.pk}/integrations/domain-connect/apply-url/",
+                {"context": "proxy", "proxy_record_id": str(proxy.pk)},
+                content_type="application/json",
+                HTTP_AUTHORIZATION=authorization,
+            )
+        assert response.status_code == (200 if authentication == "session" else 403), response.json()
+        if authentication == "session":
+            assert response.json() == {"url": "https://dns.example.com/apply"}
+        else:
+            generate_url.assert_not_called()
+
     def test_list_integrations_without_scope_fails(self, client: HttpClient):
         key_value = "test_key_123"
         PersonalAPIKey.objects.create(
@@ -1811,8 +1866,8 @@ class TestIntegrationAPIKeyAccess:
                 {"context": "proxy", "proxy_record_id": "6f1c1a52-3b7e-4c1e-9d0a-2f4b8e6c9a10"},
                 "integration:write",
                 OrganizationMembership.Level.ADMIN,
-                404,
-                {"detail": "No reverse proxy record with this proxy_record_id exists in this organization."},
+                403,
+                {"detail": "Scoped credentials only support email Domain Connect."},
             ),
             (
                 "post",
@@ -2000,7 +2055,7 @@ class TestIntegrationAPIKeyAccess:
             (True, False, "https://us.posthog.com", "us.posthog.com", "//attacker.example/landing", 400),
             (True, False, "https://us.posthog.com", "us.posthog.com", "javascript:alert(1)", 400),
             (True, True, "https://us.posthog.com", "us.posthog.com", "https://us.posthog.com/channels", 200),
-            (False, True, "https://us.posthog.com", "us.posthog.com", "https://us.posthog.com/channels", 404),
+            (False, True, "https://us.posthog.com", "us.posthog.com", "https://us.posthog.com/channels", 200),
         ],
     )
     @patch("posthog.api.integration.generate_apply_url", return_value="https://dns.example/apply")
