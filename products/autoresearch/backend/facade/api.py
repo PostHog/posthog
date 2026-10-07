@@ -744,6 +744,8 @@ def _running_inference_run(team_id: int, pipeline: AutoresearchPipeline) -> Auto
             status=AutoresearchRun.Status.RUNNING,
             started_at__gte=django_timezone.now() - _INFERENCE_RUN_STALE_AFTER,
         )
+        # A shadow model's run belongs to the champion's cadence, not to a scoring the caller can poll.
+        .exclude(metrics__has_key="shadow")
         .order_by("-started_at")
         .first()
     )
