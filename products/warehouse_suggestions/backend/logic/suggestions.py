@@ -1,6 +1,7 @@
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict
+from dataclasses import fields
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -11,6 +12,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from ..facade.contracts import SuggestionAlreadyDecidedError, SuggestionDraft
 from ..facade.enums import WarehouseSuggestionDismissalReason, WarehouseSuggestionStatus
 from ..models import WarehouseSuggestion
+from .payloads import payload_to_json
 
 Transitions = Mapping[WarehouseSuggestionStatus, frozenset[WarehouseSuggestionStatus]]
 
@@ -125,11 +127,19 @@ def _is_refreshed_by(row: WarehouseSuggestion, draft: SuggestionDraft) -> bool:
 
 
 def _refresh(row: WarehouseSuggestion, draft: SuggestionDraft, seen_at: datetime) -> WarehouseSuggestion:
+    values = _draft_values(draft)
     for field in DRAFT_FIELDS_UPDATED_ON_INGEST:
-        setattr(row, field, getattr(draft, field))
+        setattr(row, field, values[field])
     row.last_seen_at = seen_at
     return row
 
 
 def _new_suggestion(team_id: int, draft: SuggestionDraft, seen_at: datetime) -> WarehouseSuggestion:
-    return WarehouseSuggestion(team_id=team_id, last_seen_at=seen_at, **asdict(draft))
+    return WarehouseSuggestion(team_id=team_id, last_seen_at=seen_at, **_draft_values(draft))
+
+
+def _draft_values(draft: SuggestionDraft) -> dict[str, Any]:
+    return {
+        field.name: payload_to_json(draft.payload) if field.name == "payload" else getattr(draft, field.name)
+        for field in fields(draft)
+    }

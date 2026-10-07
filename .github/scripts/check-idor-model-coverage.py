@@ -223,6 +223,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # no endpoint looks it up by a user-supplied ID.
         "TeamReplayVisionConfig",
         "TeamTracingConfig",
+        "WarehouseSuggestionTeamConfig",
         "TeamJsSnippetConfig",
         "TeamProvisioningConfig",
         # --- User preferences with no IDOR risk (read own data only) ---

@@ -7,6 +7,54 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface WarehouseSuggestionCertifyPayloadApi {
+    /** Name of the view or table to certify. */
+    subject_name: string
+}
+
+export interface WarehouseSuggestionDeprecatePayloadApi {
+    /** Name of the unread view to deprecate. */
+    subject_name: string
+    /** Time its refreshes take in a month, in seconds. */
+    refresh_seconds_per_month: number
+    /** Bytes its refreshes read in a month. */
+    refresh_bytes_per_month: number
+}
+
+export interface WarehouseSuggestionVisibleSourcesApi {
+    /** Names of the sources the caller may see. */
+    names: string[]
+    /** How many more sources exist that the caller may not see. */
+    hidden_count: number
+}
+
+export interface WarehouseSuggestionMaterializePayloadApi {
+    /** Sources that are always current, such as PostHog tables and direct connections. */
+    live_sources: WarehouseSuggestionVisibleSourcesApi
+    /** Sources with no sync schedule, so their freshness is unknown. */
+    unknown_sources: WarehouseSuggestionVisibleSourcesApi
+    /** Name of the view to materialize. */
+    subject_name: string
+    /** Proposed refresh interval, in seconds. */
+    refresh_interval_seconds: number
+    /** Query time materializing saves in a month, in seconds. */
+    saves_seconds_per_month: number
+    /** Bytes materializing saves from scanning in a month. */
+    saves_bytes_per_month: number
+    /**
+     * How old the view's data can be today, in seconds. Null when its sources are live.
+     * @nullable
+     */
+    freshness_today_seconds: number | null
+    /** How old the data can be once materialized, in seconds. */
+    freshness_after_seconds: number
+}
+
+export type WarehouseSuggestionPayloadApi =
+    | WarehouseSuggestionCertifyPayloadApi
+    | WarehouseSuggestionDeprecatePayloadApi
+    | WarehouseSuggestionMaterializePayloadApi
+
 export interface WarehouseSuggestionReviewerApi {
     /** User id. */
     id: number
@@ -89,11 +137,6 @@ export const WarehouseSuggestionAssetOutcomeEnumApi = {
 } as const
 
 /**
- * What accepting this suggestion would create or change. Shape depends on kind.
- */
-export type WarehouseSuggestionApiPayload = { [key: string]: unknown }
-
-/**
  * The usage numbers that led to this suggestion.
  */
 export type WarehouseSuggestionApiEvidence = { [key: string]: unknown }
@@ -106,7 +149,7 @@ export type WarehouseSuggestionApiCreatedAsset = { [key: string]: unknown } | nu
 
 export interface WarehouseSuggestionApi {
     /** What accepting this suggestion would create or change. Shape depends on kind. */
-    payload: WarehouseSuggestionApiPayload
+    readonly payload: WarehouseSuggestionPayloadApi
     /** The usage numbers that led to this suggestion. */
     evidence: WarehouseSuggestionApiEvidence
     /**
@@ -201,6 +244,27 @@ export interface DismissWarehouseSuggestionApi {
      * @maxLength 1000
      */
     note?: string
+}
+
+export interface WarehouseSuggestionStatusApi {
+    /** False when the project turned suggestions off. */
+    enabled: boolean
+    /** Whether the project reads its views often enough to get suggestions. */
+    eligible: boolean
+    /** Days of read history the last run had, up to the window. */
+    days_with_data: number
+    /** Days of read history a full window holds. */
+    window_days: number
+    /**
+     * Why new suggestions stopped showing. Null while they show.
+     * @nullable
+     */
+    paused_reason: string | null
+    /**
+     * When the daily job last ran for this project.
+     * @nullable
+     */
+    refreshed_at: string | null
 }
 
 export type WarehouseSuggestionsListParams = {

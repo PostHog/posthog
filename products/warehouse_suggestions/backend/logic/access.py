@@ -96,3 +96,9 @@ def _allowed(
         )
         for subject_kind, allowed_ids in ALLOWED_SUBJECT_IDS.items()
     }
+
+
+def readable_table_ids(
+    team_id: int, user_access_control: "UserAccessControl", table_ids: Collection[UUID]
+) -> frozenset[UUID]:
+    return ALLOWED_SUBJECT_IDS[WarehouseSuggestionSubjectKind.TABLE](team_id, user_access_control, ids=table_ids)

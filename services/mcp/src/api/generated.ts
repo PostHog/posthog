@@ -74863,6 +74863,51 @@ export namespace Schemas {
       results: WarehouseColumnStatistics[];
     }
 
+    export interface WarehouseSuggestionCertifyPayload {
+      /** Name of the view or table to certify. */
+      subject_name: string;
+    }
+
+    export interface WarehouseSuggestionDeprecatePayload {
+      /** Name of the unread view to deprecate. */
+      subject_name: string;
+      /** Time its refreshes take in a month, in seconds. */
+      refresh_seconds_per_month: number;
+      /** Bytes its refreshes read in a month. */
+      refresh_bytes_per_month: number;
+    }
+
+    export interface WarehouseSuggestionVisibleSources {
+      /** Names of the sources the caller may see. */
+      names: string[];
+      /** How many more sources exist that the caller may not see. */
+      hidden_count: number;
+    }
+
+    export interface WarehouseSuggestionMaterializePayload {
+      /** Sources that are always current, such as PostHog tables and direct connections. */
+      live_sources: WarehouseSuggestionVisibleSources;
+      /** Sources with no sync schedule, so their freshness is unknown. */
+      unknown_sources: WarehouseSuggestionVisibleSources;
+      /** Name of the view to materialize. */
+      subject_name: string;
+      /** Proposed refresh interval, in seconds. */
+      refresh_interval_seconds: number;
+      /** Query time materializing saves in a month, in seconds. */
+      saves_seconds_per_month: number;
+      /** Bytes materializing saves from scanning in a month. */
+      saves_bytes_per_month: number;
+      /**
+         * How old the view's data can be today, in seconds. Null when its sources are live.
+         * @nullable
+         */
+      freshness_today_seconds: number | null;
+      /** How old the data can be once materialized, in seconds. */
+      freshness_after_seconds: number;
+    }
+
+    export type WarehouseSuggestionPayload = WarehouseSuggestionCertifyPayload | WarehouseSuggestionDeprecatePayload | WarehouseSuggestionMaterializePayload;
+
     export interface WarehouseSuggestionReviewer {
       /** User id. */
       id: number;
@@ -74931,11 +74976,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * What accepting this suggestion would create or change. Shape depends on kind.
-     */
-    export type WarehouseSuggestionPayload = { [key: string]: unknown };
-
-    /**
      * The usage numbers that led to this suggestion.
      */
     export type WarehouseSuggestionEvidence = { [key: string]: unknown };
@@ -74948,7 +74988,7 @@ export namespace Schemas {
 
     export interface WarehouseSuggestion {
       /** What accepting this suggestion would create or change. Shape depends on kind. */
-      payload: WarehouseSuggestionPayload;
+      readonly payload: WarehouseSuggestionPayload;
       /** The usage numbers that led to this suggestion. */
       evidence: WarehouseSuggestionEvidence;
       /**
@@ -109521,6 +109561,27 @@ export namespace Schemas {
          * @nullable
          */
       schema_name: string | null;
+    }
+
+    export interface WarehouseSuggestionStatus {
+      /** False when the project turned suggestions off. */
+      enabled: boolean;
+      /** Whether the project reads its views often enough to get suggestions. */
+      eligible: boolean;
+      /** Days of read history the last run had, up to the window. */
+      days_with_data: number;
+      /** Days of read history a full window holds. */
+      window_days: number;
+      /**
+         * Why new suggestions stopped showing. Null while they show.
+         * @nullable
+         */
+      paused_reason: string | null;
+      /**
+         * When the daily job last ran for this project.
+         * @nullable
+         */
+      refreshed_at: string | null;
     }
 
     /**

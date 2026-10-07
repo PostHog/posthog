@@ -1657,6 +1657,7 @@ path = "products.warehouse_suggestions"
 depends_on = [
     "posthog",
     "products.access_control",
+    "products.data_catalog",
     "products.data_modeling",
     "products.warehouse_sources",
 ]

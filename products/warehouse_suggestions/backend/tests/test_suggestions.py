@@ -8,7 +8,11 @@ from parameterized import parameterized
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from products.warehouse_suggestions.backend.facade.contracts import SuggestionAlreadyDecidedError, SuggestionDraft
+from products.warehouse_suggestions.backend.facade.contracts import (
+    CertifyPayload,
+    SuggestionAlreadyDecidedError,
+    SuggestionDraft,
+)
 from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionKind,
     WarehouseSuggestionStatus,
@@ -35,7 +39,7 @@ def make_draft(
         fingerprint=fingerprint,
         subject_kind=subject_kind,
         subject_id=subject_id,
-        payload={"name": "orders"},
+        payload=CertifyPayload(subject_name="orders"),
         payload_version=1,
         rules_version="abc123",
         evidence={"distinct_readers": 4},
