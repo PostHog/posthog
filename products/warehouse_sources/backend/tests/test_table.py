@@ -207,9 +207,10 @@ class TestSafeExposeChError:
 class TestWarehouseReadErrorClassification:
     # Engine wording, written from the shape of each failure rather than copied from a customer's
     # table: a bucket that refuses the read, a parquet footer the reader can't parse, a URL that
-    # answers with a redirect, and a column that left the files. The needles are what the engines
-    # emit, so a rephrasing on either side has to fail here instead of silently dropping the error
-    # back into error tracking as an unactionable ClickHouse string.
+    # answers with a redirect, a column that left the files, and an Azure account key that does
+    # not decode. The needles are what the engines emit, so a rephrasing on either side has to
+    # fail here instead of silently dropping the error back into error tracking as an unactionable
+    # ClickHouse string.
     @pytest.mark.parametrize(
         "engine_error,expected_fragment",
         [
@@ -243,6 +244,10 @@ class TestWarehouseReadErrorClassification:
                     code=47,
                 ),
                 "isn't in your files any more",
+            ),
+            (
+                RuntimeError("Code: 1001. DB::Exception: Unexpected end of Base64 encoded string. (STD_EXCEPTION)"),
+                "Azure storage account key isn't valid",
             ),
             (
                 ServerException("DB::Exception: A failure shape nobody has classified yet.", code=999),
