@@ -1,7 +1,7 @@
 # Replay Vision golden-dataset evals
 
 Test scanner prompt changes against a fixed set of real, already-observed sessions instead of shipping and watching production.
-The suite re-runs the exact production scan pipeline (`run_scan`: same Jinja templates, response schemas, events tool) over collected videos, then scores the fresh output against the recorded output and its human thumbs label.
+The suite re-runs the exact production scan pipeline (`run_scan`: same Jinja templates, response schemas, lookup round) over collected videos, then scores the fresh output against the recorded output and its human thumbs label.
 
 ## The loop
 

@@ -339,6 +339,16 @@ const FILTER_OP_TO_OPERATOR: Record<MetricsQueryFilter['op'], PropertyOperator> 
     not_regex: PropertyOperator.NotRegex,
 }
 
+/** Saved label matchers as filter bar chips. A multi-value chip comes back as one regex chip. */
+export const filterGroupFromMetricFilters = (filters: MetricsQueryFilter[]): UniversalFiltersGroup =>
+    metricsFilterGroup(
+        filters.map((filter) => ({
+            key: filter.key,
+            value: [filter.value],
+            operator: FILTER_OP_TO_OPERATOR[filter.op],
+        }))
+    )
+
 const isAutoScope = (scope: MetricsAttributeScope | undefined): boolean => !scope || scope === 'auto'
 
 /** Whether the builder can show every part of a saved node, so an edit does not drop settings it cannot show. */
@@ -360,13 +370,7 @@ const viewerClauseFromNode = (clause: MetricsQueryClause): MetricsViewerClause =
         aggregation: isMetricAggregation(aggregation) ? aggregation : DEFAULT_AGGREGATION,
         // A saved aggregation is a choice, so the type backfill must not replace it.
         aggregationExplicitlySet: true,
-        filterGroup: metricsFilterGroup(
-            (clause.filters ?? []).map((filter) => ({
-                key: filter.key,
-                value: [filter.value],
-                operator: FILTER_OP_TO_OPERATOR[filter.op],
-            }))
-        ),
+        filterGroup: filterGroupFromMetricFilters(clause.filters ?? []),
         groupByKeys: (clause.groupBy ?? []).map((groupBy) => groupBy.key),
     }
 }

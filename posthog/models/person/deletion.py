@@ -9,10 +9,14 @@ from rest_framework.exceptions import NotFound
 from posthog.clickhouse.client import sync_execute
 from posthog.models.person import Person
 from posthog.models.person.util import (
+    PERSONHOG_BATCH_SIZE,
     PersonTombstone,
     PersonTombstonePublication,
+    PersonVersionFloor,
+    VersionFloorOutcome,
     create_person,
     create_person_distinct_id,
+    ensure_person_version_floors,
     get_person_by_distinct_id,
     get_person_tombstones,
     get_persons_by_uuids,
@@ -256,18 +260,45 @@ class _Mapping:
 @dataclass(frozen=False)
 class OrphanRepairResult:
     orphaned_person_uuids: list[str]
+    # Orphans with no persons-DB row, which get a new persons-DB tombstone above ClickHouse.
     tombstoned_persons: int = 0
-    # Orphans that are tombstoned in the persons DB, republished at the versions it holds.
+    # Orphans that are tombstoned in the persons DB, raised above ClickHouse when needed and republished.
     republished_persons: int = 0
-    tombstoned_mappings: int = 0
-    # distinct_id now won by a different, non-deleted CH mapping — left untouched
-    # so the repair never resurrects-then-deletes a mapping that has been reassigned.
-    skipped_reassigned_mappings: int = 0
+    # Orphans the persons-DB primary holds as live, which a lagging replica read reported as missing.
+    skipped_live_persons: int = 0
     # (distinct_id, winner_uuid) pairs where the CH mapping is tombstoned but the
     # winning person is live in the persons DB — the opposite drift, handled by
     # reset_all_deleted_person_distinct_ids, reported here rather than repaired.
     reverse_drift_mappings: list[tuple[str, str]] = field(default_factory=list)
     dry_run: bool = False
+
+
+# Past this share of live ClickHouse persons missing from the persons DB, the team likely needs a restore.
+ORPHAN_TOMBSTONE_SHARE_LIMIT = 0.05
+
+
+def count_live_ch_persons(team_id: int) -> int:
+    rows = sync_execute(
+        """
+            SELECT count() FROM (
+                SELECT id FROM person WHERE team_id = %(team_id)s GROUP BY id HAVING argMax(is_deleted, version) = 0
+            )
+        """,
+        {"team_id": team_id},
+    )
+    return int(rows[0][0])
+
+
+def orphan_share_refusal(team_id: int, to_tombstone: int, live_ch_persons: int) -> Optional[str]:
+    """Return why tombstoning this many ClickHouse-only persons is refused, or None when it is within the limit."""
+    if to_tombstone <= ORPHAN_TOMBSTONE_SHARE_LIMIT * live_ch_persons:
+        return None
+    return (
+        f"Refusing to tombstone {to_tombstone} of the {live_ch_persons} live ClickHouse persons of team {team_id}, "
+        f"more than {ORPHAN_TOMBSTONE_SHARE_LIMIT:.0%}. A team whose persons-DB persons were lost, for example by "
+        "an interrupted project deletion, needs a restore, and tombstoning destroys the ClickHouse copy the restore "
+        "reads from. Pass --force only if these persons should really be deleted."
+    )
 
 
 def find_orphaned_ch_persons(team_id: int, uuids: Optional[list[str]] = None) -> list[OrphanedPerson]:
@@ -296,88 +327,51 @@ def find_orphaned_ch_persons(team_id: int, uuids: Optional[list[str]] = None) ->
 def tombstone_orphaned_ch_persons(
     team_id: int, orphans: list[OrphanedPerson], *, dry_run: bool = True
 ) -> OrphanRepairResult:
-    """Produce ClickHouse tombstones for orphaned persons and the distinct_id
-    mappings they still win.
+    """Tombstone orphaned persons in the persons DB one version above ClickHouse, then publish those tombstones.
 
-    A mapping is only tombstoned when its current CH winner is one of the orphans
-    and is not already deleted. Mappings reassigned to another live person are
-    skipped; mappings whose deleted winner is live in the persons DB are reported
-    as reverse drift (not touched).
-
-    Persons DB reads skip tombstoned rows, so a person that a deletion tombstoned in the
-    persons DB without publishing to ClickHouse also looks like an orphan. Such a person is
-    republished at the versions the persons DB holds instead of version + 100. A version
-    + 100 tombstone would stay above the version that a later revival writes, so the
-    revived person would stay hidden in ClickHouse. The lookup is read-only because the
-    orphan read is eventually consistent: a live person can be reported as an orphan, and
-    it must not be tombstoned in the persons DB for that.
+    Each ClickHouse tombstone carries the exact stored version, so a later revival lands above it and a rerun
+    republishes the same versions. Distinct ids get no tombstone of their own, because the ClickHouse deletion
+    sweep removes every live mapping of a person it deletes.
     """
     result = OrphanRepairResult(orphaned_person_uuids=sorted(o.uuid for o in orphans), dry_run=dry_run)
     if not orphans:
         return result
 
     orphan_uuids = {o.uuid for o in orphans}
-    to_tombstone: list[_Mapping] = []
-    deleted_winners: list[_Mapping] = []
-    for mapping in _ch_mappings_for_persons(team_id, orphan_uuids):
-        if mapping.winner_is_deleted:
-            deleted_winners.append(mapping)
-        elif mapping.winner_person_id in orphan_uuids:
-            to_tombstone.append(mapping)
-        else:
-            result.skipped_reassigned_mappings += 1
-
+    deleted_winners = [m for m in _ch_mappings_for_persons(team_id, orphan_uuids) if m.winner_is_deleted]
     result.reverse_drift_mappings = _find_reverse_drift(team_id, deleted_winners, orphan_uuids)
 
-    # Raises rather than falling back to version + 100 for every orphan.
-    stored = get_person_tombstones(team_id, [UUID(o.uuid) for o in orphans])
-    stored_by_uuid = {str(t.uuid): t for t in stored}
-
+    stored_by_uuid = {str(t.uuid): t for t in get_person_tombstones(team_id, [UUID(o.uuid) for o in orphans])}
     if dry_run:
         result.republished_persons = sum(1 for o in orphans if o.uuid in stored_by_uuid)
         result.tombstoned_persons = len(orphans) - result.republished_persons
-        result.tombstoned_mappings = sum(1 for m in to_tombstone if m.winner_person_id not in stored_by_uuid)
         return result
 
-    republished: set[str] = set()
-    to_republish: list[tuple[PersonTombstone, Optional[dt.datetime]]] = []
-    for orphan in orphans:
-        tombstone = stored_by_uuid.get(orphan.uuid)
-        if tombstone is not None:
-            to_republish.append((tombstone, orphan.created_at))
-            republished.add(orphan.uuid)
-            continue
-        # No persons-DB row exists, so derive the tombstone from ClickHouse. Version
-        # + 100 makes the delete win over normal updates; stays below split's + 101.
-        create_person(
-            uuid=orphan.uuid,
-            team_id=team_id,
-            version=orphan.ch_max_version + 100,
-            created_at=orphan.created_at,
-            is_deleted=True,
-        )
-        result.tombstoned_persons += 1
-
+    created_at_by_uuid = {o.uuid: o.created_at for o in orphans}
+    floors = [PersonVersionFloor(uuid=UUID(o.uuid), min_version=o.ch_max_version + 1) for o in orphans]
     publication = PersonTombstonePublication(team_id=team_id, source="orphan_repair")
-    publication.publish(to_republish)
-    result.republished_persons = len(to_republish)
-
-    for mapping in to_tombstone:
-        if mapping.winner_person_id in republished:
-            # The republish already produced this distinct ID at the stored version.
-            continue
-        create_person_distinct_id(
-            team_id=team_id,
-            distinct_id=mapping.distinct_id,
-            person_id=mapping.winner_person_id,
-            version=mapping.max_version + 100,
-            is_deleted=True,
-        )
-        result.tombstoned_mappings += 1
-
-    # Wait only after the mapping rows are produced. A rerun skips a person whose version + 100
-    # row already landed, so a raise before this loop would leave its mappings live for good.
-    publication.await_and_ack()
+    try:
+        # Each batch commits on its own, so it is published before the next batch starts, and a later failure
+        # leaves no committed tombstone unpublished.
+        for i in range(0, len(floors), PERSONHOG_BATCH_SIZE):
+            to_publish: list[tuple[PersonTombstone, Optional[dt.datetime]]] = []
+            for floor in ensure_person_version_floors(team_id, floors[i : i + PERSONHOG_BATCH_SIZE]):
+                uuid = str(floor.uuid)
+                if floor.outcome == VersionFloorOutcome.LIVE:
+                    result.skipped_live_persons += 1
+                    continue
+                stored = stored_by_uuid.get(uuid)
+                if stored is None:
+                    result.tombstoned_persons += 1
+                else:
+                    result.republished_persons += 1
+                tombstone = PersonTombstone(
+                    uuid=floor.uuid, version=floor.version, distinct_ids=stored.distinct_ids if stored else []
+                )
+                to_publish.append((tombstone, created_at_by_uuid[uuid]))
+            publication.publish(to_publish)
+    finally:
+        publication.await_and_ack()
     if publication.failures:
         raise publication.failures[0].error
     return result

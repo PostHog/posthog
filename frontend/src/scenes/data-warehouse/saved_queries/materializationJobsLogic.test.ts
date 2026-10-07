@@ -250,6 +250,43 @@ describe('materializationJobsLogic', () => {
         expect(router.values.location.pathname).toBe(path)
     })
 
+    it('reloads the view list after a resume so the sidebar clears its paused icon', async () => {
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.post!['/api/projects/:team_id/warehouse_saved_queries/:id/resume/'] = [200, { resumed: true }]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess'])
+        await expectLogic(logic, () => logic.actions.resumeMaterialization()).toDispatchActions([
+            'loadDataWarehouseSavedQueries',
+        ])
+    })
+
+    it.each([
+        ['the observed run ends', { id: 'run-1', status: 'Running' }, { id: 'run-1', status: 'Failed' }],
+        ['a run fails between polls', { id: 'run-1', status: 'Completed' }, { id: 'run-2', status: 'Failed' }],
+        ['a run succeeds between polls', { id: 'run-1', status: 'Failed' }, { id: 'run-2', status: 'Completed' }],
+    ])('reloads the view list once when %s, not on every poll', async (_name, before, after) => {
+        let newestJob = before
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = () => [200, { count: 1, results: [newestJob] }]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataModelingJobsSuccess'])
+        await expectLogic(logic, () => logic.actions.loadDataModelingJobs())
+            .toDispatchActions(['loadDataModelingJobsSuccess'])
+            .toNotHaveDispatchedActions(['loadDataWarehouseSavedQueries'])
+        newestJob = after
+        await expectLogic(logic, () => logic.actions.loadDataModelingJobs()).toDispatchActions([
+            'loadDataModelingJobsSuccess',
+            'loadDataWarehouseSavedQueries',
+        ])
+        await expectLogic(logic, () => logic.actions.loadDataModelingJobs())
+            .toDispatchActions(['loadDataModelingJobsSuccess'])
+            .toNotHaveDispatchedActions(['loadDataWarehouseSavedQueries'])
+    })
+
     // Another product owns these views: a managed viewset refuses the delete outright, and deleting
     // an endpoint-origin view breaks the endpoint it serves. The SQL editor renders the actions
     // without the endpoint `kind`, so the saved query has to carry the signal.

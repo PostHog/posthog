@@ -19,6 +19,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.email_verification import email_verification_code_verifier
+from posthog.auth import ACCOUNT_BLOCKED_LOGIN_URL, account_refused
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.oauth_provisioning import PartnerTier
@@ -185,6 +186,10 @@ def agentic_login(request: Any) -> HttpResponseBase:
         capture_deep_link_event("user_inactive", user_id=user_id)
         logger.warning("agentic_login.user_inactive", user_id=user_id)
         return HttpResponseRedirect("/?error=user_inactive")
+
+    if account_refused(request, user, call_site="agentic_deep_link", impersonated=False):
+        capture_deep_link_event("access_blocked", user_id=user_id)
+        return HttpResponseRedirect(ACCOUNT_BLOCKED_LOGIN_URL)
 
     # Deep-link login has no password challenge and no SSO step, so partner-asserted
     # email ownership is the only thing standing between an attacker and a session.

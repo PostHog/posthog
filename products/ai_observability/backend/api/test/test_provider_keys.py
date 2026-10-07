@@ -187,7 +187,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         with (
             self.settings(POSTHOG_INTERNAL_ORG_IDS=[]),
             patch(
-                "products.ai_observability.backend.llm.system_one.get_feature_flag_or_none",
+                "products.ai_observability.backend.llm.decisions.get_feature_flag_or_none",
                 return_value=False,
             ),
             patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
@@ -262,7 +262,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
 
     @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")})
     @patch("httpx.AsyncHTTPTransport.handle_async_request")
-    @patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=True)
+    @patch("products.ai_observability.backend.llm.decisions.get_feature_flag_or_none", return_value=True)
     def test_custom_system_one_connection_round_trip(self, _flag: Mock, request: Mock, _dns: Mock) -> None:
         body = json.dumps(
             {
