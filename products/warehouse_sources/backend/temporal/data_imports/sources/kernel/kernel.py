@@ -1,6 +1,7 @@
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -10,8 +11,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.bat
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.settings import (
+    BROWSER_TELEMETRY_EVENTS,
     KERNEL_ENDPOINTS,
     SENSITIVE_FIELDS,
+    TELEMETRY_DROPPED_DATA_FIELDS,
+    TELEMETRY_RETENTION_DAYS,
     KernelEndpointConfig,
 )
 
@@ -112,13 +116,20 @@ def _next_page(headers: Any, current_offset: int, page_len: int) -> tuple[bool, 
     reraise=True,
 )
 def _fetch_page(
-    session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    allow_not_found: bool = False,
 ) -> requests.Response:
     response = session.get(url, headers=headers, timeout=60)
 
     # Kernel returns 429 with a Retry-After per-organization rate limit; honor it via retry backoff.
     if response.status_code == 429 or response.status_code >= 500:
         raise KernelRetryableError(f"Kernel API error (retryable): status={response.status_code}, url={url}")
+
+    if allow_not_found and response.status_code == 404:
+        return response
 
     if not response.ok:
         logger.error(f"Kernel API error: status={response.status_code}, body={response.text}, url={url}")
@@ -139,19 +150,12 @@ def validate_credentials(api_key: str) -> tuple[bool, int | None]:
     return response.status_code == 200, response.status_code
 
 
-def get_rows(
-    api_key: str,
-    endpoint: str,
+def _iter_list_items(
+    session: requests.Session,
+    headers: dict[str, str],
+    config: KernelEndpointConfig,
     logger: FilteringBoundLogger,
 ) -> Iterator[Any]:
-    config = KERNEL_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    # capture=False: Kernel responses carry secret-bearing fields (see SENSITIVE_FIELDS) that the
-    # generic HTTP-sample scrubber does not know to redact, and sampling happens before redaction.
-    session = make_tracked_session(capture=False)
-
     # Full refresh only: no resumable offset state. A crashed sync restarts from offset 0 and
     # the pipeline overwrites the table on the first chunk, so re-fetched pages never duplicate
     # rows (full-refresh appends have no primary-key dedupe, so resuming mid-table would).
@@ -173,16 +177,139 @@ def get_rows(
             offset = next_offset
             continue
 
-        for item in items:
-            batcher.batch(_redact_sensitive_fields(item))
-
-        if batcher.should_yield():
-            yield batcher.get_table()
+        yield from items
 
         if not has_more:
             break
 
         offset = next_offset
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _telemetry_session_ids(
+    session: requests.Session,
+    headers: dict[str, str],
+    retention_start: datetime,
+    logger: FilteringBoundLogger,
+) -> list[str]:
+    """Session ids of every browser that can still have retained telemetry events.
+
+    Ids are collected before fanning out so the offset-paginated /browsers walk isn't stretched
+    across thousands of child requests while new sessions shift its pages.
+    """
+    session_ids: list[str] = []
+    for browser in _iter_list_items(session, headers, KERNEL_ENDPOINTS["browsers"], logger):
+        if not isinstance(browser, dict):
+            continue
+        session_id = browser.get("session_id")
+        if not isinstance(session_id, str) or not session_id:
+            continue
+        deleted_at = _parse_timestamp(browser.get("deleted_at"))
+        if deleted_at is not None and deleted_at < retention_start:
+            continue
+        session_ids.append(session_id)
+    return session_ids
+
+
+def _next_telemetry_cursor(headers: Any) -> int | None:
+    """The opaque X-Next-Offset cursor, or None when the session has no more events.
+
+    Unlike the list endpoints, this offset is not a row count, so it can't be derived from the
+    page length when the header is missing.
+    """
+    if str(headers.get("X-Has-More", "")).strip().lower() != "true":
+        return None
+    try:
+        cursor = int(headers.get("X-Next-Offset"))
+    except (TypeError, ValueError):
+        return None
+    return cursor if cursor > 0 else None
+
+
+def _telemetry_row(session_id: str, envelope: dict[str, Any]) -> dict[str, Any]:
+    event = envelope.get("event")
+    row: dict[str, Any] = {"browser_session_id": session_id, "seq": envelope.get("seq")}
+    if isinstance(event, dict):
+        row.update(event)
+        data = event.get("data")
+        if isinstance(data, dict):
+            row["data"] = {key: value for key, value in data.items() if key not in TELEMETRY_DROPPED_DATA_FIELDS}
+    return row
+
+
+def _iter_telemetry_events(
+    session: requests.Session,
+    headers: dict[str, str],
+    session_id: str,
+    since: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[dict[str, Any]]:
+    path = KERNEL_ENDPOINTS[BROWSER_TELEMETRY_EVENTS].path.format(session_id=quote(session_id, safe=""))
+    cursor: int | None = None
+    while True:
+        # `since` defaults to the last 5 minutes, so it must be set to read the archive.
+        # Kernel ignores it once an offset cursor is passed.
+        params: dict[str, Any] = {"limit": PAGE_SIZE, "since": since, "order": "asc"}
+        if cursor is not None:
+            params["offset"] = cursor
+        response = _fetch_page(session, _build_url(path, params), headers, logger, allow_not_found=True)
+        if response.status_code == 404:
+            # The session can be purged between listing browsers and reading its events.
+            logger.debug(f"Kernel browser session {session_id} not found, skipping its telemetry events")
+            return
+
+        for envelope in _extract_items(response.json()):
+            if isinstance(envelope, dict):
+                yield _telemetry_row(session_id, envelope)
+
+        next_cursor = _next_telemetry_cursor(response.headers)
+        if next_cursor is None or next_cursor == cursor:
+            return
+        cursor = next_cursor
+
+
+def _iter_browser_telemetry_events(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> Iterator[dict[str, Any]]:
+    retention_start = datetime.now(UTC) - timedelta(days=TELEMETRY_RETENTION_DAYS)
+    since = retention_start.strftime("%Y-%m-%dT%H:%M:%SZ")
+    for session_id in _telemetry_session_ids(session, headers, retention_start, logger):
+        yield from _iter_telemetry_events(session, headers, session_id, since, logger)
+
+
+def get_rows(
+    api_key: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[Any]:
+    config = KERNEL_ENDPOINTS[endpoint]
+    headers = _get_headers(api_key)
+    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+    # One session reused across every page so urllib3 keeps the connection alive.
+    # capture=False: Kernel responses carry secret-bearing fields (see SENSITIVE_FIELDS) that the
+    # generic HTTP-sample scrubber does not know to redact, and sampling happens before redaction.
+    session = make_tracked_session(capture=False)
+
+    if endpoint == BROWSER_TELEMETRY_EVENTS:
+        items: Iterator[Any] = _iter_browser_telemetry_events(session, headers, logger)
+    else:
+        items = (_redact_sensitive_fields(item) for item in _iter_list_items(session, headers, config, logger))
+
+    for item in items:
+        batcher.batch(item)
+        if batcher.should_yield():
+            yield batcher.get_table()
 
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()

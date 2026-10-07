@@ -629,8 +629,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gorgias/gorgias.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gorgias/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/grafana/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/granola/granola.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/granola/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/greenhouse/greenhouse.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gridly/gridly.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gridly/settings.py
@@ -733,7 +731,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/klaus/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/klaviyo/klaviyo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/knock/knock.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/knowbe4/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kommo/kommo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kong_konnect/kong_konnect.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kong_konnect/settings.py
@@ -790,7 +787,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/logz_io/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/loop_returns/loop_returns.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/loops/loops.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/loops/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/luma/luma.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/luma/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailchimp/mailchimp.py

@@ -287,8 +287,9 @@ class TestPromptQuestions(APIBaseTest):
         result = backfill_prompt_questions(team_id=self.team.id)
 
         assert result.written == 4
-        # The other monitors share the stale scanner's prompt and the template needs none, so one call covers all four.
-        assert self.client_mock.return_value.models.generate_content.call_count == 1
+        # The copy shares the stale scanner's call and the template needs none; the unjudged scanner sends its kept question.
+        calls = self.client_mock.return_value.models.generate_content.call_args_list
+        assert ["Judged before valence?" in call.kwargs["contents"] for call in calls] == [False, True]
         assert ReplayScanner.objects.get(pk=copy.pk).prompt_question == "Did the user struggle at checkout?"
         assert ReplayScanner.objects.get(pk=template.pk).prompt_question == TEMPLATE_QUESTION
         stale.refresh_from_db()

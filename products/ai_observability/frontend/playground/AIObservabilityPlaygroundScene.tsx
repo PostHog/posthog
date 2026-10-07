@@ -403,7 +403,11 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                                     ? 'Only successful responses can be added'
                                     : 'No response to add'
                         }
-                        tooltip="Adds this result as an assistant message and starts a blank user message for the next turn."
+                        tooltip={
+                            hasToolCalls
+                                ? 'Adds this result as an assistant message and starts an empty tool result for each call. Fill the results in, then run again.'
+                                : 'Adds this result as an assistant message and starts a blank user message for the next turn.'
+                        }
                         data-attr="llma-playground-add-result-to-conversation"
                     >
                         Add to conversation
