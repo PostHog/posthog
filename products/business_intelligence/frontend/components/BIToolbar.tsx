@@ -10,6 +10,7 @@ import { BISortDirection } from '~/queries/schema/schema-business-intelligence'
 
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 import { LIMIT_OPTIONS } from 'products/business_intelligence/frontend/biEditorOptions'
+import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 import { biSceneLogic } from 'products/business_intelligence/frontend/biSceneLogic'
 import { BIShowMe } from 'products/business_intelligence/frontend/components/BIShowMe'
 
@@ -21,7 +22,11 @@ export function BIToolbar(): JSX.Element {
     const { dataNodeKey, lastRunQuery, worksheet } = useValues(scene)
     const { runQuery, cancelQuery } = useActions(scene)
     const { responseLoading } = useValues(
-        dataNodeLogic({ key: dataNodeKey, query: (lastRunQuery ?? worksheet).source, autoLoad: !!lastRunQuery })
+        dataNodeLogic({
+            key: dataNodeKey,
+            query: getBIVisualizationSource(lastRunQuery ?? worksheet),
+            autoLoad: !!lastRunQuery,
+        })
     )
     const { autoUpdate, config, generatedQuery, showMeOpen, sortOptions } = useValues(biEditorLogic)
     const { resetConfig, setAutoUpdate, setLimit, setShowMeOpen, setSort, swapRowsAndColumns } =

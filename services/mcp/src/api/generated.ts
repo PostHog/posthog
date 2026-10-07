@@ -10703,6 +10703,21 @@ export namespace Schemas {
       key: string;
     }
 
+    export interface BITopN {
+      /** @minimum 1 */
+      count: number;
+      fieldId: string;
+      includeOther: boolean;
+      /** @minimum 0 */
+      measureIndex: number;
+    }
+
+    export interface BITotals {
+      columns?: boolean | null;
+      rows?: boolean | null;
+      subtotals?: boolean | null;
+    }
+
     export type BIAggregation = typeof BIAggregation[keyof typeof BIAggregation];
 
 
@@ -10716,11 +10731,32 @@ export namespace Schemas {
       Custom: 'custom',
     } as const;
 
+    export type BITableCalculationType = typeof BITableCalculationType[keyof typeof BITableCalculationType];
+
+
+    export const BITableCalculationType = {
+      PercentOfTotal: 'percent_of_total',
+      RunningTotal: 'running_total',
+      Difference: 'difference',
+      PercentChange: 'percent_change',
+      MovingAverage: 'moving_average',
+      Rank: 'rank',
+    } as const;
+
+    export interface BITableCalculation {
+      /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
+      computeUsing?: string | null;
+      type: BITableCalculationType;
+      /** Number of points, including the current point, in a trailing moving average. */
+      window?: number | null;
+    }
+
     export interface BIValue {
       aggregation: BIAggregation;
       customExpression?: string | null;
       field: BIField;
       label?: string | null;
+      tableCalculation?: BITableCalculation | null;
     }
 
     export interface BIConfig {
@@ -10736,6 +10772,8 @@ export namespace Schemas {
       /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
       sort?: BISort | null;
       source?: BIDataSource | null;
+      topN?: BITopN | null;
+      totals?: BITotals | null;
       values: BIValue[];
     }
 
@@ -30969,6 +31007,7 @@ export namespace Schemas {
      * * `Ledyer` - Ledyer
      * * `Supermetrics` - Supermetrics
      * * `SQLite` - SQLite
+     * * `Modal` - Modal
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -32338,6 +32377,7 @@ export namespace Schemas {
       Ledyer: 'Ledyer',
       Supermetrics: 'Supermetrics',
       SQLite: 'SQLite',
+      Modal: 'Modal',
     } as const;
 
     /**
@@ -33720,7 +33760,8 @@ export namespace Schemas {
        * * `GoogleBusinessProfile` - GoogleBusinessProfile
        * * `Ledyer` - Ledyer
        * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite */
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -36351,7 +36392,8 @@ export namespace Schemas {
        * * `GoogleBusinessProfile` - GoogleBusinessProfile
        * * `Ledyer` - Ledyer
        * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite */
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -47616,7 +47658,8 @@ export namespace Schemas {
        * * `GoogleBusinessProfile` - GoogleBusinessProfile
        * * `Ledyer` - Ledyer
        * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite */
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -49019,7 +49062,8 @@ export namespace Schemas {
        * * `GoogleBusinessProfile` - GoogleBusinessProfile
        * * `Ledyer` - Ledyer
        * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite */
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -60235,6 +60279,22 @@ export namespace Schemas {
       enabled: boolean;
     }
 
+    /**
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams
+     * * `pagerduty` - pagerduty
+     */
+    export type LogsAlertDestinationTypeEnum = typeof LogsAlertDestinationTypeEnum[keyof typeof LogsAlertDestinationTypeEnum];
+
+
+    export const LogsAlertDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Pagerduty: 'pagerduty',
+    } as const;
+
     export interface LogsAlertConfiguration {
       /** Unique identifier for this alert. */
       readonly id: string;
@@ -60319,7 +60379,7 @@ export namespace Schemas {
       /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
       readonly state_timeline: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-      readonly destination_types: readonly NotificationDestinationTypeEnum[];
+      readonly destination_types: readonly LogsAlertDestinationTypeEnum[];
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
          * @nullable
@@ -60335,20 +60395,63 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    /**
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info
+     */
+    export type PagerDutySeverityEnum = typeof PagerDutySeverityEnum[keyof typeof PagerDutySeverityEnum];
+
+
+    export const PagerDutySeverityEnum = {
+      Critical: 'critical',
+      Error: 'error',
+      Warning: 'warning',
+      Info: 'info',
+    } as const;
+
+    /**
+     * * `us` - us
+     * * `eu` - eu
+     */
+    export type PagerDutyRegionEnum = typeof PagerDutyRegionEnum[keyof typeof PagerDutyRegionEnum];
+
+
+    export const PagerDutyRegionEnum = {
+      Us: 'us',
+      Eu: 'eu',
+    } as const;
+
     export interface LogsAlertDestinationConfig {
       hog_function_ids: string[];
       /** Notification destination type.
        *
        * * `slack` - slack
        * * `webhook` - webhook
-       * * `teams` - teams */
-      type: NotificationDestinationTypeEnum;
+       * * `teams` - teams
+       * * `pagerduty` - pagerduty */
+      type: LogsAlertDestinationTypeEnum;
       /** Whether every HogFunction in the group is enabled, so the destination notifies for all alert event kinds. This is the stored setting: a destination PostHog stopped delivering to after repeated failures still reads as true. */
       enabled: boolean;
       slack_workspace_id?: number;
       slack_channel_id?: string;
       /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
       webhook_url?: string;
+      /** PagerDuty integration key reduced to its last four characters. */
+      pagerduty_routing_key?: string;
+      /** Severity of the PagerDuty incident.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region the events go to.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
     }
 
     /**
@@ -60439,7 +60542,7 @@ export namespace Schemas {
       /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
       readonly state_timeline: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-      readonly destination_types: readonly NotificationDestinationTypeEnum[];
+      readonly destination_types: readonly LogsAlertDestinationTypeEnum[];
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
          * @nullable
@@ -60462,8 +60565,9 @@ export namespace Schemas {
        *
        * * `slack` - slack
        * * `webhook` - webhook
-       * * `teams` - teams */
-      type: NotificationDestinationTypeEnum;
+       * * `teams` - teams
+       * * `pagerduty` - pagerduty */
+      type: LogsAlertDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -60472,6 +60576,20 @@ export namespace Schemas {
       slack_channel_name?: string;
       /** HTTPS endpoint to post to. Required for webhook and teams. */
       webhook_url?: string;
+      /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
+      pagerduty_routing_key?: string;
+      /** Severity PagerDuty records on the incident. Used when type=pagerduty.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region of the account. Used when type=pagerduty.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
     }
 
     export interface LogsAlertDeleteDestination {
@@ -71076,6 +71194,8 @@ export namespace Schemas {
       lifts: ReportRankingLifts;
       /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
       readable_heads: string[];
+      /** True when the report's title or summary was edited after the text this score read. The score describes the old text: the inbox hides its lift and the model sort treats the report as unscored. */
+      stale: boolean;
     }
 
     export interface SignalReportList {
@@ -78956,7 +79076,7 @@ export namespace Schemas {
       /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
       readonly state_timeline?: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-      readonly destination_types?: readonly NotificationDestinationTypeEnum[];
+      readonly destination_types?: readonly LogsAlertDestinationTypeEnum[];
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
          * @nullable
@@ -98916,7 +99036,8 @@ export namespace Schemas {
        * * `GoogleBusinessProfile` - GoogleBusinessProfile
        * * `Ledyer` - Ledyer
        * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite */
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -100335,7 +100456,8 @@ export namespace Schemas {
        * * `GoogleBusinessProfile` - GoogleBusinessProfile
        * * `Ledyer` - Ledyer
        * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite */
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -101736,7 +101858,8 @@ export namespace Schemas {
        * * `GoogleBusinessProfile` - GoogleBusinessProfile
        * * `Ledyer` - Ledyer
        * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite */
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
