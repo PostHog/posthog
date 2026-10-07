@@ -32,6 +32,8 @@ Choose a connection in the **Data** panel, then select a table below it. **Run**
 
 BI usage keeps the existing `sql-editor-bi-mode-selected`, `sql-editor-bi-query-run`, and `sql-editor-bi-query-saved` events. Their properties describe table calculations, Top N, comparisons, formatting, axes, totals, and related/property field counts. The `bi-worksheet-action` event's `action` property defines the funnel: `opened`, `source_selected`, `first_chart`, `saved`, `added_to_dashboard`. The first chart is the first nonempty successful result per editor visit; reruns and failures do not count again. Saved and dashboard steps include `insight_id`. Additional actions record drill-down choices, related-table expansion, and property browsing/search. These events exclude SQL, source names, field names, formulas, search text, filter values, and result contents.
 
+**Undo** and **Redo** restore shelves, filters, calculations, formatting, chart settings, and worksheet names. The editor keeps the last 100 changes during a visit; opening another worksheet or discarding changes starts a new history. Use Cmd/Ctrl+Z and Cmd/Ctrl+Shift+Z outside text inputs. Undo respects **Auto update**: with it off, click **Run** to refresh results. **Save a copy** creates a separate worksheet and opens it in the editor without changing the original or copying its dashboard placements. Copy failures leave the original and your edits in place. Usage tracking adds `undo`, `redo`, and `copied` actions.
+
 For older saves without worksheet configuration, discarding query edits preserves the current source and shelves.
 
 SQL query-scan advisories are hidden in Business intelligence. Query errors and warnings about stale sources or restricted data remain visible.

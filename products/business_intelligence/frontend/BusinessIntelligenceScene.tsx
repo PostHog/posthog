@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonInput, LemonModal, Spinner } from '@post
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -39,6 +40,9 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         exportViewOpen,
         exportViewName,
         exportedViewLoading,
+        canUndo,
+        canRedo,
+        copyDisabledReason,
     } = useValues(logic)
     const {
         setName,
@@ -49,7 +53,21 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         setExportViewOpen,
         setExportViewName,
         exportView,
+        undo,
+        redo,
     } = useActions(logic)
+
+    useKeyboardHotkeys({
+        z: {
+            willHandleEvent: true,
+            action: (event) => {
+                if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.shiftKey ? canRedo : canUndo)) {
+                    event.preventDefault()
+                    event.shiftKey ? redo() : undo()
+                }
+            },
+        },
+    })
 
     if (!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE]) {
         return <NotFound object="page" />
@@ -75,6 +93,21 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                         maxLength={400}
                         className="min-w-40 flex-1"
                     />
+                    <LemonButton size="small" onClick={undo} disabledReason={!canUndo ? 'Nothing to undo' : undefined}>
+                        Undo
+                    </LemonButton>
+                    <LemonButton size="small" onClick={redo} disabledReason={!canRedo ? 'Nothing to redo' : undefined}>
+                        Redo
+                    </LemonButton>
+                    <LemonButton
+                        size="small"
+                        onClick={() => saveInsight({ asCopy: true })}
+                        loading={insightLoading}
+                        disabledReason={copyDisabledReason}
+                        data-attr="bi-save-copy"
+                    >
+                        Save a copy
+                    </LemonButton>
                     <LemonButton
                         size="small"
                         icon={<IconShare />}
@@ -107,7 +140,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                     <LemonButton
                         type="primary"
                         size="small"
-                        onClick={saveInsight}
+                        onClick={() => saveInsight()}
                         loading={insightLoading}
                         disabledReason={saveDisabledReason}
                         data-attr="bi-save-insight"
