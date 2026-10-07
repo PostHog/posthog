@@ -71,7 +71,6 @@ tools:
             type cannot be changed. Do not change the model field on an existing batch export.
         exclude_params:
             - filters
-            - integration
 
     batch-exports-list:
         operation: batch_exports_list
