@@ -3016,13 +3016,17 @@ const handleQuerySourceUpdateSideEffects = (
     }
 
     // We do not support properties, filtering test accounts, and sampling for DWH nodes
-    // Disable them if there are any
-    const addsDataWarehouseSeries =
-        !!maybeChangedSeries?.some(isAnyDataWarehouseNode) ||
-        nextRetentionFilter?.targetEntity?.type === 'data_warehouse' ||
-        nextRetentionFilter?.returningEntity?.type === 'data_warehouse'
-    const hasFiltersOrTestAccounts = !!(currentState.filterTestAccounts || currentState.properties)
-    if (addsDataWarehouseSeries && (hasFiltersOrTestAccounts || (currentState as TrendsQuery).samplingFactor != null)) {
+    // Disable them if there are any. Check the query after the update, so a later edit cannot turn them on again.
+    const nextQuery = { ...currentState, ...mergedUpdate } as InsightQueryNode
+    const nextRetentionEntities = isRetentionQuery(nextQuery)
+        ? [nextQuery.retentionFilter?.targetEntity, nextQuery.retentionFilter?.returningEntity]
+        : []
+    const hasDataWarehouseSeries =
+        !!(nextQuery as TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery).series?.some(
+            isAnyDataWarehouseNode
+        ) || nextRetentionEntities.some((entity) => entity?.type === 'data_warehouse')
+    const hasFiltersOrTestAccounts = !!(nextQuery.filterTestAccounts || nextQuery.properties)
+    if (hasDataWarehouseSeries && (hasFiltersOrTestAccounts || (nextQuery as TrendsQuery).samplingFactor != null)) {
         if (hasFiltersOrTestAccounts) {
             lemonToast.info(
                 'Filter groups and test accounts are not supported for Data Warehouse series and have been disabled.'

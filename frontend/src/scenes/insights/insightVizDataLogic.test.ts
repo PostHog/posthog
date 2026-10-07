@@ -435,6 +435,23 @@ describe('insightVizDataLogic', () => {
 
             expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).breakdownFilter).toEqual(expected)
         })
+
+        it('keeps test accounts off when a later edit turns them on for a retention insight with a data warehouse entity', () => {
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                kind: NodeKind.RetentionQuery,
+                retentionFilter: { targetEntity: warehouseEntity, returningEntity: warehouseEntity },
+            } as QuerySourceUpdate)
+
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                ...builtInsightVizDataLogic.values.querySource,
+                filterTestAccounts: true,
+            } as QuerySourceUpdate)
+
+            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({
+                kind: NodeKind.RetentionQuery,
+                filterTestAccounts: false,
+            })
+        })
     })
 
     describe('updateDateRange', () => {
