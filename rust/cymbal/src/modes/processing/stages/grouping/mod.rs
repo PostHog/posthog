@@ -23,6 +23,7 @@ pub struct GroupingStage {
     pub connection: PgPool,
     pub team_manager: TeamManager,
     pub issue_cache: Cache<(TeamId, String), Uuid>,
+    pub fingerprint_miss_cache: Cache<(TeamId, String), ()>,
 }
 
 impl From<&Arc<AppContext>> for GroupingStage {
@@ -31,6 +32,7 @@ impl From<&Arc<AppContext>> for GroupingStage {
             connection: ctx.posthog_pool.clone(),
             team_manager: ctx.team_manager.clone(),
             issue_cache: ctx.issue_cache.clone(),
+            fingerprint_miss_cache: ctx.fingerprint_miss_cache.clone(),
         }
     }
 }

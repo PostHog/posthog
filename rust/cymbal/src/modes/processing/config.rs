@@ -79,6 +79,11 @@ pub struct ProcessingConfig {
     #[envconfig(default = "100000")]
     pub issue_cache_capacity: u64,
 
+    // A fingerprint value with no row is cached for a short time only: another worker (or an
+    // older binary mid-deploy) can insert the row, and this worker does not see that insert.
+    #[envconfig(default = "60")]
+    pub fingerprint_miss_cache_ttl_seconds: u64,
+
     // Event-level release resolution runs once per exception event. A release row is immutable
     // once the CLI creates it, so a positive hit never goes stale; the TTL exists to let a
     // negative result (app metadata that matches no release yet) expire after a dSYM upload
