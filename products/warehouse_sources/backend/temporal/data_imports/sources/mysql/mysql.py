@@ -20,7 +20,7 @@ import time
 import socket
 import datetime
 import collections
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from typing import Any, TypeVar
 
@@ -86,6 +86,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     IncrementalFieldFilter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import (
+    KeysetPage,
     KeysetResumeState,
     iter_keyset_pages,
     keyset_last_key,
@@ -1929,7 +1930,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     arrow_schema = projection.table.to_arrow_schema()
                     plan_checked = False
 
-                    def _run_page(page_sql: SafeSQL) -> pa.Table | None:
+                    def _run_page(page_sql: SafeSQL) -> KeysetPage | None:
                         nonlocal plan_checked
                         with connection.cursor() as cursor:
                             # Check the first page that actually seeks — page 1 has no `pk >`
@@ -1943,8 +1944,10 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                             rows = cursor.fetchall()
                             if not rows:
                                 return None
-                            column_names = [column[0] for column in cursor.description or []]
-                            return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                            return KeysetPage(columns=[column[0] for column in cursor.description or []], rows=rows)
+
+                    def _to_table(column_names: list[str], rows: list[Sequence[Any]]) -> pa.Table:
+                        return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
                     def _checkpoint(last_key: Any) -> None:
                         manager.save_state(keyset_state((last_key,)))
@@ -1956,6 +1959,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         keyset_column=keyset_column,
                         chunk_size=chunk_size,
                         run_page=_run_page,
+                        to_table=_to_table,
                         initial_last_value=initial_last_value,
                         checkpoint=_checkpoint,
                         enabled_columns=projection.enabled_columns,
