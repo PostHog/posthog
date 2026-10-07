@@ -11,6 +11,8 @@ from parameterized import parameterized
 
 from posthog.schema import ChartDisplayType, EventsNode, IntervalType, TrendsFilter, TrendsQuery
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
 from posthog.redis import get_client
@@ -106,6 +108,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         outcome, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"]))
         assert outcome is not None
+        assert get_query_tags().ch_user == ClickHouseUser.ALERTS_PLATFORM_INSIGHT
         record_outcomes(self.team.id, (outcome,), CUTOFF)
 
         assert (outcome.kind, outcome.value, outcome.evaluation_key) == (
