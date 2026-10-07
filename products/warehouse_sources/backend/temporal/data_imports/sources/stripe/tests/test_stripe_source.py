@@ -1449,6 +1449,12 @@ class TestWebhookUpsertCollapse:
             # A redelivery can arrive after a newer event, so a plain last-row-wins rule would
             # reinstate the older state.
             ("older event delivered last", [(1700000100, "paid"), (1700000050, "open")], "paid"),
+            # Stripe does not deliver events in order and the webhook handler does not finish them
+            # in order, so on a `created` tie the stale snapshot can be the last row.
+            ("tie with the stale snapshot last", [(1700000100, "paid"), (1700000100, "open")], "paid"),
+            ("tie between draft and open", [(1700000100, "open"), (1700000100, "draft")], "open"),
+            # An uncollectible invoice can still be paid or voided.
+            ("tie after uncollectible", [(1700000100, "void"), (1700000100, "uncollectible")], "void"),
         ]
     )
     def test_latest_state_per_object_wins(
