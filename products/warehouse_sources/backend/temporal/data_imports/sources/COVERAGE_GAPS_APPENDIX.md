@@ -4716,11 +4716,11 @@ Today (18): `customers`, `inventory`, `inventory_movements`, `locations`, `manuf
 
 Diffed against: <https://api.katanamrp.com/v1/openapi.json>
 
-- [ ] `sales_order_rows` — line items behind sales_orders — required for any revenue-by-product or product-mix analysis (high)
-- [ ] `purchase_order_rows` — line items behind purchase_orders, with quantities and purchase prices (high)
+- [x] `sales_order_rows` — line items behind sales_orders — required for any revenue-by-product or product-mix analysis (high)
+- [x] `purchase_order_rows` — line items behind purchase_orders, with quantities and purchase prices (high)
 - [ ] `bom_rows` — bill-of-materials linking products/variants to the materials they consume (high)
-- [ ] `manufacturing_order_recipe_rows` — actual ingredient consumption per manufacturing order — yield and material-variance analysis (high)
-- [ ] `manufacturing_order_productions` — completed production output per manufacturing order; manufacturing_orders alone only carries planned state (high)
+- [x] `manufacturing_order_recipe_rows` — actual ingredient consumption per manufacturing order — yield and material-variance analysis (high)
+- [x] `manufacturing_order_productions` — completed production output per manufacturing order; manufacturing_orders alone only carries planned state (high)
 - [ ] `sales_order_fulfillments` — shipment/fulfillment records — the transition from order to delivered (high)
 - [ ] `sales_return_rows` — line items behind sales_returns, needed to attribute returns to products (medium)
 - [ ] `manufacturing_order_operation_rows` — per-operation timings and assigned operators, for throughput and labor cost (medium)
