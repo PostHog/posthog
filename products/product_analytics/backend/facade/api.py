@@ -196,7 +196,8 @@ def user_can_view_insight(*, team: Team, user: User, insight_id: int) -> bool:
 def save_saved_insight_query(
     *, team: Team, user: User, insight_id: int, expected_query: dict[str, Any], query: dict[str, Any]
 ) -> str | None:
-    from posthog.api.sharing_publish_gate import blocked_access_for_user, exposure_without_viewer_check  # noqa: PLC0415, I001 — avoids HogQL import cycle
+    from posthog.api.query_access_check import blocked_access_for_user  # noqa: PLC0415, I001 — avoids HogQL import cycle
+    from posthog.api.sharing_publish_gate import exposure_without_viewer_check  # noqa: PLC0415, I001 — avoids HogQL import cycle
 
     with transaction.atomic():
         insight = Insight.objects.select_for_update().filter(team=team, pk=insight_id, deleted=False).first()
