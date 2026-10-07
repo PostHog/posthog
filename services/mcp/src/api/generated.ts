@@ -7173,6 +7173,30 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
     }
 
+    export type CostPlanStepKind = typeof CostPlanStepKind[keyof typeof CostPlanStepKind];
+
+
+    export const CostPlanStepKind = {
+      Scan: 'scan',
+      Filter: 'filter',
+      Join: 'join',
+    } as const;
+
+    export interface CostPlanStep {
+      /** Instruction for the editor's "Fix with AI" action, set only where rewriting the query helps. */
+      ai_fix_prompt?: string | null;
+      /** The rest of the story for a reader who expands the line. */
+      detail?: string | null;
+      /** Prose advice for a reader. Not replacement text. */
+      fix?: string | null;
+      kind: CostPlanStepKind;
+      /** One line, the way an EXPLAIN prints it. */
+      message: string;
+      rows?: number | null;
+      /** The table the step reads or filters, as the query names it. */
+      table?: string | null;
+    }
+
     export interface HogQLNotice {
       end?: number | null;
       fix?: string | null;
@@ -7263,8 +7287,65 @@ export namespace Schemas {
       type: string;
     }
 
+    export type ScanEstimatePrecision = typeof ScanEstimatePrecision[keyof typeof ScanEstimatePrecision];
+
+
+    export const ScanEstimatePrecision = {
+      Measured: 'measured',
+      SizeOnly: 'size_only',
+      Unknown: 'unknown',
+    } as const;
+
+    export type ScanEstimateSource = typeof ScanEstimateSource[keyof typeof ScanEstimateSource];
+
+
+    export const ScanEstimateSource = {
+      Events: 'events',
+      Clickhouse: 'clickhouse',
+      Warehouse: 'warehouse',
+      Direct: 'direct',
+      Static: 'static',
+    } as const;
+
+    export type ScanEstimateTimeRange = typeof ScanEstimateTimeRange[keyof typeof ScanEstimateTimeRange];
+
+
+    export const ScanEstimateTimeRange = {
+      Bounded: 'bounded',
+      Open: 'open',
+    } as const;
+
+    export interface TableScanEstimate {
+      /** Absent when the source does not record a size in bytes. */
+      bytes?: number | null;
+      /** Events only: length of the timestamp range the rows were scaled to, in days. */
+      days?: number | null;
+      /** Events only: event names the estimate was narrowed to. Empty when the scan reads every event. */
+      events?: string[] | null;
+      /** The table as the query names it. */
+      name: string;
+      precision: ScanEstimatePrecision;
+      /** Absent when the precision is unknown, or when only the size is known. */
+      rows?: number | null;
+      source: ScanEstimateSource;
+      /** Events only. */
+      time_range?: ScanEstimateTimeRange | null;
+    }
+
+    export interface ScanEstimate {
+      /** False when the query reads a table somewhere the estimate does not follow, such as a subquery in WHERE or in the select list, so `rows` leaves that read out. */
+      complete: boolean;
+      /** Sum of the rows of every table entry that has one. */
+      rows: number;
+      tables: TableScanEstimate[];
+      /** True when the query reads at most `rows` of the tables that have a number: an indexed filter went unmodeled, or a table is known only by its size. False when every table that has a number is measured. A table with no number is not in `rows` at all; its `precision` says so. */
+      upper_bound: boolean;
+    }
+
     export interface HogQLMetadataResponse {
       ch_table_names?: string[] | null;
+      /** The estimate and the index verdicts as one readable plan: scans in FROM order, each with its filters, then the join. Present whenever `scan_estimate` is. */
+      cost_plan?: CostPlanStep[] | null;
       errors: HogQLNotice[];
       /** One entry per property filter, in query order. */
       index_usage?: PredicateIndexUsage[] | null;
@@ -7274,6 +7355,8 @@ export namespace Schemas {
       /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
       output_columns?: HogQLMetadataColumn[] | null;
       query?: string | null;
+      /** Present when the estimator walked the query; `tables` is empty for a query that reads no table. Absent when the FROM tree cannot be walked or the estimator failed. */
+      scan_estimate?: ScanEstimate | null;
       table_names?: string[] | null;
       warnings: HogQLNotice[];
     }
@@ -87057,6 +87140,8 @@ export namespace Schemas {
 
     export interface QueryResponseAlternative9 {
       ch_table_names?: string[] | null;
+      /** The estimate and the index verdicts as one readable plan: scans in FROM order, each with its filters, then the join. Present whenever `scan_estimate` is. */
+      cost_plan?: CostPlanStep[] | null;
       errors: HogQLNotice[];
       /** One entry per property filter, in query order. */
       index_usage?: PredicateIndexUsage[] | null;
@@ -87066,6 +87151,8 @@ export namespace Schemas {
       /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
       output_columns?: HogQLMetadataColumn[] | null;
       query?: string | null;
+      /** Present when the estimator walked the query; `tables` is empty for a query that reads no table. Absent when the FROM tree cannot be walked or the estimator failed. */
+      scan_estimate?: ScanEstimate | null;
       table_names?: string[] | null;
       warnings: HogQLNotice[];
     }

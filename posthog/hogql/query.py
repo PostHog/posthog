@@ -911,6 +911,7 @@ class HogQLQueryExecutor:
                 hogql_features=hogql_features,
                 **self.context.read_tags(),
                 plan_fingerprint=plan_fingerprint,
+                estimated_rows=estimated_rows,
                 timings=timings_dict,
                 modifiers=(
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}

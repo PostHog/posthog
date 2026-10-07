@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from products.data_warehouse.backend.direct_postgres import DIRECT_ESTIMATED_ROW_COUNT_OPTION
+from products.data_warehouse.backend.direct_postgres import DIRECT_ESTIMATED_ROW_COUNT_OPTION
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
@@ -33,17 +35,25 @@ def upsert_direct_mysql_table(
     source: ExternalDataSource,
     columns: DirectMySQLColumns,
     source_schema: str,
+    estimated_row_count: int | None = None,
     source_table_name: str,
+    estimated_row_count: int | None = None,
 ) -> DataWarehouseTable:
     from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
-    options = {
+    options: dict[str, Any] = {
         **(existing_table.options if existing_table is not None and isinstance(existing_table.options, dict) else {}),
         **get_direct_mysql_table_options(
             source_schema=source_schema,
             source_table_name=source_table_name,
+    # A refresh whose discovery could not read the catalog keeps the last figure rather than dropping it.
+    if estimated_row_count is not None:
+        options[DIRECT_ESTIMATED_ROW_COUNT_OPTION] = estimated_row_count
         ),
     }
+    # A refresh whose discovery could not read the catalog keeps the last figure rather than dropping it.
+    if estimated_row_count is not None:
+        options[DIRECT_ESTIMATED_ROW_COUNT_OPTION] = estimated_row_count
 
     if existing_table is None:
         return DataWarehouseTable.objects.create(

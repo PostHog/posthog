@@ -787,6 +787,12 @@ class CoreEventCategory(StrEnum):
     REACTIVATION = "reactivation"
 
 
+class CostPlanStepKind(StrEnum):
+    SCAN = "scan"
+    FILTER = "filter"
+    JOIN = "join"
+
+
 class CountPerActorMathType(StrEnum):
     AVG_COUNT_PER_ACTOR = "avg_count_per_actor"
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
@@ -1300,6 +1306,11 @@ class UrlMatching(Enum):
     EXACT = "exact"
     REGEX = "regex"
     NONE_TYPE_NONE = None
+
+
+class TimeRange(StrEnum):
+    BOUNDED = "bounded"
+    OPEN = "open"
 
 
 class MultipleVariantHandling(StrEnum):
@@ -2776,6 +2787,25 @@ class RetentionType(StrEnum):
 class RoktAdsDefaultSources(StrEnum):
     ROKT = "rokt"
     ROKT_ADS = "rokt_ads"
+
+
+class ScanEstimatePrecision(StrEnum):
+    MEASURED = "measured"
+    SIZE_ONLY = "size_only"
+    UNKNOWN = "unknown"
+
+
+class ScanEstimateSource(StrEnum):
+    EVENTS = "events"
+    CLICKHOUSE = "clickhouse"
+    WAREHOUSE = "warehouse"
+    DIRECT = "direct"
+    STATIC = "static"
+
+
+class ScanEstimateTimeRange(StrEnum):
+    BOUNDED = "bounded"
+    OPEN = "open"
 
 
 class XScale(StrEnum):

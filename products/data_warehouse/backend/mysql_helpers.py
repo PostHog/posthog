@@ -229,8 +229,10 @@ def reconcile_mysql_schemas(
             schema_name=source_schema.name,
             source=source,
             columns=mysql_columns_to_dwh_columns(projected_columns),
+            estimated_row_count=source_schema.estimated_row_count,
             source_schema=resolved_schema,
             source_table_name=resolved_table,
+            estimated_row_count=source_schema.estimated_row_count,
         )
         if matched.table_id != table_model.id:
             matched.table = table_model

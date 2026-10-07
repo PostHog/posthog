@@ -924,6 +924,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         from products.data_warehouse.backend.facade.sources import (  # noqa: PLC0415 — breaks an import cycle
             DIRECT_CLICKHOUSE_DATABASE_OPTION,
             DIRECT_CLICKHOUSE_TABLE_OPTION,
+            DIRECT_ESTIMATED_ROW_COUNT_OPTION,
             DIRECT_MOTHERDUCK_CATALOG_OPTION,
             DIRECT_MOTHERDUCK_SCHEMA_OPTION,
             DIRECT_MOTHERDUCK_TABLE_OPTION,
@@ -952,6 +953,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             keep_tuple_element_names=self.format in STRUCTURE_KEEPS_TUPLE_ELEMENT_NAMES,
         )
 
+        estimated_row_count = self.options.get(DIRECT_ESTIMATED_ROW_COUNT_OPTION)
+
         if self.external_data_source and self.external_data_source.is_direct_postgres:
             postgres_catalog = (
                 self.options.get(DIRECT_POSTGRES_CATALOG_OPTION)
@@ -977,6 +980,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 external_data_source_id=str(self.external_data_source_id),
                 source_type=self.external_data_source.source_type,
                 connection_metadata=self.external_data_source.connection_metadata,
+                estimated_row_count=estimated_row_count if isinstance(estimated_row_count, int) else None,
             )
 
         if self.external_data_source and self.external_data_source.is_direct_mysql:
@@ -998,6 +1002,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 mysql_table_name=mysql_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
+                estimated_row_count=estimated_row_count if isinstance(estimated_row_count, int) else None,
             )
 
         if self.external_data_source and self.external_data_source.is_direct_snowflake:
@@ -1025,6 +1030,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 snowflake_table_name=snowflake_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
+                estimated_row_count=estimated_row_count if isinstance(estimated_row_count, int) else None,
             )
 
         if self.external_data_source and self.external_data_source.is_direct_redshift:
@@ -1188,6 +1194,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             table_id=str(self.id),
             external_data_source_id=str(self.external_data_source_id) if self.external_data_source_id else None,
             source_type=self.external_data_source.source_type if self.external_data_source else None,
+            row_count=self.row_count,
+            size_in_s3_mib=self.size_in_s3_mib,
         )
 
         # Must resolve an unset option the same way _describe_settings does, by sending no setting.

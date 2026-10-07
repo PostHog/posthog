@@ -262,6 +262,9 @@ from posthog.schema_enums import (
     RetentionType as RetentionType,
     RoktAdsDefaultSources as RoktAdsDefaultSources,
     Scale as Scale,
+    ScanEstimatePrecision as ScanEstimatePrecision,
+    ScanEstimateSource as ScanEstimateSource,
+    ScanEstimateTimeRange as ScanEstimateTimeRange,
     SeriesColorMode as SeriesColorMode,
     SessionAttributionGroupBy as SessionAttributionGroupBy,
     SessionsV2JoinMode as SessionsV2JoinMode,
@@ -20766,6 +20769,48 @@ class QueryResponseAlternative6(BaseModel):
     )
 
 
+class TableScanEstimate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bytes: int | None = Field(
+        default=None,
+        description="Absent when the source does not record a size in bytes.",
+    )
+    days: float | None = Field(
+        default=None,
+        description=("Events only: length of the timestamp range the rows were scaled to, in days."),
+    )
+    events: list[str] | None = Field(
+        default=None,
+        description=("Events only: event names the estimate was narrowed to. Empty when the scan reads every event."),
+    )
+    name: str = Field(..., description="The table as the query names it.")
+    precision: ScanEstimatePrecision
+    rows: int | None = Field(
+        default=None,
+        description=("Absent when the precision is unknown, or when only the size is known."),
+    )
+    source: ScanEstimateSource
+    time_range: ScanEstimateTimeRange | None = Field(default=None, description="Events only.")
+
+
+class ScanEstimate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    rows: int = Field(..., description="Sum of the rows of every table entry that has one.")
+    tables: list[TableScanEstimate]
+    upper_bound: bool = Field(
+        ...,
+        description=(
+            "True when the query reads at most `rows` of the tables that have a number:"
+            " an indexed filter went unmodeled, or a table is known only by its size."
+            " False when every table is measured."
+        ),
+    )
+
+
 class QueryResponseAlternative9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -20786,6 +20831,14 @@ class QueryResponseAlternative9(BaseModel):
         ),
     )
     query: str | None = None
+    scan_estimate: ScanEstimate | None = Field(
+        default=None,
+        description=(
+            "Present when the estimator walked the query; `tables` is empty for a query"
+            " that reads no table. Absent when the FROM tree cannot be walked or the"
+            " estimator failed."
+        ),
+    )
     table_names: list[str] | None = None
     warnings: list[HogQLNotice]
 
@@ -27984,6 +28037,14 @@ class HogQLMetadataResponse(BaseModel):
         ),
     )
     query: str | None = None
+    scan_estimate: ScanEstimate | None = Field(
+        default=None,
+        description=(
+            "Present when the estimator walked the query; `tables` is empty for a query"
+            " that reads no table. Absent when the FROM tree cannot be walked or the"
+            " estimator failed."
+        ),
+    )
     table_names: list[str] | None = None
     warnings: list[HogQLNotice]
 

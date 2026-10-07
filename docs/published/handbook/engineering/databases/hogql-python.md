@@ -77,6 +77,45 @@ Those messages can contain storage credentials, signed URLs, settings, or source
 Check both the throw sites and the exception enrichment paths before allowing raw text.
 Keep importable exception classes when adding a fixed explanation, and test the wrapped message as well as its string representation.
 
+## Scan estimate accuracy
+
+ClickHouse execution records `estimated_rows` alongside `plan_fingerprint` in the query's `log_comment` when every table in the query has a measured estimate and the printed SQL has no join the estimate did not see, so `read_rows` is compared only with a number that tried to cover all of it.
+This uses the same estimator as the SQL editor, independently of the editor's display flag.
+Missing statistics, unsupported queries, and estimator failures leave the estimate tag absent and do not prevent execution.
+The `scan_estimate` timing measures the added planning work.
+`HOGQL_SCAN_ESTIMATE_AT_EXECUTION` switches the execution-time estimate on for the whole instance. It is off by default, and off under test settings, until the statistics lookups it runs are cached across requests and bounded; with it off, queries run as before and the accuracy query collects nothing.
+
+The estimate has one entry per table in the FROM tree, each labeled with its source and precision.
+An `events` scan is `measured`: it has a model of what the query reads and is scored by the accuracy query.
+A warehouse table is `size_only`: its rows and bytes are known from the last sync, the query's read of it is not.
+`persons` and `groups` are `size_only` too, from a count of the team's rows that is cached for a day.
+A table on a customer's own database (a direct Postgres, MySQL or Snowflake source) is `size_only` from the row estimate its catalog reported at the last schema refresh, and is never scored, because nothing returns `read_rows` for a query that ran there.
+`sessions` is `measured` like events: a daily rate, cached for a day, scaled to the range the query puts on the session start time.
+Any other table is `unknown` until its source gets a statistic.
+The headline `rows` sums the entries that have a number, and `upper_bound` says whether that sum is a ceiling.
+`complete` is false when the query reads a table somewhere the walk does not follow, such as a subquery in WHERE or in the select list; the editor header and the `explain_sql` tool say so, and the execution tag is not written.
+A query that reads no table gets an estimate with no tables, so "nothing to read" and "could not estimate" stay apart.
+`cost_plan` renders the same facts as one plan (`posthog/hogql/cost/explain.py`): each scan in FROM order, the property filters that apply to it with how much each skips, then one join line.
+It is what the SQL editor shows when the bar is expanded, and what an agent reads to decide whether to narrow a query before running it.
+
+The estimate counts rows read, not rows returned, so a property filter lowers it only when a skip index can drop granules.
+An equality or `IN` filter on an event property with a bloom filter index is scaled by the share of granules expected to hold a match.
+That share comes from the number of distinct values recorded for the property in the `property_values` table.
+A filter with no usable index does not change the estimate, because the query reads every row either way.
+Any other indexed filter sets `upper_bound`, and the SQL editor then shows "Reads up to" instead of "Reads about".
+
+The estimate counts rows read, not rows returned, so a property filter lowers it only when a skip index can drop granules.
+An equality or `IN` filter on an event property with a bloom filter index is scaled by the share of granules expected to hold a match.
+That share comes from the number of distinct values recorded for the property in the `property_values` table.
+A filter with no usable index does not change the estimate, because the query reads every row either way.
+Any other indexed filter sets `upper_bound`, and the SQL editor then shows "Reads up to" instead of "Reads about".
+
+Use `posthog.hogql.cost.accuracy.cost_estimate_accuracy_hogql(days=7)` to generate a HogQL query over the team's archived `query_log`.
+It compares estimated rows with actual `read_rows` for successful initial queries, grouped by plan fingerprint.
+Both row counts must be positive.
+The report includes row-only estimates; byte accuracy uses only entries with positive byte estimates and reads, and returns `NULL` when none exist.
+Q-error measures the larger of estimate / actual and actual / estimate: 1 is exact, and 3 means a factor of three off.
+
 ## AST nodes
 
 If you want more control, you can build the AST nodes directly. The same query above can be written as:

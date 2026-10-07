@@ -124,6 +124,8 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
             tables = list(columns_by_table.keys())
             primary_keys = impl.get_primary_keys(conn, config, tables)
             row_counts = impl.get_row_counts(conn, config, tables) if with_counts else {}
+            row_estimates = impl.get_row_estimates(conn, config, tables)
+            row_estimates = impl.get_row_estimates(conn, config, tables)
             foreign_keys = impl.get_foreign_keys(conn, config, tables)
             metadata = impl.get_source_metadata(conn, config, tables)
             cdc_support = impl.get_cdc_support(conn, config, tables)
@@ -145,7 +147,9 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
                     supports_cdc=cdc_support.get(table_name, False),
                     incremental_fields=build_incremental_fields(incremental_triples, indexed_columns),
                     columns=columns,
+                    estimated_row_count=row_estimates.get(table_name),
                     row_count=row_counts.get(table_name),
+                    estimated_row_count=row_estimates.get(table_name),
                     foreign_keys=foreign_keys.get(table_name, []),
                     source_catalog=metadata.catalog_by_table.get(table_name),
                     source_schema=metadata.schema_by_table.get(table_name),

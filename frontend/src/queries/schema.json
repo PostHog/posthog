@@ -18104,6 +18104,44 @@
             ],
             "type": "string"
         },
+        "CostPlanStep": {
+            "additionalProperties": false,
+            "description": "One line of the plan that explains the scan estimate: a table scan, a filter on it, or the join.",
+            "properties": {
+                "ai_fix_prompt": {
+                    "description": "Instruction for the editor's \"Fix with AI\" action, set only where rewriting the query helps.",
+                    "type": "string"
+                },
+                "detail": {
+                    "description": "The rest of the story for a reader who expands the line.",
+                    "type": "string"
+                },
+                "fix": {
+                    "description": "Prose advice for a reader. Not replacement text.",
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/CostPlanStepKind"
+                },
+                "message": {
+                    "description": "One line, the way an EXPLAIN prints it.",
+                    "type": "string"
+                },
+                "rows": {
+                    "$ref": "#/definitions/integer"
+                },
+                "table": {
+                    "description": "The table the step reads or filters, as the query names it.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "message"],
+            "type": "object"
+        },
+        "CostPlanStepKind": {
+            "enum": ["scan", "filter", "join"],
+            "type": "string"
+        },
         "CountPerActorMathType": {
             "enum": [
                 "avg_count_per_actor",
@@ -25069,6 +25107,33 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
+        "EventsScanEstimate": {
+            "additionalProperties": false,
+            "description": "How many events a query is expected to read, estimated before it runs.",
+            "properties": {
+                "days": {
+                    "description": "Length of the timestamp range the estimate covers, in days.",
+                    "type": "number"
+                },
+                "events": {
+                    "description": "Event names the estimate was narrowed to. Empty when the query reads every event.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "rows": {
+                    "$ref": "#/definitions/integer"
+                },
+                "time_range": {
+                    "description": "`bounded` when both ends of the timestamp range were understood, `open` when a default range was assumed.",
+                    "enum": ["bounded", "open"],
+                    "type": "string"
+                }
+            },
+            "required": ["rows", "days", "events", "time_range"],
+            "type": "object"
+        },
         "ExperimentActorsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -29488,11 +29553,22 @@
                     },
                     "type": "array"
                 },
+                "cost_plan": {
+                    "description": "The estimate and the index verdicts as one readable plan: scans in FROM order, each with its filters, then the join. Present whenever `scan_estimate` is.",
+                    "items": {
+                        "$ref": "#/definitions/CostPlanStep"
+                    },
+                    "type": "array"
+                },
                 "errors": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
                     },
                     "type": "array"
+                },
+                "events_scan_estimate": {
+                    "$ref": "#/definitions/EventsScanEstimate",
+                    "description": "Present when the query reads only the events table, directly or through subqueries, CTEs and UNIONs; absent for a join to any other table, or a team with no data."
                 },
                 "index_usage": {
                     "description": "One entry per property filter, in query order.",
@@ -29522,6 +29598,10 @@
                 },
                 "query": {
                     "type": "string"
+                },
+                "scan_estimate": {
+                    "$ref": "#/definitions/ScanEstimate",
+                    "description": "Present when the estimator walked the query; `tables` is empty for a query that reads no table. Absent when the FROM tree cannot be walked or the estimator failed."
                 },
                 "table_names": {
                     "items": {
@@ -42381,11 +42461,22 @@
                             },
                             "type": "array"
                         },
+                        "cost_plan": {
+                            "description": "The estimate and the index verdicts as one readable plan: scans in FROM order, each with its filters, then the join. Present whenever `scan_estimate` is.",
+                            "items": {
+                                "$ref": "#/definitions/CostPlanStep"
+                            },
+                            "type": "array"
+                        },
                         "errors": {
                             "items": {
                                 "$ref": "#/definitions/HogQLNotice"
                             },
                             "type": "array"
+                        },
+                        "events_scan_estimate": {
+                            "$ref": "#/definitions/EventsScanEstimate",
+                            "description": "Present when the query reads only the events table, directly or through subqueries, CTEs and UNIONs; absent for a join to any other table, or a team with no data."
                         },
                         "index_usage": {
                             "description": "One entry per property filter, in query order.",
@@ -42415,6 +42506,10 @@
                         },
                         "query": {
                             "type": "string"
+                        },
+                        "scan_estimate": {
+                            "$ref": "#/definitions/ScanEstimate",
+                            "description": "Present when the estimator walked the query; `tables` is empty for a query that reads no table. Absent when the FROM tree cannot be walked or the estimator failed."
                         },
                         "table_names": {
                             "items": {
@@ -52118,6 +52213,44 @@
             "required": ["kind", "shortId"],
             "type": "object"
         },
+        "ScanEstimate": {
+            "additionalProperties": false,
+            "description": "How much a query is expected to read, estimated before it runs, one entry per table it scans.",
+            "properties": {
+                "complete": {
+                    "description": "False when the query reads a table somewhere the estimate does not follow, such as a subquery in WHERE or in the select list, so `rows` leaves that read out.",
+                    "type": "boolean"
+                },
+                "rows": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Sum of the rows of every table entry that has one."
+                },
+                "tables": {
+                    "items": {
+                        "$ref": "#/definitions/TableScanEstimate"
+                    },
+                    "type": "array"
+                },
+                "upper_bound": {
+                    "description": "True when the query reads at most `rows` of the tables that have a number: an indexed filter went unmodeled, or a table is known only by its size. False when every table that has a number is measured. A table with no number is not in `rows` at all; its `precision` says so.",
+                    "type": "boolean"
+                }
+            },
+            "required": ["rows", "upper_bound", "complete", "tables"],
+            "type": "object"
+        },
+        "ScanEstimatePrecision": {
+            "enum": ["measured", "size_only", "unknown"],
+            "type": "string"
+        },
+        "ScanEstimateSource": {
+            "enum": ["events", "clickhouse", "warehouse", "direct", "static"],
+            "type": "string"
+        },
+        "ScanEstimateTimeRange": {
+            "enum": ["bounded", "open"],
+            "type": "string"
+        },
         "ScatterChartSettings": {
             "additionalProperties": false,
             "properties": {
@@ -54527,6 +54660,47 @@
                 "p99_duration_pct_change",
                 "error_rate_pct_change"
             ],
+            "type": "object"
+        },
+        "TableScanEstimate": {
+            "additionalProperties": false,
+            "description": "What is known about one table scan in the query's FROM tree.",
+            "properties": {
+                "bytes": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Absent when the source does not record a size in bytes."
+                },
+                "days": {
+                    "description": "Events only: length of the timestamp range the rows were scaled to, in days.",
+                    "type": "number"
+                },
+                "events": {
+                    "description": "Events only: event names the estimate was narrowed to. Empty when the scan reads every event.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "name": {
+                    "description": "The table as the query names it.",
+                    "type": "string"
+                },
+                "precision": {
+                    "$ref": "#/definitions/ScanEstimatePrecision"
+                },
+                "rows": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Absent when the precision is unknown, or when only the size is known."
+                },
+                "source": {
+                    "$ref": "#/definitions/ScanEstimateSource"
+                },
+                "time_range": {
+                    "$ref": "#/definitions/ScanEstimateTimeRange",
+                    "description": "Events only."
+                }
+            },
+            "required": ["name", "source", "precision"],
             "type": "object"
         },
         "TableSettings": {
