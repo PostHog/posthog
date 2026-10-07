@@ -20,7 +20,7 @@ logger = structlog.get_logger(__name__)
 class Refresh:
     stamped: int
     skipped: int
-    # Skipped items that carried a stamp from an earlier run and lost it.
+    # Skipped items whose stamp from this runtime was removed.
     unstamped: int
 
 
@@ -50,6 +50,20 @@ def _mappings(hog_function: HogFunction) -> list[dict[str, Any]]:
     return [mapping for mapping in (hog_function.mappings or []) if isinstance(mapping, dict)]
 
 
+def _drop_current_stamp(item: dict[str, Any]) -> bool:
+    """
+    Remove a stamp from this runtime from bytecode that today's guard refuses.
+
+    The runtime is unchanged, so the guard is what changed, and the compiler accepted a template it
+    should not have. Keeping the stamp would class the owner's broken template as our bug. A stamp
+    from an older runtime stays: the refusal can come from a runtime change, which is our drift.
+    """
+    if item.get("bytecode_contract") != RUNTIME_CONTRACT:
+        return False
+    del item["bytecode_contract"]
+    return True
+
+
 def _refresh_store(
     hog_function: HogFunction,
     store: dict[str, Any],
@@ -73,9 +87,7 @@ def _refresh_store(
             )
         except Exception as e:
             skipped += 1
-            # A stamp from a run under an older guard says the compiler accepted this template. The
-            # runtime would then class the owner's broken template as our bug and park its events.
-            if item.pop("bytecode_contract", None) is not None:
+            if _drop_current_stamp(item):
                 unstamped += 1
             logger.warning(
                 "hog_function_input_template_no_longer_compiles",
@@ -99,8 +111,8 @@ def refresh_input_templates(hog_function: HogFunction) -> Refresh:
     and stamp it with the runtime it was checked against. The model's save only recompiles filters.
     This includes the inputs of each mapping, which the runtime merges into the invocation.
 
-    An input the current guard refuses keeps its stored bytecode and loses any stamp: it fails at
-    run time exactly as before, and an unstamped failure is classified as the owner's to fix.
+    An input the current guard refuses keeps its stored bytecode and loses a stamp from this runtime:
+    it fails at run time exactly as before, and an unstamped failure is classified as the owner's.
     """
     is_dwh_source = (hog_function.filters or {}).get("source") in DATA_WAREHOUSE_SOURCES
     item_types = _item_types(hog_function.inputs_schema)
@@ -134,7 +146,8 @@ def refresh_mapping_filters(hog_function: HogFunction) -> Refresh:
     Recompile the filters of each mapping, the way a save through the API does. The model's save only
     recompiles the top-level filters, and on a mapped destination the event filters live in the mappings.
 
-    Filters that no longer compile keep their stored bytecode and lose any stamp, the same as inputs.
+    Filters that no longer compile keep their stored bytecode and lose a stamp from this runtime, the
+    same as inputs.
     """
     stamped = 0
     skipped = 0
@@ -147,7 +160,7 @@ def refresh_mapping_filters(hog_function: HogFunction) -> Refresh:
         compiled = compile_filters_bytecode({**filters}, hog_function.team)
         if compiled.get("bytecode_error"):
             skipped += 1
-            if filters.pop("bytecode_contract", None) is not None:
+            if _drop_current_stamp(filters):
                 unstamped += 1
             logger.warning(
                 "hog_function_mapping_filters_no_longer_compile",
