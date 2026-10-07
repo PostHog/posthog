@@ -6,11 +6,13 @@ from posthog.enums import LabeledStrEnum
 class AccountPropertyPinKind(StrEnum):
     CUSTOM_PROPERTY = "custom_property"
     RELATIONSHIP = "relationship"
+    ACCOUNT_FIELD = "account_field"
 
 
 ACCOUNT_PROPERTY_PIN_KIND_CHOICES: tuple[tuple[str, str], ...] = (
     (AccountPropertyPinKind.CUSTOM_PROPERTY.value, "Custom property"),
     (AccountPropertyPinKind.RELATIONSHIP.value, "Relationship"),
+    (AccountPropertyPinKind.ACCOUNT_FIELD.value, "Account field"),
 )
 
 

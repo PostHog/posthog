@@ -142,6 +142,7 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         second_custom = self._custom_property()
         pinned_properties = [
             {"kind": "custom_property", "id": str(first_custom.id)},
+            {"kind": "account_field", "id": "stripe_customer_id"},
             {"kind": "relationship", "id": str(relationship.id)},
             {"kind": "custom_property", "id": str(second_custom.id)},
         ]
@@ -344,6 +345,13 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         valid_reference = {"kind": "custom_property", "id": str(valid_custom.id)}
         cases = [
             ("duplicates", [valid_reference, valid_reference], "duplicates"),
+            (
+                "duplicates in another UUID case",
+                [valid_reference, {"kind": "custom_property", "id": str(valid_custom.id).upper()}],
+                "duplicates",
+            ),
+            ("unsupported account field", [{"kind": "account_field", "id": "sfdc_id"}], "account field"),
+            ("account field as custom", [{"kind": "custom_property", "id": "stripe_customer_id"}], "UUID"),
             ("wrong target", [{"kind": "custom_property", "id": str(person_custom.id)}], "account property"),
             ("relationship as custom", [{"kind": "custom_property", "id": str(relationship.id)}], "relationship"),
             ("custom as relationship", [{"kind": "relationship", "id": str(valid_custom.id)}], "custom property"),

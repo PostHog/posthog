@@ -32,6 +32,14 @@ export function AccountPropertyValue({ property }: AccountPropertyValueProps): J
         )
     }
 
+    if (property.kind === 'account_field') {
+        return property.value ? (
+            <span className="text-sm font-medium truncate select-all">{property.value}</span>
+        ) : (
+            <span className="text-sm text-muted">Not set</span>
+        )
+    }
+
     const { definition, value } = property
     if (value === null || value === '') {
         return <span className="text-sm text-muted">Not set</span>

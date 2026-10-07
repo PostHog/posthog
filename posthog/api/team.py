@@ -1056,9 +1056,18 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
 class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=ACCOUNT_PROPERTY_PIN_KIND_CHOICES,
-        help_text="Definition type for this default pinned account property.",
+        help_text=(
+            "Type of this default pinned account property: a custom property, a relationship, "
+            "or a built-in account field."
+        ),
     )
-    id = serializers.UUIDField(help_text="Project-scoped custom property or relationship definition UUID.")
+    id = serializers.CharField(
+        max_length=64,
+        help_text=(
+            "Project-scoped custom property or relationship definition UUID. "
+            "For an account_field pin, the account field name, such as stripe_customer_id."
+        ),
+    )
 
     class Meta:
         ref_name = "TeamCustomerAnalyticsPinnedAccountProperty"
@@ -1121,15 +1130,16 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
     def validate_default_pinned_properties(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if self.instance is None:
             return value
-        pinned_properties = [PinnedAccountProperty(kind=reference["kind"], id=reference["id"]) for reference in value]
         try:
-            validate_pinned_account_properties(
+            pinned_properties = validate_pinned_account_properties(
                 team_id=self.instance.team_id,
-                pinned_properties=pinned_properties,
+                pinned_properties=[
+                    PinnedAccountProperty(kind=reference["kind"], id=reference["id"]) for reference in value
+                ],
             )
         except InvalidPinnedAccountProperties as error:
             raise serializers.ValidationError(error.errors)
-        return [{"kind": reference["kind"], "id": str(reference["id"])} for reference in value]
+        return [{"kind": reference.kind, "id": reference.id} for reference in pinned_properties]
 
 
 _VALID_TRIGGER_PROPERTY_OPERATORS = {

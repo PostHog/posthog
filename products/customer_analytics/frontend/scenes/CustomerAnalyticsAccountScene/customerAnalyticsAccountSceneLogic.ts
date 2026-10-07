@@ -22,6 +22,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -52,6 +53,7 @@ import type {
     PatchedAccountApiProperties,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { accountSidebarPropertiesLogic } from './accountSidebarPropertiesLogic'
 import { EXTERNAL_ACCOUNT_ROUTE_PATTERN, parseExternalAccountPath } from './customerAnalyticsAccountSceneUtils'
 
 const ACCOUNT_PRESENCE_POLL_INTERVAL_MS = 30_000
@@ -354,6 +356,13 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                     properties: { ...currentAccount.properties, ...changedProperties } as PatchedAccountApiProperties,
                 })
                 actions.loadAccountSuccess(updatedAccount)
+                // Pinned account fields, such as the Stripe customer ID, read this account, so reload them.
+                accountSidebarPropertiesLogic
+                    .findMounted({
+                        projectId: projectLogic.findMounted()?.values.currentProjectId ?? 0,
+                        accountId: updatedAccount.id,
+                    })
+                    ?.actions.loadPropertyData()
                 posthog.capture(AccountsEvents.AccountEdited, {
                     name_changed: name !== openedValues.name,
                     changed_fields: [...changedPropertyKeys, ...changedListKeys],

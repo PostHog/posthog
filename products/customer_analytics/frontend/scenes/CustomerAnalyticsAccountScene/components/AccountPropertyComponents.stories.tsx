@@ -10,13 +10,15 @@ import type {
 import { AccountPinnedProperties } from './AccountPinnedProperties'
 import { AccountPropertyConfigurator } from './AccountPropertyConfigurator'
 import { AccountPropertyField } from './AccountPropertyField'
-import type {
+import {
     AccountCustomProperty,
     AccountCustomPropertyValue,
+    accountPropertyLabel,
     AccountPropertyOption,
     AccountRelationshipMember,
     AccountRelationshipProperty,
     AccountSidebarProperty,
+    PINNABLE_ACCOUNT_FIELDS,
 } from './accountPropertyTypes'
 
 const MEMBERS: AccountRelationshipMember[] = [
@@ -103,6 +105,12 @@ const DISPLAY_PROPERTIES: AccountSidebarProperty[] = [
         definition: customDefinition('canonical', 'First seen', 'datetime', { is_canonical: true }),
     }),
     relationshipProperty('csm', 'Customer success manager', [MEMBERS[0]], true),
+    {
+        key: 'field:stripe_customer_id',
+        kind: 'account_field',
+        field: PINNABLE_ACCOUNT_FIELDS[0],
+        value: 'cus_example',
+    },
 ]
 
 const noop = (): void => {}
@@ -234,7 +242,7 @@ export const RelationshipEditors: Story = {
 
 const CONFIG_OPTIONS: AccountPropertyOption[] = DISPLAY_PROPERTIES.map((property) => ({
     key: property.key,
-    label: property.definition.name,
+    label: accountPropertyLabel(property),
     kind: property.kind,
 }))
 

@@ -102,16 +102,21 @@ describe('accountSidebarConfigLogic', () => {
         expect(pinnedPropertyToConfiguratorKey({ kind: 'relationship', id: 'shared-id' })).toBe(
             'relationship:shared-id'
         )
+        expect(pinnedPropertyToConfiguratorKey({ kind: 'account_field', id: 'stripe_customer_id' })).toBe(
+            'field:stripe_customer_id'
+        )
         expect(
             configuratorKeysToPinnedProperties([
                 'relationship:relationship-1',
                 'custom:custom-1',
+                'field:stripe_customer_id',
                 'unknown:ignored',
                 'custom:',
             ])
         ).toEqual([
             { kind: 'relationship', id: 'relationship-1' },
             { kind: 'custom_property', id: 'custom-1' },
+            { kind: 'account_field', id: 'stripe_customer_id' },
         ])
     })
 
@@ -184,8 +189,10 @@ describe('accountSidebarConfigLogic', () => {
             defaultMocks({
                 pinned_properties: [
                     { kind: 'custom_property', id: 'custom-1' },
+                    { kind: 'account_field', id: 'stripe_customer_id' },
                     { kind: 'relationship', id: 'relationship-1' },
                     { kind: 'custom_property', id: 'missing' },
+                    { kind: 'account_field', id: 'unknown_field' },
                 ],
             })
         )
@@ -194,9 +201,13 @@ describe('accountSidebarConfigLogic', () => {
 
         expect(logic.values.resolvedPinnedProperties.map(({ reference }) => reference.id)).toEqual([
             'custom-1',
+            'stripe_customer_id',
             'relationship-1',
         ])
-        expect(logic.values.stalePinnedProperties).toEqual([{ kind: 'custom_property', id: 'missing' }])
+        expect(logic.values.stalePinnedProperties).toEqual([
+            { kind: 'custom_property', id: 'missing' },
+            { kind: 'account_field', id: 'unknown_field' },
+        ])
     })
 
     it('supports configure, toggle, reorder, cancel, and the 50-property limit', async () => {
@@ -290,6 +301,7 @@ describe('accountSidebarConfigLogic', () => {
                 pinned_count: 2,
                 custom_property_count: 1,
                 relationship_count: 1,
+                account_field_count: 0,
             })
         }
     )

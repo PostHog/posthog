@@ -5,7 +5,11 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { LemonButton, LemonInputSelect, LemonModal } from '@posthog/lemon-ui'
 
 import { AccountPropertyConfiguratorItem } from './AccountPropertyConfiguratorItem'
-import { AccountPropertyOption, MAX_PINNED_ACCOUNT_PROPERTIES } from './accountPropertyTypes'
+import {
+    ACCOUNT_PROPERTY_KIND_LABELS,
+    AccountPropertyOption,
+    MAX_PINNED_ACCOUNT_PROPERTIES,
+} from './accountPropertyTypes'
 
 export interface AccountPropertyConfiguratorProps {
     isOpen: boolean
@@ -129,7 +133,7 @@ export function AccountPropertyConfigurator({
                             <span className="flex w-full items-center justify-between gap-2">
                                 <span className="truncate">{option.label}</span>
                                 <span className="text-xs text-secondary">
-                                    {option.kind === 'custom' ? 'Custom property' : 'Relationship'}
+                                    {ACCOUNT_PROPERTY_KIND_LABELS[option.kind]}
                                 </span>
                             </span>
                         ),

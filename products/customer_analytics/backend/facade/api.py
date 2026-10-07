@@ -1353,8 +1353,8 @@ def _to_user_customer_analytics_config(
     return contracts.UserCustomerAnalyticsConfig(
         pinned_properties=[
             contracts.PinnedAccountProperty(
-                kind=cast(Literal["custom_property", "relationship"], reference["kind"]),
-                id=UUID(str(reference["id"])),
+                kind=cast(contracts.PinnedAccountPropertyKind, reference["kind"]),
+                id=str(reference["id"]),
             )
             for reference in raw_references
         ],

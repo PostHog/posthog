@@ -23,7 +23,12 @@ import type {
     UserCustomerAnalyticsConfigApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { MAX_PINNED_ACCOUNT_PROPERTIES } from './components/accountPropertyTypes'
+import {
+    AccountPropertyOption,
+    MAX_PINNED_ACCOUNT_PROPERTIES,
+    PINNABLE_ACCOUNT_FIELDS,
+    PinnableAccountField,
+} from './components/accountPropertyTypes'
 
 export { MAX_PINNED_ACCOUNT_PROPERTIES } from './components/accountPropertyTypes'
 const DEFINITION_PAGE_SIZE = 100
@@ -47,6 +52,11 @@ export type ResolvedPinnedAccountProperty =
           reference: PinnedAccountProperty
           definition: AccountRelationshipDefinitionApi
       }
+    | {
+          kind: 'account_field'
+          reference: PinnedAccountProperty
+          field: PinnableAccountField
+      }
 
 export interface AvailableDefinitions {
     customProperties: CustomPropertyDefinitionApi[]
@@ -58,9 +68,14 @@ interface PinnedPropertyResolution {
     stale: PinnedAccountProperty[]
 }
 
+const CONFIGURATOR_KEY_PREFIXES: Record<PinnedAccountProperty['kind'], string> = {
+    custom_property: 'custom',
+    relationship: 'relationship',
+    account_field: 'field',
+}
+
 export function pinnedPropertyToConfiguratorKey(reference: PinnedAccountProperty): string {
-    const kind = reference.kind === 'custom_property' ? 'custom' : 'relationship'
-    return `${kind}:${reference.id}`
+    return `${CONFIGURATOR_KEY_PREFIXES[reference.kind]}:${reference.id}`
 }
 
 export function configuratorKeysToPinnedProperties(keys: string[]): PinnedAccountProperty[] {
@@ -77,8 +92,31 @@ export function configuratorKeysToPinnedProperties(keys: string[]): PinnedAccoun
         if (kind === 'relationship') {
             return [{ kind: 'relationship', id }]
         }
+        if (kind === 'field') {
+            return [{ kind: 'account_field', id }]
+        }
         return []
     })
+}
+
+export function buildPinnedPropertyOptions(definitions: AvailableDefinitions): AccountPropertyOption[] {
+    return [
+        ...definitions.customProperties.map((definition) => ({
+            key: pinnedPropertyToConfiguratorKey({ kind: 'custom_property', id: definition.id }),
+            label: definition.name,
+            kind: 'custom' as const,
+        })),
+        ...definitions.relationships.map((definition) => ({
+            key: pinnedPropertyToConfiguratorKey({ kind: 'relationship', id: definition.id }),
+            label: definition.name,
+            kind: 'relationship' as const,
+        })),
+        ...PINNABLE_ACCOUNT_FIELDS.map((field) => ({
+            key: pinnedPropertyToConfiguratorKey({ kind: 'account_field', id: field.key }),
+            label: field.label,
+            kind: 'account_field' as const,
+        })),
+    ]
 }
 
 const referenceKey = (reference: PinnedAccountProperty): string => `${reference.kind}:${reference.id}`
@@ -114,6 +152,9 @@ const resolvePinnedProperties = (
 ): PinnedPropertyResolution => {
     const customPropertiesById = new Map(definitions.customProperties.map((definition) => [definition.id, definition]))
     const relationshipsById = new Map(definitions.relationships.map((definition) => [definition.id, definition]))
+    const accountFieldsByKey = new Map<string, PinnableAccountField>(
+        PINNABLE_ACCOUNT_FIELDS.map((field) => [field.key, field])
+    )
     const resolved: ResolvedPinnedAccountProperty[] = []
     const stale: PinnedAccountProperty[] = []
 
@@ -122,6 +163,13 @@ const resolvePinnedProperties = (
             const definition = customPropertiesById.get(reference.id)
             if (definition) {
                 resolved.push({ kind: reference.kind, reference, definition })
+            } else {
+                stale.push(reference)
+            }
+        } else if (reference.kind === 'account_field') {
+            const field = accountFieldsByKey.get(reference.id)
+            if (field) {
+                resolved.push({ kind: reference.kind, reference, field })
             } else {
                 stale.push(reference)
             }
@@ -426,13 +474,13 @@ export const accountSidebarConfigLogic: LogicWrapper<accountSidebarConfigLogicTy
             },
             persistPinnedPropertiesSuccess: ({ config }) => {
                 actions.setDraftPinnedProperties([...config.pinned_properties])
-                const customPropertyCount = config.pinned_properties.filter(
-                    ({ kind }) => kind === 'custom_property'
-                ).length
+                const countOf = (kind: PinnedAccountProperty['kind']): number =>
+                    config.pinned_properties.filter((reference) => reference.kind === kind).length
                 posthog.capture(AccountsEvents.PinnedPropertiesSaved, {
                     pinned_count: config.pinned_properties.length,
-                    custom_property_count: customPropertyCount,
-                    relationship_count: config.pinned_properties.length - customPropertyCount,
+                    custom_property_count: countOf('custom_property'),
+                    relationship_count: countOf('relationship'),
+                    account_field_count: countOf('account_field'),
                 })
             },
         })),

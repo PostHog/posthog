@@ -21,6 +21,7 @@ import type {
 } from '../../generated/api.schemas'
 import { accountSidebarConfigLogic } from './accountSidebarConfigLogic'
 import { accountSidebarPropertiesLogic } from './accountSidebarPropertiesLogic'
+import { isAccountPropertyEditable } from './components/accountPropertyTypes'
 
 jest.mock('lib/utils/accessControlUtils', () => ({ userHasAccess: jest.fn(() => true) }))
 
@@ -126,6 +127,30 @@ describe('accountSidebarPropertiesLogic', () => {
         logic?.unmount()
         resumeKeaLoadersErrors()
         jest.clearAllMocks()
+    })
+
+    it('shows a pinned account field from the account and keeps it read-only', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:project_id/user_customer_analytics_config/@me/': {
+                    pinned_properties: [
+                        { kind: 'account_field', id: 'stripe_customer_id' },
+                        { kind: 'custom_property', id: definition.id },
+                    ],
+                },
+                '/api/projects/:project_id/accounts/:id/': ({ params }) => ({
+                    id: params.id,
+                    properties: { stripe_customer_id: 'cus_example' },
+                }),
+            },
+        })
+
+        await mount()
+        const [field] = logic.values.sidebarProperties
+        logic.actions.editProperty(field)
+
+        expect(field).toMatchObject({ key: 'field:stripe_customer_id', kind: 'account_field', value: 'cus_example' })
+        expect(logic.values.editingPropertyKey).toBeNull()
     })
 
     it('defers account data until pinning and recovers the empty state after an account-data failure', async () => {
@@ -467,7 +492,7 @@ describe('accountSidebarPropertiesLogic', () => {
         const write = jest.fn()
         useMocks({ post: { [VALUES_URL]: write, [RELATIONSHIPS_URL]: write } })
         for (const property of logic.values.sidebarProperties) {
-            expect(property.editable).toBe(false)
+            expect(isAccountPropertyEditable(property)).toBe(false)
             logic.actions.editProperty(property)
         }
         await expectLogic(logic, () => {

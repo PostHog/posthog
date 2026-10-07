@@ -1876,20 +1876,29 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties and relationships can be pinned.
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties, relationships, and account fields can be pinned.
  * @summary Update account sidebar configuration
  */
+export const userCustomerAnalyticsConfigPartialUpdateBodyPinnedPropertiesItemIdMax = 64
+
 export const UserCustomerAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
     pinned_properties: zod
         .array(
             zod.object({
                 kind: zod
-                    .enum(['custom_property', 'relationship'])
-                    .describe('\* `custom_property` - Custom property\n\* `relationship` - Relationship')
+                    .enum(['custom_property', 'relationship', 'account_field'])
                     .describe(
-                        'Definition type for this pinned account property.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship'
+                        '\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
+                    )
+                    .describe(
+                        'Type of this pinned account property: a custom property, a relationship, or a built-in account field.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
                     ),
-                id: zod.uuid().describe('Team-scoped custom property or relationship definition UUID.'),
+                id: zod
+                    .string()
+                    .max(userCustomerAnalyticsConfigPartialUpdateBodyPinnedPropertiesItemIdMax)
+                    .describe(
+                        'Team-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.'
+                    ),
             })
         )
         .optional()
