@@ -1,5 +1,7 @@
 import './FeatureFlagPreview.scss'
 
+import { useId } from 'react'
+
 import * as noir1Png from '@posthog/brand/hoggies/png/noir-1'
 import * as partyPng from '@posthog/brand/hoggies/png/party'
 
@@ -17,6 +19,34 @@ function areaPath(line: string): string {
     return `${line} L 100 40 L 0 40 Z`
 }
 
+// Supporting flags. Each row flips its own switch and rollout bar, but only the hero
+// flag drives the app and chart below.
+const SUPPORTING_FLAG_KEYS = ['dark-mode', 'beta-invites'] as const
+
+function SupportingFlagRow({
+    flagKey,
+    rollout,
+    inputId,
+}: {
+    flagKey: string
+    rollout: string
+    inputId: string
+}): JSX.Element {
+    return (
+        <label htmlFor={inputId} className={`FlagPreview__row FlagPreview__row--toggle FlagPreview__row--${flagKey}`}>
+            <span className="FlagPreview__key">{flagKey}</span>
+            <span className="FlagPreview__bar">
+                <span className="FlagPreview__bar-fill" style={{ '--w': rollout } as React.CSSProperties} />
+            </span>
+            <span className="FlagPreview__swap">
+                <span className="FlagPreview__rollout FlagPreview__if-enabled">{rollout}</span>
+                <span className="FlagPreview__rollout FlagPreview__if-disabled">0%</span>
+            </span>
+            <span className="FlagPreview__switch FlagPreview__switch--on" aria-hidden="true" />
+        </label>
+    )
+}
+
 /**
  * Example-data preview for the feature flags empty state: a mini flag list wired to a
  * mini app and a conversion sparkline, so flipping the hero flag re-skins the app's
@@ -27,11 +57,25 @@ function areaPath(line: string): string {
  */
 export function FeatureFlagPreview(): JSX.Element {
     const isStatic = inStorybook() || inStorybookTestRunner()
+    // The preview can mount more than once on a page, so fixed ids would let one
+    // instance's labels toggle another instance's checkboxes.
+    const idPrefix = useId()
+    const heroId = `${idPrefix}-hero`
+    const supportingId = (flagKey: string): string => `${idPrefix}-${flagKey}`
 
     return (
         <div className={cn('FlagPreview', isStatic && 'FlagPreview--static')}>
             {/* Flag state, before all three cards so `:checked ~` can style them. */}
-            <input type="checkbox" id="flag-preview-toggle" className="FlagPreview__checkbox" />
+            <input type="checkbox" id={heroId} className="FlagPreview__checkbox FlagPreview__checkbox--hero" />
+            {SUPPORTING_FLAG_KEYS.map((key) => (
+                <input
+                    key={key}
+                    type="checkbox"
+                    id={supportingId(key)}
+                    defaultChecked
+                    className={`FlagPreview__checkbox FlagPreview__checkbox--${key}`}
+                />
+            ))}
 
             <div className="FlagPreview__panel">
                 <div className="FlagPreview__head">
@@ -40,15 +84,8 @@ export function FeatureFlagPreview(): JSX.Element {
                 </div>
 
                 <div className="FlagPreview__rows">
-                    <div className="FlagPreview__row">
-                        <span className="FlagPreview__key">dark-mode</span>
-                        <span className="FlagPreview__bar">
-                            <span className="FlagPreview__bar-fill" style={{ '--w': '100%' } as React.CSSProperties} />
-                        </span>
-                        <span className="FlagPreview__rollout">100%</span>
-                        <span className="FlagPreview__switch FlagPreview__switch--on" aria-hidden="true" />
-                    </div>
-                    <label htmlFor="flag-preview-toggle" className="FlagPreview__row FlagPreview__row--hero">
+                    <SupportingFlagRow flagKey="dark-mode" rollout="100%" inputId={supportingId('dark-mode')} />
+                    <label htmlFor={heroId} className="FlagPreview__row FlagPreview__row--hero">
                         <span className="FlagPreview__key">one-click-checkout</span>
                         <span className="FlagPreview__bar">
                             <span className="FlagPreview__bar-fill FlagPreview__bar-fill--hero" />
@@ -61,14 +98,7 @@ export function FeatureFlagPreview(): JSX.Element {
                         </span>
                         <span className="FlagPreview__switch" aria-hidden="true" />
                     </label>
-                    <div className="FlagPreview__row">
-                        <span className="FlagPreview__key">beta-invites</span>
-                        <span className="FlagPreview__bar">
-                            <span className="FlagPreview__bar-fill" style={{ '--w': '25%' } as React.CSSProperties} />
-                        </span>
-                        <span className="FlagPreview__rollout">25%</span>
-                        <span className="FlagPreview__switch FlagPreview__switch--on" aria-hidden="true" />
-                    </div>
+                    <SupportingFlagRow flagKey="beta-invites" rollout="25%" inputId={supportingId('beta-invites')} />
                 </div>
 
                 <div className="FlagPreview__hint FlagPreview__swap">
