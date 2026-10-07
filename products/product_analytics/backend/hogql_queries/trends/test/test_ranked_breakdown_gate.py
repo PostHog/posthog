@@ -179,9 +179,10 @@ class TestRankedBreakdownGate(SimpleTestCase):
             date_from="2024-01-01T12:00:00", date_to="2024-01-07T23:59:59.999999", explicitDate=True
         )
 
-        assert self.builder(query).ranked_breakdown_query_signature != self.builder(
-            explicit_query
-        ).ranked_breakdown_query_signature
+        assert (
+            self.builder(query).ranked_breakdown_query_signature
+            != self.builder(explicit_query).ranked_breakdown_query_signature
+        )
 
     @parameterized.expand([("action",), ("all_time",)])
     def test_configurations_without_a_stable_cheap_signature(self, kind: str) -> None:
