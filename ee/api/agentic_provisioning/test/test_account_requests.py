@@ -67,6 +67,10 @@ class TestAccountRequests(ProvisioningTestBase):
         assert user.organization is not None
         assert user.team is not None
         assert TeamProvisioningConfig.objects.get(team=user.team).application_id == self.partner.id
+        assert (user.organization.provisioning_source, user.organization.provisioning_application_id) == (
+            "provisioning_api",
+            self.partner.id,
+        )
 
     def test_new_user_starts_unverified(self):
         # Partner-asserted email ownership is not trusted: the user must prove they own

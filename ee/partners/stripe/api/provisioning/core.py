@@ -24,6 +24,7 @@ from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -260,13 +261,24 @@ def handle_new_user(
     # The signup access rules do not apply here. Stripe's provisioning spec defines no refusal for a new
     # account, and Stripe keeps a valid card on file for every account it provisions.
     try:
-        organization, team, user = User.objects.bootstrap(
-            organization_name=org_name,
-            email=email,
-            password=None,
-            first_name=first_name,
-            is_email_verified=False,
-        )
+        stripe_app = get_stripe_oauth_app()
+    except StripeOAuthAppMissingError:
+        capture_provisioning_event("account_request", "error", error_code="oauth_app_missing")
+        raise SpecError("server_error", "OAuth application is not configured", request_id=request_id, status=500)
+
+    try:
+        with transaction.atomic():
+            organization, team, user = User.objects.bootstrap(
+                organization_name=org_name,
+                email=email,
+                password=None,
+                first_name=first_name,
+                is_email_verified=False,
+                organization_fields={
+                    "provisioning_source": Organization.ProvisioningSource.STRIPE_PROJECTS,
+                    "provisioning_application": stripe_app,
+                },
+            )
     except IntegrityError:
         existing = EmailLookupHandler.get_user_by_email(email, is_active=None)
         if existing:
