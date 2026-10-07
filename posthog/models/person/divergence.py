@@ -30,6 +30,7 @@ from posthog.models.person.util import (
     get_person_tombstones,
     get_persons_by_uuids,
 )
+from posthog.models.team import Team
 from posthog.personhog_client.client import personhog_call, require_personhog_client
 from posthog.personhog_client.proto import ReadOptions, SetPersonVersionFloorRequest
 
@@ -39,6 +40,7 @@ RepairOutcome = Literal[
     "repaired",
     "skipped_not_divergent",
     "skipped_not_live",
+    "skipped_team_gone",
     "skipped_tombstoned",
     "skipped_reread_lagging",
     "skipped_stale",
@@ -634,8 +636,26 @@ def repair_persons(
     undelivered = 0
     pacer = _WritePacer(max_per_second=max_writes_per_second)
     deliveries = _Deliveries()
+    existing_teams = set(Team.objects.filter(id__in=list(by_team)).values_list("id", flat=True))
     try:
         for team_id, person_uuids in sorted(by_team.items()):
+            if team_id not in existing_teams:
+                # A deleted team's ClickHouse rows go with the team, so a repair would only republish what the deletion removed.
+                for person_uuid in person_uuids:
+                    action = RepairAction(
+                        team_id=team_id,
+                        person_uuid=person_uuid,
+                        kind=None,
+                        pg_version=None,
+                        ch_max_version=None,
+                        target_version=None,
+                        outcome="skipped_team_gone",
+                    )
+                    person_outcomes[action.outcome] += 1
+                    on_action(action)
+                    processed += 1
+                log(f"team {team_id}: no longer exists, {len(person_uuids)} persons skipped")
+                continue
             for chunk in _chunks(person_uuids, _REPAIR_CHUNK_SIZE):
                 for plan in _plan_chunk(team_id, chunk):
                     for action in _execute_plan(

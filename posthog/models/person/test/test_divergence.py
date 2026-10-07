@@ -36,6 +36,7 @@ from posthog.models.person.util import (
     tombstone_persons_in_postgres,
 )
 from posthog.models.signals import mute_selected_signals
+from posthog.models.team import Team
 from posthog.personhog_client.fake_client import get_active_fake
 from posthog.test.persons import add_distinct_id, create_person
 
@@ -423,6 +424,27 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         assert [a.outcome for a in actions] == outcomes
         get_active_fake().assert_not_called("set_person_version_floor")
         assert self._ch_person(person_uuid) == before
+
+    def test_skips_every_person_of_a_team_that_no_longer_exists(self) -> None:
+        missing_team_id = self.team.pk + 1_000_000
+        assert not Team.objects.filter(pk=missing_team_id).exists()
+        person_uuid = str(uuid4())
+        get_active_fake().add_person(team_id=missing_team_id, person_id=987654, uuid=person_uuid, version=3)
+        self._ch_person_row(person_uuid, 3, team_id=missing_team_id)
+        self._ch_person_row(person_uuid, 103, deleted=True, team_id=missing_team_id)
+        actions: list[RepairAction] = []
+
+        summary = repair_persons(
+            [PersonRef(team_id=missing_team_id, person_uuid=person_uuid)],
+            apply=True,
+            on_action=actions.append,
+            log=lambda _: None,
+        )
+
+        assert [a.outcome for a in actions] == ["skipped_team_gone"]
+        assert summary.person_outcomes == {"skipped_team_gone": 1}
+        get_active_fake().assert_not_called("set_person_version_floor")
+        get_active_fake().assert_not_called("get_persons_by_uuids")
 
     def test_skips_a_person_the_primary_tombstoned_while_the_replica_still_shows_it_live(self) -> None:
         person = self._pg_person(version=3)
