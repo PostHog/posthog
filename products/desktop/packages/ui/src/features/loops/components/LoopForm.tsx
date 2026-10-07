@@ -11,7 +11,6 @@ import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { Button, cn, Input, Textarea } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
-import { useBluebirdFlag } from "@posthog/ui/features/feature-flags/useBluebirdFlag";
 import { useLoopsHogFlowsEnabled } from "@posthog/ui/features/feature-flags/useLoopsHogFlowsEnabled";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { useSandboxEnvironments } from "@posthog/ui/features/settings/sections/environments/useSandboxEnvironments";
@@ -230,9 +229,7 @@ export function LoopForm({
   // Contexts are a channels surface; hide the attachment UI when channels are
   // off, unless this loop is already attached so the link stays visible and
   // detachable.
-  const bluebirdEnabled = useBluebirdFlag();
-  const channelsEnabled =
-    useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
+  const channelsEnabled = useSidebarStore((s) => s.channelsEnabled);
   const showContextField = channelsEnabled || !!values.contextTarget;
   const { environments, isLoading: environmentsLoading } =
     useSandboxEnvironments();
