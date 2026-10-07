@@ -3,6 +3,7 @@
 -- in the window. Personless events are excluded, because lifecycle needs a person profile.
 -- Reports 12 weeks, including the current week. The activity query reads one more week as a lookback,
 -- so the first reported week can be classified as returning.
+-- Checked against query-lifecycle for persons, weekly intervals and a Monday week start only.
 -- Events of one person can carry different person.created_at values. Take the earliest per person, as the
 -- native insight does, so that one person never counts in two buckets in the same week.
 WITH activity AS (
