@@ -335,8 +335,10 @@ def test_a_repo_without_a_producers_list_accepts_any_producer(tmp_path: Path) ->
         "teams:\n  team-a:\n    slack: '#a'\n",
         "sensitive: true\n",
         "rules:\n  - match: '/a/'\n    sensitive: false\n",
+        "reviewers: [team-c]\n",
+        "rules:\n  - match: '/a/'\n    reviewers: [team-c]\n",
     ],
-    ids=["teams-registry", "file-sensitive", "rule-sensitive"],
+    ids=["teams-registry", "file-sensitive", "rule-sensitive", "file-unknown-field", "rule-unknown-field"],
 )
 def test_content_beyond_owners_pins_file_as_non_simple(tmp_path: Path, fragment: str) -> None:
     text = "version: 1\nowners: [team-a]\n" + fragment
