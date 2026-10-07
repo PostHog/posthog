@@ -32,6 +32,7 @@ from posthog.hogql.errors import (
     NotImplementedError as HogQLNotImplementedError,
 )
 from posthog.hogql.filters import replace_filters
+from posthog.hogql.flag_called_warnings import FLAG_CALLED_EVENT, flag_called_on_events_warnings
 from posthog.hogql.index_eligibility import IndexEligibilityReport, build_index_eligibility_report
 from posthog.hogql.metadata_heuristics import run_metadata_heuristics
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -212,6 +213,9 @@ def get_hogql_metadata(
             if prepared_ast:
                 response.ch_table_names = get_table_names(prepared_ast)
 
+            if source is None and FLAG_CALLED_EVENT in query.query:
+                heuristic_warnings.extend(_flag_called_on_events_warnings(hogql_ast, context))
+
             if source is None and query.indexUsage and _index_usage_enabled(team):
                 _attach_index_usage(response, hogql_ast, context)
         else:
@@ -280,6 +284,18 @@ def _index_usage_enabled(team: Team) -> bool:
             "project": {"id": str(team.id)},
         },
     )
+
+
+def _flag_called_on_events_warnings(
+    hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery], context: HogQLContext
+) -> list[HogQLNotice]:
+    try:
+        return flag_called_on_events_warnings(hogql_ast, context)
+    except Exception:
+        # The warning is advisory. A query that compiles must not be reported as invalid because this
+        # check failed, and the caller turns any exception here into an invalid query.
+        logger.exception("hogql_flag_called_warning_failed", team_id=context.team_id)
+        return []
 
 
 def _attach_index_usage(
