@@ -18663,6 +18663,20 @@
                     ],
                     "description": "Time granularity forced onto every insight that supports one. Absent/null = inherit."
                 },
+                "metricFilters": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MetricsQueryFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Metric label matchers ANDed into every metrics tile. Other tiles ignore them."
+                },
                 "properties": {
                     "anyOf": [
                         {
