@@ -65,7 +65,7 @@ export function PartnerBillingSpending({ applicationId }: PartnerBillingLogicPro
                         <LemonField
                             name="spend_cap_usd"
                             label="Spend cap"
-                            help="Billing caps further usage when spend this month reaches this amount."
+                            help="Billing limits further paid usage after reported spend reaches this amount. Reporting and enforcement delays can allow spend to exceed it."
                             className="w-60"
                         >
                             <LemonInput
