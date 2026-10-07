@@ -58,7 +58,7 @@
 
 **Data**
 
-- [Context warehouse](https://posthog.com/context-warehouse): Collect, store, transform, and query all the context behind your product. Includes a managed warehouse, 120+ sources, and a SQL editor with BI and data visualization.
+- [Data warehouse](https://posthog.com/context-warehouse): Collect, store, transform, and query all the context behind your product. Includes a managed warehouse, 120+ sources, and a SQL editor with BI and data visualization.
 - [CDP](https://posthog.com/cdp): Run custom filters and transformations on your incoming data. Send it to 25+ tools or any webhook in real time, or batch export large amounts to your warehouse.
 - [Endpoints](https://posthog.com/endpoints) (beta): Build custom API endpoints powered by your PostHog data.
 
@@ -72,7 +72,7 @@
 You can steer it all from [Slack](https://posthog.com/slack), [web](https://posthog.com/ai), desktop ([PostHog Desktop](https://posthog.com/desktop)), or your own editor via [the MCP](https://posthog.com/mcp).
 
 <details>
-<summary><strong>For agents</strong></summary>
+<summary><strong>What is this, a readme for agents?</strong></summary>
 <br/>
 
 The remote MCP server is `https://mcp.posthog.com/mcp`. It routes to the correct data region (US or EU) when your human logs in. Install it into Claude Code, Cursor, Codex, VS Code, Zed, or PostHog Desktop with:
@@ -173,5 +173,6 @@ Hey! If you're reading this, you've proven yourself as a dedicated README reader
 
 You might also make a great addition to our team. We're growing fast [and would love for you to join us](https://posthog.com/careers).
 
-----
+---
+
 If you're looking for easter eggs or abandoned ideas, please check the [trash](https://posthog.com/trash).
