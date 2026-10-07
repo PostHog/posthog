@@ -57,11 +57,6 @@ pub struct Args {
     #[arg(long, default_value = "false")]
     pub delete_after: bool,
 
-    /// Use bundler-provided debug IDs known to be available to the application at runtime.
-    /// Pairs without a source-carried chunk ID or debug ID are skipped with a warning.
-    #[arg(long)]
-    pub native_debug_ids: bool,
-
     /// The maximum number of chunks to upload in a single batch
     #[arg(long, default_value = "50")]
     pub batch_size: usize,
@@ -127,7 +122,7 @@ pub fn upload_pairs(
         );
     }
 
-    pairs = select_uploadable_pairs(pairs, args.native_debug_ids);
+    pairs = select_uploadable_pairs(pairs);
 
     // Fingerprinting re-serializes and hashes every pair, which is not free for large
     // maps - skip it when nothing gets cleaned up.
@@ -288,13 +283,10 @@ pub fn upload_pairs(
     Ok(())
 }
 
-/// A `debugId` comment alone does not prove that the application exposes the ID at runtime:
-/// webpack, Rollup, and Vite can emit the metadata without a runtime `_debugIds` map. The flag
-/// records the caller's knowledge that source-carried native IDs are usable.
-fn select_uploadable_pairs(pairs: Vec<SourcePair>, native_debug_ids: bool) -> Vec<SourcePair> {
-    let (uploadable, skipped): (Vec<_>, Vec<_>) = pairs.into_iter().partition(|pair| {
-        pair.has_chunk_id() || (native_debug_ids && pair.source.get_debug_id().is_some())
-    });
+fn select_uploadable_pairs(pairs: Vec<SourcePair>) -> Vec<SourcePair> {
+    let (uploadable, skipped): (Vec<_>, Vec<_>) = pairs
+        .into_iter()
+        .partition(|pair| pair.has_chunk_id() || pair.get_debug_id().is_some());
     if !skipped.is_empty() {
         let listed_paths = skipped
             .iter()
@@ -307,21 +299,15 @@ fn select_uploadable_pairs(pairs: Vec<SourcePair>, native_debug_ids: bool) -> Ve
         } else {
             String::new()
         };
-        let required_id = if native_debug_ids {
-            "a source-carried PostHog chunk ID or native debug ID"
-        } else {
-            "a PostHog chunk ID; pass --native-debug-ids only when the framework exposes native IDs at runtime"
-        };
         warn!(
-            "Skipping {} source map pairs without {}: {}{}",
+            "Skipping {} source map pairs without a PostHog chunk ID or native debug ID: {}{}",
             skipped.len(),
-            required_id,
             listed_paths.join(", "),
             rest
         );
         for pair in skipped {
             debug!(
-                "Skipping {}: no uploadable source-carried ID",
+                "Skipping {}: no PostHog chunk ID or native debug ID",
                 pair.source.inner.path.display()
             );
         }
@@ -866,7 +852,7 @@ mod tests {
         let runtime = std::fs::read_to_string(&runtime_path).unwrap();
         let runtime_map = std::fs::read_to_string(&runtime_map_path).unwrap();
 
-        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()), true);
+        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()));
         assert_eq!(pairs.len(), 1);
         let uploads = prepare_uploads(pairs, ReleaseMode::Event)
             .expect("Failed to prepare native debug ID upload");
@@ -922,7 +908,7 @@ mod tests {
     }
 
     #[test]
-    fn native_debug_ids_are_skipped_without_explicit_opt_in() {
+    fn native_debug_ids_are_uploadable_without_an_opt_in() {
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let debug_id = "11111111-2222-4333-8444-555555555555";
         let (source_path, map_path) = write_pair(dir.path(), "webpack");
@@ -941,55 +927,33 @@ mod tests {
         )
         .expect("Failed to add a map debug ID");
 
-        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()), false);
+        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()));
+        let uploads = prepare_uploads(pairs, ReleaseMode::Event)
+            .expect("The native debug ID should be uploadable automatically");
 
-        assert!(pairs.is_empty());
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(uploads[0].chunk_id, debug_id);
     }
 
     #[test]
-    fn native_debug_id_mode_skips_map_only_ids() {
+    fn sourcemap_only_native_debug_ids_are_uploadable() {
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let debug_id = "11111111-2222-4333-8444-555555555555";
-        let (native_source, native_map) = write_pair(dir.path(), "native");
+        let (_, map_path) = write_pair(dir.path(), "mapped");
         std::fs::write(
-            native_source,
-            format!(
-                "console.log(1);\n//# debugId={debug_id}\n//# sourceMappingURL=native.js.map\n"
-            ),
-        )
-        .expect("Failed to add a source debug ID");
-        std::fs::write(
-            native_map,
+            map_path,
             format!(
                 r#"{{"version":3,"sources":["app.ts"],"mappings":"AAAA","debugId":"{debug_id}"}}"#
             ),
         )
-        .expect("Failed to add a matching map debug ID");
-        let (_, map_only) = write_pair(dir.path(), "mapped");
-        std::fs::write(
-            map_only,
-            r#"{"version":3,"sources":["app.ts"],"mappings":"AAAA","debugId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"}"#,
-        )
         .expect("Failed to add a map-only debug ID");
 
-        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()), true);
-        assert_eq!(pairs.len(), 1);
-        assert_eq!(pairs[0].source.get_debug_id().as_deref(), Some(debug_id));
-    }
+        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()));
+        let uploads = prepare_uploads(pairs, ReleaseMode::Event)
+            .expect("The sourcemap debug ID should be uploadable automatically");
 
-    #[test]
-    fn native_debug_id_mode_skips_map_only_debug_ids() {
-        let dir = tempfile::tempdir().expect("Failed to create temp dir");
-        let (_, map_path) = write_pair(dir.path(), "mapped");
-        std::fs::write(
-            map_path,
-            r#"{"version":3,"sources":["app.ts"],"mappings":"AAAA","debugId":"11111111-2222-4333-8444-555555555555"}"#,
-        )
-        .expect("Failed to add a map-only debug ID");
-
-        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()), true);
-
-        assert!(pairs.is_empty());
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(uploads[0].chunk_id, debug_id);
     }
 
     #[test]

@@ -84,7 +84,6 @@ impl From<ProcessArgs> for (InjectArgs, upload::Args) {
             file_selection: args.file_selection,
             public_path_prefix: args.public_path_prefix,
             delete_after: args.delete_after,
-            native_debug_ids: false,
             skip_ssl_verification: false,
             batch_size: args.batch_size,
             release: args.release,
@@ -135,7 +134,6 @@ mod tests {
             ".",
             "--concurrency",
             "24",
-            "--native-debug-ids",
         ])
         .expect("upload args should parse");
         let SourcemapCommand::Upload(args) = parsed.command else {
@@ -143,6 +141,5 @@ mod tests {
         };
 
         assert_eq!(args.upload_concurrency.concurrency.get(), 24);
-        assert!(args.native_debug_ids);
     }
 }
