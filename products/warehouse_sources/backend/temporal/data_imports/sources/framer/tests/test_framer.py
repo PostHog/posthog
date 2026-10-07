@@ -31,8 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.framer.set
 PROJECT_ID = "a" * 20
 
 COLLECTION_METHOD_CASES = [
-    (version, fields_method, items_method)
-    for version, (fields_method, items_method) in COLLECTION_METHODS_BY_VERSION.items()
+    (version, methods["fields"], methods["items"]) for version, methods in COLLECTION_METHODS_BY_VERSION.items()
 ]
 
 

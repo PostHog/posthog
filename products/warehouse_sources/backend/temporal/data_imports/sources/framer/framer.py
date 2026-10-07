@@ -14,7 +14,7 @@ import time
 import socket
 import http.client
 from collections.abc import Callable, Iterator
-from typing import Any, Optional, Protocol
+from typing import Any, Optional, Protocol, TypedDict
 from urllib.parse import unquote, urlencode, urljoin, urlsplit
 
 from structlog.types import FilteringBoundLogger
@@ -38,11 +38,17 @@ FRAMER_HEADLESS_WS_URL = "wss://api.framer.com/channel/headless-plugin"
 FRAMER_SDK_VERSION_0_1_29 = "0.1.29"
 FRAMER_SDK_VERSION_5_1_0 = "5.1.0"
 
-# (fields method, items method) per SDK release. framer-api 5.x reads CMS collections
-# through the `3` RPCs, whose array fields can nest any scalar field type, not just images.
-COLLECTION_METHODS_BY_VERSION: dict[str, tuple[str, str]] = {
-    FRAMER_SDK_VERSION_0_1_29: ("getCollectionFields2", "getCollectionItems2"),
-    FRAMER_SDK_VERSION_5_1_0: ("getCollectionFields3", "getCollectionItems3"),
+
+class CollectionMethods(TypedDict):
+    fields: str
+    items: str
+
+
+# framer-api 5.x reads CMS collections through the `3` RPCs, whose array fields can nest
+# any scalar field type, not just images.
+COLLECTION_METHODS_BY_VERSION: dict[str, CollectionMethods] = {
+    FRAMER_SDK_VERSION_0_1_29: {"fields": "getCollectionFields2", "items": "getCollectionItems2"},
+    FRAMER_SDK_VERSION_5_1_0: {"fields": "getCollectionFields3", "items": "getCollectionItems3"},
 }
 
 # The server boots a headless instance of the project on connect, which can take a while
@@ -347,7 +353,7 @@ def validate_credentials(project: str, api_key: str, protocol_version: str) -> t
         return False, "Couldn't connect to Framer. Check the project URL and API key, then try again."
 
 
-def _collection_methods(protocol_version: str) -> tuple[str, str]:
+def _collection_methods(protocol_version: str) -> CollectionMethods:
     methods = COLLECTION_METHODS_BY_VERSION.get(protocol_version)
     if methods is None:
         raise ValueError(f"Unsupported Framer SDK version: {protocol_version}")
@@ -385,10 +391,10 @@ def _pages_rows(client: FramerClient) -> Iterator[list[dict[str, Any]]]:
 
 
 def _collections_rows(client: FramerClient) -> Iterator[list[dict[str, Any]]]:
-    fields_method, _items_method = _collection_methods(client.protocol_version)
+    methods = _collection_methods(client.protocol_version)
     rows = []
     for collection in _as_dict_rows(client.call("getCollections")):
-        fields = _as_dict_rows(client.call(fields_method, collection["id"], True))
+        fields = _as_dict_rows(client.call(methods["fields"], collection["id"], True))
         rows.append({**collection, "fields": fields})
     if rows:
         yield rows
@@ -436,12 +442,12 @@ def _collection_item_row(
 
 
 def _collection_items_rows(client: FramerClient) -> Iterator[list[dict[str, Any]]]:
-    fields_method, items_method = _collection_methods(client.protocol_version)
+    methods = _collection_methods(client.protocol_version)
     for collection in _as_dict_rows(client.call("getCollections")):
         collection_id = collection["id"]
-        fields = _as_dict_rows(client.call(fields_method, collection_id, True))
+        fields = _as_dict_rows(client.call(methods["fields"], collection_id, True))
         field_names = {field.get("id"): str(field.get("name")) for field in fields if field.get("name")}
-        items = _as_dict_rows(client.call(items_method, collection_id))
+        items = _as_dict_rows(client.call(methods["items"], collection_id))
         rows = [_collection_item_row(item, collection, field_names) for item in items]
         if rows:
             yield rows
