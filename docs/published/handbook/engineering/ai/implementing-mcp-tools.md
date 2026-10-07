@@ -363,8 +363,9 @@ Product teams own their definitions and control which operations are exposed as 
    App-only descriptors let the host authorize visualization data fetches and
    drill-down calls without exposing those tools to the model. These descriptors
    use compact input schemas; direct calls still validate against the full tool schema.
-   Required model analytics arguments are omitted from app-only descriptors because
-   app data fetches have no model context to supply them.
+   Model analytics arguments are optional on app-only descriptors because browser
+   data fetches may have no model context. The analytics SDK still captures intent
+   and model metadata when supplied; model-facing tools keep those arguments required.
    After changing descriptors, refresh the client's tool list and start a fresh conversation.
 
    A custom UI app can set `resource_domains` when it loads an image, font, script, or stylesheet from an external source. Each value must be a CSP source expression. Declare only the required origin or path.

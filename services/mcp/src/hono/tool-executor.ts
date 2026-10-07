@@ -157,13 +157,24 @@ export class ToolExecutor {
     // Guarded because analytics must never break `tools/list`.
     private injectAnalyticsParameters(tools: ListToolsResult['tools']): ListToolsResult['tools'] {
         try {
-            const appTools = tools.filter((tool) => {
-                const visibility = (tool._meta?.ui as { visibility?: unknown } | undefined)?.visibility
-                return Array.isArray(visibility) && visibility.length === 1 && visibility[0] === 'app'
-            })
-            // App data requests have no model context to populate the SDK's required arguments.
-            const modelTools = tools.filter((tool) => !appTools.includes(tool))
-            return [...getPostHogClient().prepareToolList(modelTools), ...appTools]
+            return getPostHogClient()
+                .prepareToolList(tools)
+                .map((tool) => {
+                    const visibility = (tool._meta?.ui as { visibility?: unknown } | undefined)?.visibility
+                    if (!Array.isArray(visibility) || visibility.length !== 1 || visibility[0] !== 'app') {
+                        return tool
+                    }
+                    // Apps may supply model metadata, but browser data fetches cannot require it.
+                    return {
+                        ...tool,
+                        inputSchema: {
+                            ...tool.inputSchema,
+                            required: tool.inputSchema.required?.filter(
+                                (name) => name !== 'context' && name !== 'llm_model'
+                            ),
+                        },
+                    }
+                })
         } catch {
             return tools
         }
