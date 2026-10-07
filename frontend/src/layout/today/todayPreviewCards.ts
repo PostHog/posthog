@@ -91,24 +91,7 @@ export interface TodayReportPreview {
     surface: 'briefing' | 'sidebar'
 }
 
-/** What a recently viewed object's hover card says, read from its file system entry. */
-export interface TodayObjectPreview {
-    kind: 'object'
-    name: string
-    /** The file system type, which picks the icon. */
-    type: string | null
-    typeName: string | null
-    folder: string | null
-    lastViewedAt: string | null
-    createdAt: string | null
-}
-
-export type TodayPreviewPayload =
-    | TodaySessionPreview
-    | TodaySpacePreview
-    | TodayChatPreview
-    | TodayReportPreview
-    | TodayObjectPreview
+export type TodayPreviewPayload = TodaySessionPreview | TodaySpacePreview | TodayChatPreview | TodayReportPreview
 
 export function spaceKind(space: Pick<ChannelDTOApi, 'channel_type' | 'system_role'>): TodaySpaceKind {
     if (space.system_role === 'personal' || space.channel_type === 'personal') {

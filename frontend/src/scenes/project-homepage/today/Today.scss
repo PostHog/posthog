@@ -1,16 +1,22 @@
-// The Today layout keeps its own "paper" palette. Colours that also appear on tinted surfaces stay literal,
-// the rest switch with the app theme. The app layout shares it so the page behind the rail matches.
+// The Today palette names the quill tokens the layout uses. Quill defines its tokens only inside
+// [data-quill], and a custom property resolves where it is declared, so every [data-quill] root that uses
+// the palette declares it again. Each token falls back for the app layout behind the rail: the paper to the
+// app token quill's background is matched to, and the rest to their former literal values.
+// Colours with no quill counterpart (body text, input borders, the button, the accents) stay literal.
 .Today,
+.Today__page,
 .TodayAppLayout,
 .TodayHoverMark__popup,
 .TodayImplementMenu {
-    --today-ink: #151515;
-    --today-muted: #8d8d88;
-    --today-faint: #a3a39e;
-    --today-paper: #f7f7f5;
-    --today-line: #e5e5e0;
-    --today-card: #fff;
-    --today-soft: #efefeb;
+    --today-ink: var(--foreground, #151515);
+    --today-muted: var(--muted-foreground, #8d8d88);
+    --today-faint: var(--subtle-foreground, #a3a39e);
+
+    // `--color-bg-primary` cannot be the first choice: inside [data-quill], quill-bridge rebinds it to the brand color.
+    --today-paper: var(--background, var(--color-bg-primary));
+    --today-line: var(--border, #e5e5e0);
+    --today-card: var(--card, #fff);
+    --today-soft: var(--muted, #efefeb);
     --today-body-text: #454541;
     --today-input-border: #deded8;
     --today-focus-border: #a7a7a0;
@@ -24,13 +30,12 @@
     --today-key-clause: rgb(29 74 255 / 75%);
 
     [theme='dark'] & {
-        --today-ink: #f1f1ee;
-        --today-muted: #a6a6a0;
-        --today-faint: #82827c;
-        --today-paper: #161615;
-        --today-line: #2c2c2a;
-        --today-card: #1f1f1d;
-        --today-soft: #262624;
+        --today-ink: var(--foreground, #f1f1ee);
+        --today-muted: var(--muted-foreground, #a6a6a0);
+        --today-faint: var(--subtle-foreground, #82827c);
+        --today-line: var(--border, #2c2c2a);
+        --today-card: var(--card, #1f1f1d);
+        --today-soft: var(--muted, #262624);
         --today-body-text: #d4d4ce;
         --today-input-border: #353532;
         --today-focus-border: #5c5c57;
@@ -139,13 +144,13 @@
 }
 
 .TodayNavItem[data-state='done'] .TodayNavItem__title,
-.TodayReportLink[data-state='done'] {
+.TodayInlineLink[data-state='done'] {
     text-decoration: line-through;
 }
 
 // Dismissed is not done: it stays readable, only quieter, and the left bar says why.
 .TodayNavItem[data-state='dismissed'] .quill-item__content,
-.TodayReportLink[data-state='dismissed'] {
+.TodayInlineLink[data-state='dismissed'] {
     opacity: 0.55;
 }
 
@@ -167,9 +172,16 @@
     }
 }
 
+.TodayHome {
+    padding-block: 60px;
+}
+
 .TodayHome__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 13px;
     color: var(--today-faint);
     letter-spacing: 0.02em;
 
@@ -180,12 +192,16 @@
     }
 }
 
-.TodayHome__intro {
+.TodayPartyPopper {
+    flex-shrink: 0;
+    margin-right: 8px;
+}
+
+// The running text of the home: the brief and the recent objects.
+.TodayHome__prose {
     max-width: 680px;
-    margin-top: clamp(72px, 12vh, 120px);
     font-size: 16px;
     line-height: 1.7;
-    color: var(--today-muted);
     letter-spacing: -0.005em;
 
     p {
@@ -197,15 +213,16 @@
     }
 }
 
+.TodayHome__intro {
+    margin-top: clamp(72px, 12vh, 120px);
+    color: var(--today-faint);
+}
+
 .TodayHome__greeting {
     display: flex;
     gap: 10px;
     align-items: center;
     margin-bottom: 10px;
-    font-size: 21px;
-    font-weight: 560;
-    color: var(--today-ink);
-    letter-spacing: -0.015em;
 }
 
 .TodayHome__badge {
@@ -272,19 +289,19 @@
     }
 }
 
-.TodayReportLink {
-    padding: 0;
-    color: inherit;
-    text-align: inherit;
+// A link inside running text. A container sets `--today-link` to change its resting colour.
+.TodayInlineLink {
+    color: var(--today-link, var(--today-muted));
     text-decoration: underline;
     text-decoration-thickness: 1.5px;
-    text-decoration-color: color-mix(in sRGB, var(--today-ink) 18%, transparent);
+    text-decoration-color: color-mix(in oklab, currentColor 50%, transparent);
     text-underline-offset: 5px;
     transition:
         color 0.16s,
         text-decoration-color 0.16s;
 
     &:hover,
+    &:active,
     &[data-active='true'] {
         color: var(--today-ink);
         text-decoration-color: var(--today-ink);
@@ -294,31 +311,23 @@
 .TodayHome__highlight {
     padding: 0.02em 0.2em 0.08em;
     margin: 0 -0.03em;
-    background: #ffbda380;
+
+    // `--primary-light` is the brand orange in both themes; `--primary` turns yellow in dark mode.
+    background: color-mix(in oklab, var(--primary-light) 22%, transparent);
     border-radius: 0.26em;
     box-decoration-break: clone;
 
-    .TodayReportLink,
-    .TodayReportLink:hover,
-    .TodayReportLink[data-active='true'] {
+    .TodayInlineLink,
+    .TodayInlineLink:hover,
+    .TodayInlineLink[data-active='true'] {
         font-weight: 500;
-        color: #ff4800;
+        color: var(--primary-light);
         text-decoration: none;
     }
 
     // The strike outlives the reset above, so a resolved item reads the same here as in the rail.
-    .TodayReportLink[data-state='done'] {
+    .TodayInlineLink[data-state='done'] {
         text-decoration: line-through;
-    }
-
-    [theme='dark'] & {
-        background: #ff48002e;
-
-        .TodayReportLink,
-        .TodayReportLink:hover,
-        .TodayReportLink[data-active='true'] {
-            color: #ff9e7a;
-        }
     }
 }
 
@@ -330,51 +339,73 @@
 
 .TodayHome__foot {
     margin-top: 48px;
+}
 
-    button {
-        color: var(--today-ink);
-        text-decoration: underline;
-        text-decoration-color: color-mix(in sRGB, var(--today-ink) 20%, transparent);
-        text-underline-offset: 5px;
+.TodayInboxLink {
+    color: var(--primary);
+}
 
-        &:hover {
-            color: #ff5c1c;
-        }
+// A button inside running text that reads as a link.
+.TodayInlineAction {
+    color: var(--today-ink);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in oklab, var(--today-ink) 45%, transparent);
+    text-underline-offset: 5px;
+
+    &:hover {
+        color: var(--primary);
     }
 }
 
 // Recent work on the home
 
 .TodayHome__recents {
-    max-width: 680px;
     margin-top: 56px;
-    font-size: 16px;
-    line-height: 1.7;
     color: var(--today-muted);
-    letter-spacing: -0.005em;
+}
 
-    p {
-        margin: 0;
+.TodayRecentList {
+    padding: 0;
+    margin: 0 0 10px;
+    list-style: none;
+}
+
+.TodayRecentRow {
+    --today-link: var(--today-ink);
+
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    min-width: 0;
+    padding: 3px 0;
+
+    .TodayRecentIcon {
+        flex-shrink: 0;
+        margin-right: 0;
+
+        > span {
+            transition: transform 0.18s;
+        }
     }
 
-    p + p {
-        margin-top: 7px;
-    }
+    &:hover .TodayRecentIcon > span,
+    &:focus-within .TodayRecentIcon > span {
+        transform: rotate(-6deg) scale(1.08);
 
-    button {
-        color: var(--today-ink);
-        text-decoration: underline;
-        text-decoration-color: color-mix(in sRGB, var(--today-ink) 20%, transparent);
-        text-underline-offset: 5px;
-
-        &:hover {
-            color: #ff5c1c;
+        @media (prefers-reduced-motion: reduce) {
+            transform: none;
         }
     }
 }
 
-.TodayHome__recentsLabel {
-    margin-bottom: 10px;
+.TodayRecentRow__meta {
+    flex-shrink: 0;
+    font-size: 14px;
+    white-space: pre;
+}
+
+.TodayRecentRow__time {
+    color: var(--today-faint);
 }
 
 // A small type tile before each recent object, in the style of the report chips above it.
@@ -399,13 +430,6 @@
         height: 11px;
         color: #fff;
     }
-}
-
-// Ask box
-
-.TodayAsk {
-    max-width: 760px;
-    margin-top: 76px;
 }
 
 .TodayHoverMark {
@@ -650,10 +674,6 @@
 @container main-content (max-width: 600px) {
     .TodayHome__intro {
         margin-top: 32px;
-    }
-
-    .TodayAsk {
-        margin-top: 40px;
     }
 }
 

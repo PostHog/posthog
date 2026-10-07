@@ -14,7 +14,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import type { TodayObjectPreview, TodayReportCard, TodayReportPreview } from '~/layout/today/todayPreviewCards'
+import type { TodayReportCard, TodayReportPreview } from '~/layout/today/todayPreviewCards'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { TeamType, UserType } from '~/types'
@@ -53,7 +53,7 @@ import {
     itemHref,
     itemReportId,
 } from './todayBriefingItems'
-import { objectPreview, recentObjectsForHome } from './todayRecentObjects'
+import { recentObjectsForHome } from './todayRecentObjects'
 import { SAMPLE_BRIEFING, isSampleReportId, parseSampleParam, sampleTopReports } from './todaySampleReports'
 import { TodayBriefingSegment, briefingForReports, teamReportCard } from './todaySignalReports'
 
@@ -72,7 +72,7 @@ const MAX_BRIEFING_POLLS = 132
 export type TodayReportOpenSource = 'briefing' | 'chip' | 'sidebar' | 'sidebar_more'
 
 /** Where a question to PostHog AI came from, sent with the `today ai asked` event. */
-export type TodayAskSource = 'ask_box' | 'walk_through' | 'report_page'
+export type TodayAskSource = 'walk_through' | 'report_page'
 
 /** What a person decides about a report from Today. */
 export type TodayReportVerdict = 'resolve' | 'dismiss'
@@ -235,7 +235,6 @@ export interface todayLogicValues {
     moreReportsInInbox: number
     moreReportsLoading: boolean
     now: number
-    recentObjectPreviews: Record<string, TodayObjectPreview>
     recentObjects: FileSystemEntry[]
     personalBriefing: BriefingApi | null
     personalBriefingFailed: boolean
@@ -447,7 +446,6 @@ export interface todayLogicMeta {
         greeting: (hour: number, user: UserType | null) => string
         reportSummary: (hour: number, reports: SignalReport[]) => string
         recentObjects: (recents: FileSystemEntry[]) => FileSystemEntry[]
-        recentObjectPreviews: (recentObjects: FileSystemEntry[]) => Record<string, TodayObjectPreview>
         showPersonalBriefing: (personalBriefing: BriefingApi | null, useSampleData: boolean) => boolean
         inboxMore: (personalBriefing: BriefingApi | null) => TodayInboxMore | null
         briefingItems: (
@@ -735,12 +733,6 @@ export const todayLogic = kea<todayLogicType>([
         recentObjects: [
             (s) => [s.recents],
             (recents: FileSystemEntry[]): FileSystemEntry[] => recentObjectsForHome(recents, RECENT_OBJECT_COUNT),
-        ],
-        // One stable payload per entry, so the shared hover card does not rewrite its store on every render.
-        recentObjectPreviews: [
-            (s) => [s.recentObjects],
-            (recentObjects: FileSystemEntry[]): Record<string, TodayObjectPreview> =>
-                Object.fromEntries(recentObjects.map((entry) => [entry.id, objectPreview(entry)])),
         ],
         showPersonalBriefing: [
             (s) => [s.personalBriefing, s.useSampleData],
