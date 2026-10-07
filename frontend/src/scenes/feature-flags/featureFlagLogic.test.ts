@@ -37,6 +37,7 @@ import {
     FeatureFlagType,
     FeatureFlagWithV1Config,
     OrganizationFeatureFlag,
+    PersonPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     RecurrenceInterval,
@@ -4518,7 +4519,7 @@ describe('a flag in config version 2', () => {
             enabled: false,
             default_groups: [],
         })
-        const properties = [
+        const properties: PersonPropertyFilter[] = [
             {
                 key: 'p_signed_up',
                 type: PropertyFilterType.Person,
