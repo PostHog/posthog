@@ -481,6 +481,20 @@ def test_google_sheets_source_reads_blank_cells_as_null():
     ]
 
 
+def test_google_sheets_source_keeps_cell_text_in_a_column_mixing_numbers_and_text():
+    tables = _read_sheet(
+        ["id", "code"],
+        [["1", "spring sale"], ["2", "1,200"], ["3", ""], ["4", "42"]],
+    )
+
+    assert tables[0].to_pylist() == [
+        {"id": 1, "code": "spring sale"},
+        {"id": 2, "code": "1,200"},
+        {"id": 3, "code": None},
+        {"id": 4, "code": "42"},
+    ]
+
+
 @pytest.mark.parametrize(
     "header_row,expected_columns",
     [

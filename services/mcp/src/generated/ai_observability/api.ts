@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 81 enabled ops
+ * PostHog API - MCP 97 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -62,6 +62,728 @@ export const LlmAnalyticsPersonalSpendListQueryParams = () => zod.object({
         .boolean()
         .default(llmAnalyticsPersonalSpendListQueryRefreshDefault)
         .describe('If true, bypass the result cache and re-run the underlying queries against ClickHouse.'),
+})
+
+export const AiObservabilityOfflineExperimentsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsListQueryApplicationVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsListQueryCursorMax = 2048
+
+export const aiObservabilityOfflineExperimentsListQueryDatasetIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsListQueryDatasetRevisionIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsListQueryDatasetSourceMax = 255
+
+export const aiObservabilityOfflineExperimentsListQueryLimitDefault = 50
+export const aiObservabilityOfflineExperimentsListQueryLimitMax = 100
+
+export const aiObservabilityOfflineExperimentsListQueryModelVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsListQueryPromptVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsListQueryRunSourceMax = 16
+
+export const aiObservabilityOfflineExperimentsListQueryScorerVersionIdsMax = 739
+
+export const aiObservabilityOfflineExperimentsListQuerySearchMax = 400
+
+export const aiObservabilityOfflineExperimentsListQueryStatusesMax = 32
+
+export const aiObservabilityOfflineExperimentsListQuerySuiteKeyMax = 255
+
+export const AiObservabilityOfflineExperimentsListQueryParams = () => zod.object({
+    application_version: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryApplicationVersionMax)
+        .optional()
+        .describe('Exact application revision.'),
+    cursor: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryCursorMax)
+        .optional()
+        .describe('Continuation cursor returned by the previous page.'),
+    dataset_identifier: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryDatasetIdentifierMax)
+        .optional()
+        .describe('Exact durable dataset identifier.'),
+    dataset_revision_identifier: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryDatasetRevisionIdentifierMax)
+        .optional()
+        .describe('Exact durable dataset revision identifier.'),
+    dataset_source: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryDatasetSourceMax)
+        .optional()
+        .describe('Exact dataset source.'),
+    date_from: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Inclusive execution start time, in ISO 8601 format.'),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Exclusive execution end time, in ISO 8601 format.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryLimitMax)
+        .default(aiObservabilityOfflineExperimentsListQueryLimitDefault)
+        .describe('Page size, from 1 to 100. Defaults to 50.'),
+    model_version: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryModelVersionMax)
+        .optional()
+        .describe('Exact model revision.'),
+    prompt_version: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryPromptVersionMax)
+        .optional()
+        .describe('Exact prompt revision.'),
+    run_source: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryRunSourceMax)
+        .optional()
+        .describe('Filter ci, local, scheduled, or not_specified for omitted run source.'),
+    scorer_definition_id: zod.string().optional().describe('Restrict results to this scorer definition.'),
+    scorer_version_ids: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryScorerVersionIdsMax)
+        .optional()
+        .describe('Comma-separated list of at most 20 distinct scorer-version UUIDs.'),
+    search: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQuerySearchMax)
+        .optional()
+        .describe('Search experiment names.'),
+    statuses: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryStatusesMax)
+        .optional()
+        .describe(
+            'Comma-separated uploading, completed, or failed states. History defaults to completed; lists include all.'
+        ),
+    suite_key: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQuerySuiteKeyMax)
+        .optional()
+        .describe('Exact evaluation suite identifier.'),
+})
+
+export const AiObservabilityOfflineExperimentsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsCreateBodyNameMax = 400
+
+export const aiObservabilityOfflineExperimentsCreateBodyExpectedItemCountMin = 0
+export const aiObservabilityOfflineExperimentsCreateBodyExpectedItemCountMax = 2147483647
+
+export const aiObservabilityOfflineExperimentsCreateBodyExpectedResultCountMin = 0
+export const aiObservabilityOfflineExperimentsCreateBodyExpectedResultCountMax = 2147483647
+
+export const aiObservabilityOfflineExperimentsCreateBodySuiteKeyMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyDatasetSourceMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyDatasetIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyDatasetRevisionIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyApplicationVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyModelVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyPromptVersionMax = 255
+
+export const AiObservabilityOfflineExperimentsCreateBody = () => zod.object({
+    id: zod.string().describe('Caller-generated experiment UUID. Reuse it for exact retries.'),
+    name: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyNameMax)
+        .describe('Display name for this experiment execution.'),
+    started_at: zod.iso
+        .datetime({ offset: true })
+        .describe('Execution start time in ISO 8601 format, supplied by the caller.'),
+    run_source: zod
+        .union([
+            zod
+                .enum(['ci', 'local', 'scheduled'])
+                .describe('\* `ci` - CI\n\* `local` - Local\n\* `scheduled` - Scheduled'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Where the execution started: ci, local, or scheduled. Omit or use null when unknown.\n\n\* `ci` - CI\n\* `local` - Local\n\* `scheduled` - Scheduled'
+        ),
+    expected_item_count: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsCreateBodyExpectedItemCountMin)
+        .max(aiObservabilityOfflineExperimentsCreateBodyExpectedItemCountMax)
+        .nullish()
+        .describe('Expected number of distinct items. Completion must match this count when supplied.'),
+    expected_result_count: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsCreateBodyExpectedResultCountMin)
+        .max(aiObservabilityOfflineExperimentsCreateBodyExpectedResultCountMax)
+        .nullish()
+        .describe('Expected number of distinct item\/scorer-version results, including non-success statuses.'),
+    suite_key: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodySuiteKeyMax)
+        .nullish()
+        .describe('Stable identifier for comparing executions of the same evaluation suite.'),
+    dataset_source: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyDatasetSourceMax)
+        .nullish()
+        .describe('Source of an external dataset. Hosted dataset provenance is derived from its revision.'),
+    dataset_identifier: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyDatasetIdentifierMax)
+        .nullish()
+        .describe('Stable identifier for the external dataset.'),
+    dataset_revision_identifier: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyDatasetRevisionIdentifierMax)
+        .nullish()
+        .describe('Pinned revision identifier of the external dataset.'),
+    dataset_revision_id: zod.string().nullish().describe('UUID of a hosted dataset revision in this project.'),
+    application_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyApplicationVersionMax)
+        .nullish()
+        .describe('Version of the application under evaluation.'),
+    model_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyModelVersionMax)
+        .nullish()
+        .describe('Version of the model under evaluation.'),
+    prompt_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyPromptVersionMax)
+        .nullish()
+        .describe('Version of the prompt under evaluation.'),
+})
+
+export const AiObservabilityOfflineExperimentsRetrieveParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AiObservabilityOfflineExperimentsCompleteCreateParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AiObservabilityOfflineExperimentsFailCreateParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AiObservabilityOfflineExperimentsItemsListParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsItemsListQueryCursorMax = 2048
+
+export const aiObservabilityOfflineExperimentsItemsListQueryLimitDefault = 50
+export const aiObservabilityOfflineExperimentsItemsListQueryLimitMax = 100
+
+export const aiObservabilityOfflineExperimentsItemsListQueryScorerVersionIdsMax = 739
+
+export const AiObservabilityOfflineExperimentsItemsListQueryParams = () => zod.object({
+    cursor: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsItemsListQueryCursorMax)
+        .optional()
+        .describe('Continuation cursor returned by the previous page.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsItemsListQueryLimitMax)
+        .default(aiObservabilityOfflineExperimentsItemsListQueryLimitDefault)
+        .describe('Page size, from 1 to 100. Defaults to 50.'),
+    scorer_version_ids: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsItemsListQueryScorerVersionIdsMax)
+        .optional()
+        .describe('Comma-separated list of at most 20 distinct scorer-version UUIDs.'),
+})
+
+export const AiObservabilityOfflineExperimentsItemsRetrieveParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    item_id: zod.string().describe('Item UUID within the experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AiObservabilityOfflineExperimentsItemsPayloadRetrieveParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    item_id: zod.string().describe('Item UUID within the experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AiObservabilityOfflineExperimentsItemsResultsListParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    item_id: zod.string().describe('Item UUID within the experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsItemsResultsListQueryCursorMax = 2048
+
+export const aiObservabilityOfflineExperimentsItemsResultsListQueryLimitDefault = 50
+export const aiObservabilityOfflineExperimentsItemsResultsListQueryLimitMax = 100
+
+export const aiObservabilityOfflineExperimentsItemsResultsListQueryScorerVersionIdsMax = 739
+
+export const AiObservabilityOfflineExperimentsItemsResultsListQueryParams = () => zod.object({
+    cursor: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsItemsResultsListQueryCursorMax)
+        .optional()
+        .describe('Continuation cursor returned by the previous page.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsItemsResultsListQueryLimitMax)
+        .default(aiObservabilityOfflineExperimentsItemsResultsListQueryLimitDefault)
+        .describe('Page size, from 1 to 100. Defaults to 50.'),
+    scorer_definition_id: zod.string().optional().describe('Restrict results to this scorer definition.'),
+    scorer_version_ids: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsItemsResultsListQueryScorerVersionIdsMax)
+        .optional()
+        .describe('Comma-separated list of at most 20 distinct scorer-version UUIDs.'),
+})
+
+export const AiObservabilityOfflineExperimentsResultCellsRetrieveParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsResultCellsRetrieveQueryItemIdsMax = 1849
+
+export const aiObservabilityOfflineExperimentsResultCellsRetrieveQueryScorerVersionIdsMax = 739
+
+export const AiObservabilityOfflineExperimentsResultCellsRetrieveQueryParams = () => zod.object({
+    item_ids: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsResultCellsRetrieveQueryItemIdsMax)
+        .describe('Comma-separated list of 1 to 50 distinct item UUIDs belonging to this experiment.'),
+    scorer_version_ids: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsResultCellsRetrieveQueryScorerVersionIdsMax)
+        .describe('Comma-separated list of 1 to 20 distinct authorized scorer-version UUIDs.'),
+})
+
+export const AiObservabilityOfflineExperimentsResultsPayloadRetrieveParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    result_id: zod.string().describe('Result UUID within the experiment.'),
+})
+
+export const AiObservabilityOfflineExperimentsScorerSummariesListParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsScorerSummariesListQueryCursorMax = 2048
+
+export const aiObservabilityOfflineExperimentsScorerSummariesListQueryLimitDefault = 50
+export const aiObservabilityOfflineExperimentsScorerSummariesListQueryLimitMax = 100
+
+export const aiObservabilityOfflineExperimentsScorerSummariesListQueryScorerVersionIdsMax = 739
+
+export const AiObservabilityOfflineExperimentsScorerSummariesListQueryParams = () => zod.object({
+    cursor: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsScorerSummariesListQueryCursorMax)
+        .optional()
+        .describe('Continuation cursor returned by the previous page.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsScorerSummariesListQueryLimitMax)
+        .default(aiObservabilityOfflineExperimentsScorerSummariesListQueryLimitDefault)
+        .describe('Page size, from 1 to 100. Defaults to 50.'),
+    scorer_definition_id: zod.string().optional().describe('Restrict results to this scorer definition.'),
+    scorer_version_ids: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsScorerSummariesListQueryScorerVersionIdsMax)
+        .optional()
+        .describe('Comma-separated list of at most 20 distinct scorer-version UUIDs.'),
+})
+
+export const AiObservabilityOfflineExperimentsUploadCreateParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemCaseKeyMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemTrialMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemDatasetItemIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemDatasetItemVersionIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemApplicationTraceIdMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax = 1000
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemValueThreeItemMax = 128
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemErrorCodeMax = 128
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemEvaluatorTraceIdMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax = 1000
+
+export const AiObservabilityOfflineExperimentsUploadCreateBody = () => zod.object({
+    items: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .describe('Caller-generated UUID for one input\/output execution. Reuse for exact retries.'),
+                case_key: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemCaseKeyMax)
+                    .nullish()
+                    .describe('Stable case identifier for matching inputs across experiments.'),
+                trial: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemTrialMax)
+                    .nullish()
+                    .describe('Identifier for a repeated execution of the same case.'),
+                dataset_item_identifier: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemDatasetItemIdentifierMax)
+                    .nullish()
+                    .describe('Stable item identifier in an external dataset.'),
+                dataset_item_version_identifier: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemDatasetItemVersionIdentifierMax)
+                    .nullish()
+                    .describe('Pinned item-version identifier in an external dataset.'),
+                dataset_item_version_id: zod
+                    .string()
+                    .nullish()
+                    .describe("UUID of the hosted item version in the experiment's dataset revision."),
+                application_trace_id: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemApplicationTraceIdMax)
+                    .nullish()
+                    .describe('Trace identifier for the application execution that produced this output.'),
+                payload: zod
+                    .object({
+                        input: zod
+                            .union([
+                                zod.record(zod.string(), zod.unknown()),
+                                zod.array(zod.unknown()),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                        output: zod
+                            .union([
+                                zod.record(zod.string(), zod.unknown()),
+                                zod.array(zod.unknown()),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                        expected_output: zod
+                            .union([
+                                zod.record(zod.string(), zod.unknown()),
+                                zod.array(zod.unknown()),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                        metadata: zod.record(zod.string(), zod.unknown()).nullish(),
+                    })
+                    .optional()
+                    .describe(
+                        'Optional input\/output payload, up to 1 MiB and 32 JSON levels. Omission, {} and null properties differ.'
+                    ),
+            })
+        )
+        .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax)
+        .optional()
+        .describe(
+            'Complete immutable declarations for referenced items. Omit existing items to reuse them without a payload.'
+        ),
+    results: zod
+        .array(
+            zod.object({
+                item_id: zod
+                    .string()
+                    .describe('UUID of an item declared in this request or already accepted in this experiment.'),
+                scorer_version_id: zod.string().describe('Exact UUID of an existing scorer version in this project.'),
+                status: zod
+                    .enum(['ok', 'error', 'skipped', 'not_applicable'])
+                    .describe(
+                        '\* `ok` - OK\n\* `error` - Error\n\* `skipped` - Skipped\n\* `not_applicable` - Not applicable'
+                    )
+                    .describe(
+                        'Outcome of this scorer execution.\n\n\* `ok` - OK\n\* `error` - Error\n\* `skipped` - Skipped\n\* `not_applicable` - Not applicable'
+                    ),
+                value: zod
+                    .union([
+                        zod.number(),
+                        zod.boolean(),
+                        zod
+                            .array(
+                                zod
+                                    .string()
+                                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemValueThreeItemMax)
+                            )
+                            .min(1),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Required for ok: finite number, boolean, or distinct category keys matching the scorer version.'
+                    ),
+                error_code: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemErrorCodeMax)
+                    .nullish()
+                    .describe('Optional stable error code, permitted only for error outcomes.'),
+                evaluator_trace_id: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemEvaluatorTraceIdMax)
+                    .nullish()
+                    .describe('Trace identifier of the evaluator that produced this result.'),
+                evaluated_at: zod.iso
+                    .datetime({ offset: true })
+                    .nullish()
+                    .describe('Caller-supplied evaluation time in ISO 8601 format.'),
+                payload: zod
+                    .object({
+                        reasoning: zod.string().nullish(),
+                        error_message: zod.string().nullish(),
+                        metadata: zod.record(zod.string(), zod.unknown()).nullish(),
+                    })
+                    .optional()
+                    .describe('Optional reasoning, error message, and metadata, up to 256 KiB and 32 JSON levels.'),
+            })
+        )
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax)
+        .describe('One to 1,000 unique item\/scorer-version results. The entire request commits atomically.'),
+})
+
+export const AiObservabilityOfflineScorersHistoryListParams = () => zod.object({
+    id: zod.string().describe('Scorer definition UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineScorersHistoryListQueryApplicationVersionMax = 255
+
+export const aiObservabilityOfflineScorersHistoryListQueryCursorMax = 2048
+
+export const aiObservabilityOfflineScorersHistoryListQueryDatasetIdentifierMax = 255
+
+export const aiObservabilityOfflineScorersHistoryListQueryDatasetRevisionIdentifierMax = 255
+
+export const aiObservabilityOfflineScorersHistoryListQueryDatasetSourceMax = 255
+
+export const aiObservabilityOfflineScorersHistoryListQueryLimitDefault = 50
+export const aiObservabilityOfflineScorersHistoryListQueryLimitMax = 100
+
+export const aiObservabilityOfflineScorersHistoryListQueryModelVersionMax = 255
+
+export const aiObservabilityOfflineScorersHistoryListQueryPromptVersionMax = 255
+
+export const aiObservabilityOfflineScorersHistoryListQueryRunSourceMax = 16
+
+export const aiObservabilityOfflineScorersHistoryListQueryScorerVersionIdsMax = 739
+
+export const aiObservabilityOfflineScorersHistoryListQuerySearchMax = 400
+
+export const aiObservabilityOfflineScorersHistoryListQueryStatusesMax = 32
+
+export const aiObservabilityOfflineScorersHistoryListQuerySuiteKeyMax = 255
+
+export const AiObservabilityOfflineScorersHistoryListQueryParams = () => zod.object({
+    application_version: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryApplicationVersionMax)
+        .optional()
+        .describe('Exact application revision.'),
+    cursor: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryCursorMax)
+        .optional()
+        .describe('Continuation cursor returned by the previous page.'),
+    dataset_identifier: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryDatasetIdentifierMax)
+        .optional()
+        .describe('Exact durable dataset identifier.'),
+    dataset_revision_identifier: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryDatasetRevisionIdentifierMax)
+        .optional()
+        .describe('Exact durable dataset revision identifier.'),
+    dataset_source: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryDatasetSourceMax)
+        .optional()
+        .describe('Exact dataset source.'),
+    date_from: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Inclusive execution start time, in ISO 8601 format.'),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Exclusive execution end time, in ISO 8601 format.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryLimitMax)
+        .default(aiObservabilityOfflineScorersHistoryListQueryLimitDefault)
+        .describe('Page size, from 1 to 100. Defaults to 50.'),
+    model_version: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryModelVersionMax)
+        .optional()
+        .describe('Exact model revision.'),
+    prompt_version: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryPromptVersionMax)
+        .optional()
+        .describe('Exact prompt revision.'),
+    run_source: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryRunSourceMax)
+        .optional()
+        .describe('Filter ci, local, scheduled, or not_specified for omitted run source.'),
+    scorer_version_ids: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryScorerVersionIdsMax)
+        .optional()
+        .describe('Comma-separated list of at most 20 distinct scorer-version UUIDs.'),
+    search: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQuerySearchMax)
+        .optional()
+        .describe('Search experiment names.'),
+    statuses: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryStatusesMax)
+        .optional()
+        .describe(
+            'Comma-separated uploading, completed, or failed states. History defaults to completed; lists include all.'
+        ),
+    suite_key: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQuerySuiteKeyMax)
+        .optional()
+        .describe('Exact evaluation suite identifier.'),
 })
 
 /**
@@ -658,13 +1380,13 @@ export const EvaluationsCreateBody = () => zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
                     ),
                 max: zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
                     ),
                 step: zod
                     .number()
@@ -1124,13 +1846,13 @@ export const EvaluationsPartialUpdateBody = () => zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
                     ),
                 max: zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
                     ),
                 step: zod
                     .number()
@@ -1381,13 +2103,13 @@ export const EvaluationsTestHogCreateBody = () => zod.object({
                 .number()
                 .nullish()
                 .describe(
-                    'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                    'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
                 ),
             max: zod
                 .number()
                 .nullish()
                 .describe(
-                    'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                    'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
                 ),
             step: zod
                 .number()
@@ -2374,6 +3096,45 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = () => zod.object
         .describe(
             "Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check."
         ),
+})
+
+export const LlmAnalyticsScoreDefinitionsVersionsListParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this score definition.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const llmAnalyticsScoreDefinitionsVersionsListQueryCursorMax = 2048
+
+export const llmAnalyticsScoreDefinitionsVersionsListQueryLimitDefault = 50
+export const llmAnalyticsScoreDefinitionsVersionsListQueryLimitMax = 100
+
+export const LlmAnalyticsScoreDefinitionsVersionsListQueryParams = () => zod.object({
+    cursor: zod
+        .string()
+        .min(1)
+        .max(llmAnalyticsScoreDefinitionsVersionsListQueryCursorMax)
+        .optional()
+        .describe('Continuation cursor from the prior page.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(llmAnalyticsScoreDefinitionsVersionsListQueryLimitMax)
+        .default(llmAnalyticsScoreDefinitionsVersionsListQueryLimitDefault)
+        .describe('Maximum versions to return.'),
+})
+
+export const LlmAnalyticsScoreDefinitionsVersionsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this score definition.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    version_id: zod.string().describe('Immutable version UUID.'),
 })
 
 /**

@@ -4717,22 +4717,38 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(get_cached_github_user_token(str(task_run.id)), "ghu_test_token")
         mock_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("user_created_requests_user", Task.OriginProduct.USER_CREATED, {"pr_authorship_mode": "user"}, None),
+            ("posthog_ai_requests_user", Task.OriginProduct.POSTHOG_AI, {"pr_authorship_mode": "user"}, "bot"),
+            ("posthog_ai_requests_nothing", Task.OriginProduct.POSTHOG_AI, {}, "bot"),
+        ]
+    )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_run_endpoint_rejects_user_authorship_without_github_identity_when_no_repo(self, mock_workflow):
+    def test_create_run_endpoint_user_authorship_without_github_identity_when_no_repo(
+        self, _name, origin_product, authorship_request, expected_mode, mock_workflow
+    ):
         task = self.create_task()
+        task.origin_product = origin_product
+        task.save(update_fields=["origin_product"])
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/",
             {
                 "environment": "cloud",
-                "pr_authorship_mode": "user",
                 "run_source": "manual",
+                **authorship_request,
             },
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["code"], "github_authorization_required")
+        if expected_mode is None:
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["code"], "github_authorization_required")
+        else:
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            task_run = TaskRun.objects.get(id=response.json()["id"])
+            self.assertEqual(task_run.state["pr_authorship_mode"], expected_mode)
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")

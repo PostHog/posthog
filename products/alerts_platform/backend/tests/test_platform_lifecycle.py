@@ -126,8 +126,11 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
 
         rows = sync_execute(
-            "SELECT state, episode_started_at FROM platform_alert_events WHERE team_id = %(team_id)s",
-            {"team_id": self.team.id},
+            # Scoped to this configuration, not the team: ClickHouse is not rolled back between
+            # runs while Postgres team ids restart, so a team id arrives carrying older rows.
+            "SELECT state, episode_started_at FROM platform_alert_events "
+            "WHERE team_id = %(team_id)s AND configuration_id = %(configuration_id)s",
+            {"team_id": self.team.id, "configuration_id": self.configuration.id},
         )
 
         assert rows == [("not_firing", self.cutoff)]

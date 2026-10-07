@@ -24,10 +24,11 @@ function createMockContext(opts: {
     trigger: unknown
     blastRadius: { affected: number; total: number; limit?: number }
     status?: string
+    actions?: unknown[]
 }): { context: Context; request: ReturnType<typeof vi.fn> } {
     const request = vi.fn(async ({ method, path }: RequestArgs) => {
         if (method === 'GET' && /\/hog_flows\/[^/]+\/$/.test(path)) {
-            return { id: 'wf-1', status: opts.status ?? 'active', trigger: opts.trigger }
+            return { id: 'wf-1', status: opts.status ?? 'active', trigger: opts.trigger, actions: opts.actions ?? [] }
         }
         if (method === 'POST' && path.endsWith('/user_blast_radius/')) {
             return { limit: DEFAULT_LIMIT, confirm_token: 'tok-preview', ...opts.blastRadius }
@@ -63,10 +64,15 @@ describe('workflows batch handlers', () => {
     })
 
     describe('workflows-blast-radius', () => {
-        it('resolves the workflow trigger filters and sizes them, returning the count', async () => {
+        it.each([
+            ['an email step', [{ type: 'function_email' }], true],
+            ['an email template step', [{ type: 'function', config: { template_id: 'template-email' } }], true],
+            ['only webhook steps', [{ type: 'function', config: { template_id: 'template-webhook' } }], false],
+        ])('sizes the trigger filters for a workflow with %s', async (_, actions, sendsEmail) => {
             const { context, request } = createMockContext({
                 trigger: { type: 'batch', filters: BATCH_FILTERS },
                 blastRadius: { affected: 42, total: 100 },
+                actions,
             })
 
             const result = await blastRadiusTool.handler(context, { workflow_id: 'wf-1' })
@@ -76,7 +82,7 @@ describe('workflows batch handlers', () => {
             expect(c[1]).toMatchObject({
                 method: 'POST',
                 path: '/api/projects/1/hog_flows/user_blast_radius/',
-                body: { filters: BATCH_FILTERS },
+                body: { filters: BATCH_FILTERS, sends_email: sendsEmail },
             })
             // confirm_token must surface to the agent: it is a required workflows-run-batch input.
             expect(result).toEqual({ affected: 42, total: 100, limit: DEFAULT_LIMIT, confirm_token: 'tok-preview' })

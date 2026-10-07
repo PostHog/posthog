@@ -605,6 +605,8 @@ export interface ReportRankingApi {
     lifts: ReportRankingApiLifts
     /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
     readable_heads: string[]
+    /** True when the report's title or summary was edited after the text this score read. The score describes the old text: the inbox hides its lift and the model sort treats the report as unscored. */
+    stale: boolean
 }
 
 export interface SignalReportListApi {
@@ -3097,9 +3099,9 @@ export interface SignalReportBulkStateResponseApi {
 }
 
 export interface SignalReportsForYouResponseApi {
-    /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns. The Today briefing ranks reports the same way. */
+    /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns unless `include_unowned` is false. The Today briefing ranks reports the same way. */
     results: SignalReportListApi[]
-    /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. */
+    /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. Counted over the same set as `results`, so it follows `include_unowned` too. */
     count: number
 }
 
@@ -5659,21 +5661,21 @@ export const ScoutRubricReportChannelEnumApi = {
 } as const
 
 export interface ScoutRubricReferenceTextDocumentApi {
-    /** Path of the reference supplied to the generator. */
+    /** Path of the captured reference file. */
     path: string
-    /** Content type of the supplied reference. */
+    /** Content type of the captured reference file. */
     content_type: string
-    /** Exact reference text supplied to the generator. */
+    /** Saved reference text used for judging. */
     content: string
 }
 
 export interface ScoutRubricReferenceLimitsDocumentApi {
     /**
-     * Number of reference files not supplied.
+     * Number of files missing from the saved reference.
      * @minimum 0
      */
     omitted_files: number
-    /** Reference paths whose supplied content was truncated. */
+    /** Paths of files truncated in the saved reference. */
     truncated_files: string[]
 }
 
@@ -5686,11 +5688,11 @@ export interface ScoutRubricReferenceContextDocumentApi {
     skill_name: string
     /** Skill version used for generation. */
     skill_version: number
-    /** Scout description supplied to the generator. */
+    /** Scout description captured for this reference. */
     description: string
-    /** Exact instructions supplied to the generator. */
+    /** Saved scout instructions used for judging. */
     instructions: string
-    /** Whether the supplied instructions were truncated. */
+    /** Whether the saved instructions were truncated. */
     instructions_truncated: boolean
     /** Report capabilities used to select the source rules.
      *
@@ -5699,15 +5701,15 @@ export interface ScoutRubricReferenceContextDocumentApi {
      * * `edit` - Edit
      * * `both` - Both */
     report_channel: ScoutRubricReportChannelEnumApi
-    /** Exact report-disposition rules supplied to the generator. */
+    /** Report-disposition rules captured for this reference. */
     report_disposition_instructions: string
-    /** Reference-file inventory supplied to the generator. */
+    /** Reference-file inventory captured for this reference. */
     reference_files: string[]
     /** Whether the reference-file inventory was truncated. */
     reference_files_truncated: boolean
-    /** Reference texts supplied to the generator. */
+    /** Saved reference texts used for judging. */
     reference_texts: ScoutRubricReferenceTextDocumentApi[]
-    /** Limits on the supplied reference texts. */
+    /** Missing or truncated text in the saved reference. */
     reference_limits: ScoutRubricReferenceLimitsDocumentApi
 }
 
@@ -7639,6 +7641,10 @@ export type SignalsReportsAvailableReviewersRetrieve200 = {
 }
 
 export type SignalsReportsForYouRetrieveParams = {
+    /**
+     * Whether to include P0 reports that nobody owns. These belong to the project rather than to one person, and they rank above everything else, so a surface that only shows a person's own work passes false. Defaults to true.
+     */
+    include_unowned?: boolean
     /**
      * How many of the top reports to return, 1 to 20. Defaults to 5.
      * @minimum 1

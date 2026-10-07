@@ -24,6 +24,7 @@ AI_GATEWAY_URL = "https://ai-gateway.example/v1"
 AI_GATEWAY_KEY = "phs_go"
 LLM_GATEWAY_URL = "http://llm-gateway:8080"
 LLM_GATEWAY_KEY = "phx_legacy"
+TRACE_ID = "1b9d6bcd-bbfd-5b1d-9c2f-9f0a4b4a1b2c"
 
 # Both modes set every setting the builders read, so the wrong route cannot pass by accident.
 GO_GATEWAY = {
@@ -43,19 +44,23 @@ PROJECTS = [
 
 
 def _classify_needs_repo():
-    return classify_task_needs_repo(NEEDS_REPO_TEXT, [SlackThreadMessage(user="Alessandro", text=NEEDS_REPO_TEXT)])
+    return classify_task_needs_repo(
+        NEEDS_REPO_TEXT,
+        [SlackThreadMessage(user="Alessandro", text=NEEDS_REPO_TEXT)],
+        trace_id=TRACE_ID,
+    )
 
 
 def _classify_agent_directed():
-    return classify_message_is_agent_directed("also check the mobile breakpoint", "Fix checkout", [])
+    return classify_message_is_agent_directed("also check the mobile breakpoint", "Fix checkout", [], trace_id=TRACE_ID)
 
 
 def _classify_model_override():
-    return classify_slack_app_model_override("use fable for this", CHOICES)
+    return classify_slack_app_model_override("use fable for this", CHOICES, trace_id=TRACE_ID)
 
 
 def _classify_project_route():
-    return classify_slack_app_project_route("check the error rate on staging", PROJECTS)
+    return classify_slack_app_project_route("check the error rate on staging", PROJECTS, trace_id=TRACE_ID)
 
 
 OPENAI_CLASSIFIERS = [
@@ -85,6 +90,9 @@ def _assert_routing_product(headers: dict[str, str], classifier: str) -> None:
     # All four classifiers share that product, so an online evaluation can only reach one
     # of them through this label. A call that loses it is graded as the wrong classifier.
     assert properties[CLASSIFIER_PROPERTY] == classifier
+    # Without this header the gateway stamps a fresh id per request, so a classifier that drops it
+    # stops grouping with its thread.
+    assert headers["X-PostHog-Trace-Id"] == TRACE_ID
 
 
 class TestClassifierGatewayRouting:

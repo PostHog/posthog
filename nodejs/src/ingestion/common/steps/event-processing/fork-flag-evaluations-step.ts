@@ -51,6 +51,21 @@ const hasFlagKey = ({ event }: EventToEmit<string>): boolean => {
     return typeof flagKey === 'string' && flagKey !== ''
 }
 
+// Mirrors FLAG_EVALUATIONS_TTL_DAYS in posthog/models/flag_evaluations/sql.py. Change both together.
+const FLAG_EVALUATIONS_TTL_DAYS = 90
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// The table's TTL expires a row dated D at the start of day D + FLAG_EVALUATIONS_TTL_DAYS.
+// The day FLAG_EVALUATIONS_TTL_DAYS back has already expired when today starts.
+// This function returns the start of the UTC day FLAG_EVALUATIONS_TTL_DAYS - 1 days back, the oldest day the
+// table keeps. ClickHouse can drop an older row at any merge. For a FLAG_EVALUATIONS_ONLY team the row is the
+// only copy of the call. The fork skips a call this old and leaves it in the events table.
+const retentionStartMs = (nowMs: number): number =>
+    Math.floor(nowMs / DAY_MS) * DAY_MS - (FLAG_EVALUATIONS_TTL_DAYS - 1) * DAY_MS
+
+const isPastRetention = ({ event }: EventToEmit<string>, retentionStart: number): boolean =>
+    Date.parse(event.timestamp) < retentionStart
+
 export interface ForkFlagEvaluationsStepInput {
     eventsToEmit: EventToEmit<string>[]
     teamId: number
@@ -97,12 +112,18 @@ export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepI
         if (invalidFlagKeys > 0) {
             flagEvaluationsEventsTotal.labels('continued_invalid_flag_key').inc(invalidFlagKeys)
         }
-        if (mappableEvents.length === 0) {
+        const retentionStart = retentionStartMs(Date.now())
+        const eventsToFork = mappableEvents.filter((toEmit) => !isPastRetention(toEmit, retentionStart))
+        const pastRetention = mappableEvents.length - eventsToFork.length
+        if (pastRetention > 0) {
+            flagEvaluationsEventsTotal.labels('continued_past_retention').inc(pastRetention)
+        }
+        if (eventsToFork.length === 0) {
             return Promise.resolve(ok(input))
         }
         const stopsEventsWrites = flagEvaluationsService.stopsEventsWritesFor(input.team)
         try {
-            const messages: IngestionOutputMessage[] = mappableEvents.map(({ event }) => {
+            const messages: IngestionOutputMessage[] = eventsToFork.map(({ event }) => {
                 if (event.properties['$set'] || event.properties['$set_once']) {
                     // Sizes the person-property loss a dedicated flag lane that
                     // bypasses person processing would cause.
@@ -149,7 +170,7 @@ export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepI
                         // warning for an oversized event. No events row exists here, so this
                         // step sends that warning.
                         return Promise.all(
-                            mappableEvents.map(({ event }) =>
+                            eventsToFork.map(({ event }) =>
                                 emitIngestionWarning(
                                     outputs,
                                     event.team_id,
@@ -169,15 +190,15 @@ export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepI
             // lost_message_too_large count those losses. The
             // FlagEvaluationsForkProduceFailing alert fires on produce_failed.
             // Matching by object identity keeps the $experiment_exposure copy and any
-            // call without a flag key in eventsToEmit.
-            const eventsToEmit = input.eventsToEmit.filter((toEmit) => !mappableEvents.includes(toEmit))
+            // call without a flag key or past the retention window in eventsToEmit.
+            const eventsToEmit = input.eventsToEmit.filter((toEmit) => !eventsToFork.includes(toEmit))
             return Promise.resolve(ok({ ...input, eventsToEmit }, [settled]))
         } catch (error) {
             logger.warn('Failed to fork $feature_flag_called event to flag_evaluations, continuing', {
                 teamId: input.teamId,
                 error,
             })
-            flagEvaluationsEventsTotal.labels('continued_fork_error').inc(mappableEvents.length)
+            flagEvaluationsEventsTotal.labels('continued_fork_error').inc(eventsToFork.length)
             return Promise.resolve(ok(input))
         }
     }

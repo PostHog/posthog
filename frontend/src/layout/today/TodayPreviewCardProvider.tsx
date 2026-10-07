@@ -85,7 +85,10 @@ export function TodayPreviewCardProvider({
                             >
                                 {/* Inside the popup, not its `render`: on React 18 quill's Card takes no ref. */}
                                 <PreviewCard.Popup className="outline-none">
-                                    <Card size="sm" className="w-72 gap-0 border border-border py-0 shadow-md">
+                                    <Card
+                                        size="sm"
+                                        className="w-72 gap-0 border border-border py-0 shadow-[var(--shadow-md)]"
+                                    >
                                         <Suspense fallback={<Skeleton className="h-24 w-full" />}>
                                             {payload.kind === 'space' ? (
                                                 <TodaySpaceHoverCard preview={payload} onAction={close} />

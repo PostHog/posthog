@@ -26,6 +26,7 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -64,7 +65,7 @@ import {
     scannerStepUrlWithParams,
 } from './scannerEditorSceneLogic'
 import { scannerSelfDrivingStatsLogic } from './scannerSelfDrivingStatsLogic'
-import { MODEL_OPTIONS, SCANNER_TYPE_OPTIONS } from './types'
+import { MODEL_OPTIONS, SCANNER_TYPE_OPTIONS, scannerTypeOptions } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogImTheDriver = pngHoggie(imTheDriverPng)
@@ -352,6 +353,7 @@ function ConfigureStep(): JSX.Element {
     const { setScannerType } = useActions(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
     const isTypeSelectable = isNew && !searchParams.template
+    const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
 
     if (!scanner) {
         return <></>
@@ -392,16 +394,18 @@ function ConfigureStep(): JSX.Element {
                             }
                             setScannerType(next)
                         }}
-                        options={SCANNER_TYPE_OPTIONS.map((opt) => ({
-                            value: opt.value,
-                            label: opt.label,
-                            labelInMenu: (
-                                <div className="flex flex-col">
-                                    <span className="font-medium">{opt.label}</span>
-                                    <span className="text-xs text-muted">{opt.description}</span>
-                                </div>
-                            ),
-                        }))}
+                        options={scannerTypeOptions(experimentScanners || scanner.scanner_type === 'experiment').map(
+                            (opt) => ({
+                                value: opt.value,
+                                label: opt.label,
+                                labelInMenu: (
+                                    <div className="flex flex-col">
+                                        <span className="font-medium">{opt.label}</span>
+                                        <span className="text-xs text-muted">{opt.description}</span>
+                                    </div>
+                                ),
+                            })
+                        )}
                     />
                 </LemonField>
             ) : (

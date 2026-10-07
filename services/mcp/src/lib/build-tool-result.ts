@@ -4,7 +4,7 @@ import { type DiscoveryHint, type DiscoveryHintKind, getDiscoveryHint, isEmptyTo
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
-import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
+import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY, POSTHOG_TEXT_PROJECTION_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY, type AnalyticsMetadata, type WithAnalytics } from '@/ui-apps/types'
 
 export interface ToolResultMeta {
@@ -36,6 +36,7 @@ export interface BuildToolResultOptions {
     includeAppData?: boolean | undefined
     /** PostHog distinctId for analytics metadata (only read when a UI resource is present). */
     distinctId?: string | undefined
+    mcpClientName?: string | undefined
     /**
      * When set, the inner tool's `_meta.ui.resourceUri` is placed on the response payload
      * under both the new (`ui.resourceUri`) and legacy (`ui/resourceUri`) keys. Used by the
@@ -157,6 +158,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         forceUiDataToMeta,
         includeAppData,
         distinctId,
+        mcpClientName,
         includeUiResponseMeta,
         includeRenderNote,
     } = opts
@@ -188,12 +190,15 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     const effectiveOutputFormat = callerOutputFormat ?? toolMeta?.[POSTHOG_META_KEY]?.outputFormat
     const useJson = effectiveOutputFormat === 'json'
     const callerWantsJson = callerOutputFormat === 'json'
+    const isTextProjection =
+        !isStringResult && (handlerResult as Record<string, unknown> | null)?.[POSTHOG_TEXT_PROJECTION_KEY] === true
 
     let structuredContent: WithAnalytics<typeof rawResult> | typeof rawResult = rawResult
     if (hasUiResource && !isStringResult) {
         const analyticsMetadata: AnalyticsMetadata = {
             distinctId: distinctId ?? '',
             toolName,
+            ...(mcpClientName ? { mcpClientName } : {}),
         }
         structuredContent = {
             ...(rawResult as Record<string, unknown>),
@@ -226,7 +231,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
 
     const body = structuredContentOnly
         ? STRUCTURED_CONTENT_ONLY_TEXT
-        : ((includeAppData && useJson ? undefined : formattedResults) ??
+        : ((useJson && (includeAppData || isTextProjection) ? undefined : formattedResults) ??
           (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult)))
 
     const footers: string[] = []

@@ -34,14 +34,14 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
-import { fileSystemTypes } from '~/products'
-import { FileSystemIconType } from '~/queries/schema/schema-general'
 import type { UserTheme } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { RECENTS_LIMIT, STARRED_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
+import { getIconForItem, getItemTypeDisplayName } from './searchItemDisplay'
+import { SearchItem } from './searchItems'
+import { STARRED_LIMIT } from './searchListsLogic'
+import { RECENTS_LIMIT, SearchLogicProps, searchLogic } from './searchLogic'
 import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, formatRelativeTimeShort, getCategoryDisplayName } from './utils'
 
 // ============================================================================
@@ -112,89 +112,6 @@ const useRotatingPlaceholder = (isActive: boolean): { text: string; isVisible: b
 // ============================================================================
 // Helpers
 // ============================================================================
-
-const getItemTypeDisplayName = (type: string | null | undefined): string | null => {
-    if (!type) {
-        return null
-    }
-
-    // Check fileSystemTypes manifest first
-    if (type in fileSystemTypes) {
-        return (fileSystemTypes as Record<string, { name?: string }>)[type]?.name ?? null
-    }
-
-    // Handle insight subtypes (e.g., 'insight/funnels' -> 'Funnel')
-    if (type.startsWith('insight/')) {
-        const subtype = type.slice(8) // Remove 'insight/' prefix
-        const insightDisplayNames: Record<string, string> = {
-            funnels: 'Funnel',
-            trends: 'Trend',
-            retention: 'Retention',
-            paths: 'Paths',
-            lifecycle: 'Lifecycle',
-            stickiness: 'Stickiness',
-            hog: 'SQL insight',
-        }
-        return insightDisplayNames[subtype] ?? null
-    }
-
-    // Fallback for types not in the manifest
-    const fallbackDisplayNames: Record<string, string> = {
-        query: 'SQL query',
-        product_analytics: 'Product analytics',
-        web_analytics: 'Web analytics',
-        llm_analytics: 'AI observability',
-        revenue_analytics: 'Revenue analytics',
-        marketing_analytics: 'Marketing analytics',
-        session_replay: 'Session replay',
-        error_tracking: 'Error tracking',
-        data_warehouse: 'Data ops',
-        data_pipeline: 'Data pipeline',
-        annotation: 'Annotation',
-        event_definition: 'Event',
-        property_definition: 'Property',
-        person: 'Person',
-        persons: 'Person',
-        user: 'User',
-        group: 'Group',
-        account: 'Account',
-        heatmap: 'Heatmap',
-        sql_editor: 'SQL query',
-        logs: 'Logs',
-        alert: 'Alert',
-        folder: 'Folder',
-        hog_flow: 'Workflow',
-    }
-    return fallbackDisplayNames[type] ?? null
-}
-
-const getIconForItem = (item: SearchItem): ReactNode => {
-    if (item.icon) {
-        return item.icon
-    }
-    let itemType = item.itemType || item.record?.type
-    // Normalize types for icon lookup
-    if (itemType === 'person') {
-        itemType = 'persons'
-    } else if (itemType === 'hog_flow') {
-        itemType = 'workflows'
-    }
-    if (itemType) {
-        // Handle iconColor which may be a single-element array or tuple
-        const rawColor = item.record?.iconColor as string[] | undefined
-        const colorOverride: [string, string] | undefined = rawColor
-            ? rawColor.length === 1
-                ? [rawColor[0], rawColor[0]]
-                : [rawColor[0], rawColor[1]]
-            : undefined
-        return (
-            <ProductIconWrapper type={itemType as string} colorOverride={colorOverride}>
-                {iconForType(itemType as FileSystemIconType, colorOverride)}
-            </ProductIconWrapper>
-        )
-    }
-    return null
-}
 
 const commandItemToTreeDataItem = (item: SearchItem): TreeDataItem => {
     return {
@@ -986,13 +903,30 @@ function SearchResults({
                                                                                         )}
                                                                                     </span>
                                                                                 )}
+                                                                            {item.parentName && (
+                                                                                <span className="text-xs text-tertiary shrink-0 mt-[2px]">
+                                                                                    {`in ${item.parentName}`}
+                                                                                </span>
+                                                                            )}
                                                                             {item.productCategory && (
                                                                                 <span className="text-xs text-tertiary shrink-0 mt-[2px]">
                                                                                     {item.productCategory}
                                                                                 </span>
                                                                             )}
+                                                                            {item.matchedSearchKeyword && (
+                                                                                <span className="ml-auto text-xxs text-tertiary truncate mt-[2px]">
+                                                                                    {`Matches "${item.matchedSearchKeyword}"`}
+                                                                                </span>
+                                                                            )}
                                                                             {item.lastViewedAt && (
-                                                                                <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">
+                                                                                <span
+                                                                                    className={cn(
+                                                                                        'text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]',
+                                                                                        item.matchedSearchKeyword
+                                                                                            ? 'ml-2'
+                                                                                            : 'ml-auto'
+                                                                                    )}
+                                                                                >
                                                                                     {formatRelativeTimeShort(
                                                                                         item.lastViewedAt
                                                                                     )}
