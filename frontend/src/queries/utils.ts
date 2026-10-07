@@ -657,7 +657,8 @@ export const getShowLegend = (query: InsightQueryNode, partCount?: number): bool
     if (isStickinessQuery(query)) {
         return query.stickinessFilter?.showLegend
     } else if (isTrendsQuery(query)) {
-        const showsByDefault = isProportionBarQuery(query) && (partCount ?? 0) <= MAX_DEFAULT_PROPORTION_LEGEND_PARTS
+        const showsByDefault =
+            isProportionBarQuery(query) && partCount !== undefined && partCount <= MAX_DEFAULT_PROPORTION_LEGEND_PARTS
         return query.trendsFilter?.showLegend ?? (showsByDefault ? true : undefined)
     } else if (isLifecycleQuery(query)) {
         return query.lifecycleFilter?.showLegend

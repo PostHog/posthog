@@ -78,4 +78,19 @@ describe('TrendsProportionBar', () => {
         // The bar floors -4 at 0, so the total reads 10, not the raw sum of 6.
         expect(container.querySelector('[data-attr="trend-total"]')).toHaveTextContent('10')
     })
+
+    it('leaves the previous period out of a bar saved with compare on', async () => {
+        const { container } = renderInsight({
+            query: buildTrendsQuery({
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
+                trendsFilter: { display: ChartDisplayType.ActionsProportionBar },
+                compareFilter: { compare: true },
+            }),
+        })
+        await waitFor(() => expect(container.querySelector('[data-attr="trend-proportion-bar"]')).not.toBeNull(), {
+            timeout: 5000,
+        })
+
+        expect(getHogChart(container).legendItems()).toHaveLength(1)
+    })
 })

@@ -75,6 +75,21 @@ describe('TrendsPieChart', () => {
         expect([...sliceLabels()].sort()).toEqual([...expectedLabels].sort())
     })
 
+    it('floors a negative part at 0 in the total, matching the slices the pie draws', async () => {
+        const { container } = renderInsight({
+            query: buildTrendsQuery({
+                series: [
+                    { kind: NodeKind.EventsNode, event: 'NappedWithNegativePart', name: 'NappedWithNegativePart' },
+                ],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                trendsFilter: { display: ChartDisplayType.ActionsPie },
+            }),
+        })
+        await screen.findByLabelText(/pie chart with/i, undefined, { timeout: 5000 })
+
+        expect(container.querySelector('[data-attr="trend-total"]')).toHaveTextContent('10')
+    })
+
     describe('quill in-chart legend', () => {
         const getInChartLegend = (container: HTMLElement): HTMLElement | null =>
             container.querySelector<HTMLElement>('[data-attr="hog-chart-pie-legend"]')

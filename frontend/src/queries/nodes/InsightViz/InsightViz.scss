@@ -303,7 +303,8 @@
     .InsightCard__viz--ActionsAreaGraph,
     .InsightCard__viz--ActionsBar,
     .InsightCard__viz--ActionsUnstackedBar,
-    .InsightCard__viz--ActionsPie {
+    .InsightCard__viz--ActionsPie,
+    .InsightCard__viz--ActionsProportionBar {
         height: calc(100vh - 8rem);
     }
 }

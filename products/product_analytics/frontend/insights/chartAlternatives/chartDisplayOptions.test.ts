@@ -88,7 +88,7 @@ describe('getChartDisplayOptions', () => {
                 currentDisplay: ChartDisplayType.ActionsProportionBar,
             },
             ChartDisplayType.ActionsProportionBar,
-            "This chart type isn't available yet.",
+            "This type isn't available yet.",
         ],
         [
             'comparing to a previous period',

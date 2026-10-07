@@ -122,7 +122,7 @@ export function getChartDisplayOptions({
     const proportionBarDisabledReason =
         trendsOnlyDisabledReason ||
         (isComparing ? "This type doesn't support comparing to a previous period." : undefined) ||
-        (hasProportionBarChart ? undefined : "This chart type isn't available yet.")
+        (hasProportionBarChart ? undefined : "This type isn't available yet.")
 
     return [
         {

@@ -49,13 +49,13 @@ export interface TrendsPartOfWholeChart {
 }
 
 /** The data, legend, total, tooltip and click handling a trends pie, donut or proportion bar shares.
- *  `floorsNegativeParts` matches the total to a chart that draws a negative part as 0. */
+ *  `currentPeriodOnly` drops previous-period rows, for a chart whose parts must share one total. */
 export function useTrendsPartOfWholeChart({
     context,
     inSharedMode,
     showPersonsModal = true,
-    floorsNegativeParts = false,
-}: TrendsPartOfWholeChartProps & { floorsNegativeParts?: boolean }): TrendsPartOfWholeChart {
+    currentPeriodOnly = false,
+}: TrendsPartOfWholeChartProps & { currentPeriodOnly?: boolean }): TrendsPartOfWholeChart {
     const theme = useChartTheme()
 
     const { insightProps } = useValues(insightLogic)
@@ -66,7 +66,7 @@ export function useTrendsPartOfWholeChart({
     const { aggregationLabel } = useValues(groupsModel)
 
     const {
-        indexedResults,
+        indexedResults: allResults,
         trendsFilter,
         formula,
         pieChartVizOptions,
@@ -78,6 +78,12 @@ export function useTrendsPartOfWholeChart({
         getTrendsHidden,
         isSingleSeriesDefinition,
     } = useValues(trendsDataLogic(insightProps))
+
+    const indexedResults = useMemo(
+        () =>
+            (allResults ?? []).filter((r: IndexedTrendResult) => !currentPeriodOnly || r.compare_label !== 'previous'),
+        [allResults, currentPeriodOnly]
+    )
 
     const seriesIdentification = useMemo(
         () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),
@@ -133,14 +139,12 @@ export function useTrendsPartOfWholeChart({
 
     const total = useMemo(
         () =>
+            // Floored like the charts floor a part, so the total matches what they draw.
             visibleResults.reduce((acc: number, r: IndexedTrendResult) => {
                 const value = r.aggregated_value ?? 0
-                if (!floorsNegativeParts) {
-                    return acc + value
-                }
                 return acc + (Number.isFinite(value) ? Math.max(0, value) : 0)
             }, 0),
-        [visibleResults, floorsNegativeParts]
+        [visibleResults]
     )
 
     const valueFormatter = useCallback(
