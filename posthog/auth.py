@@ -108,7 +108,6 @@ AUTH_BRAND_COOKIE = "ph_auth_brand"
 
 # Shown at login and on every request once a block rule refuses the account. It says nothing
 # about the rule that matched; the code is what lets support trace it to an access rule.
-ACCOUNT_BLOCKED_CODE = SECURITY_REFUSAL_CODE
 ACCOUNT_BLOCKED_DETAIL = (
     "We couldn't sign you in. If you think this is a mistake, contact support "
     f"and quote the code {SECURITY_REFUSAL_CODE}."
@@ -143,7 +142,7 @@ def refuse_blocked_account(
 ) -> None:
     """Raise when an enforced access rule blocks this account on the app surface."""
     if account_refused(request, user, call_site=call_site, impersonated=impersonated):
-        raise AuthenticationFailed(ACCOUNT_BLOCKED_DETAIL, code=ACCOUNT_BLOCKED_CODE)
+        raise AuthenticationFailed(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
 
 
 def get_auth_brand_for_client_id(client_id: str | None) -> str | None:

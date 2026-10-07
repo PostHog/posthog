@@ -18,10 +18,12 @@ from posthog.api.oauth.client_assertion import (
     verify_client_assertion,
 )
 from posthog.api.oauth.client_auth import ClientCredentials, extract_client_credentials, verify_client_secret
-from posthog.auth import ACCOUNT_BLOCKED_CODE, ACCOUNT_BLOCKED_DETAIL, account_refused
+from posthog.auth import ACCOUNT_BLOCKED_DETAIL, account_refused
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, find_oauth_access_token
 from posthog.models.user import User
+
+from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSAL_CODE
 
 from ee.api.agentic_provisioning.analytics import capture_auth_event
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
@@ -245,7 +247,7 @@ class ProvisioningBearerAuthentication(ActivityCredentialMixin, BaseAuthenticati
             call_site="agentic_provisioning_token",
             impersonated=access_token.impersonated_by_id is not None,
         ):
-            raise ProvisioningError(ACCOUNT_BLOCKED_CODE, ACCOUNT_BLOCKED_DETAIL, status=403)
+            raise ProvisioningError(SECURITY_REFUSAL_CODE, ACCOUNT_BLOCKED_DETAIL, status=403)
 
         self.record_activity_actor(
             user, str(access_token.application_id), impersonated_by_id=access_token.impersonated_by_id
