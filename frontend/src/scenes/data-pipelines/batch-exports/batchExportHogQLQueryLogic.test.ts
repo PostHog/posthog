@@ -97,6 +97,18 @@ describe('batchExportHogQLQueryLogic', () => {
         expect(editorLogic().values.queryInput).toEqual(hogqlExport().hogql_query)
     })
 
+    it('gives the editor preview values that follow the schedule', async () => {
+        await initLogic()
+        const hourlyPlaceholders = editorLogic().values.placeholders
+        expect(hourlyPlaceholders).toEqual(logic.values.placeholders)
+
+        formLogic.actions.setConfigurationValue('interval', 'day')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(editorLogic().values.placeholders).toEqual(logic.values.placeholders)
+        expect(editorLogic().values.placeholders).not.toEqual(hourlyPlaceholders)
+    })
+
     it('starts a new export with the default query in both the editor and the form', async () => {
         const newExportProps: BatchExportConfigFormLogicProps = { id: null, service: 'AwsS3' }
         await initLogic(newExportProps)

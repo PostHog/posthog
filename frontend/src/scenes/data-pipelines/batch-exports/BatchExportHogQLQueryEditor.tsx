@@ -8,12 +8,13 @@ import { batchExportConfigFormLogic } from './batchExportConfigFormLogic'
 import {
     DATA_INTERVAL_END_PLACEHOLDER,
     DATA_INTERVAL_START_PLACEHOLDER,
+    batchExportHogQLEditorTabId,
     batchExportHogQLQueryLogic,
 } from './batchExportHogQLQueryLogic'
 
 export function BatchExportHogQLQueryEditor(): JSX.Element {
     const { props: formLogicProps } = useMountedLogic(batchExportConfigFormLogic)
-    const { editorTabId, previewStart, previewEnd, projectTimezone, usesIntervalPlaceholders } = useValues(
+    const { previewStart, previewEnd, projectTimezone, usesIntervalPlaceholders } = useValues(
         batchExportHogQLQueryLogic(formLogicProps)
     )
 
@@ -29,7 +30,7 @@ export function BatchExportHogQLQueryEditor(): JSX.Element {
             {/* Fixed height, because the embedded editor fills its container and has no height of its own */}
             <div className="h-160 border rounded overflow-hidden flex flex-col">
                 <SQLEditor
-                    tabId={editorTabId}
+                    tabId={batchExportHogQLEditorTabId(formLogicProps)}
                     mode={SQLEditorMode.Embedded}
                     defaultShowDatabaseTree={false}
                     singleStatement

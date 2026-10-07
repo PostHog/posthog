@@ -95,6 +95,24 @@ function buildDestinationPayload(formValues: Record<string, any>): {
     return result
 }
 
+function buildBatchExportPayload(formValues: Record<string, any>): Partial<BatchExportConfiguration> {
+    const interval = formValues.interval
+    return {
+        paused: formValues.paused,
+        name: formValues.name,
+        interval,
+        timezone: interval === 'day' || interval === 'week' ? formValues.timezone : null,
+        offset_day: interval === 'week' ? formValues.offset_day : null,
+        offset_hour: interval === 'day' || interval === 'week' ? formValues.offset_hour : null,
+        model: formValues.model,
+        // The backend rejects `hogql_query` for every model but 'hogql'
+        hogql_query: formValues.model === BatchExportModelEnumApi.Hogql ? formValues.hogql_query : undefined,
+        // Filters only apply to the events model: the API rejects them for 'hogql' and runs ignore them otherwise
+        filters: formValues.model === BatchExportModelEnumApi.Events ? formValues.filters : undefined,
+        destination: buildDestinationPayload(formValues) as any,
+    }
+}
+
 function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportConfiguration): Record<string, any> {
     const destinationType = batchExportConfig.destination.type
     const definition = DESTINATIONS[destinationType]
@@ -845,23 +863,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                         })
                     }
 
-                    const formValues = values.configuration
-                    const interval = formValues.interval
-                    const data = {
-                        paused: formValues.paused,
-                        name: formValues.name,
-                        interval,
-                        timezone: interval === 'day' || interval === 'week' ? formValues.timezone : null,
-                        offset_day: interval === 'week' ? formValues.offset_day : null,
-                        offset_hour: interval === 'day' || interval === 'week' ? formValues.offset_hour : null,
-                        model: formValues.model,
-                        // The backend rejects `hogql_query` for every model but 'hogql'
-                        hogql_query:
-                            formValues.model === BatchExportModelEnumApi.Hogql ? formValues.hogql_query : undefined,
-                        // Filters only apply to the events model: the API rejects them for 'hogql' and runs ignore them otherwise
-                        filters: formValues.model === BatchExportModelEnumApi.Events ? formValues.filters : undefined,
-                        destination: buildDestinationPayload(formValues),
-                    } as any
+                    const data = buildBatchExportPayload(values.configuration)
 
                     if (props.id) {
                         return await api.batchExports.runTestStep(props.id, step, data)
@@ -1257,21 +1259,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     }
                 }
 
-                const interval = formdata.interval
-                const data: Omit<BatchExportConfiguration, 'id' | 'team_id' | 'created_at' | 'start_at' | 'end_at'> = {
-                    paused: formdata.paused,
-                    name: formdata.name,
-                    interval,
-                    timezone: interval === 'day' || interval === 'week' ? formdata.timezone : null,
-                    offset_day: interval === 'week' ? formdata.offset_day : null,
-                    offset_hour: interval === 'day' || interval === 'week' ? formdata.offset_hour : null,
-                    model: formdata.model,
-                    // The backend rejects `hogql_query` for every model but 'hogql'
-                    hogql_query: formdata.model === BatchExportModelEnumApi.Hogql ? formdata.hogql_query : undefined,
-                    // Filters only apply to the events model: the API rejects them for 'hogql' and runs ignore them otherwise
-                    filters: formdata.model === BatchExportModelEnumApi.Events ? formdata.filters : undefined,
-                    destination: buildDestinationPayload(formdata) as any,
-                } as any
+                const data = buildBatchExportPayload(formdata)
 
                 try {
                     if (props.id) {

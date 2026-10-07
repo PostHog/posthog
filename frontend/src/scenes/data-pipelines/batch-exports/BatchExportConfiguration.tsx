@@ -245,7 +245,6 @@ export function BatchExportConfiguration(): JSX.Element {
                                         ...tables.map((table) => ({
                                             value: table.name,
                                             label: table.id,
-                                            hidden: savedModelIsHogQL,
                                         })),
                                         {
                                             value: BatchExportModelEnumApi.Hogql,
@@ -271,8 +270,7 @@ export function BatchExportConfiguration(): JSX.Element {
                             <p className="text-xs text-secondary mb-0">
                                 Each run exports the results of the query below.
                             </p>
-                        ) : null}
-                        {!isHogQLModel ? (
+                        ) : (
                             <div className="flex gap-2">
                                 <LemonCollapse
                                     className="flex flex-1"
@@ -316,7 +314,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                     ]}
                                 />
                             </div>
-                        ) : null}
+                        )}
                         {selectedModel === BatchExportModelEnumApi.Events ? (
                             <>
                                 <div className="flex flex-col gap-2 min-h-16">
