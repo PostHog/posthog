@@ -23,6 +23,10 @@ from parameterized import parameterized
 from posthog import redis
 from posthog.constants import FlagRequestType
 from posthog.errors import CHQueryErrorUnknownTable
+from posthog.helpers.dashboard_templates import (
+    FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
+    FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
+)
 from posthog.models.team.team import Team
 from posthog.tasks.tasks import find_flags_with_enriched_analytics as find_flags_with_enriched_analytics_task
 
@@ -1045,6 +1049,27 @@ class TestEnrichedAnalytics(BaseTest):
 
         self.assertEqual(f1.usage_dashboard.tiles.count(), 4)
         self.assertEqual(f3.usage_dashboard.tiles.count(), 2)
+
+        enriched_insights = {
+            tile.insight.name: (
+                {series["event"] for series in tile.insight.query["source"]["series"]},
+                tile.insight.query["source"]["properties"]["values"][0]["values"][0],
+            )
+            for tile in f1.usage_dashboard.tiles.select_related("insight")
+            if tile.insight
+            and tile.insight.name
+            in (FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME, FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME)
+        }
+        self.assertEqual(
+            {
+                name: (events, flag_filter["key"], flag_filter["value"])
+                for name, (events, flag_filter) in enriched_insights.items()
+            },
+            {
+                FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME: ({"$feature_view"}, "feature_flag", "test_flag"),
+                FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME: ({"$feature_interaction"}, "feature_flag", "test_flag"),
+            },
+        )
 
         # now try deleting a usage dashboard. It should not delete the feature flag
         f1.usage_dashboard.delete()
