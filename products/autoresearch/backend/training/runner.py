@@ -319,7 +319,7 @@ def build_agent_description(
         labeler that produces, for each user in the training population, exactly one
         labeled example:
 
-          T0_user   = a per-user deterministic random point in their history
+          T0_user   = a per-user deterministic random UTC midnight in their history
           label     = 1 if {target.inline_ref} fires in [T0_user, T0_user + {pipeline.horizon_days}), else 0
 
         Features for each user MUST be computed strictly as of THAT user's T0 — never
@@ -369,10 +369,10 @@ def build_agent_description(
         **Hard rules:**
 
         1. Select `FROM {{anchors}} a` — the framework supplies columns `(person_id, cutoff_ts)`.
-           At training cutoff_ts is per-user T0. At inference cutoff_ts is the start of the prediction
-           date in UTC (midnight) for every person. Same SQL, two tables. A feature derived from the
-           cutoff's time of day or hour varies in training but is constant at scoring. It teaches the
-           model nothing it can use, so it is not worth building.
+           At training cutoff_ts is per-user T0, a UTC midnight. At inference cutoff_ts is the start of
+           the prediction date in UTC (midnight) for every person. Same SQL, two tables. Both cutoffs
+           fall at midnight, so a feature derived from the cutoff's hour or time of day is constant and
+           teaches the model nothing. Do not build one.
         2. Join events with `e.timestamp < fromUnixTimestamp(a.cutoff_ts)` — strict `<`. The leakage guard.
         3. Window the lookback: `e.timestamp >= fromUnixTimestamp(a.cutoff_ts) - toIntervalDay({{lookback_days}})`.
         4. Output `a.person_id AS distinct_id` as the FIRST column, always. Then list the feature

@@ -38,6 +38,7 @@ from products.autoresearch.backend.dataset.labeling import (
     rolling_rescore_runs,
     rolling_selection,
     strip_sql_comments,
+    utc_day_start,
 )
 from products.autoresearch.backend.query import run_hogql_rows
 
@@ -456,7 +457,7 @@ class TestPopulationKindTrainingSemantics(SimpleTestCase):
         )
         self.assertNotIn("now()", cte)
         self.assertIn("fromUnixTimestamp({anchor_ts})", cte)
-        self.assertEqual(values["anchor_ts"], 1_700_000_000)
+        self.assertEqual(values["anchor_ts"], 1_699_920_000)
 
     def test_t0_position_does_not_depend_on_a_moving_modulo(self) -> None:
         cte, _values = _build_labeled_users_cte(
@@ -469,10 +470,10 @@ class TestPopulationKindTrainingSemantics(SimpleTestCase):
             sample_limit=None,
         )
         self.assertIn(
-            "intDiv((cutoff_ts - first_ts) * toInt(bitAnd(cityHash64(toString(person_id)), 2147483647)), 2147483648)",
+            "intDiv((cutoff_day - first_day + 1) * toInt(bitAnd(cityHash64(toString(person_id)), 2147483647)), 2147483648)",
             cte,
         )
-        self.assertNotIn("% (cutoff_ts - first_ts)", cte)
+        self.assertNotIn("% (cutoff_day - first_day", cte)
 
 
 _DAILY_PAGEVIEWS = [("$pageview", days_ago) for days_ago in range(100, 0, -1)]
@@ -611,6 +612,54 @@ class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest)
         assert int(rows[0][0]) == expected
         if expected_positives is not None:
             assert int(rows[0][1]) == expected_positives
+
+    @parameterized.expand([("one_day", 1), ("three_days", 3), ("seven_days", 7)])
+    def test_every_t0_is_a_utc_midnight_that_does_not_move_within_the_anchor_day(
+        self, _name: str, horizon_days: int
+    ) -> None:
+        now = timezone.now()  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
+        day_start = utc_day_start(int(now.timestamp()))
+        first_event_ts: dict[str, int] = {}
+        for i in range(20):
+            distinct_id = f"user_{i}"
+            person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], is_identified=True)
+            for days_ago in range(40 - i, 0, -1):
+                timestamp = now - timedelta(days=days_ago, hours=5, minutes=i)
+                _create_event(team=self.team, event="$pageview", distinct_id=distinct_id, timestamp=timestamp)
+            first_event_ts[str(person.uuid)] = int((now - timedelta(days=40 - i, hours=5, minutes=i)).timestamp())
+        flush_persons_and_events()
+
+        def t0s(anchor_ts: int) -> dict[str, int]:
+            cte, values = _build_labeled_users_cte(
+                target_event="feature_used",
+                target_definition=None,
+                team=self.team,
+                horizon_days=horizon_days,
+                lookback_days=90,
+                training_population=None,
+                sample_limit=None,
+                anchor_ts=anchor_ts,
+            )
+            rows = run_hogql_rows(
+                team=self.team,
+                query=HogQLQuery(
+                    query=f"{cte} SELECT person_id, t0_ts FROM labeled_users",
+                    values=values,
+                    modifiers=LABELER_QUERY_MODIFIERS,
+                ),
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            )
+            return {str(person_id): int(t0_ts) for person_id, t0_ts in rows}
+
+        morning = t0s(day_start - 86400 + 2 * 3600)
+        afternoon = t0s(day_start - 86400 + 17 * 3600)
+
+        assert len(morning) == 20
+        assert afternoon == morning
+        label_cutoff = day_start - 86400 - horizon_days * 86400
+        for person_id, t0_ts in morning.items():
+            assert t0_ts % 86400 == 0
+            assert first_event_ts[person_id] < t0_ts <= label_cutoff
 
     def test_negative_sampling_keeps_every_positive_and_the_training_rows_match_the_count(self) -> None:
         now = timezone.now()  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
