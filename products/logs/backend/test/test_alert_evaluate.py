@@ -105,12 +105,15 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
 
-    def test_a_backfilled_alert_evaluates_against_the_bound_it_was_copied_with(self) -> None:
+    @parameterized.expand([("below_a_high_bound", 1000, "below"), ("above_zero", 0, "above")])
+    def test_a_backfilled_alert_evaluates_against_the_bound_it_was_copied_with(
+        self, _name: str, threshold_count: int, threshold_operator: str
+    ) -> None:
         LogsAlertConfiguration.objects.create(
             team=self.team,
             name="API errors",
-            threshold_count=1000,
-            threshold_operator="below",
+            threshold_count=threshold_count,
+            threshold_operator=threshold_operator,
             window_minutes=5,
             filters={"serviceNames": ["api"]},
             next_check_at=self.cutoff - timedelta(minutes=1),
@@ -222,6 +225,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
             ("null_condition", {"condition": None}),
             ("unknown_operator", {"condition": {**CONDITION, "threshold_operator": "equals"}}),
             ("non_numeric_window", {"condition": {**CONDITION, "window_minutes": "5"}}),
+            ("zero_window", {"condition": {**CONDITION, "window_minutes": 0}}),
         ]
     )
     def test_a_broken_config_stops_being_discovered(self, _name: str, source_config: dict[str, Any]) -> None:

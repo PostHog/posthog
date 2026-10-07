@@ -124,10 +124,11 @@ class LogsAlertCondition:
         # decide the alert against the wrong side of its bound instead of failing.
         if self.threshold_operator not in LogsAlertConfiguration.ThresholdOperator.values:
             raise ValueError(f"Unknown threshold operator {self.threshold_operator!r}")
-        for name in ("threshold_count", "window_minutes"):
+        # A threshold of 0 is valid: with `above` it fires on any matching log, as the logs API documents.
+        for name, minimum in (("threshold_count", 0), ("window_minutes", 1)):
             value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-                raise ValueError(f"{name} must be a positive integer, got {value!r}")
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise ValueError(f"{name} must be an integer of at least {minimum}, got {value!r}")
 
     @classmethod
     def of(cls, check: PlatformAlertCheckInput) -> "LogsAlertCondition":
