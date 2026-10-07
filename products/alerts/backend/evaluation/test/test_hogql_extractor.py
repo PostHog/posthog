@@ -14,7 +14,7 @@ from posthog.schema import (
 from posthog.api.services.query import ExecutionMode
 
 from products.alerts.backend.evaluation.comparator import MAX_BREACH_MESSAGES, evaluate_threshold
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.hogql import (
     ANY_ROW_MAX_ROWS,
     LAST_ROW_MAX_ROWS,
@@ -43,7 +43,7 @@ def _threshold(type_=InsightThresholdType.ABSOLUTE, lower=None, upper=None):
 
 def _extract(rows, *, columns=None, condition_type=AlertConditionType.ABSOLUTE_VALUE, config: dict | None = None):
     with patch(CALC_PATH) as calc:
-        calc.return_value = MagicMock(result=rows, columns=columns)
+        calc.return_value = MagicMock(result=rows, columns=columns, has_more=False)
         return HogQLExtractor().extract(_alert(condition_type, config), MagicMock(), MagicMock(), _IF_STALE)
 
 
@@ -109,7 +109,7 @@ def test_evaluation_uses_saved_variable_values_not_session_overrides():
     # never reach evaluation. This is why the configure-time preview (which reads the user's
     # possibly-overridden cached result) can disagree with what the alert actually evaluates.
     with patch(CALC_PATH) as calc:
-        calc.return_value = MagicMock(result=[[5]], columns=["count"])
+        calc.return_value = MagicMock(result=[[5]], columns=["count"], has_more=False)
         HogQLExtractor().extract(_alert(), MagicMock(), MagicMock(), _IF_STALE)
     assert "variables_override" not in calc.call_args.kwargs
 
@@ -366,3 +366,34 @@ def test_any_row_rejects_relative_conditions():
             condition_type=AlertConditionType.RELATIVE_INCREASE,
             config={"type": "HogQLAlertConfig", "evaluation": "any_row"},
         )
+
+
+@pytest.mark.parametrize(
+    "evaluation,has_more,raises",
+    [
+        ("last_row", True, True),
+        ("any_row", True, True),
+        ("first_row", True, False),
+        ("last_row", False, False),
+        ("any_row", False, False),
+        ("first_row", False, False),
+    ],
+)
+def test_completeness_uses_the_extra_row_evidence(evaluation, has_more, raises):
+    insight = MagicMock(query={"kind": "HogQLQuery", "query": "SELECT 1 AS value LIMIT 3"})
+    with patch(CALC_PATH, return_value=MagicMock(result=[[1.0], [2.0], [3.0]], columns=["value"], has_more=has_more)):
+        alert = _alert(config={"evaluation": evaluation, "column": "value"})
+        if raises:
+            with pytest.raises(AlertExtractionError, match="more rows than its row limit") as exc:
+                HogQLExtractor().extract(alert, insight, insight.query, _IF_STALE)
+            assert type(exc.value) is AlertExtractionError
+        else:
+            result = HogQLExtractor().extract(alert, insight, insight.query, _IF_STALE)
+            assert result.series
+
+
+def test_unproven_completeness_stays_retryable():
+    insight = MagicMock(query={"kind": "HogQLQuery", "query": "SELECT 1 AS value LIMIT {n}"})
+    with patch(CALC_PATH, return_value=MagicMock(result=[[1.0]], columns=["value"], has_more=None)):
+        with pytest.raises(AlertDataUnavailableError, match="could not confirm the query returned every row"):
+            HogQLExtractor().extract(_alert(), insight, insight.query, _IF_STALE)

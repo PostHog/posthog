@@ -7,7 +7,7 @@ from django.db import transaction
 
 import structlog
 
-from products.workflows.backend.api.hog_flow import (
+from products.workflows.backend.facade.secrets import (
     TemplateCache,
     merge_secret_maps,
     plaintext_secret_map,

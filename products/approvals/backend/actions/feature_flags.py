@@ -82,6 +82,15 @@ def _get_flag_instance(view, *args, **kwargs) -> Optional[FeatureFlag]:
     return view.get_object()
 
 
+def _flag_target_filter(intent_data: dict[str, Any]) -> dict[str, Any]:
+    # An update of an existing flag can reach the gate as a POST, for example an experiment launch,
+    # so it has no resource id either. Match it on the flag id, because the key can change while the
+    # request waits. Only a create has no flag id, so a create matches other creates by key.
+    if intent_data["flag_id"] is not None:
+        return {"intent__flag_id": intent_data["flag_id"]}
+    return {"intent__flag_id": None, "intent__flag_key": intent_data["flag_key"]}
+
+
 def _check_version_staleness(intent_data: dict[str, Any], context: Optional[dict[str, Any]] = None) -> bool:
     """Check staleness by comparing stored version precondition against current instance version."""
     preconditions = intent_data.get("preconditions", {})
@@ -180,6 +189,10 @@ class FeatureFlagActionBase(BaseAction):
 
     # Subclasses define the target state
     target_active_state: bool
+
+    @classmethod
+    def get_target_filter(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
+        return _flag_target_filter(intent_data)
 
     @classmethod
     def check_staleness(
@@ -417,6 +430,10 @@ class UpdateFeatureFlagAction(BaseAction):
     ]
 
     intent_fields = ["rollout_percentage"]
+
+    @classmethod
+    def get_target_filter(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
+        return _flag_target_filter(intent_data)
 
     @classmethod
     def check_staleness(

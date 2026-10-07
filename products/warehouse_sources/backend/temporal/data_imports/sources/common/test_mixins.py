@@ -1,4 +1,5 @@
 import socket
+import threading
 from dataclasses import dataclass, field
 
 import pytest
@@ -9,6 +10,7 @@ from django.db import OperationalError
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
@@ -20,12 +22,14 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    _SSH_TUNNEL_CONNECT_BACKOFF_SECONDS,
     HostNotAllowedError,
     OAuthMixin,
     SSHTunnelMixin,
     TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
     _is_host_safe,
+    _release_failed_forwarder,
     bracket_host,
     check_resolved_addresses,
     make_ssh_tunnel_factory,
@@ -155,6 +159,19 @@ class TestIsHostSafe(SimpleTestCase):
         assert error is not None and "Try again" in error
 
     @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_resolver_that_does_not_answer_is_reported_as_try_again(self) -> None:
+        release = threading.Event()
+        try:
+            with (
+                patch(f"{_MIXINS_MODULE}.HOST_RESOLUTION_TIMEOUT_SECONDS", 0.05),
+                patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=lambda *args, **kwargs: release.wait()),
+            ):
+                with pytest.raises(TemporaryHostResolutionError):
+                    resolve_safe_host("db.example.com", team_id=999)
+        finally:
+            release.set()
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_a_host_with_characters_outside_ascii_is_refused_before_any_lookup(self) -> None:
         with patch(f"{_MIXINS_MODULE}.socket.getaddrinfo") as getaddrinfo_mock:
             valid, error = _is_host_safe("täst.example.com", team_id=999)
@@ -237,6 +254,20 @@ class TestIsHostSafe(SimpleTestCase):
             assert error is not None
             assert "nonexistent.invalid" in error
             assert "resolve" in error
+
+    @parameterized.expand([("service_name", "postgres"), ("hyphenated", "my-db")])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_unresolvable_short_host_name_explains_it_is_internal(self, _name: str, host: str):
+        with patch(
+            f"{_MIXINS_MODULE}.socket.getaddrinfo",
+            side_effect=socket.gaierror(socket.EAI_NONAME, "Name or service not known"),
+        ):
+            valid, error = _is_host_safe(host, team_id=999)
+            assert not valid
+            assert error is not None
+            assert error.startswith("Couldn't resolve the host")
+            assert "short name" in error
+            assert host not in error
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_malformed_host_label_blocked(self):
@@ -510,6 +541,96 @@ class TestSSHTunnelHostIsCheckedAtConnect(SimpleTestCase):
                 with self._tunnel_cm(entrypoint, config, 999):
                     pass
             mock_ssh.from_config.return_value.get_tunnel.assert_not_called()
+
+
+class TestSSHTunnelConnectRetry(SimpleTestCase):
+    # sshtunnel gives one message to every failed connect, and that message is non-retryable, so
+    # before the retry a single blip on a shared bastion disabled every table under the source.
+    @staticmethod
+    def _forwarder(*, fails: bool):
+        forwarder = mock.MagicMock()
+        if fails:
+            forwarder.is_active = False
+            forwarder.failed_server = mock.Mock()
+            forwarder._server_list = [forwarder.failed_server]
+            forwarder._transport = mock.Mock()
+            forwarder.__enter__.side_effect = BaseSSHTunnelForwarderError("Could not establish session to SSH gateway")
+        else:
+            tunnel = forwarder.__enter__.return_value
+            tunnel.local_bind_host, tunnel.local_bind_port = "127.0.0.1", 55555
+        return forwarder
+
+    @staticmethod
+    def _tunnel_cm(entrypoint: str, config):
+        if entrypoint == "open_ssh_tunnel":
+            return open_ssh_tunnel(config, 42)
+        return make_ssh_tunnel_factory(config, 42)()
+
+    @staticmethod
+    def _config():
+        return FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=True, host="0.tcp.ngrok.example"))
+
+    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
+    def test_tunnel_opens_when_a_later_connect_attempt_succeeds(self, entrypoint: str):
+        failed = [self._forwarder(fails=True), self._forwarder(fails=True)]
+        with (
+            patch(f"{_MIXINS_MODULE}.SSHTunnel") as mock_ssh,
+            patch(f"{_MIXINS_MODULE}.time.sleep"),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            get_tunnel = mock_ssh.from_config.return_value.get_tunnel
+            get_tunnel.side_effect = [*failed, self._forwarder(fails=False)]
+            with self._tunnel_cm(entrypoint, self._config()) as (host, port):
+                assert (host, port) == ("127.0.0.1", 55555)
+            assert get_tunnel.call_count == 3
+        # Authentication failures create local servers without starting their serving threads.
+        # Closing them directly avoids stop() blocking forever in server.shutdown().
+        for forwarder in failed:
+            forwarder.stop.assert_not_called()
+            forwarder.failed_server.server_close.assert_called_once_with()
+            forwarder._transport.close.assert_called_once_with()
+            forwarder._transport.stop_thread.assert_called_once_with()
+
+    def test_active_failed_forwarder_uses_normal_stop(self):
+        forwarder = mock.MagicMock()
+        forwarder.is_active = True
+
+        _release_failed_forwarder(forwarder)
+
+        forwarder.stop.assert_called_once_with(force=True)
+
+    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
+    def test_connect_failing_every_attempt_still_raises_the_gateway_error(self, entrypoint: str):
+        attempts = len(_SSH_TUNNEL_CONNECT_BACKOFF_SECONDS) + 1
+        with (
+            patch(f"{_MIXINS_MODULE}.SSHTunnel") as mock_ssh,
+            patch(f"{_MIXINS_MODULE}.time.sleep") as mock_sleep,
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            get_tunnel = mock_ssh.from_config.return_value.get_tunnel
+            get_tunnel.side_effect = [self._forwarder(fails=True) for _ in range(attempts)]
+            with pytest.raises(BaseSSHTunnelForwarderError, match="Could not establish session to SSH gateway"):
+                with self._tunnel_cm(entrypoint, self._config()):
+                    pass
+            # The budget stays bounded, so a credential that is really wrong reaches the same
+            # classification it reached before the retry existed.
+            assert get_tunnel.call_count == attempts
+            assert mock_sleep.call_count == attempts - 1
+
+    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
+    def test_failure_after_the_tunnel_is_up_does_not_reconnect(self, entrypoint: str):
+        # Reopening here would restart a sync that had already begun reading rows.
+        with (
+            patch(f"{_MIXINS_MODULE}.SSHTunnel") as mock_ssh,
+            patch(f"{_MIXINS_MODULE}.time.sleep"),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            get_tunnel = mock_ssh.from_config.return_value.get_tunnel
+            get_tunnel.side_effect = [self._forwarder(fails=False), self._forwarder(fails=False)]
+            with pytest.raises(ConnectionRefusedError):
+                with self._tunnel_cm(entrypoint, self._config()):
+                    raise ConnectionRefusedError("dropped mid-sync")
+            assert get_tunnel.call_count == 1
 
 
 class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):

@@ -74,14 +74,12 @@ def exclude_archived_unless_requested(queryset: QuerySet, *, requested: bool) ->
 # test runs before the array function; the planner is free to reorder the arms of `AND` and `OR`.
 # Both predicates below interpolate these, so they are f-strings and every literal `{}` in their
 # SQL is written `{{}}`.
-_GROUPS_ARRAY = (
-    "CASE WHEN jsonb_typeof(posthog_featureflag.filters->'groups') = 'array' "
-    "THEN posthog_featureflag.filters->'groups' ELSE '[]'::jsonb END"
-)
-_VARIANTS_ARRAY = (
-    "CASE WHEN jsonb_typeof(posthog_featureflag.filters->'multivariate'->'variants') = 'array' "
-    "THEN posthog_featureflag.filters->'multivariate'->'variants' ELSE '[]'::jsonb END"
-)
+def jsonb_array_or_empty(expr: str) -> str:
+    return f"CASE WHEN jsonb_typeof({expr}) = 'array' THEN {expr} ELSE '[]'::jsonb END"
+
+
+_GROUPS_ARRAY = jsonb_array_or_empty("posthog_featureflag.filters->'groups'")
+_VARIANTS_ARRAY = jsonb_array_or_empty("posthog_featureflag.filters->'multivariate'->'variants'")
 # A release condition carries no targeting when `properties` is `[]`, absent, or JSON null, which
 # is how `is_group_fully_rolled_out` and `is_boolean_flag_fully_rolled_out` read it. Postgres `->`
 # returns SQL NULL for the absent key and the jsonb scalar `null` for the stored null, so each
@@ -113,7 +111,8 @@ def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None =
 
     Set-based counterpart to `FeatureFlagStatusChecker.get_status`, which answers the same
     question for one flag and also produces the human-readable reason. The two are meant to
-    classify the same flags, so change them together.
+    classify the same flags, so change them together. `STALE_ACTIVE_PARAM_DESCRIPTION` states
+    these branches in prose for the published API schemas, so change it with them too.
 
     They do not agree on one shape: the checker calls a flag with no release conditions fully
     rolled out, so `filters` of `{"groups": []}` (the model default) is STALE to the checker and
@@ -221,6 +220,22 @@ def filter_effectively_full_rollout_flags(queryset: QuerySet) -> QuerySet:
     """
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
     return queryset.extra(where=[_HAS_UNTARGETED_FULL_ROLLOUT_GROUP])
+
+
+# Describes the `active` param for every published schema that accepts it: the list endpoint's
+# OpenAPI parameter and the bulk-delete filter serializer. It states in prose what
+# `filter_stale_flags` matches, so it has to change with that SQL.
+STALE_ACTIVE_PARAM_DESCRIPTION = (
+    "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' "
+    "returns enabled flags only, so a disabled flag is never STALE. An enabled flag "
+    "matches when its last recorded `$feature_flag_called` event is more than "
+    f"{STALE_FLAG_THRESHOLD_DAYS} days old. With no recorded event, it matches when it is "
+    f"at least {STALE_FLAG_THRESHOLD_DAYS} days old and either stores `filters` as `{{}}` "
+    "or serves one result to everyone through a release condition at 100% with no "
+    "property filters. A flag with no recorded event and an empty `groups` list does not "
+    "match, even when its `status` reads STALE. An SDK that sends no "
+    "`$feature_flag_called` event leaves no record, so a STALE flag can still be in use."
+)
 
 
 def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> QuerySet:

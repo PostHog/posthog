@@ -24,13 +24,15 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.alerts.backend.facade.api import INSIGHT_ALERT_EVENT_IDS, LLMDetectorUnavailableError
-from products.alerts.backend.facade.contracts import AlertDelivery
+from products.alerts.backend.facade.api import LLMDetectorUnavailableError
+from products.alerts.backend.facade.contracts import INSIGHT_ALERT_EVENT_IDS
 from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT, count_active_alert_destinations
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict
 from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPLATE_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.presentation.views.alert import AlertSerializer
+from products.alerts_platform.backend.facade.contracts import AlertDelivery
+from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.cdp.backend.facade.models import HogFunction
 from products.product_analytics.backend.facade.models import Insight
 
@@ -57,6 +59,49 @@ class TrendsInsightAPITest(APIBaseTest):
 
 
 class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
+    def test_evaluation_delay_persists_and_patch_rejects_conflicts(self) -> None:
+        insight = self.create_trends_insight(interval="hour")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": insight["id"],
+                "name": "Delayed orders",
+                "subscribed_users": [],
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                "calculation_interval": "hourly",
+                "evaluation_delay_intervals": 2,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        alert_id = response.json()["id"]
+        assert response.json()["evaluation_delay_intervals"] == 2
+        url = f"/api/projects/{self.team.id}/alerts/{alert_id}"
+        scheduled_check = datetime.now(UTC) + timedelta(days=20)
+        AlertConfiguration.objects.filter(id=alert_id).update(state=AlertState.FIRING, next_check_at=scheduled_check)
+        changed = self.client.patch(url, {"name": "Delayed completed orders"}, format="json")
+        assert changed.status_code == status.HTTP_200_OK, changed.content
+        assert changed.json()["evaluation_delay_intervals"] == 2
+        renamed = AlertConfiguration.objects.get(id=alert_id)
+        assert renamed.state == AlertState.FIRING
+        assert renamed.next_check_at == scheduled_check
+        for patch_data in (
+            {"config": {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True}},
+            {"insight": self.insight["id"]},
+            {"evaluation_delay_intervals": -1},
+        ):
+            invalid = self.client.patch(url, patch_data, format="json")
+            assert invalid.status_code == status.HTTP_400_BAD_REQUEST, invalid.content
+        assert AlertConfiguration.objects.get(id=alert_id).evaluation_delay_intervals == 2
+        delayed = self.client.patch(url, {"evaluation_delay_intervals": 3}, format="json")
+        assert delayed.status_code == status.HTTP_200_OK, delayed.content
+        saved = AlertConfiguration.objects.get(id=alert_id)
+        assert saved.state == AlertState.NOT_FIRING
+        assert saved.next_check_at is not None
+        assert saved.next_check_at <= datetime.now(UTC)
+
     def setUp(self):
         super().setUp()
         self.default_insight_data: dict[str, Any] = {
@@ -95,6 +140,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             "state": "Not firing",
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "detector_config": None,
+            "evaluation_delay_intervals": 0,
             "threshold": {
                 "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}},
                 "created_at": mock.ANY,
@@ -379,7 +425,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         [
             ("email_unavailable", "Email delivery is unavailable."),
             ("invalid_configuration", "AI data processing consent was withdrawn for this project."),
-            ("llm_detector_unavailable", "The AI detector could not reach its model provider."),
+            ("llm_detector_unavailable", "The AI detector could not complete this check."),
         ]
     )
     def test_retrieve_check_includes_allowlisted_error_code(self, code: str, message: str) -> None:
@@ -1445,7 +1491,9 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             )
             assert response.status_code == status.HTTP_200_OK, response.content
             nxt = response.json()["next_check_at"]
-            assert datetime.fromisoformat(nxt.replace("Z", "+00:00")) == datetime(2026, 4, 6, 16, 0, 0, tzinfo=UTC)
+            assert datetime.fromisoformat(nxt.replace("Z", "+00:00")) == datetime(
+                2026, 4, 6, 16, 0, 0, tzinfo=UTC
+            ) + alert_check_offset(CalendarInterval.HOURLY, alert["id"])
 
     def test_patch_schedule_restriction_empty_normalizes_to_null(self) -> None:
         creation_request = {
@@ -1755,6 +1803,23 @@ class TestAlertSimulate(TrendsInsightAPITest):
         assert data["total_points"] == 34  # 35 mock points minus 1 dropped incomplete interval
         assert isinstance(data["scores"], list)
         assert len(data["scores"]) == 34
+
+    @mock.patch("products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight")
+    def test_simulate_short_sql_history_returns_validation_error(self, mock_calculate) -> None:
+        insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": "SELECT 1 AS value"})
+        mock_calculate.return_value = mock.MagicMock(result=[[1.0]], columns=["value"], has_more=False)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": insight.id,
+                "detector_config": {"type": "zscore", "threshold": 0.9, "window": 30},
+                "config": {"type": "HogQLAlertConfig", "evaluation": "last_row", "column": "value"},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "needs at least" in response.json()["detail"]
+        assert not AlertCheck.objects.filter(alert_configuration__insight=insight).exists()
 
     @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
     def test_simulate_uses_default_detector_config(self, mock_simulate) -> None:

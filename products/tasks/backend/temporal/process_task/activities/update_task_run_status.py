@@ -11,6 +11,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated, observe_wizard_run_unbound
 from products.tasks.backend.models import Task, TaskRun
@@ -54,6 +55,7 @@ class UpdateTaskRunStatusInput:
     end_of_turn_received: Optional[bool] = None
     last_agent_heartbeat_at: Optional[str] = None
     seconds_since_last_agent_heartbeat: Optional[float] = None
+    sandbox_backend: Optional[str] = None
 
 
 @activity.defn
@@ -82,6 +84,12 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             # Terminal statuses are final. A run cancelled out of band must not be resurrected to
             # completed/failed by its own workflow finishing afterward, which would both lie in the
             # audit trail and undo the cancellation. Re-checked here while holding the row lock.
+            if old_status in _TERMINAL_STATUSES and input.status == TaskRun.Status.IN_PROGRESS:
+                raise ApplicationError(
+                    f"TaskRun {input.run_id} is already {old_status}; refusing to start it",
+                    non_retryable=True,
+                    type="TaskRunAlreadyTerminalError",
+                )
             if old_status in _TERMINAL_STATUSES and input.status != old_status:
                 log_with_activity_context(
                     "Skipping terminal status overwrite",
@@ -119,6 +127,11 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 
     # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
     if input.status in _TERMINAL_STATUSES:
+        try:
+            if task_run.environment == TaskRun.Environment.CLOUD:
+                refresh_task_run_cost(run_id=task_run.id, team_id=task_run.team_id)
+        except Exception:
+            activity.logger.warning(f"Failed to refresh cost for run {task_run.id}", exc_info=True)
         resume_workflow_step_for_run(task_run)
 
     task_run.publish_stream_state_event()
@@ -264,6 +277,11 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                     "duration_seconds": task_run._duration_seconds(),
                     "termination_reason": termination_reason,
                     **relay_state,
+                    **(
+                        {"sandbox_backend": input.sandbox_backend}
+                        if input.sandbox_backend in ("modal", "hogland")
+                        else task_run.failure_sandbox_backend_properties()
+                    ),
                 },
             )
 

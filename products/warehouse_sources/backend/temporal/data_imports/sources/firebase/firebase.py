@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     OAUTH_SCOPES,
     REALTIME_DATABASE_HOST_SUFFIXES,
     REALTIME_DATABASE_KEY_COLUMN,
+    REALTIME_DATABASE_NOT_FOUND_ERROR,
     REALTIME_DATABASE_PAGE_SIZE,
     REALTIME_DATABASE_PATH_COLUMN,
     REALTIME_DATABASE_VALUE_COLUMN,
@@ -823,7 +824,12 @@ def iter_realtime_database(
         params: dict[str, Any] = {"orderBy": '"$key"', "limitToFirst": REALTIME_DATABASE_PAGE_SIZE}
         if cursor is not None:
             params["startAt"] = json.dumps(cursor)
-        payload = _request(session, tokens, "GET", url, params=params)
+        try:
+            payload = _request(session, tokens, "GET", url, params=params)
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                raise FirebaseConfigError(REALTIME_DATABASE_NOT_FOUND_ERROR) from e
+            raise
 
         children = _realtime_database_children(payload)
         if children is None:

@@ -34,17 +34,25 @@ from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
-from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache, UntaggedFollowupMode
+from products.slack_app.backend.models import (
+    ChannelWelcomeMode,
+    SlackSettings,
+    SlackUserProfileCache,
+    UntaggedFollowupMode,
+)
 from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
 from products.slack_app.backend.services.model_catalogue import (
     COST_BASELINE_MODEL,
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
+    ModelChoice,
     available_model_choices,
     describe_run_model,
     display_name_for_model,
     group_by_runtime,
     label_for,
+    offered_model_choices,
+    runtime_adapter_for,
 )
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
 from products.slack_app.backend.services.slack_app_home_stats import (
@@ -60,7 +68,12 @@ from products.slack_app.backend.services.slack_app_home_stats import (
     build_stats_state,
     coerce_window_days,
 )
-from products.slack_app.backend.services.slack_settings import AIPreferences, resolve_untagged_followup_mode
+from products.slack_app.backend.services.slack_settings import (
+    AIPreferences,
+    resolve_channel_welcome_mode,
+    resolve_untagged_followup_mode,
+    set_channel_welcome_mode,
+)
 from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url, find_linked_posthog_user
 
@@ -86,6 +99,7 @@ ACTION_TASKS_PAGE_NEXT = "slack_app_home:tasks_page_next"
 ACTION_STATS_WINDOW = "slack_app_home:stats_window"
 ACTION_STATS_REFRESH = "slack_app_home:stats_refresh"
 ACTION_SET_UNTAGGED_FOLLOWUP_MODE = "slack_app_home:set_untagged_followup_mode"
+ACTION_SET_CHANNEL_WELCOME_MODE = "slack_app_home:set_channel_welcome_mode"
 # URL buttons: Slack opens the link itself and posts a block_actions payload we
 # only ack — the ids exist so the clicks still reach the usage-analytics capture.
 ACTION_GITHUB_SETTINGS = "slack_app_home:github_settings"
@@ -111,6 +125,7 @@ HOME_ACTION_IDS: frozenset[str] = frozenset(
         ACTION_STATS_WINDOW,
         ACTION_STATS_REFRESH,
         ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
+        ACTION_SET_CHANNEL_WELCOME_MODE,
         ACTION_GITHUB_SETTINGS,
         ACTION_CONNECT_ACCOUNT,
     }
@@ -183,36 +198,52 @@ def _describe_cost(cost_multiplier: str | None) -> str | None:
     return f"Cost per token vs {display_name_for_model(COST_BASELINE_MODEL)}: {cost_multiplier}"
 
 
+def _picker_model(choice: ModelChoice) -> PickerModel:
+    """One model dressed in the effort labels the modal's linked dropdowns render."""
+    return PickerModel(
+        value=choice.model,
+        label=choice.label,
+        supported_efforts=tuple(
+            PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES)) for e in choice.supported_efforts
+        ),
+        cost_description=_describe_cost(choice.cost_multiplier),
+    )
+
+
 def get_picker_choices() -> tuple[PickerAdapter, ...]:
-    """Dress the catalogue's runtime → model tree in the effort labels the modal's linked
-    dropdowns render. Adapters with no available models are omitted entirely."""
+    """The runtime → model tree the modal offers, retired models left out.
+
+    Adapters with no models are omitted entirely.
+    """
     return tuple(
         PickerAdapter(
             value=group.runtime_adapter,
             label=group.label,
-            models=tuple(
-                PickerModel(
-                    value=choice.model,
-                    label=choice.label,
-                    supported_efforts=tuple(
-                        PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES))
-                        for e in choice.supported_efforts
-                    ),
-                    cost_description=_describe_cost(choice.cost_multiplier),
-                )
-                for choice in group.choices
-            ),
+            models=tuple(_picker_model(choice) for choice in group.choices),
         )
-        for group in group_by_runtime(available_model_choices())
+        for group in group_by_runtime(offered_model_choices())
     )
 
 
-def _models_for(runtime_adapter: str) -> tuple[PickerModel, ...]:
-    """The models the modal's model dropdown offers for one runtime."""
-    for adapter in get_picker_choices():
-        if adapter.value == runtime_adapter:
-            return adapter.models
-    return ()
+def _models_for(runtime_adapter: str, keep: str | None = None) -> tuple[PickerModel, ...]:
+    """The models the modal's model dropdown offers for one runtime.
+
+    ``keep`` names a model to list even where the catalog retired it, so someone whose
+    stored preference is on one still sees it selected, and saving the modal does not
+    quietly move them off it.
+    """
+    models = next((adapter.models for adapter in get_picker_choices() if adapter.value == runtime_adapter), ())
+    if not keep or any(model.value == keep for model in models):
+        return models
+    retained = next(
+        (
+            choice
+            for choice in available_model_choices()
+            if choice.runtime_adapter == runtime_adapter and choice.model == keep
+        ),
+        None,
+    )
+    return (*models, _picker_model(retained)) if retained else models
 
 
 def _runtime_adapter_options() -> tuple[tuple[str, str], ...]:
@@ -406,6 +437,7 @@ def render_home_view(
     tasks_state: TasksState | None = None,
     stats_state: StatsState | None = None,
     untagged_followup_mode: UntaggedFollowupMode | None = None,
+    channel_welcome_mode: ChannelWelcomeMode | None = None,
     has_project_access: bool = True,
     account_settings_url: str | None = None,
 ) -> dict:
@@ -445,20 +477,24 @@ def render_home_view(
     blocks.extend(_personal_section_blocks(run_defaults))
 
     # Section 4 — thread follow-ups: whether replies other people leave in the
-    # threads you started reach PostHog on their own. Absent when the workspace
-    # hasn't been opted into untagged follow-ups at all.
+    # threads you started reach PostHog on their own.
     if untagged_followup_mode is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_untagged_followups_section_blocks(untagged_followup_mode))
 
-    # Section 5 — linked accounts: PostHog and GitHub side by side, shown
+    # Section 5 — channel welcome: a workspace setting, so only admins see it.
+    if is_admin and channel_welcome_mode is not None:
+        blocks.append({"type": "divider"})
+        blocks.extend(_channel_welcome_section_blocks(channel_welcome_mode))
+
+    # Section 6 — linked accounts: PostHog and GitHub side by side, shown
     # before Tasks so the connect prompts are visible while the Tasks list
     # is still empty. The PostHog half is flag-gated.
     if (account_state and account_state.enabled) or github_state is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_linked_accounts_section_blocks(account_state, github_state))
 
-    # Section 6 — your tasks: a quiet list of tasks the calling user
+    # Section 7 — your tasks: a quiet list of tasks the calling user
     # started via @PostHog mentions, so they can see status without
     # the bot pinging the activity feed for every transition.
     if tasks_state is not None:
@@ -875,8 +911,7 @@ UNTAGGED_FOLLOWUP_MODE_LABELS: dict[str, str] = {
 def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]:
     """Picker for how untagged replies land in the threads you started.
 
-    Off until picked, so the card doubles as the only way to turn the behaviour
-    on for your own threads. The choice covers every reply in those threads,
+    Ask until picked. The choice covers every reply in those threads,
     including the ones you write yourself.
     """
     options = [
@@ -898,6 +933,38 @@ def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]
         {
             "type": "context",
             "elements": [{"type": "mrkdwn", "text": "Applies to every reply in those threads, yours included."}],
+        },
+    ]
+
+
+CHANNEL_WELCOME_MODE_LABELS: dict[str, str] = {
+    ChannelWelcomeMode.CHANNEL: "Post it in the channel",
+    ChannelWelcomeMode.INVITER: "Show it only to the person who added me",
+    ChannelWelcomeMode.OFF: "Don't send it",
+}
+
+
+def _channel_welcome_section_blocks(mode: ChannelWelcomeMode) -> list[dict]:
+    """Admin picker for where the welcome goes when someone adds the app to a channel."""
+    return [
+        _section_title(
+            "📣 Channel welcome",
+            "What I do when someone adds me to a channel in this workspace.",
+        ),
+        {
+            "type": "actions",
+            "elements": [
+                _static_select(
+                    action_id=ACTION_SET_CHANNEL_WELCOME_MODE,
+                    placeholder="Post it in the channel",
+                    pairs=CHANNEL_WELCOME_MODE_LABELS.items(),
+                    selected=mode.value,
+                )
+            ],
+        },
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": "Applies to everyone in this Slack workspace."}],
         },
     ]
 
@@ -1371,7 +1438,7 @@ def render_edit_modal(
                     else {}
                 ),
             }
-            for model in _models_for(current.runtime_adapter)
+            for model in _models_for(current.runtime_adapter, keep=current.model)
         ]
         if model_options:
             model_element: dict[str, Any] = {
@@ -1584,6 +1651,17 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
 
     if action_id == ACTION_SET_UNTAGGED_FOLLOWUP_MODE:
         _apply_untagged_followup_mode_pick(integration, slack_user_id, action)
+        republish()
+        return HttpResponse(status=200)
+
+    if action_id == ACTION_SET_CHANNEL_WELCOME_MODE:
+        slack = SlackIntegration(integration)
+        if not _is_admin(slack, integration, slack_user_id):
+            _post_ephemeral_admin_only(slack, payload)
+            return HttpResponse(status=200)
+        picked = (action.get("selected_option") or {}).get("value")
+        if picked in ChannelWelcomeMode.values:
+            set_channel_welcome_mode(integration.integration_id, ChannelWelcomeMode(picked))
         republish()
         return HttpResponse(status=200)
 
@@ -1804,7 +1882,7 @@ def _drop_invalidated_selections(
     effort. The scoped block ids stop Slack handing those back on the next interaction;
     this stops the view we render from the same payload showing them in the meantime.
     """
-    if model and model not in {offered.value for offered in _models_for(runtime_adapter or "")}:
+    if model and runtime_adapter_for(model) != runtime_adapter:
         model = None
     if reasoning_effort and reasoning_effort not in (_supported_efforts(runtime_adapter, model) or ()):
         reasoning_effort = None
@@ -2015,6 +2093,7 @@ def _build_home_view(
         tasks_state=tasks_state,
         stats_state=stats_state,
         untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
+        channel_welcome_mode=resolve_channel_welcome_mode(integration.integration_id) if is_admin else None,
         has_project_access=bool(accessible),
         # The same settings page the GitHub card deep-links to.
         account_settings_url=github_state.settings_url,
@@ -2620,7 +2699,7 @@ def _post_ephemeral_admin_only(slack: SlackIntegration, payload: dict) -> None:
     slack_user_id = (payload.get("user") or {}).get("id", "")
     if not slack_user_id:
         return
-    text = "Only Slack workspace admins can change the PostHog workspace default."
+    text = "Only Slack workspace admins can change PostHog workspace settings."
     channel = (payload.get("channel") or {}).get("id") or (payload.get("container") or {}).get("channel_id")
     try:
         if channel:

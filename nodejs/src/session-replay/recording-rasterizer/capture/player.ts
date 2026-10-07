@@ -11,7 +11,7 @@ import type { InactivityPeriod, PlayerConfig, PlayerMessage } from '@posthog/rep
 import { RasterizationError, toRasterizationErrorCode } from '~/session-replay/recording-rasterizer/errors'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
 
-import { BlockProxy } from './block-proxy'
+import { BlockSource } from './block-proxy'
 import { CapturePage } from './capture-page'
 import { RequestInterceptor } from './request-interceptor'
 
@@ -41,7 +41,7 @@ export class PlayerController {
 
     constructor(
         capturePage: CapturePage,
-        blockProxy: BlockProxy,
+        blockProxy: BlockSource,
         onProgress: () => void,
         log: Logger = createLogger()
     ) {

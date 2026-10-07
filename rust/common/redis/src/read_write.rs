@@ -399,6 +399,14 @@ impl Client for ReadWriteClient {
         self.writer.zadd(k, member, score).await
     }
 
+    async fn zadd_nx(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
+        self.writer.zadd_nx(k, member, score).await
+    }
+
+    async fn zrem(&self, k: String, member: String) -> Result<(), CustomRedisError> {
+        self.writer.zrem(k, member).await
+    }
+
     async fn set_with_format(
         &self,
         k: String,
@@ -459,6 +467,13 @@ impl Client for ReadWriteClient {
         ttl_seconds: usize,
     ) -> Result<(), CustomRedisError> {
         self.writer.batch_incr_by_expire(items, ttl_seconds).await
+    }
+
+    async fn batch_incr_by_expire_at(
+        &self,
+        items: Vec<(String, i64, i64)>,
+    ) -> Result<(), CustomRedisError> {
+        self.writer.batch_incr_by_expire_at(items).await
     }
 
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {

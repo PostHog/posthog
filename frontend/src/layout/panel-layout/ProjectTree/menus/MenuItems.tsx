@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
 import {
@@ -8,6 +9,7 @@ import {
     IconPencil,
     IconShortcut,
     IconStar,
+    IconTerminal,
     IconTrash,
 } from '@posthog/icons'
 
@@ -32,15 +34,18 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { pluralize } from 'lib/utils/strings'
 import { openDeleteGroupTypeDialog } from 'scenes/settings/environment/GroupAnalyticsConfig'
 import { groupAnalyticsConfigLogic } from 'scenes/settings/environment/groupAnalyticsConfigLogic'
+import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { NewMenu } from '../../menus/NewMenu'
 import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { customProductsLogic } from '../customProductsLogic'
+import { getSidebarProduct } from '../defaultTree'
 import { projectTreeDataLogic } from '../projectTreeDataLogic'
 import { projectTreeLogic } from '../projectTreeLogic'
 import { joinPath, splitPath } from '../utils'
@@ -76,7 +81,10 @@ export function MenuItems({
     const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const { groupTypes } = useValues(groupAnalyticsConfigLogic)
     const { deleteGroupType } = useActions(groupAnalyticsConfigLogic)
-    const { enabledToolPaths: customProductsSelectedPaths } = useValues(customProductsLogic)
+    const { enabledProductPaths: customProductsSelectedPaths } = useValues(customProductsLogic)
+    const { dockOpen, terminalEnabled } = useValues(terminalDockLogic)
+    const { openInTerminal } = useActions(terminalDockLogic)
+    const { location } = useValues(router)
 
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root, isActiveInPanel }
     const { checkedItems, checkedItemCountNumeric, checkedItemsArray } = useValues(
@@ -95,7 +103,7 @@ export function MenuItems({
     } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
     const { openLinkToModal } = useActions(linkToLogic)
-    const { setToolEnabled } = useActions(customProductsLogic)
+    const { setProductEnabled } = useActions(customProductsLogic)
 
     const { resetPanelLayout } = useActions(panelLayoutLogic)
 
@@ -110,11 +118,11 @@ export function MenuItems({
     const showSelectMenuItems =
         root === 'project://' && item.record?.path && !item.disableSelect && !onlyTree && showSelectMenuOption
 
-    // Show product menu items if the item is a product or shortcut (and the item is a product, products have 1 slash in the href)
+    // Show product menu items if the item is a product, or a starred link to one
     const showProductMenuItems =
         root === 'products://' ||
         root === 'custom-products://' ||
-        (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
+        (root === 'shortcuts://' && !!getSidebarProduct(item.record?.href))
 
     // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
     const productMenu =
@@ -160,6 +168,13 @@ export function MenuItems({
     const isItemAFolder = item.record?.type === 'folder'
     const isStarredFolder = isItemAFolder && item.id.startsWith('shortcuts://') && !!item.record?.ref
     const newMenuItem = isStarredFolder ? { ...item, record: { ...item.record, path: item.record?.ref } } : item
+    const terminalFolder = isStarredFolder ? item.record?.ref : item.record?.path
+    const showOpenInTerminal =
+        terminalEnabled &&
+        (dockOpen || removeProjectIdIfPresent(location.pathname) === '/terminal') &&
+        isItemAFolder &&
+        (root === 'project://' || item.record?.protocol === 'project://' || isStarredFolder) &&
+        typeof terminalFolder === 'string'
     const itemShortcutPath = joinPath([splitPath(item.record?.path).pop() ?? 'Unnamed'])
     const isItemAlreadyInShortcut = !isItemAFolder && shortcutNonFolderPaths.has(itemShortcutPath)
     const shortcutId =
@@ -176,6 +191,24 @@ export function MenuItems({
     return (
         <>
             {productMenu}
+            {showOpenInTerminal && (
+                <>
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            openInTerminal(terminalFolder)
+                        }}
+                        data-attr="tree-item-menu-open-in-terminal-button"
+                    >
+                        <ButtonPrimitive menuItem>
+                            <IconTerminal className="size-4 text-tertiary" />
+                            <span>Open in terminal</span>
+                        </ButtonPrimitive>
+                    </MenuItem>
+                    <MenuSeparator />
+                </>
+            )}
             {showSelectMenuItems ? (
                 <>
                     <MenuItem
@@ -302,7 +335,7 @@ export function MenuItems({
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        setToolEnabled(item.record!.path as string, false)
+                        setProductEnabled(item.record!.path as string, false)
                     }}
                 >
                     <ButtonPrimitive menuItem>Remove from sidebar panel</ButtonPrimitive>
@@ -314,7 +347,7 @@ export function MenuItems({
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        setToolEnabled(item.record!.path as string, true)
+                        setProductEnabled(item.record!.path as string, true)
                     }}
                 >
                     <ButtonPrimitive menuItem>Add to sidebar panel</ButtonPrimitive>

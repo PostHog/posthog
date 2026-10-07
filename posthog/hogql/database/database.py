@@ -118,6 +118,8 @@ from posthog.hogql.database.schema.marketing_costs_precomputed import MarketingC
 from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
 from posthog.hogql.database.schema.metrics import (
     MetricAttributesTable,
+    MetricNamesTable,
+    MetricSamplesTable,
     MetricSeriesTable,
     MetricsKafkaMetricsTable,
     MetricsTable,
@@ -320,6 +322,15 @@ logger = structlog.get_logger(__name__)
 
 def is_reserved_system_name(name: str) -> bool:
     return name == "system" or name.startswith("system.")
+
+
+MODELS_NAMESPACE_ROOT_ERROR = "The models namespace needs a model name, for example models.revenue."
+MODELS_NAMESPACE_QUERY_ERROR = "The models namespace is reserved for data models. Choose a different name."
+MODELS_NAMESPACE_TABLE_ERROR = "The models namespace is reserved for data models. Choose a different table name."
+
+
+def is_reserved_models_name(name: str) -> bool:
+    return name == "models" or name.startswith("models.")
 
 
 def _revenue_trigger_prefixes(handles: list[SourceHandle]) -> set[str]:
@@ -564,6 +575,8 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     ),
                     "billing_usage_records": TableNode(name="billing_usage_records", table=BillingUsageRecordsTable()),
                     "metrics": TableNode(name="metrics", table=MetricsTable()),
+                    "metric_samples": TableNode(name="metric_samples", table=MetricSamplesTable()),
+                    "metric_names": TableNode(name="metric_names", table=MetricNamesTable()),
                     "metric_series": TableNode(name="metric_series", table=MetricSeriesTable()),
                     "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
                     "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),

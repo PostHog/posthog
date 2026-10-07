@@ -1014,6 +1014,13 @@ def test_throttle_spaces_requests_per_site(monkeypatch):
         ("Https://example.com/Blog", "https://example.com/Blog/"),
         # Surrounding whitespace.
         ("  https://example.com/  ", "https://example.com/"),
+        # Quotes copied along with the value, matched or not.
+        ("'sc-domain:example.com'", "sc-domain:example.com"),
+        ("'sc-domain:example.com", "sc-domain:example.com"),
+        ('"https://example.com"', "https://example.com/"),
+        ("\u2018sc-domain:example.com\u2019", "sc-domain:example.com"),
+        # A quote inside a URL path is part of the property, not a wrapper.
+        ("https://example.com/blog'", "https://example.com/blog'/"),
         # The full Search Console UI URL — the property lives in resource_id.
         (
             "https://search.google.com/search-console/performance/search-analytics"
@@ -1046,8 +1053,12 @@ def test_normalize_site_url(raw, expected):
         ("EXAMPLE.COM", ["sc-domain:example.com"], "sc-domain:example.com"),
         # No registered property matches — nothing to suggest.
         ("plotlens.ai", ["https://other.com/"], None),
-        # Already scheme-qualified or a domain property: not ambiguous, so no suggestion.
-        ("https://plotlens.ai/", ["https://plotlens.ai/"], None),
+        # A root URL whose site is registered only as a domain property.
+        ("https://example.com/", ["sc-domain:example.com"], "sc-domain:example.com"),
+        ("https://www.example.com/", ["sc-domain:example.com"], "sc-domain:example.com"),
+        # A URL with a path would widen to the whole domain, so no suggestion.
+        ("https://example.com/blog/", ["sc-domain:example.com"], None),
+        ("https://plotlens.ai/", ["https://other.com/"], None),
         ("sc-domain:plotlens.ai", ["sc-domain:plotlens.ai"], None),
     ],
 )
@@ -1158,3 +1169,36 @@ def test_no_base_schema_name_collides_with_a_search_type_suffix():
     # of a shorter name, quietly querying the wrong dimensions.
     for base_name in SEARCH_ANALYTICS_SCHEMAS:
         assert split_schema_name(base_name) == (base_name, DEFAULT_SEARCH_TYPE)
+
+
+@pytest.mark.parametrize("resource_name", ["sites", "sitemaps"])
+@pytest.mark.parametrize(
+    "body,expected_error,expected_match",
+    [
+        (_QUOTA_BODY, GoogleSearchConsoleQuotaExceededError, r"\(retryable\)"),
+        (_PERMISSION_BODY, requests.HTTPError, "403 Client Error"),
+    ],
+)
+def test_property_listing_separates_quota_from_permission_denial(
+    monkeypatch, resource_name, body, expected_error, expected_match
+):
+    # A spent quota and a denied permission share the 403, and only the body separates them.
+    # The quota case reaching `raise_for_status` is what disabled the table over a condition
+    # that refills on its own.
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    session = mock.MagicMock()
+    session.get.return_value = _fake_response(403, body)
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: session)
+
+    response = google_search_console_source(
+        config=config,
+        resource_name=resource_name,
+        team_id=1,
+        resumable_source_manager=mock.MagicMock(),
+    )
+
+    with pytest.raises(expected_error, match=expected_match):
+        list(response.items())  # type: ignore[arg-type]

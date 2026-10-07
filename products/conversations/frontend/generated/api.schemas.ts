@@ -461,11 +461,33 @@ export interface TicketErrorApi {
 }
 
 /**
+ * * `customer_message` - Customer message
+ * * `sent_reply` - Sent reply
+ * * `internal_note` - Internal note
+ * * `ai_draft` - AI draft
+ */
+export type TicketMessageTypeEnumApi = (typeof TicketMessageTypeEnumApi)[keyof typeof TicketMessageTypeEnumApi]
+
+export const TicketMessageTypeEnumApi = {
+    CustomerMessage: 'customer_message',
+    SentReply: 'sent_reply',
+    InternalNote: 'internal_note',
+    AiDraft: 'ai_draft',
+} as const
+
+/**
  * A single message in a ticket thread (output-only).
  */
 export interface TicketMessageApi {
     /** Message (comment) UUID. */
     readonly id: string
+    /** What the message is, and whether it was sent to the customer. customer_message: written by the customer. sent_reply: a reply sent to the customer by a teammate, a workflow or the AI. It does not confirm that the customer received it, because delivery can fail. internal_note: a note for the team only. It was never sent to the customer. ai_draft: a reply or question the AI wrote for a teammate to review. It was never sent to the customer.
+     *
+     * * `customer_message` - Customer message
+     * * `sent_reply` - Sent reply
+     * * `internal_note` - Internal note
+     * * `ai_draft` - AI draft */
+    readonly message_type: TicketMessageTypeEnumApi
     /** Plain-text message body. */
     readonly content: string
     /** TipTap rich content JSON, if any. */
@@ -500,6 +522,19 @@ export interface PaginatedTicketMessageListApi {
 export interface TicketFullEmailApi {
     /** Full inbound email body in Markdown. */
     readonly content: string
+}
+
+/**
+ * Payload for adding a private note to a ticket. It has no privacy field: the note is always private.
+ */
+export interface TicketNoteCreateRequestApi {
+    /**
+     * Note content in markdown. The note is visible to your team only and is never sent to the customer.
+     * @maxLength 5000
+     */
+    message: string
+    /** Optional TipTap rich content JSON for the note. Omit it to show the markdown message. */
+    rich_content?: unknown
 }
 
 /**

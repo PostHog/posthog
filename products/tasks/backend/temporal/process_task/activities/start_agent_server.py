@@ -22,6 +22,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.constants import SUBSCRIPTION_PLAN_NAMES
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
     ProcessTaskError,
@@ -30,16 +31,23 @@ from products.tasks.backend.exceptions import (
     SandboxExecutionError,
     SandboxMissingRepositoryError,
 )
-from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
+from products.tasks.backend.logic.services.connection_token import (
+    create_codex_subscription_run_token,
+    create_sandbox_event_ingest_token,
+)
 from products.tasks.backend.logic.services.launch_preparation_metrics import launch_preparation_metric_context
+from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import (
     REPO_READY_FILE,
     SNAPSHOT_KIND_DIRECTORY,
+    SUBSCRIPTION_CLI_FLAGS,
     SandboxBase,
     get_sandbox_class_for_sandbox_id,
     sandbox_repo_path,
 )
+from products.tasks.backend.logic.stream.redis_stream import release_task_run_milestone_claims
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
     increment_agent_server_readiness_retry,
@@ -123,6 +131,12 @@ def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
         return None
 
     if not ctx.has_github_credentials:
+        return branch
+
+    # A stacked run starts on the head branch of the pull request it builds on, and that branch is
+    # its PR base. Only the exact branch the run was created for counts, so a resume that moved to
+    # the run's own head branch takes the lookup below.
+    if (ctx.state or {}).get("stack_base_branch") == branch:
         return branch
 
     try:
@@ -366,6 +380,7 @@ class _LaunchParams:
     protected_base_branch: str | None
     event_ingest_token: str | None = field(repr=False)
     task_run_session_token: str | None = field(repr=False)
+    codex_run_token: str | None = field(repr=False)
     event_ingest_url: str | None
     event_ingest_keep_stream_open: bool
 
@@ -444,7 +459,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
     task = retry_on_db_connection_drop(lambda: Task.objects.select_related("created_by", "team").get(id=ctx.task_id))
     try:
         actor_user = get_task_run_credential_user(task, ctx.state)
-        access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes)
+        access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes, run_id=ctx.run_id)
     except OAuthTokenError:
         raise
     except Exception as e:
@@ -470,6 +485,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
             {"task_id": ctx.task_id, "run_id": ctx.run_id},
             cause=TaskRun.DoesNotExist(f"TaskRun {ctx.run_id} not found"),
         )
+    release_task_run_milestone_claims(ctx.run_id, run_uses_dedicated_stream(task_run.state))
     task_run_session_token: str | None = None
     if event_stream_ingest_enabled or task.runtime == Task.Runtime.PI:
         try:
@@ -484,39 +500,58 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
             event_ingest_token = run_token
         if task.runtime == Task.Runtime.PI:
             task_run_session_token = run_token
+    codex_run_token: str | None = None
+    if ctx.model_access.adapter == "codex":
+        codex_run_token = create_codex_subscription_run_token(task_run, sandbox_id=sandbox_id)
 
-    mcp_configs = get_sandbox_ph_mcp_configs(
-        token=access_token,
-        project_id=ctx.team_id,
-        scopes=scopes,
-        interaction_origin=ctx.interaction_origin,
-        slack_reply_context=ctx.slack_reply_context,
-        task_id=str(ctx.task_id),
-        origin_product=task.origin_product,
-        exclude_tools=mcp_exclude_tools_from_state(ctx.state),
+    mcp_configs = (
+        []
+        if task.is_scout_trial_judge is True
+        else get_sandbox_ph_mcp_configs(
+            token=access_token,
+            project_id=ctx.team_id,
+            scopes=scopes,
+            interaction_origin=ctx.interaction_origin,
+            slack_reply_context=ctx.slack_reply_context,
+            task_id=str(ctx.task_id),
+            origin_product=task.origin_product,
+            exclude_tools=mcp_exclude_tools_from_state(ctx.state),
+        )
     )
     include_personal = _include_personal_mcp_for_task(task)
-    user_mcp_configs = get_user_mcp_server_configs(
-        token=access_token,
-        team_id=ctx.team_id,
-        user_id=actor_user.id if actor_user else None,
-        include_personal=include_personal,
-        interaction_origin=ctx.interaction_origin,
-        slack_reply_context=ctx.slack_reply_context,
-        allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
-        origin_product=task.origin_product,
-        task_agent_key=task.mcp_builtin_agent_key,
-        credential_owner_id=task.mcp_credential_owner_id,
-        allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
+    user_mcp_configs = (
+        []
+        if task.is_scout_trial_judge is True
+        else get_user_mcp_server_configs(
+            token=access_token,
+            team_id=ctx.team_id,
+            user_id=actor_user.id if actor_user else None,
+            include_personal=include_personal,
+            interaction_origin=ctx.interaction_origin,
+            slack_reply_context=ctx.slack_reply_context,
+            allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
+            origin_product=task.origin_product,
+            task_agent_key=task.mcp_builtin_agent_key,
+            credential_owner_id=task.mcp_credential_owner_id,
+            allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
+        )
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs
 
-    imported_mcp_configs = get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
+    imported_mcp_configs = (
+        []
+        if task.is_scout_trial_judge is True
+        else get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
+    )
     if imported_mcp_configs:
         mcp_configs = mcp_configs + imported_mcp_configs
 
-    relayed_names = get_relayed_mcp_server_names(task_run, {config.name for config in mcp_configs})
+    relayed_names = (
+        []
+        if task.is_scout_trial_judge is True
+        else get_relayed_mcp_server_names(task_run, {config.name for config in mcp_configs})
+    )
     if relayed_names:
         emit_agent_log(
             ctx.run_id,
@@ -570,6 +605,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         protected_base_branch=protected_base_branch,
         event_ingest_token=event_ingest_token,
         task_run_session_token=task_run_session_token,
+        codex_run_token=codex_run_token,
         event_ingest_url=event_ingest_url,
         event_ingest_keep_stream_open=ctx.agent_proxy_keep_stream_open,
     )
@@ -584,7 +620,7 @@ def _invoke_start_agent_server(
     wait_for_health: bool = False,
 ) -> int | None:
     try:
-        _enforce_claude_subscription_support(sandbox, ctx)
+        _enforce_subscription_support(sandbox, ctx)
         health_duration_ms = sandbox.start_agent_server(
             repository=ctx.repository if len(ctx.repositories) <= 1 else None,
             task_id=ctx.task_id,
@@ -615,7 +651,12 @@ def _invoke_start_agent_server(
             rtk_enabled=ctx.rtk_enabled,
             benjamin_enabled=ctx.benjamin_enabled,
             peer_messaging=ctx.peer_messaging_enabled,
-            claude_model_access=ctx.claude_model_access,
+            claude_model_access=ctx.model_access.access_for("claude"),
+            codex_model_access=ctx.model_access.access_for("codex"),
+            codex_run_token=params.codex_run_token,
+            sandbox_runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+            if isinstance(sandbox, ModalSandbox)
+            else None,
         )
         return health_duration_ms if isinstance(health_duration_ms, int) else None
 
@@ -642,19 +683,19 @@ def _invoke_start_agent_server(
         )
 
 
-def _enforce_claude_subscription_support(sandbox: SandboxBase, ctx: TaskProcessingContext) -> None:
-    if ctx.claude_model_access != "own-subscription":
+def _enforce_subscription_support(sandbox: SandboxBase, ctx: TaskProcessingContext) -> None:
+    adapter = ctx.model_access.adapter
+    if adapter is None:
         return
-    result = sandbox.execute(
-        "grep -q -- --claudeSubscription /scripts/node_modules/.bin/agent-server",
-        timeout_seconds=10,
-    )
+    plan_name = SUBSCRIPTION_PLAN_NAMES[adapter]
+    flag = SUBSCRIPTION_CLI_FLAGS[adapter]
+    result = sandbox.execute(f"grep -q -- {flag} /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
     if result.exit_code != 0:
         raise ProcessTaskFatalError(
-            "This sandbox build cannot use your Claude plan yet. Start a new task. "
-            'To use PostHog credits instead, turn off "Use your Claude plan for cloud tasks".',
+            f"This sandbox build cannot use your {plan_name} yet. Start a new task. "
+            f'To use PostHog credits instead, turn off "Use your {plan_name} for cloud tasks".',
             {"task_id": ctx.task_id, "run_id": ctx.run_id},
-            cause=RuntimeError("agent-server lacks --claudeSubscription"),
+            cause=RuntimeError(f"agent-server lacks {flag}"),
             capture=False,
         )
 
@@ -820,11 +861,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 ) as health_timer:
                     sandbox.wait_for_agent_server_ready(
                         params.agentsh_domains,
-                        **(
-                            {"claude_model_access": ctx.claude_model_access}
-                            if ctx.claude_model_access == "own-subscription"
-                            else {}
-                        ),
+                        claude_model_access=ctx.model_access.access_for("claude"),
                     )
                 invoke_ms = invoke_timer.elapsed_ms
                 health_poll_ms = health_timer.elapsed_ms
@@ -969,11 +1006,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                     ) as health_timer:
                         sandbox.wait_for_agent_server_ready(
                             agentsh_domains,
-                            **(
-                                {"claude_model_access": ctx.claude_model_access}
-                                if ctx.claude_model_access == "own-subscription"
-                                else {}
-                            ),
+                            claude_model_access=ctx.model_access.access_for("claude"),
                         )
                 else:
                     logger.warning(
@@ -1008,11 +1041,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                     ) as health_timer:
                         sandbox.wait_for_agent_server_ready(
                             agentsh_domains,
-                            **(
-                                {"claude_model_access": ctx.claude_model_access}
-                                if ctx.claude_model_access == "own-subscription"
-                                else {}
-                            ),
+                            claude_model_access=ctx.model_access.access_for("claude"),
                         )
                     _record_agent_server_launch(sandbox, ctx, params)
         except Exception as error:

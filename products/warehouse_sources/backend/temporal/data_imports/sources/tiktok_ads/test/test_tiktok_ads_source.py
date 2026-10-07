@@ -27,6 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source import TikTokAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
+    TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE,
+    TIKTOK_MISSING_SCOPE_MESSAGE,
     TIKTOK_NON_RETRYABLE_ERROR_PREFIX,
     TIKTOK_TRANSIENT_ERROR_MESSAGE,
     TikTokAdsAPIError,
@@ -97,11 +99,30 @@ class TestTikTokAdsSource:
 
     @parameterized.expand(
         [
-            ("video", "advertiser does not grant you /file/video/ad/search/:GET permission"),
-            ("image", "advertiser does not grant you /file/image/ad/search/:GET permission"),
+            (
+                "video",
+                "advertiser does not grant you /file/video/ad/search/:GET permission",
+                TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE,
+            ),
+            (
+                "image",
+                "advertiser does not grant you /file/image/ad/search/:GET permission",
+                TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE,
+            ),
+            (
+                "report_scope",
+                "Permission error: The access token lacks the required scope for endpoint "
+                "'/report/integrated/get/(method=GET)'. Please first check if the request method is correct.",
+                TIKTOK_MISSING_SCOPE_MESSAGE,
+            ),
+            (
+                "campaign_scope",
+                "Permission error: The access token lacks the required scope for endpoint '/campaign/get/(method=GET)'.",
+                TIKTOK_MISSING_SCOPE_MESSAGE,
+            ),
         ]
     )
-    def test_creative_permission_denied_surfaces_friendly_message(self, name, message):
+    def test_permission_denied_surfaces_friendly_message(self, name, message, expected):
         """Fails if the dict entries are reordered, which would shadow this message with None."""
         error_message = f"{TIKTOK_NON_RETRYABLE_ERROR_PREFIX} {message} (code: 40001)"
 
@@ -112,9 +133,7 @@ class TestTikTokAdsSource:
         ]
 
         assert friendly, "permission denial matched no non-retryable pattern"
-        assert friendly[0] is not None, "generic prefix shadowed the creative-permission message"
-        assert "creative_videos" in friendly[0]
-        assert "creative_images" in friendly[0]
+        assert friendly[0] == expected
 
     @parameterized.expand(
         [

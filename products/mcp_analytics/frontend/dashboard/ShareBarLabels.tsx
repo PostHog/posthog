@@ -2,6 +2,7 @@ import { type ReactNode } from 'react'
 
 import { useChartLayout } from '@posthog/quill-charts'
 
+import { Link } from 'lib/lemon-ui/Link'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { formatNumber } from './formatters'
@@ -10,6 +11,7 @@ export interface ShareBarLabel {
     key: string
     label: string
     icon?: ReactNode
+    href?: string
     value: number
 }
 
@@ -25,7 +27,19 @@ export function ShareBarLabels({ rows, totalCalls }: { rows: ShareBarLabel[]; to
                 >
                     <span className="flex min-w-0 items-center gap-1.5" title={row.label}>
                         {row.icon}
-                        <span className="truncate">{row.label}</span>
+                        {row.href ? (
+                            <Link
+                                to={row.href}
+                                target="_blank"
+                                className="pointer-events-auto truncate"
+                                data-hog-charts-interactive-overlay
+                                onClick={(event) => event.stopPropagation()}
+                            >
+                                {row.label}
+                            </Link>
+                        ) : (
+                            <span className="truncate">{row.label}</span>
+                        )}
                     </span>
                     <span className="shrink-0 text-secondary tabular-nums">
                         {formatPercentage(totalCalls > 0 ? (row.value / totalCalls) * 100 : 0, { compact: true })} ·{' '}

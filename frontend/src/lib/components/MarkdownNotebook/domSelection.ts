@@ -44,6 +44,16 @@ export function getElementLineHeight(element: HTMLElement): number {
     return Number.isFinite(fontSize) ? fontSize * 1.55 : 24
 }
 
+function getInlineDOMTextLength(node: Node): number {
+    if (node.nodeType === Node.TEXT_NODE) {
+        return node.textContent?.length ?? 0
+    }
+    if (node instanceof HTMLBRElement) {
+        return 1
+    }
+    return Array.from(node.childNodes).reduce((length, child) => length + getInlineDOMTextLength(child), 0)
+}
+
 export function getSelectionRange(element: HTMLElement, nodeId: string): NotebookTextSelectionRange | null {
     const selection = window.getSelection()
     if (!selection || selection.rangeCount === 0) {
@@ -54,7 +64,7 @@ export function getSelectionRange(element: HTMLElement, nodeId: string): Noteboo
     if (!element.contains(range.commonAncestorContainer) && !rangeIntersectsNode(range, element)) {
         return null
     }
-    const textLength = element.textContent?.length ?? 0
+    const textLength = getInlineDOMTextLength(element)
 
     return {
         nodeId,
@@ -104,10 +114,24 @@ export function getCollapsedSelectionRange(element: HTMLElement, nodeId: string)
 }
 
 export function getTextOffset(root: HTMLElement, container: Node, offset: number): number {
-    const range = document.createRange()
-    range.selectNodeContents(root)
-    range.setEnd(container, offset)
-    return range.toString().length
+    // Range.toString() omits <br>, but each break occupies one character in the inline model.
+    let textOffset =
+        container.nodeType === Node.TEXT_NODE
+            ? offset
+            : Array.from(container.childNodes)
+                  .slice(0, offset)
+                  .reduce((length, child) => length + getInlineDOMTextLength(child), 0)
+
+    let current: Node | null = container
+    while (current && current !== root) {
+        let sibling = current.previousSibling
+        while (sibling) {
+            textOffset += getInlineDOMTextLength(sibling)
+            sibling = sibling.previousSibling
+        }
+        current = current.parentNode
+    }
+    return textOffset
 }
 
 export function restoreSelection(element: HTMLElement, start: number, end: number): void {
@@ -674,13 +698,24 @@ export function isFormattingToolbarFocused(): boolean {
 }
 
 export function findTextPosition(root: HTMLElement, offset: number): { node: Node; offset: number } {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
+        acceptNode: (node) =>
+            node.nodeType === Node.TEXT_NODE || node instanceof HTMLBRElement
+                ? NodeFilter.FILTER_ACCEPT
+                : NodeFilter.FILTER_SKIP,
+    })
     let remaining = offset
     let current = walker.nextNode()
 
     while (current) {
-        const length = current.textContent?.length ?? 0
+        const length = getInlineDOMTextLength(current)
         if (remaining <= length) {
+            if (current instanceof HTMLBRElement && current.parentNode) {
+                return {
+                    node: current.parentNode,
+                    offset: Array.from(current.parentNode.childNodes).indexOf(current) + remaining,
+                }
+            }
             return { node: current, offset: remaining }
         }
         remaining -= length

@@ -1,6 +1,6 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { memo } from 'react'
 
 import { IconHide, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
@@ -12,7 +12,8 @@ import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 
-import { prCiStatusLogic } from '../../logics/prCiStatusLogic'
+import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
+import { useReportCiStatus } from '../../logics/prCiStatusLogic'
 import {
     INBOX_SECTION_LEGACY_TAB,
     InboxReportSectionKey,
@@ -41,6 +42,7 @@ import {
 } from '../badges/sourceProductIcons'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
+import { ReportCardRankingTag } from './ReportCardRankingTag'
 import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
 
@@ -113,7 +115,7 @@ export function InboxCardSourceMeta({
  * and actionability chips: the state a row is in (Needs decision, Not actionable, ...) already says
  * what they said. With the flag off every row keeps its chips, its Dismiss button, and "Review".
  */
-export function ReportCard({
+function ReportCardRaw({
     report,
     sectionKey = 'needs-decision',
     attached = false,
@@ -122,6 +124,7 @@ export function ReportCard({
     backUrl,
     preview = false,
     selectable = false,
+    rankingSortField = null,
 }: {
     report: SignalReport
     sectionKey?: InboxReportSectionKey
@@ -136,6 +139,8 @@ export function ReportCard({
     preview?: boolean
     /** Offer multi-select on this row: press and hold and modifier clicks. */
     selectable?: boolean
+    /** The active model sort, if any. The meta row then shows the report's probability for that head. */
+    rankingSortField?: InboxRankingSortField | null
 }): JSX.Element {
     // Keyed on status, not the section: the legacy Archive tab lists dismissed and resolved rows
     // through one section key, and the two need different affordances.
@@ -179,8 +184,7 @@ export function ReportCard({
     })
 
     // Painted from the shared map the report lists fill; absent until (or unless) GitHub answers.
-    const { ciStatusByReportId } = useValues(prCiStatusLogic)
-    const ciStatus = preview ? null : ciStatusByReportId[report.id]
+    const ciStatus = useReportCiStatus(preview ? null : report.id)
     const prState = derivePrState(
         report.status,
         primaryReportPullRequest(report).merged === true,
@@ -291,6 +295,7 @@ export function ReportCard({
                         </Tooltip>
                     )}
                     <SignalReportBillingBadge report={report} />
+                    {rankingSortField && <ReportCardRankingTag report={report} sortField={rankingSortField} />}
                     {!showImpactColumn && (
                         <TZLabel
                             time={report.updated_at ?? report.created_at}
@@ -421,3 +426,10 @@ export function ReportCard({
         </div>
     )
 }
+
+/**
+ * Memoized because the inbox list re-renders many times over a load — five state requests, their
+ * counts, the CI poll, and every filter click — and a few hundred unmemoized rows of this depth is
+ * what made the page stop answering the pointer. A row now repaints only when its own report does.
+ */
+export const ReportCard = memo(ReportCardRaw)

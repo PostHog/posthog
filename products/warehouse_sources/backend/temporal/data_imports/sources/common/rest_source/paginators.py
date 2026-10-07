@@ -188,12 +188,15 @@ class JSONResponseCursorPaginator(BasePaginator):
         cursor_path: TJsonPath = "cursors.next",
         cursor_param: str = "cursor",
         param_location: ParamLocation = "query",
+        raise_on_repeated_cursor: bool = False,
     ) -> None:
         super().__init__()
         self.cursor_path = cursor_path
         self.cursor_param = cursor_param
         self.param_location = param_location
+        self.raise_on_repeated_cursor = raise_on_repeated_cursor
         self._cursor_value: Optional[str] = None
+        self._previous_cursor_value: Optional[str] = None
 
     def init_request(self, request: Request) -> None:
         # Apply a seeded resume cursor to the first request.
@@ -205,11 +208,17 @@ class JSONResponseCursorPaginator(BasePaginator):
             values = find_values(self.cursor_path, response.json())
         except Exception:
             values = []
-        if values and values[0]:
-            self._cursor_value = values[0]
-            self._has_next_page = True
-        else:
+        if not values or not values[0]:
             self._has_next_page = False
+            return
+
+        next_cursor = values[0]
+        if self.raise_on_repeated_cursor and next_cursor == self._previous_cursor_value:
+            raise ValueError("Cursor pagination is not advancing (repeated cursor)")
+
+        self._previous_cursor_value = next_cursor
+        self._cursor_value = next_cursor
+        self._has_next_page = True
 
     def update_request(self, request: Request) -> None:
         if self._cursor_value is not None:
@@ -222,6 +231,8 @@ class JSONResponseCursorPaginator(BasePaginator):
         cursor = state.get("cursor")
         if cursor is not None:
             self._cursor_value = cursor
+            # A resumed response that returns the cursor used to request it is not advancing.
+            self._previous_cursor_value = cursor
             self._has_next_page = True
 
     def __str__(self) -> str:

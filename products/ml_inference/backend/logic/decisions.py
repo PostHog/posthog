@@ -36,18 +36,24 @@ DEFAULT_TIMEOUT_SECONDS = 30.0
 
 
 def decisions_available_here() -> bool:
-    """Dark launch: local development and the US cloud only, so no flag or setting can bring it up in the EU."""
-    return bool(settings.DEBUG) or (settings.CLOUD_DEPLOYMENT or "").upper() == "US"
+    """Decisions are available in local development and the supported cloud regions."""
+    return bool(settings.DEBUG) or (settings.CLOUD_DEPLOYMENT or "").upper() in {"US", "EU"}
 
 
 def decisions_enabled(team_id: int) -> bool:
     """DEBUG bypasses the flag: the analytics SDK is disabled in local dev, where the surface has to be exercisable."""
     if not decisions_available_here():
         return False
-    if settings.DEBUG:
-        return True
     try:
-        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+        team = (
+            Team.objects.select_related("organization")
+            .only("uuid", "organization_id", "organization__is_ai_data_processing_approved")
+            .get(id=team_id)
+        )
+        if not team.organization.is_ai_data_processing_approved:
+            return False
+        if settings.DEBUG:
+            return True
         return bool(
             posthoganalytics.feature_enabled(
                 DECISIONS_FEATURE_FLAG,
@@ -90,7 +96,19 @@ def decide(
     if not carries_credentials_safely(config.url):
         raise GatewayNotConfiguredError("AI_GATEWAY_URL must use https unless it points at this machine")
     headers = {"Authorization": f"Bearer {config.api_key}"}
-    headers.update(ai_gateway_headers(ai_product="ml_inference", distinct_id=team_distinct_id(request.team_id)) or {})
+    # Names the customer the relay credential calls for. Set last so a caller's team_id cannot override it.
+    properties = {**(request.properties or {}), "team_id": str(request.team_id)}
+    headers.update(
+        ai_gateway_headers(
+            ai_product=request.ai_product,
+            trace_id=request.trace_id,
+            properties=properties,
+            distinct_id=request.distinct_id or team_distinct_id(request.team_id),
+        )
+        or {}
+    )
+    if request.privacy_mode:
+        headers["X-PostHog-Privacy-Mode"] = "true"
     try:
         with httpx.Client(trust_env=False, timeout=timeout_seconds, transport=transport) as client:
             response = client.post(decision_url(config.url), json=_wire_body(request), headers=headers)

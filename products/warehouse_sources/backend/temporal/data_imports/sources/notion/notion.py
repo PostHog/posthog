@@ -1,6 +1,6 @@
 import time
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any, Literal, Optional
 
 import requests
@@ -45,6 +45,12 @@ CHUNK_SIZE_BYTES = 100 * 1024 * 1024
 # stream resumes across retries and paces itself under Notion's rate limit.
 MAX_BLOCK_DEPTH = 30
 MAX_CHILD_PAGES_PER_PARENT = 50
+# In the blocks and comments fan-out, a partly filled chunk is yielded at a page boundary once this
+# long has passed since the last yield, so sparse pages still reach the pipeline regularly.
+PARTIAL_FLUSH_INTERVAL_SECONDS = 60.0
+# A page with no buffered rows stages the shrinking page queue at most this often, because staging
+# serializes the whole queue.
+EMPTY_PAGE_STAGE_INTERVAL_SECONDS = 10.0
 
 # Notion enforces an average of ~3 requests/second per integration. Pacing requests to this minimum
 # interval keeps us under the cap proactively, avoiding the retry churn that reacting to 429s alone
@@ -448,89 +454,131 @@ def _iter_block_children(
         cursor = data["next_cursor"]
 
 
-def _blocks_stream(
+def _page_fan_out(
     session: requests.Session,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
+    rows_for_page: Callable[[str], Iterator[dict[str, Any]]],
     throttle: Optional["_RateLimiter"] = None,
 ) -> Iterator[Any]:
+    """Fetch rows for every page, with the fan-out position saved as a shrinking queue of page ids."""
     batcher = Batcher(logger=logger, chunk_size=CHUNK_SIZE, chunk_size_bytes=CHUNK_SIZE_BYTES)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.remaining_page_ids is not None:
         # Resume the fan-out from the persisted queue rather than re-enumerating every page.
         page_ids = list(resume.remaining_page_ids)
-        logger.debug(f"Notion: resuming blocks fan-out with {len(page_ids)} page(s) remaining")
+        logger.debug(f"Notion: resuming page fan-out with {len(page_ids)} page(s) remaining")
     else:
         # Materialize the full set of page IDs up front so the fan-out position can be persisted as a
         # shrinking queue (a crash during this initial enumeration restarts it, like other sources).
         page_ids = list(_iter_page_ids(session, logger, throttle))
 
+    last_flush_at = time.monotonic()
+    last_empty_stage_at = last_flush_at
     while page_ids:
         page_id = page_ids[0]
         remaining = page_ids[1:]
-        for block in _iter_block_children(session, page_id, page_id, logger, 0, throttle):
-            batcher.batch(block)
+        for row in rows_for_page(page_id):
+            batcher.batch(row)
             if batcher.should_yield():
                 yield batcher.get_table()
-                # Keep the in-progress page at the head: yielding flushes every buffered block from
+                last_flush_at = time.monotonic()
+                # Keep the in-progress page at the head: yielding flushes every buffered row from
                 # already-finished pages, so only this page and the untouched rest can still be lost
-                # on a crash. A retry re-fetches this page's blocks (deduped on merge), losing nothing.
+                # on a crash. A retry re-fetches this page's rows (deduped on merge), losing nothing.
                 resumable_source_manager.save_state(NotionResumeConfig(remaining_page_ids=[page_id, *remaining]))
         page_ids = remaining
 
+        # Most pages have few or no rows (comments especially), so a chunk can take many pages to
+        # fill. Without the two branches below, a long run of sparse pages records no progress and
+        # gives the pipeline no point at which to hand the run off during a worker shutdown.
+        now = time.monotonic()
+        if batcher.should_yield(include_incomplete_chunk=True):
+            if now - last_flush_at >= PARTIAL_FLUSH_INTERVAL_SECONDS:
+                # Staged before the yield, so the commit that follows this table's write covers it.
+                resumable_source_manager.save_state(NotionResumeConfig(remaining_page_ids=remaining))
+                yield batcher.get_table()
+                last_flush_at = time.monotonic()
+        else:
+            # Every row of the finished pages is yielded, so the queue can move past them. Staging
+            # dumps the whole queue, so it runs at most every EMPTY_PAGE_STAGE_INTERVAL_SECONDS.
+            if now - last_empty_stage_at >= EMPTY_PAGE_STAGE_INTERVAL_SECONDS:
+                resumable_source_manager.save_state(NotionResumeConfig(remaining_page_ids=remaining))
+                last_empty_stage_at = now
+            resumable_source_manager.safe_point()
+
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
+
+
+def _blocks_stream(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
+    throttle: Optional["_RateLimiter"] = None,
+) -> Iterator[Any]:
+    def blocks_for_page(page_id: str) -> Iterator[dict[str, Any]]:
+        return _iter_block_children(session, page_id, page_id, logger, 0, throttle)
+
+    yield from _page_fan_out(session, logger, resumable_source_manager, blocks_for_page, throttle)
+
+
+def _iter_page_comments(
+    session: requests.Session,
+    page_id: str,
+    logger: FilteringBoundLogger,
+    throttle: Optional["_RateLimiter"] = None,
+) -> Iterator[dict[str, Any]]:
+    cursor: str | None = None
+    pages_fetched = 0
+    while True:
+        params: dict[str, Any] = {"block_id": page_id, "page_size": NOTION_PAGE_SIZE}
+        if cursor:
+            params["start_cursor"] = cursor
+
+        try:
+            data = _request(session, "GET", "/v1/comments", logger, params=params, throttle=throttle)
+        except NotionNotFoundError:
+            logger.warning(
+                "Notion: skipping comments for missing or unshared page",
+                page_id=page_id,
+            )
+            return
+        except NotionBadRequestError as e:
+            logger.warning(
+                "Notion: skipping comments Notion rejected for page",
+                page_id=page_id,
+                error=str(e),
+            )
+            return
+        for comment in data.get("results", []):
+            comment["_page_id"] = page_id
+            yield comment
+
+        pages_fetched += 1
+        if not data.get("has_more") or not data.get("next_cursor"):
+            return
+        if pages_fetched >= MAX_CHILD_PAGES_PER_PARENT:
+            logger.warning(
+                "Notion: reached comments page cap for parent",
+                page_id=page_id,
+                cap=MAX_CHILD_PAGES_PER_PARENT,
+            )
+            return
+        cursor = data["next_cursor"]
 
 
 def _comments_stream(
-    session: requests.Session, logger: FilteringBoundLogger, throttle: Optional["_RateLimiter"] = None
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
+    throttle: Optional["_RateLimiter"] = None,
 ) -> Iterator[Any]:
-    batcher = Batcher(logger=logger, chunk_size=CHUNK_SIZE, chunk_size_bytes=CHUNK_SIZE_BYTES)
+    def comments_for_page(page_id: str) -> Iterator[dict[str, Any]]:
+        return _iter_page_comments(session, page_id, logger, throttle)
 
-    for page_id in _iter_page_ids(session, logger, throttle):
-        cursor: str | None = None
-        pages_fetched = 0
-        while True:
-            params: dict[str, Any] = {"block_id": page_id, "page_size": NOTION_PAGE_SIZE}
-            if cursor:
-                params["start_cursor"] = cursor
-
-            try:
-                data = _request(session, "GET", "/v1/comments", logger, params=params, throttle=throttle)
-            except NotionNotFoundError:
-                logger.warning(
-                    "Notion: skipping comments for missing or unshared page",
-                    page_id=page_id,
-                )
-                break
-            except NotionBadRequestError as e:
-                logger.warning(
-                    "Notion: skipping comments Notion rejected for page",
-                    page_id=page_id,
-                    error=str(e),
-                )
-                break
-            for comment in data.get("results", []):
-                comment["_page_id"] = page_id
-                batcher.batch(comment)
-                if batcher.should_yield():
-                    yield batcher.get_table()
-
-            pages_fetched += 1
-            if not data.get("has_more") or not data.get("next_cursor"):
-                break
-            if pages_fetched >= MAX_CHILD_PAGES_PER_PARENT:
-                logger.warning(
-                    "Notion: reached comments page cap for parent",
-                    page_id=page_id,
-                    cap=MAX_CHILD_PAGES_PER_PARENT,
-                )
-                break
-            cursor = data["next_cursor"]
-
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+    yield from _page_fan_out(session, logger, resumable_source_manager, comments_for_page, throttle)
 
 
 def get_rows(
@@ -551,7 +599,7 @@ def get_rows(
     elif config.stream_type == "blocks":
         yield from _blocks_stream(session, logger, resumable_source_manager, throttle)
     elif config.stream_type == "comments":
-        yield from _comments_stream(session, logger, throttle)
+        yield from _comments_stream(session, logger, resumable_source_manager, throttle)
     else:
         raise ValueError(f"Unknown Notion stream type: {config.stream_type}")
 

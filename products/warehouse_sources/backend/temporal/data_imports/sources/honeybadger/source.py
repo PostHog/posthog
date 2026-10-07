@@ -46,11 +46,11 @@ class HoneybadgerSource(ResumableSource[HoneybadgerSourceConfig, HoneybadgerResu
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Honeybadger",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Honeybadger personal authentication token to pull your error monitoring data (projects, errors, occurrences, deployments, and uptime checks) into the PostHog Data warehouse.
+            caption="""Enter your Honeybadger personal authentication token to pull your error monitoring data (projects, environments, errors, occurrences, affected users, comments, deployments, uptime checks and their results, outages, check-ins, and alarm history) into the PostHog Data warehouse.
 
 You can find your personal authentication token on your [Honeybadger profile page](https://app.honeybadger.io/users/edit).
 
-Note that Honeybadger's API is limited to 360 requests per hour, so large backfills (especially of the notices table) can take a while.""",
+Note that Honeybadger's API is limited to 360 requests per hour, so large backfills (especially of the notices, affected_users, comments, and uptime_checks tables) can take a while.""",
             iconPath="/static/services/honeybadger.png",
             docsUrl="https://posthog.com/docs/cdp/sources/honeybadger",
             fields=cast(
@@ -99,6 +99,29 @@ Note that Honeybadger's API is limited to 360 requests per hour, so large backfi
                     "One row per error occurrence. Fetched per fault, so syncing large accounts is slow "
                     "against Honeybadger's 360 requests/hour limit — prefer incremental sync"
                 )
+            if endpoint == "affected_users":
+                return (
+                    "Users affected by each error, with an occurrence count per user. Fetched per fault, so "
+                    "syncing large accounts is slow against Honeybadger's 360 requests/hour limit — prefer "
+                    "incremental sync"
+                )
+            if endpoint == "occurrences":
+                return (
+                    "Daily error occurrence counts per project. Honeybadger only serves the most recent month, "
+                    "so each sync replaces it; use the notices table for older history"
+                )
+            if endpoint == "uptime_checks":
+                return (
+                    "One row per uptime check result, per site and location. Frequent checks produce many rows, "
+                    "so syncing is slow against Honeybadger's 360 requests/hour limit. Prefer incremental sync"
+                )
+            if endpoint == "comments":
+                return (
+                    "Comments on each error. Fetched per fault with no time filter, so every sync is slow "
+                    "against Honeybadger's 360 requests/hour limit"
+                )
+            if endpoint == "alarm_history":
+                return "State changes of each Honeybadger Insights alarm"
             return None
 
         schemas = [

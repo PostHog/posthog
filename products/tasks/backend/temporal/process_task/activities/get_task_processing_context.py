@@ -10,7 +10,9 @@ from django.core.exceptions import ObjectDoesNotExist
 import posthoganalytics
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.models.integration.codex import CodexUserIntegration
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.context_layer.backend.facade import api as context_layer_facade
@@ -20,6 +22,8 @@ from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+    CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+    CODEX_SUBSCRIPTION_EGRESS_DOMAINS,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
@@ -34,6 +38,7 @@ from products.tasks.backend.constants import (
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     SANDBOX_ROTATION_FEATURE_FLAG,
     STORE_SKILLS_STATE_KEY,
+    SUBSCRIPTION_PLAN_NAMES,
     get_vm_sandbox_flag_payload,
     is_same_run_resume_state,
     vm_sandbox_allowed_origin_products,
@@ -50,6 +55,8 @@ from products.tasks.backend.exceptions import (
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
+from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
+from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
 from products.tasks.backend.logic.services.agentsh import (
     _get_debug_only_domains,
     _get_debug_only_ports,
@@ -81,10 +88,12 @@ from products.tasks.backend.temporal.process_task.utils import (
 )
 
 
-@dataclass
+@frozen
 class GetTaskProcessingContextInput:
     run_id: str
     create_pr: bool = True
+    resumed_sandbox_id: str | None = None
+    resumed_sandbox_backend: str | None = None
 
 
 @dataclass(frozen=False)
@@ -169,6 +178,18 @@ class TaskProcessingContext:
     use_hogland_hotplug_golden: bool = False
     dev_stack_preview_enabled: bool = False
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
+    codex_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
+
+    @property
+    def model_access(self) -> ModelAccess:
+        return resolve_model_access(
+            {
+                **(self.state or {}),
+                "runtime_adapter": self.runtime_adapter,
+                "claude_model_access": self.claude_model_access,
+                "codex_model_access": self.codex_model_access,
+            }
+        )
 
     @property
     def mode(self) -> str:
@@ -205,7 +226,7 @@ class TaskProcessingContext:
         Independent of ``repositories``: a run that pins repos still clones them, with a token
         that carries ``contents: read`` and nothing else.
         """
-        return (self.state or {}).get("github_read_access") is True
+        return not (self.state or {}).get("scout_trial_judge") and (self.state or {}).get("github_read_access") is True
 
     @property
     def sandbox_environment_id(self) -> str | None:
@@ -476,28 +497,53 @@ def _is_rtk_enabled(
     return True
 
 
-def _resolve_claude_model_access(
+@frozen
+class _SubscriptionAdapter:
+    flag: str
+    runtime_name: str
+    settings_name: str
+
+
+_SUBSCRIPTION_ADAPTERS: dict[str, _SubscriptionAdapter] = {
+    "claude": _SubscriptionAdapter(
+        flag=CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+        runtime_name="Claude",
+        settings_name="Claude subscription settings",
+    ),
+    "codex": _SubscriptionAdapter(
+        flag=CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+        runtime_name="Codex",
+        settings_name="ChatGPT subscription settings",
+    ),
+}
+
+
+def _ensure_subscription_allowed(
     *,
+    adapter: str,
     task_runtime: str,
     distinct_id: str | None,
     organization_id: str,
     run_id: str,
-    state: dict | None = None,
-) -> Literal["posthog-gateway", "own-subscription"]:
-    if (state or {}).get("claude_model_access") != "own-subscription":
-        return "posthog-gateway"
-    if task_runtime != Task.Runtime.ACP or (state or {}).get("runtime_adapter") not in (None, "claude"):
+) -> None:
+    """Refuse a run on the owner's plan that the task runtime or the rollout does not allow.
+
+    `resolve_model_access` has already paired the plan with the run's runtime adapter.
+    """
+    spec = _SUBSCRIPTION_ADAPTERS[adapter]
+    plan_name = SUBSCRIPTION_PLAN_NAMES[adapter]
+    if task_runtime != Task.Runtime.ACP:
         raise ProcessTaskFatalError(
-            "Your Claude plan requires the Claude runtime. Select Claude and try again.",
+            f"Your {plan_name} requires the {spec.runtime_name} runtime. Select {spec.runtime_name} and try again.",
             {"run_id": run_id},
-            cause=ValueError("Subscription requested for a non-Claude runtime"),
+            cause=ValueError(f"Subscription requested for a non-{spec.runtime_name} runtime"),
             capture=False,
         )
     try:
         enabled = bool(
             distinct_id
             and posthoganalytics.feature_enabled(
-                CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+                spec.flag,
                 distinct_id=distinct_id,
                 groups={"organization": organization_id},
                 group_properties={"organization": {"id": organization_id}},
@@ -506,17 +552,34 @@ def _resolve_claude_model_access(
             )
         )
     except Exception as e:
-        log_with_activity_context("claude_own_subscription_flag_check_failed", run_id=run_id, error=str(e))
+        log_with_activity_context(f"{adapter}_own_subscription_flag_check_failed", run_id=run_id, error=str(e))
         enabled = False
     if not enabled:
         raise ProcessTaskFatalError(
-            "Using your Claude plan for cloud tasks is unavailable. Try again later, "
-            'or open Claude subscription settings and turn off "Cloud tasks" to use PostHog credits.',
+            f"Using your {plan_name} for cloud tasks is unavailable. Try again later, "
+            f'or open {spec.settings_name} and turn off "Cloud tasks" to use PostHog credits.',
             {"run_id": run_id},
-            cause=ValueError("Claude subscription rollout unavailable"),
+            cause=ValueError(f"{plan_name} rollout unavailable"),
             capture=False,
         )
-    return "own-subscription"
+
+
+def _plan_owner_distinct_id(team: Team, owner_id: int | None) -> str | None:
+    """The rollout flag applies to whoever owns the plan the run bills to, not to whoever started it."""
+    if owner_id is None:
+        return None
+    return team.all_users_with_access().filter(id=owner_id).values_list("distinct_id", flat=True).first()
+
+
+def _ensure_codex_account_connected(owner_id: int | None, run_id: str) -> None:
+    integration = CodexUserIntegration.for_user(owner_id) if owner_id is not None else None
+    if integration is None or not integration.is_connected():
+        raise ProcessTaskFatalError(
+            "Your ChatGPT account is not connected. Open ChatGPT subscription settings, connect it, and try again.",
+            {"run_id": run_id},
+            cause=ValueError("Codex subscription requested without a connected ChatGPT account"),
+            capture=False,
+        )
 
 
 def _is_benjamin_enabled(
@@ -1181,6 +1244,42 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     assert task.created_by is not None
 
     state = task_run.state or {}
+    trial_origin = task.is_scout_experiment
+    trial_marker = state.get("scout_trial")
+    judge_marker = state.get("scout_trial_judge")
+    if task.is_scout_trial_judge or judge_marker is not None:
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 -- private judges validate frozen evaluation membership
+            is_scout_trial_judge_context,
+        )
+
+        if (
+            not task.is_scout_trial_judge
+            or not isinstance(judge_marker, dict)
+            or task.origin_key
+            != f"scout-trial-judge:{judge_marker.get('evaluation_id')}:{judge_marker.get('launch_id')}"
+            or not is_scout_trial_judge_context(team_id=team.id, user_id=task.created_by.pk, marker=judge_marker)
+        ):
+            raise TaskInvalidStateError(
+                "The scout trial judge has inconsistent private context",
+                {"task_id": str(task.id), "run_id": run_id},
+                cause=RuntimeError("The task identity and saved evaluation do not match"),
+            )
+    elif trial_origin or trial_marker is not None:
+        from products.signals.backend.facade.api import (
+            is_scout_trial_task,  # noqa: PLC0415 -- avoids loading the scout worker graph for ordinary tasks
+        )
+
+        if (
+            not trial_origin
+            or not isinstance(trial_marker, dict)
+            or trial_marker.get("version") != 1
+            or not is_scout_trial_task(team_id=team.id, task_id=task.id)
+        ):
+            raise TaskInvalidStateError(
+                "The scout run has inconsistent private context",
+                {"task_id": str(task.id), "run_id": run_id},
+                cause=RuntimeError("The task identity and private scout context do not match"),
+            )
     actor_user = get_task_run_credential_user(task, state)
     if is_slack_interaction_state(state) and actor_user is None:
         raise TaskInvalidStateError(
@@ -1295,34 +1394,49 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # sandbox needs no extra request on its boot path, and best-effort: a store failure must not
     # stop the run, it only leaves the sandbox without store skills for this session.
     try:
-        store_skills = resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
+        store_skills = (
+            None
+            if task.is_scout_trial_judge
+            else resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
+        )
     except Exception as e:
         log_with_activity_context("store_skills_resolve_failed", run_id=run_id, error=str(e))
         store_skills = None
     if store_skills is not None:
         state_updates[STORE_SKILLS_STATE_KEY] = store_skills
+    # The sandbox writes these as the agent's user-level AGENTS.md / CLAUDE.md at session start.
+    # Best-effort for the same reason as store skills.
+    state_remove_keys: list[str] = []
     try:
-        TaskRun.update_state_atomic(task_run.id, updates=state_updates)
+        if not task.is_scout_trial_judge:
+            instruction_updates, state_remove_keys = agent_instructions_state_update(task, actor_user)
+            state_updates.update(instruction_updates)
+    except Exception as e:
+        log_with_activity_context("agent_instructions_resolve_failed", run_id=run_id, error=str(e))
+    try:
+        TaskRun.update_state_atomic(task_run.id, updates=state_updates, remove_keys=state_remove_keys)
     except Exception as e:
         log_with_activity_context("run_state_stamp_failed", run_id=run_id, error=str(e))
-    claude_distinct_id: str | None = distinct_id
-    if state.get("claude_model_access") == "own-subscription":
-        subscription_owner_id = state.get("claude_subscription_user_id")
-        claude_distinct_id = (
-            team.all_users_with_access().filter(id=subscription_owner_id).values_list("distinct_id", flat=True).first()
-            if isinstance(subscription_owner_id, int) and not isinstance(subscription_owner_id, bool)
-            else None
+
+    try:
+        model_access = resolve_model_access(state)
+    except ValueError as error:
+        raise ProcessTaskFatalError(str(error), {"run_id": run_id}, cause=error, capture=False) from error
+    if model_access.adapter is not None:
+        _ensure_subscription_allowed(
+            adapter=model_access.adapter,
+            task_runtime=task.runtime,
+            distinct_id=_plan_owner_distinct_id(team, model_access.owner_id),
+            organization_id=organization_id,
+            run_id=run_id,
         )
-    claude_model_access = _resolve_claude_model_access(
-        task_runtime=task.runtime,
-        distinct_id=claude_distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-    )
+    if model_access.adapter == "codex":
+        _ensure_codex_account_connected(model_access.owner_id, run_id)
+    claude_model_access = model_access.access_for("claude")
+    codex_model_access = model_access.access_for("codex")
     pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
     sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
-    if claude_model_access == "own-subscription" or (
+    if model_access.kind == "own-subscription" or (
         pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool)
     ):
         sandbox_event_ingest_enabled = True
@@ -1338,13 +1452,13 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"sandbox_event_ingest_enabled: {sandbox_event_ingest_enabled} for this task run",
     )
-    agent_otel_telemetry_enabled = _is_agent_otel_telemetry_enabled(
+    agent_otel_telemetry_enabled = not trial_origin and _is_agent_otel_telemetry_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
         state=state,
     )
-    context_layer_enabled = context_layer_facade.is_context_layer_enabled(
+    context_layer_enabled = not trial_origin and context_layer_facade.is_context_layer_enabled(
         organization_id=organization_id, distinct_id=distinct_id
     )
     use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
@@ -1358,6 +1472,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"use_modal_network_allowlist: {use_modal_network_allowlist} for this task run",
     )
+
+    if codex_model_access == "own-subscription" and allowed_domains is not None:
+        allowed_domains = [
+            *allowed_domains,
+            *(domain for domain in CODEX_SUBSCRIPTION_EGRESS_DOMAINS if domain not in allowed_domains),
+        ]
 
     effective_network_policy: EffectiveNetworkPolicy | None = None
     if allowed_domains is not None:
@@ -1496,11 +1616,23 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"pr_babysit_enabled: {pr_babysit_enabled} for this task run",
     )
+    sandbox_backend_state = state
+    resumed_backend = input.resumed_sandbox_backend
+    if (
+        resumed_backend not in ("modal", "hogland")
+        and input.resumed_sandbox_id is not None
+        and input.resumed_sandbox_id == state.get("sandbox_id")
+    ):
+        persisted_backend = state.get("sandbox_backend")
+        resumed_backend = persisted_backend if persisted_backend in ("modal", "hogland") else "modal"
+    if resumed_backend in ("modal", "hogland"):
+        sandbox_backend_state = {**state, "sandbox_backend": resumed_backend}
+
     sandbox_backend = _resolve_sandbox_backend(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
-        state=state,
+        state=sandbox_backend_state,
         task_runtime=task.runtime,
         # Only a real user/environment image is a hogland incapability. The org default
         # image (default_custom_image, applied when the user picked none) is not — hogland
@@ -1562,9 +1694,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     )
     pr_authorship_mode = get_pr_authorship_mode(task, state)
     user_github_integration_id = None
-    if not (is_slack_interaction_state(state) and pr_authorship_mode.value == "user"):
+    if not task.is_scout_trial_judge and not (is_slack_interaction_state(state) and pr_authorship_mode.value == "user"):
         user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
-    if user_github_integration_id is None and pr_authorship_mode.value == "user":
+    if not task.is_scout_trial_judge and user_github_integration_id is None and pr_authorship_mode.value == "user":
         user_github_integration = resolve_user_github_integration_for_task(
             task,
             actor_user=actor_user,
@@ -1579,7 +1711,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         team_id=task.team_id,
         team_uuid=str(task.team.uuid),
         organization_id=str(task.team.organization_id),
-        github_integration_id=task.github_integration_id,
+        github_integration_id=None if task.is_scout_trial_judge else task.github_integration_id,
         github_user_integration_id=user_github_integration_id,
         repository=run_repository,
         distinct_id=distinct_id,
@@ -1591,7 +1723,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         pr_loop_enabled=pr_loop_enabled,
         pr_babysit_enabled=pr_babysit_enabled,
         context_layer_enabled=context_layer_enabled,
-        state=state,
+        state={key: value for key, value in state.items() if key != "scout_trial_private"},
         _branch=task_run.branch,
         sandbox_environment_name=sandbox_environment_name,
         allowed_domains=allowed_domains,
@@ -1627,6 +1759,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         rtk_enabled=rtk_enabled,
         benjamin_enabled=benjamin_enabled,
         claude_model_access=claude_model_access,
+        codex_model_access=codex_model_access,
         continue_as_new_enabled=_is_continue_as_new_enabled(
             distinct_id=distinct_id,
             organization_id=organization_id,

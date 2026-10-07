@@ -9,6 +9,9 @@ import requests
 from parameterized import parameterized
 from requests import Request, Response
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point import (
+    source_items_are_framework_output,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import (
     ANALYTICS_ACCESS_MISSING,
     ANTHROPIC_VERSION,
@@ -535,6 +538,25 @@ class TestWorkspaceMembersFanOut:
 
         assert [(r["workspace_id"], r["user_id"]) for r in rows] == [("wrkspc_2", "u2")]
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_workspace_with_no_member_list_of_its_own_is_skipped(self, MockSession) -> None:
+        # The organization's Default Workspace "has no member list of its own" (Anthropic's own
+        # words), and answers 400 rather than 404 for this sub-resource. Skip only that workspace
+        # instead of failing the whole schema, same as the 404 case above.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _entity_page([{"id": "wrkspc_1"}, {"id": "wrkspc_2"}], has_more=False, last_id="wrkspc_2"),
+                _response({"error": "bad_request"}, status=400),
+                _entity_page([{"user_id": "u2", "workspace_id": "wrkspc_2"}], has_more=False, last_id="u2"),
+            ],
+        )
+
+        rows = _rows(_source("workspace_members", _make_manager()))
+
+        assert [(r["workspace_id"], r["user_id"]) for r in rows] == [("wrkspc_2", "u2")]
+
     def test_saved_state_shapes_still_parse(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — every historical shape must
         # keep parsing after the migration.
@@ -636,10 +658,14 @@ class TestUsageReportGroupByFallback:
             ],
         )
 
-        rows = _rows(_source("usage_report", _make_manager()))
+        source_response = _source("usage_report", _make_manager())
+        rows = _rows(source_response)
 
         assert [r["workspace_id"] for r in rows] == ["wrkspc_1"]
         assert [p["params"]["group_by[]"] for p in params] == USAGE_GROUP_BY_FALLBACKS[:2]
+        # The pipeline gives the framework's safe points only to a `Resource`. Without them a run
+        # that waits on a rate limit cannot hand off.
+        assert source_items_are_framework_output(source_response.items())
 
     @parameterized.expand(
         [

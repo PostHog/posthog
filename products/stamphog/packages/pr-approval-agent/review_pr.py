@@ -32,9 +32,11 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
 from gates import (
+    DENY_EXEMPT_AUTHOR_TEAMS,
     MAX_FILES,
     MAX_LINES,
     POLICY,
@@ -70,8 +72,10 @@ from github import (
 from manifest_risk import manifest_script_changes
 from migration_risk import migration_check_pending, safe_migration_files
 from policy import EffectivePolicy, ScopeBudget, _sanitize_untrusted, repo_root, resolve
-from reviewer import Reviewer
 from version import STAMPHOG_VERSION
+
+if TYPE_CHECKING:
+    from reviewer import Reviewer
 
 try:
     import posthoganalytics
@@ -177,6 +181,14 @@ class GateResult:
     details: dict = field(default_factory=dict)
 
 
+def _describe_deny_category(category: str) -> str:
+    """Name a denied category, and for an owner-only one, the teams that stamphog approves there."""
+    teams = DENY_EXEMPT_AUTHOR_TEAMS.get(category)
+    if not teams:
+        return category
+    return f"{category} (stamphog approves these paths only for authors on {', '.join(teams)})"
+
+
 # ── Pipeline ─────────────────────────────────────────────────────
 
 
@@ -193,6 +205,7 @@ class Pipeline:
         self_driving: bool = False,
         review_trigger: str = "",
         head_checkout: bool = False,
+        checkout: bool = True,
     ) -> None:
         self.pr_number = pr_number
         self.repo = repo
@@ -210,10 +223,21 @@ class Pipeline:
         # the head for every review). The Action reviews from a trunk checkout, so a stacked PR
         # needs a separate head worktree there — see _pr_head_worktree.
         self.head_checkout = head_checkout
+        # False only for the hosted server's gate-only pre-check, which runs on the PR context with no
+        # git tree. The manifest scripts scan reads file text from git, so it is skipped there. That
+        # can only miss a deny, never add one, and the sandbox review runs the scan again.
+        self.checkout = checkout
+        # Every GitHub team the author is on, set by the hosted runtime because the sandbox holds no
+        # token. None means a local run, which asks GitHub per team instead.
+        self.author_team_slugs: set[str] | None = None
         self._wait_refetched_pr = False
         self.pr: PRData | None = None
         self.provenance: CommitProvenance | None = None
         self.familiarity: AuthorFamiliarity | None = None
+        # Where the familiarity signal came from: "git" (local history), "server" (GitHub facts the
+        # hosted server injected), or "absent". Telemetry only, so a band shift can be traced to
+        # its source.
+        self.familiarity_source = "absent"
         self.classification: dict = {}
         self.effective_policy: EffectivePolicy | None = None
         self._diff_path: Path | None = None
@@ -395,16 +419,23 @@ class Pipeline:
         breadth = scope_breadth(top_dirs)
         cc = parse_conventional_commit(pr.title)
         safe_migrations = safe_migration_files(pr.check_runs, file_paths)
-        deny = detect_deny_categories(file_paths, ignored_files=safe_migrations)
+        deny = detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations)
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
         # scripts/lifecycle/build keys hard-denies rather than resting solely
         # on the reviewer prompt's REFUSE instruction.
         risky_manifests = (
-            manifest_script_changes(dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT) if dep_manifests else []
+            manifest_script_changes(dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT, pr.merge_base_sha)
+            if dep_manifests and self.checkout
+            else []
         )
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
+        deny = [
+            category
+            for category in deny
+            if not any(self._author_on_team(team) for team in DENY_EXEMPT_AUTHOR_TEAMS.get(category, ()))
+        ]
         title_flags = [
             c
             for c in detect_title_scrutiny_flags(pr.title)
@@ -473,6 +504,11 @@ class Pipeline:
             "review_trigger": self.review_trigger,
         }
 
+    def _author_on_team(self, team_slug: str) -> bool:
+        if self.author_team_slugs is not None:
+            return team_slug in self.author_team_slugs
+        return check_team_membership(self.repo.split("/")[0], self.pr.author, team_slug)
+
     def _summarize_assurance(self) -> dict:
         """Deterministic pre-digest of review state for the TRUSTED prompt block.
 
@@ -526,6 +562,8 @@ class Pipeline:
         trended per subsystem, not just where the reviewer consumes it.
         """
         self.familiarity = self._compute_familiarity()
+        if self.familiarity is not None:
+            self.familiarity_source = "git"
         if self.classification.get("tier") == "T1-agent":
             self.classification["familiarity"] = self.familiarity
 
@@ -552,7 +590,7 @@ class Pipeline:
         cleanup so the file never lingers in the repo working tree.
         """
         if self._diff_path is None:
-            self._diff_path = write_pr_diff(self.pr.base_sha, self.pr.head_sha, REPO_ROOT)
+            self._diff_path = write_pr_diff(self.pr.base_sha, self.pr.head_sha, REPO_ROOT, self.pr.merge_base_sha)
         return self._diff_path
 
     def _run_gates(self) -> None:
@@ -601,12 +639,13 @@ class Pipeline:
 
     def _check_deny_list(self) -> tuple[bool, str]:
         deny = self.classification["deny_categories"]
+        matches = ", ".join(_describe_deny_category(c) for c in deny)
         risky = self.classification.get("manifest_script_changes", [])
         if risky:
             risky_names = ", ".join(manifest_basenames(risky))
-            return False, f"matches: {', '.join(deny)} (scripts/hooks changed in {risky_names})"
+            return False, f"matches: {matches} (scripts/hooks changed in {risky_names})"
         if deny:
-            return False, f"matches: {', '.join(deny)}"
+            return False, f"matches: {matches}"
         return True, "no deny categories matched"
 
     def _summarize_ownership(self) -> str:
@@ -621,8 +660,7 @@ class Pipeline:
         author = self.pr.author
         author_teams = []
         for team_raw in teams:
-            team_slug = team_raw.split("/")[-1]
-            if check_team_membership(author, team_slug):
+            if self._author_on_team(team_raw.split("/")[-1]):
                 author_teams.append(team_raw)
 
         parts = []
@@ -637,7 +675,7 @@ class Pipeline:
             parts.append(f"author {author} is on {', '.join(author_teams)}")
         elif teams:
             parts.append(f"author {author} is not on any owning team")
-        if ownership["cross_team"]:
+        if ownership.get("cross_team"):
             parts.append("cross-team change")
 
         self.classification["ownership_summary"] = "; ".join(parts)
@@ -807,7 +845,7 @@ class Pipeline:
             except (OSError, subprocess.TimeoutExpired) as exc:
                 print(_warn(f"Worktree cleanup failed (ignored): {exc}"))
 
-    def _run_reviewer_with_retries(self, reviewer: Reviewer, gate_context: dict, diff_path: Path) -> bool:
+    def _run_reviewer_with_retries(self, reviewer: "Reviewer", gate_context: dict, diff_path: Path) -> bool:
         """Call the reviewer with backoff; set self.reviewer_output.
 
         Returns True when the reviewer never produced a verdict (an ERROR
@@ -884,6 +922,9 @@ class Pipeline:
         }
 
         print(_dim("  Calling reviewer..."))
+        # Deferred so the gate-only pre-check can import this module where claude_agent_sdk is absent.
+        from reviewer import Reviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
+
         try:
             with self._pr_head_worktree() as explore_root:
                 reviewer = Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
@@ -971,6 +1012,7 @@ class Pipeline:
                 "stamphog_familiarity_blame_overlap_pct": round(fam.blame_overlap_pct, 1) if fam else None,
                 "stamphog_familiarity_prior_prs_in_paths": fam.prior_prs_in_paths if fam else None,
                 "stamphog_familiarity_days_since_last_touch": fam.days_since_last_touch if fam else None,
+                "stamphog_familiarity_source": self.familiarity_source,
                 "stamphog_agent_authored": prov.agent_authored if prov else None,
                 "stamphog_agent_commit_count": prov.agent_commit_count if prov else None,
                 "stamphog_commit_count": prov.commit_count if prov else None,

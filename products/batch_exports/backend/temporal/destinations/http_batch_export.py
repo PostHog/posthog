@@ -220,16 +220,15 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
         # Only the native source projects the mutation columns; a legacy table carries the same keys
         # in its `properties`.
-        fields = http_default_fields(
-            reads_native_events_source(
-                use_new_events_schema=use_native_schema,
-                team_id=inputs.team_id,
-                interval_start=interval_start,
-                interval_end=inputs.data_interval_end,
-                is_backfill=is_backfill,
-                backfill_details=inputs.backfill_details,
-            )
+        native_source = reads_native_events_source(
+            use_new_events_schema=use_native_schema,
+            team_id=inputs.team_id,
+            interval_start=interval_start,
+            interval_end=inputs.data_interval_end,
+            is_backfill=is_backfill,
+            backfill_details=inputs.backfill_details,
         )
+        fields = http_default_fields(native_source)
         columns = [field["alias"] for field in fields]
 
         filters = inputs.batch_export_model.filters if inputs.batch_export_model is not None else None

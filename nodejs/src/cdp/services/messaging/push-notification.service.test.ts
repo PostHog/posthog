@@ -4,6 +4,7 @@ import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '~/cdp/_
 import { createExampleInvocation, createHogFunction } from '~/cdp/_tests/fixtures'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { EncryptedFields } from '~/cdp/utils/encryption-utils'
+import { deviceSubscriptionKey } from '~/cdp/utils/push-subscription-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
@@ -908,6 +909,185 @@ describe('PushNotificationService', () => {
                     properties: { $unset: ['$device_push_subscription_com.example.app'] },
                 })
             )
+        })
+    })
+
+    describe('multiple devices on one app', () => {
+        const twoDevices = () =>
+            createSendPushNotificationInvocation({
+                [deviceSubscriptionKey('test-project', 'token-phone')]: encryptedFields.encrypt('token-phone'),
+                [deviceSubscriptionKey('test-project', 'token-tablet')]: encryptedFields.encrypt('token-tablet'),
+            })
+
+        const ok = () => ({
+            fetchError: null,
+            fetchResponse: { status: 200, text: () => Promise.resolve('{}'), dump: () => Promise.resolve() },
+            fetchDuration: 10,
+        })
+
+        const unregistered = () => ({
+            fetchError: null,
+            fetchResponse: {
+                status: 404,
+                text: () =>
+                    Promise.resolve(
+                        JSON.stringify({ error: { status: 'NOT_FOUND', details: [{ errorCode: 'UNREGISTERED' }] } })
+                    ),
+                dump: () => Promise.resolve(),
+            },
+            fetchDuration: 10,
+        })
+
+        const serverError = () => ({
+            fetchError: null,
+            fetchResponse: { status: 500, text: () => Promise.resolve('{}'), dump: () => Promise.resolve() },
+            fetchDuration: 10,
+        })
+
+        it('sends to every device, not just one', async () => {
+            // The bug: a second device on the same app was unreachable because it overwrote the first.
+            mockTrackedFetch.mockResolvedValue(ok())
+
+            const result = await service.executeSendPushNotification(twoDevices())
+
+            expect(result.error).toBeUndefined()
+            const sentTokens = mockTrackedFetch.mock.calls.map(
+                (call: any) => parseJSON(call[0].fetchParams.body).message.token
+            )
+            expect(sentTokens.sort()).toEqual(['token-phone', 'token-tablet'])
+        })
+
+        it('prunes only the dead device and still delivers to the other', async () => {
+            mockTrackedFetch.mockResolvedValueOnce(unregistered()).mockResolvedValueOnce(ok())
+
+            const result = await service.executeSendPushNotification(twoDevices())
+
+            expect(result.error).toBeUndefined()
+            const unsets = result.capturedPostHogEvents.flatMap((e: any) => e.properties.$unset ?? [])
+            expect(unsets).toHaveLength(1)
+            expect(unsets[0]).toMatch(/^\$device_push_subscription_test-project:/)
+        })
+
+        it('does not contact a pruned device again when the step is retried', async () => {
+            // The dead key has to leave the invocation's own snapshot as well as the person. The retry
+            // reads that snapshot back, so a key left behind means another send to the dead token and a
+            // second $unset for it.
+            mockTrackedFetch.mockImplementation((opts: any) =>
+                Promise.resolve(
+                    parseJSON(opts.fetchParams.body).message.token === 'token-phone' ? unregistered() : serverError()
+                )
+            )
+
+            const first = await service.executeSendPushNotification(twoDevices())
+            expect(first.finished).toBe(false)
+
+            mockTrackedFetch.mockClear()
+            mockTrackedFetch.mockImplementation(() => Promise.resolve(ok()))
+
+            const retry = await service.executeSendPushNotification(first.invocation)
+
+            const retriedTokens = mockTrackedFetch.mock.calls.map(
+                (call: any) => parseJSON(call[0].fetchParams.body).message.token
+            )
+            expect(retriedTokens).toEqual(['token-tablet'])
+            expect(retry.capturedPostHogEvents).toEqual([])
+        })
+
+        it('does not retry the step when one device failed but another was delivered to', async () => {
+            // Retrying would push a second time to the device that already received it. Losing the
+            // failed device's notification is the better of the two outcomes.
+            mockTrackedFetch.mockResolvedValueOnce(ok()).mockResolvedValueOnce(serverError())
+
+            const result = await service.executeSendPushNotification(twoDevices())
+
+            // Finished, not rescheduled: a reschedule is what would resend to the delivered device.
+            expect(result.error).toBeUndefined()
+            expect(result.finished).toBe(true)
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
+        })
+
+        it('reschedules the step when no device was delivered to', async () => {
+            // Nothing arrived anywhere, so a retry cannot duplicate a delivery.
+            mockTrackedFetch.mockResolvedValue(serverError())
+
+            const result = await service.executeSendPushNotification(twoDevices())
+
+            expect(result.finished).toBe(false)
+            expect(result.invocation.queueScheduledAt).toBeDefined()
+        })
+
+        const badPayload = () => ({
+            fetchError: null,
+            fetchResponse: { status: 400, text: () => Promise.resolve('{}'), dump: () => Promise.resolve() },
+            fetchDuration: 10,
+        })
+
+        it.each([
+            [
+                'transient first',
+                () => mockTrackedFetch.mockResolvedValueOnce(serverError()).mockResolvedValueOnce(badPayload()),
+            ],
+            [
+                'terminal first',
+                () => mockTrackedFetch.mockResolvedValueOnce(badPayload()).mockResolvedValueOnce(serverError()),
+            ],
+        ])('reschedules when one device failed transiently and another terminally, %s', async (_name, arrange) => {
+            // Whether the step is worth re-running depends on any device being retriable, not on which
+            // device happened to fail last. Keeping only the last error made this order-dependent, so
+            // a terminal failure arriving second dropped the retry the transient one had earned.
+            arrange()
+
+            const result = await service.executeSendPushNotification(twoDevices())
+
+            expect(result.finished).toBe(false)
+            expect(result.invocation.queueScheduledAt).toBeDefined()
+        })
+
+        const throttled = () => ({
+            fetchError: null,
+            fetchResponse: {
+                status: 429,
+                headers: { 'retry-after': '30' },
+                text: () => Promise.resolve('{}'),
+                dump: () => Promise.resolve(),
+            },
+            fetchDuration: 10,
+        })
+
+        it.each([
+            [
+                'throttled device second',
+                () => mockTrackedFetch.mockResolvedValueOnce(serverError()).mockResolvedValueOnce(throttled()),
+            ],
+            [
+                'throttled device first',
+                () => mockTrackedFetch.mockResolvedValueOnce(throttled()).mockResolvedValueOnce(serverError()),
+            ],
+        ])('reschedules using the longest Retry-After across devices, %s', async (_name, arrange) => {
+            // Only one error per channel reaches the reschedule, so the loop has to hand up the device
+            // asking for the longest wait. Handing up the 500 instead drops the 30s window to a sub-2s
+            // backoff, and the retries then burn inside the window the provider asked us to sit out.
+            arrange()
+
+            const result = await service.executeSendPushNotification(twoDevices())
+
+            expect(result.finished).toBe(false)
+            const delayMs = result.invocation.queueScheduledAt!.toMillis() - Date.now()
+            expect(delayMs).toBeGreaterThan(20_000)
+            expect(delayMs).toBeLessThanOrEqual(30_000)
+        })
+
+        it('explains a device that failed while another device was delivered to', async () => {
+            // The channel reports success, so this device never reaches the outer catch that logs a
+            // channel failure. Without a line of its own it is permanently broken and invisible, since
+            // the only other record is the debug-level provider response.
+            mockTrackedFetch.mockResolvedValueOnce(ok()).mockResolvedValueOnce(badPayload())
+
+            const result = await service.executeSendPushNotification(twoDevices())
+
+            expect(result.finished).toBe(true)
+            const visibleLogs = result.logs.filter((log) => log.level !== 'debug').map((log) => log.message)
+            expect(visibleLogs).toContainEqual(expect.stringContaining('rejected the notification contents'))
         })
     })
 

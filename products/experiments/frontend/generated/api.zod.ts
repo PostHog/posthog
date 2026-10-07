@@ -1084,24 +1084,18 @@ export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
         trigger: zod
             .enum([
                 'manual',
-                'agent_mcp',
+                'manual_retry',
                 'cold_run',
-                'stale_refresh',
-                'auto_refresh',
+                'heal_latest_run',
                 'experiment_config_change',
                 'metric_config_change',
-                'config_change',
-                'experiment_launch',
-                'experiment_stop',
-                'experiment_update',
-                'timeseries_sync',
             ])
             .describe(
-                '\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update\n\* `timeseries_sync` - Timeseries Sync'
+                '\* `manual` - Manual\n\* `manual_retry` - Manual Retry\n\* `cold_run` - Cold Run\n\* `heal_latest_run` - Heal Latest Run\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change'
             )
             .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
             .describe(
-                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update\n\* `timeseries_sync` - Timeseries Sync'
+                'What triggered this recalculation (manual is the default for user-initiated runs). Only client triggers are accepted; agent_mcp, timeseries_sync and scheduled are set by the server.\n\n\* `manual` - Manual\n\* `manual_retry` - Manual Retry\n\* `cold_run` - Cold Run\n\* `heal_latest_run` - Heal Latest Run\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change'
             ),
     })
     .describe('Request body for triggering a metrics recalculation.')
@@ -1398,6 +1392,8 @@ export const experimentsCreateFromPromptCreateBodyVersionsMax = 10
 
 export const experimentsCreateFromPromptCreateBodyTemplatesMax = 3
 
+export const experimentsCreateFromPromptCreateBodyDescriptionMax = 3000
+
 export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object({
     prompt_name: zod
         .string()
@@ -1428,7 +1424,11 @@ export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object(
         .string()
         .optional()
         .describe('Optional feature flag key. If omitted, a slug is derived from the experiment name.'),
-    description: zod.string().optional().describe('Optional experiment description.'),
+    description: zod
+        .string()
+        .max(experimentsCreateFromPromptCreateBodyDescriptionMax)
+        .optional()
+        .describe('Optional experiment description.'),
 })
 
 /**

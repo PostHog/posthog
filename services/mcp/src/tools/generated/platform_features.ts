@@ -627,6 +627,7 @@ const OrganizationEnforce2faSchema = () => {
             members_can_see_org_members: true,
             allow_publicly_shared_resources: true,
             read_only_mcp_access: true,
+            member_notice: true,
             is_ai_data_processing_approved: true,
             is_ai_training_opted_in: true,
             default_anonymize_ips: true,
@@ -637,7 +638,7 @@ const OrganizationEnforce2faSchema = () => {
             .describe('Organization ID. If omitted, targets the active organization.')
             .optional(),
         enforce_2fa: PartialUpdateBody.shape['enforce_2fa']
-            .unwrap()
+            .nonoptional()
             .describe(
                 'Set to true to require every organization member to have 2FA enabled; false to lift the requirement. Applies org-wide and takes effect immediately.'
             ),
@@ -786,7 +787,9 @@ const organizationsList = (): ToolBase<
 
 const RoleGetSchema = () => {
     const RolesRetrieveParams = orvalSchemas.RolesRetrieveParams()
-    return RolesRetrieveParams.omit({ organization_id: true })
+    return RolesRetrieveParams.omit({ organization_id: true }).extend({
+        id: RolesRetrieveParams.shape['id'].describe('Required. The role id from roles-list.'),
+    })
 }
 
 const roleGet = (): ToolBase<ReturnType<typeof RoleGetSchema>, Schemas.Role> => ({
@@ -805,9 +808,11 @@ const roleGet = (): ToolBase<ReturnType<typeof RoleGetSchema>, Schemas.Role> => 
 const RoleMembersListSchema = () => {
     const RolesRoleMembershipsListParams = orvalSchemas.RolesRoleMembershipsListParams()
     const RolesRoleMembershipsListQueryParams = orvalSchemas.RolesRoleMembershipsListQueryParams()
-    return RolesRoleMembershipsListParams.omit({ organization_id: true }).extend(
-        RolesRoleMembershipsListQueryParams.shape
-    )
+    return RolesRoleMembershipsListParams.omit({ organization_id: true })
+        .extend(RolesRoleMembershipsListQueryParams.shape)
+        .extend({
+            role_id: RolesRoleMembershipsListParams.shape['role_id'].describe('Required. The role id from roles-list.'),
+        })
 }
 
 const roleMembersList = (): ToolBase<

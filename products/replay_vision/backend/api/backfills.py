@@ -25,7 +25,7 @@ from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import IN_FLIGHT_STATUSES, ObservationStatus
-from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_backfill import (
     ACTIVE_BACKFILL_STATUSES,
     BackfillStatus,
@@ -37,6 +37,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     WindowedCandidateQuery,
 )
 from products.replay_vision.backend.quota import quota_state
+from products.replay_vision.backend.scanner_access import can_read_targeted_experiment
 from products.replay_vision.backend.scout_writes import refuse_scout_scanner_scan
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 
@@ -48,6 +49,26 @@ ENUMERATION_MAX_EXECUTION_SECONDS = 30
 # Beyond a year a backfill is asking for recordings almost every team has already aged out, while the
 # enumeration pays for the whole partition range. Bounds the per-request ClickHouse cost.
 MAX_BACKFILL_WINDOW_DAYS = 365
+
+
+def _experiment_end_date(scanner: ReplayScanner) -> datetime | None:
+    """When an experiment scanner's experiment ended, or None while it runs or for other types.
+
+    Ending an experiment leaves its flag on, so exposed users keep producing sessions that would
+    still match. A backfill covers the experiment's own run, and stopping at the end is what keeps
+    it from paying for that afterlife.
+    """
+    if scanner.scanner_type != ScannerType.EXPERIMENT:
+        return None
+    experiment_id = (scanner.experiment_scope() or {}).get("experiment_id")
+    if experiment_id is None:
+        return None
+    # Deferred: the experiments replay facade pulls in the recordings query modules, which circle
+    # back into this package's importers.
+    from products.experiments.backend.facade.replay import experiment_status  # noqa: PLC0415
+
+    status = experiment_status(scanner.team, experiment_id=experiment_id)
+    return status.end_date if status is not None else None
 
 
 class BackfillEnumerationThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -63,7 +84,12 @@ class BackfillEnumerationThrottle(PersonalApiKeyOrUserRateThrottle):
 
 class BackfillWindowSerializer(serializers.Serializer):
     window_start = serializers.DateTimeField(help_text="Inclusive lower bound of the historical window to scan.")
-    window_end = serializers.DateTimeField(help_text="Exclusive upper bound of the window; clamped server-side to now.")
+    window_end = serializers.DateTimeField(
+        help_text=(
+            "Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to "
+            "the experiment's end date."
+        ),
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if attrs["window_start"] >= attrs["window_end"]:
@@ -73,6 +99,14 @@ class BackfillWindowSerializer(serializers.Serializer):
                 f"Backfill windows are limited to {MAX_BACKFILL_WINDOW_DAYS} days. Pick a shorter range."
             )
         return attrs
+
+
+class BackfillCreateSerializer(BackfillWindowSerializer):
+    max_total_credits = serializers.IntegerField(
+        min_value=0,
+        help_text="The most this backfill may cost, in credits (1 credit = $0.01): pass the `total_credits` from "
+        "the estimate the person agreed to. The create is rejected if the window now costs more.",
+    )
 
 
 class BackfillEstimateResponseSerializer(serializers.Serializer):
@@ -91,7 +125,11 @@ class BackfillEstimateResponseSerializer(serializers.Serializer):
         allow_null=True, help_text="Credits left in the org's monthly quota; null when the org is uncapped."
     )
     window_start = serializers.DateTimeField(help_text="The window lower bound the estimate covered.")
-    window_end = serializers.DateTimeField(help_text="The window upper bound after clamping to now.")
+    window_end = serializers.DateTimeField(
+        help_text=(
+            "The window upper bound after clamping to now and, for an experiment scanner, to the experiment's end date."
+        ),
+    )
 
 
 class ReplayScannerBackfillSerializer(serializers.ModelSerializer):
@@ -181,6 +219,11 @@ class ReplayScannerBackfillViewSet(
         self.check_object_permissions(self.request, scanner)
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Replay Vision backfills require session_recording read access.")
+        # Before any window handling: the window clamp reads the experiment's end date, so a denied
+        # caller who reached it could binary-search that date from which error comes back.
+        # Not-found, not 403, matching the observations endpoint.
+        if not can_read_targeted_experiment(self.user_access_control, self.team_id, scanner):
+            raise NotFound()
         self._scanner_for_url_cache = scanner
         return scanner
 
@@ -198,7 +241,8 @@ class ReplayScannerBackfillViewSet(
         )
 
     def _clamped_window(self, data: dict[str, Any]) -> tuple[datetime, datetime]:
-        """The requested window, bounded above by the settle horizon the live sweep also waits for.
+        """The requested window, bounded above by the settle horizon the live sweep also waits for,
+        and for an experiment scanner by the experiment's end (see `_experiment_end_date`).
 
         Not `now`: a session inside the settle window is still recording or still merging, so scanning it
         yields a truncated observation, and the unique (scanner, session) constraint makes that the only
@@ -213,8 +257,15 @@ class ReplayScannerBackfillViewSet(
         find, which `_enumerate` answers directly.
         """
         window_end = min(data["window_end"], timezone.now() - SETTLE_INTERVAL)
+        experiment_end = _experiment_end_date(self._scanner_for_url())
+        if experiment_end is not None:
+            window_end = min(window_end, experiment_end)
         window_start = data["window_start"]
         if window_start >= window_end:
+            if experiment_end is not None and window_start >= experiment_end:
+                raise ValidationError(
+                    "This experiment ended before the start of the range. Pick a range from while it ran."
+                )
             raise ValidationError("The end of the range must be in the past. Pick an earlier range.")
         return window_start, window_end
 
@@ -291,7 +342,7 @@ class ReplayScannerBackfillViewSet(
         )
         return Response(response.data)
 
-    @extend_schema(request=BackfillWindowSerializer, responses={201: ReplayScannerBackfillSerializer})
+    @extend_schema(request=BackfillCreateSerializer, responses={201: ReplayScannerBackfillSerializer})
     def create(self, request: Request, **kwargs: Any) -> Response:
         """Create a backfill: freeze the scanner config, enumerate the exact candidate set, start the tick schedule.
 
@@ -300,7 +351,7 @@ class ReplayScannerBackfillViewSet(
         settled sessions between estimate and confirm can nudge total_count slightly.
         """
         scanner = self._scanner_for_url()
-        window = BackfillWindowSerializer(data=request.data)
+        window = BackfillCreateSerializer(data=request.data)
         window.is_valid(raise_exception=True)
         window_start, window_end = self._clamped_window(window.validated_data)
         if ReplayScannerBackfill.objects.filter(scanner=scanner, status__in=ACTIVE_BACKFILL_STATUSES).exists():
@@ -308,6 +359,16 @@ class ReplayScannerBackfillViewSet(
 
         snapshot = BackfillScannerSnapshot.from_scanner(scanner)
         total = self._unobserved_count(scanner, window_start, window_end)
+        credits_per_observation = observation_credits_for_model(snapshot.model)
+        max_total_credits = window.validated_data["max_total_credits"]
+        cost = total * credits_per_observation
+        if cost > max_total_credits:
+            raise ValidationError(
+                {
+                    "max_total_credits": f"This backfill now costs up to {cost} credits, "
+                    f"more than the {max_total_credits} agreed. Estimate it again."
+                }
+            )
         try:
             backfill = ReplayScannerBackfill.objects.create(
                 scanner=scanner,
@@ -315,7 +376,7 @@ class ReplayScannerBackfillViewSet(
                 window_start=window_start,
                 window_end=window_end,
                 scanner_snapshot=snapshot.model_dump(mode="json"),
-                credits_per_observation=observation_credits_for_model(snapshot.model),
+                credits_per_observation=credits_per_observation,
                 total_count=total,
                 created_by=cast(Any, request.user),
             )

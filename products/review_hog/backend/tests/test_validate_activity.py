@@ -94,7 +94,7 @@ def _chunk_context(issues: list[Issue], done: dict[str, IssueValidation]) -> Ite
     # The activity receives only issue ids and reloads content from the finding rows — the loader
     # is patched to hand back the live issues the test built.
     with (
-        patch(f"{_MODULE}.Heartbeater"),
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
         patch(f"{_MODULE}.load_run_issues", return_value=issues),
         patch(f"{_MODULE}.load_run_validations", return_value=done),
         patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot()),
