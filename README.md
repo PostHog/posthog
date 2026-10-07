@@ -173,4 +173,5 @@ Hey! If you're reading this, you've proven yourself as a dedicated README reader
 
 You might also make a great addition to our team. We're growing fast [and would love for you to join us](https://posthog.com/careers).
 
-There is nothing useful in the [trash](https://posthog.com/trash), but you are welcome to check.
+----
+If you're looking for easter eggs or abandoned ideas, please check the [trash](https://posthog.com/trash).
