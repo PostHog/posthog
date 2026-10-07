@@ -47,13 +47,13 @@ class TestKernelSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_get_schemas_are_full_refresh_only(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
+    def test_only_audit_logs_syncs_incrementally(self) -> None:
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        assert all(not schema.supports_incremental for schema in schemas)
-        assert all(not schema.supports_append for schema in schemas)
-        assert all(schema.incremental_fields == [] for schema in schemas)
+        assert set(schemas) == set(ENDPOINTS)
+        assert {name for name, schema in schemas.items() if schema.supports_incremental} == {"audit_logs"}
+        assert [field["field"] for field in schemas["audit_logs"].incremental_fields] == ["timestamp"]
+        assert all(not schema.supports_append for schema in schemas.values())
 
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["invocations"])
