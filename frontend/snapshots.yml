@@ -6434,6 +6434,22 @@ snapshots:
         hash: v1.k794b7964.47dc280e27c512035ac74d86134e2b5771f84b1454556c492f6319d9d3ffa29f.l0n9noDhYfjTrpN-tlvi5TJq4RJCDIkUCFKse51o1O4
     products-autoresearch-probability-histogram--single-bucket--light:
         hash: v1.k794b7964.492095448990e600a399d4212b8fb96e8f95c2e7bdafb3f84d8bdc10467fbf4e.1OfZFFoGzmeH8sxtbwrD-H9bR_n08l9kV63NB2Sv1jU
+    products-autoresearch-training-run-row--compared-with-champion-narrow--dark:
+        hash: v1.k794b7964.9830e6048bce43800723ca6bee037bb1a91ec500aec423893be9b3c55659df14.fmdX0m_Qvg0f3TJFplwoR0u44C8RtyPj1NgmVoqP9Fk
+    products-autoresearch-training-run-row--compared-with-champion-narrow--light:
+        hash: v1.k794b7964.105ee396b96f519507dd4e49a1731864e80370fe5d92081c6480553cfd1eb594.0eAOak4fZGoUCLn2SknMQ6dhtAJ4rJnjDagKbXMVNIk
+    products-autoresearch-training-run-row--compared-with-champion-wide--dark:
+        hash: v1.k794b7964.54401cab59097a4aa36bdd135c4a3207f42cad57e0cb6ae1be20504c7104623e.lvwUB3xG2CnVO2Voq1d0XuSaKxSI0XPhMkGrlsB4dzo
+    products-autoresearch-training-run-row--compared-with-champion-wide--light:
+        hash: v1.k794b7964.d076be958a4e3ca0f41838084bc83584a4560ed551a67236b784e31d505b226a.kYRHbvr8-lCpBD4Rn-q6lyaFqbclQsJ8Wz4RG6NGdds
+    products-autoresearch-training-run-row--run-model-without-importances--dark:
+        hash: v1.k794b7964.cecb833bc7bd8ca42db243e0a6cbf6917167529efff3de02d4976129e31c9d15.NzRkSMaMOSdVxHG39_qyUpjM5mfV7z4xD6NJHWKMgnI
+    products-autoresearch-training-run-row--run-model-without-importances--light:
+        hash: v1.k794b7964.97de8a577ec7f77873b33b8cf56f7cd13ff7722032a055b0f6cca8f7a788ce7c.5fDSgGcP7hTthZ4U6pihNquI9e5ai8sTN6Dp6zqDDH4
+    products-autoresearch-training-run-row--run-produced-the-champion--dark:
+        hash: v1.k794b7964.a9de84c1f27dab319f1c8144f25dcb2ee86f24e4a8a81e3e4f1af8772691a853.-8abFqmvKqn68PvlPf_7mXyGfyzzVGlhwqMEIRLT1VQ
+    products-autoresearch-training-run-row--run-produced-the-champion--light:
+        hash: v1.k794b7964.99a7492e480121211d7b1bdcc80551dd1237c844db39f3e125a3419fcea07392.vVadWxwzVkcx_5Rs8NM_JR-rgQ1Mddc8LADMSDGJ5qA
     products-business-intelligence-comparison-summary--kpi--dark:
         hash: v1.k794b7964.f57d81874455ecab234e86bea129aa84be0ab55617e1a3f78e4df5ae0b5bef03.0KX9-_jhsiyC9WxFodb_tR84PkA3Sg_F1zEuQGSIPfw
     products-business-intelligence-comparison-summary--kpi--light:
