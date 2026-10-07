@@ -18,7 +18,7 @@ import { hasOpenImplementationPr } from 'products/signals/frontend/inbox/utils/r
 import { displayConventionalCommitTitle } from 'products/signals/frontend/inbox/utils/reportPresentation'
 
 import { TodayActionButton } from './TodayActionButton'
-import { itemStateLabel } from './todayBriefingItems'
+import { overrideStateLabel } from './todayBriefingItems'
 import { TodayEvidenceAge } from './TodayEvidenceAge'
 import { TodayReportVerdict, todayLogic } from './todayLogic'
 import { TodayMarkedText } from './TodayMarkedText'
@@ -107,7 +107,7 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
         todayReportLogic({ reportId: report.id })
     )
     const sampleReason = isSample ? SAMPLE_REPORT_REASON : null
-    const stateLabel = itemStateLabel({ state: reportState })
+    const stateLabel = overrideStateLabel(reportState)
     const stateBadge = stateLabel ? (
         <Badge variant={reportState === 'done' ? 'completed' : 'default'}>{stateLabel}</Badge>
     ) : null

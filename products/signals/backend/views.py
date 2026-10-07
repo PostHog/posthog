@@ -2621,6 +2621,30 @@ class SignalReportViewSet(
         read_serializer = SignalReportArtefactSerializer(new_artefact, context=self.get_serializer_context())
         return Response(read_serializer.data)
 
+    @extend_schema(
+        summary="Step off a report's suggested reviewers",
+        description=(
+            "Take the calling user off this report's suggested reviewers, leaving the other reviewers "
+            "as they are. The report itself is untouched: it stays open for whoever is left, and for "
+            "the project. Succeeds whether or not the caller was on the list."
+        ),
+        request=None,
+        responses={
+            204: OpenApiResponse(description="The caller is no longer a suggested reviewer."),
+            400: OpenApiResponse(description="A reviewer who stays no longer resolves to a member of this team."),
+        },
+    )
+    @action(detail=True, methods=["delete"], url_path="reviewers/me", required_scopes=["task:write"])
+    def leave_reviewers(self, request, **kwargs):
+        report = cast(SignalReport, self.get_object())
+        try:
+            remove_suggested_reviewer(
+                team=self.team, report_id=str(report.id), user=cast(User, request.user), request=request
+            )
+        except ReviewerWriteError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     def destroy(self, request, *args, **kwargs):
         """Soft-delete a report and its signals via the deletion workflow."""
         report = cast(SignalReport, self.get_object())
@@ -4792,6 +4816,58 @@ def append_suggested_reviewers(
         )
 
     return new_artefact
+
+
+def _reviewer_entry_names(entry: dict, *, user_uuid: str, github_login: str | None) -> bool:
+    """Whether a stored reviewer entry routes to this person, by either of the two things it can hold."""
+    if str(entry.get("user_uuid") or "") == user_uuid:
+        return True
+    return bool(github_login) and str(entry.get("github_login") or "").strip().lower() == github_login
+
+
+def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request: Request) -> bool:
+    """Take one person off a report's suggested reviewers and leave everyone else as they are.
+
+    Returns whether the person was on the list. The reviewers who stay go back through
+    `append_suggested_reviewers`, so stepping off writes the same append-only, latest-wins row as any
+    other reviewer edit, and carries the same activity entry and scout routing correction with it.
+    """
+    current = (
+        SignalReportArtefact.objects.filter(
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    try:
+        content = json.loads(current.content) if current else []
+    except (json.JSONDecodeError, ValueError):
+        content = []
+    if not isinstance(content, list):
+        return False
+
+    login = user.get_github_login()
+    login = login.lower() if login else None
+    entries = [entry for entry in content if isinstance(entry, dict)]
+    kept = [
+        entry for entry in entries if not _reviewer_entry_names(entry, user_uuid=str(user.uuid), github_login=login)
+    ]
+    if len(kept) == len(entries):
+        return False
+
+    # Each reviewer who stays keeps whichever identity their stored entry carries, rather than being re-derived.
+    append_suggested_reviewers(
+        team=team,
+        report_id=report_id,
+        entries=[
+            {"user_uuid": entry["user_uuid"]} if entry.get("user_uuid") else {"github_login": entry["github_login"]}
+            for entry in kept
+            if entry.get("user_uuid") or entry.get("github_login")
+        ],
+        request=request,
+    )
+    return True
 
 
 def _record_reviewer_edit(

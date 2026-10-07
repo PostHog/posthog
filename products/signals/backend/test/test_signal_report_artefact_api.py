@@ -1055,6 +1055,46 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
 
         assert self._reviewer_filter_matches(report, alice)
 
+    # --- DELETE reviewers/me (step off a report) ---
+
+    def _leave_reviewers_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/reviewers/me/"
+
+    @parameterized.expand(
+        [
+            ("stored_by_uuid", True, False),
+            ("stored_by_login", False, True),
+            ("stored_by_both", True, True),
+        ]
+    )
+    def test_leave_reviewers_removes_the_caller_however_they_are_stored(self, _name, by_uuid, by_login):
+        _attach_github_login(self.user, "CallerCase")
+        teammate = self._create_org_member("teammate@example.com", github_login="teammate")
+        report = self._create_report()
+        caller_entry: dict = {}
+        if by_uuid:
+            caller_entry["user_uuid"] = str(self.user.uuid)
+        if by_login:
+            caller_entry["github_login"] = "callercase"
+        self._create_artefact(report, content=[caller_entry, {"user_uuid": str(teammate.uuid)}])
+
+        response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
+        assert not self._reviewer_filter_matches(report, self.user)
+
+    def test_leave_reviewers_writes_nothing_when_the_caller_is_not_a_reviewer(self):
+        teammate = self._create_org_member("teammate@example.com", github_login="teammate")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(teammate.uuid)}])
+
+        response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert self._reviewers_count(report) == 1
+        assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
+
     def test_diff_with_non_dict_content_returns_400_not_500(self):
         # Log content is stored as arbitrary JSON; a non-object commit payload must not 500.
         report = self._create_report()

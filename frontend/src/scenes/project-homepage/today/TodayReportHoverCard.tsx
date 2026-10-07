@@ -32,7 +32,7 @@ import {
 } from 'products/signals/frontend/inbox/utils/reportMetrics'
 import { pullRequestStateMeta } from 'products/tasks/frontend/spaces/TaskPullRequestChip'
 
-import { itemStateLabel } from './todayBriefingItems'
+import { overrideStateLabel } from './todayBriefingItems'
 import { TodayReportVerdict, todayLogic } from './todayLogic'
 import { isSampleReportId } from './todaySampleReports'
 
@@ -57,7 +57,7 @@ const LISTED_METRIC_COUNT = 2
 export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview }): JSX.Element {
     const { card } = preview
     const { reportStateOverrides } = useValues(todayLogic)
-    const { reportPreviewed, requestReportVerdict } = useActions(todayLogic)
+    const { reportPreviewed, requestReportVerdict, leaveReportReview } = useActions(todayLogic)
     // Keyed on the report, not the card object: a poll replaces the object while the card stays open.
     useEffect(() => {
         reportPreviewed(card.key, preview.surface)
@@ -65,7 +65,7 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
 
     // Read live, not from the card: the card stays open after a click, and keeps the payload it opened with.
     const override = card.reportId ? reportStateOverrides[card.reportId] : undefined
-    const stateLabel = override ? itemStateLabel({ state: override }) : card.stateLabel
+    const stateLabel = override ? overrideStateLabel(override) : card.stateLabel
     const resolved = override ? override === 'done' : card.resolved
     const { reportId } = card
     const giveVerdict = (verdict: TodayReportVerdict): void => {
@@ -82,6 +82,9 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
         }
     }
     const isSample = !!reportId && isSampleReportId(reportId)
+    // The click gives the report a state label, which takes the button off the card, so the request
+    // cannot be sent twice and needs no in-flight state of its own.
+    const canLeaveReview = !!reportId && !stateLabel && card.canLeaveReview
     const pullRequestState = pullRequestStateMeta(card.pullRequestState)
     const metric = selectReportCardImpactMetric(card.metrics)
     const aggregateQuery = metric ? asReportMetricAggregateQuery(metric.query) : null
@@ -115,9 +118,26 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                     <ItemTitle className="wrap-anywhere">
                         <span className="min-w-0 font-semibold">{card.title}</span>
                     </ItemTitle>
-                    {(lead || card.pullRequestUrl) && (
+                    {(lead || canLeaveReview || card.pullRequestUrl) && (
                         <ItemDescription className="flex flex-wrap items-center gap-x-1.5">
                             {lead && <span>{lead}</span>}
+                            {canLeaveReview && reportId && (
+                                <span className="flex items-center gap-1.5">
+                                    {lead && <span aria-hidden>·</span>}
+                                    <Button
+                                        variant="link-muted"
+                                        size="xs"
+                                        // Dotted at rest like the pull request link beside it.
+                                        className="h-auto px-0 text-xs underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                                        disabled={isSample}
+                                        title="Remove yourself from this report’s reviewers"
+                                        onClick={() => leaveReportReview(reportId, preview.surface)}
+                                        data-attr="today-report-hover-card-leave-review"
+                                    >
+                                        Not me
+                                    </Button>
+                                </span>
+                            )}
                             {card.pullRequestUrl && (
                                 <span className="flex min-w-0 items-center gap-1.5">
                                     {lead && <span aria-hidden>·</span>}

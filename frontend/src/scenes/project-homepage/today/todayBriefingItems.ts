@@ -51,6 +51,28 @@ export function itemStateLabel(item: Pick<BriefingItemApi, 'state'>): string | n
     return STATE_LABELS[item.state]
 }
 
+/**
+ * What Today shows for a report the person has acted on, until the next briefing is written. `left`
+ * is Today's own state: the person stepped off the report's reviewers, and it stays open for the rest.
+ */
+export type TodayReportOverride = BriefingItemStateEnumApi | 'left'
+
+export function overrideItemState(override: TodayReportOverride): BriefingItemStateEnumApi {
+    return override === 'left' ? 'dismissed' : override
+}
+
+export function overrideStateLabel(override: TodayReportOverride): string | null {
+    return override === 'left' ? 'Not yours' : STATE_LABELS[override]
+}
+
+// The briefing reasons a report gets when it names the person, the reports the for_you count covers.
+// Both require them to be a suggested reviewer, so both are reports they can step off.
+const NAMES_PERSON_REASONS: ReadonlySet<TodayItemReasonEnumApi> = new Set(['waiting_for_you', 'suggested_reviewer'])
+
+export function itemNamesPerson(item: Pick<BriefingItemApi, 'reason'>): boolean {
+    return NAMES_PERSON_REASONS.has(item.reason)
+}
+
 const REPORT_STATUS_STATES: Record<string, BriefingItemStateEnumApi> = {
     resolved: 'done',
     suppressed: 'dismissed',
@@ -70,6 +92,7 @@ export function briefingItemReportCard(item: BriefingItemApi): TodayReportCard {
         reason: itemReasonLabel(item),
         stateLabel: itemStateLabel(item),
         resolved: item.state === 'done',
+        canLeaveReview: itemNamesPerson(item),
         priority: item.report?.priority ?? null,
         summary: item.report?.summary || null,
         pullRequestState: item.report?.pull_request_state ?? null,
