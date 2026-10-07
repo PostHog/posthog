@@ -55,7 +55,7 @@ writes a source product's rows. What it does cost is the evaluation queries its 
 ones the source's own production fleet is already running for the same alerts.
 
 The tick's work is whatever `PlatformAlertConfiguration` rows exist, and nothing creates those on its own:
-`python manage.py backfill_platform_alert_configurations [--team-id N]` is the only writer, and it is manual.
+`python manage.py backfill_platform_alert_configurations [--team-id N]` for logs and `python manage.py backfill_platform_insight_alert_configurations [--team-id N]` for insight are the only writers, and both are manual.
 So the order below puts the schedule in place while there is no demand, and load arrives when the backfill
 is run, one cohort at a time.
 
@@ -460,6 +460,32 @@ Pass `--team-id` to copy one team's configurations only.
 It is a seed, not a sync: the logs product keeps the control plane, and a later change to a logs alert reaches these tables only on the next run.
 A second run updates rather than duplicates, because `legacy_configuration_id` carries the row each copy came from.
 Each run also copies the logs alert's snooze onto its platform alert row, so a snoozed alert stays silent, and an alert unsnoozed since the last run is unsnoozed here too.
+
+Insight alerts are copied the same way:
+
+```bash
+python manage.py backfill_platform_insight_alert_configurations
+```
+
+It copies threshold alerts on an hourly or slower cadence only, and skips detector alerts and the real-time and 15-minute cadences.
+Run it only after the evaluation worker's chart sets `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file.
+Insight checks tag their queries with `ClickHouseUser.ALERTS_PLATFORM_INSIGHT`, a user of their own, so the parallel run never takes from the per-user budget of the user that production insight alerts query as.
+Without that env the tag resolves to the worker's default user, which other workloads on the same servers already push against its concurrent query limit.
+Logs checks use their own user, `alerts_platform_logs`, on the logs cluster.
+
+Every copy adds ClickHouse load beside production's, so roll it out in steps.
+A full logs backfill hit ClickHouse's per-user concurrent query limit and had to be removed.
+
+1. Copy one internal team with `--team-id`, then a small sample with `--sample-percent`, for example 5. The sample is chosen by alert id, so a rerun copies the same alerts and a larger percentage only adds alerts.
+2. Watch the parallel run's ClickHouse cost in `query_log`: its `client_query_id` starts with `alerts-platform-insight:`.
+3. Watch scheduler lag for `source=insight`, and the `capacity` skip reason on the platform's skipped-check counter. Capacity skips mean ClickHouse refused the query for load.
+4. Widen the sample only while both stay flat. `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the concurrent checks whatever the sample size.
+5. Raise that cap from its default of 10 only while the daily count of refused queries, `exception_code = 202` in `query_log`, stays flat for both `alerts_platform_insight` and the user that production insight alerts query as. The first shows the parallel run's own contention. The second shows whether it reaches production through the server-wide limit. Do not size it from per-second concurrency, which overcounts because short queries that run back to back inside one second read as concurrent. Code 202 also covers the server-wide limit, so a rise is a reason to look rather than proof that the cap caused it.
+
+To stop the parallel run, pass `--disable`, with `--team-id` to stop one team.
+It switches the copies off and keeps their rows, state and history. Checks already running finish.
+Running the backfill again turns them back on at the production alert's next due time.
+An hourly alert on the platform checks on a UTC grid, while production checks it at the alert's creation minute, so the two stacks check an hourly alert at different minutes.
 
 ## Postgres connectivity probe
 

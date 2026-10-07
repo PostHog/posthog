@@ -17,6 +17,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationView,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
+    SourceKind,
 )
 from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads
 
@@ -39,8 +40,13 @@ def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
 
 
 def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
-    """Copy one of a source's own configurations in. True when the row changed."""
+    """Copy one of a source's own configurations in. True when it created the row."""
     return platform_lifecycle.upsert_configuration(upsert)
+
+
+def disable_configurations(source_kind: SourceKind, *, team_id: int | None = None) -> int:
+    """Switch off a source's copies, or one team's. Returns how many it switched off."""
+    return platform_lifecycle.disable_configurations(source_kind.value, team_id=team_id)
 
 
 def list_configurations(
