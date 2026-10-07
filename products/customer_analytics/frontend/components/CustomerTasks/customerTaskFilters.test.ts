@@ -104,20 +104,10 @@ describe('customer task filter helpers', () => {
     })
 
     test.each([
-        ['a resource viewer', true, 'unassigned', { assigned_to: 'unassigned', assigned_role: undefined }],
-        ['an assignment-only user', false, 'unassigned', { assigned_to: 'me', assigned_role: undefined }],
-        [
-            'a resource viewer filtering by role',
-            true,
-            { roleId: ROLE_ID },
-            { assigned_to: undefined, assigned_role: ROLE_ID },
-        ],
-        [
-            'an assignment-only user filtering by role',
-            false,
-            { roleId: ROLE_ID },
-            { assigned_to: 'me', assigned_role: undefined },
-        ],
+        ['a resource viewer', true, 'unassigned', { assigned_to: 'unassigned' }],
+        ['an assignment-only user', false, 'unassigned', { assigned_to: 'me' }],
+        ['a resource viewer filtering by role', true, { roleId: ROLE_ID }, { assigned_to: `role:${ROLE_ID}` }],
+        ['an assignment-only user filtering by role', false, { roleId: ROLE_ID }, { assigned_to: 'me' }],
     ])('keeps %s within their allowed assignee scope', (_, canViewAll, assignee, expected) => {
         expect(
             customerTasksQuery(

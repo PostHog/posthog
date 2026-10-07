@@ -313,7 +313,7 @@ describe('customerTasksLogic', () => {
 
     test('falls back to the default assignee when a linked role no longer exists', async () => {
         mockList.mockRejectedValueOnce(
-            new ApiError(undefined, 400, undefined, { assigned_role: 'Select a role in this organization.' })
+            new ApiError(undefined, 400, undefined, { assigned_to: 'Select a role in this organization.' })
         )
         router.actions.push(urls.customerAnalyticsTasks(), { assignee: `role:${DELETED_ROLE_ID}` })
         logic = customerTasksLogic({ context: 'inbox', canViewAll: true })
@@ -322,14 +322,11 @@ describe('customerTasksLogic', () => {
 
         expect(mockList).toHaveBeenCalledWith(
             expect.any(String),
-            expect.objectContaining({ assigned_role: DELETED_ROLE_ID })
+            expect.objectContaining({ assigned_to: `role:${DELETED_ROLE_ID}` })
         )
         expect(logic.values.filters.assignee).toBe('me')
         expect(router.values.searchParams.assignee).toBeUndefined()
-        expect(mockList).toHaveBeenLastCalledWith(
-            expect.any(String),
-            expect.objectContaining({ assigned_to: 'me', assigned_role: undefined })
-        )
+        expect(mockList).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ assigned_to: 'me' }))
     })
 
     test('keeps the persisted filters when the link carries none', async () => {

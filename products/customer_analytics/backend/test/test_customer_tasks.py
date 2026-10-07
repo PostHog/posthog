@@ -50,9 +50,11 @@ class CustomerTaskSerializerTest(SimpleTestCase):
             ("a member id", "7", "7"),
             ("a non-decimal digit", "٢", "2"),
             ("the me shorthand", "me", "me"),
+            ("a role", "role:00000000-0000-4000-8000-000000000001", "role:00000000-0000-4000-8000-000000000001"),
+            ("a role without a UUID", "role:onboarding", None),
         ]
     )
-    def test_assigned_to_filter_only_accepts_a_usable_member_id(
+    def test_assigned_to_filter_only_accepts_a_usable_member_or_role(
         self, _name: str, value: str, expected: str | None
     ) -> None:
         serializer = CustomerTaskListQuerySerializer(data={"assigned_to": value})
@@ -63,17 +65,6 @@ class CustomerTaskSerializerTest(SimpleTestCase):
             return
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["assigned_to"] == expected
-
-    def test_assigned_role_filter_cannot_be_combined_with_assigned_to(self) -> None:
-        role_id = "00000000-0000-4000-8000-000000000001"
-
-        combined = CustomerTaskListQuerySerializer(data={"assigned_to": "me", "assigned_role": role_id})
-        assert not combined.is_valid()
-        assert "assigned_role" in combined.errors
-
-        role_only = CustomerTaskListQuerySerializer(data={"assigned_role": role_id})
-        assert role_only.is_valid(), role_only.errors
-        assert str(role_only.validated_data["assigned_role"]) == role_id
 
     @parameterized.expand(
         [
@@ -596,14 +587,14 @@ class CustomerTaskAPI(APIBaseTest):
         role = Role.objects.create(name="Onboarding", organization=self.organization)
         RoleMembership.objects.create(role=role, user=other_assignee)
 
-        response = self.client.get(self.url, {"assigned_role": str(role.id)})
+        response = self.client.get(self.url, {"assigned_to": f"role:{role.id}"})
 
         assert response.status_code == status.HTTP_200_OK
         assert {task["name"] for task in response.json()["results"]} == {"Bravo", "Delta"}
 
         RoleMembership.objects.create(role=role, user=self.user)
 
-        response = self.client.get(self.url, {"assigned_role": str(role.id)})
+        response = self.client.get(self.url, {"assigned_to": f"role:{role.id}"})
 
         assert response.status_code == status.HTTP_200_OK
         assert {task["name"] for task in response.json()["results"]} == {"Alpha", "Bravo", "Delta"}
@@ -613,10 +604,10 @@ class CustomerTaskAPI(APIBaseTest):
         other_organization = Organization.objects.create(name="Other organization")
         foreign_role = Role.objects.create(name="Onboarding", organization=other_organization)
 
-        response = self.client.get(self.url, {"assigned_role": str(foreign_role.id)})
+        response = self.client.get(self.url, {"assigned_to": f"role:{foreign_role.id}"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "assigned_role" in response.json()
+        assert "assigned_to" in response.json()
 
     @parameterized.expand(
         [

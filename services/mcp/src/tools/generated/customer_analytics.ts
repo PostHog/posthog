@@ -1279,7 +1279,6 @@ const customerTasksList = (): ToolBase<
             query: {
                 account_id: params.account_id,
                 archive_state: params.archive_state,
-                assigned_role: params.assigned_role,
                 assigned_to: params.assigned_to,
                 due_after: params.due_after,
                 due_before: params.due_before,

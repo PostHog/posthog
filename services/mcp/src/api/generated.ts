@@ -116795,11 +116795,7 @@ export namespace Schemas {
      */
     archive_state?: CustomerTasksListArchiveState;
     /**
-     * Filter by organization role UUID. Returns tasks assigned to any current member of the role. Cannot be combined with assigned_to.
-     */
-    assigned_role?: string;
-    /**
-     * Filter by me, unassigned, or one user ID.
+     * Filter by me, unassigned, one user ID, or role:<role UUID>. A role returns tasks assigned to any current member of that organization role.
      * @minLength 1
      */
     assigned_to?: string;

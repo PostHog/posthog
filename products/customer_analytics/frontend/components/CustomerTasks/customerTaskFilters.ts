@@ -19,8 +19,8 @@ export type CustomerTaskDueFilter = 'any' | 'overdue' | 'today' | 'upcoming' | '
 export type CustomerTaskAccountFilter = { id: string; name: string }
 
 const MAX_CUSTOMER_TASK_ASSIGNEE_ID = 2_147_483_647
-// pinned: URL value prefix for role filters, so shared links keep working
-const ROLE_ASSIGNEE_URL_PREFIX = 'role:'
+// pinned: links and the assigned_to API parameter both use this prefix, so shared links keep working
+const ROLE_ASSIGNEE_PREFIX = 'role:'
 
 export function isRoleAssigneeFilter(value: CustomerTaskAssigneeFilter): value is CustomerTaskRoleAssigneeFilter {
     return typeof value === 'object'
@@ -34,8 +34,11 @@ export function customerTaskAssigneeMode(value: CustomerTaskAssigneeFilter): Cus
 }
 
 function assignedToParam(value: CustomerTaskAssigneeFilter): CustomerTasksListParams['assigned_to'] {
-    if (value === 'any' || isRoleAssigneeFilter(value)) {
+    if (value === 'any') {
         return undefined
+    }
+    if (isRoleAssigneeFilter(value)) {
+        return ROLE_ASSIGNEE_PREFIX + value.roleId
     }
     return String(value)
 }
@@ -201,7 +204,6 @@ export function customerTasksQuery(
         search: filters.search || undefined,
         account_id: accountId ?? filters.account?.id,
         assigned_to: assignedToParam(assignee),
-        assigned_role: isRoleAssigneeFilter(assignee) ? assignee.roleId : undefined,
         statuses:
             filters.status === 'all' ? undefined : filters.status === 'open' ? 'open,in_progress' : filters.status,
         archive_state: filters.archiveState,
@@ -246,7 +248,7 @@ export function customerTaskSearchParams(state: CustomerTaskUrlState): Record<st
         params.status = state.filters.status
     }
     if (isRoleAssigneeFilter(state.filters.assignee)) {
-        params.assignee = ROLE_ASSIGNEE_URL_PREFIX + state.filters.assignee.roleId
+        params.assignee = ROLE_ASSIGNEE_PREFIX + state.filters.assignee.roleId
     } else if (state.filters.assignee !== defaults.assignee) {
         params.assignee = String(state.filters.assignee)
     }
@@ -272,8 +274,8 @@ function parseAssignee(value: unknown): CustomerTaskAssigneeFilter | null {
     if (value === 'any' || value === 'me' || value === 'unassigned') {
         return value
     }
-    if (typeof value === 'string' && value.startsWith(ROLE_ASSIGNEE_URL_PREFIX)) {
-        const roleId = value.slice(ROLE_ASSIGNEE_URL_PREFIX.length)
+    if (typeof value === 'string' && value.startsWith(ROLE_ASSIGNEE_PREFIX)) {
+        const roleId = value.slice(ROLE_ASSIGNEE_PREFIX.length)
         return isUUIDLike(roleId) ? { roleId } : null
     }
     const memberId = Number(value)

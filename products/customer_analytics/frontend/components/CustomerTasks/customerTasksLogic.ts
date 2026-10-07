@@ -452,7 +452,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
             // A role deleted after someone saved or shared the filter makes every request fail,
             // so fall back to the default view instead of an error that never clears.
             const body = errorObject instanceof ApiError ? (errorObject.data as Record<string, unknown> | null) : null
-            if (body?.assigned_role && isRoleAssigneeFilter(values.filters.assignee)) {
+            if (body?.assigned_to && isRoleAssigneeFilter(values.filters.assignee)) {
                 actions.setFilters({ assignee: defaultCustomerTaskFilters(props.context).assignee })
             }
         },
