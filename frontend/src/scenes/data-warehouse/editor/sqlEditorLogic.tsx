@@ -476,6 +476,9 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
         q: values.queryInput ?? '',
         output_tab: values.outputActiveTab,
     }
+    if (values.sourceQuery?.source.executionTarget) {
+        hash['engine'] = values.sourceQuery.source.executionTarget
+    }
     const connectionId = values.sourceQuery?.source.connectionId
     if (connectionId) {
         hash['c'] = connectionId
@@ -1127,6 +1130,9 @@ export interface sqlEditorLogicActions {
     setSelectedQueryTablesAndColumns: (tablesAndColumns: Record<string, Record<string, boolean>>) => {
         tablesAndColumns: Record<string, Record<string, boolean>>
     }
+    setExecutionTarget: (executionTarget: HogQLQuery['executionTarget']) => {
+        executionTarget: HogQLQuery['executionTarget']
+    }
     setSendRawQuery: (sendRawQuery: boolean) => {
         sendRawQuery: boolean
     }
@@ -1469,6 +1475,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         fixIndexUsageWithAI: (prompt: string) => ({ prompt }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
         runSubquery: true,
+        setExecutionTarget: (executionTarget: HogQLQuery['executionTarget']) => ({ executionTarget }),
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
         enforceConnectionRawQueryMode: true,
         setDashboardId: (dashboardId: number | null) => ({ dashboardId }),
@@ -2136,6 +2143,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                 }
                 persistEditorDraft()
+            },
+            setExecutionTarget: ({ executionTarget }) => {
+                actions.setSourceQuery({
+                    ...values.sourceQuery,
+                    source: {
+                        ...values.sourceQuery.source,
+                        query: values.queryInput ?? values.sourceQuery.source.query,
+                        executionTarget,
+                        connectionId: undefined,
+                        sendRawQuery: undefined,
+                    },
+                })
+                actions.syncUrlWithQuery()
             },
             setSendRawQuery: ({ sendRawQuery }) => {
                 const currentSourceQuery = values.sourceQuery
@@ -3662,6 +3682,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 sourceQuery: DataVisualizationNode,
                 splitRanges: QueryRange[]
             ) => {
+                if (
+                    lastRunQuery &&
+                    (lastRunQuery.source.executionTarget ?? 'default') !==
+                        (sourceQuery.source.executionTarget ?? 'default')
+                ) {
+                    return false
+                }
                 const lastRunQueryText = (lastRunQuery?.source.query ?? sourceQuery.source.query ?? '').trim()
                 if ((queryInput ?? '').trim() === lastRunQueryText) {
                     return true
@@ -3877,6 +3904,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             const connectionIdFromHash =
                 typeof hashParams.c === 'string' && hashParams.c !== '' ? hashParams.c : undefined
             const sendRawQueryFromHash = connectionIdFromHash !== undefined && String(hashParams.raw) === '1'
+            const executionTargetFromHash = hashParams.engine === 'managed_trino' ? 'managed_trino' : undefined
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
             const currentSendRawQuery = values.sourceQuery.source.sendRawQuery ?? false
             const filtersForSourceQuery = applyFiltersFromUrl(values.sourceQuery).source.filters
@@ -3888,6 +3916,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 )
 
             if (
+                executionTargetFromHash !== values.sourceQuery.source.executionTarget ||
                 connectionIdFromHash !== currentConnectionId ||
                 sendRawQueryFromHash !== currentSendRawQuery ||
                 shouldSyncFilters
@@ -3896,6 +3925,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     ...values.sourceQuery,
                     source: {
                         ...values.sourceQuery.source,
+                        executionTarget: executionTargetFromHash,
                         connectionId: connectionIdFromHash,
                         sendRawQuery: sendRawQueryFromHash || undefined,
                         filters: filtersForSourceQuery,
@@ -4083,6 +4113,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                 ...insightSource,
                                 source: {
                                     ...insightSource.source,
+                                    executionTarget: connectionIdFromHash
+                                        ? undefined
+                                        : (executionTargetFromHash ?? insightSource.source.executionTarget),
                                     connectionId: connectionIdFromHash,
                                     sendRawQuery: sendRawQueryFromHash || undefined,
                                 },

@@ -42,3 +42,11 @@ If source setup fails after successful provision or onboarding, the versioned re
 If deprovision reports that the control plane accepted deletion but local SQL connection state could not be updated, retry deprovision. PostHog checks authoritative status before changing local state. If source cleanup fails after local deactivation, the versioned cleanup task retries with the exact inactive generation.
 
 If Redis is unavailable, SQL editor queries and managed warehouse schema discovery continue by minting one credential per request. Restore Redis to resume cross-worker reuse. There is no process-local or Postgres credential cache to clear during recovery. Use `posthog_managed_warehouse_service_credential_cache_events_total` to compare cache hits, misses, invalid payloads, Redis errors, lock timeouts, store failures, and direct fallbacks. Its `outcome` label has no tenant or credential identifiers.
+
+## Hosted Trino opt-in
+
+The `managed-warehouse-trino-query` organization feature flag adds **Hosted Trino** to the SQL editor connection selector. The default PostHog target remains unchanged. The backend checks the same flag before execution and cache reads; selecting the target in a URL does not grant access.
+
+Hosted Trino runs the current HogQL query through the Django-backed Trino compiler, preserving project scoping and the requesting user's table permissions. It resolves logical table names to the project's managed warehouse tables without requiring a stored model translation. Data must already exist in the Trino target; unsupported expressions and missing tables produce query errors. The target accepts HogQL only and cannot be combined with an external connection or raw SQL mode.
+
+Each connection uses a short-lived hosted Trino service credential with a project/user principal. It does not read external-source passwords. Interactive queries retain a deadline and bounded result size, and asynchronous cancellation uses the existing direct-query cancellation token. Choosing another target preserves the query text, filters, and variables; the selection is saved with the query and editor URL.
