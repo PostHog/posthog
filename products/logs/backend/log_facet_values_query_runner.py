@@ -194,10 +194,13 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
         )
         date_range = self._volume_buckets_query_date_range
         exprs: list[ast.Expr] = [
+            # Floor the lower limit to the bucket that contains date_from. That bucket starts before
+            # date_from, but it holds logs from after date_from. A bucket that starts before date_to
+            # is in the range, so the upper limit needs no change.
             parse_expr(
                 "time_bucket >= {date_from} AND time_bucket < {date_to}",
                 placeholders={
-                    "date_from": ast.Constant(value=date_range.date_from()),
+                    "date_from": date_range.date_from_to_start_of_interval_hogql(),
                     "date_to": ast.Constant(value=date_range.date_to()),
                 },
             ),

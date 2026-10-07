@@ -97,6 +97,13 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
             f"{other_filter_key} should re-scope {facet_field} counts",
         )
 
+    def test_column_facet_keeps_the_bucket_that_contains_date_from(self):
+        # The rollup has 5-minute buckets. A date_from inside a bucket must not drop that bucket, or
+        # the counts lose up to 5 minutes of logs. Every fixture log in DATE_RANGE is at or after
+        # 09:00, so a start of 09:02 must give the same counts as a start of 09:00.
+        inside_bucket = {**self.DATE_RANGE, "date_from": "2025-12-16T09:02:00Z"}
+        self.assertEqual(self._facet("severity_text", dateRange=inside_bucket), self._facet("severity_text"))
+
     @parameterized.expand(
         [
             ("service_name", "aws"),
