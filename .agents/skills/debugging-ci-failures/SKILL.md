@@ -303,8 +303,8 @@ is copy-ready; that skill also owns the wider investigation.
 Read the result as:
 
 - **Low percentage, recent hours mostly green** — transient. Report and move on.
-  For a queued PR, recommend re-enqueueing rather than a code change; posting
-  `/trunk merge` yourself needs approval, per the Safety rules above.
+  For a queued PR, recommend re-enqueueing rather than a code change; running
+  `trunk merge` yourself needs approval, per the Safety rules above.
 - **Recent hours entirely red** — an outage, not a flake. Say so, and stop
   telling people to retry. Check <https://www.githubstatus.com/> before
   attributing it to this repository; a platform incident makes every other

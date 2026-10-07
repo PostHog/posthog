@@ -1,9 +1,10 @@
 import re
 import time
+import zlib
 import errno
 import asyncio
-from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from collections.abc import Awaitable, Callable, Mapping
+from datetime import UTC, datetime, timedelta
 from functools import wraps
 from typing import TYPE_CHECKING, Literal, Optional, ParamSpec, TypeVar
 from uuid import uuid4
@@ -13,6 +14,7 @@ from django.db import OperationalError as DjangoOperationalError
 
 import psycopg
 import botocore.exceptions
+from s3fs.core import MANAGED_COPY_THRESHOLD
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
@@ -259,6 +261,11 @@ _COPY_FILES_MAX_ATTEMPTS = 6
 # cumulative backoff (2+4+8s), the same budget `_purge_s3_prefix` uses against the same condition.
 _DELETE_FOLDER_MAX_ATTEMPTS = 4
 
+# The longest time one publish is expected to take between its scan for old timestamped folders and
+# its pointer write. A publish that takes longer can leave a folder for the daily scan.
+_FOLDER_SCAN_SETTLE_SECONDS = 3600
+_FOLDER_SCAN_INTERVAL_SECONDS = 24 * 3600
+
 
 def is_posthog_team(team_id: int) -> bool:
     DEBUG: bool = get_from_env("DEBUG", False, type_cast=str_to_bool)
@@ -277,14 +284,55 @@ def _unread_long_enough(stopped_being_active: Optional[datetime]) -> bool:
     return (datetime.now(UTC) - stopped_being_active).total_seconds() >= S3_DELETE_TIME_BUFFER
 
 
+def _folder_scan_window(table_folder_uri: str, at: datetime) -> int:
+    """The daily window `at` falls in. The window boundary differs for each table, so the daily scans
+    of all tables do not start at the same time."""
+    offset = zlib.crc32(table_folder_uri.encode()) % _FOLDER_SCAN_INTERVAL_SECONDS
+    return int((at.timestamp() + offset) // _FOLDER_SCAN_INTERVAL_SECONDS)
+
+
+def _timestamped_folder_scan_due(
+    pointer_history: Optional[QueryFolderPointerHistory],
+    existing_queryable_folder: Optional[str],
+    table_folder_uri: str,
+    slot_names: tuple[str, ...],
+) -> bool:
+    """Whether a publish into a slot must look for old timestamped folders of this table.
+
+    A table that stays on its slots has none, so the listing of the job folder finds nothing to
+    delete. The record shows when a timestamped folder was last the pointer, or when a pointer move
+    was last missed. From that instant the scan runs on each publish, until one publish scanned at
+    least `S3_DELETE_TIME_BUFFER` after it, which is the first scan that can delete the folder.
+
+    The record cannot show a folder that a failed publish left behind, or a delete that failed. One
+    scan in each daily window finds those: the first publish of a window always scans.
+    """
+    if pointer_history is None or pointer_history.active_since is None or pointer_history.history_since is None:
+        return True
+    if existing_queryable_folder not in slot_names or pointer_history.active != existing_queryable_folder:
+        return True
+    last_unsettled = max(
+        pointer_history.history_since, pointer_history.non_slot_active_until or pointer_history.history_since
+    )
+    settled_after = last_unsettled + timedelta(seconds=S3_DELETE_TIME_BUFFER + _FOLDER_SCAN_SETTLE_SECONDS)
+    if pointer_history.active_since < settled_after:
+        return True
+    return _folder_scan_window(table_folder_uri, datetime.now(UTC)) != _folder_scan_window(
+        table_folder_uri, pointer_history.active_since
+    )
+
+
 async def _list_query_folder_files(s3: "S3FileSystem", folder_uri: str) -> dict[str, str]:
     """Map each file under `folder_uri` from its folder-relative path to its full `s3://` URI.
 
     Recursive because a partitioned table keeps its parquet files under `key=value/` subfolders,
     which the copy step mirrors into the query folder.
     """
+    parent_uri, _, folder_name = folder_uri.rstrip("/").rpartition("/")
     try:
-        found = await s3._find(folder_uri, detail=True)
+        # With a key prefix, `_find` is one flat listing. Without it, an empty folder costs two more
+        # requests, because `_find` then probes whether the path is a file.
+        found = await s3._find(parent_uri, prefix=f"{folder_name}/", detail=True)
     except FileNotFoundError:
         return {}
     entries = found.values() if isinstance(found, dict) else found
@@ -313,6 +361,9 @@ async def _pick_standby_slot(
     when it is empty (no prefix in S3, so nothing can be reading it) or when it stopped being the
     pointer at least `S3_DELETE_TIME_BUFFER` ago. A slot with no pointer record is treated as unread
     since the record began; with no record at all, only an empty slot is usable.
+
+    A slot that the record shows as the pointer within the buffer is not listed: it held a generation
+    moments ago, so the listing could only confirm that it is not usable.
     """
     slot_names = query_folder_slot_names(f"{normalized_table_name}__query")
     recorded_active = pointer_history.active if pointer_history is not None else None
@@ -323,6 +374,13 @@ async def _pick_standby_slot(
 
     candidates.sort(key=lambda name: (stopped_at(name) is None, stopped_at(name) or datetime.min.replace(tzinfo=UTC)))
     for name in candidates:
+        if (
+            pointer_history is not None
+            and name in pointer_history.inactive_since
+            and not _unread_long_enough(stopped_at(name))
+        ):
+            await log(f"Standby query folder {name} stopped being read at {stopped_at(name)}, too recent to rewrite")
+            continue
         listed = await _list_query_folder_files(s3, f"{s3_folder_for_job}/{name}")
         if not listed or _unread_long_enough(stopped_at(name)):
             await log(f"Reconciling standby query folder {name} holding {len(listed)} files")
@@ -376,6 +434,7 @@ async def prepare_s3_files_for_querying(
     refresh_file_uris: Optional[Callable[[], Awaitable[list[str]]]] = None,
     double_buffer: bool = False,
     pointer_history: Optional[QueryFolderPointerHistory] = None,
+    file_sizes: Optional[Mapping[str, int]] = None,
 ) -> str:
     """Publish the table's live parquet files into a folder readers glob, and return that folder's name.
 
@@ -393,6 +452,12 @@ async def prepare_s3_files_for_querying(
     range, so a missed sync or a crash mid-reconcile heals on the next pass. A populated slot that
     stopped being the pointer within `S3_DELETE_TIME_BUFFER`, or whose last use is unknown, is not
     touched; the sync falls back to the default path.
+
+    `file_sizes`: the size in bytes of each live file, keyed by its path relative to the table folder,
+    as the Delta log records it. A file with a known size at or below the s3fs managed-copy threshold
+    is copied with one CopyObject. Without a size, s3fs reads the size with a HEAD of the source
+    first. The mapping is read at copy time, so a `refresh_file_uris` that updates it keeps the sizes
+    current across a retry.
     """
 
     async def _log(msg: str, level: Optional[Literal["debug", "error"]] = "debug") -> None:
@@ -446,9 +511,22 @@ async def prepare_s3_files_for_querying(
             s3_path_for_querying = f"{s3_path_for_querying}_{folder_suffix}"
             s3_folder_for_querying = f"{s3_folder_for_querying}_{folder_suffix}"
 
+        scan_for_old_folders = (
+            standby_files is None
+            or pointer_history is None
+            or _timestamped_folder_scan_due(
+                pointer_history,
+                existing_queryable_folder,
+                f"{s3_folder_for_job}/{normalized_table_name}",
+                query_folder_slot_names(f"{normalized_table_name}__query"),
+            )
+        )
+
         files_to_delete: list[str] = []
         if delete_existing:
-            if use_timestamped_folders:
+            if use_timestamped_folders and not scan_for_old_folders:
+                await _log(f"No timestamped query folder is on record for table {normalized_table_name}; scan skipped")
+            elif use_timestamped_folders:
                 # Match only directories belonging to this specific table.
                 # Keys may be bare folder names or full paths, so use (?:^|.+/) to handle both.
                 # The uniqueness suffix is optional so folders created before it existed still match.
@@ -523,7 +601,25 @@ async def prepare_s3_files_for_querying(
                 # is a directory, each requiring its own S3 ListObjectsV2 call — with hundreds of
                 # files copied concurrently, that multiplies into enough LIST traffic to trigger
                 # S3's SlowDown rate limiting on the destination prefix.
-                await s3._cp_file(file, f"{s3_path_for_querying}/{relative_path(file)}")
+                relative = relative_path(file)
+                destination = f"{s3_path_for_querying}/{relative}"
+                size = file_sizes.get(relative) if file_sizes is not None else None
+                if size is not None and size <= MANAGED_COPY_THRESHOLD:
+                    # `_cp_file` reads the size of the source with a HEAD to select between this copy
+                    # and the multipart copy. The Delta log already has the size. CopyObject copies
+                    # the full object, so a wrong size cannot change the bytes that arrive.
+                    try:
+                        await s3._copy_basic(file, destination)
+                        return
+                    except FileNotFoundError:
+                        raise
+                    except OSError as e:
+                        if _is_s3_throttling_error(e):
+                            raise
+                        # Object stores do not agree on the error for a source that is gone: S3
+                        # answers NoSuchKey, others answer with an invalid-argument error. The copy
+                        # below reads the source first, so it raises the error the retry loop expects.
+                await s3._cp_file(file, destination)
 
         import deltalake.exceptions  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
 

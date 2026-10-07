@@ -10,7 +10,7 @@ DAG traversal, resolvers) re-exported through ``facade.models``; this contract-d
 surface is intentionally small and grows as consumers migrate to data reads.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from pydantic.dataclasses import dataclass
 
@@ -62,6 +62,23 @@ class Dependent:
 class UpstreamTableRef:
     name: str
     warehouse_table_id: str | None = None
+
+
+@dataclass(frozen=True)
+class SuspensionMarker:
+    """Why and when scheduled materialization stopped for one engine."""
+
+    at: str
+    reason: str
+    job_id: str
+
+
+@dataclass(frozen=True)
+class SavedQueryNodeState:
+    """What a saved query's DAG nodes record about its schedule."""
+
+    declared_target: timedelta | None
+    suspended: dict[str, SuspensionMarker]
 
 
 class MaterializationRefusedError(Exception):

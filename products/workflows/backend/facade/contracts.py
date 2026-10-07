@@ -11,6 +11,7 @@ from products.workflows.backend.facade.enums import (
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
+    WorkflowProposalStatus,
 )
 
 if TYPE_CHECKING:
@@ -327,6 +328,24 @@ class TwilioAccount(TypedDict, total=False):
 
 
 @frozen
+class MessageAsset:
+    invocation_id: str
+    action_id: str
+    function_id: str
+    parent_run_id: str
+    kind: str
+    distinct_id: str
+    person_id: str
+    recipient: str
+    subject: str
+    status: str
+    sent_at: datetime
+    # Human-readable workflow name; enriched by the endpoint before serialization.
+    # Left blank when the workflow no longer exists so the frontend falls back to function_id.
+    function_name: str = ""
+
+
+@frozen
 class WorkflowRevisionSummary:
     """One entry of a workflow's version history, without the content snapshot."""
 
@@ -362,6 +381,32 @@ class ProposalChanges:
 
     changes: dict
     conflicts: list[str]
+
+
+@frozen
+class WorkflowProposalRecord:
+    """A change to a workflow that an agent proposed, and how a human resolved it."""
+
+    id: UUID
+    title: str
+    rationale: str
+    content: dict[str, Any]
+    evidence: dict[str, Any]
+    step_id: str | None
+    base_version: int
+    status: WorkflowProposalStatus
+    source_id: str | None
+    created_at: datetime
+    resolved_at: datetime | None
+    resolved_by: "User | None"
+    applied_version: int | None
+
+
+@frozen
+class CreatedWorkflowProposal:
+    proposal: WorkflowProposalRecord
+    # False when a retry with the same source_id returned the proposal it already made.
+    created: bool
 
 
 @frozen

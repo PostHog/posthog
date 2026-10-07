@@ -84,6 +84,12 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             # Terminal statuses are final. A run cancelled out of band must not be resurrected to
             # completed/failed by its own workflow finishing afterward, which would both lie in the
             # audit trail and undo the cancellation. Re-checked here while holding the row lock.
+            if old_status in _TERMINAL_STATUSES and input.status == TaskRun.Status.IN_PROGRESS:
+                raise ApplicationError(
+                    f"TaskRun {input.run_id} is already {old_status}; refusing to start it",
+                    non_retryable=True,
+                    type="TaskRunAlreadyTerminalError",
+                )
             if old_status in _TERMINAL_STATUSES and input.status != old_status:
                 log_with_activity_context(
                     "Skipping terminal status overwrite",

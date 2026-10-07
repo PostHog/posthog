@@ -393,6 +393,7 @@ POSTGRES_PASSTHROUGH_FUNCTIONS: frozenset[str] = frozenset(
         "row_number",
         "rank",
         "dense_rank",
+        "grouping",
         "lag",
         "lead",
         "first_value",

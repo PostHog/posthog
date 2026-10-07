@@ -310,7 +310,16 @@ function formatNumericBreakdownLabel(
         return BREAKDOWN_NULL_DISPLAY
     }
 
-    if (formatPropertyValueForDisplay) {
+    const breakdownType = (
+        typeof multipleBreakdownIndex === 'number'
+            ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]?.type
+            : breakdownFilter?.breakdown_type
+    ) as string | undefined
+
+    // Element breakdown values (tag_name, text, href) have no matching property definition — the type
+    // falls back to Event, so a same-named DateTime/Duration event property would otherwise reformat
+    // a numeric-looking element value into a date or duration.
+    if (formatPropertyValueForDisplay && breakdownType !== 'element') {
         const nestedBreakdown =
             typeof multipleBreakdownIndex === 'number'
                 ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]
@@ -521,6 +530,7 @@ export const INSIGHT_TYPE_URLS: Record<InsightType | string, string> = {
     [InsightType.PATHS]: urls.insightNew({ type: InsightType.PATHS }),
     [InsightType.JOURNEYS]: urls.insightNew({ type: InsightType.JOURNEYS }),
     [InsightType.WEB_ANALYTICS]: urls.insightNew({ type: InsightType.WEB_ANALYTICS }),
+    [InsightType.METRICS]: urls.insightNew({ type: InsightType.METRICS }),
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
     SQL: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery)['query'] }),

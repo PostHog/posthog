@@ -3249,7 +3249,12 @@ async fn settled_sources_stay_out_of_the_resolution_query() {
         .merge_persons(Request::new(rpc_request(
             h.ctx.team_id,
             "resq-target",
-            &["resq-source", "anonymous", &oversized],
+            &[
+                "resq-source",
+                "anonymous",
+                "$posthog_cookieless",
+                &oversized,
+            ],
             Uuid::now_v7(),
         )))
         .await
@@ -3261,6 +3266,10 @@ async fn settled_sources_stay_out_of_the_resolution_query() {
         vec![
             ("resq-source".to_string(), MergeSourceOutcome::Merged),
             ("anonymous".to_string(), MergeSourceOutcome::SkippedIllegal),
+            (
+                "$posthog_cookieless".to_string(),
+                MergeSourceOutcome::SkippedIllegal
+            ),
             (oversized.clone(), MergeSourceOutcome::SkippedIllegal),
         ]
     );
@@ -3277,7 +3286,9 @@ async fn settled_sources_stay_out_of_the_resolution_query() {
         "the live pair still resolves"
     );
     assert!(
-        !resolved.contains(&"anonymous".to_string()) && !resolved.contains(&oversized),
+        !resolved.contains(&"anonymous".to_string())
+            && !resolved.contains(&"$posthog_cookieless".to_string())
+            && !resolved.contains(&oversized),
         "settled sources must not reach the resolution query: {resolved:?}"
     );
 
