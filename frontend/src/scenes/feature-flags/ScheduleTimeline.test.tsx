@@ -208,6 +208,7 @@ describe('ScheduleTimeline', () => {
 
         expect(container.querySelector('svg')).toBeInTheDocument()
         expect(screen.queryByText(/^Next:/)).not.toBeInTheDocument()
+        expect(screen.getByText(/^The line shows/)).toBeInTheDocument()
     })
 
     it('dashes the jump of an approval-blocked step, and not the level before it', () => {
@@ -248,7 +249,7 @@ describe('ScheduleTimeline', () => {
         render(
             <ScheduleTimeline
                 occurrences={[
-                    occurrence(),
+                    occurrence({ projected: { active: true, rolloutPercentage: null, variantCount: null } }),
                     occurrence({
                         timestamp: '2099-08-28T10:22:00Z',
                         operation: ScheduledChangeOperationType.AddReleaseCondition,
@@ -262,6 +263,7 @@ describe('ScheduleTimeline', () => {
 
         expect(screen.getByText('Condition')).toBeInTheDocument()
         expect(screen.queryByText('0 variants')).not.toBeInTheDocument()
+        expect(screen.getByText(/^No rollout line is shown/)).toBeInTheDocument()
     })
 
     it('exposes the plan and a focus stop for a user without a mouse', () => {

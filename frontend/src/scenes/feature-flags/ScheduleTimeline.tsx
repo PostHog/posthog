@@ -401,9 +401,9 @@ export function ScheduleTimeline({
                 </svg>
             </div>
             <p className="text-xs text-muted m-0">
-                The line shows how much of your audience the flag reaches. It does not count conditions that target
-                specific users, or conditions set to a different audience type, because their reach depends on how many
-                match them.
+                {stepSegments.length > 0
+                    ? 'The line shows how much of your audience the flag reaches. It does not count conditions that target specific users, or conditions set to a different audience type, because their reach depends on how many match them.'
+                    : 'No rollout line is shown because every condition targets specific users or a different audience type. Their reach depends on how many match them.'}
             </p>
         </div>
     )
