@@ -26,10 +26,10 @@ export interface destinationsLogicValues {
     currentTeamId: number | null // teamLogic
     addedDestinationIds: string[]
     attachedDestinationIds: string[]
-    canSave: boolean
     destinations: ExternalDataDestinationApi[]
     destinationsLoading: boolean
     hasUnsavedChanges: boolean
+    saveDisabledReason: string | null
     savedDestinationIds: string[]
     savedDestinationIdsLoading: boolean
     sourceSchemas: ExternalDataSourceSchema[]
@@ -118,7 +118,7 @@ export interface destinationsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         hasUnsavedChanges: (attachedDestinationIds: string[], savedDestinationIds: string[]) => boolean
-        canSave: (attachedDestinationIds: string[], hasUnsavedChanges: boolean) => boolean
+        saveDisabledReason: (attachedDestinationIds: string[], hasUnsavedChanges: boolean) => string | null
         addedDestinationIds: (attachedDestinationIds: string[], savedDestinationIds: string[]) => string[]
         syncedSchemas: (sourceSchemas: ExternalDataSourceSchema[]) => ExternalDataSourceSchema[]
     }
@@ -206,9 +206,16 @@ export const destinationsLogic = kea<destinationsLogicType>([
             (attached: string[], saved: string[]): boolean =>
                 attached.length !== saved.length || attached.some((id: string) => !saved.includes(id)),
         ],
-        canSave: [
+        // The API rejects an empty set, so the toggles stay free and this button is what holds the
+        // rule. That way the warehouse can go off before another destination goes on.
+        saveDisabledReason: [
             (s) => [s.attachedDestinationIds, s.hasUnsavedChanges],
-            (attached: string[], hasUnsavedChanges: boolean): boolean => hasUnsavedChanges && attached.length > 0,
+            (attached: string[], hasUnsavedChanges: boolean): string | null => {
+                if (attached.length === 0) {
+                    return 'Pick at least one destination'
+                }
+                return hasUnsavedChanges ? null : 'No changes to save'
+            },
         ],
         // A destination added now holds none of the history already synced, so these are the ones
         // that make a resync necessary. Removing one never does.
