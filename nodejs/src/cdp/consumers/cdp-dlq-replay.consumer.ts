@@ -35,6 +35,8 @@ const counterReplayInvocations = new Counter({
     help: 'An invocation was rebuilt and queued by the replay worker',
 })
 
+const TEAM_MISSING = 'team_missing'
+
 /** The group is fixed, so its committed offsets are what stop a record being replayed twice. */
 const REPLAY_GROUP_ID = 'cdp-dlq-replay'
 
@@ -51,9 +53,13 @@ const REPLAY_GROUP_ID = 'cdp-dlq-replay'
  */
 class ReplayFailureCollector implements InvocationFailureSink {
     public failures: InvocationBuildFailure[] = []
+    public failedEvents = new Set<HogFunctionInvocationGlobals>()
 
-    public recordBuildFailures(_globals: HogFunctionInvocationGlobals, failures: InvocationBuildFailure[]): void {
+    public recordBuildFailures(globals: HogFunctionInvocationGlobals, failures: InvocationBuildFailure[]): void {
         this.failures.push(...failures)
+        if (failures.length) {
+            this.failedEvents.add(globals)
+        }
     }
 
     public recordProcessFailure(): boolean {
@@ -62,6 +68,7 @@ class ReplayFailureCollector implements InvocationFailureSink {
 
     public clear(): void {
         this.failures = []
+        this.failedEvents = new Set()
     }
 }
 
@@ -194,8 +201,13 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
 
         const resolved = await Promise.all(selected.map(({ message }) => this.toGlobals(message)))
 
+        let teamMissing = 0
         for (const [index, { message, record }] of selected.entries()) {
             const globals = resolved[index]
+            if (globals === TEAM_MISSING) {
+                teamMissing += 1
+                continue
+            }
             if (!globals) {
                 throw new Error(
                     `Could not rebuild an event from ${message.topic}:${message.partition}:${message.offset} — ` +
@@ -229,6 +241,10 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
                 globalsList.push(globals)
             }
             this.counts.replayed += 1
+        }
+
+        if (teamMissing) {
+            counterReplayRecords.labels({ outcome: 'unreplayable' }).inc(teamMissing)
         }
 
         await this.groupsManager.addGroupsToGlobalsList(globalsList)
@@ -283,6 +299,21 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
             this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
         }
 
+        // A disabled, quota-limited or masked source is correctly not delivered, and the offset still
+        // commits. Counting those events keeps a drained topic from reading as "everything was sent".
+        const queuedEvents = new Set([
+            ...hogInvocations.map((invocation) => `${invocation.teamId}:${invocation.state.globals.event.uuid}`),
+            ...hogflowInvocations.map((invocation) => `${invocation.teamId}:${invocation.state?.event?.uuid}`),
+        ])
+        const filteredOut = globalsList.filter(
+            (globals) =>
+                !this.buildFailures.failedEvents.has(globals) &&
+                !queuedEvents.has(`${globals.project.id}:${globals.event.uuid}`)
+        ).length
+        if (filteredOut) {
+            counterReplayRecords.labels({ outcome: 'filtered_out' }).inc(filteredOut)
+        }
+
         this.counts.queued += hogInvocations.length + hogflowInvocations.length
         // Records and invocations are different things: one record can rebuild several invocations
         // or none. Counting invocations under a record-shaped label made every outcome rate wrong.
@@ -308,16 +339,19 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
      *
      * Errors are not caught. The caller turns a null into a thrown batch, and anything thrown here
      * reaches the same place, because the worker blocks on a record it cannot replay rather than
-     * committing past it.
+     * committing past it. A team that no longer exists is the exception: no fix brings its events
+     * back, so the caller counts the record and moves on.
      */
-    private async toGlobals(message: Message): Promise<HogFunctionInvocationGlobals | null> {
+    private async toGlobals(message: Message): Promise<HogFunctionInvocationGlobals | typeof TEAM_MISSING | null> {
         const event = readParkedEvent(message)
         if (!event) {
             return null
         }
+        // getTeam throws when the lookup fails, so null means the team is gone and so is any chance
+        // of delivering its events.
         const team = await this.deps.teamManager.getTeam(event.team_id)
         if (!team) {
-            return null
+            return TEAM_MISSING
         }
         const globals = convertToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL)
         const person = await this.personsManager.getCyclotronPerson(event.team_id, event.distinct_id, 'distinct_id', {

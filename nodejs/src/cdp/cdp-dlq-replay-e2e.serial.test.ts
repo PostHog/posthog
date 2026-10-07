@@ -4,6 +4,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { randomUUID } from 'crypto'
 import { Message } from 'node-rdkafka'
+import { register } from 'prom-client'
 
 import { KAFKA_CDP_EVENTS_DLQ, KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
 import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
@@ -638,5 +639,78 @@ describe('CDP dead-letter replay', () => {
         await expect(replayConsumer.replayBatch(records)).resolves.toBeUndefined()
         const queued = replayQueue.queueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
         expect(queued).toEqual([])
+    })
+
+    const replayedRecords = async (outcome: string): Promise<number> => {
+        const metric = await register.getSingleMetric('cdp_dlq_replay_records_total')!.get()
+        return metric.values.find((value) => value.labels.outcome === outcome)?.value ?? 0
+    }
+
+    it('skips a record whose team no longer exists instead of blocking on it', async () => {
+        // No fix brings a deleted team back, so blocking would wedge the worker until someone moved
+        // the offset by hand.
+        const fn = await insertHogFunction(hub.postgres, team.id, {
+            ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+            type: 'destination',
+            inputs_schema: [{ key: 'url', type: 'string', label: 'Webhook URL', required: true }],
+            inputs: BROKEN_INPUTS,
+        })
+
+        const sourceQueue = createMockJobQueue()
+        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
+        const [parked] = await parkEvent()
+        await repairInputs(fn)
+        const orphaned = {
+            ...parked,
+            value: Buffer.from(JSON.stringify({ ...parseJSON(parked.value!.toString()), team_id: 999_999 })),
+        }
+
+        const replayQueue = createMockJobQueue()
+        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+            hogQueue: replayQueue,
+            hogflowQueue: replayQueue,
+        })
+        const before = await replayedRecords('unreplayable')
+
+        await expect(replayConsumer.replayBatch([orphaned])).resolves.toBeUndefined()
+
+        const queued = replayQueue.queueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
+        expect(queued).toEqual([])
+        expect((await replayedRecords('unreplayable')) - before).toBe(1)
+    })
+
+    it('counts an event whose named destination was turned off before the replay', async () => {
+        // The offset commits either way. Without this count a drained topic reads as all delivered.
+        const fn = await insertHogFunction(hub.postgres, team.id, {
+            ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+            type: 'destination',
+            inputs_schema: [{ key: 'url', type: 'string', label: 'Webhook URL', required: true }],
+            inputs: BROKEN_INPUTS,
+        })
+
+        const sourceQueue = createMockJobQueue()
+        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
+        const records = await parkEvent()
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_hogfunction SET enabled = false WHERE id = $1`,
+            [fn.id],
+            'disable-hog-function'
+        )
+
+        const replayQueue = createMockJobQueue()
+        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+            hogQueue: replayQueue,
+            hogflowQueue: replayQueue,
+        })
+        const before = await replayedRecords('filtered_out')
+
+        await replayConsumer.replayBatch(records)
+
+        const queued = replayQueue.queueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
+        expect(queued).toEqual([])
+        expect((await replayedRecords('filtered_out')) - before).toBe(1)
     })
 })
