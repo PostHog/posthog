@@ -74,7 +74,8 @@ describe('HogFunctionHandler', () => {
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-            new RecipientsManagerService(hub.postgres)
+            new RecipientsManagerService(hub.postgres),
+            { report: jest.fn() }
         )
         mockHogFunctionExecutor = new HogExecutorAsyncService(
             new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
@@ -345,17 +346,23 @@ describe('HogFunctionHandler', () => {
         )
     })
 
-    it('should check recipient preferences before execution', async () => {
+    it.each([false, true])('should check recipient preferences before execution with isTest %s', async (isTest) => {
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queue: 'hog',
             queuePriority: 0,
         })
 
-        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+        await hogFunctionHandler.execute({
+            invocation,
+            action,
+            result: invocationResult,
+            hogExecutorOptions: { isTest },
+        })
 
         const callArgs = (mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mock.calls[0]
         expect(callArgs[0]).toBeTruthy()
         expect(callArgs[1]).toBe(action)
+        expect(callArgs[2]).toBe(isTest)
     })
 
     it('should pass proper inputs to buildHogFunctionInvocation', async () => {

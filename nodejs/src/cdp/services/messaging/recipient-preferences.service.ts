@@ -3,6 +3,7 @@ import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocationHogFunction } from '../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
+import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { EmailSuppressionService } from './email-suppression.service'
 
 type MessageFunctionActionType = 'function_email' | 'function_sms' | 'function_push'
@@ -32,15 +33,25 @@ const extractEmailsFromAddressList = (value: unknown): string[] => {
 export class RecipientPreferencesService {
     constructor(
         private recipientsManager: RecipientsManagerService,
-        private emailSuppressionService: EmailSuppressionService
+        private emailSuppressionService: EmailSuppressionService,
+        private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>
     ) {}
 
     public async shouldSkipAction(
         invocation: CyclotronJobInvocationHogFunction,
-        action: HogFlowAction
+        action: HogFlowAction,
+        isTest = false
     ): Promise<RecipientSkipReason | null> {
         if (!this.isSubjectToRecipientPreferences(action)) {
             return null
+        }
+
+        if (action.type === 'function_email' && !this.recipientIdentifier(invocation, action) && !isTest) {
+            void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send failed', {
+                reason: 'missing_recipient',
+                channel: 'email',
+                workflow_id: invocation.functionId,
+            })
         }
 
         // Suppression is a deliverability signal, not a messaging preference: an address that can't
@@ -98,24 +109,29 @@ export class RecipientPreferencesService {
         return ['function_email', 'function_sms', 'function_push'].includes(action.type)
     }
 
+    private recipientIdentifier(
+        invocation: CyclotronJobInvocationHogFunction,
+        action: MessageAction
+    ): string | undefined {
+        if (action.type === 'function_sms') {
+            return invocation.state.globals.inputs?.to_number
+        }
+        if (action.type === 'function_email') {
+            return invocation.state.globals.inputs?.email?.to?.email
+        }
+        // Push has no email/phone "to" field. Delivery reads the device token from the invocation's
+        // person (globals.person.properties), so key the opt-out on that same person's distinct_id —
+        // not the configurable inputs.distinctId or the triggering event — so the recipient we check
+        // is always the recipient we deliver to. Fall back to the event distinct_id when the person
+        // has no resolved one.
+        return invocation.state.globals.person?.distinct_id ?? invocation.state.globals.event?.distinct_id
+    }
+
     private async isRecipientOptedOutOfAction(
         invocation: CyclotronJobInvocationHogFunction,
         action: MessageAction
     ): Promise<boolean> {
-        let identifier
-
-        if (action.type === 'function_sms') {
-            identifier = invocation.state.globals.inputs?.to_number
-        } else if (action.type === 'function_email') {
-            identifier = invocation.state.globals.inputs?.email?.to?.email
-        } else if (action.type === 'function_push') {
-            // Push has no email/phone "to" field. Delivery reads the device token from the invocation's
-            // person (globals.person.properties), so key the opt-out on that same person's distinct_id —
-            // not the configurable inputs.distinctId or the triggering event — so the recipient we check
-            // is always the recipient we deliver to. Fall back to the event distinct_id when the person
-            // has no resolved one.
-            identifier = invocation.state.globals.person?.distinct_id ?? invocation.state.globals.event?.distinct_id
-        }
+        const identifier = this.recipientIdentifier(invocation, action)
 
         if (!identifier) {
             throw new Error(

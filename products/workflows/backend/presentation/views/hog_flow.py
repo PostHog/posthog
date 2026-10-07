@@ -41,7 +41,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.schema import ProductKey
+from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
@@ -85,6 +85,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.models import Team, User
 from posthog.models.integration import Integration
+from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
@@ -4701,6 +4702,18 @@ class HogFlowViewSet(
                 "actions_count": len(serializer.instance.actions or []),
             },
         )
+        self._register_workflows_product_intent()
+
+    def _register_workflows_product_intent(self) -> None:
+        try:
+            ProductIntent.register(
+                team=self.team,
+                product_type=ProductKey.WORKFLOWS,
+                context=ProductIntentContext.WORKFLOW_CREATED,
+                user=cast(User, self.request.user),
+            )
+        except Exception as e:
+            logger.warning("Failed to register workflows product intent", error=str(e))
 
     def perform_update(self, serializer):
         # Guardrails for MCP/LLM callers (gated on x-posthog-client: mcp; the frontend and raw API are

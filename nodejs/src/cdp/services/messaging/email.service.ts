@@ -19,11 +19,13 @@ import { logger } from '~/common/utils/logger'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService } from './email-suppression.service'
 import {
     addTrackingToEmail,
+    isWorkflowSend,
     resolveEmailEngagementDistinctId,
     resolveEmailSendingVersion,
 } from './email-tracking.service'
@@ -88,6 +90,13 @@ export class SESThrottleError extends Error {
         this.name = 'SESThrottleError'
         this.errorCode = errorCode
         this.retryAfterMs = retryAfterMs
+    }
+}
+
+class UnverifiedEmailDomainError extends Error {
+    constructor() {
+        super('The selected email integration domain is not verified')
+        this.name = 'UnverifiedEmailDomainError'
     }
 }
 
@@ -350,6 +359,7 @@ export class EmailService {
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
         private recipientsManager: RecipientsManagerService,
+        private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
         private teamEmailRateLimiter: RateLimiterService | null = null
@@ -633,6 +643,13 @@ export class EmailService {
                 addLog('error', error.message)
                 result.error = error.message
                 result.finished = true
+                if (error instanceof UnverifiedEmailDomainError && isWorkflowSend(invocation) && !isTest) {
+                    void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send failed', {
+                        reason: 'unverified_domain',
+                        channel: 'email',
+                        workflow_id: invocation.functionId,
+                    })
+                }
             }
         }
 
@@ -934,7 +951,7 @@ export class EmailService {
         addLog: ReturnType<typeof createAddLogFunction>
     ): { email: string; name: string } {
         if (!integration.config.verified) {
-            throw new Error('The selected email integration domain is not verified')
+            throw new UnverifiedEmailDomainError()
         }
 
         if (!integration.config.email || !integration.config.name) {

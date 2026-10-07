@@ -22,6 +22,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
+import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import {
     METRIC_NAME_TO_EVENT_NAME,
     PIXEL_GIF,
@@ -332,15 +333,18 @@ describe('EmailTrackingService', () => {
             // The route enforces a real SNS signature; verifying it needs AWS's private key, so we
             // stub the check and let a posted SNS envelope flow through the real handler + service.
             let verifySignatureSpy: jest.SpyInstance
+            let reportSpy: jest.SpyInstance
 
             beforeEach(() => {
                 verifySignatureSpy = jest
                     .spyOn(SesWebhookHandler.prototype as any, 'verifySnsSignature')
                     .mockResolvedValue(true)
+                reportSpy = jest.spyOn(WorkflowsActivationReporter.prototype, 'report')
             })
 
             afterEach(() => {
                 verifySignatureSpy.mockRestore()
+                reportSpy.mockRestore()
             })
 
             const postBounce = async ({
@@ -463,6 +467,59 @@ describe('EmailTrackingService', () => {
                         metrics.filter((m) => m.value.app_source === 'hog_flow').map((m) => m.value.metric_name)
                     ).toEqual(['email_bounced', 'email_bounced_hard'])
                 })
+            })
+
+            const senderFunctionId = async (
+                sender: 'workflow' | 'deleted workflow' | 'hog function'
+            ): Promise<string> => {
+                if (sender === 'workflow') {
+                    return (await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build()))
+                        .id
+                }
+                return sender === 'deleted workflow' ? '0190f0c4-0000-7000-8000-000000000220' : hogFunction.id
+            }
+
+            it.each([
+                ['reports a delivered workflow message', 'workflow', 1, true],
+                ['reports a message delivered after its workflow was deleted', 'deleted workflow', 1, true],
+                ['does not report a delivered hog function message', 'hog function', undefined, false],
+            ] as const)('%s as a workflows activation step', async (_name, sender, workflowVersion, reported) => {
+                const functionId = await senderFunctionId(sender)
+                const trackingCode = signer.generate({ functionId, id: invocationId, teamId: team.id, workflowVersion })
+                const sesRecord = {
+                    eventType: 'Delivery',
+                    mail: {
+                        timestamp: '2024-01-01T00:00:00.000Z',
+                        source: 'sender@posthog.com',
+                        messageId: 'ses-message-id',
+                        destination: ['user@example.com'],
+                        headers: [{ name: TRACKING_CODE_HEADER_NAME, value: trackingCode }],
+                    },
+                    delivery: { timestamp: '2024-01-01T00:00:01.000Z', recipients: ['user@example.com'] },
+                }
+
+                const res = await supertest(app)
+                    .post('/public/m/ses_webhook')
+                    .set('Content-Type', 'text/plain')
+                    .send(
+                        JSON.stringify({
+                            Type: 'Notification',
+                            MessageId: 'sns-message-id',
+                            TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
+                            Message: JSON.stringify(sesRecord),
+                            Timestamp: '2024-01-01T00:00:01.000Z',
+                            SignatureVersion: '1',
+                            Signature: 'stubbed',
+                            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+                        })
+                    )
+
+                expect(res.status).toBe(200)
+                expect(reportSpy.mock.calls).toEqual(
+                    reported
+                        ? [[team.id, 'workflows message delivered', { channel: 'email', workflow_id: functionId }]]
+                        : []
+                )
             })
 
             it('keys the log entry under parentRunId for batch-triggered runs', async () => {

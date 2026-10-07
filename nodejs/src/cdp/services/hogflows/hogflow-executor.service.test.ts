@@ -98,7 +98,8 @@ describe('Hogflow Executor', () => {
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             emailSuppressionService,
-            new RecipientsManagerService(hub.postgres)
+            new RecipientsManagerService(hub.postgres),
+            { report: jest.fn() }
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const hogExecutor = new HogExecutorAsyncService(
@@ -130,7 +131,11 @@ describe('Hogflow Executor', () => {
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         hogFlowFunctionsService = new HogFlowFunctionsService(hub.SITE_URL, hogFunctionTemplateManager, hogExecutor)
         const recipientsManager = new RecipientsManagerService(hub.postgres)
-        const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
+        const recipientPreferencesService = new RecipientPreferencesService(
+            recipientsManager,
+            emailSuppressionService,
+            { report: jest.fn() }
+        )
         // Stubbed to always allow: this suite covers executor routing and flow control,
         // not MX validation (email-validation.service.test.ts does), and the real
         // service would fire live DNS lookups for the fixture recipients here.

@@ -5,6 +5,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { QuotaLimiting } from '../../../common/services/quota-limiting.service'
 import { CyclotronJobInvocationHogFlow } from '../../types'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
+import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 
 export const counterHogFlowQuotaLimited = new Counter({
     name: 'cdp_hog_flow_quota_limited',
@@ -14,6 +15,7 @@ export const counterHogFlowQuotaLimited = new Counter({
 
 export interface HogFlowQuotaLimitResult {
     isLimited: boolean
+    limitedBy?: 'workflow_emails' | 'workflow_destinations_dispatched'
 }
 
 /**
@@ -41,7 +43,7 @@ export async function checkHogFlowQuotaLimits(
 
     // Check if any billable action type is quota limited
     if (isEmailQuotaLimited && billableActionTypes.includes('function_email')) {
-        return { isLimited: true }
+        return { isLimited: true, limitedBy: 'workflow_emails' }
     }
 
     // Push sends bill as destinations for now, so they fall under the destination quota
@@ -49,7 +51,7 @@ export async function checkHogFlowQuotaLimits(
         isDestinationQuotaLimited &&
         (billableActionTypes.includes('function') || billableActionTypes.includes('function_push'))
     ) {
-        return { isLimited: true }
+        return { isLimited: true, limitedBy: 'workflow_destinations_dispatched' }
     }
 
     return { isLimited: false }
@@ -58,6 +60,7 @@ export async function checkHogFlowQuotaLimits(
 export interface HogFlowQuotaLimitingContext {
     quotaLimiting: QuotaLimiting
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>
 }
 
 /**
@@ -84,6 +87,13 @@ export async function shouldBlockHogFlowDueToQuota(
             },
             'hog_flow'
         )
+        if (quotaLimitResult.limitedBy === 'workflow_emails') {
+            void context.workflowsActivationReporter.report(item.teamId, 'workflows send blocked', {
+                reason: 'quota_limited',
+                channel: 'email',
+                workflow_id: item.functionId,
+            })
+        }
         return true
     }
 

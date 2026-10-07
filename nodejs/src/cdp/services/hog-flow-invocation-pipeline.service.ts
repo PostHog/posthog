@@ -25,6 +25,7 @@ import { shouldBlockHogFlowDueToQuota } from './hogflows/hogflow-quota-limiting'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
 import { HogWatcherService, HogWatcherState, sameWatcherStates } from './monitoring/hog-watcher.service'
+import { WorkflowsActivationReporter } from './monitoring/workflows-activation-reporter'
 
 export interface HogFlowInvocationPipelineConfig {
     CDP_RATE_LIMITER_BUCKET_SIZE: number
@@ -39,6 +40,7 @@ export interface HogFlowInvocationPipelineDeps {
     hogWatcherMirror: HogWatcherService
     hogMasker: HogMaskerService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>
     quotaLimiting: QuotaLimiting
     redis: RedisV2
     valkeyShadow: CdpValkeyShadowPools
@@ -196,6 +198,7 @@ export class HogFlowInvocationPipeline {
                 const isQuotaLimited = await shouldBlockHogFlowDueToQuota(item, {
                     quotaLimiting: this.deps.quotaLimiting,
                     hogFunctionMonitoringService: this.deps.hogFunctionMonitoringService,
+                    workflowsActivationReporter: this.deps.workflowsActivationReporter,
                 })
 
                 if (isQuotaLimited) {

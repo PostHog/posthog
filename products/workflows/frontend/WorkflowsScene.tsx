@@ -6,7 +6,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { addProductIntent } from 'lib/utils/product-intents'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -14,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import { EmailSuspensionBanner } from './EmailSuspensionBanner'
@@ -152,13 +151,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                             >
                                 <LemonButton
                                     data-attr="new-workflow"
-                                    onClick={() => {
-                                        void addProductIntent({
-                                            product_type: ProductKey.WORKFLOWS,
-                                            intent_context: ProductIntentContext.WORKFLOW_CREATED,
-                                        })
-                                        startNewWorkflow()
-                                    }}
+                                    onClick={() => startNewWorkflow()}
                                     type="primary"
                                     size="small"
                                 >
