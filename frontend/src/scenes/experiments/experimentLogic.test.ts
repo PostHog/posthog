@@ -1392,12 +1392,7 @@ describe('experimentLogic', () => {
                             kind: NodeKind.ExperimentMetric,
                             metric_type: ExperimentMetricType.MEAN,
                             source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                            breakdownFilter: {
-                                breakdowns: [
-                                    { property: '$browser', type: 'event' },
-                                    { property: '$os', type: 'event' },
-                                ],
-                            },
+                            breakdownFilter: { breakdowns: [browserBreakdown, osBreakdown] },
                         },
                         created_at: '2024-01-01T00:00:00Z',
                     } satisfies ExperimentSavedMetric,
@@ -1514,12 +1509,7 @@ describe('experimentLogic', () => {
                             kind: NodeKind.ExperimentMetric,
                             metric_type: ExperimentMetricType.MEAN,
                             source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                            breakdownFilter: {
-                                breakdowns: [
-                                    { property: '$browser', type: 'event' },
-                                    { property: '$os', type: 'event' },
-                                ],
-                            },
+                            breakdownFilter: { breakdowns: [browserBreakdown, osBreakdown] },
                         },
                         created_at: '2024-01-01T00:00:00Z',
                     } satisfies ExperimentSavedMetric,

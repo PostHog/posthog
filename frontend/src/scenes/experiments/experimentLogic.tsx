@@ -282,6 +282,31 @@ export function getSectionMetricUuids(experiment: Experiment, isSecondary: boole
     return [...inlineMetrics.map((metric) => metric.uuid), ...sharedMetrics.map(({ query }) => query?.uuid)]
 }
 
+function isPrimaryMetric(experiment: Experiment, uuid: string): boolean {
+    const sharedMetric = ((experiment.saved_metrics || []) as ExperimentSavedMetric[]).find(
+        ({ query }) => query.uuid === uuid
+    )
+    return sharedMetric ? sharedMetric.metadata.type === 'primary' : experiment.metrics.some((m) => m.uuid === uuid)
+}
+
+/**
+ * kea-loaders turns a rejected loader into a failure action, so awaiting `asyncActions.updateExperiment()` does
+ * not throw. Call this right after dispatching `updateExperiment`: it awaits the queued request of that dispatch
+ * and returns whether the save succeeded. The loader still owns error reporting and conflict recovery.
+ */
+async function inflightUpdateSaved(cache: Record<string, any>): Promise<boolean> {
+    const updatePromise: Promise<Experiment> | undefined = cache.inflightUpdate?.promise
+    if (!updatePromise) {
+        return false
+    }
+    try {
+        await updatePromise
+        return true
+    } catch {
+        return false
+    }
+}
+
 // Max concurrent metric queries to avoid overwhelming the celery queue's
 // per-team concurrency limit (10). Using runWithLimit instead of Promise.all
 // prevents mass rejections and retry churn when experiments have many metrics.
@@ -2657,16 +2682,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error(error.detail || 'Failed to reset experiment')
             }
         },
-        updateExperimentFailure: () => {
-            // kea-loaders turns a rejected save into this action, so `await asyncActions.updateExperiment()`
-            // resolves after a failed save too. A caller reads this flag after the await to learn the outcome,
-            // and skips a results reload that would compute a config the server did not save. The flag holds
-            // the outcome of the save that resolved last, which is the awaited one: the next queued save
-            // resolves only after its own request returns.
-            cache.experimentUpdateFailed = true
-        },
         updateExperimentSuccess: async ({ experimentUpdate, payload }) => {
-            cache.experimentUpdateFailed = false
             if (experimentUpdate) {
                 actions.updateExperiments(experimentUpdate)
                 if (payload?.update_feature_flag_params && experimentUpdate.feature_flag) {
@@ -3357,14 +3373,13 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateMetricBreakdown: async ({ uuid, breakdown }) => {
-            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
-            // Check if this is a shared metric by looking in saved_metrics
-            const sharedMetric = savedMetrics.find(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
-            const isPrimary = sharedMetric
-                ? sharedMetric.metadata.type === 'primary'
-                : values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = isPrimaryMetric(values.experiment, uuid)
 
             actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
+
+            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
+            // Check if this is a shared metric by looking in saved_metrics
+            const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
 
             const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
                 metrics: values.experiment.metrics,
@@ -3373,16 +3388,16 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             // Only include saved_metrics_ids if we modified a shared metric
-            if (sharedMetric) {
+            if (isSharedMetric) {
                 updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
                     id: saved_metric,
                     metadata,
                 }))
             }
 
+            actions.updateExperiment(updatePayload)
             // The reload reads a shared metric's effective_query, which only the save response carries.
-            await asyncActions.updateExperiment(updatePayload)
-            if (cache.experimentUpdateFailed) {
+            if (!(await inflightUpdateSaved(cache))) {
                 return
             }
 
@@ -3398,14 +3413,13 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         removeMetricBreakdown: async ({ uuid, index, breakdown }) => {
-            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
-            // Check if this is a shared metric by looking in saved_metrics
-            const sharedMetric = savedMetrics.find(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
-            const isPrimary = sharedMetric
-                ? sharedMetric.metadata.type === 'primary'
-                : values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = isPrimaryMetric(values.experiment, uuid)
 
             actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
+
+            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
+            // Check if this is a shared metric by looking in saved_metrics
+            const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
 
             const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
                 metrics: values.experiment.metrics,
@@ -3414,16 +3428,16 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             // Only include saved_metrics_ids if we modified a shared metric
-            if (sharedMetric) {
+            if (isSharedMetric) {
                 updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
                     id: saved_metric,
                     metadata,
                 }))
             }
 
+            actions.updateExperiment(updatePayload)
             // The reload reads a shared metric's effective_query, which only the save response carries.
-            await asyncActions.updateExperiment(updatePayload)
-            if (cache.experimentUpdateFailed) {
+            if (!(await inflightUpdateSaved(cache))) {
                 return
             }
 
@@ -3463,17 +3477,15 @@ export const experimentLogic = kea<experimentLogicType>([
             /**
              * guard against failed persist calling recalculations by awaiting the experiment save
              */
-            await asyncActions.updateExperiment(updatePayload)
-            if (cache.experimentUpdateFailed) {
+            actions.updateExperiment(updatePayload)
+            if (!(await inflightUpdateSaved(cache))) {
                 return
             }
 
             /**
              * figure out if it's a primary metric
              */
-            const isPrimary = sharedMetric
-                ? sharedMetric.metadata.type === 'primary'
-                : values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = isPrimaryMetric(values.experiment, uuid)
 
             /**
              * updating a breakdown limit triggers a recalculation.
@@ -3511,17 +3523,15 @@ export const experimentLogic = kea<experimentLogicType>([
             /**
              * guard against failed persist calling recalculations by awaiting the experiment save
              */
-            await asyncActions.updateExperiment(updatePayload)
-            if (cache.experimentUpdateFailed) {
+            actions.updateExperiment(updatePayload)
+            if (!(await inflightUpdateSaved(cache))) {
                 return
             }
 
             /**
              * find if the updated metris is primary
              */
-            const isPrimary = sharedMetric
-                ? sharedMetric.metadata.type === 'primary'
-                : values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = isPrimaryMetric(values.experiment, uuid)
             /**
              * updating a breakdown limit triggers a recalculation.
              */

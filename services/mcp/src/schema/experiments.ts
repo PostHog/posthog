@@ -245,14 +245,21 @@ function toMetricSummary(
 }
 
 /**
- * The effective definition of a shared metric for a PostHog server that does not serve
- * `effective_query`, such as an older self-hosted instance: the saved query with the per-experiment
- * overrides from the link metadata applied. It copies the rules of `resolve_saved_metric_definition`
- * in products/experiments/backend/metric_resolution.py as those servers run them. A server that
- * serves `effective_query` never reaches this function, so a later change to the backend rules does
- * not need a change here.
+ * The effective definition of a shared metric on one experiment, so that the tool queries the metric
+ * the experiment page shows. The API applies the per-experiment overrides from the link metadata to
+ * the saved query and serves the result as `effective_query`. The field is null for a legacy shared
+ * metric, which takes no overrides.
+ *
+ * A PostHog server that predates the field, such as an older self-hosted instance, omits it. For that
+ * server this function applies the overrides itself. It copies the rules of
+ * `resolve_saved_metric_definition` in products/experiments/backend/metric_resolution.py as those
+ * servers run them. A server that serves `effective_query` never reaches that code, so a later change
+ * to the backend rules does not need a change here.
  */
-function resolveSharedMetricForOlderServer({ query, metadata }: SavedMetricAttachment): unknown {
+function sharedMetricDefinition({ query, metadata, effective_query }: SavedMetricAttachment): unknown {
+    if (effective_query !== undefined) {
+        return effective_query ?? query
+    }
     if (query === null || typeof query !== 'object' || Array.isArray(query)) {
         return query
     }
@@ -296,13 +303,7 @@ export function buildMetricEntries(experiment: Experiment, slot: 'primary' | 'se
     const entries: ResolvedMetricEntry[] = [
         ...inline.map((metric) => ({ metric: metric as unknown, summary: toMetricSummary(metric, 'inline') })),
         ...shared.map((sm) => ({
-            // The API applies the link overrides and serves the result as `effective_query`, so the tool
-            // queries the metric the experiment page shows. It is null for a legacy shared metric, which
-            // takes no overrides, and absent on a PostHog server that predates the field.
-            metric:
-                sm.effective_query === undefined
-                    ? resolveSharedMetricForOlderServer(sm)
-                    : (sm.effective_query ?? sm.query),
+            metric: sharedMetricDefinition(sm),
             summary: toMetricSummary(sm.query, 'shared', {
                 id: typeof sm.saved_metric === 'number' ? sm.saved_metric : null,
                 name: typeof sm.name === 'string' ? sm.name : null,

@@ -112,6 +112,7 @@ describe('transformExperimentResults', () => {
     })
 
     it('treats inline and shared metrics as one ordered surface and tags the source on each', () => {
+        const sharedQuery = { uuid: 'shared-1', name: 'Shared query', metric_type: 'funnel', goal: 'increase' }
         const experiment = makeExperiment({
             metrics: [],
             metrics_secondary: [{ uuid: 'inline-1', name: 'Inline secondary', metric_type: 'mean' }],
@@ -120,13 +121,8 @@ describe('transformExperimentResults', () => {
                     saved_metric: 42,
                     name: 'Shared secondary',
                     metadata: { type: 'secondary' },
-                    query: { uuid: 'shared-1', name: 'Shared query', metric_type: 'funnel', goal: 'increase' },
-                    effective_query: {
-                        uuid: 'shared-1',
-                        name: 'Shared query',
-                        metric_type: 'funnel',
-                        goal: 'increase',
-                    },
+                    query: sharedQuery,
+                    effective_query: sharedQuery,
                 },
             ],
             secondary_metrics_ordered_uuids: ['inline-1', 'shared-1'],
@@ -162,12 +158,7 @@ describe('transformExperimentResults', () => {
         )
         // The link keeps its query and metadata, without the effective_query that repeats them.
         expect(result.experiment.saved_metrics).toEqual([
-            {
-                saved_metric: 42,
-                name: 'Shared secondary',
-                metadata: { type: 'secondary' },
-                query: { uuid: 'shared-1', name: 'Shared query', metric_type: 'funnel', goal: 'increase' },
-            },
+            { saved_metric: 42, name: 'Shared secondary', metadata: { type: 'secondary' }, query: sharedQuery },
         ])
     })
 
