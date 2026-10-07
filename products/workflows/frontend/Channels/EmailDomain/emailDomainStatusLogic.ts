@@ -279,8 +279,13 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
                 actions.stopPolling()
                 return
             }
-            const delay = elapsed < POLL_FAST_WINDOW_MS ? POLL_FAST_MS : POLL_SLOW_MS
             cache.disposables.add(() => {
+                const elapsed = Date.now() - (values.pollingStartedAt ?? Date.now())
+                if (elapsed >= POLL_MAX_MS) {
+                    actions.stopPolling()
+                    return () => undefined
+                }
+                const delay = elapsed < POLL_FAST_WINDOW_MS ? POLL_FAST_MS : POLL_SLOW_MS
                 const timer = window.setTimeout(() => actions.loadStatus(), delay)
                 return () => clearTimeout(timer)
             }, 'poll')
