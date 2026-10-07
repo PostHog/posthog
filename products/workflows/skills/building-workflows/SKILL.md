@@ -1,6 +1,6 @@
 ---
 name: building-workflows
-description: 'Build, edit, test, enable, and monitor PostHog workflows over MCP. Author the action/edge graph so it runs and opens cleanly in the visual editor, then change drafts surgically with patch operations. Use when asked to build, set up, automate, change, fix, or debug a workflow, campaign, broadcast, drip sequence, or event-triggered automation in the workflows product.'
+description: 'Build, edit, test, enable, and monitor PostHog workflows over MCP. Author the action/edge graph so it runs and opens cleanly in the visual editor, then change drafts surgically with patch operations. Use when asked to build, set up, automate, change, fix, or debug a workflow, campaign, broadcast, drip sequence, application-triggered transactional email, or event-triggered automation in the workflows product.'
 ---
 
 # Building workflows
@@ -8,6 +8,10 @@ description: 'Build, edit, test, enable, and monitor PostHog workflows over MCP.
 A PostHog **workflow** is a directed graph: a list of **action nodes** (`actions`) wired by **edges** (`edges`), with exactly one `trigger` node that starts every run. You author that graph as JSON and ship it over MCP. Always call it a "workflow" to the user. "Hog flow" is the internal code name (`HogFlow`), not a user-facing term.
 
 The single biggest failure mode is **getting the graph JSON structurally wrong**. The backend stores `actions`/`config` as loose JSON, but the visual editor parses every node against a strict schema, so a malformed node saves but then **breaks the editor view** for the whole workflow. Before composing or editing any graph, read [references/graph-schema.md](references/graph-schema.md). It is the contract; do not improvise node shapes from these examples alone.
+
+## Application-triggered transactional email
+
+Workflows support backend-triggered transactional email, such as a receipt or an application notification, as well as marketing campaigns. Use an authenticated webhook and an explicit event-property recipient rather than relying on a person-profile email. Read [references/transactional-email.md](references/transactional-email.md) for the backend-authorized graph, policy boundaries, and verification steps. Compose the email with the `designing-email-templates` skill.
 
 ## The lifecycle
 
@@ -102,7 +106,7 @@ Event trigger, wait 1 day, send email, exit. Note: exactly one `trigger`, every 
           "email": {
             "value": {
               "to": { "email": "{person.properties.email}", "name": "" },
-              "from": { "email": "hi@example.com", "name": "Example" }
+              "from": { "integrationId": 123, "name": "Example" }
             }
           }
         }

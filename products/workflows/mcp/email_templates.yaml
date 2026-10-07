@@ -22,7 +22,10 @@ tools:
         enrich_url: '{id}'
         title: Create email template
         description: >
-            Save an email template to the workflows library. Provide name and content.email with subject, a plain-text
+            Save a marketing or transactional email template to the workflows library; saving does not send email.
+            For application-triggered transactional email, use the building-workflows skill for the authenticated backend
+            webhook and explicit recipient mapping. The function_email action owns recipient, verified sender, and
+            message_category_type; the library template owns content. Provide name and content.email with subject, a plain-text
             fallback, and design (design JSON for PostHog's visual email editor — schema in the
             designing-email-templates skill); the sent email is compiled from the design JSON. Liquid personalization
             works throughout — Liquid tags, apostrophes, and emoji are ordinary JSON characters, so pass the design

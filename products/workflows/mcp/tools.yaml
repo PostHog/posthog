@@ -49,15 +49,19 @@ tools:
         enrich_url: '{id}/workflow'
         title: Create workflow
         description: >
-            Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run
+            Create a workflow for automation, marketing, or application-triggered transactional email. For backend
+            transactional sends, read the building-workflows skill's transactional-email reference: use an authenticated
+            webhook, map request.body.recipient_email into event properties, use Liquid event.properties.recipient_email
+            as the recipient, and a verified sender integrationId. Public capture keys do not authorize arbitrary-recipient
+            sends. It is created as a draft and does NOT run until enabled: test it with workflows-test-run
             first, then enable (workflows-enable) only with the user's explicit approval — from then on it runs on real
             people, and further content edits stage as a draft you must publish (workflows-publish) to take effect.
             Provide an actions array with exactly one type='trigger' (config.type:
             event|webhook|manual|batch|schedule|tracking_pixel) plus action nodes
             (function/function_email/function_sms/function_push, delay, conditional_branch, wait_until_condition, ...)
             connected by edges. A webhook or manual trigger also needs config.template_id set to the literal
-            'template-source-webhook', and a tracking_pixel trigger needs 'template-source-webhook-pixel'; without it
-            the create is rejected with 'Template not found' against the trigger node. Read the building-workflows skill
+            'template-source-webhook', and a tracking_pixel trigger needs 'template-source-webhook-pixel'. The backend
+            infers these fixed literals when omitted; supply them explicitly and never substitute a destination template. Read the building-workflows skill
             for node shapes before composing: a node that mismatches the per-type schema saves but breaks the visual
             editor. Two traps that save but break: (1) a conditional_branch condition needs a 'filters' wrapper —
             {filters:{properties:[...]}}, not {properties:[...]} on the condition; omitting it passes save but the

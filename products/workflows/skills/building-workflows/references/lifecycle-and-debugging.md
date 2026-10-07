@@ -49,3 +49,9 @@ The MCP tools for the workflows product, grouped by job. The lifecycle that stri
 - `workflows-patch-email-template` — **the way to edit an existing template's design.** Id-addressed ops over the Unlayer blocks, applied atomically; same shape as `workflows-patch-graph`. Use for any change to an existing design.
 - `workflows-update-email-template` — full-replace, last resort (see `workflows-update` vs `workflows-patch-graph`).
 - `workflows-list-email-templates`, `workflows-get-email-template` / `workflows-show-email-template` — list and read.
+
+## Transactional webhook verification
+
+Use [transactional-email.md](transactional-email.md) to configure the backend-authorized trigger and recipient mapping. Keep async functions mocked during test runs. Test globals start at `event.properties.recipient_email`; they do not exercise `request.body` mapping or Authorization checks.
+
+A mock email result proves the rendered path only. A successful webhook response proves trigger acceptance and queueing, not provider acceptance or delivery. Inspect the invocation and logs for the send outcome, then delivery/bounce events when available. Provider acceptance still does not prove inbox delivery. The webhook has no caller-supplied idempotency contract or guaranteed retry protocol; an ambiguous response must not prompt blind retries.
