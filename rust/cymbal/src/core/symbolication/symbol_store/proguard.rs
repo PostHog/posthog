@@ -72,6 +72,9 @@ impl FetchedMapping {
         let mut cache_bytes = Vec::new();
         proguard::ProguardCache::write(&mapping, &mut cache_bytes)
             .map_err(|_| ProguardError::InvalidMapping)?;
+        // The writer grows the Vec by doubling, so capacity can be up to twice the length.
+        // The cache counts `len()`, so drop the spare capacity to keep the count accurate.
+        cache_bytes.shrink_to_fit();
         proguard::ProguardCache::parse(&cache_bytes).map_err(|_| ProguardError::InvalidMapping)?;
 
         Ok(Self { cache_bytes })

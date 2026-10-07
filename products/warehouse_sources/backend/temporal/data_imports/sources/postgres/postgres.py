@@ -97,6 +97,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    client_side_deadline,
+    deadline_cursor_factory,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import XminUnsupportedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables import (
     build_partition_query,
@@ -123,6 +127,14 @@ SYSTEM_POSTGRES_SCHEMAS = ["information_schema", "pg_catalog", "pg_toast"]
 SYNC_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
 
 METADATA_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
+
+# Client-side limit on each statement of the setup phase, which runs before the first row is read.
+# It sits one minute above the server limit, so it acts only when the server limit did not. See
+# `client_deadline` for the cases where that happens.
+SETUP_STATEMENT_CLIENT_DEADLINE_SECONDS = METADATA_STATEMENT_TIMEOUT_MS / 1000 + 60
+# `EXPLAIN` only plans the query, so one that is still running after this long waits on a lock or on
+# a server that stopped answering. The plan goes to a debug log line and nothing else needs it.
+EXPLAIN_CLIENT_DEADLINE_SECONDS = 60
 
 # Rows the row-size probe aims to measure. Enough for a stable p95 and a meaningful widest row,
 # few enough that `octet_length(t::text)` — which de-toasts every value — stays cheap on a table
@@ -2448,6 +2460,16 @@ def _column_is_not_null(table: Table[PostgreSQLColumn], column_name: str) -> boo
     return any(is_not_null(column.nullable) for column in table.columns if column.name == column_name)
 
 
+def _is_uuid_column(table: Table[PostgreSQLColumn], column_name: str) -> bool:
+    """Whether a keyset checkpoint can hold `column_name` as a uuid.
+
+    The Arrow type of a uuid column is string, which a checkpoint refuses because the order of text
+    depends on a collation. Postgres compares uuid values byte by byte, with no collation. The value
+    goes into the checkpoint as text, and Postgres reads that text back as the same uuid.
+    """
+    return any(column.data_type.lower() == "uuid" for column in table.columns if column.name == column_name)
+
+
 def _build_keyset_query(
     schema: str,
     table_name: str,
@@ -2566,7 +2588,8 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
         # Debug-only, best-effort: EXPLAIN may use syntax the source rejects (e.g. TABLESAMPLE
         # on CockroachDB), so swallow failures.
         query_with_explain = sql.SQL("EXPLAIN {}").format(query)
-        cursor.execute(query_with_explain)
+        with client_side_deadline(cursor.connection, EXPLAIN_CLIENT_DEADLINE_SECONDS):
+            cursor.execute(query_with_explain)
         rows = cursor.fetchall()
         explain_result: str = ""
         # Build up a single string of the EXPLAIN output
@@ -2827,7 +2850,11 @@ def resolve_postgres_keyset(
         # Were it reached, the SELECT would omit the key and the seek would fail looking it up in the
         # cursor description, so fall back to the server cursor rather than crash the read.
         return PostgresKeyset(reason=f"primary_key_not_projected:{missing[0]}")
-    unorderable = [key for key in primary_keys if not is_orderable_keyset_type(arrow_schema.field(key).type)]
+    unorderable = [
+        key
+        for key in primary_keys
+        if not is_orderable_keyset_type(arrow_schema.field(key).type) and not _is_uuid_column(full_table, key)
+    ]
     if unorderable:
         # Seeking in-process on this key stays fine: one connection, one collation, one process. What
         # it cannot do is survive the trip through Redis, where the ordering assumption would have to
@@ -3618,6 +3645,7 @@ def postgres_source(
             # read-replica recovery conflict on a slow COUNT(*), or syntax the source rejects like
             # TABLESAMPLE on CockroachDB — can't poison the rest. Replaces the per-probe savepoints.
             conn.autocommit = True
+            conn.cursor_factory = deadline_cursor_factory(SETUP_STATEMENT_CLIENT_DEADLINE_SECONDS)
             return conn
 
         # A hot-standby recovery conflict ("conflict with recovery") cancels or terminates the probe

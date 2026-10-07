@@ -167,7 +167,7 @@ class CreateExportAssetsInputs:
     delivery_id: typing.Optional[uuid.UUID] = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CreateExportAssetsResult:
     """Small metadata envelope for create_export_assets.
 
@@ -183,6 +183,7 @@ class CreateExportAssetsResult:
     target_type: str = ""
     available_insight_count: int = 0
     selected_insight_count: int = 0
+    insight_limit: int = 0
     status: str = ExportAssetPreparationStatus.READY
     failure_context: NoExportableInsightsContext | None = None
 

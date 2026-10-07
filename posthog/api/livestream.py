@@ -10,6 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.auth import refuse_blocked_account
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
@@ -43,6 +44,8 @@ class LivestreamAuthentication(ActivityCredentialMixin, BaseAuthentication):
             )
         except (jwt.PyJWTError, KeyError, TypeError, ValueError, User.DoesNotExist, Team.DoesNotExist):
             raise AuthenticationFailed("Invalid live stream token.")
+        # The livestream service re-checks every stream here, so a blocked account's 7-day token stops working.
+        refuse_blocked_account(request, user, call_site="livestream", impersonated=False)
         self.record_activity_actor(user)
         return user, team
 

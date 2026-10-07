@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -86,3 +87,9 @@ class TestLivestreamAuthorization(APIBaseTest):
         self.assertEqual(
             self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization).status_code, 401
         )
+
+    def test_refuses_an_account_an_access_rule_blocks(self) -> None:
+        with patch("posthog.auth.security_access_refused", return_value=True):
+            response = self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=f"Bearer {self._token()}")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["code"], "access_blocked")
