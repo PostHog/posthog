@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     IncrementalFieldMissingFromDataError,
+    PostLoadResult,
     get_incremental_field_value,
     notify_revenue_analytics_that_sync_has_completed,
     run_post_load_operations,
@@ -59,11 +60,14 @@ def _make_schema(
     return schema
 
 
-def _make_helper(*, file_uris: list[str] | None = None, live_row_count: int | None = None) -> MagicMock:
+def _make_helper(
+    *, file_uris: list[str] | None = None, live_row_count: int | None = None, live_size_mib: float | None = None
+) -> MagicMock:
     return MagicMock(
         get_delta_table=AsyncMock(return_value=MagicMock()),
         get_file_uris=AsyncMock(return_value=file_uris or []),
         get_live_row_count=AsyncMock(return_value=live_row_count),
+        get_live_size_mib=AsyncMock(return_value=live_size_mib),
     )
 
 
@@ -75,7 +79,9 @@ async def _run_post_load(
     resource: Optional[MagicMock] = None,
     stored_sync_type_config: dict | None = None,
     validate: AsyncMock | None = None,
+    register_companion: AsyncMock | None = None,
     row_count: int = 10,
+    results: list[PostLoadResult] | None = None,
 ) -> tuple[AsyncMock, AsyncMock]:
     job = MagicMock()
     job.id = uuid.uuid4()
@@ -95,10 +101,10 @@ async def _run_post_load(
         patch.object(DeltaMaintenance, "run_scheduled", run_scheduled),
         patch(f"{_PIPELINE_SYNC_MODULE}.update_last_synced_at", AsyncMock()),
         patch(f"{_PIPELINE_SYNC_MODULE}.validate_schema_and_update_table", validate or AsyncMock()),
-        patch(f"{_PIPELINE_SYNC_MODULE}.register_cdc_companion_table", AsyncMock()),
+        patch(f"{_PIPELINE_SYNC_MODULE}.register_cdc_companion_table", register_companion or AsyncMock()),
         patch(f"{_REPARTITION_MODULE}.maybe_flag_for_repartition", AsyncMock()),
     ):
-        await run_post_load_operations(
+        result = await run_post_load_operations(
             job=job,
             schema=schema,
             source=MagicMock(),
@@ -110,6 +116,8 @@ async def _run_post_load(
             resource=resource,
             cdc_write_mode=cdc_write_mode,
         )
+    if results is not None:
+        results.append(result)
     return run_scheduled, prepare_s3
 
 
@@ -183,6 +191,57 @@ class TestRegisterTableRowCount:
         validate.assert_awaited_once()
         assert validate.await_args is not None
         assert validate.await_args.kwargs["live_row_count"] == expected
+
+
+class TestPostLoadTableSize:
+    @parameterized.expand(
+        [
+            ("size_from_the_log", False, None, 12.5, True),
+            ("empty_table", False, None, 0.0, True),
+            # The post-import workflow must still measure a table whose log gave no size.
+            ("no_size_from_the_log", False, None, None, False),
+            ("cdc_main_table", True, "incremental_merge", 12.5, True),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_registers_the_log_size_and_reports_whether_it_was_written(
+        self, _name: str, is_cdc: bool, cdc_write_mode: str | None, live_size_mib: float | None, expect_written: bool
+    ) -> None:
+        schema = _make_schema(is_cdc=is_cdc)
+        validate = AsyncMock()
+        results: list[PostLoadResult] = []
+
+        await _run_post_load(
+            schema,
+            _make_helper(live_size_mib=live_size_mib),
+            cdc_write_mode=cdc_write_mode,
+            validate=validate,
+            results=results,
+        )
+
+        assert validate.await_args is not None
+        assert validate.await_args.kwargs["live_size_mib"] == live_size_mib
+        assert results == [PostLoadResult(queryable_folder="orders__query_1", table_size_written=expect_written)]
+
+    @pytest.mark.asyncio
+    async def test_a_companion_write_sizes_the_companion_and_not_the_main_table(self) -> None:
+        # The companion is a different Delta table. Its size on the main table would replace the
+        # size of the snapshot data.
+        schema = _make_schema(is_cdc=True, cdc_table_mode="both")
+        validate = AsyncMock()
+        register_companion = AsyncMock()
+
+        await _run_post_load(
+            schema,
+            _make_helper(live_size_mib=3.0),
+            cdc_write_mode="scd2_append",
+            validate=validate,
+            register_companion=register_companion,
+        )
+
+        validate.assert_not_awaited()
+        assert register_companion.await_args is not None
+        assert register_companion.await_args.kwargs["live_size_mib"] == 3.0
 
 
 _STEP_PHASES = [
@@ -354,7 +413,7 @@ class TestZeroRowRunFinalizesBookkeeping:
                 logger=logger,
             )
 
-        assert result is None
+        assert result == PostLoadResult(queryable_folder=None, table_size_written=False)
         set_complete.assert_awaited_once()
         synced.assert_awaited_once()
 

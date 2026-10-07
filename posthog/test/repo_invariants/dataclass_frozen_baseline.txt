@@ -83,7 +83,6 @@
 1 products/apm/backend/logic/anomaly_detection/types.py
 1 products/apm/backend/logic/anomaly_detection/validation/simulation.py
 1 products/approvals/backend/decorators.py
-1 products/batch_exports/backend/presentation/views/batch_export.py
 1 products/batch_exports/backend/presentation/views/destination_tests/base.py
 1 products/batch_exports/backend/debug/debugger.py
 1 products/batch_exports/backend/temporal/destinations/azure_blob_batch_export.py

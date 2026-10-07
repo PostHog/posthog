@@ -605,6 +605,7 @@ interface OrganizationMetadata {
 }
 
 export interface OrganizationType extends OrganizationBasicType {
+    membership_joined_at?: string | null
     created_at: string
     updated_at: string
     plugins_access_level: PluginsAccessLevel
@@ -3170,6 +3171,7 @@ export enum InsightType {
     SQL = 'SQL',
     HOG = 'HOG',
     WEB_ANALYTICS = 'WEB_ANALYTICS',
+    METRICS = 'METRICS',
 }
 
 export enum PathType {
@@ -3774,6 +3776,17 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     tileFiltersOverride?: TileFilters | null
     /** The tab of the scene if the insight is a full scene insight */
     tabId?: string | null
+    /**
+     * The project the insight comes from, when a page shows insights from several projects. Its
+     * charts then show that project's annotations, read-only, in that project's time zone.
+     */
+    sourceProject?: InsightSourceProject
+}
+
+export interface InsightSourceProject {
+    id: number
+    /** Unknown until the page has loaded the project, and the chart uses the current project's time zone until then. */
+    timezone?: string
 }
 
 export interface SetInsightOptions {

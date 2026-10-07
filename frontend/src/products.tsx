@@ -2365,7 +2365,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Relationships', href: urls.dataCatalog('relationships') },
             { name: 'Certifications', href: urls.dataCatalog('certifications') },
         ],
-        tags: ['beta'],
         sceneKey: 'DataCatalog',
         sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
     },
