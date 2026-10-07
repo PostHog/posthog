@@ -25,6 +25,8 @@ from posthog.schema import (
     SessionTableVersion,
 )
 
+from posthog.hogql.database.database import Database
+
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import uuid7
@@ -509,6 +511,7 @@ class TestMarketingSearchConversionBudget(BaseTest):
                 "products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner.execute_hogql_query",
                 return_value=HogQLQueryResponse(results=[]),
             ) as execute_attribution,
+            patch.object(Database, "create_for", wraps=Database.create_for) as create_database,
         ):
             result = MarketingAnalyticsSearchQueryRunner(
                 query=MarketingAnalyticsSearchQuery(
@@ -522,6 +525,7 @@ class TestMarketingSearchConversionBudget(BaseTest):
                 user=self.user,
             ).calculate()
         assert execute_attribution.call_count == expected_count * 2
+        assert create_database.call_count == 1
         assert result.posthogConversionGoals is not None
         assert [goal.id for goal in result.posthogConversionGoals] == [
             f"goal-{index}" for index in range(1, expected_count + 1)

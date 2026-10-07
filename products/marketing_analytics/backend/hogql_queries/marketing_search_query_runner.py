@@ -317,6 +317,8 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                     limit_context=self.limit_context,
                 )
                 runner.search_keys = keys
+                # Share one HogQL database across goals and periods, so the request pays Database.create_for once.
+                runner.__dict__["_shared_hogql_database"] = goal_runner._shared_hogql_database
                 periods.append(
                     {
                         row.breakdownValue: next(
