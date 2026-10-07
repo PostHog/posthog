@@ -301,21 +301,21 @@ function computeAdditionOwners(resolutionByPath, changedFiles, config = CONFIG) 
     return Array.from(owners.values())
 }
 
+// A rename changes the old path too, so a move out of a sensitive directory still counts as a
+// change there. A copy leaves its source as it was.
+function changedPaths(file) {
+    return file.status === 'renamed' && file.previousFilename ? [file.filename, file.previousFilename] : [file.filename]
+}
+
 // A one-line edit to a sensitive path can turn a guard off, so `owners.yaml` marks such paths
-// with `sensitive: true` and their owners are requested whatever the size of the change. A rename
-// also checks the old path, because a move out of a sensitive directory changes that path too. A
-// copy leaves its source as it was, so it does not.
+// with `sensitive: true` and their owners are requested whatever the size of the change.
 // Generated status does not skip a sensitive path: a tool writes a ratchet baseline, but one added
 // line in it is a new exemption.
 // Returns one entry per owner with the sensitive paths that pulled it in.
 function computeSensitiveOwners(resolutionByPath, changedFiles, config = CONFIG) {
     const owners = new Map()
     for (const file of changedFiles) {
-        const paths =
-            file.status === 'renamed' && file.previousFilename
-                ? [file.filename, file.previousFilename]
-                : [file.filename]
-        for (const path of paths) {
+        for (const path of changedPaths(file)) {
             const resolution = resolutionByPath[path]
             if (!resolution || !resolution.sensitive || isExcludedFile(path, config.excludedPatterns)) {
                 continue
@@ -332,25 +332,12 @@ function isSubstantive(footprint, config = CONFIG) {
     return footprint.lines >= config.substantiveLines || footprint.fileCount >= config.substantiveFiles
 }
 
-// Split matched owners into those we formally request review from vs those we
-// only mention in the comment. Rules:
-//  - a single matched owner is always requested (never go from 1 owner to 0)
-//  - otherwise only owners with a substantive footprint are requested
-//  - at least one owner (the largest footprint) is always requested
-//  - teams are capped at maxTeamsRequested; the smallest overflow is demoted
-// `othersRequested` turns off the first and the third rule, because a pinned owner
-// already guarantees that somebody reviews.
-function classifyOwners(footprints, config = CONFIG, othersRequested = false) {
-    if (footprints.length === 0) {
-        return { requested: [], demoted: [] }
-    }
+const byFootprintDesc = (a, b) => b.lines - a.lines || b.fileCount - a.fileCount
 
-    const byFootprintDesc = (a, b) => b.lines - a.lines || b.fileCount - a.fileCount
-
-    if (footprints.length === 1 && !othersRequested) {
-        return { requested: [...footprints], demoted: [] }
-    }
-
+// Request only owners with a substantive footprint, and cap teams at maxTeamsRequested:
+// the smallest overflow is demoted. Users are explicit, rare, and intentional, so
+// they're never capped.
+function classifyOwnersBySize(footprints, config = CONFIG) {
     const requested = []
     const demoted = []
     for (const footprint of footprints) {
@@ -361,15 +348,6 @@ function classifyOwners(footprints, config = CONFIG, othersRequested = false) {
         }
     }
 
-    // Guarantee at least one reviewer: promote the largest demoted owner.
-    if (requested.length === 0 && !othersRequested) {
-        demoted.sort(byFootprintDesc)
-        const { reason, ...promoted } = demoted.shift()
-        requested.push(promoted)
-    }
-
-    // Cap teams: keep the largest, demote the rest. Users are explicit, rare,
-    // and intentional, so they're never capped.
     const requestedTeams = requested.filter((f) => f.type === 'team').sort(byFootprintDesc)
     if (requestedTeams.length > config.maxTeamsRequested) {
         const overflow = requestedTeams.slice(config.maxTeamsRequested)
@@ -386,6 +364,23 @@ function classifyOwners(footprints, config = CONFIG, othersRequested = false) {
     return { requested, demoted }
 }
 
+// Split matched owners into those we formally request review from vs those we
+// only mention in the comment. Rules:
+//  - a single matched owner is always requested (never go from 1 owner to 0)
+//  - otherwise the size rules of classifyOwnersBySize apply
+//  - at least one owner (the largest footprint) is always requested
+function classifyOwners(footprints, config = CONFIG) {
+    if (footprints.length <= 1) {
+        return { requested: [...footprints], demoted: [] }
+    }
+    const { requested, demoted } = classifyOwnersBySize(footprints, config)
+    if (requested.length === 0) {
+        const { reason, ...promoted } = demoted.shift()
+        requested.push(promoted)
+    }
+    return { requested, demoted }
+}
+
 // Owners of additions decide whether a new directory belongs where the PR puts it, and
 // owners of a sensitive path must see every change to it, whatever the size of the change.
 // So these pinned owners are always requested, and the footprint rules and the team cap
@@ -398,11 +393,10 @@ function classifyOwnersWithPinned(footprints, pinnedOwners, config = CONFIG) {
             pinned.set(entry.owner, entry)
         }
     }
-    const { requested, demoted } = classifyOwners(
-        footprints.filter((footprint) => !pinned.has(footprint.owner)),
-        config,
-        pinned.size > 0
-    )
+    const others = footprints.filter((footprint) => !pinned.has(footprint.owner))
+    // A pinned owner already guarantees a review, so the other owners only face the size rules.
+    const { requested, demoted } =
+        pinned.size > 0 ? classifyOwnersBySize(others, config) : classifyOwners(others, config)
     return { requested: [...requested, ...pinned.values()], demoted }
 }
 
@@ -705,9 +699,7 @@ async function main() {
 
         // Resolve ownership for the files that actually count (excluded ones can't
         // pull in a reviewer, so don't waste a resolver round-trip on them).
-        const relevantFilenames = changedFiles
-            .flatMap((file) => [file.filename, file.previousFilename])
-            .filter((filename) => filename && !isExcludedFile(filename))
+        const relevantFilenames = changedFiles.flatMap(changedPaths).filter((filename) => !isExcludedFile(filename))
         const resolutionByPath = resolveOwners([...new Set(relevantFilenames)])
 
         const footprints = computeOwnerFootprints(resolutionByPath, changedFiles)
