@@ -1,6 +1,7 @@
 import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
+import { LRUCache } from 'lru-cache'
 import net from 'node:net'
 import { Counter, Gauge, Histogram } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
@@ -72,6 +73,45 @@ const dnsLookupsInFlight = new Gauge({
     name: 'node_dns_lookups_in_flight',
     help: 'Number of dns.lookup() calls currently awaiting a result',
 })
+
+// 'shadow_hit_resolved' counts shadow hits whose lookup then succeeded. Enforce mode would have failed those requests
+// wrongly, so this must stay near zero before a deployment moves from shadow to enforce.
+const dnsNegativeCacheCounter = new Counter({
+    name: 'node_dns_negative_cache_total',
+    help: 'Lookups the DNS negative cache skipped (hit), would have skipped in shadow mode (shadow_hit), or would have skipped although the hostname resolved (shadow_hit_resolved)',
+    labelNames: ['result'],
+})
+
+const DNS_NEGATIVE_CACHE_MODES = ['off', 'shadow', 'enforce'] as const
+type DnsNegativeCacheMode = (typeof DNS_NEGATIVE_CACHE_MODES)[number]
+
+const dnsNegativeCacheMode = requestConfig.EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE as DnsNegativeCacheMode
+if (!DNS_NEGATIVE_CACHE_MODES.includes(dnsNegativeCacheMode)) {
+    throw new Error(
+        `EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE must be one of ${DNS_NEGATIVE_CACHE_MODES.join(', ')}, got '${dnsNegativeCacheMode}'`
+    )
+}
+for (const name of [
+    'EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS',
+    'EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES',
+] as const) {
+    if (!Number.isInteger(requestConfig[name]) || requestConfig[name] < 1) {
+        throw new Error(`${name} must be a positive integer, got ${process.env[name]}`)
+    }
+}
+
+// The key is the hostname, which is customer-supplied and unbounded, so the entry count is capped as well as the age.
+const dnsNegativeCache =
+    dnsNegativeCacheMode === 'off'
+        ? null
+        : new LRUCache<string, true>({
+              max: requestConfig.EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES,
+              ttl: requestConfig.EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS,
+          })
+
+function dnsLookupName(hostname: string): string {
+    return requestConfig.EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP && !hostname.endsWith('.') ? `${hostname}.` : hostname
+}
 
 // NOTE: This isn't exactly fetch - it's meant to be very close but limited to only options we actually want to expose
 export type FetchOptions = {
@@ -224,17 +264,36 @@ function isIPv4(addr: ipaddr.IPv4 | ipaddr.IPv6): addr is ipaddr.IPv4 {
 async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     let addrinfo: LookupAddress[]
     const validAddrinfo: LookupAddress[] = []
+    const cacheKey = hostname.toLowerCase().replace(/\.$/, '')
+    const cachedFailure = dnsNegativeCache?.has(cacheKey) ?? false
+    if (cachedFailure) {
+        if (dnsNegativeCacheMode === 'enforce') {
+            dnsNegativeCacheCounter.inc({ result: 'hit' })
+            throw new ResolutionError('Invalid hostname')
+        }
+        dnsNegativeCacheCounter.inc({ result: 'shadow_hit' })
+    }
     const lookupStartedAt = performance.now()
     dnsLookupsInFlight.inc()
     try {
-        addrinfo = await dns.lookup(hostname, { all: true })
+        addrinfo = await dns.lookup(dnsLookupName(hostname), { all: true })
         dnsLookupDuration.observe({ outcome: 'success' }, performance.now() - lookupStartedAt)
-    } catch {
+    } catch (error) {
         dnsLookupDuration.observe({ outcome: 'failure' }, performance.now() - lookupStartedAt)
+        // A shadow hit does not refresh the entry, because enforce mode would not have run this lookup. The shadow
+        // counts then match what enforce mode would skip.
+        if (!cachedFailure && (error as NodeJS.ErrnoException)?.code === 'ENOTFOUND') {
+            dnsNegativeCache?.set(cacheKey, true)
+        }
         throw new ResolutionError('Invalid hostname')
     } finally {
         dnsLookupsInFlight.dec()
     }
+    if (cachedFailure) {
+        dnsNegativeCacheCounter.inc({ result: 'shadow_hit_resolved' })
+    }
+    // A lookup that started before another one cached the failure can still succeed. The hostname resolves now.
+    dnsNegativeCache?.delete(cacheKey)
     const resolvedIps = addrinfo.map((a) => a.address)
     for (const addrInfo of addrinfo) {
         const parsed = ipaddr.parse(addrInfo.address)
