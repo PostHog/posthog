@@ -38,6 +38,7 @@ function steps(overrides: Partial<LifecycleInput>): ReturnType<typeof pipelineLi
     })
 }
 
+// Each story builds its steps in render, so relative times read the pinned story clock.
 const meta: Meta<typeof LifecycleStrip> = {
     title: 'Products/Autoresearch/Lifecycle strip',
     component: LifecycleStrip,
@@ -47,34 +48,40 @@ export default meta
 type Story = StoryObj<typeof LifecycleStrip>
 
 export const Draft: Story = {
-    args: { steps: steps({}) },
+    render: () => <LifecycleStrip steps={steps({})} />,
 }
 
 export const FirstTrainingRun: Story = {
-    args: {
-        steps: steps({
-            pipeline: { ...NEW_PIPELINE, training_run_count: 1, experiment_count: 3, live_training_run: {} },
-        }),
-    },
+    render: () => (
+        <LifecycleStrip
+            steps={steps({
+                pipeline: { ...NEW_PIPELINE, training_run_count: 1, experiment_count: 3, live_training_run: {} },
+            })}
+        />
+    ),
 }
 
 export const PreliminaryChampion: Story = {
-    args: {
-        steps: steps({
-            pipeline: SCORED_PIPELINE,
-            champion: { is_preliminary: true, promoted_at: '2026-02-27T00:00:00Z' },
-            runs: [scoringRun('2026-03-01')],
-        }),
-    },
+    render: () => (
+        <LifecycleStrip
+            steps={steps({
+                pipeline: SCORED_PIPELINE,
+                champion: { is_preliminary: true, promoted_at: '2026-02-27T00:00:00Z' },
+                runs: [scoringRun('2026-03-01')],
+            })}
+        />
+    ),
 }
 
 export const ValidatedChampion: Story = {
-    args: {
-        steps: steps({
-            pipeline: SCORED_PIPELINE,
-            champion: { is_preliminary: false, promoted_at: '2026-01-10T00:00:00Z' },
-            runs: [scoringRun('2026-02-10'), scoringRun('2026-02-11'), scoringRun('2026-03-01')],
-            validatedDates: ['2026-02-10', '2026-02-11'],
-        }),
-    },
+    render: () => (
+        <LifecycleStrip
+            steps={steps({
+                pipeline: SCORED_PIPELINE,
+                champion: { is_preliminary: false, promoted_at: '2026-01-10T00:00:00Z' },
+                runs: [scoringRun('2026-02-10'), scoringRun('2026-02-11'), scoringRun('2026-03-01')],
+                validatedDates: ['2026-02-10', '2026-02-11'],
+            })}
+        />
+    ),
 }

@@ -38,9 +38,7 @@ export function LifecycleStrip({ steps }: { steps: LifecycleStep[] }): JSX.Eleme
                             >
                                 {step.label}
                             </span>
-                            <span className="text-xs text-secondary truncate" title={step.detail}>
-                                {step.detail}
-                            </span>
+                            <span className="text-xs text-secondary">{step.detail}</span>
                         </div>
                     </li>
                 ))}

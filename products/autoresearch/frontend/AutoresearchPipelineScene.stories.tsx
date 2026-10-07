@@ -60,7 +60,13 @@ const champion = {
     role: 'champion',
     recipe_hash: 'abc123',
     model_recipe: {},
-    model_explanation: null,
+    model_explanation: {
+        method: 'gain on the holdout split',
+        top_features: [
+            { name: 'files_uploaded_7d', importance: 0.42, direction: 'positive' },
+            { name: 'days_since_last_share', importance: 0.31, direction: 'negative' },
+        ],
+    },
     holdout_score: 0.83,
     realized_score: 0.81,
     calibration_error: 0.04,
