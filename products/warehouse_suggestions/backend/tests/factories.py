@@ -1,6 +1,7 @@
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
@@ -28,7 +29,7 @@ def table_subject(table_id: UUID) -> Subject:
     return Subject(kind=WarehouseSuggestionSubjectKind.TABLE, id=table_id)
 
 
-def busy_reads(**overrides: object) -> SubjectReads:
+def busy_reads(**overrides: Any) -> SubjectReads:
     reads = SubjectReads(
         human_requests=200,
         human_users=6,
@@ -46,7 +47,7 @@ def busy_reads(**overrides: object) -> SubjectReads:
     return replace(reads, **overrides)
 
 
-def view(view_id: UUID, name: str = "orders", **overrides: object) -> SavedQueryDefinition:
+def view(view_id: UUID, name: str = "orders", **overrides: Any) -> SavedQueryDefinition:
     definition = SavedQueryDefinition(
         id=view_id,
         name=name,

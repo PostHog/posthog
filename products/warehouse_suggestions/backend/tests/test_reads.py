@@ -1,10 +1,11 @@
+from collections.abc import Mapping
 from datetime import date, timedelta
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionSubjectKind
-from products.warehouse_suggestions.backend.logic.reads import ReadWindow, Subject, read_team_reads
+from products.warehouse_suggestions.backend.logic.reads import ReadWindow, Subject, SubjectReads, read_team_reads
 from products.warehouse_suggestions.backend.logic.rules import RULES, Surface
 from products.warehouse_suggestions.backend.tests.rollup import RollupRead, seed_reads
 
@@ -77,7 +78,7 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
         assert 100 <= view_reads.alone_duration_ms_median <= 300
 
 
-def _classification(subjects: dict, subject_id: UUID) -> tuple[bool, Surface | None]:
+def _classification(subjects: Mapping[Subject, SubjectReads], subject_id: UUID) -> tuple[bool, Surface | None]:
     reads = subjects[Subject(kind=WarehouseSuggestionSubjectKind.SAVED_QUERY, id=subject_id)]
     if reads.human_requests == 0:
         return BACKGROUND, None

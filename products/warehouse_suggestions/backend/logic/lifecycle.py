@@ -1,6 +1,7 @@
 from collections import Counter
 from collections.abc import Collection, Sequence
 from datetime import datetime, time, timedelta
+from uuid import UUID
 
 from django.db.models import F
 
@@ -121,7 +122,7 @@ def _surface(team_id: int, rules: LifecycleRules, now: datetime) -> int:
         ),
         key=lambda row: (first_week and row.kind not in rules.first_week_kinds, -row.score, str(row.id)),
     )
-    chosen = []
+    chosen: list[UUID] = []
     for row in waiting:
         if len(chosen) == slots:
             break
