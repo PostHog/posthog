@@ -29,7 +29,7 @@ export const IMPLEMENTATION_AGENTS: ImplementationAgent[] = [
     {
         key: 'posthog-ai',
         name: 'PostHog',
-        icon: <IconSparkles className="text-ai" />,
+        icon: <IconSparkles className="size-4 shrink-0 text-ai" />,
         open: (prompt) => newInternalTab(urls.ai(undefined, prompt)),
     },
     {
