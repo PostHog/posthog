@@ -860,27 +860,28 @@ def _execute(worktrees: list[Worktree], mode: str, repo_root: Path) -> tuple[flo
                 removed += 1
             continue
 
+        reason = ""
         if wt.registered:
-            # git cannot delete read-only directories, so `_rmtree` finishes what it leaves behind.
-            subprocess.run(
+            result = subprocess.run(
                 ["git", "worktree", "remove", "--force", "--", str(wt.path)],
                 cwd=repo_root,
                 capture_output=True,
                 text=True,
             )
-            # Either path may have removed it; prune any dangling admin entry.
+            reason = result.stderr.strip()
+            # git cannot delete read-only directories, so `_rmtree` below removes what it leaves
+            # behind. Prune the admin entry that can remain in that case.
             need_prune = True
 
-        reason = ""
         try:
             _rmtree(wt.path)
         except FileNotFoundError:
             pass
         except OSError as err:
-            reason = f": {err}"
+            reason = str(err)
 
         if wt.path.exists():
-            click.echo(f"  ⚠️  could not fully remove {_display_path(wt.path)}{reason}")
+            click.echo(f"  ⚠️  could not fully remove {_display_path(wt.path)}: {reason}")
             failed += 1
         else:
             removed += 1
@@ -929,21 +930,29 @@ def _rmtree(path: Path) -> None:
     Go creates its module cache without write permission, and every worktree has
     one in `.flox/cache/go`. `shutil.rmtree` alone cannot delete entries from a
     directory that is not writable.
+
+    Removal continues past an entry that cannot be deleted, so one stuck entry
+    does not keep the rest of the tree on disk. The first such error is raised
+    at the end.
     """
+
+    unresolved: list[BaseException] = []
 
     def make_parent_writable_and_retry(function: Callable[..., object], failed: str, error: BaseException) -> None:
         parent = Path(failed).parent
         # A parent outside `path` is not part of the tree, so its permissions stay as they are.
-        if (
-            not isinstance(error, PermissionError)
-            or function not in (os.unlink, os.rmdir)
-            or not parent.is_relative_to(path)
-        ):
-            raise error
-        parent.chmod(parent.stat().st_mode | stat.S_IRWXU)
-        function(failed)
+        if isinstance(error, PermissionError) and function in (os.unlink, os.rmdir) and parent.is_relative_to(path):
+            try:
+                parent.chmod(parent.stat().st_mode | stat.S_IRWXU)
+                function(failed)
+                return
+            except OSError:
+                pass
+        unresolved.append(error)
 
     shutil.rmtree(path, onexc=make_parent_writable_and_retry)
+    if unresolved:
+        raise unresolved[0]
 
 
 def _delete_paths(paths: Sequence[Path], sizes: dict[str, float]) -> tuple[float, int]:
