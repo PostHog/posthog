@@ -68,8 +68,6 @@ class TestView(BaseTest):
         [
             ("warehouse_table", "aapl_stock_view", "warehouse_table"),
             ("self_managed_table", "aapl_stock_view", "self_managed_table"),
-            # The built-in events table wins the slot over the self-managed one, so it is the table
-            # the view is reported against.
             ("self_managed_table", "events", "posthog_table"),
         ]
     )

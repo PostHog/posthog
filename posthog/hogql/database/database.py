@@ -800,9 +800,6 @@ class Database(BaseModel):
     _warehouse_table_names: list[str] = []
     _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
-    # Origin of each slot of `self.tables`, keyed by the chain of child names that reaches it. Only
-    # a slot the group won is recorded, so a shadowing report names the table that holds the slot
-    # instead of one that lost it as well.
     _table_slot_origins: dict[tuple[str, ...], str] = {}
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
     _connection_id: str | None = None
@@ -1158,7 +1155,6 @@ class Database(BaseModel):
     def _walk_table_slots(
         node: TableNode, path: tuple[str, ...] = ()
     ) -> Iterator[tuple[tuple[str, ...], FieldOrTable]]:
-        """Every slot of `node` that holds a table, as the chain of names `add_child` keys it by."""
         if path and node.table is not None:
             yield path, node.table
         for child in node.children.values():
@@ -1180,12 +1176,6 @@ class Database(BaseModel):
                 self._table_slot_origins[path] = origin
 
     def _count_views_shadowed_by_tables(self, node: TableNode) -> None:
-        """Count the views `merge_with` is about to drop because their slot is already taken.
-
-        Slots are compared, not dotted names: a flat child named `schema.stock` and the nested path
-        `schema` -> `stock` flatten to the same name but occupy different slots, so neither shadows
-        the other.
-        """
         shadowed: dict[str, int] = {}
         for path, _ in self._walk_table_slots(node):
             occupant = self._node_at_slot(path)
@@ -1205,7 +1195,6 @@ class Database(BaseModel):
 
     def _add_views(self, node: TableNode):
         self._count_views_shadowed_by_tables(node)
-        # On a name clash the table added earlier keeps the slot and the view is dropped.
         self.tables.merge_with(node, table_conflict_mode="ignore")
         self._record_table_slot_origins(node, "view")
         for name in sorted(node.resolve_all_table_names()):
