@@ -292,8 +292,8 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
 
     Keyed on the row it came from, so a second run updates rather than duplicates.
 
-    `next_check_at` is copied into a new row, into a disabled copy, and into a copy whose cadence
-    this run changes. Otherwise the platform owns its schedule: a source can park its own next
+    `next_check_at` is copied into a new row, into a disabled copy, into a copy with no schedule
+    yet, and into a copy whose cadence this run changes. Otherwise the platform owns its schedule: a source can park its own next
     check, for example at the end of quiet hours, and copying that would skip checks the platform
     still runs.
 
@@ -309,7 +309,7 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
             PlatformAlertConfiguration.objects.unscoped()
             .select_for_update()
             .filter(legacy_configuration_id=upsert.legacy_configuration_id)
-            .values("enabled", *_CADENCE_FIELDS)
+            .values("enabled", "next_check_at", *_CADENCE_FIELDS)
             .first()
         )
         defaults = {
@@ -329,6 +329,7 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
         if (
             existing is None
             or not existing["enabled"]
+            or existing["next_check_at"] is None
             or any(existing[key] != defaults[key] for key in _CADENCE_FIELDS)
         ):
             defaults["next_check_at"] = upsert.next_check_at

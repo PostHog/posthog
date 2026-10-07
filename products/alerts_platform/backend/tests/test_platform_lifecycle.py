@@ -166,20 +166,31 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         [
             # The source parks its own next check at the end of quiet hours. The platform still
             # checks through them and only mutes, so taking that time would skip the muted checks.
-            ("an_enabled_copy_keeps_its_own_schedule", False, 5, timedelta(minutes=-1)),
+            ("an_enabled_copy_keeps_its_own_schedule", False, 5, timedelta(minutes=-1), timedelta(minutes=-1)),
+            # A copy that has never had a schedule takes the first one the source offers.
+            ("an_unscheduled_copy_takes_the_source_schedule", False, 5, None, timedelta(minutes=34)),
             # A copy switched off with --disable comes back at the source's next due time.
-            ("a_disabled_copy_takes_the_source_schedule", True, 5, timedelta(minutes=34)),
+            ("a_disabled_copy_takes_the_source_schedule", True, 5, timedelta(minutes=-1), timedelta(minutes=34)),
             # A new cadence makes the old due time wrong, so the source's own one is the better guess.
-            ("a_new_cadence_takes_the_source_schedule", False, 60, timedelta(minutes=34)),
+            ("a_new_cadence_takes_the_source_schedule", False, 60, timedelta(minutes=-1), timedelta(minutes=34)),
         ]
     )
     def test_a_second_copy_keeps_the_schedule_the_platform_owns(
-        self, _name: str, disabled_between: bool, interval_on_rerun: int, expected_offset: timedelta
+        self,
+        _name: str,
+        disabled_between: bool,
+        interval_on_rerun: int,
+        first_offset: timedelta | None,
+        expected_offset: timedelta,
     ) -> None:
         legacy_id = uuid4()
         quiet_hours = {"blocked_windows": [{"start": "15:00", "end": "15:34"}]}
 
-        self._copy(legacy_id, schedule_restriction=quiet_hours, next_check_at=self.cutoff - timedelta(minutes=1))
+        self._copy(
+            legacy_id,
+            schedule_restriction=quiet_hours,
+            next_check_at=None if first_offset is None else self.cutoff + first_offset,
+        )
         if disabled_between:
             disable_configurations(SourceKind.LOGS, team_id=self.team.id)
         self._copy(
