@@ -22,6 +22,8 @@ import {
     UserType,
 } from '~/types'
 
+import { dashboardTemplatesList } from 'products/dashboards/frontend/generated/api'
+
 import type { FeatureFlagsSet } from '../../../../lib/logic/featureFlagLogic'
 
 export interface DashboardTemplateProps {
@@ -95,6 +97,7 @@ function listQueryFeaturedKeySegment(p: DashboardTemplatesLogicProps): 'featured
 export interface dashboardTemplatesLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeamId: number | null // teamLogic
+    currentProjectId: number | string // teamLogic
     user: UserType | null // userLogic
     allTemplates: DashboardTemplateType[]
     allTemplatesLoadFailed: boolean
@@ -180,7 +183,14 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
             `${p.scope ?? 'default'}-${listQueryFeaturedKeySegment(p)}${p.templatesTabList ? '-templatesTab' : ''}`
     ),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeamId'], userLogic, ['user']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            teamLogic,
+            ['currentTeamId', 'currentProjectId'],
+            userLogic,
+            ['user'],
+        ],
     })),
     actions({
         setTemplates: (allTemplates: DashboardTemplateType[]) => ({ allTemplates }),
@@ -314,12 +324,14 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                     // organization's. The API has no scope for that pair, so request both and merge. Staff keep the
                     // unscoped list.
                     if (logicProps.templatesTabList && listScope === undefined && !values.isStaffViewer) {
+                        const projectId = String(values.currentProjectId)
                         const [teamPage, organizationPage] = await Promise.all([
-                            api.dashboardTemplates.list({ ...params, scope: 'team' }),
-                            api.dashboardTemplates.list({ ...params, scope: 'organization' }),
+                            dashboardTemplatesList(projectId, { ...params, scope: 'team' }),
+                            dashboardTemplatesList(projectId, { ...params, scope: 'organization' }),
                         ])
                         // A search ranks each page on the server, but the rank is not returned, so team matches come first.
-                        const results = [...teamPage.results, ...organizationPage.results]
+                        // The generated type leaves `tiles` untyped, so cast to the shape the rest of the list uses.
+                        const results = [...teamPage.results, ...organizationPage.results] as DashboardTemplateType[]
                         return useSearch
                             ? results
                             : sortTemplatesTeamScopeBeforeOfficial(results, values.templateNameOrdering)

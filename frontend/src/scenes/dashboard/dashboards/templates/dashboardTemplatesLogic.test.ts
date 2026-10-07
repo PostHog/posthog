@@ -9,6 +9,7 @@ import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { DashboardTemplateListParams, DashboardTemplateType } from '~/types'
 
@@ -149,16 +150,18 @@ describe('dashboardTemplatesLogic', () => {
             tiles: [],
             scope: 'organization',
         } as DashboardTemplateType
-        const listMock = (api.dashboardTemplates.list as jest.Mock).mockImplementation(
-            async (params: DashboardTemplateListParams) => ({
-                results:
-                    params.scope === 'team'
-                        ? [teamTemplate]
-                        : params.scope === 'organization'
-                          ? [organizationTemplate]
-                          : [],
-            })
-        )
+        const requestedScopes: (string | null)[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/dashboard_templates/': ({ request }) => {
+                    const scope = new URL(request.url).searchParams.get('scope')
+                    requestedScopes.push(scope)
+                    const results =
+                        scope === 'team' ? [teamTemplate] : scope === 'organization' ? [organizationTemplate] : []
+                    return [200, { results }]
+                },
+            },
+        })
         const mounted = dashboardTemplatesLogic({ scope: 'default', templatesTabList: true })
         logic = mounted
         mounted.mount()
@@ -167,7 +170,6 @@ describe('dashboardTemplatesLogic', () => {
             .toFinishAllListeners()
             .toMatchValues({ allTemplates: [organizationTemplate, teamTemplate] })
 
-        const requestedScopes = listMock.mock.calls.map(([params]: [DashboardTemplateListParams]) => params.scope)
         expect(new Set(requestedScopes)).toEqual(new Set(['team', 'organization']))
     })
 
