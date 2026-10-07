@@ -52,6 +52,27 @@ class TestAssignmentRuleAPI(APIBaseTest):
         assert rule.bytecode is not None
         assert len(rule.bytecode) > 0
 
+    def test_create_accepts_ordered_numeric_filter_on_undefined_property(self) -> None:
+        # The filter compiles to a toFloat(...) cast, and rule validation checks every called
+        # global against the Rust VM STL snapshot. A stale snapshot rejected the rule with
+        # "Unknown global function: toFloat".
+        filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [{"key": "http_status", "type": "event", "value": "200", "operator": "gt"}],
+                }
+            ],
+        }
+        response = self.client.post(
+            self._url(),
+            data={"filters": filters, "assignee": {"type": "user", "id": self.user.id}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
     def test_create_accepts_order_key_and_ignores_frontend_only_fields(self) -> None:
         response = self.client.post(
             self._url(),
