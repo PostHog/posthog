@@ -76,6 +76,12 @@ describe('warehouseSyncWarnings', () => {
                 warnings: [{ type: 'access_control', message: 'Some objects are hidden.', resources: ['insight'] }],
             }),
             tile(6, null),
+            // Paused an hour ago: the data is still current, so nothing here is out of date.
+            tile(7, {
+                short_id: 'fff' as InsightShortId,
+                name: 'Paused recently',
+                warnings: [{ ...syncWarning('refunds'), status: 'Paused', data_is_current: true }],
+            }),
         ]
 
         const summary = warehouseSyncDashboardSummary(tiles)
@@ -85,7 +91,7 @@ describe('warehouseSyncWarnings', () => {
             { sourceType: 'Hubspot', sourceId: 'source-2' },
         ])
         expect(summary?.insightCount).toEqual(2)
-        expect(warehouseSyncDashboardSummary([tiles[2], tiles[4], tiles[5]])).toBeNull()
+        expect(warehouseSyncDashboardSummary([tiles[2], tiles[4], tiles[5], tiles[6]])).toBeNull()
     })
 
     it('keeps the fingerprint when only the message age changes, and changes it when another table goes out of date', () => {

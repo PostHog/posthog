@@ -597,6 +597,11 @@ export interface DataWarehouseSyncWarning {
     status: string
     /** Human-readable warning shown to the user */
     message: string
+    /**
+     * True when the last sync is still within the table's sync interval, so the data is current and the
+     * warning only says it will stop updating (a sync paused recently). False or absent when the data is out of date.
+     */
+    data_is_current?: boolean
 }
 
 export interface AccessControlFilterWarning {

@@ -506,6 +506,16 @@ export const WarehouseSyncWarning: Story = {
                     status: 'Failed',
                     table_name: 'stripe_invoices',
                 },
+                {
+                    type: 'warehouse_sync',
+                    message:
+                        '`hubspot_deals` (from Hubspot) last synced 3 days ago, more than twice its configured sync interval. Results may be out of date.',
+                    schema_name: 'deals',
+                    source_id: 'source-2',
+                    source_type: 'Hubspot',
+                    status: 'Completed',
+                    table_name: 'hubspot_deals',
+                },
             ],
         } as unknown as InsightModel
 

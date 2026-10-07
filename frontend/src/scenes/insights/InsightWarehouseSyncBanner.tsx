@@ -4,7 +4,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { WarehouseSyncWarningList } from '~/queries/nodes/DataNode/WarehouseSyncWarningList'
-import { warehouseSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
+import { outOfDateSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { InsightLogicProps } from '~/types'
 
@@ -12,7 +12,7 @@ export function InsightWarehouseSyncBanner({ insightProps }: { insightProps: Ins
     const { response, responseLoading } = useValues(
         dataNodeLogic({ key: insightVizDataNodeKey(insightProps) } as DataNodeLogicProps)
     )
-    const syncWarnings = warehouseSyncWarnings(response && 'warnings' in response ? response.warnings : null)
+    const syncWarnings = outOfDateSyncWarnings(response && 'warnings' in response ? response.warnings : null)
     // While a new query runs, the response still belongs to the previous query.
     if (responseLoading || syncWarnings.length === 0) {
         return null

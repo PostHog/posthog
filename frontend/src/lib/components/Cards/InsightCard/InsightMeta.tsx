@@ -57,7 +57,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { queryScanHasActionableFinding } from '~/queries/nodes/DataNode/queryScan'
 import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
 import { WarehouseSyncWarningList } from '~/queries/nodes/DataNode/WarehouseSyncWarningList'
-import { warehouseSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
+import { outOfDateSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
 import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
@@ -280,7 +280,7 @@ export function InsightMeta({
         canEditInsight && queryScan && scanFindings.length > 0 ? (
             <QueryScanTileTooltip summary={queryScan} findings={scanFindings} />
         ) : null
-    const syncWarnings = warehouseSyncWarnings(insight.warnings)
+    const syncWarnings = outOfDateSyncWarnings(insight.warnings)
     const warehouseSyncTooltip =
         syncWarnings.length > 0 ? (
             <div className="flex flex-col gap-1">

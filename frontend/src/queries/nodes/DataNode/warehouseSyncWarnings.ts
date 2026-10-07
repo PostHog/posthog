@@ -34,6 +34,16 @@ export function warehouseSyncWarnings(
     return (warnings ?? []).filter((warning): warning is DataWarehouseSyncWarning => warning.type === 'warehouse_sync')
 }
 
+/**
+ * The sync warnings whose data is behind its sync schedule. A sync paused recently still serves current
+ * data, so a surface that says "out of date" leaves that warning out.
+ */
+export function outOfDateSyncWarnings(
+    warnings: AnalyticsQueryResponseBase['warnings'] | null | undefined
+): DataWarehouseSyncWarning[] {
+    return warehouseSyncWarnings(warnings).filter((warning) => !warning.data_is_current)
+}
+
 /** The out-of-date warehouse sources behind a dashboard's insights, or null when every insight is current. */
 export function warehouseSyncDashboardSummary(tiles: DashboardTile[]): WarehouseSyncDashboardSummary | null {
     const sources = new Map<string, WarehouseSyncDashboardSource>()
@@ -44,7 +54,7 @@ export function warehouseSyncDashboardSummary(tiles: DashboardTile[]): Warehouse
         if (!insight || insight.deleted) {
             continue
         }
-        const warnings = warehouseSyncWarnings(insight.warnings)
+        const warnings = outOfDateSyncWarnings(insight.warnings)
         if (warnings.length === 0) {
             continue
         }
