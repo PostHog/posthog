@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { UserType } from '~/types'
 
+import { withTestEmailRecipient } from '../emailTestSend'
 import type { HogFlowApi } from '../generated/api.schemas'
 import { HogflowTestResult } from '../Workflows/hogflows/steps/types'
 import { createExampleEvent } from '../Workflows/hogflows/testEventFactory'
@@ -163,7 +164,7 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
                     const { broadcast, email, emailSettings, name, previewPerson, recipientEmail, currentTeamId } =
                         values
 
-                    const emailAction: HogFlowAction = {
+                    const broadcastEmailAction: HogFlowAction = {
                         id: TEST_EMAIL_ACTION_ID,
                         type: 'function_email',
                         name: 'Send test email',
@@ -182,19 +183,11 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
                                 ...emailSettings.utmParams,
                             },
                             inputs: {
-                                email: {
-                                    value: {
-                                        ...email,
-                                        // One visible recipient on a test, whatever the broadcast carries.
-                                        cc: '',
-                                        bcc: '',
-                                        to: { email: recipientEmail, name: '' },
-                                    },
-                                    templating: 'liquid',
-                                },
+                                email: { value: email, templating: 'liquid' },
                             },
                         },
                     }
+                    const emailAction = withTestEmailRecipient(broadcastEmailAction, recipientEmail)
 
                     const edges: HogFlowEdge[] = [
                         { from: TRIGGER_NODE_ID, to: TEST_EMAIL_ACTION_ID, type: 'continue' },

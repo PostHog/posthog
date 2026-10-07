@@ -10,6 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { IntegrationType, UserType } from '~/types'
 
+import { withTestEmailRecipient } from '../emailTestSend'
 import { HogflowTestResult } from '../Workflows/hogflows/steps/types'
 import { createExampleEvent } from '../Workflows/hogflows/testEventFactory'
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../Workflows/hogflows/types'
@@ -146,7 +147,7 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
                 sendTestEmail: async (): Promise<HogflowTestResult> => {
                     const { template, recipientEmail, senderIntegrationId, currentTeamId } = values
 
-                    const emailAction: HogFlowAction = {
+                    const templateEmailAction: HogFlowAction = {
                         id: TEST_EMAIL_ACTION_ID,
                         type: 'function_email',
                         name: 'Send test email',
@@ -159,18 +160,14 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
                                 email: {
                                     value: {
                                         ...template.content.email,
-                                        // A test send has exactly one visible recipient - never carry over a
-                                        // cc/bcc that happened to be on the copied source content.
-                                        cc: '',
-                                        bcc: '',
                                         from: { integrationId: senderIntegrationId ?? undefined },
-                                        to: { email: recipientEmail, name: '' },
                                     },
                                     templating: template.content.templating === 'hog' ? 'hog' : 'liquid',
                                 },
                             },
                         },
                     }
+                    const emailAction = withTestEmailRecipient(templateEmailAction, recipientEmail)
 
                     const edges: HogFlowEdge[] = [
                         { from: TRIGGER_NODE_ID, to: TEST_EMAIL_ACTION_ID, type: 'continue' },
