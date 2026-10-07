@@ -45,6 +45,20 @@ def is_managed_alert_internal_event(event_name: object) -> bool:
     )
 
 
+# Alert products whose destinations stay editable through the generic hog functions API. Each of
+# these gates its alert API behind the same project-level write permission that API checks. The
+# other alert products require permissions the hog functions API cannot check, so their
+# destinations are read-only there.
+GENERIC_API_EDITABLE_ALERT_EVENT_PREFIXES = ("$logs_alert_",)
+
+
+def is_generic_api_editable_alert_event(event_name: object) -> bool:
+    """Return whether a managed alert event's destinations may be edited through the generic API."""
+    return is_managed_alert_internal_event(event_name) and str(event_name).startswith(
+        GENERIC_API_EDITABLE_ALERT_EVENT_PREFIXES
+    )
+
+
 @dataclass
 class InternalEventEvent:
     event: str

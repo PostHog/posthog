@@ -89,6 +89,14 @@ def get_db_field_value(field, model_id):
     return cursor.fetchone()[0]
 
 
+def _alert_filters(event_id: str = "$logs_alert_firing", alert_id: str = "alert-1", **overrides: Any) -> dict:
+    return {
+        "events": [{"id": event_id, "type": "events"}],
+        "properties": [{"key": "alert_id", "value": alert_id, "operator": "exact", "type": "event"}],
+        **overrides,
+    }
+
+
 class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
@@ -249,23 +257,21 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         listed_ids = {item["id"] for item in list_response.json()["results"]}
         self.assertIn(function_id, listed_ids)
 
-    def _create_managed_alert_destination(self, event_id: str = "$billing_alert_firing") -> HogFunction:
+    def _create_internal_destination(self, filters: dict, deleted: bool = False) -> HogFunction:
         return HogFunction.objects.create(
             team=self.team,
             name="Alert destination",
             hog="return event",
             type="internal_destination",
             enabled=True,
+            deleted=deleted,
             inputs_schema=[{"key": "channel", "type": "string", "required": True}],
             inputs={"channel": {"value": "#alerts"}},
-            filters={
-                "events": [{"id": event_id, "type": "events"}],
-                "properties": [{"key": "alert_id", "value": "alert-1", "operator": "exact", "type": "event"}],
-            },
+            filters=filters,
         )
 
     def test_generic_api_lists_and_retrieves_managed_alert_destinations(self):
-        managed = self._create_managed_alert_destination()
+        managed = self._create_internal_destination(_alert_filters())
 
         list_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?full=true")
         retrieve_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{managed.id}/")
@@ -275,9 +281,9 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         self.assertIn(str(managed.id), listed_ids)
         self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK, retrieve_response.json())
 
-    @parameterized.expand([("$billing_alert_firing",), ("$logs_alert_incident_opened",)])
-    def test_generic_api_can_edit_a_managed_alert_destination(self, event_id):
-        managed = self._create_managed_alert_destination(event_id)
+    @parameterized.expand([("$logs_alert_firing",), ("$logs_alert_incident_opened",)])
+    def test_generic_api_can_edit_a_logs_alert_destination(self, event_id):
+        managed = self._create_internal_destination(_alert_filters(event_id))
 
         # The editor echoes the stored filters back unchanged alongside the edited fields
         patch_response = self.client.patch(
@@ -296,50 +302,27 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         self.assertFalse(managed.enabled)
         self.assertEqual(managed.inputs["channel"]["value"], "#oncall")
         self.assertEqual(managed.filters["events"], [{"id": event_id, "type": "events"}])
-        self.assertEqual(managed.filters["properties"][0]["value"], "alert-1")
 
     @parameterized.expand(
         [
+            ("another managed event", {"filters": _alert_filters("$logs_alert_resolved")}, "filters"),
+            ("another alert", {"filters": _alert_filters(alert_id="alert-2")}, "filters"),
+            ("no alert id", {"filters": _alert_filters(properties=[])}, "filters"),
             (
-                "another managed event",
+                "another operator",
                 {
-                    "filters": {
-                        "events": [{"id": "$billing_alert_resolved", "type": "events"}],
-                        "properties": [{"key": "alert_id", "value": "alert-1", "operator": "exact", "type": "event"}],
-                    }
+                    "filters": _alert_filters(
+                        properties=[{"key": "alert_id", "value": "alert-1", "operator": "is_not", "type": "event"}]
+                    )
                 },
                 "filters",
             ),
-            (
-                "another alert",
-                {
-                    "filters": {
-                        "events": [{"id": "$billing_alert_firing", "type": "events"}],
-                        "properties": [{"key": "alert_id", "value": "alert-2", "operator": "exact", "type": "event"}],
-                    }
-                },
-                "filters",
-            ),
-            (
-                "no alert id",
-                {"filters": {"events": [{"id": "$billing_alert_firing", "type": "events"}]}},
-                "filters",
-            ),
-            (
-                "no managed event",
-                {
-                    "filters": {
-                        "events": [{"id": "$pageview", "type": "events"}],
-                        "properties": [{"key": "alert_id", "value": "alert-1", "operator": "exact", "type": "event"}],
-                    }
-                },
-                "filters",
-            ),
+            ("no managed event", {"filters": _alert_filters("$pageview")}, "filters"),
             ("soft delete", {"deleted": True}, "deleted"),
         ]
     )
     def test_generic_api_cannot_change_which_alert_owns_a_managed_destination(self, _name, data, attr):
-        managed = self._create_managed_alert_destination()
+        managed = self._create_internal_destination(_alert_filters())
 
         patch_response = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{managed.id}/", data=data)
 
@@ -347,29 +330,57 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         self.assertEqual(patch_response.json()["attr"], attr)
         managed.refresh_from_db()
         self.assertFalse(managed.deleted)
-        self.assertEqual(managed.filters["events"], [{"id": "$billing_alert_firing", "type": "events"}])
+        self.assertEqual({key: managed.filters[key] for key in ("events", "properties")}, _alert_filters())
 
-    def test_generic_api_cannot_turn_a_destination_into_a_managed_alert_destination(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                "name": "Error tracking destination",
-                "hog": "fetch('https://example.com');",
-                "type": "internal_destination",
-                "enabled": True,
-                "filters": {"events": [{"id": "$error_tracking_issue_created", "type": "events"}]},
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+    @parameterized.expand([("$billing_alert_firing",), ("$replay_vision_alert_match",)])
+    def test_generic_api_cannot_edit_another_alert_products_destination(self, event_id):
+        managed = self._create_internal_destination(_alert_filters(event_id))
 
         patch_response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
-            data={
-                "filters": {
-                    "events": [{"id": "$billing_alert_firing", "type": "events"}],
-                    "properties": [{"key": "alert_id", "value": "alert-1", "operator": "exact", "type": "event"}],
-                }
-            },
+            f"/api/projects/{self.team.id}/hog_functions/{managed.id}/",
+            data={"name": "Renamed alert destination", "inputs": {"channel": {"value": "#oncall"}}},
+        )
+
+        self.assertEqual(patch_response.status_code, status.HTTP_400_BAD_REQUEST, patch_response.json())
+        self.assertIn("managed through the alert API", patch_response.json()["detail"])
+        managed.refresh_from_db()
+        self.assertEqual(managed.inputs["channel"]["value"], "#alerts")
+
+    def test_generic_api_cannot_restore_a_managed_alert_destination(self):
+        managed = self._create_internal_destination(_alert_filters(), deleted=True)
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{managed.id}/", data={"deleted": False}
+        )
+
+        self.assertEqual(patch_response.status_code, status.HTTP_400_BAD_REQUEST, patch_response.json())
+        self.assertEqual(patch_response.json()["attr"], "deleted")
+        managed.refresh_from_db()
+        self.assertTrue(managed.deleted)
+
+    def test_generic_api_can_test_invoke_a_managed_alert_destination(self):
+        managed = self._create_internal_destination(_alert_filters())
+        stored = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{managed.id}/").json()
+        configuration = {key: stored[key] for key in ("name", "hog", "inputs_schema", "inputs", "filters")}
+
+        with patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as mock_invocation:
+            mock_invocation.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{managed.id}/invocations/",
+                data={"configuration": configuration},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(mock_invocation.call_args.kwargs["hog_function_id"], str(managed.id))
+
+    def test_generic_api_cannot_turn_a_destination_into_a_managed_alert_destination(self):
+        destination = self._create_internal_destination(
+            {"events": [{"id": "$error_tracking_issue_created", "type": "events"}]}
+        )
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{destination.id}/",
+            data={"filters": _alert_filters()},
         )
 
         self.assertEqual(patch_response.status_code, status.HTTP_400_BAD_REQUEST, patch_response.json())

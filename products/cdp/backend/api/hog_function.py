@@ -28,7 +28,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
 from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES
-from posthog.cdp.internal_events import is_managed_alert_internal_event, is_reserved_internal_event
+from posthog.cdp.internal_events import (
+    is_generic_api_editable_alert_event,
+    is_managed_alert_internal_event,
+    is_reserved_internal_event,
+)
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
@@ -341,24 +345,29 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
         return super().validate(attrs)
 
 
-def _managed_alert_markers(filters: Optional[dict]) -> Optional[tuple[frozenset[str], frozenset[str]]]:
-    """The ownership markers of an alert-owned destination: the managed alert events it follows and
-    the alert ids its properties pin it to. None when the filters follow no managed alert event."""
+_AlertMarkers = tuple[frozenset[tuple[object, object]], frozenset[tuple[object, object]]]
+
+
+def _managed_alert_markers(filters: Optional[dict]) -> Optional[_AlertMarkers]:
+    """The parts of a filter set that make a destination alert-owned: the managed alert events it
+    follows and the alert_id properties that pin it to an alert. None when it follows no managed
+    alert event. The alert layer finds a destination by its event ids and alert_id values, so a
+    change to those strands the row; the operator counts too, since `is_not` would make the row
+    fire for every other alert."""
     filters = filters or {}
-    event_ids = frozenset(
-        event_filter["id"]
+    events = frozenset(
+        (event_filter.get("id"), event_filter.get("type"))
         for event_filter in filters.get("events") or []
         if isinstance(event_filter, dict) and is_managed_alert_internal_event(event_filter.get("id"))
     )
-    if not event_ids:
+    if not events:
         return None
-    alert_ids: set[str] = set()
-    for property_filter in filters.get("properties") or []:
-        if not isinstance(property_filter, dict) or property_filter.get("key") != "alert_id":
-            continue
-        value = property_filter.get("value")
-        alert_ids.update(str(item) for item in (value if isinstance(value, list) else [value]))
-    return event_ids, frozenset(alert_ids)
+    alert_ids = frozenset(
+        (json.dumps(property_filter.get("value"), sort_keys=True), property_filter.get("operator"))
+        for property_filter in filters.get("properties") or []
+        if isinstance(property_filter, dict) and property_filter.get("key") == "alert_id"
+    )
+    return events, alert_ids
 
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
@@ -650,31 +659,41 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             self.context.get("view") and self.context["view"].action == "create"
         )
 
+        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+        current_filters = instance.filters if isinstance(instance, HogFunction) else {}
+        proposed_filters = attrs.get("filters", current_filters)
+
         if not self.context.get("allow_managed_alert_destination"):
-            managed_instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
-            current_filters = managed_instance.filters if isinstance(managed_instance, HogFunction) else {}
+            # The alert API owns which alert a destination belongs to and removes a destination group
+            # as a whole; a removed one is added back there, not restored here. Everything else about
+            # the function stays editable here.
             current_markers = _managed_alert_markers(current_filters)
-            proposed_markers = _managed_alert_markers(attrs.get("filters", current_filters))
-            if proposed_markers is not None and (is_create or current_markers is None):
+            if current_markers is not None and not all(
+                is_generic_api_editable_alert_event(event_id) for event_id, _ in current_markers[0]
+            ):
                 raise serializers.ValidationError(
                     {"filters": "Alert notification destinations are managed through the alert API."}
                 )
-            if current_markers is not None:
-                # The alert API owns which alert a destination belongs to and removes a destination
-                # group as a whole. Everything else about the function stays editable here.
-                if proposed_markers != current_markers:
-                    raise serializers.ValidationError(
-                        {
-                            "filters": "The alert this destination belongs to cannot be changed. "
-                            "Manage it from the alert's notification settings."
-                        }
-                    )
-                if attrs.get("deleted"):
-                    raise serializers.ValidationError(
-                        {"deleted": "Remove this destination from the alert's notification settings instead."}
-                    )
+            if _managed_alert_markers(proposed_filters) != current_markers:
+                message = (
+                    "Alert notification destinations are managed through the alert API."
+                    if current_markers is None
+                    else "The alert this destination belongs to cannot be changed. "
+                    "Manage it from the alert's notification settings."
+                )
+                raise serializers.ValidationError({"filters": message})
+            if (
+                isinstance(instance, HogFunction)
+                and current_markers is not None
+                and attrs.get("deleted", instance.deleted) != instance.deleted
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "deleted": "Remove this destination from the alert's notification settings instead. "
+                        "A removed destination is added back from there, not restored here."
+                    }
+                )
 
-        proposed_filters = attrs.get("filters", self.instance.filters if isinstance(self.instance, HogFunction) else {})
         reserved = sorted(
             {
                 event_filter["id"]
