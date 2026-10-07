@@ -25,10 +25,11 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 import time
 import shutil
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -860,23 +861,26 @@ def _execute(worktrees: list[Worktree], mode: str, repo_root: Path) -> tuple[flo
             continue
 
         if wt.registered:
-            result = subprocess.run(
+            # git cannot delete read-only directories, so `_rmtree` finishes what it leaves behind.
+            subprocess.run(
                 ["git", "worktree", "remove", "--force", "--", str(wt.path)],
                 cwd=repo_root,
                 capture_output=True,
                 text=True,
             )
-            if result.returncode != 0:
-                stderr = result.stderr.strip()
-                click.echo(f"  ⚠️  git worktree remove failed for {_display_path(wt.path)}: {stderr}")
-                shutil.rmtree(wt.path, ignore_errors=True)
             # Either path may have removed it; prune any dangling admin entry.
             need_prune = True
-        else:
-            shutil.rmtree(wt.path, ignore_errors=True)
+
+        reason = ""
+        try:
+            _rmtree(wt.path)
+        except FileNotFoundError:
+            pass
+        except OSError as err:
+            reason = f": {err}"
 
         if wt.path.exists():
-            click.echo(f"  ⚠️  could not fully remove {_display_path(wt.path)}")
+            click.echo(f"  ⚠️  could not fully remove {_display_path(wt.path)}{reason}")
             failed += 1
         else:
             removed += 1
@@ -919,6 +923,29 @@ def _reclaimed_bytes(before: dict[int, int], after: dict[int, int]) -> float:
     return float(sum(max(0, after[device] - before[device]) for device in common))
 
 
+def _rmtree(path: Path) -> None:
+    """Remove a directory tree, including entries inside read-only directories.
+
+    Go creates its module cache without write permission, and every worktree has
+    one in `.flox/cache/go`. `shutil.rmtree` alone cannot delete entries from a
+    directory that is not writable.
+    """
+
+    def make_parent_writable_and_retry(function: Callable[..., object], failed: str, error: BaseException) -> None:
+        parent = Path(failed).parent
+        # A parent outside `path` is not part of the tree, so its permissions stay as they are.
+        if (
+            not isinstance(error, PermissionError)
+            or function not in (os.unlink, os.rmdir)
+            or not parent.is_relative_to(path)
+        ):
+            raise error
+        parent.chmod(parent.stat().st_mode | stat.S_IRWXU)
+        function(failed)
+
+    shutil.rmtree(path, onexc=make_parent_writable_and_retry)
+
+
 def _delete_paths(paths: Sequence[Path], sizes: dict[str, float]) -> tuple[float, int]:
     """Remove deps directories; return (bytes actually freed, paths that failed)."""
 
@@ -926,7 +953,7 @@ def _delete_paths(paths: Sequence[Path], sizes: dict[str, float]) -> tuple[float
     failures = 0
     for path in paths:
         try:
-            shutil.rmtree(path)
+            _rmtree(path)
         except FileNotFoundError:
             continue  # already gone — not a failure
         except OSError as err:

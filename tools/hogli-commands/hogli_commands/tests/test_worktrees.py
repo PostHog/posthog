@@ -13,6 +13,7 @@ from hogli_commands.worktrees import (
     _collect_deps_items,
     _compute_git_state,
     _du_sizes,
+    _execute,
     _include_orphans,
     _is_under,
     _parse_cutoff,
@@ -283,6 +284,27 @@ class TestReclaimedBytes:
 
     def test_unmeasurable_returns_negative(self) -> None:
         assert _reclaimed_bytes({}, {}) == -1.0
+
+
+class TestExecute:
+    def test_full_mode_removes_read_only_go_module_cache(self, tmp_path) -> None:
+        worktree = tmp_path / "wt"
+        module = worktree / ".flox" / "cache" / "go" / "pkg" / "mod" / "example.com" / "lib@v1.0.0"
+        module.mkdir(parents=True)
+        source = module / "lib.go"
+        source.write_text("package lib\n")
+        source.chmod(0o444)
+        module.chmod(0o555)
+        module.parent.chmod(0o555)
+
+        _, removed, failed = _execute(
+            [Worktree(source="claude", path=worktree, registered=False, locked=False, branch="", last_activity=0.0)],
+            "full",
+            tmp_path,
+        )
+
+        assert (removed, failed) == (1, 0)
+        assert not worktree.exists()
 
 
 class TestDuSizes:
