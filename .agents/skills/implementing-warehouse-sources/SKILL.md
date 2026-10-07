@@ -428,6 +428,10 @@ while True:
 
 Save state **before** yielding the batch it covers. `save_state` only stages the cursor; the pipeline commits it to Redis once that batch is written, so a crash resumes exactly after the last written batch. Do not save after the yield. On a worker shutdown the pipeline ends the attempt before control returns to the source, so state saved after the `yield` is lost for the last batch: the next attempt reads that batch again (merge dedupes on primary key, a resumed full refresh appends it twice), and an attempt that writes one batch or fewer keeps no progress. A source with nothing yielded yet, such as one persisting an export job id before polling it, stages inside `with manager.committing():`, which commits when the block ends.
 
+A saved cursor can commit only after the pipeline confirms it. The pipeline confirms when the source hands it the next item, ends, or reaches a safe point.
+A cursor saved after the last `yield` therefore does not persist when the source raises, because the source can still hold rows that the cursor skips. The next attempt continues from the cursor of the last `yield`.
+A source that ends its own attempt on a page or time budget calls `manager.safe_point()` directly before the raise, with its local buffer empty, to keep its last cursor.
+
 Call `manager.safe_point()` wherever the source can make many requests that return no rows: an empty delta page, a fan-out parent with no children, a page with no comments.
 The pipeline checks for a worker shutdown only when an item arrives, so a run of empty responses otherwise holds the worker for the whole graceful shutdown timeout, and its cursor never commits.
 At a safe point the pipeline can hand the run to another worker, and it commits the staged cursor when nothing is waiting to be written.
