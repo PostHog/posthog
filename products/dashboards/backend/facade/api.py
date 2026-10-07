@@ -20,7 +20,7 @@ from django.utils.timezone import now
 from pydantic.dataclasses import dataclass
 from rest_framework import serializers
 
-from posthog.api.exposed_edit_gate import check_can_add_insight_to_exposed_dashboard
+from posthog.api.shared_or_subscribed_edit_gate import check_can_add_insight_to_shared_or_subscribed_dashboard
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
@@ -236,7 +236,7 @@ def plan_insight_tile_placement(
         if dashboard.team_id != team_id:
             raise DashboardNotFound
         # The dashboard's public link must not expose a query the editor can't run.
-        check_can_add_insight_to_exposed_dashboard(user, dashboard, query, user_access_control)
+        check_can_add_insight_to_shared_or_subscribed_dashboard(user, dashboard, query, user_access_control)
     return InsightTilePlacement(dashboards)
 
 
@@ -286,7 +286,7 @@ def update_insight_dashboard_membership(
             raise DashboardNotFound
 
         # The dashboard's public link must not expose a query the editor can't run.
-        check_can_add_insight_to_exposed_dashboard(user, dashboard, query, user_access_control)
+        check_can_add_insight_to_shared_or_subscribed_dashboard(user, dashboard, query, user_access_control)
 
         tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(insight=insight, dashboard=dashboard)
         if tile.deleted:

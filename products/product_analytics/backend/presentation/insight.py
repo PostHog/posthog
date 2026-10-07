@@ -38,7 +38,6 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
-from posthog.api.exposed_edit_gate import reason_edit_needs_access_check
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
@@ -46,6 +45,7 @@ from posthog.api.openapi_parameters import make_filters_override_param, make_var
 from posthog.api.query_access_check import blocked_access_for_user
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
+from posthog.api.shared_or_subscribed_edit_gate import reason_edit_needs_access_check
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import (
