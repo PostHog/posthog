@@ -1,5 +1,6 @@
 import base64
 from collections.abc import Callable, Iterator
+from datetime import UTC, date, datetime
 from typing import Any
 
 import requests
@@ -34,6 +35,7 @@ MAX_TARGETS = 25
 MAX_KEYWORDS = 50
 REQUEST_TIMEOUT_SECONDS = 120
 MAX_RETRIES = 5
+INVALID_FIELD_STATUS_CODE = 40501
 
 
 class DataForSEORetryableError(Exception):
@@ -42,6 +44,11 @@ class DataForSEORetryableError(Exception):
 
 class DataForSEOAPIError(Exception):
     """Raised on permanent body-level errors (auth, funds, invalid request)."""
+
+    def __init__(self, message: str, status_code: Any = None, status_message: Any = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.status_message = status_message
 
 
 @frozen
@@ -118,7 +125,7 @@ def validate_keywords(keywords: str | None) -> tuple[list[str], str | None]:
     return parsed, None
 
 
-def _raise_for_body_status(status_code: Any, status_message: Any) -> None:
+def _raise_for_body_status(status_code: Any, status_message: Any, path: str) -> None:
     """Classify a DataForSEO body-level status code (top-level or per-task).
 
     20000 is success. 40202 (per-minute rate limit) and 50xxx (server side) are transient;
@@ -126,9 +133,14 @@ def _raise_for_body_status(status_code: Any, status_message: Any) -> None:
     """
     if status_code is None or status_code == 20000:
         return
+    # The path goes after the code because get_non_retryable_errors matches on the message prefix.
     if status_code == 40202 or 50000 <= status_code < 60000:
-        raise DataForSEORetryableError(f"DataForSEO API error (retryable) [{status_code}]: {status_message}")
-    raise DataForSEOAPIError(f"DataForSEO API error [{status_code}]: {status_message}")
+        raise DataForSEORetryableError(
+            f"DataForSEO API error (retryable) [{status_code}]: {status_message} (endpoint={path})"
+        )
+    raise DataForSEOAPIError(
+        f"DataForSEO API error [{status_code}]: {status_message} (endpoint={path})", status_code, status_message
+    )
 
 
 @retry(
@@ -165,14 +177,14 @@ def _request_task(
     if not isinstance(body, dict):
         raise DataForSEOAPIError(f"DataForSEO API error [unexpected_response]: response was not a JSON object ({url})")
 
-    _raise_for_body_status(body.get("status_code"), body.get("status_message"))
+    _raise_for_body_status(body.get("status_code"), body.get("status_message"), path)
 
     tasks = body.get("tasks")
     if not isinstance(tasks, list) or not tasks:
         return []
 
     task = tasks[0]
-    _raise_for_body_status(task.get("status_code"), task.get("status_message"))
+    _raise_for_body_status(task.get("status_code"), task.get("status_message"), path)
 
     result = task.get("result")
     if not isinstance(result, list):
@@ -313,6 +325,7 @@ def _payload(
     location_name: str,
     language_name: str,
     offset: int | None = None,
+    date_from: date | None = None,
 ) -> dict[str, Any] | None:
     """Build the single-task request body, or None for the untargeted GET lookups.
 
@@ -323,6 +336,8 @@ def _payload(
         return None
 
     payload: dict[str, Any] = dict(config.extra_payload)
+    if date_from is not None:
+        payload["date_from"] = date_from.isoformat()
     if config.scope == "target":
         payload["target"] = value
     elif config.scope == "keyword":
@@ -337,6 +352,20 @@ def _payload(
         payload["limit"] = PAGE_SIZE
         payload["offset"] = offset or 0
     return payload
+
+
+def _recent_date_from(config: DataForSEOEndpointConfig, today: date) -> date:
+    """A start date one year back, for when DataForSEO rejects the documented minimum.
+
+    The API can move its real floor past the documented one, so this stays well inside the
+    range it keeps.
+    """
+    recent = date(today.year - 1, today.month, 1)
+    return max(recent, config.min_date_from) if config.min_date_from else recent
+
+
+def _is_date_from_rejection(error: DataForSEOAPIError) -> bool:
+    return error.status_code == INVALID_FIELD_STATUS_CODE and "date_from" in str(error.status_message)
 
 
 def _has_more_pages(results: list[dict[str, Any]], item_count: int, next_offset: int) -> bool:
@@ -395,12 +424,30 @@ def get_rows(
     config = DATAFORSEO_ENDPOINTS[endpoint]
     parser = _PARSERS[config.kind]
     session = _make_session(api_login, api_password)
+    date_from = config.min_date_from
+
+    def fetch(value: str | list[str], offset: int | None = None) -> list[dict[str, Any]]:
+        nonlocal date_from
+        payload = _payload(config, value, location_name, language_name, offset, date_from)
+        try:
+            return _request_task(session, config.method, config.path, payload, logger)
+        except DataForSEOAPIError as error:
+            if date_from is None or date_from != config.min_date_from or not _is_date_from_rejection(error):
+                raise
+            rejected = date_from
+            # Keep the recent start date for the rest of the sync, so later values skip the rejected request.
+            date_from = _recent_date_from(config, datetime.now(UTC).date())
+            logger.warning(
+                f"DataForSEO: date_from rejected, retrying with a recent start date. endpoint={endpoint} "
+                f"rejected={rejected.isoformat()} date_from={date_from.isoformat()}"
+            )
+            payload = _payload(config, value, location_name, language_name, offset, date_from)
+            return _request_task(session, config.method, config.path, payload, logger)
 
     # A lookup has no fan-out and the batched keyword endpoint covers every keyword in one
     # request, so neither has a cursor to resume from.
     if config.scope in ("global", "keyword_batch"):
-        payload = _payload(config, keywords, location_name, language_name)
-        rows = list(parser(_request_task(session, config.method, config.path, payload, logger), None))
+        rows = list(parser(fetch(keywords), None))
         if rows:
             yield rows
         return
@@ -422,13 +469,7 @@ def get_rows(
         next_value = values[index + 1] if index + 1 < len(values) else None
 
         while True:
-            results = _request_task(
-                session,
-                config.method,
-                config.path,
-                _payload(config, value, location_name, language_name, offset),
-                logger,
-            )
+            results = fetch(value, offset)
             rows = list(parser(results, value))
             if rows:
                 yield rows

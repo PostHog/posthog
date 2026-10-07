@@ -1,6 +1,8 @@
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -54,6 +56,14 @@ def _body(
         "status_code": status_code,
         "status_message": "Ok.",
         "tasks": [{"status_code": task_status_code, "status_message": "Ok.", "result": results}],
+    }
+
+
+def _invalid_field_body(field: str) -> dict[str, Any]:
+    return {
+        "status_code": 20000,
+        "status_message": "Ok.",
+        "tasks": [{"status_code": 40501, "status_message": f"Invalid Field: '{field}'.", "result": None}],
     }
 
 
@@ -183,17 +193,17 @@ class TestParseKeywords:
 class TestBodyStatusClassification:
     @pytest.mark.parametrize("status_code", [None, 20000])
     def test_success_codes_pass(self, status_code: int | None) -> None:
-        _raise_for_body_status(status_code, "Ok.")
+        _raise_for_body_status(status_code, "Ok.", "/path")
 
     @pytest.mark.parametrize("status_code", [40202, 50000, 50401])
     def test_transient_codes_raise_retryable(self, status_code: int) -> None:
         with pytest.raises(DataForSEORetryableError):
-            _raise_for_body_status(status_code, "try again")
+            _raise_for_body_status(status_code, "try again", "/path")
 
     @pytest.mark.parametrize("status_code", [40100, 40200, 40201, 40203, 40210, 40501])
     def test_permanent_codes_raise_api_error_with_code(self, status_code: int) -> None:
         with pytest.raises(DataForSEOAPIError, match=rf"\[{status_code}\]"):
-            _raise_for_body_status(status_code, "nope")
+            _raise_for_body_status(status_code, "nope", "/path")
 
 
 class TestRequestTask:
@@ -222,7 +232,9 @@ class TestRequestTask:
             self._post(_resp({"status_code": 40100, "status_message": "unauthorized", "tasks": []}))
 
     def test_task_level_error_code_raises(self) -> None:
-        with pytest.raises(DataForSEOAPIError, match=r"\[40501\]"):
+        with pytest.raises(
+            DataForSEOAPIError, match=r"\[40501\].*endpoint=/dataforseo_labs/google/ranked_keywords/live"
+        ):
             self._post(_resp(_body(None, task_status_code=40501)))
 
     @pytest.mark.parametrize("results", [None, []])
@@ -248,6 +260,23 @@ class TestRequestTask:
 
 
 class TestGetRows:
+    def test_rejected_date_from_falls_back_to_recent_start_for_the_rest_of_the_sync(self) -> None:
+        ok = _resp(_body([_items_result([])]))
+        with time_machine.travel(datetime(2026, 10, 15, tzinfo=UTC), tick=False):
+            calls, _ = _drive(
+                "backlinks_timeseries_summary",
+                _manager(),
+                [_resp(_invalid_field_body("date_from")), ok, ok],
+                targets=["a.com", "b.com"],
+            )
+
+        assert [payload["date_from"] for _, payload in calls] == ["2019-01-30", "2025-10-01", "2025-10-01"]
+
+    def test_other_invalid_field_is_not_retried(self) -> None:
+        # Only one response is queued, so a retry would fail with StopIteration instead.
+        with pytest.raises(DataForSEOAPIError, match="group_range"):
+            _drive("backlinks_timeseries_summary", _manager(), [_resp(_invalid_field_body("group_range"))])
+
     def test_items_endpoint_injects_target(self) -> None:
         manager = _manager()
         responses = [_resp(_body([_items_result([{"se_type": "google", "metrics": {}}])]))]
