@@ -117,6 +117,7 @@ def get_billing_lock_partner(organization: Organization) -> OAuthApplication | N
         applications = applications.filter(_provisioning_config__pays_for_customers=True)
     return applications.filter(pk=organization.provisioning_application_id).first()
 
+
 def raise_if_billing_managed_by_partner(organization: Organization) -> None:
     partner = get_billing_lock_partner(organization)
     if partner is not None:

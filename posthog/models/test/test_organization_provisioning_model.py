@@ -130,6 +130,7 @@ class TestOrganizationProvisioningFields(TestCase):
             self.organization.customer_id = "cus_example"
 
         assert get_billing_lock_partner(self.organization) == (partner if locked else None)
+
     def test_previous_billing_reader_can_query_during_deployment(self) -> None:
         historical_apps = (
             MigrationLoader(connection).project_state([("posthog", "1394_backfill_secret_tokens_to_psak")]).apps
