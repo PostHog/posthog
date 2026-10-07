@@ -50,6 +50,12 @@ describe('getAiTaskPromptChanges', () => {
             [{ actionId: 'a', stepName: 'Step a', livePrompt: '', stagedPrompt: 'Triage the ticket' }],
         ],
         [
+            'skips a step the draft turns into an AI task',
+            [functionStep('a', 'Old', 'template-webhook')],
+            [functionStep('a', 'New')],
+            [],
+        ],
+        [
             'skips a function step from another template',
             [functionStep('a', 'Old', 'template-webhook')],
             [functionStep('a', 'New', 'template-webhook')],

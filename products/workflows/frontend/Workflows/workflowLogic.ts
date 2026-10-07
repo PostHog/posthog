@@ -175,10 +175,12 @@ export interface AiTaskPromptChange {
 
 /**
  * The AI task steps whose instructions the staged draft changes, for review before publish. A step
- * the draft adds has no live instructions to compare against, so it is not included.
+ * the draft adds, or turns into an AI task, has no live instructions to compare against, so it is not included.
  */
 export function getAiTaskPromptChanges(workflow: HogFlow): AiTaskPromptChange[] {
     const liveActionsById = new Map(workflow.actions.map((action) => [action.id, action]))
+    const isAiTaskStep = (action: HogFlowAction): boolean =>
+        action.type === 'function' && action.config.template_id === 'template-posthog-create-task'
     const promptOf = (action: HogFlowAction): string =>
         action.type === 'function' && typeof action.config.inputs?.prompt?.value === 'string'
             ? action.config.inputs.prompt.value
@@ -186,11 +188,7 @@ export function getAiTaskPromptChanges(workflow: HogFlow): AiTaskPromptChange[] 
 
     return (workflow.draft?.actions ?? []).flatMap((stagedAction) => {
         const liveAction = liveActionsById.get(stagedAction.id)
-        if (
-            !liveAction ||
-            stagedAction.type !== 'function' ||
-            stagedAction.config.template_id !== 'template-posthog-create-task'
-        ) {
+        if (!liveAction || !isAiTaskStep(liveAction) || !isAiTaskStep(stagedAction)) {
             return []
         }
         const livePrompt = promptOf(liveAction)
@@ -199,6 +197,10 @@ export function getAiTaskPromptChanges(workflow: HogFlow): AiTaskPromptChange[] 
             ? []
             : [{ actionId: stagedAction.id, stepName: stagedAction.name, livePrompt, stagedPrompt }]
     })
+}
+
+function isSameTimestamp(a: string | null | undefined, b: string | null | undefined): boolean {
+    return a === b || (!!a && !!b && dayjs(a).isSame(dayjs(b)))
 }
 
 // Mirrors DRAFT_CONTENT_FIELDS in products/workflows/backend/presentation/views/hog_flow.py: the fields the draft
@@ -4009,7 +4011,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 preview = await api.hogFlows.publishHogFlow(props.id, { confirm: false })
                 // The token covers the draft the preview read. Another tab or an agent can stage a newer
                 // draft before this editor reloads, so the instruction diffs must come from the server copy.
-                if (preview.draft_updated_at !== stagedWorkflow?.draft_updated_at) {
+                if (!isSameTimestamp(preview.draft_updated_at, stagedWorkflow?.draft_updated_at)) {
                     stagedWorkflow = await api.hogFlows.getHogFlow(props.id)
                 }
             } catch {
@@ -4017,6 +4019,14 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             } finally {
                 actions.setDraftActionPending(null)
+            }
+            if (!isSameTimestamp(preview.draft_updated_at, stagedWorkflow?.draft_updated_at)) {
+                // The draft moved again after the preview, so the diffs would not show what Publish promotes.
+                lemonToast.error(
+                    'The staged changes changed while the preview loaded. Review them, then publish again.'
+                )
+                actions.loadWorkflow()
+                return
             }
             const aiTaskPromptChanges = stagedWorkflow ? getAiTaskPromptChanges(stagedWorkflow) : []
             // pinned: analytics event name
