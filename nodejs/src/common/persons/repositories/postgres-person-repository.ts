@@ -2478,7 +2478,7 @@ export class PostgresPersonRepository
         teamID: Team['id'],
         sourcePersonIDs: InternalPerson['id'][],
         targetPersonID: InternalPerson['id'],
-        queryTag: string,
+        tag: string,
         tx?: TransactionClient
     ): Promise<void> {
         await this.postgres.query(
@@ -2506,7 +2506,7 @@ export class PostgresPersonRepository
                     SET hash_key = EXCLUDED.hash_key
                     WHERE posthog_featureflaghashkeyoverride.hash_key = $4`,
             [targetPersonID, sourcePersonIDs, teamID, COOKIELESS_SENTINEL_VALUE],
-            queryTag
+            tag
         )
     }
 
