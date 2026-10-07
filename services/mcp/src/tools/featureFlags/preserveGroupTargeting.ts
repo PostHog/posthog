@@ -421,8 +421,12 @@ function mergeConditionSet(
             if (typeof prop.key !== 'string') {
                 return prop
             }
-            // A set with no source of its own can still name a property another set holds.
-            const candidates = sourceSet?.propsByKey.get(prop.key) ?? crossSetPropsByKey.get(prop.key)
+            // A source set can lack the key, or hold it only as a group property that a person
+            // set cannot use. The type then comes from another set that holds the key.
+            const sourceCandidates = sourceSet?.propsByKey.get(prop.key) ?? []
+            const candidates = sourceCandidates.some((candidate) => isPersonAggregatedType(candidate.type))
+                ? sourceCandidates
+                : crossSetPropsByKey.get(prop.key)
             return mergeProperty(prop, candidates, setGroupTypeIndex)
         })
     }

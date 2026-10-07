@@ -1240,6 +1240,42 @@ describe('preserveGroupTargetingFilters', () => {
         expect(aggregationViolations(existing, merged)).toEqual([])
     })
 
+    it('restores a person type from another set when the source holds the key only as a group property', () => {
+        const existing = {
+            aggregation_group_type_index: null,
+            groups: [
+                {
+                    aggregation_group_type_index: 0,
+                    properties: [
+                        { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
+                    ],
+                    rollout_percentage: 100,
+                },
+                {
+                    aggregation_group_type_index: null,
+                    properties: [
+                        { key: 'plan', type: 'person', operator: 'exact', value: 'free' },
+                        { key: 'email', type: 'person', operator: 'icontains', value: '@acme.com' },
+                    ],
+                    rollout_percentage: 100,
+                },
+            ],
+        }
+
+        const merged = preserveGroupTargetingFilters(existing, {
+            groups: [
+                {
+                    aggregation_group_type_index: null,
+                    properties: [{ key: 'plan', operator: 'exact', value: 'enterprise' }],
+                    rollout_percentage: 100,
+                },
+            ],
+        })
+
+        expect(merged?.groups?.[0]?.properties?.[0]?.type).toBe('person')
+        expect(aggregationViolations(existing, merged)).toEqual([])
+    })
+
     it('takes an unclaimed source over a claimed one that shares as many keys', () => {
         const existing = {
             aggregation_group_type_index: null,
