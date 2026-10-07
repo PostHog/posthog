@@ -21,6 +21,7 @@ import {
     SearchPlatform,
     selectedSearchSources,
     searchPerformanceSource,
+    searchPerformanceSourceNotice,
 } from './searchPerformance'
 
 export interface searchPerformanceLogicValues extends Pick<
@@ -45,7 +46,9 @@ export interface searchPerformanceLogicValues extends Pick<
     querySearch: string
     sourcesError: boolean
     sources: ExternalDataSource[]
-    pendingSources: ExternalDataSource[]
+    sourceNotices: { sourceId: string; message: string }[]
+    detailSourceNotices: { sourceId: string; message: string }[]
+    detailSources: ExternalDataSource[]
     readySources: MarketingAnalyticsSearchSource[]
     query: MarketingAnalyticsSearchQuery
 }
@@ -154,10 +157,13 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                         (breakdown !== 'page' || source.source_type !== 'BingAds')
                 ),
         ],
-        pendingSources: [
+        sourceNotices: [
             (s) => [s.sources, s.breakdown],
-            (sources: ExternalDataSource[], breakdown): ExternalDataSource[] =>
-                sources.filter((source) => !searchPerformanceSource(source, breakdown)),
+            (sources: ExternalDataSource[], breakdown): { sourceId: string; message: string }[] =>
+                sources.flatMap((source) => {
+                    const message = searchPerformanceSourceNotice(source, breakdown)
+                    return message ? [{ sourceId: source.id, message }] : []
+                }),
         ],
         readySources: [
             (s) => [s.sources, s.breakdown],
@@ -194,22 +200,32 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 search,
             }),
         ],
+        detailSources: [
+            (s) => [s.allSearchSources, s.integrationFilter, s.selectedRow],
+            (allSources: ExternalDataSource[], integrationFilter, row): ExternalDataSource[] =>
+                (row?.platform === 'GoogleSearchConsole'
+                    ? selectedSearchSources(allSources, integrationFilter.integrationSourceIds ?? [])
+                    : allSources
+                ).filter((source) => source.source_type === 'GoogleSearchConsole'),
+        ],
+        detailSourceNotices: [
+            (s) => [s.detailSources],
+            (sources: ExternalDataSource[]): { sourceId: string; message: string }[] =>
+                sources.flatMap((source) => {
+                    const message = searchPerformanceSourceNotice(source, 'keyword', true)
+                    return message ? [{ sourceId: source.id, message }] : []
+                }),
+        ],
         detailQuery: [
-            (s) => [s.allSearchSources, s.integrationFilter, s.selectedRow, s.query],
-            (allSources: ExternalDataSource[], integrationFilter, row, query): MarketingAnalyticsSearchQuery | null => {
+            (s) => [s.detailSources, s.selectedRow, s.query],
+            (sources: ExternalDataSource[], row, query): MarketingAnalyticsSearchQuery | null => {
                 if (!row || !(row.page || row.keyword)) {
                     return null
                 }
-                const sources =
-                    row.platform === 'GoogleSearchConsole'
-                        ? selectedSearchSources(allSources, integrationFilter.integrationSourceIds ?? [])
-                        : allSources
-                const detailSources = sources
-                    .filter((source) => source.source_type === 'GoogleSearchConsole')
-                    .flatMap((source) => {
-                        const detailSource = searchPerformanceSource(source, row.page ? 'keyword' : 'page', true)
-                        return detailSource ? [detailSource] : []
-                    })
+                const detailSources = sources.flatMap((source) => {
+                    const detailSource = searchPerformanceSource(source, row.page ? 'keyword' : 'page', true)
+                    return detailSource ? [detailSource] : []
+                })
                 return {
                     ...query,
                     sources: detailSources,

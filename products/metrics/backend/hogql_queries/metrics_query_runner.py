@@ -140,7 +140,6 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             date_to=date_range.date_to(),
             interval=self.query.interval,
             formula=self.query.formula,
-            min_interval=self.query.minInterval,
         )
 
     def _calculate(self) -> MetricsQueryResponse:

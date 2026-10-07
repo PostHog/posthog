@@ -65,6 +65,7 @@ from posthog.schema_enums import (
     BingAdsDefaultSources as BingAdsDefaultSources,
     BIQueryLimit as BIQueryLimit,
     BISortDirection as BISortDirection,
+    BITableCalculationType as BITableCalculationType,
     BounceRatePageViewMode as BounceRatePageViewMode,
     Breakdown1 as Breakdown1,
     BreakdownAttributionType as BreakdownAttributionType,
@@ -950,6 +951,15 @@ class BIDataSource(BaseModel):
     )
     connectionId: str | None = None
     table: str
+
+
+class BITotals(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: bool | None = None
+    rows: bool | None = None
+    subtotals: bool | None = None
 
 
 class BaseAssistantMessage(BaseModel):
@@ -5010,6 +5020,31 @@ class BISort(BaseModel):
     key: str
 
 
+class BITableCalculation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    computeUsing: str | None = Field(
+        default=None,
+        description=("Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions."),
+    )
+    type: BITableCalculationType
+    window: conint(ge=1) | None = Field(
+        default=None,
+        description=("Number of points, including the current point, in a trailing moving average."),
+    )
+
+
+class BITopN(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: conint(ge=1)
+    fieldId: str
+    includeOther: bool
+    measureIndex: conint(ge=0)
+
+
 class BIValue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5018,6 +5053,7 @@ class BIValue(BaseModel):
     customExpression: str | None = None
     field: BIField
     label: str | None = None
+    tableCalculation: BITableCalculation | None = None
 
 
 class BoxPlotDatum(BaseModel):
@@ -7229,7 +7265,10 @@ class QueryStatus(BaseModel):
     )
     error_code: str | None = Field(
         default=None,
-        description=("Stable machine-readable code for the error (the DRF exception code), when known."),
+        description=(
+            "Stable machine-readable code for the error, when known: the DRF exception"
+            " code, or the ClickHouse error name."
+        ),
     )
     error_message: str | None = None
     expiration_time: AwareDatetime | None = None
@@ -11071,6 +11110,7 @@ class BIConfig(BaseModel):
     )
     chartType: ChartDisplayType
     columns: list[BIField]
+    compareFilter: CompareFilter | None = None
     dateField: BIField | None = Field(
         default=None,
         description="Column that receives the worksheet and dashboard date range.",
@@ -11084,6 +11124,8 @@ class BIConfig(BaseModel):
         description=("null sorts automatically: newest date or highest value first, so top rows survive the LIMIT."),
     )
     source: BIDataSource | None = None
+    topN: BITopN | None = None
+    totals: BITotals | None = None
     values: list[BIValue]
 
 
@@ -27958,6 +28000,10 @@ class HogQLFilters(BaseModel):
             "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
         ),
     )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=("Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}."),
+    )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
     interval: IntervalType | None = Field(
@@ -28957,19 +29003,12 @@ class MetricsQuery(BaseModel):
     interval: str | None = Field(
         default=None,
         description=(
-            "Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6,"
-            " day, week; auto-picked from the range when omitted. Coarsened when the"
-            " range would need more than 10,000 buckets."
+            "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15,"
+            " minute_30, hour, hour_6, day, week; auto-picked from the range when"
+            " omitted. Coarsened when the range would need more than 10,000 buckets."
         ),
     )
     kind: Literal["MetricsQuery"] = "MetricsQuery"
-    minInterval: str | None = Field(
-        default=None,
-        description=(
-            "Finest bucket size the query may use, from the same set as `interval`;"
-            " raises a finer interval or auto pick"
-        ),
-    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MetricsQueryResponse | None = None
     tags: QueryLogTags | None = None

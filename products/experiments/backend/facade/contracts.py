@@ -5,11 +5,13 @@ These are framework-free frozen dataclasses that define the interface
 between the experiments product and the rest of the system.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 if TYPE_CHECKING:
     from posthog.schema import MaxExperimentSummaryContext
@@ -91,6 +93,40 @@ class ExperimentStatus:
         off) stays active: it collects no exposures while paused, but it resumes without a
         lifecycle change, so a watcher should keep watching."""
         return self.start_date is not None and self.end_date is None and not self.archived
+
+
+class ExperimentHealthFindingCode(LabeledStrEnum):
+    # pinned: the page sends these values as `finding_code` on the health finding events
+    # (products/experiments/frontend/health/experimentHealthFindingEvents.ts), and insights group on them.
+    BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
+
+
+class ExperimentHealthFindingSeverity(LabeledStrEnum):
+    # The values are the severities of the platform's health issues (posthog/models/health_issue.py), so a
+    # finding can become a health issue by value. The labels differ on purpose: two choice sets with the same
+    # values and labels share one OpenAPI enum, and the generated name of the other one would change.
+    CRITICAL = "critical", "Critical severity"
+    WARNING = "warning", "Warning severity"
+    INFO = "info", "Info severity"
+
+
+class ExperimentHealthFindingActionKind(LabeledStrEnum):
+    ADJUST_DISTRIBUTION = "adjust_distribution"
+    USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
+
+
+@frozen
+class ExperimentHealthFinding:
+    """One problem that a health check found in an experiment, with what fixes it."""
+
+    code: ExperimentHealthFindingCode
+    subcode: str | None
+    severity: ExperimentHealthFindingSeverity
+    title: str
+    detail: str
+    evidence: Mapping[str, str | int | float | None]
+    actions: tuple[ExperimentHealthFindingActionKind, ...]
+    diagnostic_ref: str | None
 
 
 @dataclass(frozen=True)
