@@ -323,6 +323,15 @@ ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-tas
 ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE = "alerts-platform-shared-orchestration-task-queue"
 ALERTS_PLATFORM_EVALUATION_TASK_QUEUE = "alerts-platform-evaluation-task-queue"
 ALERTS_PLATFORM_DELIVERY_TASK_QUEUE = "alerts-platform-delivery-task-queue"
+# The platform's parallel insight checks allowed to run at once, across every team. A pool of its
+# own, so the parallel run never takes a slot from `ALERTS_MAX_INFLIGHT_EVALUATIONS`.
+ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS: int = get_from_env(
+    "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS", 10, type_cast=int
+)
+if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
+    )
 # Insight alert checks allowed to run against ClickHouse at once, across every team.
 ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)
 if ALERTS_MAX_INFLIGHT_EVALUATIONS <= 0:
