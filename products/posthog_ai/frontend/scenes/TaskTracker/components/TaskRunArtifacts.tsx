@@ -833,13 +833,15 @@ function ArtifactToolbar({
             {versioned && selectedFile && <VersionSelect taskId={taskId} file={selectedFile} />}
             {kind === 'html' && (
                 <Tooltip>
-                    <TooltipTrigger render={<Badge className="shrink-0" />}>
-                        <IconLock />
-                        Sandboxed
+                    <TooltipTrigger className="shrink-0">
+                        <Badge>
+                            <IconLock />
+                            Sandboxed
+                        </Badge>
                     </TooltipTrigger>
                     <TooltipContent>
-                        Scripts run in an isolated frame. They cannot access your PostHog cookies or session. External
-                        scripts and API requests are blocked.
+                        This artifact runs scripts in an isolated frame. It cannot access your PostHog cookies or
+                        session. It can send its contents and anything you enter to external sites.
                     </TooltipContent>
                 </Tooltip>
             )}
