@@ -14,7 +14,8 @@ use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::{
     DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, PersonVersionFloorResult, SplitResult,
-    TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
+    TombstoneTarget, TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
+    VersionFloorOutcome,
 };
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
@@ -650,19 +651,12 @@ impl PersonLookup for PostgresStorage {
     async fn delete_tombstoned_persons(
         &self,
         team_id: i64,
-        uuids: &[Uuid],
-        max_versions: Option<&HashMap<Uuid, i64>>,
+        targets: &[TombstoneTarget],
         max_rows: i64,
     ) -> StorageResult<TombstonedDeleteOutcome> {
-        if uuids.is_empty() {
+        if targets.is_empty() {
             return Ok(TombstonedDeleteOutcome::default());
         }
-        let bound_of = |uuid: &Uuid| -> i64 {
-            match max_versions {
-                None => i64::MAX,
-                Some(bounds) => bounds.get(uuid).copied().unwrap_or(i64::MIN),
-            }
-        };
 
         let client = current_client_name();
         let method = current_method_name();
@@ -677,9 +671,16 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        // One outcome per uuid: a duplicate must not be counted or reported twice.
-        let mut seen = HashSet::with_capacity(uuids.len());
-        let unique: Vec<Uuid> = uuids.iter().copied().filter(|u| seen.insert(*u)).collect();
+        // One outcome per uuid: a duplicate must not be counted or reported twice. It keeps its
+        // lowest bound, the one that deletes the least.
+        let mut bounds: HashMap<Uuid, i64> = HashMap::with_capacity(targets.len());
+        for target in targets {
+            bounds
+                .entry(target.uuid)
+                .and_modify(|bound| *bound = (*bound).min(target.max_version))
+                .or_insert(target.max_version);
+        }
+        let unique: Vec<Uuid> = bounds.keys().copied().collect();
 
         // The caller picks the row budget; the server caps it so no call outlives its deadline.
         let budget = max_rows.clamp(1, self.tombstoned_delete_max_rows as i64);
@@ -712,7 +713,7 @@ impl PersonLookup for PostgresStorage {
         for row in persons {
             if !row.is_deleted {
                 skipped_live += 1;
-            } else if row.version > bound_of(&row.uuid) {
+            } else if row.version > bounds[&row.uuid] {
                 skipped_version += 1;
             } else {
                 candidates.push((row.id, row.uuid));
@@ -760,7 +761,7 @@ impl PersonLookup for PostgresStorage {
         let (lock_ids, lock_bounds): (Vec<i64>, Vec<i64>) = admitted
             .iter()
             .chain(trim.iter())
-            .map(|(id, uuid)| (*id, bound_of(uuid)))
+            .map(|(id, uuid)| (*id, bounds[uuid]))
             .unzip();
         let locked: HashSet<i64> = sqlx::query_scalar!(
             r#"

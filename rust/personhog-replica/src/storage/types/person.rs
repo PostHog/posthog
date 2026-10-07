@@ -46,6 +46,22 @@ pub struct DeletePersonsOutcome {
     pub tombstones: Option<Vec<TombstonedPerson>>,
 }
 
+/// A person DeleteTombstonedPersons may delete, and the highest version it may delete it at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TombstoneTarget {
+    pub uuid: Uuid,
+    pub max_version: i64,
+}
+
+impl TombstoneTarget {
+    pub fn unbounded(uuid: Uuid) -> Self {
+        Self {
+            uuid,
+            max_version: i64::MAX,
+        }
+    }
+}
+
 /// Outcome of one bounded DeleteTombstonedPersons call. Every requested uuid lands in at most
 /// one bucket; a uuid with no Postgres row, or whose person is live again or above its version
 /// bound by the time the delete locks it, lands in none.

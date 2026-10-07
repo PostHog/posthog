@@ -602,22 +602,19 @@ impl PersonHogReplica for PersonHogReplicaService {
             Uuid::parse_str(s).map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))
         };
         let version_guard_applied = !req.bounded_persons.is_empty();
-        let mut uuids: Vec<Uuid> = Vec::with_capacity(req.person_uuids.len());
-        let mut max_versions: HashMap<Uuid, i64> = HashMap::new();
+        let mut targets: Vec<storage::TombstoneTarget> =
+            Vec::with_capacity(req.person_uuids.len() + req.bounded_persons.len());
         for uuid in &req.person_uuids {
-            uuids.push(parse_uuid(uuid)?);
+            targets.push(storage::TombstoneTarget::unbounded(parse_uuid(uuid)?));
         }
         for bounded in &req.bounded_persons {
             if bounded.max_version < 0 {
                 return Err(Status::invalid_argument("max_version must not be negative"));
             }
-            let uuid = parse_uuid(&bounded.person_uuid)?;
-            uuids.push(uuid);
-            // A duplicate keeps its lowest bound, the one that deletes the least.
-            max_versions
-                .entry(uuid)
-                .and_modify(|bound| *bound = (*bound).min(bounded.max_version))
-                .or_insert(bounded.max_version);
+            targets.push(storage::TombstoneTarget {
+                uuid: parse_uuid(&bounded.person_uuid)?,
+                max_version: bounded.max_version,
+            });
         }
         if req.max_rows < 0 {
             return Err(Status::invalid_argument("max_rows must not be negative"));
@@ -630,12 +627,7 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         let outcome = self
             .storage
-            .delete_tombstoned_persons(
-                req.team_id,
-                &uuids,
-                version_guard_applied.then_some(&max_versions),
-                max_rows,
-            )
+            .delete_tombstoned_persons(req.team_id, &targets, max_rows)
             .await
             .map_err(|e| log_and_convert_error(e, "delete_tombstoned_persons"))?;
 

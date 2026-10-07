@@ -4,12 +4,11 @@ use common::TestContext;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::{
-    GroupKey, PersonVersionFloorResult, StorageError, TombstonedDeleteOutcome,
+    GroupKey, PersonVersionFloorResult, StorageError, TombstoneTarget, TombstonedDeleteOutcome,
     TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
 };
 use rand::Rng;
 use rstest::rstest;
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
@@ -3650,6 +3649,14 @@ async fn test_set_person_version_floor_missing_person() {
 /// The test storage clamps max_rows to this many dependent rows per call.
 const TEST_MAX_ROWS: i64 = 12;
 
+fn unbounded(uuids: &[Uuid]) -> Vec<TombstoneTarget> {
+    uuids
+        .iter()
+        .copied()
+        .map(TombstoneTarget::unbounded)
+        .collect()
+}
+
 /// (distinct ids, hash key overrides, cohort memberships) a person still owns.
 async fn dependent_rows(ctx: &TestContext, person_id: i64) -> (i64, i64, i64) {
     (
@@ -3706,7 +3713,7 @@ async fn test_delete_tombstoned_persons_single_person(
 
     let outcome = ctx
         .storage
-        .delete_tombstoned_persons(ctx.team_id, &[person.uuid], None, TEST_MAX_ROWS)
+        .delete_tombstoned_persons(ctx.team_id, &unbounded(&[person.uuid]), TEST_MAX_ROWS)
         .await
         .expect("Failed to delete tombstoned persons");
 
@@ -3756,10 +3763,10 @@ async fn test_delete_tombstoned_persons_trims_a_person_over_the_budget_until_it_
             .unwrap();
     }
     ctx.tombstone_person(person.id, None).await.unwrap();
-    let uuids = [person.uuid];
+    let targets = unbounded(&[person.uuid]);
     let call = || {
         ctx.storage
-            .delete_tombstoned_persons(ctx.team_id, &uuids, None, 4)
+            .delete_tombstoned_persons(ctx.team_id, &targets, 4)
     };
     let pending = |rows_deleted| TombstonedDeleteOutcome {
         pending_uuids: vec![person.uuid],
@@ -3804,7 +3811,7 @@ async fn test_delete_tombstoned_persons_converges_in_ceil_rows_over_budget_calls
     loop {
         let outcome = ctx
             .storage
-            .delete_tombstoned_persons(ctx.team_id, &[person.uuid], None, 2)
+            .delete_tombstoned_persons(ctx.team_id, &unbounded(&[person.uuid]), 2)
             .await
             .unwrap();
         calls += 1;
@@ -3850,7 +3857,7 @@ async fn test_delete_tombstoned_persons_blocks_a_person_over_the_budget_that_own
 
     let outcome = ctx
         .storage
-        .delete_tombstoned_persons(ctx.team_id, &[person.uuid], None, TEST_MAX_ROWS)
+        .delete_tombstoned_persons(ctx.team_id, &unbounded(&[person.uuid]), TEST_MAX_ROWS)
         .await
         .unwrap();
 
@@ -3910,7 +3917,7 @@ async fn test_delete_tombstoned_persons_mixed_batch_deletes_the_small_persons_an
 
     let outcome = ctx
         .storage
-        .delete_tombstoned_persons(ctx.team_id, &uuids, None, TEST_MAX_ROWS)
+        .delete_tombstoned_persons(ctx.team_id, &unbounded(&uuids), TEST_MAX_ROWS)
         .await
         .expect("Failed to delete tombstoned persons");
 
@@ -3970,7 +3977,7 @@ async fn test_delete_tombstoned_persons_leaves_later_persons_pending_once_the_bu
 
     let outcome = ctx
         .storage
-        .delete_tombstoned_persons(ctx.team_id, &uuids, None, 4)
+        .delete_tombstoned_persons(ctx.team_id, &unbounded(&uuids), 4)
         .await
         .unwrap();
 
@@ -4011,7 +4018,7 @@ async fn test_delete_tombstoned_persons_caps_the_persons_deleted_per_call() {
 
     let first = ctx
         .storage
-        .delete_tombstoned_persons(ctx.team_id, &uuids, None, TEST_MAX_ROWS)
+        .delete_tombstoned_persons(ctx.team_id, &unbounded(&uuids), TEST_MAX_ROWS)
         .await
         .unwrap();
     assert_eq!(
@@ -4027,7 +4034,7 @@ async fn test_delete_tombstoned_persons_caps_the_persons_deleted_per_call() {
 
     let second = ctx
         .storage
-        .delete_tombstoned_persons(ctx.team_id, &first.pending_uuids, None, TEST_MAX_ROWS)
+        .delete_tombstoned_persons(ctx.team_id, &unbounded(&first.pending_uuids), TEST_MAX_ROWS)
         .await
         .unwrap();
     assert_eq!(
@@ -4064,7 +4071,7 @@ async fn test_delete_tombstoned_persons_clamps_max_rows(
 
     let outcome = ctx
         .storage
-        .delete_tombstoned_persons(ctx.team_id, &[person.uuid], None, max_rows)
+        .delete_tombstoned_persons(ctx.team_id, &unbounded(&[person.uuid]), max_rows)
         .await
         .unwrap();
 
@@ -4092,14 +4099,14 @@ async fn test_delete_tombstoned_persons_second_call_is_a_no_op() {
 
     let first = ctx
         .storage
-        .delete_tombstoned_persons(ctx.team_id, &[person.uuid], None, TEST_MAX_ROWS)
+        .delete_tombstoned_persons(ctx.team_id, &unbounded(&[person.uuid]), TEST_MAX_ROWS)
         .await
         .expect("Failed to delete tombstoned persons");
     assert_eq!(first.deleted, 1);
 
     let second = ctx
         .storage
-        .delete_tombstoned_persons(ctx.team_id, &[person.uuid], None, TEST_MAX_ROWS)
+        .delete_tombstoned_persons(ctx.team_id, &unbounded(&[person.uuid]), TEST_MAX_ROWS)
         .await
         .expect("Failed to delete tombstoned persons");
     assert_eq!(second, TombstonedDeleteOutcome::default());
@@ -4116,7 +4123,7 @@ async fn test_delete_tombstoned_persons_nothing_to_do(#[case] uuids: Vec<Uuid>) 
 
     let outcome = ctx
         .storage
-        .delete_tombstoned_persons(ctx.team_id, &uuids, None, TEST_MAX_ROWS)
+        .delete_tombstoned_persons(ctx.team_id, &unbounded(&uuids), TEST_MAX_ROWS)
         .await
         .expect("Failed to delete tombstoned persons");
 
@@ -4159,7 +4166,7 @@ async fn test_delete_tombstoned_persons_records_skipped_live_when_nothing_is_tom
 
     let outcome = ctx
         .storage
-        .delete_tombstoned_persons(ctx.team_id, &[live.uuid], None, TEST_MAX_ROWS)
+        .delete_tombstoned_persons(ctx.team_id, &unbounded(&[live.uuid]), TEST_MAX_ROWS)
         .await
         .expect("Failed to delete tombstoned persons");
 
@@ -4182,7 +4189,7 @@ async fn test_delete_tombstoned_persons_cross_team_isolation() {
 
     let outcome = ctx
         .storage
-        .delete_tombstoned_persons(ctx.team_id, &[person.uuid], None, TEST_MAX_ROWS)
+        .delete_tombstoned_persons(ctx.team_id, &unbounded(&[person.uuid]), TEST_MAX_ROWS)
         .await
         .expect("Failed to delete tombstoned persons");
 
@@ -4225,7 +4232,7 @@ async fn test_primary_writes_give_up_when_a_writer_holds_the_row(#[case] write: 
     let result = match write {
         HeldRowWrite::DeleteTombstoned => ctx
             .storage
-            .delete_tombstoned_persons(ctx.team_id, &[person.uuid], None, TEST_MAX_ROWS)
+            .delete_tombstoned_persons(ctx.team_id, &unbounded(&[person.uuid]), TEST_MAX_ROWS)
             .await
             .map(|_| ()),
         HeldRowWrite::EnsurePersonFloor => ctx
@@ -4528,26 +4535,18 @@ async fn test_ensure_version_floors_wait_for_a_concurrent_insert(
     ctx.cleanup().await.ok();
 }
 
-#[derive(Debug, Clone, Copy)]
-enum VersionBound {
-    Unguarded,
-    At(i64),
-    MissingEntry,
-}
-
 #[rstest]
-#[case::unguarded_null_version(1, true, 0, VersionBound::Unguarded, true)]
-#[case::at_the_bound(1, false, 0, VersionBound::At(1), true)]
-#[case::null_version_reads_as_zero(1, true, 0, VersionBound::At(0), true)]
-#[case::tombstoned_again_above_the_bound(2, false, 0, VersionBound::At(1), false)]
-#[case::no_entry_for_the_person(1, false, 0, VersionBound::MissingEntry, false)]
-#[case::over_the_budget_above_the_bound(2, false, 19, VersionBound::At(1), false)]
+#[case::unbounded_null_version(1, true, 0, None, true)]
+#[case::at_the_bound(1, false, 0, Some(1), true)]
+#[case::null_version_reads_as_zero(1, true, 0, Some(0), true)]
+#[case::tombstoned_again_above_the_bound(2, false, 0, Some(1), false)]
+#[case::over_the_budget_above_the_bound(2, false, 19, Some(1), false)]
 #[tokio::test]
 async fn test_delete_tombstoned_persons_version_bound(
     #[case] tombstones: usize,
     #[case] null_version: bool,
     #[case] extra_distinct_ids: usize,
-    #[case] bound: VersionBound,
+    #[case] max_version: Option<i64>,
     #[case] expected_deleted: bool,
 ) {
     let ctx = TestContext::new().await;
@@ -4568,15 +4567,17 @@ async fn test_delete_tombstoned_persons_version_bound(
             .await
             .unwrap();
     }
-    let max_versions: HashMap<Uuid, i64> = match bound {
-        VersionBound::At(version) => HashMap::from([(person.uuid, version)]),
-        VersionBound::Unguarded | VersionBound::MissingEntry => HashMap::new(),
+    let target = match max_version {
+        Some(max_version) => TombstoneTarget {
+            uuid: person.uuid,
+            max_version,
+        },
+        None => TombstoneTarget::unbounded(person.uuid),
     };
-    let guard = (!matches!(bound, VersionBound::Unguarded)).then_some(&max_versions);
 
     let outcome = ctx
         .storage
-        .delete_tombstoned_persons(ctx.team_id, &[person.uuid], guard, TEST_MAX_ROWS)
+        .delete_tombstoned_persons(ctx.team_id, &[target], TEST_MAX_ROWS)
         .await
         .expect("Failed to delete tombstoned persons");
 
@@ -4629,14 +4630,13 @@ async fn test_delete_tombstoned_persons_rechecks_the_version_bound_under_the_row
         .await
         .unwrap();
 
-    let max_versions = HashMap::from([(person.uuid, 1)]);
-    let uuids = [person.uuid];
-    let delete = ctx.storage.delete_tombstoned_persons(
-        ctx.team_id,
-        &uuids,
-        Some(&max_versions),
-        TEST_MAX_ROWS,
-    );
+    let targets = [TombstoneTarget {
+        uuid: person.uuid,
+        max_version: 1,
+    }];
+    let delete = ctx
+        .storage
+        .delete_tombstoned_persons(ctx.team_id, &targets, TEST_MAX_ROWS);
     let release = async {
         // Commit only once the delete waits on the writer, which happens only in its lock query.
         let deadline = Instant::now() + Duration::from_secs(1);
