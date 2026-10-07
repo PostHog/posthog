@@ -57702,7 +57702,7 @@ export namespace Schemas {
          */
       saml_entity_id?: string | null;
       /**
-         * SAML single sign-on (ACS) URL the IdP redirects to.
+         * Sign-on URL of the identity provider, where PostHog sends the authentication request. This is not PostHog's own ACS consumer URL.
          * @maxLength 512
          * @nullable
          */
@@ -79170,7 +79170,7 @@ export namespace Schemas {
          */
       saml_entity_id?: string | null;
       /**
-         * SAML single sign-on (ACS) URL the IdP redirects to.
+         * Sign-on URL of the identity provider, where PostHog sends the authentication request. This is not PostHog's own ACS consumer URL.
          * @maxLength 512
          * @nullable
          */
