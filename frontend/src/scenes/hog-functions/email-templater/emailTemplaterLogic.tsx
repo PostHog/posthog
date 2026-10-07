@@ -21,8 +21,10 @@ import { Editor, EmailEditorProps, EditorRef as _EditorRef } from 'react-email-e
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
@@ -102,6 +104,17 @@ export const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaFi
 export interface EditorRef extends _EditorRef {}
 
 type JSONTemplate = Parameters<Editor['loadDesign']>[0]
+
+// DRF validation errors name the nested field in `attr` (e.g. "content__email__subject").
+export function saveTemplateErrorMessage(error: unknown): string {
+    if (!(error instanceof ApiError) || !error.detail) {
+        return 'Failed to save template'
+    }
+    const field = error.attr?.split('__').pop()
+    return field
+        ? `Failed to save template. ${capitalizeFirstLetter(field)}: ${error.detail}`
+        : `Failed to save template. ${error.detail}`
+}
 
 function exportEditorHtml(editor: Editor): Promise<{ html: string; design: JSONTemplate }> {
     return new Promise((resolve) =>
@@ -830,7 +843,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 actions.loadTemplates()
                 actions.setIsSaveTemplateModalOpen(false)
             } catch (error) {
-                lemonToast.error('Failed to save template')
+                lemonToast.error(saveTemplateErrorMessage(error))
                 console.error(error)
             }
         },
