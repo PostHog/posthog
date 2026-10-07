@@ -46,4 +46,6 @@ class TestMinGapBetweenRuns(SimpleTestCase):
 
     def test_the_gap_never_passes_the_cap(self) -> None:
         for failed_runs in range(GIVE_UP_AFTER_FAILED_RUNS, GIVE_UP_AFTER_FAILED_RUNS + 40):
-            assert min_gap_between_runs(failed_runs) <= FAILING_SCHEMA_RUN_GAP_CAP
+            gap = min_gap_between_runs(failed_runs)
+            assert gap is not None
+            assert gap <= FAILING_SCHEMA_RUN_GAP_CAP
