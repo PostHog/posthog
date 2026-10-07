@@ -56,7 +56,8 @@ interface SlopeValueLabelSummary {
 
 interface LegendItemSummary {
     label: string
-    /** The per-series change text, or null when absent. */
+    /** The row's secondary text (a slope chart's change, a proportion bar's `share · value`), or null
+     *  when absent. */
     secondaryLabel: string | null
 }
 
@@ -89,11 +90,10 @@ export interface HogChart<Meta = unknown> {
     slopeValueLabels(): SlopeValueLabelSummary[]
     /** Series name labels currently rendered by a slope chart (post-collision-avoidance). */
     slopeSeriesLabels(): string[]
-    /** Slope-chart legend rows — label plus the per-series change. Empty when the legend is hidden. */
-    slopeLegendItems(): LegendItemSummary[]
-    /** Proportion-bar legend rows — label plus `share · value`, or null for a hidden part. Empty when
+    /** Legend rows in this chart's render scope — label plus the row's secondary text (a slope
+     *  chart's change, a proportion bar's `share · value`), or null when the row has none. Empty when
      *  the legend is hidden. */
-    proportionLegendItems(): LegendItemSummary[]
+    legendItems(): LegendItemSummary[]
     /** Click the legend row with this label. `additive` holds ⌘/Ctrl, which toggles that one series
      *  instead of isolating it. Throws when no legend row has the label. */
     clickLegendItem(label: string, options?: { additive?: boolean }): void
@@ -232,8 +232,7 @@ export function getHogChart<Meta = unknown>(
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-slope-series-label"]')).map(
                 (el) => el.textContent ?? ''
             ),
-        slopeLegendItems: () => readLegendItems(scope, 'hog-chart-slope-legend'),
-        proportionLegendItems: () => readLegendItems(scope, 'hog-chart-proportion-legend'),
+        legendItems: () => readLegendItems(scope),
         clickLegendItem(label: string, { additive = false }: { additive?: boolean } = {}): void {
             const labelEl = Array.from(
                 scope.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-label"]')
@@ -289,12 +288,8 @@ export function getHogChart<Meta = unknown>(
 
 // The legend renders as a sibling of the chart wrapper (inside ChartLegendLayout), so it lives in the
 // broader render scope rather than under the chart wrapper.
-function readLegendItems(scope: ParentNode, legendDataAttr: string): LegendItemSummary[] {
-    const legend = scope.querySelector<HTMLElement>(`[data-attr="${legendDataAttr}"]`)
-    if (!legend) {
-        return []
-    }
-    return Array.from(legend.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-label"]')).map((labelEl) => {
+function readLegendItems(scope: ParentNode): LegendItemSummary[] {
+    return Array.from(scope.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-label"]')).map((labelEl) => {
         const secondary = labelEl.nextElementSibling
         const isSecondary = secondary?.getAttribute('data-attr') === 'hog-chart-legend-secondary'
         return {

@@ -51,22 +51,48 @@ describe('ProportionBar', () => {
         expect(payload.series.color).toBe(THEME.colors[1])
     })
 
-    it('does not fire onSliceClick for a part with no value, like a pie draws no slice for it', async () => {
-        const onSliceClick = jest.fn()
-        const zeroParts: Series[] = [
-            { key: 'a', label: 'a', data: [0] },
-            { key: 'b', label: 'b', data: [0] },
-        ]
-        const { chart } = renderHogChart(<ProportionBar series={zeroParts} theme={THEME} onSliceClick={onSliceClick} />)
+    it.each([
+        {
+            name: 'every part is 0',
+            series: [
+                { key: 'a', label: 'a', data: [0] },
+                { key: 'b', label: 'b', data: [0] },
+            ],
+            hidden: [],
+            secondaryLabels: ['0% · 0', '0% · 0'],
+        },
+        {
+            name: 'the legend hides every part',
+            series: PARTS,
+            hidden: ['a', 'b', 'c'],
+            secondaryLabels: [null, null, null],
+        },
+    ])(
+        'renders an empty bar with no click when $name, like a pie draws no slice',
+        ({ series, hidden, secondaryLabels }) => {
+            const onSliceClick = jest.fn()
+            const onError = jest.fn()
+            const { chart } = renderHogChart(
+                <ProportionBar
+                    series={series}
+                    theme={THEME}
+                    config={{ legend: { defaultHiddenKeys: hidden } }}
+                    onSliceClick={onSliceClick}
+                    onError={onError}
+                />
+            )
 
-        fireEvent.click(chart.element)
+            fireEvent.click(chart.element)
 
-        expect(onSliceClick).not.toHaveBeenCalled()
-    })
+            expect(chart.legendItems().map((item) => item.secondaryLabel)).toEqual(secondaryLabels)
+            expect(onSliceClick).not.toHaveBeenCalled()
+            expect(onError).not.toHaveBeenCalled()
+        }
+    )
 
     it('recomputes the legend shares over the parts left visible', () => {
         const { chart } = renderHogChart(<ProportionBar series={PARTS} theme={THEME} />)
-        expect(chart.proportionLegendItems().map((item) => item.secondaryLabel)).toEqual([
+        expect(chart.legendItems().map((item) => item.secondaryLabel)).toEqual([
             '75% · 600',
             '12.5% · 100',
             '12.5% · 100',
@@ -74,10 +100,6 @@ describe('ProportionBar', () => {
 
         chart.clickLegendItem('a', { additive: true })
 
-        expect(chart.proportionLegendItems().map((item) => item.secondaryLabel)).toEqual([
-            null,
-            '50% · 100',
-            '50% · 100',
-        ])
+        expect(chart.legendItems().map((item) => item.secondaryLabel)).toEqual([null, '50% · 100', '50% · 100'])
     })
 })

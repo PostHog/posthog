@@ -30,7 +30,9 @@ export interface ProportionBarConfig {
     }
 }
 
-/** Props match `PieChart` where the two charts overlap, so a consumer can swap one for the other. */
+/** Shares `series`, `valueFormatter`, `tooltip`, `onSliceClick` and `config.legend` with `PieChart`.
+ *  It has no `isPercent`, `sliceValueDisplay` or `config.sliceValue`: the bar always shows each
+ *  part's share and value, and always values a part as the sum of its data. */
 export interface ProportionBarProps<Meta = unknown> {
     /** One series per part, valued like a `PieChart` slice: the sum of `data`, floored at 0. */
     series: Series<Meta>[]
