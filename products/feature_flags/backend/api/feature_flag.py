@@ -2339,7 +2339,7 @@ class FeatureFlagSerializer(
         """
         try:
             cohort = Cohort.objects.get(pk=cast(str | int, cohort_id), team__project_id=self.context["project_id"])
-        except Cohort.DoesNotExist:
+        except (Cohort.DoesNotExist, ValueError, TypeError):
             raise serializers.ValidationError(
                 detail=f"Cohort with id {cohort_id} does not exist",
                 code="cohort_does_not_exist",

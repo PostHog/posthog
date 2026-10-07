@@ -5763,9 +5763,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_201_CREATED,
         )
 
-    def _unusable_cohort_id(self, cohort_state: str) -> int:
+    def _unusable_cohort_id(self, cohort_state: str) -> int | str:
         if cohort_state == "missing":
             return 5151
+        if cohort_state == "malformed":
+            return "not-an-id"
         return Cohort.objects.create(
             team=self.team,
             name="Retired cohort",
@@ -5779,12 +5781,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         ).id
 
     @staticmethod
-    def _cohort_condition_filters(cohort_id: int) -> dict[str, Any]:
+    def _cohort_condition_filters(cohort_id: int | str) -> dict[str, Any]:
         return {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_id}]}]}
 
     @staticmethod
-    def _unusable_cohort_detail(cohort_state: str, cohort_id: int) -> str:
-        if cohort_state == "missing":
+    def _unusable_cohort_detail(cohort_state: str, cohort_id: int | str) -> str:
+        if cohort_state in ("missing", "malformed"):
             return f"Cohort with id {cohort_id} does not exist"
         return f"Cohort 'Retired cohort' (ID {cohort_id}) has been deleted. Choose another cohort or remove this condition."
 
@@ -5819,7 +5821,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @parameterized.expand(
-        [(mode, mode, "deleted") for mode in TURN_ON_MODES] + [("patch_missing_cohort", "patch", "missing")]
+        [(mode, mode, "deleted") for mode in TURN_ON_MODES]
+        + [("patch_missing_cohort", "patch", "missing"), ("patch_malformed_cohort", "patch", "malformed")]
     )
     def test_enabling_or_restoring_checks_stored_cohorts(self, _name: str, mode: str, cohort_state: str) -> None:
         cohort_id = self._unusable_cohort_id(cohort_state)
