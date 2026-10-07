@@ -48,7 +48,12 @@ from products.replay_vision.backend.temporal.conversation import (
     run_tool_loop,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.errors import (
+    ConsentWithdrawnError,
+    FailureKind,
+    ObservationDeletedError,
+    ScannerFailureError,
+)
 from products.replay_vision.backend.temporal.events_tool import (
     GET_EVENTS_TOOL_NAME,
     build_events_index,
@@ -570,10 +575,9 @@ def _load_snapshot(observation_id: UUID, team_id: int) -> ScannerSnapshot:
         .values_list("scanner_snapshot", flat=True)
         .first()
     )
+    # `scanner_snapshot` is never null, so no row means the row was deleted.
     if raw is None:
-        raise ScannerFailureError(
-            f"ReplayObservation {observation_id} not found for team {team_id}", kind=FailureKind.INTERNAL_ERROR
-        )
+        raise ObservationDeletedError(f"ReplayObservation {observation_id} was deleted for team {team_id}")
     return ScannerSnapshot.load_for(observation_id, raw)
 
 

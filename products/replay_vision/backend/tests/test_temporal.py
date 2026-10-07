@@ -40,6 +40,7 @@ from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionEventsPage, SessionReplayEvents
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -63,6 +64,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     _extract_segments,
     _inject_known_freeform_tags,
     _load_known_freeform_tags,
+    _load_snapshot,
     _MissionOutcome,
     _resolve_citations,
     call_scanner_provider_activity,
@@ -109,6 +111,7 @@ from products.replay_vision.backend.temporal.errors import (
     FailureKind,
     IneligibleSessionError,
     IneligibleSessionKind,
+    ObservationDeletedError,
     ScannerFailureError,
 )
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error, classify_gemini_file_error
@@ -1012,6 +1015,19 @@ class TestEgressConsentRecheck:
         assert exc_info.value.non_retryable is True
         assert exc_info.value.type == INELIGIBLE_SESSION_ERROR_TYPE
         assert exc_info.value.details == ("no_ai_consent",)
+
+
+@pytest.mark.django_db
+def test_snapshot_load_after_scanner_delete_is_a_quiet_non_retryable_stop() -> None:
+    scanner = _make_scanner()
+    observation = _make_observation(scanner)
+    scanner.delete()
+
+    with pytest.raises(ObservationDeletedError) as exc_info:
+        _load_snapshot(observation.id, scanner.team_id)
+
+    assert exc_info.value.non_retryable is True
+    assert is_expected_activity_failure(exc_info.value)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -3002,6 +3018,31 @@ async def test_apply_scanner_workflow_cleans_up_gemini_file_when_call_provider_f
     assert cleanup_gemini_file_activity in called  # cleanup ran despite call_provider raising
     assert mark_observation_failed_activity in called
     # mark_succeeded must NOT have been called
+    assert mark_observation_succeeded_activity not in called
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_exits_quietly_when_observation_deleted_mid_scan() -> None:
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=uuid.uuid4(), was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+        },
+        activity_errors={
+            call_scanner_provider_activity: _wrap_in_activity_error(ObservationDeletedError("observation deleted"))
+        },
+    )
+
+    await _run_workflow(_build_inputs(session_id="sess-deleted"), mocks)
+
+    called = {fn for fn, _ in mocks.activity_calls}
+    assert cleanup_gemini_file_activity in called
+    assert mark_observation_failed_activity not in called
     assert mark_observation_succeeded_activity not in called
 
 
