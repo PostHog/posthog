@@ -187,7 +187,6 @@ data_quality.TeamDataQualityConfig products.data_quality.backend.facade.api.get_
 data_quality.TeamDataQualityConfig products.data_quality.backend.facade.api.set_gate_materialization_on_checks facade-returns 1
 data_warehouse.ManagedWarehouseBackfillPartition products.data_warehouse.backend.facade.backfill_status.stale_running_partitions facade-returns 1
 django.Exists products.dashboards.backend.facade.api.insight_has_listed_tile facade-returns 1
-django.HttpRequest products.demo.backend.facade.api.demo_route facade-accepts(request) 1
 django.HttpRequest products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane facade-accepts(request) 1
 django.HttpRequest products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane_status facade-accepts(request) 1
 django.HttpResponse products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane facade-returns 1
