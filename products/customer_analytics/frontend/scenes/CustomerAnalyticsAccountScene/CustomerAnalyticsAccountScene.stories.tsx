@@ -456,3 +456,94 @@ export const PinnedPropertiesNarrow: Story = {
         testOptions: { waitForSelector: '[data-attr="account-property-row"]', viewport: { width: 800, height: 900 } },
     },
 }
+
+const widgetCustomId = '33333333-3333-4333-8333-333333333333'
+const widgetRelationshipId = '44444444-4444-4444-8444-444444444444'
+const widgetCanonicalId = '55555555-5555-4555-8555-555555555555'
+const widgetDefinitions = [
+    { ...pinnedDefinitions[0].definition, id: widgetCustomId },
+    { ...pinnedDefinitions[9].definition, id: widgetCanonicalId },
+]
+const widgetRelationship = { ...pinnedRelationships[0], id: widgetRelationshipId }
+const propertiesView = {
+    ...accountView,
+    content: createAccountViewContent([
+        {
+            nodeId: 'properties-first',
+            kind: 'properties',
+            span: 6,
+            title: 'Account information',
+            config: {
+                properties: [
+                    { kind: 'account', key: 'website_domain' },
+                    { kind: 'custom_property', id: widgetCustomId },
+                    { kind: 'relationship', id: widgetRelationshipId },
+                    { kind: 'account', key: 'billing_id' },
+                ],
+            },
+        },
+        {
+            nodeId: 'properties-second',
+            kind: 'properties',
+            span: 6,
+            title: 'Contact properties',
+            config: {
+                properties: [
+                    { kind: 'account', key: 'known_emails' },
+                    { kind: 'relationship', id: widgetRelationshipId },
+                    { kind: 'custom_property', id: widgetCanonicalId },
+                    { kind: 'custom_property', id: '66666666-6666-4666-8666-666666666666' },
+                ],
+            },
+        },
+    ]),
+}
+const propertiesWidgetDecorator = mswDecorator({
+    get: {
+        [ACCOUNT_VIEWS_ENDPOINT]: [propertiesView],
+        [CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT]: { count: widgetDefinitions.length, results: widgetDefinitions },
+        [RELATIONSHIP_DEFINITIONS_ENDPOINT]: { count: 1, results: [widgetRelationship] },
+        [VALUES_ENDPOINT]: widgetDefinitions.map((definition, index) => ({
+            ...pinnedDefinitions[index === 0 ? 0 : 9].value,
+            definition_id: definition.id,
+        })),
+        [ASSIGNMENTS_ENDPOINT]: [
+            {
+                id: 'widget-assignment',
+                definition: widgetRelationship,
+                user: pinnedMembers[0],
+                started_at: '2026-05-10T10:00:00Z',
+                ended_at: null,
+            },
+        ],
+        [ACCOUNT_RETRIEVE_ENDPOINT]: {
+            ...account,
+            properties: {
+                ...account.properties,
+                website_domain: 'a-long-company-website-domain.example.com',
+                known_emails: ['a-long-contact-address@example.com', 'another-contact@example.com'],
+            },
+        },
+    },
+})
+
+export const PropertiesWidgets: Story = {
+    render: () => <App />,
+    decorators: [propertiesWidgetDecorator],
+    parameters: {
+        testOptions: {
+            waitForSelector: '[data-attr="account-properties-widget"]',
+            viewport: { width: 1800, height: 900 },
+        },
+    },
+}
+
+export const PropertiesWidgetsNarrow: Story = {
+    ...PropertiesWidgets,
+    parameters: {
+        testOptions: {
+            waitForSelector: '[data-attr="account-properties-widget"]',
+            viewport: { width: 1000, height: 900 },
+        },
+    },
+}

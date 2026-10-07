@@ -10,7 +10,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { canEditEmailMatching } from 'products/customer_analytics/frontend/components/Accounts/accountEmailMatching'
 
-import { ACCOUNT_ID_FIELDS, customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
+import { ACCOUNT_ID_FIELDS } from './accountNativeProperties'
+import { customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
 
 const STATUS_DATE_FIELDS = [
     { key: 'churned_at', label: 'Churned at', placeholder: 'Not churned' },
