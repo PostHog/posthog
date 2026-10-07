@@ -5,12 +5,12 @@ retry layers of the adapter, the REST client and the source all run as they do i
 waits add to a fake clock and take no real time.
 """
 
-import gc
 import io
 import ast
 import sys
 import json
 import time
+import types
 import socket
 import asyncio
 import inspect
@@ -319,15 +319,31 @@ def _sleep_aliases() -> list[tuple[Any, str]]:
     return aliases
 
 
+def _controller_of(value: Any) -> tenacity.Retrying | None:
+    if isinstance(value, staticmethod | classmethod):
+        value = value.__func__
+    if not isinstance(value, types.FunctionType):
+        return None
+    controller = value.__dict__.get("retry")
+    return controller if isinstance(controller, tenacity.Retrying) else None
+
+
 @functools.cache
 def _retry_controllers() -> list[tenacity.Retrying]:
-    """Each synchronous tenacity controller that a `@retry` decorator created.
+    """Each synchronous tenacity controller that a `@retry` decorator put on a function or a method.
 
     A test can replace the `sleep` of one for the rest of the process, for example
     `RESTClient._send_request.retry.sleep = lambda *_: None`. That wait then never reaches the fake
     clock, and the verdict of every later source depends on which tests ran before.
     """
-    return [controller for controller in gc.get_objects() if isinstance(controller, tenacity.Retrying)]
+    controllers: dict[int, tenacity.Retrying] = {}
+    for module in list(sys.modules.values()):
+        for value in list(getattr(module, "__dict__", {}).values()):
+            candidates = list(vars(value).values()) if inspect.isclass(value) else []
+            for candidate in [value, *candidates]:
+                if (controller := _controller_of(candidate)) is not None:
+                    controllers[id(controller)] = controller
+    return list(controllers.values())
 
 
 @contextlib.contextmanager

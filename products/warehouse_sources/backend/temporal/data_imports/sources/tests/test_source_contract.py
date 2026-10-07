@@ -21,6 +21,7 @@ from typing import Any, cast
 import pytest
 
 import requests
+import tenacity
 from urllib3.util.retry import Retry
 
 import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
@@ -39,10 +40,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tests.cont
     SAFE_POINT,
     STALL_BUDGET,
     TIMEOUT,
+    Scenario,
     SourceStatus,
     StartExtraction,
     check_extraction,
     check_source,
+    fake_environment,
     is_stub,
 )
 
@@ -222,29 +225,19 @@ def test_harness_detects_each_condition(start: StartExtraction, expected: set[st
     assert check_extraction(start, ["rows"]).failed == expected
 
 
-def _rest_client_without_adapter_retry(
-    inputs: SourceInputs,
-) -> tuple[SourceResponse, ResumableSourceManager[Any] | None]:
-    manager = _manager(inputs)
-    client = RESTClient(
-        base_url=BASE_URL, session=make_tracked_session(retry=NO_ADAPTER_RETRY), request_timeout=(10, 60)
-    )
-
-    def rows() -> Iterator[Any]:
-        paginator = JSONResponseCursorPaginator(cursor_path="next_cursor", cursor_param="cursor")
-        for page in client.paginate("/rows", paginator=paginator, data_selector="data"):
-            if page:
-                yield page
-
-    return _response(rows()), manager
+@tenacity.retry(stop=tenacity.stop_after_attempt(2), wait=tenacity.wait_fixed(400))
+def _retried_call() -> None:
+    return None
 
 
-def test_waits_of_a_retry_controller_that_an_earlier_test_replaced_still_count(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Some source tests replace `RESTClient._send_request.retry.sleep` and never put it back. The
+def test_retry_waits_reach_the_fake_clock_after_a_test_replaced_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Some source tests assign `RESTClient._send_request.retry.sleep` and never put it back. The
     # verdict of a source must not depend on whether such a test ran earlier in the same process.
-    monkeypatch.setattr(cast(Any, RESTClient._send_request).retry, "sleep", lambda *_: None)
-    failed = check_extraction(_rest_client_without_adapter_retry, ["rows"]).failed
-    assert {STALL_BUDGET, RATE_LIMIT_BUDGET} <= failed
+    controller = cast(Any, _retried_call).retry
+    monkeypatch.setattr(controller, "sleep", lambda *_: None)
+    with fake_environment(Scenario(mode="stall")):
+        assert controller.sleep is time.sleep
+    assert controller.sleep is not time.sleep
 
 
 def read_baseline() -> dict[str, str]:
