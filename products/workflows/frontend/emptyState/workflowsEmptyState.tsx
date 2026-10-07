@@ -3,6 +3,7 @@ import { IconDecisionTree } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Scene } from 'scenes/sceneTypes'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -15,6 +16,8 @@ const HedgehogWorkflows = pngHoggie(workflowsPng)
 
 export const workflowsEmptyState: SceneProductEmptyState = {
     statusLogic: workflowsSetupLogic,
+    // The first run puts a template gallery on the Workflows tab itself, so the scene keeps its tabs.
+    bypassFeatureFlag: FEATURE_FLAGS.WORKFLOWS_FIRST_RUN,
     // One scene serves every tab here, but only the workflow list is the product being gated.
     // Channels, the message library, opt-outs, suppression, and reputation configure resources
     // that stand on their own, and a person often sets a channel up before a first workflow.
