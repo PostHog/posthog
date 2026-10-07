@@ -4123,6 +4123,8 @@ class TestStreamingConnectionDeadlines:
 
         setup_cursor = mock.MagicMock()
         setup_cursor.__enter__.return_value = setup_cursor
+        setup_cursor.connection.broken = False
+        setup_cursor.connection.closed = False
         setup_cursor.execute.side_effect = execute
         self.connection = self._Connection(setup_cursor)
 
@@ -7592,8 +7594,7 @@ class TestGetRowsToSync:
         ids=["catalog_estimate", "no_statistics", "no_estimator"],
     )
     def test_unfiltered_count_past_its_deadline_gives_the_estimate(self, estimate_on_timeout, expected):
-        cursor = mock.MagicMock()
-        cursor.execute.side_effect = [None, ClientDeadlineExceededError(UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS)]
+        cursor = self._cursor_past_the_count_deadline(connection_lost=False)
         count_query = _build_count_query("public", "users", False, None, None, None)
 
         rows = _get_rows_to_sync(
@@ -7601,6 +7602,23 @@ class TestGetRowsToSync:
         )
 
         assert rows == expected
+
+    @staticmethod
+    def _cursor_past_the_count_deadline(*, connection_lost: bool) -> mock.MagicMock:
+        cursor = mock.MagicMock()
+        cursor.connection.broken = connection_lost
+        cursor.connection.closed = connection_lost
+        cursor.execute.side_effect = [None, ClientDeadlineExceededError(UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS)]
+        return cursor
+
+    def test_unfiltered_count_deadline_that_cost_the_connection_ends_the_attempt(self):
+        # After the socket shutdown no statement can run, so an estimate of 0 here would send the
+        # setup into its reconnect loop, which runs the same count again.
+        cursor = self._cursor_past_the_count_deadline(connection_lost=True)
+        count_query = _build_count_query("public", "users", False, None, None, None)
+
+        with pytest.raises(ClientDeadlineExceededError):
+            _get_rows_to_sync(cast(Any, cursor), count_query, structlog.get_logger(), estimate_on_timeout=lambda: 1234)
 
     def test_incremental_count_past_the_client_deadline_stays_retryable(self):
         # The incremental handlers read `QueryCanceled` as "add an index", which stops the sync.

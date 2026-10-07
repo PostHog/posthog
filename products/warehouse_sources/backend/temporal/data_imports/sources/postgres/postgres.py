@@ -3116,6 +3116,10 @@ def _get_rows_to_sync(
     except ClientDeadlineExceededError as e:
         if should_use_incremental_field:
             raise
+        if cursor.connection.broken or cursor.connection.closed:
+            # The cancel request had no effect and the socket was shut down. No statement can run
+            # on this connection, so the estimate and the remaining setup cannot run either.
+            raise
         estimate = estimate_on_timeout() if estimate_on_timeout is not None else None
         logger.debug(f"_get_rows_to_sync: COUNT not done in time ({e}). Using the estimate: {estimate}")
         return estimate or 0
