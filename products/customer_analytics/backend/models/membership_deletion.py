@@ -72,7 +72,7 @@ class MembershipDeletionIdentity(TeamScopedRootMixin):
     distinct_id = models.CharField(max_length=400)
     version = models.BigIntegerField()
 
-    objects = EnvironmentScopedManager()  # type: ignore[assignment, misc] # Deleted teams require literal IDs.
+    objects = EnvironmentScopedManager()  # type: ignore[misc] # Deleted teams require literal IDs.
     all_teams = models.Manager()
 
     class Meta:
