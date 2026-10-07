@@ -338,6 +338,7 @@ __all__ = [
     "get_task_run_log_urls",
     "get_task_run_log_size",
     "read_task_run_log_content",
+    "read_task_run_conversation_logs",
     "read_task_run_logs",
     "record_comment_activity",
     "signal_task_run_client_activity",
@@ -4805,6 +4806,34 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
     return read_task_run_log_content(log_urls)
 
 
+def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+    """Concatenated JSONL logs across the run's conversation, oldest run first.
+
+    Like `read_task_run_logs`, but a resumed Pi run also reads the earlier runs of its task
+    session. The Pi agent server stores its run start marker without the run id, so each Pi
+    run's log is preceded by a marker that names the run.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    chain = run.get_history_chain()
+    if len(chain) < 2 or run.task.runtime != Task.Runtime.PI:
+        return read_task_run_log_content([ancestor.log_url for ancestor in chain])
+
+    contents = _TASK_LOG_READ_EXECUTOR.map(lambda ancestor: read_task_run_log_content([ancestor.log_url]), chain)
+    parts: list[str] = []
+    for ancestor, content in zip(chain, contents):
+        marker = {
+            "type": "pi_run_started",
+            "timestamp": ancestor.created_at.isoformat(),
+            "taskId": str(ancestor.task_id),
+            "runId": str(ancestor.id),
+        }
+        parts.append(json.dumps(marker) + "\n")
+        parts.append(content)
+    return "".join(parts)
+
+
 def get_task_run_log_urls(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[str] | None:
     """Log URLs across the run's resume chain (oldest ancestor first). ``None`` if the run isn't found."""
     run = _get_visible_run(run_id, task_id, team_id)
@@ -9187,8 +9216,12 @@ def run_task(
         "fast_mode": fast_mode,
     }
     if is_pi_task:
-        for key in ("runtime_adapter", "provider", "model", "reasoning_effort"):
-            run_state_values.pop(key)
+        if run_state_values["runtime_adapter"] is not None:
+            # A Pi run has no ACP adapter, so a model paired with one belongs to an ACP harness.
+            run_state_values.pop("model")
+            run_state_values.pop("reasoning_effort")
+        run_state_values.pop("runtime_adapter")
+        run_state_values.pop("provider")
     extra_state = extra_state or {}
     extra_state["pr_base_branch"] = branch
     for key, value in run_state_values.items():

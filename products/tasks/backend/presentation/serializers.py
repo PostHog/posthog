@@ -3640,13 +3640,19 @@ class TaskRunCreateRequestSerializer(
         required=False,
         default=None,
         allow_blank=False,
-        help_text="LLM model identifier. The server derives the runtime adapter when it is omitted.",
+        help_text=(
+            "LLM model identifier. The server derives the runtime adapter when it is omitted. "
+            "A Pi task runs any listed model and takes no runtime adapter."
+        ),
     )
     reasoning_effort = serializers.ChoiceField(
         choices=REASONING_EFFORT_CHOICES,
         required=False,
         default=None,
-        help_text="Reasoning effort to request for models that expose an effort control.",
+        help_text=(
+            "Reasoning effort to request for models that expose an effort control. "
+            "A Pi task sets it as the Pi thinking level and does not accept 'ultracode'."
+        ),
     )
     context_window = serializers.ChoiceField(
         choices=CONTEXT_WINDOW_CHOICES,
@@ -3695,7 +3701,7 @@ class TaskRunCreateRequestSerializer(
             if attrs.get("claude_model_access") == "own-subscription":
                 errors["claude_model_access"] = "Scheduled runs must use the PostHog gateway."
         if attrs.get("model") and attrs.get("runtime_adapter") is None:
-            attrs["runtime_adapter"] = get_runtime_adapter_for_model(attrs["model"]) or next(
+            model_runtime_adapter = get_runtime_adapter_for_model(attrs["model"]) or next(
                 (
                     RuntimeAdapter(choice.runtime_adapter)
                     for choice in available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
@@ -3703,12 +3709,17 @@ class TaskRunCreateRequestSerializer(
                 ),
                 None,
             )
-            if attrs["runtime_adapter"] is None:
+            if model_runtime_adapter is None:
                 errors["model"] = "Unknown model. Use tasks-models-retrieve to list available models."
+            elif not is_pi_task:
+                # Pi runs any catalog model through the gateway, so a Pi run carries no adapter.
+                attrs["runtime_adapter"] = model_runtime_adapter
         if is_pi_task:
-            for field in ("runtime_adapter", "model", "reasoning_effort", "initial_permission_mode"):
+            for field in ("runtime_adapter", "initial_permission_mode"):
                 if attrs.get(field) is not None:
                     errors[field] = "This field cannot be used with a Pi task. Remove it and try again."
+            if attrs.get("reasoning_effort") == ReasoningEffort.ULTRACODE:
+                errors["reasoning_effort"] = "This reasoning effort cannot be used with a Pi task."
         if collision_error := get_relayed_imported_mcp_name_collision_error(attrs):
             errors["relayed_mcp_servers"] = collision_error
         initial_permission_mode = attrs.get("initial_permission_mode")
@@ -3727,6 +3738,17 @@ class TaskRunCreateRequestSerializer(
             attrs["pending_user_message"] = trimmed_message or None
         if not attrs.get("pending_user_message") and not pending_user_artifact_ids:
             attrs.pop("pending_user_message", None)
+
+        if is_pi_task:
+            if "model" not in errors and (
+                model_access_error := get_model_access_error(
+                    attrs.get("model"), distinct_id=request_distinct_id(self.context)
+                )
+            ):
+                errors["model"] = model_access_error
+            if errors:
+                raise serializers.ValidationError(errors)
+            return attrs
 
         runtime_fields = ("runtime_adapter", "model")
         has_runtime_selection = any(

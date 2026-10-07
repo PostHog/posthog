@@ -137,6 +137,26 @@ describe('ComposerModelEffortPickers', () => {
         })
     })
 
+    it('lists every model with no harness choice for a runtime that runs any model', async () => {
+        renderPickers({
+            singleHarness: true,
+            models: [
+                ...CATALOGUE,
+                {
+                    runtime_adapter: RuntimeAdapterEnumApi.Codex,
+                    model: 'gpt-6-sol',
+                    display_name: 'GPT-6 Sol',
+                    supported_efforts: [ReasoningEffortEnumApi.High],
+                },
+            ],
+        })
+
+        expect(screen.queryByText('Harness')).not.toBeInTheDocument()
+        fireEvent.click(screen.getByText('Model'))
+        expect(await screen.findByText('GPT-6 Sol')).toBeInTheDocument()
+        expect(screen.getByText('Claude Sonnet 5')).toBeInTheDocument()
+    })
+
     it('offers no way to change the default on a surface that has none to change', () => {
         renderPickers()
 

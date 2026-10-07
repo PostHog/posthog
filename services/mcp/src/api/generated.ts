@@ -22555,7 +22555,7 @@ export namespace Schemas {
       runtime_adapter: ClaudeRuntimeAdapterEnum;
       /** LLM model identifier to run in the Claude runtime. */
       model: string;
-      /** Reasoning effort to request for models that expose an effort control.
+      /** Reasoning effort to request for models that expose an effort control. A Pi task sets it as the Pi thinking level and does not accept 'ultracode'.
        *
        * * `low` - low
        * * `medium` - medium
@@ -23003,7 +23003,7 @@ export namespace Schemas {
       runtime_adapter: CodexRuntimeAdapterEnum;
       /** LLM model identifier to run in the Codex runtime. */
       model: string;
-      /** Reasoning effort to request for models that expose an effort control.
+      /** Reasoning effort to request for models that expose an effort control. A Pi task sets it as the Pi thinking level and does not accept 'ultracode'.
        *
        * * `low` - low
        * * `medium` - medium

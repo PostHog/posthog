@@ -13898,6 +13898,10 @@ snapshots:
         hash: v1.k794b7964.183b80968dd176e810833f6237d50559eb2b45905a12715d7615b79dd3987304.glKUf15z01yE2oekRT1Y_QLcT87dpxpWCTxnUOh4a-M
     scenes-app-tasks--new-task-with-repository--light:
         hash: v1.k794b7964.9e3733a4b644973157675b87f9d5c93279803c83b236223008a7f0275906127a.TLun3X19lpf5HQJhm-68oFXFf_l-39SBlQP779lf8XE
+    scenes-app-tasks--pi-task-selected--dark:
+        hash: v1.k794b7964.af9b88ddbc10b17dc0ccda95758fbf1ae9d103bcd0e511ec0352f76a1d0c2b80.kCLLV2HlqIkS_cCK8f1QsGpT7aNOgRJ6i7SRLgSzRv8
+    scenes-app-tasks--pi-task-selected--light:
+        hash: v1.k794b7964.dc94140b8460e76c6e8b81adb9c46997c89a5634f20fac20ddada1f1ffd12223.4KOsU0tDj1zB26GFLV3daFR9ypOtXtETf08ZsGEMZt4
     scenes-app-tasks--task-detail-loading--dark:
         hash: v1.k794b7964.8c04d529d803b961fcd596d0f748a22e0254ab185dc85bd42d3be47ff68e1902.3-VexQvKrWZFj_n7bOgXF3_lGw9S9zB4QYHA00Rpfh0
     scenes-app-tasks--task-detail-loading--light:

@@ -8,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 
 import type { StoredLogEntry } from '../types/wireTypes'
+import { translatePiWireEntry } from '../utils/piWire'
 import { runCancellationLogic } from './runCancellationLogic'
 import { runStreamLogic } from './runStreamLogic'
 
@@ -101,6 +102,25 @@ describe('runCancellationLogic', () => {
             notification: { method: '_posthog/turn_complete' },
         })
         expect(logic.values.cancellationState).toBeNull()
+    })
+
+    it('stops a Pi run whose logged run start carries no run id', async () => {
+        attach()
+        logic.actions.requestCancellation()
+        await expectLogic(logic, () => {
+            stream.actions.ingestAcpFrame({
+                ...(translatePiWireEntry({
+                    type: 'pi_run_started',
+                    timestamp: '2026-01-01T00:00:00Z',
+                }) as StoredLogEntry),
+                source_run_id: 'run-1',
+            })
+            stream.actions.ingestAcpFrame(prompt('run-1', 'agent_message_chunk'))
+        }).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
+            jsonrpc: '2.0',
+            method: 'cancel',
+        })
     })
 
     it('ignores readiness from an earlier resumed run', async () => {
