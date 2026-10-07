@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -158,6 +159,55 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
         assert response.json()["scopes"] == [*(existing_scopes or []), "llm_gateway:read"]
+
+    @parameterized.expand([("wizard_blocklist", True, False), ("security_rule", False, True)])
+    def test_banned_user_cannot_grant_llm_gateway_scope(self, _name, wizard_blocked, security_refused):
+        with (
+            patch("posthog.api.project_secret_api_key.wizard_identity_blocked", return_value=wizard_blocked),
+            patch("posthog.api.project_secret_api_key.security_access_refused", return_value=security_refused),
+        ):
+            create = self.client.post(
+                f"/api/projects/{self.team.id}/project_secret_api_keys",
+                {"label": "my key", "scopes": ["llm_gateway:read"]},
+            )
+            key = ProjectSecretAPIKey.objects.create(
+                team=self.team,
+                label="existing",
+                secure_value=hash_key_value(generate_random_token_secret()),
+                scopes=["endpoint:read"],
+                created_by=self.user,
+            )
+            update = self.client.patch(
+                f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+                {"scopes": ["endpoint:read", "llm_gateway:read"]},
+            )
+        assert create.status_code == 403, create.json()
+        assert "blocked from the PostHog AI gateway" in create.json()["detail"]
+        assert update.status_code == 403, update.json()
+        assert not ProjectSecretAPIKey.objects.filter(team=self.team, label="my key").exists()
+
+    @patch("posthog.api.project_secret_api_key.security_access_refused", return_value=False)
+    @patch("posthog.api.project_secret_api_key.wizard_identity_blocked", return_value=True)
+    def test_ban_checks_skip_kept_and_other_scopes(self, mock_blocked, mock_refused):
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="existing",
+            secure_value=hash_key_value(generate_random_token_secret()),
+            scopes=["llm_gateway:read"],
+            created_by=self.user,
+        )
+        kept = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+            {"label": "renamed", "scopes": ["llm_gateway:read", "endpoint:read"]},
+        )
+        other = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "my key", "scopes": ["endpoint:read"]},
+        )
+        assert kept.status_code == 200, kept.json()
+        assert other.status_code == 201, other.json()
+        mock_blocked.assert_not_called()
+        mock_refused.assert_not_called()
 
     def test_llm_gateway_write_scope_rejected(self):
         response = self.client.post(
