@@ -1,3 +1,4 @@
+import json
 from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol
 
 from django.db.models import F
@@ -71,8 +72,104 @@ class IncrementalFieldMissingFromDataError(Exception):
         )
 
 
+_UNRESOLVED = object()
+
+
+def _get_json_path_value(raw_value: Any, path: list[str]) -> Any:
+    """Walk a JSON string's object members; distinguish a missing member from null."""
+    if raw_value is None:
+        return _UNRESOLVED  # a null root does not establish that the nested member exists
+
+    try:
+        value = json.loads(raw_value)
+    except (json.JSONDecodeError, TypeError):
+        return _UNRESOLVED  # not JSON -> path unresolvable
+
+    for part in path:
+        if value is None:
+            return _UNRESOLVED  # null intermediate parent; the leaf was never observed
+        if not isinstance(value, dict) or part not in value:
+            return _UNRESOLVED  # structurally missing -> unresolvable
+        value = value[part]
+
+    if isinstance(value, (dict, list)):
+        return _UNRESOLVED  # leaf must be scalar
+    return value
+
+
+def parse_member_path(path: str) -> list[str] | None:
+    """Parse a simple dotted member path, optionally prefixed with '$.'.
+
+    Supported: "meta.updated_at", "$.meta.updated_at", "updated_at"
+    Not supported: array indexes, wildcards, filters, or quoted JSONPath keys.
+    Only member access is accepted because a cursor must resolve to at most one
+    scalar per record.
+    """
+    path = path.strip()
+
+    if path.startswith("$."):
+        path = path[2:]
+    elif path.startswith("$"):
+        return None
+
+    if not path:
+        return None
+
+    parts = path.split(".")
+    if any(not part or part != part.strip() or any(char in part for char in "$[]*?'\"") for part in parts):
+        return None
+
+    return parts
+
+
+def resolve_incremental_values(table: pa.Table, field_name: str) -> list | None:
+    """Return row-aligned raw cursor values, or None if the field cannot be resolved.
+
+    For parsed dotted paths, only the top-level column name is normalized; nested
+    JSON keys retain their source spelling. Nested paths can resolve from JSON-string
+    columns. If at least one row resolves, unresolved rows are None; otherwise the
+    normalized flat-column lookup is tried, including for paths rejected by the parser
+    and for a batch whose nested root is entirely null.
+    """
+
+    parts = parse_member_path(field_name)
+    empty_nested_root = False
+
+    if parts is not None:
+        root_name = normalize_column_name(parts[0])
+        if root_name in table.column_names:
+            root_column = table[root_name]
+            # Nested struct/list columns may already be JSON strings here, serialized upstream by
+            # evolve_pyarrow_schema; resolve dotted paths from that representation.
+            if len(parts) > 1 and (pa.types.is_string(root_column.type) or pa.types.is_large_string(root_column.type)):
+                root_values = root_column.to_pylist()
+                if not root_values or all(value is None for value in root_values):
+                    # Nothing observed through the nested path this batch, but the normalized flat
+                    # column may still carry the field; defer before leaving the cursor alone.
+                    empty_nested_root = True
+                else:
+                    values = [_get_json_path_value(v, parts[1:]) for v in root_values]
+                    if any(v is not _UNRESOLVED for v in values):
+                        return [None if v is _UNRESOLVED else v for v in values]
+
+    # Fallback: a real top-level column. Covers single-segment paths, pre-flattened
+    # keys such as "meta_updated_at", and (compatibility) names that are not valid
+    # member paths but still normalize onto a real flat column.
+    flat_name = normalize_column_name(".".join(parts) if parts is not None else field_name)
+    if flat_name and flat_name in table.column_names:
+        column = table[flat_name]
+        if not pa.types.is_nested(column.type):
+            return column.to_pylist()
+
+    if empty_nested_root:
+        return []  # nothing observed anywhere -> leave the cursor alone
+    return None
+
+
 def get_incremental_field_value(
-    schema: ExternalDataSchema | None, table: pa.Table, aggregate: Literal["max"] | Literal["min"] = "max"
+    schema: ExternalDataSchema | None,
+    table: pa.Table,
+    aggregate: Literal["max"] | Literal["min"] = "max",
 ) -> Any:
     # CDC and xmin schemas track their own cursor (CDC log position, xmin ceiling) outside of
     # sync_type_config["incremental_field"] — that key can be a stale leftover from a prior
@@ -84,21 +181,26 @@ def get_incremental_field_value(
     if incremental_field_name is None:
         return None
 
-    normalized_field_name = normalize_column_name(incremental_field_name)
-    if normalized_field_name not in table.column_names:
+    if aggregate not in ("max", "min"):
+        raise Exception(f"Unsupported aggregate function for get_incremental_field_value: {aggregate}")
+
+    raw_values = resolve_incremental_values(table, incremental_field_name)
+    if raw_values is None:
         raise IncrementalFieldMissingFromDataError(incremental_field_name, table)
 
-    column = table[normalized_field_name]
-    processed_column = pa.array(
-        [process_incremental_value(val, schema.incremental_field_type) for val in column.to_pylist()]
-    )
+    processed_values = [
+        process_incremental_value(value, schema.incremental_field_type) for value in raw_values if value is not None
+    ]
+    if not processed_values:
+        # Empty batch, or every row null: leave the cursor where it is.
+        return None
+
+    processed_column = pa.array(processed_values)
 
     if aggregate == "max":
         last_value = pc.max(processed_column)
-    elif aggregate == "min":
-        last_value = pc.min(processed_column)
     else:
-        raise Exception(f"Unsupported aggregate function for get_incremental_field_value: {aggregate}")
+        last_value = pc.min(processed_column)
 
     return last_value.as_py()
 
