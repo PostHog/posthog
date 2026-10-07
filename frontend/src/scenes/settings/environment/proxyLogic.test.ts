@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_USER, MOCK_ORGANIZATION_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -200,6 +201,42 @@ describe('proxyLogic — delete record', () => {
         await expectLogic(logic, () => {
             logic.actions.deleteRecord(record.id)
         }).toDispatchActions(['deleteRecordFailure', 'loadRecords'])
+
+        logic.unmount()
+    })
+})
+
+describe('proxyLogic — diagnose', () => {
+    it('shows an info toast, not an error, when the diagnose cooldown returns 429', async () => {
+        const record = mockProxyRecord()
+        useMocks({
+            get: {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/`]: proxyRecordsResponse([record]),
+            },
+            post: {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/${record.id}/diagnose/`]: () => [
+                    429,
+                    { detail: 'A diagnostic was just run for this proxy.' },
+                ],
+            },
+        })
+        initKeaTests()
+        organizationLogic.mount()
+        const infoSpy = jest.spyOn(lemonToast, 'info')
+        const errorSpy = jest.spyOn(lemonToast, 'error')
+
+        const logic = proxyLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.diagnose(record.id)
+        })
+            .toDispatchActions(['diagnoseFailure'])
+            .toMatchValues({ diagnoseCooldownIds: [record.id] })
+
+        expect(infoSpy).toHaveBeenCalledTimes(1)
+        expect(errorSpy).not.toHaveBeenCalled()
 
         logic.unmount()
     })

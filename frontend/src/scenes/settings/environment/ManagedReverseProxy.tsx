@@ -32,6 +32,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import {
+    DIAGNOSE_COOLDOWN_SECONDS,
     DiagnosticCheckResult,
     DiagnosticCheckStatus,
     DiagnosticReport,
@@ -53,6 +54,7 @@ export function ManagedReverseProxy(): JSX.Element {
         proxyRecords,
         proxyRecordsLoading,
         maxProxyRecords,
+        diagnoseCooldownIds,
         diagnoseLoadingIds,
         expandedRecordIds,
     } = useValues(proxyLogic)
@@ -166,7 +168,11 @@ export function ManagedReverseProxy(): JSX.Element {
                                 {
                                     label: isDiagnosing ? 'Running diagnostics…' : 'Diagnose',
                                     onClick: () => diagnose(id),
-                                    disabledReason: isDiagnosing ? 'A diagnostic is already running' : undefined,
+                                    disabledReason: isDiagnosing
+                                        ? 'A diagnostic is already running'
+                                        : diagnoseCooldownIds.includes(id)
+                                          ? `You can run diagnostics again about ${DIAGNOSE_COOLDOWN_SECONDS} seconds after the last run`
+                                          : undefined,
                                 },
                                 ...(status === 'erroring' || status === 'timed_out'
                                     ? [
