@@ -53336,6 +53336,51 @@ export namespace Schemas {
     }
 
     /**
+     * * `messaging` - Messaging
+     * * `automation` - Automation
+     * * `loop` - Loop
+     * * `broadcast` - Broadcast
+     */
+    export type HogFlowTypeEnum = typeof HogFlowTypeEnum[keyof typeof HogFlowTypeEnum];
+
+
+    export const HogFlowTypeEnum = {
+      Messaging: 'messaging',
+      Automation: 'automation',
+      Loop: 'loop',
+      Broadcast: 'broadcast',
+    } as const;
+
+    /**
+     * One row of the workflows list: the summary fields and the workflow type, without the step graph.
+     */
+    export interface HogFlowListSummary {
+      readonly id: string;
+      /** @nullable */
+      readonly name: string | null;
+      readonly description: string;
+      readonly version: number;
+      readonly status: HogFlowStateEnum;
+      readonly origin_product: HogFlowOriginProductEnum | null;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly updated_at: string;
+      readonly trigger: unknown;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      /** `loop` and `broadcast` for workflows those surfaces own. Otherwise `messaging` when the workflow has an email, SMS or push step, else `automation`. The same rules as the `type` filter.
+       *
+       * * `messaging` - Messaging
+       * * `automation` - Automation
+       * * `loop` - Loop
+       * * `broadcast` - Broadcast */
+      readonly type: HogFlowTypeEnum;
+    }
+
+    /**
      * Mixin for serializers to add user access control fields
      */
     export interface HogFlowMinimal {
@@ -68399,6 +68444,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: HealthIssue[];
+    }
+
+    export interface PaginatedHogFlowListSummaryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: HogFlowListSummary[];
     }
 
     export interface PaginatedHogFlowMinimalList {
@@ -119846,6 +119900,75 @@ export namespace Schemas {
      */
     search?: string;
     };
+
+    export type HogFlowsSummariesListParams = {
+    /**
+     * Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.
+     */
+    broadcast_eligible?: boolean;
+    /**
+     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.
+     */
+    broadcast_status?: string;
+    created_at?: string;
+    /**
+     * Filter to workflows created by the user with this uuid.
+     */
+    created_by?: string;
+    id?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only workflows someone turned suggestions on for.
+     */
+    optimization_enabled?: boolean;
+    /**
+     * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
+     */
+    origin_product?: HogFlowsSummariesListOriginProduct;
+    /**
+     * Case-insensitive search over workflow name, description, step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.
+     */
+    search?: string;
+    /**
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived
+     */
+    status?: HogFlowsSummariesListStatus;
+    /**
+     * Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.
+     */
+    trigger?: string;
+    /**
+     * Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.
+     */
+    type?: string;
+    updated_at?: string;
+    };
+
+    export type HogFlowsSummariesListOriginProduct = typeof HogFlowsSummariesListOriginProduct[keyof typeof HogFlowsSummariesListOriginProduct];
+
+
+    export const HogFlowsSummariesListOriginProduct = {
+      Broadcasts: 'broadcasts',
+      Loops: 'loops',
+    } as const;
+
+    export type HogFlowsSummariesListStatus = typeof HogFlowsSummariesListStatus[keyof typeof HogFlowsSummariesListStatus];
+
+
+    export const HogFlowsSummariesListStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type HogFunctionTemplatesListParams = {
     /**

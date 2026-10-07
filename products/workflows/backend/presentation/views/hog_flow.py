@@ -86,7 +86,7 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import is_service_auth, posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
@@ -3932,11 +3932,25 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
 # by surface in the UI (see WorkflowTypeTag), so returning it under `messaging` would contradict the
 # tag on the row. Accepting several lets a list say which surfaces it covers, which is how the
 # workflows page asks for everything except the ones that moved out.
-WORKFLOW_TYPES: Final[tuple[str, ...]] = ("messaging", "automation", "loop", "broadcast")
+class HogFlowType(models.TextChoices):
+    MESSAGING = "messaging"
+    AUTOMATION = "automation"
+    LOOP = "loop"
+    BROADCAST = "broadcast"
+
+
+WORKFLOW_TYPES: Final[tuple[str, ...]] = tuple(HogFlowType.values)
 OWNED_WORKFLOW_TYPES: Final[dict[str, str]] = {
-    "loop": HogFlow.OriginProduct.LOOPS,
-    "broadcast": HogFlow.OriginProduct.BROADCASTS,
+    HogFlowType.LOOP: HogFlow.OriginProduct.LOOPS,
+    HogFlowType.BROADCAST: HogFlow.OriginProduct.BROADCASTS,
 }
+
+
+def _has_messaging_action_q() -> Q:
+    messaging = Q()
+    for action_type in MESSAGING_ACTION_TYPES:
+        messaging |= Q(actions__contains=[{"type": action_type}])
+    return messaging
 
 
 def workflow_type_q(requested: set[str]) -> Q:
@@ -3945,13 +3959,44 @@ def workflow_type_q(requested: set[str]) -> Q:
     if not behavioural:
         return owned
 
-    messaging = Q()
-    for action_type in MESSAGING_ACTION_TYPES:
-        messaging |= Q(actions__contains=[{"type": action_type}])
+    messaging = _has_messaging_action_q()
     unowned = ~Q(origin_product__in=list(OWNED_WORKFLOW_TYPES.values()))
     if behavioural == {"messaging", "automation"}:
         return owned | unowned
     return owned | (unowned & (messaging if behavioural == {"messaging"} else ~messaging))
+
+
+def annotate_workflow_type(queryset: QuerySet) -> QuerySet:
+    """Adds `workflow_type`, decided by the same rules as the `type` filter in workflow_type_q."""
+    return queryset.annotate(
+        workflow_type=models.Case(
+            *(
+                models.When(origin_product=origin_product, then=models.Value(workflow_type))
+                for workflow_type, origin_product in OWNED_WORKFLOW_TYPES.items()
+            ),
+            models.When(_has_messaging_action_q(), then=models.Value(HogFlowType.MESSAGING)),
+            default=models.Value(HogFlowType.AUTOMATION),
+            output_field=models.CharField(),
+        )
+    )
+
+
+class HogFlowListSummarySerializer(HogFlowSummarySerializer):
+    """One row of the workflows list: the summary fields and the workflow type, without the step graph."""
+
+    type = serializers.ChoiceField(
+        source="workflow_type",
+        choices=HogFlowType.choices,
+        read_only=True,
+        help_text=(
+            "`loop` and `broadcast` for workflows those surfaces own. Otherwise `messaging` when the workflow "
+            "has an email, SMS or push step, else `automation`. The same rules as the `type` filter."
+        ),
+    )
+
+    class Meta(HogFlowSummarySerializer.Meta):
+        fields = [*HogFlowSummarySerializer.Meta.fields, "type"]
+        read_only_fields = fields
 
 
 BROADCAST_TRIGGER_TYPE = "batch"
@@ -4153,56 +4198,67 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
     )
 
 
+LIST_QUERY_PARAMETERS: Final[list[OpenApiParameter]] = [
+    OpenApiParameter(
+        "search",
+        OpenApiTypes.STR,
+        description="Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
+    ),
+    OpenApiParameter(
+        "created_by",
+        OpenApiTypes.UUID,
+        description="Filter to workflows created by the user with this uuid.",
+    ),
+    OpenApiParameter(
+        "type",
+        OpenApiTypes.STR,
+        description="Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.",
+    ),
+    OpenApiParameter(
+        "origin_product",
+        OpenApiTypes.STR,
+        enum=HogFlow.OriginProduct.values,
+        description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
+    ),
+    OpenApiParameter(
+        "trigger",
+        OpenApiTypes.STR,
+        description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
+    ),
+    OpenApiParameter(
+        "broadcast_eligible",
+        OpenApiTypes.BOOL,
+        description="Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.",
+    ),
+    OpenApiParameter(
+        "broadcast_status",
+        OpenApiTypes.STR,
+        description=(
+            "Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, "
+            "sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and "
+            "whether a schedule still has sends to come."
+        ),
+    ),
+]
+
+
+SUMMARIES_QUERY_PARAMETERS: Final[list[OpenApiParameter]] = [
+    OpenApiParameter(
+        "search",
+        OpenApiTypes.STR,
+        description="Case-insensitive search over workflow name, description, step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
+    ),
+    *(parameter for parameter in LIST_QUERY_PARAMETERS if parameter.name != "search"),
+]
+
+
 @extend_schema(extensions={"x-product": "workflows"})
 @extend_schema_view(
     metrics=extend_schema(parameters=[AppMetricsRequestSerializer], responses=AppMetricResponseSerializer),
     metrics_totals=extend_schema(
         parameters=[AppMetricsRequestSerializer], responses=AppMetricsTotalsResponseSerializer
     ),
-    list=extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "search",
-                OpenApiTypes.STR,
-                description="Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
-            ),
-            OpenApiParameter(
-                "created_by",
-                OpenApiTypes.UUID,
-                description="Filter to workflows created by the user with this uuid.",
-            ),
-            OpenApiParameter(
-                "type",
-                OpenApiTypes.STR,
-                description="Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.",
-            ),
-            OpenApiParameter(
-                "origin_product",
-                OpenApiTypes.STR,
-                enum=HogFlow.OriginProduct.values,
-                description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
-            ),
-            OpenApiParameter(
-                "trigger",
-                OpenApiTypes.STR,
-                description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
-            ),
-            OpenApiParameter(
-                "broadcast_eligible",
-                OpenApiTypes.BOOL,
-                description="Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.",
-            ),
-            OpenApiParameter(
-                "broadcast_status",
-                OpenApiTypes.STR,
-                description=(
-                    "Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, "
-                    "sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and "
-                    "whether a schedule still has sends to come."
-                ),
-            ),
-        ]
-    ),
+    list=extend_schema(parameters=LIST_QUERY_PARAMETERS),
 )
 class HogFlowViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
@@ -4210,6 +4266,7 @@ class HogFlowViewSet(
     scope_object = "hog_flow"
     scope_object_read_actions = [
         "list",
+        "summaries",
         "retrieve",
         "logs",
         "metrics",
@@ -4249,6 +4306,7 @@ class HogFlowViewSet(
     ]
     queryset = HogFlow.objects.all()
     pagination_class = HogFlowPagination
+    LIST_ACTIONS: Final = frozenset({"list", "summaries"})
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet
     log_source = "hog_flow"
@@ -4352,6 +4410,8 @@ class HogFlowViewSet(
             if self.request is not None and self._is_mcp_request(self.request):
                 return HogFlowSummarySerializer
             return HogFlowMinimalSerializer
+        if self.action == "summaries":
+            return HogFlowListSummarySerializer
         if self.action in ("update", "partial_update"):
             return HogFlowUpdateSerializer
         return HogFlowSerializer
@@ -4376,31 +4436,39 @@ class HogFlowViewSet(
             self._workflow_last_runs = list_workflow_last_runs(self.team_id, self.request.user.id, loop_ids)
         return page
 
+    @staticmethod
+    def _annotate_suggestions(queryset: QuerySet) -> QuerySet:
+        pending = (
+            WorkflowProposal.objects.filter(hog_flow=OuterRef("pk"), status=WorkflowProposal.Status.SUGGESTED)
+            .order_by()
+            .values("hog_flow")
+            .annotate(count=Count("id"))
+            .values("count")
+        )
+        return queryset.annotate(
+            pending_suggestions=Coalesce(Subquery(pending), 0),
+            suggestions_enabled=Coalesce(F("optimization__enabled"), Value(False)),
+        )
+
+    def _list_ordering(self) -> tuple[str, ...]:
+        # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing a sort key can otherwise
+        # repeat on one page and never appear on another.
+        # `summaries` loads every page, and a save during that load changes `updated_at`, so it sorts on
+        # `created_at`.
+        if self.action == "summaries":
+            return ("-created_at", "-id")
+        # A suggestion waits on a person, so the page that shows them sorts it above recency. Every
+        # other reader of this list — the MCP tool, any other surface — keeps recency, or a stale
+        # workflow with one suggestion would push a fresh one off their first page.
+        if self.request.GET.get("suggestions_first") in ("true", "1"):
+            return ("-pending_suggestions", "-updated_at", "-id")
+        return ("-updated_at", "-id")
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
-            # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
-            # otherwise repeat on one page and never appear on another.
-
-            pending = (
-                WorkflowProposal.objects.filter(hog_flow=OuterRef("pk"), status=WorkflowProposal.Status.SUGGESTED)
-                .order_by()
-                .values("hog_flow")
-                .annotate(count=Count("id"))
-                .values("count")
-            )
-            queryset = queryset.annotate(
-                pending_suggestions=Coalesce(Subquery(pending), 0),
-                suggestions_enabled=Coalesce(F("optimization__enabled"), Value(False)),
-            )
-            # A suggestion waits on a person, so the page that shows them sorts it above recency. Every
-            # other reader of this list — the MCP tool, any other surface — keeps recency, or a stale
-            # workflow with one suggestion would push a fresh one off their first page.
-            # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
-            # otherwise repeat on one page and never appear on another.
-            if self.request.GET.get("suggestions_first") in ("true", "1"):
-                queryset = queryset.order_by("-pending_suggestions", "-updated_at", "-id")
-            else:
-                queryset = queryset.order_by("-updated_at", "-id")
+            queryset = self._annotate_suggestions(queryset)
+        if self.action in self.LIST_ACTIONS:
+            queryset = queryset.order_by(*self._list_ordering()).select_related("created_by")
 
             created_by = self.request.GET.get("created_by")
             if created_by:
@@ -4469,7 +4537,7 @@ class HogFlowViewSet(
         # Search runs after the filter backends so the tier decision below sees the same rows the response
         # will: a name match that the `status` filter then drops must not stop the step search from running.
         queryset = super().filter_queryset(queryset)
-        if self.action != "list":
+        if self.action not in self.LIST_ACTIONS:
             return queryset
 
         search = (self.request.GET.get("search") or "").strip()
@@ -4486,9 +4554,13 @@ class HogFlowViewSet(
         # name, so the common search stays cheap and a subject line or body text, which rarely appears in a
         # workflow name, is still found.
         by_name = Q(name__iregex=regex_pattern) | Q(description__iregex=regex_pattern)
+        by_content = Q(_action_content_matches(regex_pattern))
+        # `summaries` callers filter rows in the browser, so a name match must not hide the content matches.
+        if self.action == "summaries":
+            return queryset.filter(by_name | by_content)
         if queryset.filter(by_name).exists():
             return queryset.filter(by_name)
-        return queryset.filter(Q(_action_content_matches(regex_pattern)))
+        return queryset.filter(by_content)
 
     def safely_get_object(self, queryset):
         # TODO(team-workflows): Somehow implement version lookups
@@ -4497,6 +4569,24 @@ class HogFlowViewSet(
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:
         return request.headers.get("x-posthog-client") == "mcp"
+
+    @extend_schema(
+        summary="List workflow summaries",
+        description=(
+            "Workflow rows without the step graph, for loading a whole project's list page by page. "
+            "Sorted newest created first. Takes the same filters as the list."
+        ),
+        parameters=SUMMARIES_QUERY_PARAMETERS,
+        responses={200: HogFlowListSummarySerializer(many=True)},
+    )
+    @action(detail=False, methods=["GET"], url_path="summaries")
+    def summaries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Applies the access-level filter itself: the routing mixin only applies it to `list`."""
+        queryset = self.get_queryset()
+        if not is_service_auth(request):
+            queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+        page = self.paginate_queryset(annotate_workflow_type(self.filter_queryset(queryset)))
+        return self.get_paginated_response(self.get_serializer(page, many=True).data)
 
     @extend_schema(
         request=HogInvocationRerunRequestSerializer,
