@@ -50,7 +50,8 @@ metadata:
 ```
 
 `name` and `description` are required and validated at build time.
-`allowed_tools` with `emit_report` / `edit_report` is what puts the scout on the report channel — **every scout needs it** (without it the scout falls back to a deprecated legacy signal-emitting channel and can't write reports).
+`allowed_tools` with `emit_report` / `edit_report` is what puts the scout on the report channel — **every report-producing scout needs it** (without it the scout falls back to a deprecated legacy signal-emitting channel and can't write reports).
+A scout with a product-specific output omits both tools; see [Scouts with a product-specific output](report-contract.md#scouts-with-a-product-specific-output).
 `compatibility` and `metadata` are optional but conventional — `compatibility` documents the scopes/tools the scout assumes; `metadata.scope` gives downstream tooling a short label.
 
 The `description` does double duty: beyond skill discovery, it is surfaced verbatim as the scout's `description` on the config API (`scout-config-list` / `-create` / `-update` responses) — it's how the fleet roster reads to agents and the UI without opening each scout's body.
