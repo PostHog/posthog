@@ -4846,11 +4846,12 @@ class AssistantTrendsFilter(BaseModel):
             " good for visualizing proportions. Also called a donut, doughnut, or ring"
             " chart. `ActionsTable` - total value table; good when using breakdown to"
             " list users or other entities. `WorldMap` - total value world map; use"
-            " when breaking down by country name using property `$geoip_country_name`,"
-            " and only then. Also called a choropleth, geo map, or country map."
+            " when breaking down by country using property `$geoip_country_code`, and"
+            " only then. Also called a choropleth, geo map, or country map."
             " `CalendarHeatmap` - grid of values for each day of the week and hour of"
-            " the day. Single series, no breakdown. Also called a day-by-hour heatmap"
-            " or punch card. Trends cannot show a scatter plot or a two-dimensional"
+            " the day. Single series, no breakdown, no formulas. Supports only total"
+            " count or unique users (`dau`) math. Also called a day-by-hour heatmap or"
+            " punch card. Trends cannot show a scatter plot or a two-dimensional"
             " heatmap. Use a SQL insight (`DataVisualizationNode`) for them."
         ),
     )
