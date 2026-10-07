@@ -247,6 +247,14 @@ OAuth supports all the same scopes as Personal API Keys. Each scope has a `read`
 
 For a complete list of available scopes, see [frontend/src/lib/scopes.tsx](https://github.com/PostHog/posthog/blob/master/frontend/src/lib/scopes.tsx#L15).
 
+### Email sender management
+
+When the default-off `workflows-email-domain-agent-setup` flag is enabled, OAuth tokens and Personal API Keys with `integration:write` can verify an existing email sender with `POST /api/projects/{project_id}/integrations/{id}/email/verify/` and update it with `PATCH /api/projects/{project_id}/integrations/{id}/email/`. Both operations require admin access to the project. Read-only scopes cannot perform them, and project restrictions still apply. Existing session access remains available when the flag is off.
+
+Verification returns the domain's verification status and DNS records, and persists successful verification. The update accepts a nested `config` with `email`, `name`, `provider`, and optional `mail_from_subdomain`. Supply the existing email address and provider; only the display name and MAIL FROM subdomain change. The update calls the existing provider configuration operation. Neither operation sends an email.
+
+The same flag exposes the MCP tools `integrations-email-verify-create` and `integrations-email-partial-update`. An organization's read-only MCP restriction still blocks both tools.
+
 ### OpenID Connect Scopes
 
 Standard OpenID Connect scopes are also supported:

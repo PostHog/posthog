@@ -2,6 +2,7 @@ import hmac
 import json
 import time
 import hashlib
+from collections.abc import Iterator
 from contextlib import nullcontext
 from datetime import timedelta
 from typing import Any, cast
@@ -1624,6 +1625,193 @@ class TestAzureBlobIntegration:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not Integration.objects.filter(team=self.team, kind="azure-blob").exists()
+
+
+class TestEmailIntegrationScopedAccess:
+    @pytest.fixture(autouse=True)
+    def enable_agent_setup(self) -> Iterator[None]:
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            yield
+
+    @pytest.fixture(autouse=True)
+    def setup(self, db) -> None:
+        self.organization = Organization.objects.create(name="Sender test organization")
+        self.team = Team.objects.create(organization=self.organization)
+        self.user = User.objects.create_and_join(
+            self.organization, "sender@example.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id="sender@example.com",
+            config={
+                "email": "sender@example.com",
+                "domain": "example.com",
+                "name": "Original sender",
+                "provider": "ses",
+                "mail_from_subdomain": "feedback",
+                "verified": False,
+            },
+        )
+
+    def authorization(self, authentication: str, scope: str) -> str:
+        if authentication == "pak":
+            token = "synthetic_sender_key"
+            PersonalAPIKey.objects.create(
+                user=self.user,
+                label="Sender test",
+                secure_value=hash_key_value(token),
+                scopes=[scope],
+                scoped_teams=[self.team.pk],
+            )
+        else:
+            application = OAuthApplication.objects.create(
+                user=self.user,
+                name="Sender test client",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                algorithm="RS256",
+                redirect_uris="https://example.com/callback",
+            )
+            token = "pha_synthetic_sender_token"
+            OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token=token,
+                expires=timezone.now() + timedelta(hours=1),
+                scope=scope,
+                scoped_teams=[self.team.pk],
+            )
+        return f"Bearer {token}"
+
+    @pytest.mark.parametrize("authentication", ["pak", "oauth", "session"])
+    @pytest.mark.parametrize("flag_enabled", [False, True, None])
+    def test_write_scoped_admin_can_verify_sender(
+        self, client: HttpClient, authentication: str, flag_enabled: bool | None
+    ) -> None:
+        authorization = self.authorization(authentication, "integration:write") if authentication != "session" else ""
+        if authentication == "session":
+            client.force_login(self.user)
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=flag_enabled),
+            patch("products.workflows.backend.facade.api.verify_ses_email_domain") as verify,
+        ):
+            verify.return_value = {"status": "success", "dnsRecords": []}
+            response = client.post(
+                f"/api/projects/{self.team.pk}/integrations/{self.integration.pk}/email/verify/",
+                HTTP_AUTHORIZATION=authorization,
+            )
+        allowed = bool(flag_enabled) or authentication == "session"
+        assert response.status_code == (status.HTTP_200_OK if allowed else status.HTTP_403_FORBIDDEN), response.json()
+        if allowed:
+            assert response.json() == {"status": "success", "dnsRecords": []}
+        else:
+            verify.assert_not_called()
+        stored = client.get(
+            f"/api/projects/{self.team.pk}/integrations/{self.integration.pk}/",
+            HTTP_AUTHORIZATION=authorization,
+        )
+        assert stored.status_code == status.HTTP_200_OK
+        assert stored.json()["config"]["verified"] is allowed
+
+    @pytest.mark.parametrize("authentication", ["pak", "oauth", "session"])
+    @pytest.mark.parametrize("flag_enabled", [False, True, None])
+    def test_write_scoped_admin_can_update_sender(
+        self, client: HttpClient, authentication: str, flag_enabled: bool | None
+    ) -> None:
+        authorization = self.authorization(authentication, "integration:write") if authentication != "session" else ""
+        if authentication == "session":
+            client.force_login(self.user)
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=flag_enabled),
+            patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain") as update,
+        ):
+            response = client.patch(
+                f"/api/projects/{self.team.pk}/integrations/{self.integration.pk}/email/",
+                {
+                    "config": {
+                        "email": "sender@example.com",
+                        "provider": "ses",
+                        "name": "Updated sender",
+                        "mail_from_subdomain": "notifications",
+                    }
+                },
+                content_type="application/json",
+                HTTP_AUTHORIZATION=authorization,
+            )
+        allowed = bool(flag_enabled) or authentication == "session"
+        assert response.status_code == (status.HTTP_200_OK if allowed else status.HTTP_403_FORBIDDEN), response.json()
+        if not allowed:
+            update.assert_not_called()
+        stored = client.get(
+            f"/api/projects/{self.team.pk}/integrations/{self.integration.pk}/",
+            HTTP_AUTHORIZATION=authorization,
+        )
+        assert stored.status_code == status.HTTP_200_OK
+        assert stored.json()["config"] == {
+            "email": "sender@example.com",
+            "domain": "example.com",
+            "name": "Updated sender" if allowed else "Original sender",
+            "provider": "ses",
+            "mail_from_subdomain": "notifications" if allowed else "feedback",
+            "verified": False,
+        }
+
+    @pytest.mark.parametrize("authentication", ["pak", "oauth"])
+    @pytest.mark.parametrize("action", ["verify", "update"])
+    @pytest.mark.parametrize(
+        "restriction,expected_status,detail",
+        [
+            ("read_scope", 403, "integration:write"),
+            ("member", 403, "sufficient permissions"),
+            ("foreign_integration", 404, ""),
+            ("restricted_project", 403, "requested project"),
+            ("readonly_mcp", 403, "read-only"),
+        ],
+    )
+    def test_sender_writes_preserve_access_restrictions(
+        self, client: HttpClient, authentication: str, action: str, restriction: str, expected_status: int, detail: str
+    ) -> None:
+        scope = "integration:read" if restriction == "read_scope" else "integration:write"
+        authorization = self.authorization(authentication, scope)
+        project_id = self.team.pk
+        integration_id = self.integration.pk
+        if restriction == "member":
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+                level=OrganizationMembership.Level.MEMBER
+            )
+        elif restriction in ("foreign_integration", "restricted_project"):
+            other_team = Team.objects.create(organization=self.organization)
+            if restriction == "foreign_integration":
+                other_integration = Integration.objects.create(
+                    team=other_team, kind="email", config=self.integration.config
+                )
+                integration_id = other_integration.pk
+            else:
+                project_id = other_team.pk
+        elif restriction == "readonly_mcp":
+            self.organization.read_only_mcp_access = True
+            self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}]
+            self.organization.save()
+
+        with (
+            patch("products.workflows.backend.facade.api.verify_ses_email_domain") as verify,
+            patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain") as update,
+        ):
+            method = client.post if action == "verify" else client.patch
+            suffix = "email/verify" if action == "verify" else "email"
+            response = method(
+                f"/api/projects/{project_id}/integrations/{integration_id}/{suffix}/",
+                {"config": {"email": "sender@example.com", "provider": "ses", "name": "Denied sender"}},
+                content_type="application/json",
+                HTTP_AUTHORIZATION=authorization,
+                HTTP_USER_AGENT="posthog/mcp-server",
+            )
+            assert response.status_code == expected_status, response.json()
+            if detail:
+                assert detail in response.json()["detail"]
+            verify.assert_not_called()
+            update.assert_not_called()
 
 
 class TestIntegrationAPIKeyAccess:
