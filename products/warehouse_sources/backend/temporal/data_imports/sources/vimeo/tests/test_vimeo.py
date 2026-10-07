@@ -52,6 +52,7 @@ def test_pagination_and_full_refresh_params(endpoint: str, path: str, incrementa
     def send(request: PreparedRequest, **kwargs: object) -> Response:
         requests.append(request)
         result = next(pages)
+        assert request.url is not None
         result.url = request.url
         return result
 
