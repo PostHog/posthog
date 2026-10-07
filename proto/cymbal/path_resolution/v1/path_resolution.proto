@@ -1,0 +1,55 @@
+syntax = "proto3";
+package cymbal.path_resolution.v1;
+
+// PathResolution maps the file paths of stack frames to paths in the release
+// repository. It matches each path against the stored file list of one commit.
+// It keeps no state between requests other than a cache of file lists.
+service PathResolution {
+  // For these paths and this commit, return the repo paths. One request holds
+  // the in-app frame paths of one exception, so frames can support each other.
+  rpc ResolvePaths(ResolvePathsRequest) returns (ResolvePathsResponse);
+}
+
+message ResolvePathsRequest {
+  int64 team_id = 1;
+  // Repo slug, for example "github.com/acme/shop".
+  string repo = 2;
+  // 40-character lowercase commit SHA.
+  string commit = 3;
+  // At most 100 paths, each at most 1024 characters.
+  repeated string paths = 4;
+}
+
+message ResolvePathsResponse {
+  ListState list_state = 1;
+  // Same order and length as ResolvePathsRequest.paths.
+  repeated PathResult results = 2;
+}
+
+message PathResult {
+  Outcome outcome = 1;
+  // Set only for OUTCOME_SURE and OUTCOME_SUPPORT.
+  string repo_path = 2;
+}
+
+enum ListState {
+  LIST_STATE_UNSPECIFIED = 0;
+  // The file list was found and used.
+  LIST_STATE_LOADED = 1;
+  // No file list is stored for this team, repo and commit.
+  LIST_STATE_MISSING = 2;
+  // Object storage failed, or the stored list could not be read.
+  LIST_STATE_ERROR = 3;
+}
+
+enum Outcome {
+  OUTCOME_UNSPECIFIED = 0;
+  // Exactly one file matches.
+  OUTCOME_SURE = 1;
+  // Several files match, and the sure paths of the same request chose one.
+  OUTCOME_SUPPORT = 2;
+  // Several files match, and nothing decides between them.
+  OUTCOME_TIE = 3;
+  // No file matches.
+  OUTCOME_NO_MATCH = 4;
+}

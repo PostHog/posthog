@@ -1,4 +1,10 @@
 pub mod cymbal {
+    pub mod path_resolution {
+        pub mod v1 {
+            tonic::include_proto!("cymbal.path_resolution.v1");
+        }
+    }
+
     pub mod resolution {
         pub mod v1 {
             tonic::include_proto!("cymbal.resolution.v1");

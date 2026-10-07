@@ -9,6 +9,7 @@ pub mod config;
 pub mod error;
 pub mod ids;
 pub mod metric_consts;
+pub mod repo_slug;
 pub mod resolver;
 pub mod sanitize;
 pub mod shutdown;
