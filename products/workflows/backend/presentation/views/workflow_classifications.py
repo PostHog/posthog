@@ -11,6 +11,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
+from posthog.cdp.flag_gated_templates import gated_template_enabled
 from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion, SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models import Team
 
@@ -97,7 +98,7 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
             200: WorkflowClassificationResponseSerializer,
             403: OpenApiResponse(
                 response=WorkflowClassificationErrorSerializer,
-                description="The organization has not approved AI data processing",
+                description="The feature is disabled or the organization has not approved AI data processing",
             ),
             501: OpenApiResponse(
                 response=WorkflowClassificationErrorSerializer,
@@ -117,6 +118,9 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
     def create(self, request: Request, **kwargs: Any) -> Response:
         user = cast(InternalAPIUser, request.user)
         team = Team.objects.select_related("organization").get(id=cast(int, user.current_team_id))
+
+        if not gated_template_enabled("workflow-jev-classify-action", team):
+            return _error("Classify with Jev is not enabled for this project.", status.HTTP_403_FORBIDDEN)
 
         serializer = WorkflowClassificationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

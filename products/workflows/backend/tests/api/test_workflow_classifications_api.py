@@ -43,6 +43,9 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
         super().setUp()
         self.client.logout()
         self.url = f"/api/projects/{self.team.id}/workflow_classifications/"
+        flag_patch = patch("posthoganalytics.feature_enabled", return_value=True)
+        self.feature_flag = flag_patch.start()
+        self.addCleanup(flag_patch.stop)
 
     def _post(self, body: dict | None = None, token: str | None = None) -> Any:
         return self.client.post(
@@ -56,6 +59,23 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {token or _token(self.team.id)}",
         )
+
+    @parameterized.expand(
+        [
+            ("disabled", False, None),
+            ("unavailable", None, RuntimeError("Flag evaluation is unavailable")),
+        ]
+    )
+    def test_refuses_classification_without_the_feature_flag(
+        self, _name: str, enabled: bool | None, error: Exception | None
+    ) -> None:
+        self.feature_flag.return_value = enabled
+        self.feature_flag.side_effect = error
+        with patch(_BUILD) as build:
+            response = self._post()
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        build.assert_not_called()
 
     def test_returns_the_chosen_category(self) -> None:
         client = MagicMock()
