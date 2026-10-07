@@ -13,10 +13,6 @@ const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom
 const BASELINE_Y = MARGIN.top + PLOT_HEIGHT
 /** Minimum viewBox-unit gap between time-axis labels before the later one is dropped. */
 const TIME_LABEL_MIN_GAP = 40
-/** Minimum viewBox-unit gap between top labels before the later one moves to the second lane. */
-const TOP_LABEL_MIN_GAP = 40
-/** How far the second lane sits above the first. Tuned against the 9px label size. */
-const TOP_LABEL_LANE_OFFSET = 10
 const LABEL_FONT_SIZE = 9
 /** Average width of one label character at the 9px size, measured in a browser. */
 const LABEL_CHAR_WIDTH = 4.5
@@ -31,6 +27,9 @@ const WIDEST_LABEL = 'still 100% (needs approval)'
  * builder's longest string carries through here on its own.
  */
 const LABEL_EDGE_PAD = (WIDEST_LABEL.length * LABEL_CHAR_WIDTH) / 2 + 5
+/** The width estimate runs short on labels such as "On". Two labels with no space between them read as one word. */
+const LABEL_GAP = LABEL_CHAR_WIDTH
+const TOP_LABEL_LANE_OFFSET = LABEL_FONT_SIZE + 1
 
 type LabelAnchor = 'start' | 'middle' | 'end'
 
@@ -111,9 +110,19 @@ function markTitle(occurrence: ScheduleOccurrence, unlabelledRollout: number | n
         .join('. ')
 }
 
+function withApprovalNote(occurrence: ScheduleOccurrence, label: string): string {
+    return occurrence.needsApproval ? `${label} (needs approval)` : label
+}
+
+function describeScheduledOccurrence(occurrence: ScheduleOccurrence, timezone: string): string {
+    return withApprovalNote(
+        occurrence,
+        `${describeOccurrence(occurrence)} on ${formatOccurrenceTime(occurrence.timestamp, timezone)}`
+    )
+}
+
 function stepLabel(occurrence: ScheduleOccurrence, rollout: number): string {
-    const level = occurrence.rolloutUnchanged ? `still ${rollout}%` : `${rollout}%`
-    return occurrence.needsApproval ? `${level} (needs approval)` : level
+    return withApprovalNote(occurrence, occurrence.rolloutUnchanged ? `still ${rollout}%` : `${rollout}%`)
 }
 
 /**
@@ -130,12 +139,6 @@ function labelAnchor(x: number): LabelAnchor {
     return 'middle'
 }
 
-function labelExtent(x: number, anchor: LabelAnchor, text: string): { left: number; right: number } {
-    const width = text.length * LABEL_CHAR_WIDTH
-    const left = anchor === 'start' ? x : anchor === 'end' ? x - width : x - width / 2
-    return { left, right: left + width }
-}
-
 interface PlacedLabel {
     text: string
     y: number
@@ -144,21 +147,35 @@ interface PlacedLabel {
     right: number
 }
 
+function placeLabel(x: number, y: number, text: string): PlacedLabel {
+    const anchor = labelAnchor(x)
+    const width = text.length * LABEL_CHAR_WIDTH
+    const left = anchor === 'start' ? x : anchor === 'end' ? x - width : x - width / 2
+    return { text, y, anchor, left, right: left + width }
+}
+
+function overlapsAny(label: PlacedLabel, placed: PlacedLabel[]): boolean {
+    return placed.some(
+        (shown) =>
+            Math.abs(shown.y - label.y) < LABEL_FONT_SIZE &&
+            label.left < shown.right + LABEL_GAP &&
+            label.right + LABEL_GAP > shown.left
+    )
+}
+
 /** Where each occurrence's marks and labels land, resolved before render so the JSX map stays pure. */
 interface OccurrenceLayout {
     x: number
     /** Null when the previous time label is too close. */
     timeLabel: string | null
-    /** Alternates between two heights when top-lane markers land near the same x. */
-    topLabelY: number
     /** The step mark's y. Null for a marker. */
     stepY: number | null
     /**
-     * Null for a marker, and for a step label that would overlap an earlier step label whose baseline
-     * sits within one font size of its own. One font size is 9 units and the plot spends 0.9 units per
-     * rollout point, so two steps less than about 10 points apart on nearby dates stack their text.
+     * Null for a step label that would overlap an earlier label whose baseline sits within one font
+     * size of its own. One font size is 9 units and the plot spends 0.9 units per rollout point, so two
+     * steps less than about 10 points apart on nearby dates would otherwise stack their text.
      */
-    placedStepLabel: PlacedLabel | null
+    label: PlacedLabel | null
 }
 
 /**
@@ -186,8 +203,7 @@ export function ScheduleTimeline({
         const occurrence = occurrences[0]
         return (
             <div className="text-sm text-muted" data-attr="feature-flag-schedule-timeline">
-                Next: {describeOccurrence(occurrence)} on {formatOccurrenceTime(occurrence.timestamp, timezone)}
-                {occurrence.needsApproval ? ' (needs approval)' : ''}
+                {`Next: ${describeScheduledOccurrence(occurrence, timezone)}`}
             </div>
         )
     }
@@ -202,43 +218,31 @@ export function ScheduleTimeline({
 
     const layouts: OccurrenceLayout[] = []
     let lastTimeLabelX = -Infinity
-    let lastTopLabelX = -Infinity
-    let topLabelLane = 0
-    const shownStepLabels: PlacedLabel[] = []
+    const placedLabels: PlacedLabel[] = []
     occurrences.forEach((occurrence, index) => {
         const x = xFor(times[index])
         const timeLabel = x - lastTimeLabelX >= TIME_LABEL_MIN_GAP ? relativeLabel(times[index], now) : null
         if (timeLabel) {
             lastTimeLabelX = x
         }
-        let topLabelY = MARGIN.top - 8
         let stepY: number | null = null
-        let placedStepLabel: PlacedLabel | null = null
+        let label: PlacedLabel | null
         const rollout = occurrence.projected.rolloutPercentage
         if (occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition && rollout !== null) {
             stepY = yForRollout(rollout)
-            const text = stepLabel(occurrence, rollout)
-            const anchor = labelAnchor(x)
-            const label = { text, y: stepY - 7, anchor, ...labelExtent(x, anchor, text) }
-            const collides = shownStepLabels.some(
-                (shown) =>
-                    Math.abs(shown.y - label.y) < LABEL_FONT_SIZE &&
-                    label.left < shown.right &&
-                    label.right > shown.left
-            )
-            if (!collides) {
-                shownStepLabels.push(label)
-                placedStepLabel = label
-            }
+            const candidate = placeLabel(x, stepY - 7, stepLabel(occurrence, rollout))
+            label = overlapsAny(candidate, placedLabels) ? null : candidate
         } else {
-            // Two lanes clear the common case of a pair landing together. Three or more markers
-            // inside one gap still overlap, because the lane alternates rather than tracks every
-            // occupied slot. The occurrence cap keeps that rare.
-            topLabelLane = x - lastTopLabelX < TOP_LABEL_MIN_GAP ? 1 - topLabelLane : 0
-            lastTopLabelX = x
-            topLabelY -= topLabelLane * TOP_LABEL_LANE_OFFSET
+            const text = withApprovalNote(occurrence, markerLabel(occurrence))
+            const lanes = [0, 1].map((lane) => placeLabel(x, MARGIN.top - 8 - lane * TOP_LABEL_LANE_OFFSET, text))
+            // A marker label is the only visible text that names its change. The layout therefore
+            // never drops it.
+            label = lanes.find((lane) => !overlapsAny(lane, placedLabels)) ?? lanes[0]
         }
-        layouts.push({ x, timeLabel, topLabelY, stepY, placedStepLabel })
+        if (label) {
+            placedLabels.push(label)
+        }
+        layouts.push({ x, timeLabel, stepY, label })
     })
 
     // Step-line segments, split so an approval-blocked step dashes its jump and not its run.
@@ -283,12 +287,7 @@ export function ScheduleTimeline({
     // role="img" makes the chart a single leaf node, so a screen reader never descends into the
     // marks and hears no date, level, or approval state. The label has to carry the plan itself.
     const chartLabel = `Timeline of ${occurrences.length} upcoming scheduled changes: ${occurrences
-        .map(
-            (occurrence) =>
-                `${describeOccurrence(occurrence)} on ${formatOccurrenceTime(occurrence.timestamp, timezone)}${
-                    occurrence.needsApproval ? ' (needs approval)' : ''
-                }`
-        )
+        .map((occurrence) => describeScheduledOccurrence(occurrence, timezone))
         .join(', then ')}`
 
     return (
@@ -347,12 +346,12 @@ export function ScheduleTimeline({
                     ))}
 
                     {occurrences.map((occurrence, index) => {
-                        const { x, timeLabel, topLabelY, stepY, placedStepLabel } = layouts[index]
+                        const { x, timeLabel, stepY, label } = layouts[index]
                         const blocked = occurrence.needsApproval
                         // A browser shows only the first <title> child as the hover tooltip.
                         const title = markTitle(
                             occurrence,
-                            stepY !== null && !placedStepLabel ? occurrence.projected.rolloutPercentage : null
+                            stepY !== null && !label ? occurrence.projected.rolloutPercentage : null
                         )
                         return (
                             <g key={`${occurrence.schedule.id}-${occurrence.timestamp}`} opacity={blocked ? 0.5 : 1}>
@@ -365,49 +364,35 @@ export function ScheduleTimeline({
                                     stroke="var(--color-border-primary)"
                                 />
                                 {stepY !== null ? (
-                                    <>
-                                        <circle
-                                            cx={x}
-                                            cy={stepY}
-                                            r={3.5}
-                                            fill="var(--data-color-1)"
-                                            stroke="var(--color-bg-surface-primary)"
-                                            strokeWidth={1.5}
-                                            strokeDasharray={blocked ? '2 2' : undefined}
-                                        />
-                                        {placedStepLabel && (
-                                            <text
-                                                x={x}
-                                                y={placedStepLabel.y}
-                                                textAnchor={placedStepLabel.anchor}
-                                                fontSize={LABEL_FONT_SIZE}
-                                                fill="var(--color-text-secondary)"
-                                            >
-                                                {placedStepLabel.text}
-                                            </text>
-                                        )}
-                                    </>
+                                    <circle
+                                        cx={x}
+                                        cy={stepY}
+                                        r={3.5}
+                                        fill="var(--data-color-1)"
+                                        stroke="var(--color-bg-surface-primary)"
+                                        strokeWidth={1.5}
+                                        strokeDasharray={blocked ? '2 2' : undefined}
+                                    />
                                 ) : (
-                                    <>
-                                        <line
-                                            x1={x}
-                                            x2={x}
-                                            y1={MARGIN.top - 4}
-                                            y2={BASELINE_Y}
-                                            stroke="var(--color-border-primary)"
-                                            strokeDasharray="2 3"
-                                        />
-                                        <text
-                                            x={x}
-                                            y={topLabelY}
-                                            textAnchor={labelAnchor(x)}
-                                            fontSize={LABEL_FONT_SIZE}
-                                            fill="var(--color-text-secondary)"
-                                        >
-                                            {markerLabel(occurrence)}
-                                            {blocked ? ' (needs approval)' : ''}
-                                        </text>
-                                    </>
+                                    <line
+                                        x1={x}
+                                        x2={x}
+                                        y1={MARGIN.top - 4}
+                                        y2={BASELINE_Y}
+                                        stroke="var(--color-border-primary)"
+                                        strokeDasharray="2 3"
+                                    />
+                                )}
+                                {label && (
+                                    <text
+                                        x={x}
+                                        y={label.y}
+                                        textAnchor={label.anchor}
+                                        fontSize={LABEL_FONT_SIZE}
+                                        fill="var(--color-text-secondary)"
+                                    >
+                                        {label.text}
+                                    </text>
                                 )}
                                 {timeLabel && (
                                     <text

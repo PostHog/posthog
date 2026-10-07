@@ -190,6 +190,48 @@ describe('ScheduleTimeline', () => {
         ])
     })
 
+    it.each([
+        {
+            name: 'a full-rollout step label',
+            earlier: coveredStep(true, 25),
+            earlierText: 'still 100%',
+            offAt: '2099-08-27T10:22:00Z',
+        },
+        {
+            // The two estimated label boxes sit about two units apart. Only the minimum space that the
+            // layout keeps between labels sends "Off" up a lane.
+            name: 'a marker label just before it',
+            earlier: occurrence({
+                timestamp: '2099-09-04T10:22:00Z',
+                projected: { active: true, rolloutPercentage: 100, variantCount: null },
+            }),
+            earlierText: 'On',
+            offAt: '2099-09-05T03:22:00Z',
+        },
+    ])('lifts a marker label clear of $name in the same row', ({ earlier, earlierText, offAt }) => {
+        render(
+            <ScheduleTimeline
+                occurrences={[
+                    earlier,
+                    occurrence({
+                        timestamp: offAt,
+                        projected: { active: false, rolloutPercentage: 100, variantCount: null },
+                    }),
+                    occurrence({
+                        timestamp: '2099-09-24T10:22:00Z',
+                        operation: ScheduledChangeOperationType.UpdateVariants,
+                        projected: { active: false, rolloutPercentage: 100, variantCount: 3 },
+                    }),
+                ]}
+                currentRolloutPercentage={100}
+                timezone="UTC"
+            />
+        )
+
+        const baseline = (text: string): number => Number(screen.getByText(text).getAttribute('y'))
+        expect(baseline(earlierText) - baseline('Off')).toBeGreaterThanOrEqual(9)
+    })
+
     it('anchors a step label at its mark near either edge, so the text stays in the plot', () => {
         const step = (timestamp: string, rollout: number): ScheduleOccurrence =>
             occurrence({
