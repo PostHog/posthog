@@ -977,11 +977,6 @@ class ClickHousePrinter(BasePrinter):
         right_type = node.right.type.resolve_constant_type(self.context)
         return isinstance(left_type, ast.DecimalType) and isinstance(right_type, ast.DecimalType)
 
-    def visit_type_cast(self, node: ast.TypeCast) -> str:
-        if node.type_name.lower() == "nullable(string)":
-            return f"CAST({self.visit(node.expr)}, 'Nullable(String)')"
-        return super().visit_type_cast(node)
-
     def visit_call(self, node: ast.Call):
         if is_decision_call(node.name):
             raise QueryError(f"{node.name} must run through the HogQL query executor. It cannot be embedded in SQL.")

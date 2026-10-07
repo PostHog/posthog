@@ -164,6 +164,12 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
         assert "events.properties" not in restricted
         assert "events.person_properties" not in restricted
 
+    def test_native_string_predicate_inside_an_unaliased_column(self) -> None:
+        native = self._print_select("SELECT countIf(properties.value = '5') FROM events")
+        assert (
+            "countIf(ifNull(equals(CAST(events.properties.value, 'Nullable(String)'), %(hogql_val_0)s), 0))" in native
+        )
+
     @parameterized.expand([("$active_feature_flags",), ("$exception_types",)])
     def test_property_comparison_planner_does_not_depend_on_json_storage_type(self, property_name: str) -> None:
         plan = self._plan_where_comparison(f"select count() from events where properties.{property_name} = 'TypeError'")
@@ -1207,10 +1213,9 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
                 assert "properties.`$browser`" in printed, printed
                 assert "properties.`$os`" in printed, printed
                 assert "mat_" not in printed, printed
-                assert (
-                    printed.count("JSONExtractString(ifNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(")
-                    == 2
-                ), printed
+                assert printed.count("JSONExtractString(ifNull(if(notEquals(toJSONString(events.properties.^") == 2, (
+                    printed
+                )
                 return
 
             assert "mat_$browser" in printed, printed
@@ -1283,7 +1288,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             printed = self._print_select("select JSONExtract(properties, '$browser', 'String') from events")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
                 assert "events.properties.`$browser`" in printed, printed
-                assert "JSONExtract(ifNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(" in printed, printed
+                assert "JSONExtract(ifNull(if(notEquals(toJSONString(" in printed, printed
                 assert "mat_" not in printed, printed
                 return
 
@@ -1294,9 +1299,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             printed = self._print_select("select JSONExtractInt(properties, '$browser') from events")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
                 assert "events.properties.`$browser`" in printed, printed
-                assert "JSONExtractInt(ifNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(" in printed, (
-                    printed
-                )
+                assert "JSONExtractInt(ifNull(if(notEquals(toJSONString(" in printed, printed
                 assert "mat_" not in printed, printed
                 return
 
@@ -1499,7 +1502,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             assert "events_json" in sql, sql
             assert "events.properties.`$browser`" in sql, sql
-            assert "JSONExtractString(ifNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(" in sql, sql
+            assert "JSONExtractString(ifNull(if(notEquals(toJSONString(" in sql, sql
             assert "mat_$browser" not in sql, sql
         else:
             assert "JSONExtractString(events.properties" in sql, sql

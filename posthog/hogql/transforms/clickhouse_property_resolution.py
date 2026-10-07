@@ -2395,6 +2395,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             if node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn)
             else _const(values[0])
         )
+        _record_property_usage(self.context, prop.source.kind)
         return _call(op_name, [column, value])
 
     def _optimize_materialized_equals(self, node: ast.CompareOperation) -> ast.Expr | None:

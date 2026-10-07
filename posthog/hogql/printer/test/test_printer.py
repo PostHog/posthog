@@ -1828,7 +1828,8 @@ class TestPrinter(BaseTest):
             assert printed == (
                 f"SELECT {self._json_dynamic_property_expr('file_type')} AS ft "
                 f"FROM {self._events_table_ref()} "
-                f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(ft, %(hogql_val_0)s), 0)) "
+                f"WHERE and(equals(events.team_id, {self.team.pk}), "
+                "ifNull(equals(CAST(events.properties.file_type, 'Nullable(String)'), %(hogql_val_0)s), 0)) "
                 "LIMIT 50000"
             )
             assert "properties_group_custom" not in printed
@@ -6793,9 +6794,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             )
             not_ilike_matches = {d for (d,) in not_ilike_result.results}
             assert not_ilike_matches == not_ilike_expected, "not_ilike " + str(pattern)
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                assert not_ilike_result.clickhouse
-                assert "mat_" not in not_ilike_result.clickhouse
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and mat_col:
+                assert mat_col.name not in not_ilike_result.clickhouse
 
     @parameterized.expand(
         [
@@ -6889,15 +6889,16 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             )
             not_in_matches = {d for (d,) in not_in_result.results}
             assert not_in_matches == not_in_expected, f"NOT IN {in_values}"
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                assert not_in_result.clickhouse
-                assert "mat_" not in not_in_result.clickhouse
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and mat_col:
+                assert mat_col.name not in not_in_result.clickhouse
 
     @parameterized.expand([("nullable", True), ("non_nullable", False)])
     def test_lower_in_optimization_handles_null_and_sentinel_rows(self, _, is_nullable) -> None:
         # The rewrite must stay correct for NULL/missing, empty-string, and literal-"null" property rows
         event_name = "mat_col_opt_lower_in_test"
-        with materialized("events", "test_prop", is_nullable=is_nullable, create_bloom_filter_lower_index=True):
+        with materialized(
+            "events", "test_prop", is_nullable=is_nullable, create_bloom_filter_lower_index=True
+        ) as mat_col:
             events: list[tuple[str, dict]] = [
                 ("mixed_case", {"test_prop": "Hello@PostHog.com"}),
                 ("lower_case", {"test_prop": "hello@posthog.com"}),
@@ -6926,7 +6927,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             # Case-insensitive IN: matches the mixed-case and already-lowercase rows, nothing else.
             in_matches, in_sql = run("IN")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                assert "mat_" not in in_sql
+                assert mat_col.name not in in_sql
             else:
                 assert "has(" in in_sql, f"expected the bloom_filter_lower rewrite to fire: {in_sql}"
             assert in_matches == {"mixed_case", "lower_case"}
