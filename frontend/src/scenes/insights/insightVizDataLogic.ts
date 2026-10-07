@@ -1879,7 +1879,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (querySource: InsightQueryNode | null) => (querySource ? getAnnotationsScope(querySource) : null),
         ],
         showLegend: [
-            (s) => [s.querySource],
+            (s) => [s.querySource, s.insightData],
             (
                 q:
                     | FunnelsQuery
@@ -1890,8 +1890,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     | null
                     | import('~/queries/schema/schema-general').PathsQuery
                     | import('~/queries/schema/schema-general').WebOverviewQuery
-                    | import('~/queries/schema/schema-general').WebStatsTableQuery
-            ) => (q ? getShowLegend(q) : null),
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery,
+                insightData: Record<string, any> | null
+            ) =>
+                q ? getShowLegend(q, Array.isArray(insightData?.result) ? insightData.result.length : undefined) : null,
         ],
         legendPosition: [
             (s) => [s.querySource],

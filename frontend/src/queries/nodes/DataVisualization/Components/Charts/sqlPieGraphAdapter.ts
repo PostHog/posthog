@@ -1,6 +1,7 @@
 import { type Series } from '@posthog/quill-charts'
 
 import { getSeriesColor } from 'lib/colors'
+import { MAX_DEFAULT_PROPORTION_LEGEND_PARTS } from 'lib/constants'
 
 import { ChartSettings } from '~/queries/schema/schema-general'
 
@@ -108,9 +109,6 @@ export const partOfWholeChartData = (
     xData: breakdown.xData.data.length ? breakdown.xData : xData,
     yData: breakdown.seriesData.length ? breakdown.seriesData : yData,
 })
-
-/** Past this many parts, one legend row per part costs more than it helps, so the legend starts off. */
-export const MAX_DEFAULT_PROPORTION_LEGEND_PARTS = 20
 
 /** The legend default when the user has not set one. A proportion bar has no axis to read a size
  *  from, so its legend carries the shares and shows while the part count stays small. */

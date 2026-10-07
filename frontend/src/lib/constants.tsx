@@ -67,6 +67,10 @@ export const PIE_DISPLAY_TYPES = [ChartDisplayType.ActionsPie, ChartDisplayType.
  *  data shape and the clicks; slice labels and the percent view stay pie-only. */
 export const PART_OF_WHOLE_DISPLAY_TYPES = [...PIE_DISPLAY_TYPES, ChartDisplayType.ActionsProportionBar]
 
+/** Past this many parts, one legend row per part costs more than it helps, so a proportion bar's legend
+ *  starts off. A legend setting the user picked still wins. */
+export const MAX_DEFAULT_PROPORTION_LEGEND_PARTS = 20
+
 /** Display types for which a percent stack view is available. */
 export const PERCENT_STACK_VIEW_DISPLAY_TYPE = [
     ChartDisplayType.ActionsBar,

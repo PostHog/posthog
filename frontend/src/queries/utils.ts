@@ -1,5 +1,5 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
+import { MAX_DEFAULT_PROPORTION_LEGEND_PARTS, PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 
@@ -655,11 +655,13 @@ export const getAggregationGroupTypeIndex = (query: InsightQueryNode): GroupType
 const isProportionBarQuery = (query: TrendsQuery): boolean =>
     query.trendsFilter?.display === ChartDisplayType.ActionsProportionBar
 
-export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
+/** `partCount` is the number of parts the chart draws, when results are loaded. */
+export const getShowLegend = (query: InsightQueryNode, partCount?: number): boolean | undefined => {
     if (isStickinessQuery(query)) {
         return query.stickinessFilter?.showLegend
     } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.showLegend ?? (isProportionBarQuery(query) ? true : undefined)
+        const showsByDefault = isProportionBarQuery(query) && (partCount ?? 0) <= MAX_DEFAULT_PROPORTION_LEGEND_PARTS
+        return query.trendsFilter?.showLegend ?? (showsByDefault ? true : undefined)
     } else if (isLifecycleQuery(query)) {
         return query.lifecycleFilter?.showLegend
     } else if (isFunnelsQuery(query)) {

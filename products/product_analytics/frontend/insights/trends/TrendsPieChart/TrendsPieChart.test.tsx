@@ -134,9 +134,19 @@ describe('TrendsPieChart', () => {
                 ],
             },
             { name: 'hides the legend when the user turns it off', showLegend: false, expectedRows: [] },
-        ])('$name', async ({ showLegend, expectedRows }) => {
+            {
+                name: 'starts with the legend off when there are many parts',
+                event: 'NappedByManyHedgehogs',
+                showLegend: undefined,
+                expectedRows: [],
+            },
+        ])('$name', async ({ event = 'Napped', showLegend, expectedRows }) => {
             const { container } = renderInsight({
-                query: pieByHedgehog({ display: ChartDisplayType.ActionsProportionBar, showLegend }),
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event, name: event }],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    trendsFilter: { display: ChartDisplayType.ActionsProportionBar, showLegend },
+                }),
             })
             await waitFor(() => expect(container.querySelector('[data-attr="trend-proportion-bar"]')).not.toBeNull(), {
                 timeout: 5000,
