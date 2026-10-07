@@ -89,7 +89,13 @@ class TestFreshchatSource:
             ("users", ["id"]),
             ("groups", ["id"]),
             ("channels", ["id"]),
+            ("roles", ["id"]),
             ("accounts_configuration", ["app_id"]),
+            # The fan-out children aggregate rows from every parent, so the parent id is part of
+            # the key: a conversation can be listed under more than one user, and Freshchat
+            # documents no global uniqueness for message ids.
+            ("user_conversations", ["user_id", "id"]),
+            ("conversation_messages", ["conversation_id", "id"]),
         ],
     )
     def test_schema_primary_keys(self, name: str, primary_keys: list[str]) -> None:
@@ -150,14 +156,25 @@ class TestFreshchatSource:
 
         assert matches and matches[0] is not None
 
-    def test_source_for_pipeline_plumbing(self) -> None:
-        inputs = _make_inputs("agents")
+    @pytest.mark.parametrize(
+        "schema_name, primary_keys, partition_keys",
+        [
+            ("agents", ["id"], None),
+            # Messages is the one endpoint with a stable creation timestamp and real volume, so it
+            # is the one that partitions.
+            ("conversation_messages", ["conversation_id", "id"], ["created_time"]),
+        ],
+    )
+    def test_source_for_pipeline_plumbing(
+        self, schema_name: str, primary_keys: list[str], partition_keys: Optional[list[str]]
+    ) -> None:
+        inputs = _make_inputs(schema_name)
         manager = self.source.get_resumable_source_manager(inputs)
 
         response = self.source.source_for_pipeline(self.config, manager, inputs)
 
-        assert response.name == "agents"
-        assert response.primary_keys == ["id"]
-        # Full refresh, paged with an explicit ascending sort.
+        assert response.name == schema_name
+        assert response.primary_keys == primary_keys
         assert response.sort_mode == "asc"
-        assert response.partition_mode is None
+        assert response.partition_keys == partition_keys
+        assert response.partition_mode == ("datetime" if partition_keys else None)

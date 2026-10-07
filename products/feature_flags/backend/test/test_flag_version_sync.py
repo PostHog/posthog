@@ -3,6 +3,7 @@ from posthog.test.base import BaseTest
 from django.utils import timezone
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.utils import activity_storage
@@ -40,6 +41,23 @@ def _flag_dependency_filters(dependency_flag_id: int | str) -> dict:
                 ]
             }
         ]
+    }
+
+
+def _rules_filters(referenced: dict) -> dict:
+    # Cohort and flag targeting is written past the validator, which does not admit it yet.
+    return {
+        "version": 2,
+        "return_type": "boolean",
+        "default_value": False,
+        "rules": [
+            {
+                "id": "11111111-1111-4111-8111-111111111111",
+                "rule_type": "targeted_release",
+                "targeting": {"properties": [referenced]},
+                "value": True,
+            }
+        ],
     }
 
 
@@ -128,6 +146,39 @@ class TestFlagVersionSync(BaseTest):
             # No request context in this test, so the entry is a system action.
             assert entry.user is None
             assert entry.is_system is True
+
+    def test_cohort_walk_reads_rule_targeting_and_skips_unreadable_formats(self):
+        edited = self._create_cohort("edited", _person_filters("a@a.com"))
+        parent = self._create_cohort("parent", _cohort_filters(edited.pk))
+        flag_direct = self._create_flag("direct", edited.pk)
+        rules_direct = FeatureFlag.objects.create(
+            team=self.team,
+            key="rules-direct",
+            created_by=self.user,
+            filters=_rules_filters({"key": "id", "type": "cohort", "value": edited.pk}),
+        )
+        rules_nested = FeatureFlag.objects.create(
+            team=self.team,
+            key="rules-nested",
+            created_by=self.user,
+            filters=_rules_filters({"key": "id", "type": "cohort", "value": parent.pk}),
+        )
+        unreadable = FeatureFlag.objects.create(
+            team=self.team,
+            key="unreadable",
+            created_by=self.user,
+            filters={"version": 3, "groups": [{"properties": [{"key": "id", "type": "cohort", "value": edited.pk}]}]},
+        )
+
+        with capture_logs() as logs:
+            edited.filters = _person_filters("z@z.com")
+            edited.save()
+
+        for flag, version in ((flag_direct, 2), (rules_direct, 2), (rules_nested, 2), (unreadable, 1)):
+            flag.refresh_from_db()
+            assert flag.version == version, flag.key
+        assert _updated_entries(unreadable) == []
+        assert [log for log in logs if log["event"] == "flag_version_sync_cohort_expansion_failed"] == []
 
     def test_flag_history_entry_attributes_the_cohort_editor(self):
         cohort = self._create_cohort("cohort", _person_filters("a@a.com"))
@@ -277,6 +328,26 @@ class TestFlagDependencyVersionSync(BaseTest):
         transitive = self._create_flag("transitive", _flag_dependency_filters(dependent.pk))
         return base, dependent, transitive
 
+    def test_dependency_walk_reads_rule_targeting_and_skips_unreadable_formats(self):
+        base, dependent, _transitive = self._create_chain()
+        dependency = {"key": str(base.pk), "type": "flag", "operator": "flag_evaluates_to", "value": True}
+        rules_dependent = self._create_flag("rules-dependent", _rules_filters(dependency))
+        rules_transitive = self._create_flag(
+            "rules-transitive", _rules_filters(dependency | {"key": str(rules_dependent.pk)})
+        )
+        unreadable = self._create_flag("unreadable", {"version": 3, "groups": [{"properties": [dependency]}]})
+
+        base.filters = {"groups": [{"properties": [], "rollout_percentage": 25}]}
+        base.save()
+
+        for flag, version in ((dependent, 2), (rules_dependent, 2), (rules_transitive, 2), (unreadable, 1)):
+            flag.refresh_from_db()
+            assert flag.version == version, flag.key
+        (entry,) = _updated_entries(rules_transitive)
+        assert entry.detail is not None
+        assert entry.detail["trigger"]["payload"] == {"flag_id": base.pk, "flag_key": "base"}
+        assert _updated_entries(unreadable) == []
+
     def test_flag_definition_change_bumps_versions_of_flags_depending_on_it(self):
         base, dependent, transitive = self._create_chain()
         # dependent also depends on transitive, so the walk revisits an already-bumped
@@ -412,14 +483,20 @@ class TestFlagDependencyVersionSync(BaseTest):
             transitions.append((change["before"], change["after"]))
         assert sorted(transitions) == [(1, 2), (2, 3)]
 
-    def test_sibling_flag_with_non_dict_filters_does_not_block_save_or_bump(self):
+    @parameterized.expand(
+        [
+            ("non_dict_filters", [{"properties": []}, {"type": "flag"}]),
+            ("groups_not_a_list", {"groups": {"type": "flag"}}),
+            ("properties_not_a_list", {"groups": [{"properties": {"dependency": {"type": "flag", "key": "1"}}}]}),
+            ("properties_not_iterable", {"groups": [{"properties": 5, "note": {"type": "flag"}}]}),
+        ]
+    )
+    def test_sibling_flag_with_malformed_filters_does_not_block_save_or_bump(self, _name, filters):
         base, dependent, _ = self._create_chain()
-        # filters is a JSONField with no shape validation, so a row can hold a non-dict;
-        # FeatureFlag.conditions calls .get() on it and raises. That must not abort the
-        # save being made to an unrelated flag. The malformed-key case in the chain test
-        # can't reach this: a bad key inside a well-shaped dict is caught further in.
+        # filters is a JSONField with no shape validation, so a row can hold any JSON the
+        # dependency prefilter matches.
         broken = self._create_flag("broken", _flag_dependency_filters(base.pk))
-        FeatureFlag.objects.filter(pk=broken.pk).update(filters=[{"properties": []}, {"type": "flag"}])
+        FeatureFlag.objects.filter(pk=broken.pk).update(filters=filters)
 
         base.filters = {"groups": [{"properties": [], "rollout_percentage": 25}]}
         base.save()

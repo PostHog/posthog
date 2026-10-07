@@ -46,7 +46,7 @@ def _make_manager(resume_state: Optional[FreshdeskResumeConfig] = None) -> mock.
 
 
 class _Wired:
-    def __init__(self, params: list[dict[str, Any]], urls: list[Optional[str]]) -> None:
+    def __init__(self, params: list[dict[str, Any]], urls: list[str]) -> None:
         self.params = params
         self.urls = urls
 
@@ -59,11 +59,11 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> _Wired:
     """
     session.headers = {}
     param_snapshots: list[dict[str, Any]] = []
-    url_snapshots: list[Optional[str]] = []
+    url_snapshots: list[str] = []
 
     def _prepare(request: Any) -> mock.MagicMock:
         param_snapshots.append(dict(request.params or {}))
-        url_snapshots.append(request.url)
+        url_snapshots.append(request.url or "")
         return mock.MagicMock()
 
     session.prepare_request.side_effect = _prepare
@@ -293,3 +293,114 @@ class TestValidateCredentials:
     def test_connection_error_returns_none(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = requests.ConnectionError("nope")
         assert validate_credentials("acme", "key") is None
+
+
+class TestFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_conversations_fetch_once_per_ticket(self, MockSession) -> None:
+        session = MockSession.return_value
+        wired = _wire(
+            session,
+            [
+                _response([{"id": 10}, {"id": 11}]),
+                _response([{"id": 100, "ticket_id": 10}]),
+                _response([{"id": 200, "ticket_id": 11}]),
+            ],
+        )
+
+        rows = _rows(_source("conversations"))
+
+        assert [r["id"] for r in rows] == [100, 200]
+        assert wired.urls[0].endswith("/api/v2/tickets")
+        assert [u.rsplit("/api/v2", 1)[1] for u in wired.urls[1:]] == [
+            "/tickets/10/conversations",
+            "/tickets/11/conversations",
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_conversations_incremental_windows_the_parent_walk(self, MockSession) -> None:
+        # The child endpoint takes no timestamp filter, so the watermark has to reach the
+        # tickets request instead -- otherwise every sync re-walks every ticket.
+        session = MockSession.return_value
+        wired = _wire(session, [_response([{"id": 10}]), _response([{"id": 100}])])
+
+        _rows(
+            _source(
+                "conversations",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+            )
+        )
+
+        assert wired.params[0]["updated_since"] == "2026-03-04T00:00:00Z"
+        assert wired.params[0]["order_type"] == "asc"
+        # The child request carries no watermark param of its own.
+        assert "updated_since" not in wired.params[1]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_conversations_full_refresh_omits_the_parent_window(self, MockSession) -> None:
+        session = MockSession.return_value
+        wired = _wire(session, [_response([{"id": 10}]), _response([{"id": 100}])])
+
+        _rows(_source("conversations"))
+
+        assert "updated_since" not in wired.params[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_deleted_parent_404_does_not_fail_the_run(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": 10}, {"id": 11}]),
+                _response({"message": "not found"}, status_code=404),
+                _response([{"id": 200, "ticket_id": 11}]),
+            ],
+        )
+
+        rows = _rows(_source("conversations"))
+
+        assert [r["id"] for r in rows] == [200]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_canned_responses_fan_out_from_folders(self, MockSession) -> None:
+        session = MockSession.return_value
+        wired = _wire(session, [_response([{"id": 1}]), _response([{"id": 5, "folder_id": 1}])])
+
+        rows = _rows(_source("canned_responses"))
+
+        assert [r["id"] for r in rows] == [5]
+        assert wired.urls[1].endswith("/api/v2/canned_response_folders/1/responses")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_solution_folders_carry_their_category_id(self, MockSession) -> None:
+        # A folder row places itself only through a nested `hierarchy` list, so the owning
+        # category is injected from the parent under a flat, queryable column.
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 3}]), _response([{"id": 4, "name": "sample folder"}])])
+
+        rows = _rows(_source("solution_folders"))
+
+        assert rows[0]["category_id"] == 3
+        assert "_solution_categories_id" not in rows[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_solution_articles_walk_categories_then_folders(self, MockSession) -> None:
+        session = MockSession.return_value
+        wired = _wire(
+            session,
+            [
+                _response([{"id": 3}]),
+                _response([{"id": 4}]),
+                _response([{"id": 1, "folder_id": 4, "category_id": 3}]),
+            ],
+        )
+
+        rows = _rows(_source("solution_articles"))
+
+        assert [r["id"] for r in rows] == [1]
+        assert [u.rsplit("/api/v2", 1)[1] for u in wired.urls] == [
+            "/solutions/categories",
+            "/solutions/categories/3/folders",
+            "/solutions/folders/4/articles",
+        ]

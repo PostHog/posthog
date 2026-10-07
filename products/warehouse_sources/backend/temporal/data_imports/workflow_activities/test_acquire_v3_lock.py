@@ -7,9 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio.client import WorkflowExecutionStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    RunActivitySummary,
-)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -19,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     check_pipeline_version_activity,
     release_v3_pipeline_lock_activity,
 )
+from products.warehouse_sources_queue.backend.core.jobs_db import RunActivitySummary
 
 TEAM_ID = 1
 SCHEMA_ID = uuid.uuid4()
@@ -34,116 +32,15 @@ def _uuid7_token(age_seconds: float) -> str:
 
 
 class TestCheckPipelineVersionActivity:
-    @pytest.mark.parametrize(
-        "ff_enabled, expected_is_v3",
-        [
-            (False, False),
-            (True, True),
-        ],
-        ids=["v2", "v3"],
-    )
-    @patch(f"{MODULE}.is_pipeline_v3_enabled")
-    @patch(f"{MODULE}.ExternalDataSource")
-    @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.bind_contextvars")
-    def test_returns_ff_result(
-        self,
-        _bind: MagicMock,
-        _close: MagicMock,
-        mock_source_model: MagicMock,
-        mock_v3_check: MagicMock,
-        ff_enabled: bool,
-        expected_is_v3: bool,
-    ) -> None:
-        mock_source = MagicMock()
-        mock_source.source_type = "Stripe"
-        mock_source_model.objects.get.return_value = mock_source
-        mock_v3_check.return_value = ff_enabled
-
+    # Pre-patch workflow histories still schedule this activity. It must answer V3 without a
+    # database read, so a replayed run never asks for the removed V2 pipeline.
+    @pytest.mark.parametrize("schema_id", [None, SCHEMA_ID], ids=["legacy_payload", "with_schema"])
+    def test_always_returns_v3(self, schema_id: uuid.UUID | None) -> None:
         result = check_pipeline_version_activity(
-            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID)
-        )
-
-        assert result.is_v3 is expected_is_v3
-        mock_v3_check.assert_called_once_with(TEAM_ID, "Stripe")
-
-    @pytest.mark.parametrize(
-        "ingest_mode, expected_is_v3",
-        [
-            ("buffered", True),
-            ("legacy", False),
-        ],
-        ids=["flipped_forces_v3", "unflipped_follows_flag"],
-    )
-    @patch(f"{MODULE}.is_pipeline_v3_enabled", return_value=False)
-    @patch(f"{MODULE}.ExternalDataSchema")
-    @patch(f"{MODULE}.ExternalDataSource")
-    @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.bind_contextvars")
-    def test_buffered_cdc_consumption_overrides_the_flag(
-        self,
-        _bind: MagicMock,
-        _close: MagicMock,
-        mock_source_model: MagicMock,
-        mock_schema_model: MagicMock,
-        _mock_v3_check: MagicMock,
-        ingest_mode: str,
-        expected_is_v3: bool,
-    ) -> None:
-        schema = MagicMock()
-        schema.is_cdc = True
-        schema.cdc_mode = "streaming"
-        schema.cdc_table_mode = "consolidated"
-        schema.initial_sync_complete = True
-        schema.source.job_inputs = {"cdc_ingest_mode": ingest_mode}
-        mock_schema_model.objects.filter.return_value.select_related.return_value.first.return_value = schema
-        mock_source_model.objects.get.return_value = MagicMock(source_type="Postgres")
-
-        result = check_pipeline_version_activity(
-            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID, schema_id=SCHEMA_ID)
-        )
-
-        assert result.is_v3 is expected_is_v3
-
-    @patch(f"{MODULE}.is_pipeline_v3_enabled", return_value=True)
-    @patch(f"{MODULE}.ExternalDataSchema")
-    @patch(f"{MODULE}.ExternalDataSource")
-    @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.bind_contextvars")
-    def test_a_missing_schema_row_falls_back_to_the_flag(
-        self,
-        _bind: MagicMock,
-        _close: MagicMock,
-        mock_source_model: MagicMock,
-        mock_schema_model: MagicMock,
-        _mock_v3_check: MagicMock,
-    ) -> None:
-        mock_schema_model.objects.filter.return_value.select_related.return_value.first.return_value = None
-        mock_source_model.objects.get.return_value = MagicMock(source_type="Postgres")
-
-        result = check_pipeline_version_activity(
-            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID, schema_id=SCHEMA_ID)
+            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID, schema_id=schema_id)
         )
 
         assert result.is_v3 is True
-
-    @patch(f"{MODULE}.ExternalDataSource")
-    @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.bind_contextvars")
-    def test_source_not_found_returns_not_v3(
-        self,
-        _bind: MagicMock,
-        _close: MagicMock,
-        mock_source_model: MagicMock,
-    ) -> None:
-        mock_source_model.DoesNotExist = type("DoesNotExist", (Exception,), {})
-        mock_source_model.objects.get.side_effect = mock_source_model.DoesNotExist
-
-        result = check_pipeline_version_activity(
-            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID)
-        )
-
-        assert result.is_v3 is False
 
 
 class TestAcquireV3PipelineLockActivity:

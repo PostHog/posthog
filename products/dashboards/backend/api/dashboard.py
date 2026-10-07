@@ -29,7 +29,7 @@ from django.db.models import (
     UUIDField,
     Value,
 )
-from django.db.models.functions import Cast
+from django.db.models.functions import Cast, Coalesce
 from django.http.response import HttpResponseBase
 from django.shortcuts import get_object_or_404
 from django.utils.functional import SimpleLazyObject
@@ -1237,14 +1237,21 @@ class DashboardBasicSerializer(
             "name": {"help_text": "Name of the dashboard."},
             "description": {"help_text": "Description of the dashboard."},
             "pinned": {"help_text": "Whether the dashboard is pinned to the top of the list."},
-            "restriction_level": {"help_text": "Controls who can edit the dashboard."},
+            "restriction_level": {
+                "help_text": (
+                    "Only restriction level 21 is accepted on create and update. "
+                    "Legacy value 37 is deprecated and rejected."
+                )
+            },
         }
 
+    @extend_schema_field(serializers.ChoiceField(choices=RestrictionLevel.choices))
     def get_effective_restriction_level(self, dashboard: Dashboard) -> RestrictionLevel:
         if self.context.get("is_shared"):
             return RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         return self.user_permissions.dashboard(dashboard).effective_restriction_level
 
+    @extend_schema_field(serializers.ChoiceField(choices=PrivilegeLevel.choices))
     def get_effective_privilege_level(self, dashboard: Dashboard) -> PrivilegeLevel:
         if self.context.get("is_shared"):
             return PrivilegeLevel.CAN_VIEW
@@ -1329,6 +1336,13 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     effective_privilege_level = serializers.SerializerMethodField()
     effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
+    restriction_level = serializers.ChoiceField(
+        choices=RestrictionLevel.choices,
+        required=False,
+        help_text=(
+            "Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected."
+        ),
+    )
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
     breakdown_colors = BreakdownColorsField(
         child=BreakdownColorConfigSerializer(),
@@ -1370,7 +1384,20 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     class Meta:
         model = Dashboard
         fields = DASHBOARD_SHARED_FIELDS
-        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
+        read_only_fields = [
+            "creation_mode",
+            "effective_restriction_level",
+            "is_shared",
+            "user_access_level",
+            "last_accessed_at",
+        ]
+
+    def validate_restriction_level(self, value: int) -> int:
+        if value == RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
+            raise serializers.ValidationError(
+                "Collaborator-only dashboard access is no longer supported. Set the restriction level to 21."
+            )
+        return value
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
@@ -1619,7 +1646,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "delete_insights",
             "_create_in_folder",
         ]
-        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
+        read_only_fields = [
+            "creation_mode",
+            "effective_restriction_level",
+            "is_shared",
+            "user_access_level",
+            "last_accessed_at",
+        ]
 
     def validate_variables(self, value) -> dict:
         if not isinstance(value, dict):
@@ -2537,6 +2570,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return {**validated_data, "creation_mode": "default"}
 
 
+class DashboardWriteOpenApiSerializer(DashboardSerializer):
+    # Existing dashboards may return 37, but write requests must not accept it.
+    restriction_level = serializers.IntegerField(  # type: ignore[assignment]
+        min_value=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
+        max_value=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
+        required=False,
+        help_text=(
+            "Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected."
+        ),
+    )
+
+
 class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
     created = serializers.BooleanField(
         help_text="Whether a nudge notification was created. False when one was already sent recently "
@@ -2582,13 +2627,29 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
                 location=OpenApiParameter.QUERY,
                 description="Optional. Exclude dashboards that PostHog generated.",
             ),
+            OpenApiParameter(
+                "ordering",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["-last_viewed_at"],
+                description=(
+                    "Optional. `-last_viewed_at` puts the dashboards you viewed most recently first. A dashboard "
+                    "you never viewed sorts by its creation time. This order replaces the search relevance order."
+                ),
+            ),
         ],
     ),
     # Dashboards nest insight payloads via `tiles[].insight`, so the deprecated-`dashboards`-field
     # opt-in applies here too — on every action whose response uses DashboardSerializer.
-    create=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
+    create=extend_schema(
+        request=DashboardWriteOpenApiSerializer,
+        parameters=[INCLUDE_DASHBOARDS_PARAMETER],
+    ),
     retrieve=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
-    update=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
+    update=extend_schema(
+        request=DashboardWriteOpenApiSerializer,
+        parameters=[INCLUDE_DASHBOARDS_PARAMETER],
+    ),
     partial_update=extend_schema(request=PatchedDashboardOpenApiSerializer, parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
 )
 class DashboardsViewSet(
@@ -2646,7 +2707,10 @@ class DashboardsViewSet(
         if folder is not None:
             queryset = self._apply_folder_filter(queryset, folder)
 
-        return drop_similar_when_exact_exists(queryset)
+        queryset = drop_similar_when_exact_exists(queryset)
+        if self.action == "list" and self.request.query_params.get("ordering") == "-last_viewed_at":
+            queryset = queryset.order_by(Coalesce("last_viewed_at", "created_at").desc(), "-id")
+        return queryset
 
     @staticmethod
     def _apply_folder_filter(queryset: QuerySet, folder: str) -> QuerySet:

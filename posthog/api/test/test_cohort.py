@@ -5326,6 +5326,77 @@ email@example.org,
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_config_version_2_flags_use_the_cohorts_their_rules_target(self, patch_calculate_cohort, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+        cohort_property = {"key": "id", "value": cohort_id, "type": "cohort"}
+        # Written past the validator, which does not admit cohort targeting yet.
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "version": 2,
+                "return_type": "boolean",
+                "default_value": False,
+                "rules": [
+                    {
+                        "id": "11111111-1111-4111-8111-111111111111",
+                        "rule_type": "targeted_release",
+                        "targeting": {"properties": [cohort_property]},
+                        "value": True,
+                    }
+                ],
+            },
+            name="Rules flag using cohort",
+            key="rules-flag",
+            created_by=self.user,
+            active=True,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"version": 3, "groups": [{"properties": [cohort_property]}]},
+            name="Unreadable flag",
+            key="unreadable-flag",
+            created_by=self.user,
+            active=True,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([flag["key"] for flag in response.json()["feature_flags"]["results"]], ["rules-flag"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_value": 1,
+                                "time_interval": "day",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                            }
+                        ],
+                    }
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "behavioral_cohort_found")
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}", data={"deleted": True})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("used in 1 active feature flag(s): Rules flag using cohort", response.json()["detail"])
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_active_feature_flag(self, patch_calculate_cohort, patch_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",

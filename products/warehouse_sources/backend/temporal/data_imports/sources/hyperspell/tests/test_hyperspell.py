@@ -44,6 +44,9 @@ class _StubManager:
     def save_state(self, data: HyperspellResumeConfig) -> None:
         self.saved.append(data)
 
+    def safe_point(self) -> None:
+        pass
+
 
 def _run(
     manager: _StubManager,
@@ -295,15 +298,95 @@ class TestGetRows:
         [
             ("memories", "size=100"),
             ("entities", "limit=500"),
+            ("users", "limit=200"),
         ],
     )
     def test_page_size_param_varies_per_endpoint(self, endpoint, page_size_param) -> None:
         manager = _StubManager()
-        pages: list[dict[str, Any]] = [{"items": [], "next_cursor": None}]
+        pages: list[dict[str, Any]] = [{"items": [], "users": [], "total": 0, "next_cursor": None}]
 
         _, mock_get = _run(manager, pages, endpoint=endpoint)
 
         assert page_size_param in mock_get.call_args[0][0]
+
+    def test_users_offset_pagination_stops_at_total(self) -> None:
+        manager = _StubManager()
+        pages: list[dict[str, Any]] = [
+            {"users": [{"user_id": "u1"}, {"user_id": "u2"}], "total": 3, "limit": 2, "offset": 0},
+            {"users": [{"user_id": "u3"}], "total": 3, "limit": 2, "offset": 2},
+        ]
+
+        batches, mock_get = _run(manager, pages, endpoint="users", user_ids="user-1, user-2")
+
+        assert [[row["user_id"] for row in batch] for batch in batches] == [["u1", "u2"], ["u3"]]
+        urls = [call[0][0] for call in mock_get.call_args_list]
+        assert "offset=0" in urls[0]
+        assert "offset=2" in urls[1]
+        # Listing users needs an app-scoped credential, so configured user IDs must not fan it out.
+        assert all("X-As-User" not in call[1]["headers"] for call in mock_get.call_args_list)
+        assert manager.saved == [HyperspellResumeConfig(cursor="2", user_id=None)]
+
+    def test_resumes_users_from_saved_offset(self) -> None:
+        manager = _StubManager(resume_state=HyperspellResumeConfig(cursor="400", user_id=None))
+        pages: list[dict[str, Any]] = [{"users": [{"user_id": "u401"}], "total": 401}]
+
+        _, mock_get = _run(manager, pages, endpoint="users")
+
+        assert mock_get.call_count == 1
+        assert "offset=400" in mock_get.call_args[0][0]
+
+    def test_integration_channels_fan_out_over_channel_capable_connections(self) -> None:
+        manager = _StubManager()
+        pages: list[dict[str, Any]] = [
+            {
+                "integrations": [
+                    {"id": "int-slack", "supports_channel_selection": True},
+                    {"id": "int-drive", "supports_channel_selection": False},
+                    {"id": "int-teams", "requires_channel_selection": True},
+                ]
+            },
+            {
+                "connections": [
+                    {"id": "conn-1", "integration_id": "int-slack"},
+                    {"id": "conn-2", "integration_id": "int-drive"},
+                    {"id": "conn-3", "integration_id": "int-teams"},
+                ]
+            },
+            {
+                "channels": [{"id": "C1", "name": "general", "type": "channel"}, {"id": "C2", "name": "random"}],
+                "selected": ["C2"],
+            },
+            {"channels": [], "selected": [], "pending": True},
+        ]
+
+        batches, mock_get = _run(manager, pages, endpoint="integration_channels", user_ids="user-1")
+
+        urls = [call[0][0] for call in mock_get.call_args_list]
+        assert urls[2].endswith("/integrations/int-slack/channels?connection_id=conn-1")
+        assert urls[3].endswith("/integrations/int-teams/channels?connection_id=conn-3")
+        assert "X-As-User" not in mock_get.call_args_list[0][1]["headers"]
+        assert mock_get.call_args_list[2][1]["headers"]["X-As-User"] == "user-1"
+        assert batches == [
+            [
+                {
+                    "id": "C1",
+                    "name": "general",
+                    "type": "channel",
+                    "user_id": "user-1",
+                    "connection_id": "conn-1",
+                    "integration_id": "int-slack",
+                    "selected": False,
+                },
+                {
+                    "id": "C2",
+                    "name": "random",
+                    "user_id": "user-1",
+                    "connection_id": "conn-1",
+                    "integration_id": "int-slack",
+                    "selected": True,
+                },
+            ]
+        ]
 
 
 class TestHyperspellSource:

@@ -13,12 +13,14 @@ import type {
     AddSnapshotsResultApi,
     ApproveRunRequestInputApi,
     BaselineOverviewApi,
+    CompleteRunInputApi,
     CreateRepoInputApi,
     CreateRunInputApi,
     CreateRunResultApi,
     FinalizeResultApi,
     FinalizeRunRequestInputApi,
     FlakinessOverviewApi,
+    LiftOnMergeInputApi,
     MarkToleratedInputApi,
     PaginatedQuarantinedIdentifierEntryListApi,
     PaginatedRepoListApi,
@@ -28,6 +30,7 @@ import type {
     PaginatedToleratedHashEntryListApi,
     PatchedUpdateRepoRequestInputApi,
     QuarantineInputApi,
+    QuarantineLiftEntryApi,
     QuarantinedIdentifierEntryApi,
     RecomputeResultApi,
     RepoApi,
@@ -547,11 +550,14 @@ export const getVisualReviewRunsCompleteCreateUrl = (projectId: string, id: stri
 export const visualReviewRunsCompleteCreate = async (
     projectId: string,
     id: string,
+    completeRunInputApi?: CompleteRunInputApi,
     options?: RequestInit
 ): Promise<RunApi> => {
     return apiMutator<RunApi>(getVisualReviewRunsCompleteCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(completeRunInputApi),
     })
 }
 
@@ -580,6 +586,64 @@ export const visualReviewRunsFinalizeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(finalizeRunRequestInputApi),
+    })
+}
+
+export const getVisualReviewRunsLiftOnMergeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/lift_on_merge/`
+}
+
+/**
+ * Lift a quarantined snapshot's quarantine once this run's pull request merges. The lift applies only after a default-branch run that contains the merge renders the expected picture, and the baseline entry holds that same picture. Requesting a lift never approves a picture: approve a changed or new snapshot by identifier first. Requesting again from the same pull request replaces the pending request.
+ */
+export const visualReviewRunsLiftOnMergeCreate = async (
+    projectId: string,
+    id: string,
+    liftOnMergeInputApi: LiftOnMergeInputApi,
+    options?: RequestInit
+): Promise<QuarantineLiftEntryApi> => {
+    return apiMutator<QuarantineLiftEntryApi>(getVisualReviewRunsLiftOnMergeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(liftOnMergeInputApi),
+    })
+}
+
+export const getVisualReviewRunsQuarantineLiftsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/quarantine_lifts/`
+}
+
+/**
+ * Every request to lift a quarantine when this run's pull request merges, newest first, in any state. Empty for a run without a pull request.
+ */
+export const visualReviewRunsQuarantineLiftsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<QuarantineLiftEntryApi[]> => {
+    return apiMutator<QuarantineLiftEntryApi[]>(getVisualReviewRunsQuarantineLiftsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisualReviewRunsQuarantineLiftsCancelCreateUrl = (projectId: string, id: string, requestId: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/quarantine_lifts/${requestId}/cancel/`
+}
+
+/**
+ * Withdraw a pending request to lift a quarantine when this run's pull request merges.
+ */
+export const visualReviewRunsQuarantineLiftsCancelCreate = async (
+    projectId: string,
+    id: string,
+    requestId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisualReviewRunsQuarantineLiftsCancelCreateUrl(projectId, id, requestId), {
+        ...options,
+        method: 'POST',
     })
 }
 

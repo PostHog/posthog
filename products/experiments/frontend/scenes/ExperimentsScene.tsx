@@ -25,6 +25,7 @@ import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTa
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -709,6 +710,7 @@ const ExperimentsTable = ({
 export function ExperimentsScene(): JSX.Element {
     const { tab } = useValues(experimentsLogic)
     const { setExperimentsTab, loadExperiments } = useActions(experimentsLogic)
+    const { reportExperimentsListAiBadgeClicked } = useActions(eventUsageLogic)
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
     const [copyToProjectModalExperiment, setCopyToProjectModalExperiment] = useState<Experiment | null>(null)
     const [surveyModalExperiment, setSurveyModalExperiment] = useState<Experiment | null>(null)
@@ -768,7 +770,9 @@ export function ExperimentsScene(): JSX.Element {
                                         }}
                                         position="bottom-right"
                                         active={true}
-                                        context={{}}
+                                        onMaxOpen={reportExperimentsListAiBadgeClicked}
+                                        // Recorded as `ai_entry_point` on `experiment created`
+                                        context={{ entry_point: 'experiments_list' }}
                                     >
                                         <Shortcut
                                             name="NewExperiment"

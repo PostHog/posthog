@@ -160,6 +160,8 @@ async def test_eval_fixture_generation_opts_in_as_signals_eval():
         ("claude-sonnet-4-5", True, False, True, "enabled", None),
         ("claude-sonnet-5", False, False, False, None, "medium"),
         ("claude-sonnet-5", True, False, False, "adaptive", "medium"),
+        ("claude-sonnet-5-5", False, False, False, None, "medium"),
+        ("claude-sonnet-5-5", True, False, False, "adaptive", "medium"),
         ("claude-sonnet-4-6", False, False, True, None, "medium"),
     ],
 )
@@ -229,8 +231,8 @@ def _reload_model_constants(env: dict[str, str]) -> tuple[str, str]:
 @pytest.mark.parametrize(
     "env,expected_matching,expected_safety",
     [
-        ({}, "claude-sonnet-5", "claude-sonnet-5"),
-        ({"SIGNAL_MATCHING_LLM_MODEL": "claude-opus-5"}, "claude-opus-5", "claude-sonnet-5"),
+        ({}, "claude-sonnet-5-5", "claude-sonnet-5-5"),
+        ({"SIGNAL_MATCHING_LLM_MODEL": "claude-opus-5"}, "claude-opus-5", "claude-sonnet-5-5"),
         (
             {"SIGNAL_MATCHING_LLM_MODEL": "claude-opus-5", "SIGNAL_SAFETY_LLM_MODEL": "claude-haiku-4-5"},
             "claude-opus-5",

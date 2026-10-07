@@ -223,6 +223,10 @@ export interface InsightCardProps extends Resizeable {
     onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     /** Called when the user mousedowns on the card (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
+    /** Project the insight belongs to, when that is not the current project. The card's links then open it there. */
+    projectId?: number
+    /** Shown above the title, for a card that has to name where its insight comes from. */
+    contextHeading?: JSX.Element | null
 }
 
 function InsightCardInternal(
@@ -262,6 +266,8 @@ function InsightCardInternal(
         filtersOverride,
         variablesOverride,
         children,
+        projectId,
+        contextHeading,
         breakdownColorOverride: _breakdownColorOverride,
         dataColorThemeId: _dataColorThemeId,
         surveyOpportunity,
@@ -465,6 +471,8 @@ function InsightCardInternal(
                     <InsightMeta
                         tile={tile}
                         insight={insight}
+                        projectId={projectId}
+                        contextHeading={contextHeading}
                         ribbonColor={ribbonColor}
                         dashboardId={dashboardId}
                         canEditDashboard={canEditDashboard}

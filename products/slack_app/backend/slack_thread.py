@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -17,8 +18,8 @@ from products.slack_app.backend.services.slack_messages import (
     context_block,
     fork_menu_actions_block,
     fork_menu_element,
+    leading_mention_prefix,
     load_run_footer,
-    mentions_slack_user,
     normalize_labeled_mentions_to_bare,
     personal_integrations_url,
     post_slack_thread_reply,
@@ -52,6 +53,8 @@ _SECTION_TEXT_LIMIT = 3000
 # answer, so the reply is posted plainly instead. The same pair is what the scout delivery in
 # signals treats as a block rejection.
 _BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_format"})
+# Slack closed the stream, so every later append and the stop call fail the same way.
+_STREAM_ENDED_ERROR_CODE = "message_not_in_streaming_state"
 
 
 def _split_markdown_text(text: str, limit: int = _MARKDOWN_CHUNK_LIMIT) -> list[str]:
@@ -101,6 +104,26 @@ def _task_update_chunk(
     if details:
         chunk["details"] = details[:_TASK_FIELD_LIMIT]
     return chunk
+
+
+def _plan_update_chunk(title: str) -> dict[str, Any]:
+    return {"type": "plan_update", "title": title[:_TASK_FIELD_LIMIT]}
+
+
+def _status_chunks(task_updates: list[dict[str, Any]] | None, markdown_text: str | None) -> list[dict[str, Any]]:
+    """task_update chunks for the well-formed steps, then markdown_text chunks for the prose."""
+    chunks: list[dict[str, Any]] = []
+    for t in task_updates or []:
+        task_id = t.get("id")
+        title = t.get("title")
+        status = t.get("status")
+        if not task_id or not title or not status:
+            continue
+        chunks.append(_task_update_chunk(str(task_id), str(title), str(status), t.get("details")))
+    if markdown_text:
+        for piece in _markdown_text_pieces(markdown_text):
+            chunks.append({"type": "markdown_text", "text": piece})
+    return chunks
 
 
 def _format_task_error(error: str) -> str:
@@ -203,6 +226,7 @@ class SlackThreadHandler:
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
+        self.stream_ended = False
 
     @classmethod
     def for_run(
@@ -295,6 +319,8 @@ class SlackThreadHandler:
         One append per block, and both after the answer's: a request Slack rejects must
         cost that control alone, never the reply and never its sibling.
         """
+        if self.stream_ended:
+            return
         for block, failure in (
             (self._fork_menu_actions_block(), "slack_app_fork_menu_append_failed"),
             (self._feedback_block(), "slack_app_feedback_buttons_append_failed"),
@@ -377,24 +403,22 @@ class SlackThreadHandler:
 
     def start_status_stream(
         self,
-        first_task_id: str | None = None,
-        first_task_title: str | None = None,
-        first_task_details: str | None = None,
+        task_updates: list[dict[str, Any]] | None = None,
         first_markdown_text: str | None = None,
+        plan_title: str | None = None,
     ) -> str | None:
-        """chat.startStream in plan-block mode. Seed with EITHER a task_update
-        (starts with a plan-block step) OR a markdown_text chunk (starts as
-        prose; a plan block appears later when a task_update arrives)."""
-        if not self.context.mentioning_slack_user_id:
+        """chat.startStream in plan-block mode. Seed with plan-block steps, a
+        markdown_text chunk, or both. The plan block stays where its first step
+        lands, and later task_update chunks change that block in place."""
+        if not self.actor_slack_user_id:
             return None
-        chunks: list[dict[str, Any]] = []
-        if first_task_id and first_task_title:
-            chunks.append(_task_update_chunk(first_task_id, first_task_title, "in_progress", first_task_details))
         if first_markdown_text:
-            for piece in _markdown_text_pieces(first_markdown_text):
-                chunks.append({"type": "markdown_text", "text": piece})
+            first_markdown_text = self._with_leading_mention(first_markdown_text)
+        chunks = _status_chunks(task_updates, first_markdown_text)
         if not chunks:
             return None
+        if plan_title:
+            chunks.insert(0, _plan_update_chunk(plan_title))
         try:
             client = self._get_client()
             if not slack_message_exists(client, self.context.channel, self.context.thread_ts):
@@ -404,7 +428,7 @@ class SlackThreadHandler:
             response = client.chat_startStream(
                 channel=self.context.channel,
                 thread_ts=self.context.thread_ts,
-                recipient_user_id=self.context.mentioning_slack_user_id,
+                recipient_user_id=self.actor_slack_user_id,
                 recipient_team_id=integration.integration_id,
                 task_display_mode="plan",
                 chunks=chunks,
@@ -420,71 +444,78 @@ class SlackThreadHandler:
         ts: str,
         task_updates: list[dict[str, Any]] | None = None,
         markdown_text: str | None = None,
-    ) -> None:
-        """Append plan-block step transitions and/or markdown_text chunks."""
-        chunks: list[dict[str, Any]] = []
-        for t in task_updates or []:
-            task_id = t.get("id")
-            title = t.get("title")
-            status = t.get("status")
-            if not task_id or not title or not status:
-                continue
-            chunks.append(_task_update_chunk(str(task_id), str(title), str(status), t.get("details")))
-        if markdown_text:
-            for piece in _markdown_text_pieces(markdown_text):
-                chunks.append({"type": "markdown_text", "text": piece})
-        if not chunks:
-            return
-        try:
-            self._get_client().chat_appendStream(
-                channel=self.context.channel,
-                ts=ts,
-                chunks=chunks,
-            )
-        except Exception as e:
-            logger.warning("slack_app_status_stream_append_failed", error=str(e))
+        plan_title: str | None = None,
+    ) -> bool:
+        """Append plan-block step transitions and/or markdown_text chunks. Returns whether the stream is still open."""
+        chunks = _status_chunks(task_updates, markdown_text)
+        if plan_title:
+            chunks.insert(0, _plan_update_chunk(plan_title))
+        self._append_chunks(ts, chunks, "slack_app_status_stream_append_failed")
+        return not self.stream_ended
+
+    def append_status_blocks(self, ts: str, blocks: list[dict[str, Any]]) -> bool:
+        """Append Block Kit blocks, such as chart cards, to an open stream. Returns whether Slack took them."""
+        if not blocks:
+            return True
+        return self._append_chunks(
+            ts, [{"type": "blocks", "blocks": blocks}], "slack_app_status_stream_blocks_append_failed"
+        )
 
     def stop_status_stream(
         self,
         ts: str,
         complete_task_id: str | None = None,
         complete_task_title: str | None = None,
-        complete_task_details: str | None = None,
         final_markdown: str | None = None,
+        plan_title: str | None = None,
+        append_attachments: Callable[[], None] | None = None,
+        mention_sent: bool = False,
     ) -> None:
-        """Final flush: mark the last plan-block step complete, stream the final
-        answer as markdown_text chunks (this is what STAYS in the message body),
-        append a trailing @-mention for one notification, then chat.stopStream.
+        """Final flush: mark the last plan-block step complete, stream the answer, then chat.stopStream.
 
-        The provenance footer closes the message. It arrives as a `blocks` chunk
-        because a `context` block is the only way to get muted text, and it goes
-        after the mention so the ping stays adjacent to the prose it answers."""
-        final_chunks: list[dict[str, Any]] = []
+        The answer starts with the @-mention, so the one notification lands with it. With no
+        answer to stream here, the mention closes the message instead, unless ``mention_sent``
+        says the answer already carried it. ``append_attachments`` runs after the answer, so
+        chart cards sit under the text that describes them. The provenance footer is a `blocks`
+        chunk because a `context` block is the only way to get muted text.
+
+        When Slack already closed the stream, the answer goes out as a plain thread reply,
+        and nothing else is sent to the closed stream."""
+        answer_chunks: list[dict[str, Any]] = []
+        if plan_title:
+            answer_chunks.append(_plan_update_chunk(plan_title))
         if complete_task_id and complete_task_title:
-            final_chunks.append(
-                _task_update_chunk(complete_task_id, complete_task_title, "complete", complete_task_details)
-            )
+            answer_chunks.append(_task_update_chunk(complete_task_id, complete_task_title, "complete", None))
         if final_markdown:
-            for piece in _markdown_text_pieces(final_markdown):
-                final_chunks.append({"type": "markdown_text", "text": piece})
-        recipient = self.context.mentioning_slack_user_id
-        if recipient and not (final_markdown and mentions_slack_user(final_markdown, recipient)):
+            for piece in _markdown_text_pieces(self._with_leading_mention(final_markdown)):
+                answer_chunks.append({"type": "markdown_text", "text": piece})
+        self._append_chunks(ts, answer_chunks, "slack_app_status_stream_final_append_failed")
+        if self.stream_ended:
+            if final_markdown:
+                self._post_answer_outside_stream(final_markdown)
+            return
+        if append_attachments is not None:
+            try:
+                append_attachments()
+            except Exception as e:
+                logger.warning("slack_app_status_stream_attachments_failed", error=str(e))
+
+        final_chunks: list[dict[str, Any]] = []
+        recipient = self.actor_slack_user_id
+        if recipient and not final_markdown and not mention_sent:
             # Newlines keep the mention off the tail of the last streamed prose chunk.
             final_chunks.append({"type": "markdown_text", "text": f"\n\n<@{recipient}>"})
         footer = self._footer_block()
         if footer:
             final_chunks.append({"type": "blocks", "blocks": [footer]})
-        if final_chunks:
-            try:
-                self._get_client().chat_appendStream(
-                    channel=self.context.channel,
-                    ts=ts,
-                    chunks=final_chunks,
-                )
-            except Exception as e:
-                logger.warning("slack_app_status_stream_final_append_failed", error=str(e))
+        self._append_chunks(ts, final_chunks, "slack_app_status_stream_final_append_failed")
         if footer:
             self._append_trailing_blocks(ts)
+        self._stop_stream(ts)
+
+    def _stop_stream(self, ts: str) -> None:
+        if self.stream_ended:
+            return
         try:
             self._get_client().chat_stopStream(
                 channel=self.context.channel,
@@ -492,6 +523,44 @@ class SlackThreadHandler:
             )
         except Exception as e:
             logger.warning("slack_app_status_stream_stop_failed", error=str(e))
+
+    def _post_answer_outside_stream(self, final_markdown: str) -> None:
+        pieces = _markdown_text_pieces(self._with_leading_mention(final_markdown))
+        for index, piece in enumerate(pieces):
+            self.post_thread_message(piece, with_footer=index == len(pieces) - 1, markdown=True)
+
+    def _with_leading_mention(self, markdown: str) -> str:
+        return leading_mention_prefix(markdown, self.actor_slack_user_id) + markdown
+
+    def attach_files(self, ts: str, file_ids: list[str]) -> bool:
+        """Attach uploaded files to a message whose stream has closed, keeping its blocks and text.
+
+        A streaming message cannot hold a file, and chat.update is the only way to add one later."""
+        try:
+            self._get_client().chat_update(channel=self.context.channel, ts=ts, file_ids=file_ids)
+        except Exception as e:
+            logger.warning("slack_app_status_stream_attach_files_failed", error=str(e))
+            return False
+        return True
+
+    def _append_chunks(self, ts: str, chunks: list[dict[str, Any]], failure_event: str) -> bool:
+        if not chunks:
+            return True
+        if self.stream_ended:
+            return False
+        try:
+            self._get_client().chat_appendStream(channel=self.context.channel, ts=ts, chunks=chunks)
+        except SlackApiError as e:
+            if e.response.get("error") == _STREAM_ENDED_ERROR_CODE:
+                self.stream_ended = True
+                logger.info("slack_app_status_stream_ended_by_slack", channel=self.context.channel)
+            else:
+                logger.warning(failure_event, error=str(e))
+            return False
+        except Exception as e:
+            logger.warning(failure_event, error=str(e))
+            return False
+        return True
 
     def post_or_update_progress(self, stage: str, task_url: str | None = None) -> None:
         """Post a new progress message or update the existing one.

@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MetaAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
+    ENTITY_PAGE_REFUSED_ERROR_MESSAGE,
     META_ADS_API_VERSION_V25,
     META_ADS_API_VERSION_V26,
     META_AUTH_ERROR_MESSAGE,
@@ -194,6 +195,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             # for volume. Only waiting helps, and the sync already retries via Temporal, so this
             # shouldn't page us as a bug either.
             META_RATE_LIMIT_ERROR_MESSAGE,
+            ENTITY_PAGE_REFUSED_ERROR_MESSAGE,
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -208,6 +210,10 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             META_RATE_LIMIT_ERROR_MESSAGE: (
                 "Meta is rate limiting requests for this connection, so this sync run did not finish. "
                 "The next sync runs on schedule."
+            ),
+            ENTITY_PAGE_REFUSED_ERROR_MESSAGE: (
+                "Meta was too busy to return this table's data, so this sync run did not finish. "
+                "This usually clears on its own and the next sync runs on schedule."
             ),
         }
 

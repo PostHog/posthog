@@ -178,6 +178,7 @@ export type SideEffectKind =
     | 'command_dispatched'
     | 'agent_activity'
     | 'budget_steer'
+    | 'process_killed'
 
 // ---------------------------------------------------------------------------
 // TaskRunRedisStream method interface

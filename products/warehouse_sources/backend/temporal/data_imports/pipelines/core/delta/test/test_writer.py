@@ -26,7 +26,16 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     DeltaLiteHandleCache,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import ensure_table_properties
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
+    GovernorConfig,
+    MemoryGovernor,
+    reset_governor_for_tests,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    DELTA_TABLE_PROPERTIES,
+    ensure_table_properties,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.rss_sampler import RssPeakSampler
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     decimal_array,
@@ -692,7 +701,9 @@ class TestSchemaEvolutionNullability:
         status_field = next(f for f in result.schema().fields if f.name == "status")
         assert status_field.nullable is True
 
-        assert await DeltaMaintenance(helper).compact_if_fragmented(partition_count=None, threshold=0) is True
+        table = await helper.get_delta_table()
+        assert table is not None
+        assert await DeltaMaintenance(helper)._compact(table) is True
 
         final = result.to_pyarrow_table()
         by_id = dict(zip(final.column("id").to_pylist(), final.column("status").to_pylist()))
@@ -874,9 +885,9 @@ class TestCreateRaceWithExistingTable:
         real_get_delta_table = helper.get_delta_table
         calls = {"n": 0}
 
-        async def flaky_first_check():
+        async def flaky_first_check(**kwargs: Any):
             calls["n"] += 1
-            return None if calls["n"] == 1 else await real_get_delta_table()
+            return None if calls["n"] == 1 else await real_get_delta_table(**kwargs)
 
         batch = pa.table({"id": [2, 3]})
 
@@ -1119,6 +1130,7 @@ class TestDeltaliteWritePath:
         logger = make_logger()  # captured so we can inspect the structured log without hitting the typed attr
         helper = DeltaTableRef(resource_name="t", job=MagicMock(team_id=2, schema_id="sch-1"), logger=logger)
         existing = MagicMock()
+        existing.version.return_value = 4
         # SimpleNamespace stands in for the pyo3 UpsertStats: predictable scalar getters for the structured log.
         fake_stats = SimpleNamespace(
             version=5, partitions_touched=1, rows_inserted=3, rows_updated=2, rows_copied=10, null_pk_rows=0
@@ -1144,7 +1156,10 @@ class TestDeltaliteWritePath:
         fake_table.upsert.assert_called_once()
         # PARTITION_KEY is passed as the partition arg when the table is partitioned.
         assert fake_table.upsert.call_args.args[2] == PARTITION_KEY
-        existing.update_incremental.assert_called_once()
+        # The delta-rs handle is not refreshed on the write path (a log listing per batch); the ref
+        # knows the version deltalite reached and catches the handle up on its next read.
+        existing.update_incremental.assert_not_called()
+        assert helper.latest_known_version(existing) == 5
         # The commit is logged with the UpsertStats fields as structured keys + a duration, so it's parseable.
         logger.ainfo.assert_called_once()
         log_kwargs = logger.ainfo.call_args.kwargs
@@ -1152,6 +1167,65 @@ class TestDeltaliteWritePath:
         assert log_kwargs["rows_inserted"] == 3
         assert log_kwargs["partitions_touched"] == 1
         assert "duration_ms" in log_kwargs
+
+    @pytest.mark.asyncio
+    async def test_sizes_the_upsert_by_the_files_it_rewrites(self, tmp_path: Path):
+        existing_data = pa.table(
+            {"id": pa.array([1, 2, 101], pa.int64()), PARTITION_KEY: ["a", "a", "b"], "v": ["x", "y", "z"]}
+        )
+        deltalake.write_deltalake(str(tmp_path), existing_data, partition_by=PARTITION_KEY)
+        existing = deltalake.DeltaTable(str(tmp_path))
+        partition_a_bytes = next(
+            size
+            for path, size in existing._table.get_add_file_sizes().items()
+            if path.startswith(f"{PARTITION_KEY}=a/")
+        )
+        logger = make_logger()
+        helper = DeltaTableRef(resource_name="t", job=MagicMock(team_id=2, schema_id="sch-1"), logger=logger)
+        fake_table = MagicMock()
+        fake_table.upsert.return_value = SimpleNamespace(version=2, rows_inserted=0, rows_updated=1, rows_copied=1)
+        fake_deltalite = MagicMock()
+        fake_deltalite.DeltaLiteTable.open.return_value = fake_table
+        pod = MagicMock()
+        pod.limit_mb.return_value = 30_000.0
+        pod.current_mb.return_value = 1_000.0
+        governor = MemoryGovernor(
+            GovernorConfig(mode="enforce", safety=1.0, reserve_mb=0.0, max_concurrent=15),
+            pod,
+            rss_sampler=RssPeakSampler(3600.0, read_rss_mb=iter([500.0, 650.0]).__next__),
+        )
+        reset_governor_for_tests(governor)
+        try:
+            with (
+                patch.dict("sys.modules", {"deltalite": fake_deltalite}),
+                patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
+                patch.object(helper, "_get_credentials", return_value={}),
+                # A fresh open keeps the fake deltalite handle out of the process-wide handle cache.
+                patch(f"{DeltaWriter.__module__}._delta_table_identity", return_value=None),
+            ):
+                wrote = await DeltaWriter(helper)._write_via_deltalite(
+                    existing_delta_table=existing,
+                    data=pa.table({"id": pa.array([2], pa.int64()), PARTITION_KEY: ["a"], "v": ["w"]}),
+                    normalized_primary_keys=["id"],
+                    use_partitioning=True,
+                    commit_metadata=None,
+                )
+        finally:
+            reset_governor_for_tests(None)
+        assert wrote is True
+        log_kwargs = logger.ainfo.call_args.kwargs
+        assert (log_kwargs["governor_rewrite_files"], log_kwargs["governor_columns"]) == (1, 3)
+        assert log_kwargs["governor_rewrite_total_mb"] == round(partition_a_bytes / (1024 * 1024), 1)
+        assert log_kwargs["governor_max_row_group_mb"] == round(partition_a_bytes / (1024 * 1024), 1)
+        assert log_kwargs["governor_reader_mb"] is not None and log_kwargs["governor_writer_mb"] is not None
+        assert log_kwargs["governor_reserved_slots"] is not None and log_kwargs["governor_wait_ms"] == 0
+        # The measured peak sits next to the prediction, with the concurrency to filter solo runs.
+        assert (log_kwargs["governor_peak_rss_mb"], log_kwargs["governor_rss_delta_mb"]) == (650.0, 150.0)
+        assert log_kwargs["governor_concurrent_upserts"] == log_kwargs["governor_max_concurrent_upserts"] == 1
+        assert "governor_observed_delta_mb" not in log_kwargs
+        upsert_kwargs = fake_table.upsert.call_args.kwargs
+        assert (upsert_kwargs["max_parallel_partitions"], upsert_kwargs["max_parallel_files"]) == (1, 8)
+        assert upsert_kwargs["max_fetch_bytes"] == 128 * 1024 * 1024
 
     @pytest.mark.asyncio
     async def test_falls_back_when_deltalite_raises(self):
@@ -1168,27 +1242,30 @@ class TestDeltaliteWritePath:
             wrote = await self._call(helper)
         assert wrote is False  # deltalite blew up -> caller falls through to the delta-rs MERGE
 
-    @parameterized.expand([("refresh",), ("log",)])
+    @parameterized.expand([("log",), ("metric",)])
     @pytest.mark.asyncio
     async def test_post_commit_failure_does_not_fall_back(self, failing_step: str):
-        # Once the upsert commits, NO post-commit step (handle refresh, log, metric) may raise into the
-        # caller — that would return False / bubble up and re-run the MERGE on top of deltalite's commit.
+        # Once the upsert commits, NO post-commit step (log, metric) may raise into the caller — that
+        # would return False / bubble up and re-run the MERGE on top of deltalite's commit.
         logger = make_logger()  # set the side effect on the mock before it becomes the typed _logger attr
         existing = MagicMock()
-        if failing_step == "refresh":
-            existing.update_incremental.side_effect = RuntimeError("post-commit refresh boom")
-        else:
+        existing.version.return_value = 4
+        if failing_step == "log":
             logger.ainfo.side_effect = RuntimeError("post-commit log boom")
         helper = DeltaTableRef(resource_name="t", job=MagicMock(team_id=2, schema_id="sch-1"), logger=logger)
         fake_table = MagicMock()
         fake_table.upsert.return_value = MagicMock(version=5, rows_inserted=1, rows_updated=0, rows_copied=0)
         fake_deltalite = MagicMock()
         fake_deltalite.DeltaLiteTable.open.return_value = fake_table
+        metrics_module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics"
         with (
             patch.dict("sys.modules", {"deltalite": fake_deltalite}),
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
             patch.object(helper, "_get_credentials", return_value={}),
+            patch(f"{metrics_module}.DELTALITE_WRITE_TOTAL") as write_total,
         ):
+            if failing_step == "metric":
+                write_total.labels.side_effect = RuntimeError("post-commit metric boom")
             wrote = await DeltaWriter(helper)._write_via_deltalite(
                 existing_delta_table=existing,
                 data=pa.table({"id": pa.array([1], pa.int64())}),
@@ -1198,6 +1275,47 @@ class TestDeltaliteWritePath:
             )
         assert wrote is True  # committed; the post-commit failure is swallowed
         fake_table.upsert.assert_called_once()
+        # The commit is recorded on the ref before any best-effort step, so a failure there cannot
+        # leave a later reader on the pre-commit snapshot.
+        assert helper.latest_known_version(existing) == 5
+
+
+class TestWriteAfterDeltaliteCommit:
+    """`write` hands back the delta-rs handle without refreshing it after deltalite commits; the ref
+    catches the handle up once, on the first read that asks for the current snapshot."""
+
+    @pytest.mark.asyncio
+    async def test_write_skips_the_refresh_and_the_next_read_pays_it_once(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        # Created with the table properties already set, so the write's tail makes no commit of its own.
+        deltalake.write_deltalake(
+            delta_path, pa.table({"id": pa.array([1, 2], pa.int64())}), configuration=DELTA_TABLE_PROPERTIES
+        )
+        helper = make_local_table_ref(delta_path)
+
+        async def _commit_via_deltalite(**kwargs: Any) -> bool:
+            helper.note_deltalite_commit(kwargs["existing_delta_table"].version() + 1)
+            return True
+
+        with (
+            patch.object(DeltaWriter, "_write_via_deltalite", AsyncMock(side_effect=_commit_via_deltalite)),
+            patch.object(deltalake.DeltaTable, "update_incremental") as refresh,
+        ):
+            returned = await DeltaWriter(helper).write(
+                data=pa.table({"id": pa.array([2, 3], pa.int64())}),
+                write_type="incremental",
+                should_overwrite_table=False,
+                primary_keys=["id"],
+            )
+            # The write path reads only what the commit cannot change, so it pays no log listing.
+            refresh.assert_not_called()
+            assert helper.latest_known_version(returned) == returned.version() + 1
+
+            # Post-load reads (file list, maintenance) go through the ref and get the current snapshot.
+            assert await helper.get_delta_table() is returned
+            refresh.assert_called_once()
+            await helper.get_delta_table()
+            refresh.assert_called_once()
 
 
 class TestRealignDecimalBuffers:
@@ -1409,6 +1527,32 @@ class TestDeltaliteHandleReuseInWriter:
             assert await self._write(helper, self._existing("tid", 3)) is True
             assert await self._write(helper, self._existing("tid", 4)) is True
 
+        fake_deltalite.DeltaLiteTable.open.assert_called_once_with("s3://b/t", {})
+        assert fake_table.upsert.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_a_delta_rs_handle_left_behind_by_deltalite_still_reuses_the_cached_handle(self) -> None:
+        # The delta-rs handle is no longer refreshed after a deltalite commit, so on the next batch it
+        # still reports the version before that commit. The cached deltalite handle is ahead of it
+        # for a good reason; without the noted commit the cache would judge it ahead of the live log
+        # and pay a full snapshot load on every batch.
+        helper = DeltaTableRef(resource_name="t", job=MagicMock(team_id=2, schema_id="sch-1"), logger=make_logger())
+        fake_table = _fake_handle(4)
+        fake_table.upsert.return_value = SimpleNamespace(version=4)
+        fake_deltalite = MagicMock()
+        fake_deltalite.DeltaLiteTable.open.return_value = fake_table
+        cache = DeltaLiteHandleCache(maxsize=4)
+        existing = self._existing("tid", 3)
+        with (
+            patch.dict("sys.modules", {"deltalite": fake_deltalite}),
+            patch(f"{self._HANDLES}.get_handle_cache", return_value=cache),
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
+            patch.object(helper, "_get_credentials", return_value={}),
+        ):
+            assert await self._write(helper, existing) is True
+            assert await self._write(helper, existing) is True
+
+        existing.update_incremental.assert_not_called()
         fake_deltalite.DeltaLiteTable.open.assert_called_once_with("s3://b/t", {})
         assert fake_table.upsert.call_count == 2
 

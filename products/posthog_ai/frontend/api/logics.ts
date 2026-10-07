@@ -88,4 +88,6 @@ export type { RunnerPanelLogicProps, ActiveCreation } from '../logics/runnerPane
 // A one-shot store that lets a host seed a not-yet-mounted composer with an initial prompt (optionally
 // auto-submitting it); the paired `taskTrackerSceneLogic` consumes it on mount or when it arrives.
 export { composerSeedLogic } from '../logics/composerSeedLogic'
+export { composerAttachmentsLogic } from '../logics/composerAttachmentsLogic'
+export { ATTACHMENT_MAX_SIZE_BYTES } from '../utils/attachments'
 export type { ComposerSeed, ComposerSeedLogicProps } from '../logics/composerSeedLogic'

@@ -16,7 +16,7 @@ from ..logic.accounts import email_for_user
 from ..logic.decisions import deciding_rule
 from ..logic.snapshot import current_snapshot
 from ..logic.subjects import normalize_subject
-from ..metrics import DECISION_ERRORS_COUNTER, WOULD_BLOCK_COUNTER
+from ..metrics import DECISION_ERRORS_COUNTER, DECISIONS_COUNTER, WOULD_BLOCK_COUNTER
 from . import contracts
 from .enums import Outcome, Surface
 
@@ -45,10 +45,19 @@ def decide(subject: contracts.SubjectInput, surface: Surface) -> contracts.Decis
     )
 
 
+def _counted(decision: contracts.Decision, call_site: str) -> contracts.Decision:
+    """Records that a call site reached a decision, before anything branches on its outcome."""
+    DECISIONS_COUNTER.labels(surface=decision.surface.value, call_site=call_site, outcome=decision.outcome.value).inc()
+    return decision
+
+
 def is_email_code_exempt(email: str) -> bool:
     """Whether a rule lets this address skip the emailed login code. Any failure keeps the code."""
     try:
-        return decide(contracts.SubjectInput(email=email), Surface.EMAIL_CODE).outcome == Outcome.EXEMPT
+        return (
+            _counted(decide(contracts.SubjectInput(email=email), Surface.EMAIL_CODE), "email_code").outcome
+            == Outcome.EXEMPT
+        )
     except Exception:
         logger.exception("security_email_code_exemption_check_failed")
         DECISION_ERRORS_COUNTER.labels(call_site="email_code").inc()
@@ -58,7 +67,10 @@ def is_email_code_exempt(email: str) -> bool:
 def is_signup_risk_exempt(email: str) -> bool:
     """Whether a rule lets this address skip the Radar verdict. Any failure keeps the verdict."""
     try:
-        return decide(contracts.SubjectInput(email=email), Surface.SIGNUP_RISK).outcome == Outcome.EXEMPT
+        return (
+            _counted(decide(contracts.SubjectInput(email=email), Surface.SIGNUP_RISK), "signup_risk").outcome
+            == Outcome.EXEMPT
+        )
     except Exception:
         logger.exception("security_signup_risk_exemption_check_failed")
         DECISION_ERRORS_COUNTER.labels(call_site="signup_risk").inc()
@@ -68,7 +80,7 @@ def is_signup_risk_exempt(email: str) -> bool:
 def shadow_check(subject: contracts.SubjectInput, surface: Surface, *, call_site: str) -> None:
     """Records what a block rule would do here, and changes nothing. Never raises."""
     try:
-        decision = decide(subject, surface)
+        decision = _counted(decide(subject, surface), call_site)
         if decision.outcome != Outcome.BLOCK:
             return
         WOULD_BLOCK_COUNTER.labels(

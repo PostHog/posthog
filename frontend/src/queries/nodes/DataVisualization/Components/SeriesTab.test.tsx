@@ -4,7 +4,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -18,7 +18,7 @@ describe('SeriesTab', () => {
         initKeaTests()
 
         const setQuery = jest.fn()
-        const query: DataVisualizationNode = {
+        const query: VisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
             source: {
                 kind: NodeKind.HogQLQuery,
@@ -112,7 +112,7 @@ describe('SeriesTab', () => {
         initKeaTests()
 
         const setQuery = jest.fn()
-        const query: DataVisualizationNode = {
+        const query: VisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
             source: {
                 kind: NodeKind.HogQLQuery,

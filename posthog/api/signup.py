@@ -774,7 +774,9 @@ class SocialSignupSerializer(serializers.Serializer):
 
     organization_name: serializers.Field = serializers.CharField(max_length=64)
     first_name: serializers.Field = serializers.CharField(max_length=128)
-    role_at_organization: serializers.Field = serializers.CharField(max_length=123, required=False, default="")
+    role_at_organization: serializers.Field = serializers.CharField(
+        max_length=123, required=False, allow_blank=True, default=""
+    )
     referral_source: serializers.Field = serializers.CharField(
         max_length=1000, required=False, allow_blank=True, default=""
     )
@@ -866,7 +868,7 @@ def lookup_invite_for_saml(email: str, saml_relay_state: str) -> Optional[Organi
     if config is None:
         return None
     return (
-        OrganizationInvite.objects.filter(target_email=email, organization_id=config.organization_id)
+        OrganizationInvite.objects.filter(target_email__iexact=email, organization_id=config.organization_id)
         .order_by("-created_at")
         .first()
     )
@@ -944,7 +946,7 @@ def process_social_domain_jit_provisioning_signup(
             if not user:
                 try:
                     invite: OrganizationInvite = OrganizationInvite.objects.get(
-                        target_email=email, organization=domain_instance.organization
+                        target_email__iexact=email, organization=domain_instance.organization
                     )
                     invite.validate(user=None, email=email)
                     # Capture before invite.use() deletes the invite row.

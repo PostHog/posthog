@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { Query } from '~/queries/Query/Query'
 import { InsightModel } from '~/types'
 
-import { InsightIcon } from './SavedInsights'
+import { InsightIcon } from './InsightIcon'
 
 interface InsightRowProps {
     insight: InsightModel

@@ -23,10 +23,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, UserType } from '~/types'
 
 import {
     cleanDomains,
@@ -34,9 +36,9 @@ import {
 } from 'products/customer_analytics/frontend/components/Accounts/accountEmailMatching'
 import {
     AccountExpansionTab,
-    DEFAULT_ACCOUNT_TAB,
     getVisibleAccountExpansionTab,
 } from 'products/customer_analytics/frontend/components/Accounts/accountsExpansionLogic'
+import { getAccountsBackUrl } from 'products/customer_analytics/frontend/components/Accounts/accountsViewSessionLogic'
 import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
 import {
     accountsByExternalIdRetrieve,
@@ -98,6 +100,17 @@ function accountDetailUrl(props: CustomerAnalyticsAccountSceneLogicProps, tab?: 
         : urls.customerAnalyticsAccount(props.accountId ?? '', tab)
 }
 
+function parseAccountTabRoute(tab: string | undefined): string | undefined {
+    if (!tab) {
+        return undefined
+    }
+    try {
+        return decodeURIComponent(tab)
+    } catch {
+        return tab
+    }
+}
+
 function isAccountNotFound(error: unknown): boolean {
     return error instanceof ApiError && error.status === 404
 }
@@ -106,6 +119,8 @@ function isAccountNotFound(error: unknown): boolean {
 export interface customerAnalyticsAccountSceneLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
+    currentTeamId: number | null // teamLogic
+    user: UserType | null // userLogic
     account: AccountApi | null
     accountEditorOpen: boolean
     accountEditorOpenedValues: AccountEditFormValues
@@ -191,8 +206,8 @@ export interface customerAnalyticsAccountSceneLogicActions {
     setAccountFormValues: (values: DeepPartial<AccountEditFormValues>) => {
         values: DeepPartial<AccountEditFormValues>
     }
-    setActiveTab: (tab: AccountExpansionTab) => {
-        tab: AccountExpansionTab
+    setActiveTab: (tab: string) => {
+        tab: string
     }
     startAccountPresencePolling: (accountId: string) => {
         accountId: string
@@ -235,7 +250,12 @@ export interface customerAnalyticsAccountSceneLogicMeta {
             accountLoadError: unknown,
             arg: boolean
         ) => boolean
-        breadcrumbs: (account: AccountApi | null) => Breadcrumb[]
+        breadcrumbs: (
+            account: AccountApi | null,
+            user: UserType | null,
+            currentTeamId: number | null,
+            arg: any
+        ) => Breadcrumb[]
     }
 }
 
@@ -262,7 +282,14 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             `${props.projectId ?? 'unknown'}:${props.externalId ? 'external' : 'id'}:${props.externalId ?? props.accountId ?? 'invalid'}`
     ),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags', 'receivedFeatureFlags']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags', 'receivedFeatureFlags'],
+            teamLogic,
+            ['currentTeamId'],
+            userLogic,
+            ['user'],
+        ],
         actions: [featureFlagLogic, ['setFeatureFlags']],
     })),
     actions({
@@ -273,8 +300,8 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         loadAccountPresenceSuccess: (viewers: AccountPresenceViewerApi[]) => ({ viewers }),
         startAccountPresencePolling: (accountId: string) => ({ accountId }),
         loadAccountPresenceFailure: (error: unknown) => ({ error }),
-        setActiveTab: (tab: AccountExpansionTab) => ({ tab }),
-        restoreActiveTab: (tab: string | undefined) => ({ tab: tab ?? DEFAULT_ACCOUNT_TAB }),
+        setActiveTab: (tab: string) => ({ tab }),
+        restoreActiveTab: (tab: string | undefined) => ({ tab: tab ?? '' }),
         updateTags: (tags: string[]) => ({ tags }),
         updateTagsDone: (account: AccountApi | null) => ({ account }),
         openAccountEditor: true,
@@ -375,7 +402,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             },
         ],
         requestedTab: [
-            DEFAULT_ACCOUNT_TAB as string,
+            '',
             {
                 setActiveTab: (_, { tab }) => tab,
                 restoreActiveTab: (_, { tab }) => tab,
@@ -411,12 +438,17 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             ): boolean => invalidRoute || (!account && !accountLoading && isAccountNotFound(accountLoadError)),
         ],
         breadcrumbs: [
-            (s) => [s.account],
-            (account: AccountApi | null): Breadcrumb[] => [
+            (s) => [s.account, s.user, s.currentTeamId, (_, props) => props.projectId],
+            (
+                account: AccountApi | null,
+                user: UserType | null,
+                currentTeamId: number | null,
+                projectId: number | undefined
+            ): Breadcrumb[] => [
                 {
                     key: Scene.CustomerAnalytics,
                     name: 'Accounts',
-                    path: urls.customerAnalyticsAccounts(),
+                    path: getAccountsBackUrl(currentTeamId === projectId ? currentTeamId : null, user?.uuid ?? null),
                     iconType: 'cohort',
                 },
                 {
@@ -565,7 +597,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
     })),
     actionToUrl(({ props }) => ({
         setActiveTab: ({ tab }) => [
-            accountDetailUrl(props, tab === DEFAULT_ACCOUNT_TAB ? undefined : tab),
+            accountDetailUrl(props, tab),
             router.values.currentLocation.searchParams,
             router.values.currentLocation.hashParams,
         ],
@@ -580,10 +612,10 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         }
         return {
             [`${accountDetailUrl(props)}/:tab`]: ({ tab }) => {
-                actions.restoreActiveTab(tab)
+                actions.restoreActiveTab(parseAccountTabRoute(tab))
             },
             [accountDetailUrl(props)]: () => {
-                actions.restoreActiveTab(DEFAULT_ACCOUNT_TAB)
+                actions.restoreActiveTab(undefined)
             },
         }
     }),

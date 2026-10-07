@@ -647,7 +647,7 @@ mod tests {
 
     fn message(partition: i32, offset: i64, key: Option<&str>) -> SerializedKafkaMessage {
         SerializedKafkaMessage {
-            topic: "test".to_string(),
+            topic: "test".into(),
             partition,
             offset,
             timestamp: 0,
