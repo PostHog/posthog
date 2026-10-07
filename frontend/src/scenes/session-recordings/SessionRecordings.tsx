@@ -230,7 +230,7 @@ const ReplayPageTabs: ReplayTab[] = [
 const WhatToWatchTab: ReplayTab = {
     label: 'What to watch',
     key: ReplayTabs.WhatToWatch,
-    tooltip: 'Recordings the scanners picked out for you',
+    tooltip: 'Recordings that Replay vision scanners picked out for you',
     'data-attr': 'session-recordings-what-to-watch-tab',
 }
 

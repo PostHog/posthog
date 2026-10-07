@@ -3,6 +3,7 @@ import { useActions } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { cn } from 'lib/utils/css-classes'
 
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import type { WatchFeedItemApi } from '../../generated/api.schemas'
@@ -44,10 +45,13 @@ export function WatchPickRow({ item, position, surface, isActive, rank }: WatchP
             className="min-w-0"
             data-attr="vision-watch-pick"
         >
-            <span className="flex w-full min-w-0 items-center gap-3 py-1">
-                <span className="relative w-32 shrink-0">
+            <span className={cn('flex w-full min-w-0 items-center gap-3 py-1', observation.viewed && 'opacity-60')}>
+                <span className="relative w-28 shrink-0">
                     <ObservationThumbnail observation={observation} className="w-full" />
-                    {rank !== undefined && <WatchPickRankBadge rank={rank} />}
+                    {rank !== undefined && <WatchPickRankBadge rank={rank} size="small" />}
+                    {!observation.viewed && (
+                        <span className="absolute inset-y-0 left-0 w-1 rounded-l bg-accent" aria-hidden />
+                    )}
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="truncate text-sm font-semibold">{title}</span>

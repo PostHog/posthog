@@ -8,6 +8,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import { ScannerTypeBadge, scannerTypeIcon } from '../../components/ScannerTypeBadge'
+import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type { WatchFeedItemApi } from '../../generated/api.schemas'
 import { SCANNER_TYPE_TAG_TYPE } from '../types'
 import { type WatchPickSurface, watchPicksLogic } from '../watchPicksLogic'
@@ -34,46 +35,54 @@ export function WatchPickRankedCard({ item, position, surface, rank }: WatchPick
 
     return (
         <div className="group relative flex flex-col gap-1.5" data-attr="vision-watch-ranked-card">
-            <div className="relative overflow-hidden rounded">
+            <div className={cn('relative overflow-hidden rounded', observation.viewed && 'opacity-60')}>
                 <LemonButton noPadding fullWidth onClick={play} data-attr="vision-watch-ranked-poster">
                     <ObservationThumbnail observation={observation} className="w-full rounded-none border-0">
                         <span className="sr-only">{title}</span>
                     </ObservationThumbnail>
                 </LemonButton>
                 {rank !== undefined && <WatchPickRankBadge rank={rank} />}
+                {!observation.viewed && (
+                    <UnviewedObservationTag className="pointer-events-none absolute right-2 top-2 z-10" />
+                )}
                 {signalsCount > 0 && (
                     <span className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/80 px-1.5 text-xxs font-semibold text-white">
                         {signalsCount} {signalsCount === 1 ? 'signal' : 'signals'}
                     </span>
                 )}
             </div>
-            <div
+            <LemonButton
+                noPadding
+                fullWidth
+                onClick={play}
                 className={cn(
                     'pointer-events-none absolute inset-x-0 top-0 z-20 origin-top scale-95 opacity-0',
                     'overflow-hidden rounded border bg-bg-light shadow-lg transition motion-reduce:transition-none',
                     'group-hover:pointer-events-auto group-hover:scale-105 group-hover:opacity-100',
                     'group-focus-within:pointer-events-auto group-focus-within:scale-105 group-focus-within:opacity-100'
                 )}
+                data-attr="vision-watch-ranked-preview"
             >
-                <ObservationThumbnail observation={observation} className="w-full rounded-none border-0" />
-                <div className="flex flex-col gap-1.5 p-3">
-                    <div className="flex items-center gap-2">
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            icon={<IconPlayFilled />}
-                            onClick={play}
-                            data-attr="vision-watch-ranked-play"
-                        >
+                <span className="flex w-full flex-col text-left">
+                    <ObservationThumbnail observation={observation} className="w-full rounded-none border-0" />
+                    <span className="flex flex-col gap-1.5 p-3">
+                        <span className="line-clamp-2 text-sm font-semibold leading-tight">{title}</span>
+                        <span className="flex min-w-0 items-center gap-1.5 text-xs font-normal text-secondary">
+                            {scannerType && <ScannerTypeBadge scannerType={scannerType} size="small" />}
+                            <span className="truncate">{scannerName}</span>
+                            <span>·</span>
+                            <TZLabel time={observation.created_at} />
+                        </span>
+                        <span className="line-clamp-3 text-xs font-normal leading-snug text-secondary">
+                            {watchReasonCopy(reason)}
+                        </span>
+                        <span className="mt-1 flex items-center gap-1 text-xs font-semibold text-accent">
+                            <IconPlayFilled />
                             Watch now
-                        </LemonButton>
-                        {scannerType && <ScannerTypeBadge scannerType={scannerType} size="small" />}
-                    </div>
-                    <span className="text-sm font-semibold leading-tight">{title}</span>
-                    <span className="truncate text-xs text-secondary">{scannerName}</span>
-                    <span className="text-xs text-secondary">{watchReasonCopy(reason)}</span>
-                </div>
-            </div>
+                        </span>
+                    </span>
+                </span>
+            </LemonButton>
             <div className="flex gap-2">
                 {scannerType && (
                     <LemonTag

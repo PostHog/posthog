@@ -11,6 +11,7 @@ import { watchPicksVariantFromFlag } from './watchPicksVariant'
 
 describe('watchPicksLogic', () => {
     let feedSpy: jest.Mock
+    let viewedSpy: jest.Mock
     const playlistLogicProps = { logicKey: 'test-picks' }
 
     const item = (id: string, sessionId: string, keyMomentMs?: number): Record<string, any> => ({
@@ -19,6 +20,7 @@ describe('watchPicksLogic', () => {
             scanner_id: 'scanner-a',
             session_id: sessionId,
             status: 'succeeded',
+            viewed: false,
             scanner_result: keyMomentMs === undefined ? null : { model_output: { key_moment_ms: keyMomentMs } },
         },
         reason: { kind: 'signal_emitted' },
@@ -29,7 +31,11 @@ describe('watchPicksLogic', () => {
             200,
             { results: [item('o1', 'session-a', 45000), item('o2', 'session-a'), item('o3', 'session-b')] },
         ])
-        useMocks({ get: { '/api/projects/:team/vision/scanners/watch_feed/': feedSpy } })
+        viewedSpy = jest.fn(() => [200, {}])
+        useMocks({
+            get: { '/api/projects/:team/vision/scanners/watch_feed/': feedSpy },
+            post: { '/api/projects/:team/vision/observations/:id/viewed/': viewedSpy },
+        })
         initKeaTests()
     })
 
@@ -68,7 +74,8 @@ describe('watchPicksLogic', () => {
             expect(playlistLogic.values.selectedRecordingId).toBeNull()
         })
 
-        it('selects the pick in the list and seeks the player ahead of its key moment', async () => {
+        it('selects the pick, seeks ahead of its key moment, and marks it viewed for this person', async () => {
+            expect(logic.values.unwatchedCount).toBe(3)
             await expectLogic(logic, () => {
                 logic.actions.watchPick(logic.values.picks![0], 0, 'list')
             })
@@ -76,6 +83,10 @@ describe('watchPicksLogic', () => {
                 .toFinishAllListeners()
             expect(router.values.searchParams).toMatchObject({ t: 42, sidebarTab: 'observations' })
             expect(logic.values.activeSessionId).toBe('session-a')
+            expect(logic.values.picks![0].observation.viewed).toBe(true)
+            expect(logic.values.unwatchedCount).toBe(2)
+            expect(viewedSpy).toHaveBeenCalledTimes(1)
+            expect(viewedSpy.mock.calls[0][0].request.url).toContain('/vision/observations/o1/viewed/')
         })
     })
 
