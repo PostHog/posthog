@@ -130,7 +130,9 @@ export function SearchPerformanceTable({
                                 <span className="text-xs text-secondary block truncate">
                                     {row.platform === 'GoogleSearchConsole'
                                         ? 'Organic search'
-                                        : [row.matchType, row.currency].filter(Boolean).join(' · ')}
+                                        : [SEARCH_PLATFORM_LABELS[row.platform], row.matchType, row.currency]
+                                              .filter(Boolean)
+                                              .join(' · ')}
                                 </span>
                             </div>
                         ),
