@@ -4,180 +4,122 @@
 # dependencies = ["pyyaml==6.0.3"]
 # ///
 # ruff: noqa: T201
-"""Measure a change against the stamphog size gate and deny list, before you open PRs.
+"""Measure a change, or a proposed split of it, against the stamphog size gate and deny list.
 
-Run it from the repository root:
+Run from the repository root:
 
-    uv run stamphog_budget.py                       # whole change vs origin/master
-    uv run stamphog_budget.py --base origin/main    # another base
-    uv run stamphog_budget.py --plan plan.json      # check a proposed split
+    uv run .agents/skills/ship-it-factory/scripts/stamphog_budget.py --source <ref> [--plan plan.json]
 
-plan.json maps a PR name to the files in that PR:
-
-    {"pr-1-backend": ["posthog/api/foo.py", ...], "pr-2-frontend": ["frontend/src/..."]}
-
-The change is `git diff <merge-base>` against the working tree, plus untracked files.
-When the repo carries the stamphog engine (`products/stamphog/packages/pr-approval-agent`
-or `tools/pr-approval-agent`), the script uses the engine's own gate code, so the numbers
-match the hosted review. Otherwise it reads `size_gate` from `.stamphog/policy.yml`
-(default 800 lines, 30 files), uses a copy of the engine's exempt rules, and cannot check
-deny categories or folder overrides.
-
-The last stdout line is JSON. Exit code 0 means every checked PR fits, 1 means one does not.
+The change is the diff from the merge base of `--base` and `--source` to `--source`.
+plan.json maps a PR name to its files: {"pr-1-backend": ["posthog/api/foo.py", ...], ...}.
+The numbers come from the stamphog engine in this repo, so they match the hosted review.
+The last stdout line is JSON. Exit code 0 means everything fits.
 """
 
-import re
 import sys
 import json
 import argparse
 import subprocess
 from pathlib import Path
 
-ENGINE_DIRS = ("products/stamphog/packages/pr-approval-agent", "tools/pr-approval-agent")
-DEFAULT_MAX_LINES = 800
-DEFAULT_MAX_FILES = 30
+sys.path.insert(0, str(Path("products/stamphog/packages/pr-approval-agent").resolve()))
 
-# Fallback copy of the engine's size-exempt rules (gates.py). The engine wins when present.
-_EXEMPT_EXT = {
-    ".md", ".mdx", ".txt", ".rst", ".snap", ".ambr", ".storyshot", ".svg",
-    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".lock",
-}  # fmt: skip
-_EXEMPT_PATH_RE = re.compile(
-    r"(?:^|/)docs/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
-    r"|(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
-    r"|\.gen\.(ts|tsx|js|jsx)$|\.generated\.(ts|tsx|js|jsx)$",
-    re.IGNORECASE,
-)
-_TEST_RE = re.compile(
-    r"(?:^|/)(?:__tests__|tests?|_tests?)/|(?:^|/)test_[^/]+\.py$|[_.](?:test|spec)\.[^/]+$|_test\.py$",
-    re.IGNORECASE,
-)
+import gates  # noqa: E402
+import policy  # noqa: E402
 
 
-def git(*args: str) -> str:
-    return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
+def changed_files(base: str, source: str) -> tuple[dict[str, int], dict[str, str]]:
+    """Changed lines per path, and each rename's new path to old path.
+
+    A rename counts under its new path only, like the GitHub files API the gate reads.
+    """
+    merge_base = subprocess.run(
+        ["git", "merge-base", base, source], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    fields = subprocess.run(
+        ["git", "diff", "--numstat", "-z", "-M", merge_base, source], check=True, capture_output=True, text=True
+    ).stdout.split("\0")
+    lines: dict[str, int] = {}
+    renames: dict[str, str] = {}
+    while fields and fields[0]:
+        added, deleted, path = fields.pop(0).split("\t")
+        if not path:  # -z puts a rename's old and new path in the next two fields
+            old, path = fields.pop(0), fields.pop(0)
+            renames[path] = old
+        lines[path] = 0 if added == "-" else int(added) + int(deleted)
+    return lines, renames
 
 
-def changed_files(base: str) -> list[dict]:
-    merge_base = git("merge-base", base, "HEAD").strip()
-    files: dict[str, dict] = {}
-    for line in git("diff", "--numstat", "-M", merge_base).splitlines():
-        added, deleted, path = line.split("\t", 2)
-        if " => " in path:  # rename: count it under the new path
-            path = re.sub(r"\{([^{}]*) => ([^{}]*)\}", r"\2", path)
-            path = path.split(" => ")[-1].replace("//", "/")
-        binary = added == "-"
-        files[path] = {
-            "filename": path,
-            "additions": 0 if binary else int(added),
-            "deletions": 0 if binary else int(deleted),
-            "binary": binary,
-        }
-    for path in git("ls-files", "--others", "--exclude-standard").splitlines():
-        try:
-            count = len(Path(path).read_text(errors="replace").splitlines())
-        except (OSError, UnicodeDecodeError):
-            count = 0
-        files[path] = {"filename": path, "additions": count, "deletions": 0, "binary": False}
-    return sorted(files.values(), key=lambda f: f["filename"])
-
-
-class Engine:
-    """Thin wrapper over the real stamphog gate code, or a fallback when it is absent."""
-
-    def __init__(self) -> None:
-        self.mode = "fallback"
-        engine_dir = next((Path(d) for d in ENGINE_DIRS if (Path(d) / "gates.py").exists()), None)
-        if engine_dir is not None:
-            sys.path.insert(0, str(engine_dir.resolve()))
-            import gates  # noqa: PLC0415 - only importable once the engine dir is on the path
-            import policy  # noqa: PLC0415
-
-            self.gates, self.policy, self.mode = gates, policy, f"engine ({engine_dir})"
-            return
-        self.max_lines, self.max_files = DEFAULT_MAX_LINES, DEFAULT_MAX_FILES
-        policy_file = Path(".stamphog/policy.yml")
-        if policy_file.exists():
-            import yaml  # noqa: PLC0415
-
-            gate = (yaml.safe_load(policy_file.read_text()) or {}).get("size_gate") or {}
-            self.max_lines = int(gate.get("max_lines", self.max_lines))
-            self.max_files = int(gate.get("max_files", self.max_files))
-
-    def exempt(self, path: str) -> bool:
-        if self.mode != "fallback":
-            return self.gates.is_size_exempt(path)
-        return Path(path).suffix.lower() in _EXEMPT_EXT or bool(_EXEMPT_PATH_RE.search(path) or _TEST_RE.search(path))
-
-    def check(self, files: list[dict]) -> dict:
-        names = [f["filename"] for f in files]
-        counted = [f for f in files if not self.exempt(f["filename"])]
-        lines = sum(f["additions"] + f["deletions"] for f in counted)
-        result: dict = {"substantive_lines": lines, "substantive_files": len(counted), "all_files": len(files)}
-        problems: list[str] = []
-        if self.mode == "fallback":
-            result.update(line_roof=self.max_lines, file_roof=self.max_files, deny_categories=None)
-            if lines > self.max_lines:
-                problems.append(f"{lines} substantive lines > {self.max_lines}")
-            if len(counted) > self.max_files:
-                problems.append(f"{len(counted)} substantive files > {self.max_files}")
-        else:
-            budgets = self.policy.resolve(self.gates.POLICY, names)
-            by_name = {f["filename"]: f for f in files}
-            for kind, scopes in (("lines", budgets.line_scopes), ("files", budgets.file_scopes)):
-                for scope in scopes:
-                    scoped = [by_name[n] for n in scope.files if not self.exempt(n)]
-                    used = sum(f["additions"] + f["deletions"] for f in scoped) if kind == "lines" else len(scoped)
-                    if used > scope.ceiling:
-                        problems.append(f"{used} substantive {kind} in {scope.path or 'global pool'} > {scope.ceiling}")
-            if lines > budgets.line_roof:
-                problems.append(f"{lines} substantive lines > roof {budgets.line_roof}")
-            if len(counted) > budgets.file_roof:
-                problems.append(f"{len(counted)} substantive files > roof {budgets.file_roof}")
-            deny = self.gates.detect_deny_categories(names)
-            result.update(line_roof=budgets.line_roof, file_roof=budgets.file_roof, deny_categories=deny)
-            if deny:
-                problems.append(f"deny categories {deny}: stamphog will refuse, a human must review")
-        result["fits"] = not problems
-        result["problems"] = problems
-        return result
+def check(lines: dict[str, int]) -> dict:
+    """The engine's size gate (per-scope budgets plus the whole-PR roof) and deny categories."""
+    counted = {path: n for path, n in lines.items() if not gates.is_size_exempt(path)}
+    budgets = policy.resolve(gates.POLICY, list(lines))
+    problems = []
+    for scope in budgets.line_scopes:
+        used = sum(counted.get(path, 0) for path in scope.files)
+        if used > scope.ceiling:
+            problems.append(f"{used} lines in {scope.path or 'global pool'} > {scope.ceiling}")
+    for scope in budgets.file_scopes:
+        used = sum(path in counted for path in scope.files)
+        if used > scope.ceiling:
+            problems.append(f"{used} files in {scope.path or 'global pool'} > {scope.ceiling}")
+    if sum(counted.values()) > budgets.line_roof:
+        problems.append(f"{sum(counted.values())} lines > roof {budgets.line_roof}")
+    if len(counted) > budgets.file_roof:
+        problems.append(f"{len(counted)} files > roof {budgets.file_roof}")
+    deny = gates.detect_deny_categories(list(lines))
+    if deny:
+        problems.append(f"deny categories {deny}: stamphog refuses, a human must review")
+    return {
+        "substantive_lines": sum(counted.values()),
+        "substantive_files": len(counted),
+        "line_roof": budgets.line_roof,
+        "file_roof": budgets.file_roof,
+        "deny_categories": deny,
+        "problems": problems,
+    }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--base", default="origin/master", help="Base ref (default origin/master)")
-    parser.add_argument("--plan", help="JSON file: {pr_name: [file, ...]} to check a proposed split")
-    parser.add_argument("--verbose", action="store_true", help="Print per-file line counts")
+    parser.add_argument("--base", default="origin/master")
+    parser.add_argument("--source", default="HEAD", help="Commit that holds the whole change")
+    parser.add_argument("--plan", help="JSON file that maps each PR name to its files")
+    parser.add_argument("--verbose", action="store_true", help="Print changed lines per file")
     args = parser.parse_args()
 
-    files = changed_files(args.base)
-    engine = Engine()
-    report: dict = {"mode": engine.mode, "base": args.base, "whole_change": engine.check(files)}
-
+    lines, renames = changed_files(args.base, args.source)
     if args.verbose:
-        for f in files:
-            tag = "exempt" if engine.exempt(f["filename"]) else "counts"
-            print(f"{f['additions'] + f['deletions']:>6}  {tag:<6}  {f['filename']}")
+        for path, n in sorted(lines.items()):
+            print(f"{n:>6}  {'exempt' if gates.is_size_exempt(path) else 'counts':<6}  {path}")
 
-    ok = report["whole_change"]["fits"]
+    report: dict = {"whole_change": check(lines)}
     if args.plan:
         plan: dict[str, list[str]] = json.loads(Path(args.plan).read_text())
-        by_name = {f["filename"]: f for f in files}
-        planned = [n for names in plan.values() for n in names]
-        report["unplanned_files"] = sorted(set(by_name) - set(planned))
-        report["duplicated_files"] = sorted({n for n in planned if planned.count(n) > 1})
-        report["unknown_files"] = sorted(set(planned) - set(by_name))
-        report["prs"] = {
-            name: engine.check([by_name[n] for n in names if n in by_name]) for name, names in plan.items()
-        }
-        ok = (
-            all(r["fits"] for r in report["prs"].values())
-            and not report["unplanned_files"]
-            and not report["duplicated_files"]
+        planned = [path for paths in plan.values() for path in paths]
+        known = set(lines) | set(renames.values())
+        report["unplanned_files"] = sorted(known - set(planned))
+        report["unknown_or_duplicated_files"] = sorted(
+            {path for path in planned if path not in known or planned.count(path) > 1}
         )
-    report["ok"] = ok
+        # git restore needs both paths of a rename in one group, or the old file stays behind.
+        report["split_renames"] = sorted(
+            f"{old} -> {new}"
+            for paths in plan.values()
+            for new, old in renames.items()
+            if (new in paths) != (old in paths)
+        )
+        report["prs"] = {
+            name: check({path: lines[path] for path in paths if path in lines}) for name, paths in plan.items()
+        }
+        groups_ok = all(not pr["problems"] for pr in report["prs"].values())
+        report["ok"] = groups_ok and not (
+            report["unplanned_files"] or report["unknown_or_duplicated_files"] or report["split_renames"]
+        )
+    else:
+        report["ok"] = not report["whole_change"]["problems"]
     print(json.dumps(report))
-    return 0 if ok else 1
+    return 0 if report["ok"] else 1
 
 
 if __name__ == "__main__":
