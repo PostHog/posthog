@@ -47,6 +47,11 @@ null for that property. The sidebar then displays "Not set". The clear preserves
 and emits a property-change event. Repeated nulls do not emit another change event.
 Missing source rows or columns leave saved values unchanged.
 
+Sets and clears for the same account and custom property share a PostgreSQL transaction lock,
+including when no active value exists. Sync checks for unchanged values use the same lock.
+The lock lasts until the outer transaction commits or rolls back. Different account/property keys remain independent.
+Bulk syncs commit each property separately. This prevents write collisions, but does not coalesce sync jobs or order source snapshots by freshness.
+
 Relationship editors support single and multiple holders. Removing a holder ends the
 assignment without deleting its history. Multi-holder changes retain unchanged holders.
 Relationship saves apply the edits relative to the assignments shown when editing began.
