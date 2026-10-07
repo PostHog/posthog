@@ -113,9 +113,19 @@ describe('biSceneLogic', () => {
         logic = biSceneLogic({ tabId: 'bi-test' })
         logic.mount()
         editor = biEditorLogic({ tabId: 'bi-test' })
-        editor.actions.setAutoUpdate(false)
     })
     afterEach(() => logic.unmount())
+
+    it('waits for Run after selecting a table unless auto update is enabled', async () => {
+        editor.actions.setDataSource({ table: 'events' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.lastRunQuery).toBeNull()
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.source.query).toContain('count(*) AS count')
+        logic.actions.setLastRunQuery(null)
+        await expectLogic(editor, () => editor.actions.setAutoUpdate(true)).toFinishAllListeners()
+        expect(logic.values.lastRunQuery?.source.query).toContain('count(*) AS count')
+    })
 
     it.each([false, true])('releases its connection scope without disrupting another owner: %s', async (shared) => {
         const database = databaseTableListLogic()
