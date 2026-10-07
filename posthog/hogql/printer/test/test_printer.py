@@ -997,7 +997,7 @@ class TestPrinter(BaseTest):
     def test_hogql_property_comparisons_use_active_storage_schema(self):
         context = HogQLContext(team_id=self.team.pk)
         expected_sql = (
-            f"ifNull(equals({self._json_dynamic_property_expr('$browser')}, %(hogql_val_0)s), 0)"
+            "equals(events.properties.`$browser`, %(hogql_val_0)s)"
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_1)s), 0)"
         )
@@ -3587,7 +3587,7 @@ class TestPrinter(BaseTest):
         mock_matcols_by_table.return_value = {"events": {("$ai_trace_id", "properties"): mat_col}}
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            expected_expr = self._json_dynamic_property_expr("$ai_trace_id")
+            expected_expr = "CAST(events.properties.`$ai_trace_id`, 'Nullable(String)')"
         else:
             expected_expr = "events.`mat_$ai_trace_id`"
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -3600,7 +3600,6 @@ class TestPrinter(BaseTest):
         trace_param_key = next((k for k, v in context.values.items() if v == "trace123"), None)
         self.assertIsNotNone(trace_param_key, "Expected 'trace123' to be recorded as a parameter value")
         self.assertIn(f"equals({expected_expr}, %({trace_param_key})s)", sql)
-        # Verify the equals for $ai_trace_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
 
         # The read itself already maps an empty value to NULL, so no outer nullIf wraps it.
@@ -3609,7 +3608,9 @@ class TestPrinter(BaseTest):
 
         self.assertEqual(
             sql.strip(),
-            expected_expr,
+            self._json_dynamic_property_expr("$ai_trace_id")
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else expected_expr,
         )
 
         # IN operations - no ifNull wrapping
@@ -3645,7 +3646,7 @@ class TestPrinter(BaseTest):
         value_param_key = next((k for k, v in context.values.items() if v == "value"), None)
         assert value_param_key is not None, "Expected 'value' to be recorded as a parameter value"
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            other_prop_expr = self._json_dynamic_property_expr("other_prop")
+            other_prop_expr = "CAST(events.properties.other_prop, 'Nullable(String)')"
             self.assertIn(f"ifNull(equals({other_prop_expr}, %({value_param_key})s), 0)", sql)
             self.assertNotIn("JSONExtractRaw(events.properties,", sql)
         else:
@@ -3672,7 +3673,7 @@ class TestPrinter(BaseTest):
         mock_matcols_by_table.return_value = {"events": {("$ai_session_id", "properties"): mat_col}}
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            expected_expr = self._json_dynamic_property_expr("$ai_session_id")
+            expected_expr = "CAST(events.properties.`$ai_session_id`, 'Nullable(String)')"
         else:
             expected_expr = "events.`mat_$ai_session_id`"
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -3682,7 +3683,6 @@ class TestPrinter(BaseTest):
         session_param_key = next((k for k, v in context.values.items() if v == "session123"), None)
         assert session_param_key is not None, "Expected 'session123' to be recorded as a parameter value"
         self.assertIn(f"equals({expected_expr}, %({session_param_key})s)", sql)
-        # Verify the equals for $ai_session_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
 
         # The read itself already maps an empty value to NULL, so no outer nullIf wraps it.
@@ -3691,7 +3691,9 @@ class TestPrinter(BaseTest):
 
         self.assertEqual(
             sql.strip(),
-            expected_expr,
+            self._json_dynamic_property_expr("$ai_session_id")
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else expected_expr,
         )
 
         # IN operations - no ifNull wrapping
