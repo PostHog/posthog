@@ -8,6 +8,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
+    IncidentAction,
 )
 
 CONDITION = {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5}
@@ -71,6 +72,15 @@ class TestAlertMessage:
     def test_a_check_that_announces_nothing_has_no_message(self) -> None:
         with pytest.raises(ValueError):
             build_message(_announcement(), _transition(AlertEventKind.CHECK))
+
+    @pytest.mark.parametrize(
+        "action,expected",
+        [(IncidentAction.TRIGGER, "API errors is firing"), (IncidentAction.RESOLVE, "API errors is resolved")],
+    )
+    def test_a_held_check_speaks_for_the_incident_it_moved(self, action: IncidentAction, expected: str) -> None:
+        message = build_message(_announcement(), _transition(AlertEventKind.CHECK), incident_action=action)
+
+        assert (message.headline, message.incident_action) == (expected, action)
 
     def test_a_partial_condition_drops_the_line_it_cannot_state(self) -> None:
         message = build_message(_announcement(), _transition(AlertEventKind.FIRING, condition={}))

@@ -363,6 +363,12 @@ The legacy logs stack's `incident_edge` wraps the same rule.
   incident actions has `sends_messages=False`, and none of its rows reach a message destination.
 - `announcement()` also returns the held CHECK row of a group in `incident_grouping_keys`.
 - A mute never holds an incident edge: a fire inside quiet hours or a snooze triggers the incident.
+- Delivery routes each action to the event id in `event_ids_by_incident_action`, which only an incident
+  manager destination subscribes to. A message destination never sees an incident action.
+- The PagerDuty transport sends a trigger or a resolve with the `dedup_key`
+  `<configuration_id>:<grouping_key>:<episode_started_at>`, so a resolve closes the incident of its own
+  firing episode. It names the platform in `source`, because a team on the pilot also gets the HogFunction
+  path's incident.
 
 A fire a mute swallowed is still owed an announcement.
 `_firing_is_unannounced` in `facade/lifecycle.py` decides that, and its docstring holds the rule.

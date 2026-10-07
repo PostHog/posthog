@@ -16,6 +16,7 @@ from posthog.models import Team
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import deliver
+from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport
 from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.teams import TeamsTransport
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
@@ -27,6 +28,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AnnouncedTransition,
     DestinationType,
     EvaluationAnnouncement,
+    IncidentAction,
 )
 from products.alerts_platform.backend.logic.platform_alert_events import announcement
 
@@ -47,7 +49,16 @@ _TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {
     DestinationType.WEBHOOK: WebhookTransport,
     DestinationType.TEAMS: TeamsTransport,
     DestinationType.DISCORD: DiscordTransport,
+    DestinationType.PAGERDUTY: PagerDutyTransport,
 }
+
+
+@frozen
+class _Subscription:
+    """What one subscribed event carries, and whether it moves an incident rather than announcing."""
+
+    transitions: tuple[AnnouncedTransition, ...]
+    incident_action: IncidentAction | None
 
 
 @frozen
@@ -112,7 +123,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     # Per subscription rather than per destination. A destination subscribes to some of the
     # kinds an alert can announce, so one that asked for firings must not be handed the resolve
     # that another group produced in the same evaluation.
-    for event_id, transitions in _by_subscription(request, announced).items():
+    for event_id, subscription in _by_subscription(request, announced).items():
         for target in _destinations(request, event_id):
             transport_class = _TRANSPORTS.get(target["type"])
             if transport_class is None:
@@ -126,7 +137,8 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     configuration_id=request.configuration_id,
                     evaluation_key=request.evaluation_key,
                     target=target,
-                    announcement=replace(announced, transitions=transitions),
+                    announcement=replace(announced, transitions=subscription.transitions),
+                    incident_action=subscription.incident_action,
                 )
             except ThreadBusy as error:
                 busy.append(str(error))
@@ -152,24 +164,33 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     return DeliveryOutcome(live=True, sent=sent, skipped_without_transport=skipped)
 
 
-def _by_subscription(
-    request: AlertDeliveryRequest, announced: EvaluationAnnouncement
-) -> dict[str, tuple[AnnouncedTransition, ...]]:
-    """The transitions this evaluation announced, grouped by the event a destination subscribes to.
+def _by_subscription(request: AlertDeliveryRequest, announced: EvaluationAnnouncement) -> dict[str, _Subscription]:
+    """The transitions this evaluation announced or moved an incident with, grouped by the event a
+    destination subscribes to.
 
     A kind the source does not map to an event id reaches nobody: no destination can have asked
-    for it. Nor does anything on a delivery the source did not announce, which exists only for
-    its incident actions.
+    for it. Nor does a message on a delivery the source did not announce, which exists only for
+    its incident actions. An incident event is set apart from every message event, so a chat
+    destination never hears about an incident and an incident manager never gets a message.
     """
-    if not request.sends_messages:
-        return {}
     grouped: dict[str, list[AnnouncedTransition]] = {}
+    actions: dict[str, IncidentAction | None] = {}
+
+    def add(event_id: str | None, transition: AnnouncedTransition, action: IncidentAction | None) -> None:
+        if event_id is not None:
+            grouped.setdefault(event_id, []).append(transition)
+            actions[event_id] = action
+
     for transition in announced.transitions:
-        event_id = request.event_ids_by_kind.get(transition.kind.value)
-        if event_id is None:
-            continue
-        grouped.setdefault(event_id, []).append(transition)
-    return {event_id: tuple(transitions) for event_id, transitions in grouped.items()}
+        if request.sends_messages:
+            add(request.event_ids_by_kind.get(transition.kind.value), transition, None)
+        action = request.incident_actions.get(transition.grouping_key)
+        if action is not None:
+            add(request.event_ids_by_incident_action.get(action.value), transition, action)
+    return {
+        event_id: _Subscription(transitions=tuple(transitions), incident_action=actions[event_id])
+        for event_id, transitions in grouped.items()
+    }
 
 
 def _destinations(request: AlertDeliveryRequest, event_id: str) -> list[AlertDestinationData]:

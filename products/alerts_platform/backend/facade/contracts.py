@@ -309,6 +309,8 @@ class AlertDeliveryRequest:
     `event_ids_by_kind`. It is set even when cooldown or mute held the announcement back, which
     is the case it exists for. `sends_messages` is False on a delivery that exists only for those
     actions, so its rows reach no message destination even when their kind has an event id.
+    `event_ids_by_incident_action` maps each action onto the event id an incident manager
+    destination filters on, the way `event_ids_by_kind` does for a message.
     """
 
     source: SourceKind
@@ -319,6 +321,7 @@ class AlertDeliveryRequest:
     event_ids_by_kind: dict[str, str]
     incident_actions: dict[str, IncidentAction] = field(default_factory=dict)
     sends_messages: bool = True
+    event_ids_by_incident_action: dict[str, str] = field(default_factory=dict)
 
 
 @frozen

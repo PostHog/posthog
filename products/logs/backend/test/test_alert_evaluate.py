@@ -122,6 +122,8 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert [(d.sends_messages, d.incident_actions) for d in evaluation.deliveries] == [
             (True, {"": IncidentAction.TRIGGER} if paged else {})
         ]
+        # The event a PagerDuty destination subscribes to, so the trigger reaches it.
+        assert evaluation.deliveries[0].event_ids_by_incident_action["trigger"] == "$logs_alert_incident_opened"
         with team_scope(self.team.id):
             alert = platform_testing.alert_for(configuration.id)
             assert alert is not None

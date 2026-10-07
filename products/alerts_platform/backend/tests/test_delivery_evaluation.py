@@ -20,6 +20,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AnnouncedTransition,
     DestinationType,
     EvaluationAnnouncement,
+    IncidentAction,
     SourceKind,
 )
 
@@ -28,11 +29,14 @@ FIRING = datetime(2026, 9, 30, 9, tzinfo=UTC)
 
 FIRING_EVENT = "$logs_alert_firing"
 RESOLVED_EVENT = "$logs_alert_resolved"
+OPENED_EVENT = "$logs_alert_incident_opened"
+CLOSED_EVENT = "$logs_alert_incident_closed"
 
 SLACK = cast(AlertDestinationData, {"type": DestinationType.SLACK, "slack_workspace_id": 1, "slack_channel_id": "C-1"})
 WEBHOOK = cast(AlertDestinationData, {"type": DestinationType.WEBHOOK, "webhook_url": "https://example.com/hook"})
 TEAMS = cast(AlertDestinationData, {"type": DestinationType.TEAMS, "webhook_url": "https://example.com/teams"})
-UNSUPPORTED = cast(AlertDestinationData, {"type": "pagerduty"})
+PAGERDUTY = cast(AlertDestinationData, {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": "R-1"})
+UNSUPPORTED = cast(AlertDestinationData, {"type": "opsgenie"})
 
 
 class RecordingTransport:
@@ -51,6 +55,13 @@ class RecordingTransport:
         return MessageHandle(external_ref={"channel": self.channel_target(target), "ts": "1"})
 
 
+class PagingTransport(RecordingTransport):
+    provider = "pagerduty"
+
+    def channel_target(self, target: AlertDestinationData) -> str:
+        return str(target.get("pagerduty_routing_key", ""))
+
+
 class RefusingTransport(RecordingTransport):
     provider = "webhook"
 
@@ -65,7 +76,9 @@ class HeldTransport(RecordingTransport):
         raise ThreadBusy("thread is being posted to by another send")
 
 
-def _request(team_id: int, *, sends_messages: bool = True) -> AlertDeliveryRequest:
+def _request(
+    team_id: int, *, sends_messages: bool = True, incident_actions: dict[str, IncidentAction] | None = None
+) -> AlertDeliveryRequest:
     return AlertDeliveryRequest(
         source=SourceKind.LOGS,
         team_id=team_id,
@@ -74,6 +87,8 @@ def _request(team_id: int, *, sends_messages: bool = True) -> AlertDeliveryReque
         destination_alert_id="legacy-1",
         event_ids_by_kind={"firing": FIRING_EVENT, "resolved": RESOLVED_EVENT},
         sends_messages=sends_messages,
+        incident_actions=incident_actions or {},
+        event_ids_by_incident_action={"trigger": OPENED_EVENT, "resolve": CLOSED_EVENT},
     )
 
 
@@ -113,6 +128,7 @@ class TestDeliverEvaluation(APIBaseTest):
         live: bool = True,
         transports: dict[DestinationType, type] | None = None,
         sends_messages: bool = True,
+        incident_actions: dict[str, IncidentAction] | None = None,
     ) -> Any:
         def groups(*, team_id: int, alert_id: str, allowed_event_ids: list[str]) -> list[AlertDestinationGroup]:
             return by_event.get(allowed_event_ids[0], [])
@@ -122,9 +138,18 @@ class TestDeliverEvaluation(APIBaseTest):
             patch(f"{_MODULE}.announcement", return_value=announced),
             patch(f"{_MODULE}.list_alert_destination_groups", side_effect=groups),
             patch(f"{_MODULE}.DatabaseThreadStore"),
-            patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport, **(transports or {})}),
+            patch.dict(
+                f"{_MODULE}._TRANSPORTS",
+                {
+                    DestinationType.SLACK: RecordingTransport,
+                    DestinationType.PAGERDUTY: PagingTransport,
+                    **(transports or {}),
+                },
+            ),
         ):
-            return deliver_evaluation(_request(self.team.id, sends_messages=sends_messages))
+            return deliver_evaluation(
+                _request(self.team.id, sends_messages=sends_messages, incident_actions=incident_actions)
+            )
 
     def test_a_destination_hears_only_about_the_kinds_it_subscribed_to(self) -> None:
         # One group fires while another resolves. A destination that asked for firings must not
@@ -166,6 +191,36 @@ class TestDeliverEvaluation(APIBaseTest):
 
         assert RecordingTransport.sends == []
         assert outcome.sent == 0
+
+    @parameterized.expand(
+        [
+            # Cooldown held the resolve, so chat hears nothing and the incident still closes.
+            ("a_held_resolve", AlertEventKind.CHECK, False, IncidentAction.RESOLVE, []),
+            ("an_announced_fire", AlertEventKind.FIRING, True, IncidentAction.TRIGGER, ["API errors is firing"]),
+        ]
+    )
+    def test_an_incident_action_reaches_only_the_incident_subscription(
+        self,
+        _name: str,
+        kind: AlertEventKind,
+        sends_messages: bool,
+        action: IncidentAction,
+        chat_headlines: list[str],
+    ) -> None:
+        self._run(
+            _announcement(_transition(kind)),
+            {
+                FIRING_EVENT: [_group(SLACK)],
+                RESOLVED_EVENT: [_group(SLACK)],
+                OPENED_EVENT: [_group(PAGERDUTY)],
+                CLOSED_EVENT: [_group(PAGERDUTY)],
+            },
+            sends_messages=sends_messages,
+            incident_actions={"": action},
+        )
+
+        assert [m.headline for channel, m in RecordingTransport.sends if channel == "C-1"] == chat_headlines
+        assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == [action]
 
     def test_a_destination_with_no_transport_is_skipped_rather_than_failing_the_send(self) -> None:
         outcome = self._run(
