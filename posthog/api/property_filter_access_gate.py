@@ -38,18 +38,20 @@ def table_blocking_property_filters(user: User, team: Team, filters: list[dict[s
         enable_select_queries=True,
         modifiers=create_default_modifiers_for_user(user, team),
     )
-    query = ast.SelectQuery(
-        select=[ast.Constant(value=1)],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-        where=property_to_expr(filters, team),
-    )
-    try:
-        prepare_ast_for_printing(query, context=context, dialect="clickhouse")
-    except TableAccessDeniedError as e:
-        return e.table_name
-    except Exception:
-        # Only access denials gate the save; anything else is the filter's own problem.
-        return None
+    # Each filter is compiled on its own, so one that does not compile cannot hide a denial in
+    # another. Only access denials gate the save; anything else is the filter's own problem.
+    for property_filter in filters:
+        try:
+            query = ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                where=property_to_expr(property_filter, team),
+            )
+            prepare_ast_for_printing(query, context=context, dialect="clickhouse")
+        except TableAccessDeniedError as e:
+            return e.table_name
+        except Exception:
+            continue
     return None
 
 
