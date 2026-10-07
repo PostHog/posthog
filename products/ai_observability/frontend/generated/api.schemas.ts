@@ -2161,6 +2161,7 @@ export interface PaginatedEvaluationListApi {
  * * `running` - Running
  * * `completed` - Completed
  * * `cancelled` - Cancelled
+ * * `interrupted` - Interrupted
  */
 export type EvaluationBackfillStatusEnumApi =
     (typeof EvaluationBackfillStatusEnumApi)[keyof typeof EvaluationBackfillStatusEnumApi]
@@ -2169,6 +2170,7 @@ export const EvaluationBackfillStatusEnumApi = {
     Running: 'running',
     Completed: 'completed',
     Cancelled: 'cancelled',
+    Interrupted: 'interrupted',
 } as const
 
 export type EvaluationBackfillConditionApiPropertiesItem = { [key: string]: unknown }
@@ -2186,12 +2188,15 @@ export interface EvaluationBackfillConditionApi {
 export interface EvaluationBackfillApi {
     /** Backfill identifier. */
     readonly id: string
-    /** running while the walk is dispatching, then completed or cancelled.
+    /** Running, completed, interrupted by an error, or cancelled by a user.
      *
      * * `running` - Running
      * * `completed` - Completed
-     * * `cancelled` - Cancelled */
+     * * `cancelled` - Cancelled
+     * * `interrupted` - Interrupted */
     readonly status: EvaluationBackfillStatusEnumApi
+    /** Reason an interrupted backfill stopped; empty otherwise. */
+    readonly status_reason: string
     /** What one unit is, frozen at creation: a generation, a trace, or a session.
      *
      * * `generation` - Generation
@@ -2210,12 +2215,19 @@ export interface EvaluationBackfillApi {
     readonly total_count: number
     /** Units the backfill has started an evaluation for so far. */
     readonly dispatched_count: number
+    /**
+     * Evaluations that finished with a verdict. Null for legacy runs.
+     * @nullable
+     */
+    readonly completed_count: number | null
+    /** Evaluations that finished with a recorded skip instead of a verdict. */
+    readonly evaluation_skipped_count: number
     /** Units the live path had already covered, so nothing was dispatched. */
     readonly skipped_count: number
-    /** Units whose evaluation failed to start. They have no result and count toward remaining_count. */
+    /** Units whose evaluation failed to start or finish. Legacy runs only counted start failures. */
     readonly failed_count: number
     /**
-     * Units still holding no result when the run finished, counted at that moment. Zero means the window is covered, whoever graded it.
+     * Units left to retry after completion. Legacy runs estimated this before evaluations finished.
      * @nullable
      */
     readonly remaining_count: number | null

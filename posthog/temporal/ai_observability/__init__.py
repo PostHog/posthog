@@ -21,6 +21,7 @@ from posthog.temporal.ai_observability.eval_reports.workflow import (
 from posthog.temporal.ai_observability.evaluation_backfill import (
     EvaluationBackfillWorkflow,
     advance_evaluation_backfill_cursor_activity,
+    existing_backfill_child_outcome_activity,
     fail_evaluation_backfill_activity,
     find_evaluation_backfill_candidates_activity,
     measure_evaluation_backfill_remainder_activity,
@@ -200,6 +201,7 @@ ACTIVITIES = [
     find_evaluation_backfill_candidates_activity,
     measure_evaluation_backfill_remainder_activity,
     advance_evaluation_backfill_cursor_activity,
+    existing_backfill_child_outcome_activity,
     fail_evaluation_backfill_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
     fetch_evaluation_activity,

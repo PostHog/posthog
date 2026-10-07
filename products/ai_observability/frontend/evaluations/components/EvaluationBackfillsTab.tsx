@@ -54,6 +54,7 @@ const BACKFILL_STATUS_TAG: Record<EvaluationBackfillStatusEnumApi, { label: stri
     running: { label: 'Running', type: 'primary' },
     completed: { label: 'Completed', type: 'success' },
     cancelled: { label: 'Cancelled', type: 'muted' },
+    interrupted: { label: 'Interrupted', type: 'warning' },
 }
 
 const WINDOW_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
@@ -65,7 +66,7 @@ function backfillLeftBehindLabel(backfill: EvaluationBackfillApi): string | null
         return null
     }
     const one = backfill.remaining_count === 1
-    return `${pluralize(backfill.remaining_count, backfill.target)} ${one ? "wasn't" : "weren't"} evaluated. Start another backfill over this range to retry ${one ? 'it' : 'them'}.`
+    return `${pluralize(backfill.remaining_count, backfill.target)} ${one ? "wasn't" : "weren't"} evaluated. Retry remaining to try ${one ? 'it' : 'them'} again.`
 }
 
 function backfillUnitPlural(backfill: EvaluationBackfillApi): string {
@@ -108,6 +109,8 @@ export function EvaluationBackfillsTab({
         clampedWindow,
         conditions,
         creatingBackfill,
+        evaluation,
+        hasActiveBackfill,
         estimate,
         estimateError,
         estimateLoading,
@@ -127,6 +130,7 @@ export function EvaluationBackfillsTab({
         setRerunExisting,
         createBackfill,
         cancelBackfill,
+        retryBackfill,
         expandBackfill,
         collapseBackfill,
         loadBackfills,
@@ -162,6 +166,7 @@ export function EvaluationBackfillsTab({
         {
             title: 'Range',
             key: 'window',
+            className: '@max-[32rem]/backfills:hidden',
             // `timestampStyle="absolute"` suppresses the Today/Yesterday substitution, so two rows
             // can be compared as exact instants. TZLabel's timezone popover still holds the time of day.
             render: (_, backfill) => {
@@ -190,14 +195,21 @@ export function EvaluationBackfillsTab({
             key: 'status',
             render: (_, backfill) => {
                 const statusTag = (
-                    <LemonTag type={BACKFILL_STATUS_TAG[backfill.status].type}>
-                        {BACKFILL_STATUS_TAG[backfill.status].label}
+                    <LemonTag
+                        type={
+                            backfill.status === 'completed' && backfill.failed_count
+                                ? 'warning'
+                                : BACKFILL_STATUS_TAG[backfill.status].type
+                        }
+                    >
+                        {backfill.status === 'completed' && backfill.failed_count
+                            ? 'Completed with errors'
+                            : BACKFILL_STATUS_TAG[backfill.status].label}
                     </LemonTag>
                 )
                 return (
                     <div className="flex items-center gap-1 flex-wrap">
-                        {/* A completed row means every unit was sent out, not that every evaluation has finished. */}
-                        {backfill.status === 'completed' ? (
+                        {backfill.status === 'completed' && backfill.completed_count == null ? (
                             <Tooltip
                                 title={`Each ${backfill.target} is evaluated on its own, so the last results can take a few minutes to appear in the Runs tab.`}
                             >
@@ -206,6 +218,21 @@ export function EvaluationBackfillsTab({
                         ) : (
                             statusTag
                         )}
+                        <span className="hidden w-full text-muted @max-[32rem]/backfills:block">
+                            <TZLabel
+                                time={backfill.window_start}
+                                timestampStyle="absolute"
+                                formatDate="MMM D"
+                                formatTime=""
+                            />
+                            {' – '}
+                            <TZLabel
+                                time={backfill.window_end}
+                                timestampStyle="absolute"
+                                formatDate="MMM D"
+                                formatTime=""
+                            />
+                        </span>
                     </div>
                 )
             },
@@ -213,6 +240,7 @@ export function EvaluationBackfillsTab({
         {
             title: 'Scope',
             key: 'conditions',
+            className: '@max-[48rem]/backfills:hidden',
             render: (_, backfill) => {
                 // The Scope cell shows one condition set and folds the rest behind a "+N more".
                 const [first, ...rest] = backfill.conditions
@@ -264,22 +292,20 @@ export function EvaluationBackfillsTab({
             },
         },
         {
-            title: 'Covered',
+            title: 'Progress',
             key: 'progress',
             render: (_, backfill) => {
-                // While the walk runs, coverage is what it has handled: started, or skipped because
-                // the live path had the unit already. Once it ends, the measured remainder is the
-                // truer number, because a unit the live path judged mid-run is covered too and the
-                // walk never saw it.
                 const measured = backfill.status === 'completed' && backfill.remaining_count !== null
                 const covered = backfillCoveredCount(backfill)
                 const total = backfillTotalCount(backfill)
                 return (
                     <Tooltip
                         title={
-                            measured
-                                ? `How many ${backfillUnitPlural(backfill)} hold a result, counted when the run ended. The evaluation grades new data on its own, so it covers some of them without this run.`
-                                : `How many ${backfillUnitPlural(backfill)} this backfill has started evaluating or skipped because the evaluation already had them. It does not track which of them have finished.`
+                            backfill.completed_count != null
+                                ? `${backfill.completed_count.toLocaleString('en-US')} evaluated, ${backfill.evaluation_skipped_count.toLocaleString('en-US')} skipped, ${backfill.skipped_count.toLocaleString('en-US')} already handled, ${backfill.failed_count.toLocaleString('en-US')} failed.`
+                                : measured
+                                  ? `Estimated coverage when this run ended. This older backfill did not track execution outcomes.`
+                                  : `How many ${backfillUnitPlural(backfill)} this backfill has started evaluating or skipped because the evaluation already had them. It does not track which of them have finished.`
                         }
                     >
                         <div className="min-w-24">
@@ -289,7 +315,10 @@ export function EvaluationBackfillsTab({
                             {backfill.dispatched_count > 0 && (
                                 <span className="text-muted whitespace-nowrap">
                                     {' '}
-                                    · {backfill.dispatched_count.toLocaleString('en-US')} started
+                                    ·{' '}
+                                    {backfill.completed_count != null
+                                        ? `${backfill.completed_count.toLocaleString('en-US')} evaluated`
+                                        : `${backfill.dispatched_count.toLocaleString('en-US')} started`}
                                 </span>
                             )}
                             <LemonProgress
@@ -305,11 +334,13 @@ export function EvaluationBackfillsTab({
         {
             title: 'Created',
             key: 'created_at',
+            className: '@max-[48rem]/backfills:hidden',
             render: (_, backfill) => <TZLabel time={backfill.created_at} />,
         },
         {
             title: 'Created by',
             key: 'created_by',
+            className: '@max-[48rem]/backfills:hidden',
             render: (_, backfill) =>
                 backfill.created_by ? (
                     <ProfilePicture user={backfill.created_by as UserBasicType} size="md" showName />
@@ -342,12 +373,44 @@ export function EvaluationBackfillsTab({
                             </AccessControlAction>
                         }
                     />
+                ) : backfill.status !== 'completed' || !!backfill.failed_count || !!backfill.remaining_count ? (
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.Evaluation}
+                        minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={userAccessLevel}
+                    >
+                        <LemonButton
+                            size="small"
+                            loading={transitioningIds.includes(backfill.id)}
+                            disabledReason={
+                                !evaluation?.enabled
+                                    ? 'Re-enable the evaluation before retrying.'
+                                    : hasActiveBackfill || creatingBackfill || transitioningIds.length > 0
+                                      ? 'Wait for the active backfill operation to finish.'
+                                      : undefined
+                            }
+                            onClick={() =>
+                                LemonDialog.open({
+                                    title: 'Retry remaining evaluations?',
+                                    description:
+                                        'This starts a new backfill with the same date range and filters, using the current evaluation settings. Existing results are kept. New evaluations are billed as usual.',
+                                    primaryButton: {
+                                        children: 'Retry remaining',
+                                        onClick: () => retryBackfill(backfill.id),
+                                    },
+                                    secondaryButton: { children: 'Cancel' },
+                                })
+                            }
+                        >
+                            Retry remaining
+                        </LemonButton>
+                    </AccessControlAction>
                 ) : null,
         },
     ]
 
     return (
-        <div className="flex flex-col gap-4 max-w-6xl">
+        <div className="@container/backfills flex flex-col gap-4 max-w-6xl">
             <div className="rounded border p-4 flex flex-col gap-3">
                 <div>
                     <h3 className="mb-1">Evaluate past {unitPlural}</h3>
@@ -458,8 +521,21 @@ export function EvaluationBackfillsTab({
                         const lateArrivals = backfillLateArrivalCount(backfill)
                         const liveCovered = backfillLiveCoveredCount(backfill)
                         return (
-                            <div className="flex items-center justify-between gap-4 px-2 py-3">
+                            <div className="flex flex-col items-start justify-between gap-4 px-2 py-3 @min-[48rem]/backfills:flex-row @min-[48rem]/backfills:items-center">
                                 <div className="flex flex-col gap-2 min-w-0">
+                                    {backfill.status === 'interrupted' && (
+                                        <LemonBanner type="warning">
+                                            {backfill.status_reason === 'evaluation_disabled'
+                                                ? 'The evaluation was disabled. Check its configuration and provider key, then re-enable it and retry remaining.'
+                                                : 'The backfill stopped before finishing. Check the evaluation configuration, then retry remaining.'}
+                                        </LemonBanner>
+                                    )}
+                                    {!!backfill.failed_count && (
+                                        <span>
+                                            {backfill.failed_count.toLocaleString('en-US')} failed. Retry remaining to
+                                            try again.
+                                        </span>
+                                    )}
                                     {backfill.conditions.map((condition, index) => (
                                         <div key={index} className="flex items-center gap-1 flex-wrap">
                                             <ConditionSetScope
@@ -472,7 +548,7 @@ export function EvaluationBackfillsTab({
                                         </div>
                                     ))}
                                     <div className="flex items-center gap-2 flex-wrap text-muted">
-                                        <span className="flex items-center gap-1">
+                                        <span className="flex items-center gap-1 flex-wrap">
                                             <TZLabel
                                                 time={backfill.window_start}
                                                 timestampStyle="absolute"
