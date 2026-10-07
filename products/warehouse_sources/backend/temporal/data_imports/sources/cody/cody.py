@@ -41,7 +41,7 @@ class CodyCredentialsError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CodyResumeConfig:
     # ISO date (YYYY-MM-DD) of the first day of the calendar-month window to resume from.
     window_start: str

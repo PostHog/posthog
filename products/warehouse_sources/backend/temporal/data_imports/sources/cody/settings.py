@@ -8,7 +8,7 @@ CREDITS_PATH = "/api/credits"
 USER_REGISTRY_PATH = "/api/reports/user-registry"
 
 
-@dataclass
+@dataclass(frozen=True)
 class CodyEndpointConfig:
     name: str
     path: str
