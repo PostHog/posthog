@@ -11578,6 +11578,10 @@ snapshots:
         hash: v1.k794b7964.78c398feb22adb44344fad6c155ad42ecdbd9d77d80e4e0a60227b4a32abf14f.wmWI9S-nFvoZ5tNpxol33U3eINboLyZM9cggyHqv8hU
     scenes-app-insights-error-empty-states--validation-error--light:
         hash: v1.k794b7964.2b012576da17dc343cba68c671217dcfb23f907543fd897d65e42e8793f31958.gL9lf9tk2rIHPSZBxNHmPitiTqUvCG08VR3K9hK7xMo
+    scenes-app-insights-flag-calls-retention-notice--default--dark:
+        hash: v1.k794b7964.d9aefe5f9ce9d7a864d6bf0338965adf5c01284b0fa767b3db193cbf9102838b.F_x981isYjYR1oKf0BPU3Agkr_bpR7TqheKovVn432o
+    scenes-app-insights-flag-calls-retention-notice--default--light:
+        hash: v1.k794b7964.7923e9cd78a4bd2e62c7f95ce8eb80df0bb9fab29de527b307048b8e5b5011ff.Mrf6YkRMfO82M2uM5Fc4LKBf3vjTEjIDdw4MZ1cPIrA
     scenes-app-insights-insight-quick-start--default--dark:
         hash: v1.k794b7964.f190c463ee799e93ea5d408200712776460a5a9a920977e2b7a85348350fa43b.dcN7n63RW9QEXstFsPgnAaKodbV6piSN7PMhBuHkaGc
     scenes-app-insights-insight-quick-start--default--light:
