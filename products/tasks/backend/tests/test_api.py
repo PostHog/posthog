@@ -10388,6 +10388,74 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @parameterized.expand(
+        [
+            ("restricted_sibling_run", None),
+            ("restriction_removed_from_state", "remove"),
+            ("restriction_pointed_at_open_environment", "repoint"),
+        ]
+    )
+    @override_settings(
+        CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
+    )
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_html_artifact_preview_refuses_scripts_while_any_task_run_is_restricted(
+        self, _name, state_change, _mock_publish
+    ):
+        task = self.create_task()
+        open_environment = SandboxEnvironment.objects.create(
+            team=self.team,
+            name="Open env",
+            created_by=self.user,
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.FULL,
+        )
+        restricted_environment = SandboxEnvironment.objects.create(
+            team=self.team,
+            name="Restricted env",
+            created_by=self.user,
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.TRUSTED,
+        )
+        artifact_id = uuid.uuid4().hex
+        open_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            artifacts=[
+                {
+                    "id": artifact_id,
+                    "name": "report.html",
+                    "type": "output",
+                    "source": "agent_output",
+                    "content_type": "text/html",
+                    "storage_path": f"tasks/artifacts/team_{self.team.id}/task_{task.id}/report.html",
+                }
+            ],
+        )
+        restricted_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"sandbox_environment_id": str(restricted_environment.id)},
+        )
+        if state_change is not None:
+            body = (
+                {"state_remove_keys": ["sandbox_environment_id"]}
+                if state_change == "remove"
+                else {"state": {"sandbox_environment_id": str(open_environment.id)}}
+            )
+            patched = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{restricted_run.id}/", body, format="json"
+            )
+            self.assertEqual(patched.status_code, status.HTTP_200_OK)
+        api_path = f"/api/projects/@current/tasks/{task.id}/runs/{open_run.id}/artifacts/{artifact_id}/preview/"
+
+        static = self.client.get(api_path)
+        scripted = self.client.get(f"{api_path}?scripts=true")
+
+        self.assertEqual(static.status_code, status.HTTP_200_OK)
+        self.assertFalse(static.json()["scripts_available"])
+        self.assertEqual(scripted.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_download_artifact_not_found(self):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, artifacts=[])

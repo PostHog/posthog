@@ -2651,6 +2651,7 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
+        "sandbox_environment_id",
         "scout_trial",
         "scout_trial_judge",
         "scout_trial_private",
@@ -4741,12 +4742,8 @@ def _run_has_open_network(run: TaskRun) -> bool:
     )
 
 
-def task_run_artifact_scripts_allowed(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, task_wide: bool
-) -> bool:
+def task_run_artifact_scripts_allowed(task_id: str | UUID, team_id: int) -> bool:
     runs = TaskRun.objects.filter(team_id=team_id, task_id=task_id).select_related("task")
-    if not task_wide:
-        runs = runs.filter(pk=run_id)
     checked = False
     for run in runs:
         if not _run_has_open_network(run):

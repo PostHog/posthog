@@ -3062,9 +3062,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
             if error is not None or content is None or not is_html_artifact(content.name, content.content_type):
                 raise NotFound()
-        scripts_available = tasks_facade.task_run_artifact_scripts_allowed(
-            pk, task_id, self.team_id, task_wide=version is not None
-        )
+        scripts_available = tasks_facade.task_run_artifact_scripts_allowed(task_id, self.team_id)
         if run_scripts and not scripts_available:
             raise PermissionDenied(
                 "Scripts can't run in this artifact because its task run has limited network access."

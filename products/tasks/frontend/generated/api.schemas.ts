@@ -3986,7 +3986,7 @@ export interface TaskRunArtifactPreviewResponseApi {
     url: string
     /** Whether the page at this URL runs its scripts */
     scripts_enabled: boolean
-    /** Whether the caller can request a preview that runs scripts. False when a task run that can write this artifact has limited network access. */
+    /** Whether the caller can request a preview that runs scripts. False when any run of this task has limited network access. */
     scripts_available: boolean
 }
 
