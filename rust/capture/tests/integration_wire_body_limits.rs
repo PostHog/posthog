@@ -10,7 +10,6 @@ use capture::outputs::{OutputRegistry, PublishEvents};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::{router, BATCH_BODY_SIZE};
 use capture::time::TimeSource;
-use capture::v0_request::AiLanePredicate;
 use capture::v0_request::ProcessedEvent;
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
@@ -93,7 +92,6 @@ fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
         // Far above any body this file sends: the AI-lane event ceiling must not
         // be what produces a 413 here, or the wire cap would go untested.
         BATCH_BODY_SIZE as u64 * 5, // ai_max_event_bytes
-        AiLanePredicate::Allowlist,
         None,
         256,
         10 * 1024 * 1024,
@@ -118,9 +116,9 @@ fn body_of_len(len: usize) -> String {
     named_body_of_len(len, "e")
 }
 
-/// The same, with the event name chosen. Capture-ai rejects any event outside the
-/// `AI_EVENT_NAMES` allowlist with a 400 before the size check is reached, so an
-/// AI-lane body has to carry a listed name to exercise the cap at all.
+/// The same, with the event name chosen. Capture-ai rejects any event without the
+/// `$ai_` prefix with a 400 before the size check is reached, so an AI-lane body
+/// has to carry an `$ai_` name to exercise the cap at all.
 fn named_body_of_len(len: usize, event: &str) -> String {
     let envelope = format!(
         r#"{{"token":"phc_test","event":"{event}","distinct_id":"d","properties":{{"big":""}}}}"#

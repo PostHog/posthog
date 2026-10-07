@@ -102,6 +102,7 @@ export const manifest: ProductManifest = {
             iconType: 'data_destination',
             iconColor: ['var(--color-product-destinations-light)', 'var(--color-product-destinations-dark)'],
             href: urls.destinations(),
+            searchKeywords: ['batch exports', 'export data'],
             sceneKey: 'Destinations',
             sceneKeys: ['Destinations'],
         },

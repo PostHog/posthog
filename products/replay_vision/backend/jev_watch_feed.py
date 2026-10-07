@@ -27,8 +27,7 @@ from time import perf_counter
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from django.conf import settings
-
+import redis
 import structlog
 from prometheus_client import Counter, Histogram
 
@@ -354,8 +353,16 @@ def _judged_key(team_id: int, scanner_id: UUID | str) -> str:
     return f"{_WATCH_RANK_REDIS_PREFIX}judged:{team_id}:{scanner_id}"
 
 
+# The sweep worker writes this cache and the feed API on the web fleet reads it, so it lives on
+# the shared Redis, like the enqueue claims. The dedicated replay-vision Redis
+# (REPLAY_VISION_REDIS_URL) is mounted only on the replay-vision temporal workers, so a key
+# written there never reaches the feed.
+def _watch_rank_client() -> redis.Redis:
+    return get_client()
+
+
 def refresh_watch_ranks_ttl(team_id: int, scanner_id: UUID) -> None:
-    client = get_client(settings.REPLAY_VISION_REDIS_URL)
+    client = _watch_rank_client()
     client.expire(_watchable_key(team_id, scanner_id), WATCH_RANK_TTL)
     client.expire(_judged_key(team_id, scanner_id), WATCH_RANK_TTL)
 
@@ -368,7 +375,7 @@ def store_watch_ranks(
     attempts: dict[str, int],
     model: str | None,
 ) -> None:
-    client = get_client(settings.REPLAY_VISION_REDIS_URL)
+    client = _watch_rank_client()
     client.setex(
         _watchable_key(team_id, scanner_id),
         WATCH_RANK_TTL,
@@ -407,7 +414,7 @@ def load_judged_state(team_id: int, scanner_id: UUID) -> JudgedState:
     re-buys the scanner's judgments and its next write replaces entries it never saw. A stored
     value that cannot be parsed reads as empty instead, because rewriting it loses nothing.
     """
-    value = get_client(settings.REPLAY_VISION_REDIS_URL).get(_judged_key(team_id, scanner_id))
+    value = _watch_rank_client().get(_judged_key(team_id, scanner_id))
     if not value:
         return JudgedState(ids=set(), attempts={})
     try:
@@ -454,7 +461,7 @@ def load_scanner_watch_ranks(team_id: int, scanner_id: UUID) -> dict[str, float]
     """The sweep's read of one scanner's watchable map. Raises on a Redis read failure, because the
     sweep merges what it loads back into the store, so writing over a map it never saw drops
     entries. The feed reads through `load_watch_ranks`, which fails soft instead."""
-    return _parse_watchable(get_client(settings.REPLAY_VISION_REDIS_URL).get(_watchable_key(team_id, scanner_id)))
+    return _parse_watchable(_watch_rank_client().get(_watchable_key(team_id, scanner_id)))
 
 
 def load_watch_ranks(team_id: int, scanner_ids: list[UUID]) -> dict[str, float]:
@@ -465,9 +472,7 @@ def load_watch_ranks(team_id: int, scanner_ids: list[UUID]) -> dict[str, float]:
         return {}
     probabilities: dict[str, float] = {}
     try:
-        values = get_client(settings.REPLAY_VISION_REDIS_URL).mget(
-            [_watchable_key(team_id, scanner_id) for scanner_id in scanner_ids]
-        )
+        values = _watch_rank_client().mget([_watchable_key(team_id, scanner_id) for scanner_id in scanner_ids])
         for value in values:
             probabilities |= _parse_watchable(value)
     except Exception:

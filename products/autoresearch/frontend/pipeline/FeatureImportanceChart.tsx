@@ -1,104 +1,55 @@
 import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 
-interface FeatureImportance {
-    name: string
-    direction?: string
-    importance?: number
-    note?: string
-}
+import { FeatureDirectionEnumApi, ModelExplanationFieldApi } from '../generated/api.schemas'
 
-/** Pull the typed top-features list + note out of the loosely-typed model_explanation JSON. */
-function parseExplanation(explanation: unknown): { features: FeatureImportance[]; note: string | null } {
-    if (!explanation || typeof explanation !== 'object') {
-        return { features: [], note: null }
-    }
-    const obj = explanation as { top_features?: unknown; note?: unknown }
-    const note = typeof obj.note === 'string' ? obj.note : null
-    const raw = Array.isArray(obj.top_features) ? obj.top_features : []
-    const features = raw
-        .map((f): FeatureImportance | null => {
-            if (!f || typeof f !== 'object') {
-                return null
-            }
-            const { name, direction, importance, note: featureNote } = f as Record<string, unknown>
-            if (typeof name !== 'string') {
-                return null
-            }
-            return {
-                name,
-                direction: typeof direction === 'string' ? direction : undefined,
-                importance: typeof importance === 'number' ? importance : undefined,
-                note: typeof featureNote === 'string' ? featureNote : undefined,
-            }
-        })
-        .filter((f): f is FeatureImportance => f !== null)
-    // The agent already lists features strongest-first; only re-rank when it gave numbers.
-    if (features.some((f) => f.importance != null)) {
-        features.sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0))
-    }
-    return { features, note }
-}
-
-/**
- * A model's top feature drivers: importance bars when the agent supplied numeric
- * importances, otherwise a ranked list with the agent's per-feature notes.
- */
-export function FeatureImportanceChart({ explanation }: { explanation: unknown }): JSX.Element | null {
-    const { features, note } = parseExplanation(explanation)
-    if (features.length === 0) {
-        return null
-    }
-    const hasImportances = features.some((f) => f.importance != null)
+/** A model's top feature drivers, as importance bars relative to the strongest feature. */
+export function FeatureImportanceChart({ explanation }: { explanation: ModelExplanationFieldApi }): JSX.Element {
+    const features = explanation.top_features ?? []
     // Gain has no fixed scale, so bars are relative to the strongest feature.
-    const maxImportance = Math.max(0, ...features.map((f) => f.importance ?? 0))
-    const content = (
-        <div className="space-y-2">
-            <div className="text-xs text-muted">
-                <span style={{ color: 'var(--success)' }}>● raises</span>{' '}
-                <span style={{ color: 'var(--danger)' }}>● lowers</span> the prediction
-                {hasImportances ? ' · bars relative to the strongest feature' : ' · strongest first'}
-            </div>
-            <div className="space-y-1">
-                {features.map((f) => {
-                    const isNegative = f.direction === 'negative'
-                    const isPositive = f.direction === 'positive'
-                    const color = isNegative ? 'var(--danger)' : isPositive ? 'var(--success)' : 'var(--muted)'
-                    const effect = isNegative ? 'Lowers' : isPositive ? 'Raises' : 'Unknown effect on'
-                    return (
-                        <div key={f.name} className="flex items-center gap-2 text-sm">
-                            <div className="w-48 shrink-0 truncate font-mono text-xs" title={f.name}>
-                                <span style={{ color }}>● </span>
-                                {f.name}
-                            </div>
-                            {hasImportances ? (
+    const maxImportance = Math.max(0, ...features.map((f) => f.importance))
+    const content =
+        features.length === 0 ? (
+            <div className="text-xs text-muted">No feature drivers recorded for this model.</div>
+        ) : (
+            <div className="space-y-2">
+                <div className="text-xs text-muted">
+                    <span style={{ color: 'var(--success)' }}>● raises</span>{' '}
+                    <span style={{ color: 'var(--danger)' }}>● lowers</span> the prediction · bars relative to the
+                    strongest feature
+                </div>
+                <div className="space-y-1">
+                    {features.map((f) => {
+                        const isNegative = f.direction === FeatureDirectionEnumApi.Negative
+                        const color = isNegative ? 'var(--danger)' : 'var(--success)'
+                        const effect = isNegative ? 'Lowers' : 'Raises'
+                        return (
+                            <div key={f.name} className="flex items-center gap-2 text-sm">
+                                <div className="w-48 shrink-0 truncate font-mono text-xs" title={f.name}>
+                                    <span style={{ color }}>● </span>
+                                    {f.name}
+                                </div>
                                 <div
                                     className="flex-1 rounded h-4 overflow-hidden"
                                     style={{ backgroundColor: 'var(--border)' }}
                                 >
-                                    <Tooltip
-                                        title={`${effect} the prediction · importance ${(f.importance ?? 0).toFixed(3)}`}
-                                    >
+                                    <Tooltip title={`${effect} the prediction · importance ${f.importance.toFixed(3)}`}>
                                         <div
                                             className="h-full rounded"
                                             style={{
-                                                width: `${maxImportance > 0 ? Math.max(2, ((f.importance ?? 0) / maxImportance) * 100) : 2}%`,
+                                                width: `${maxImportance > 0 ? Math.max(2, (f.importance / maxImportance) * 100) : 2}%`,
                                                 backgroundColor: color,
                                             }}
                                         />
                                     </Tooltip>
                                 </div>
-                            ) : (
-                                <Tooltip title={f.note}>
-                                    <div className="flex-1 min-w-0 truncate text-xs text-muted">{f.note}</div>
-                                </Tooltip>
-                            )}
-                        </div>
-                    )
-                })}
+                            </div>
+                        )
+                    })}
+                </div>
+                {explanation.method && <div className="text-xs text-muted">Method: {explanation.method}</div>}
+                {explanation.note && <div className="text-xs text-muted italic">{explanation.note}</div>}
             </div>
-            {note && <div className="text-xs text-muted italic">{note}</div>}
-        </div>
-    )
+        )
     return (
         <LemonCollapse
             size="small"

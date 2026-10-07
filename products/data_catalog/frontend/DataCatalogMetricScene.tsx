@@ -12,7 +12,7 @@ import {
     IconSparkles,
     IconTrash,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -21,7 +21,6 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
@@ -137,7 +136,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
     }
 
     if (metricLoading && !metric) {
-        return <Spinner className="text-2xl" />
+        return <MetricSceneSkeleton />
     }
     if (!metric) {
         return <NotFound object="metric" />
@@ -366,7 +365,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                         { key: 'definition', label: 'Definition' },
                         { key: 'lineage', label: 'Lineage' },
                         metricChecksEnabled && {
-                            key: 'tests',
+                            key: 'data-quality',
                             label: <MetricTestsTabLabel metricId={metric.id} />,
                         },
                     ]}
@@ -404,8 +403,8 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     </div>
                 )}
 
-                {metricChecksEnabled && mountedTabs.includes('tests') && (
-                    <div className={tabPanelClassName('tests', activeTab)}>
+                {metricChecksEnabled && mountedTabs.includes('data-quality') && (
+                    <div className={tabPanelClassName('data-quality', activeTab)}>
                         <MetricTestsTab />
                     </div>
                 )}
@@ -440,6 +439,20 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                 </ScenePanelActionsSection>
             </ScenePanel>
         </BindLogic>
+    )
+}
+
+function MetricSceneSkeleton(): JSX.Element {
+    return (
+        <SceneContent>
+            <LemonSkeleton className="h-8 w-80" />
+            <LemonSkeleton className="h-4 w-1/2" />
+            <LemonSkeleton className="h-9 w-72" />
+            <div className="grid grid-cols-2 gap-x-8 gap-y-3 max-w-2xl">
+                <LemonSkeleton className="h-10" repeat={4} />
+            </div>
+            <LemonSkeleton className="h-64 w-full" />
+        </SceneContent>
     )
 }
 

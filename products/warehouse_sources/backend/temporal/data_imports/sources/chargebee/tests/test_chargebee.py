@@ -164,7 +164,18 @@ class TestChargebeeSourceResumeBehavior:
 
     @pytest.mark.parametrize(
         "endpoint",
-        ["Customers", "Events", "Invoices", "ItemPrices", "Items", "Subscriptions", "Transactions", "Orders"],
+        [
+            "CreditUnits",
+            "Customers",
+            "Events",
+            "Invoices",
+            "ItemPrices",
+            "Items",
+            "Meters",
+            "Subscriptions",
+            "Transactions",
+            "Orders",
+        ],
     )
     def test_fresh_run_saves_offset_after_each_non_terminal_page(self, endpoint: str) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
@@ -270,6 +281,7 @@ class TestChargebeeSiteNameValidation:
 
 class TestChargebeeCatalogEndpoints:
     """`Items` and `ItemPrices` carry the product catalog that `subscription_items` points at.
+    `CreditUnits` and `Meters` carry the usage-based billing catalog.
 
     Their rows sit one level deeper than the response list, so a wrong `data_selector` or
     path yields an empty table rather than an error.
@@ -284,6 +296,18 @@ class TestChargebeeCatalogEndpoints:
                 "/v2/item_prices",
                 "item_price",
                 {"id": "gold-USD-monthly", "item_id": "gold", "price": 1000},
+            ),
+            (
+                "CreditUnits",
+                "/v2/credit_units",
+                "credit_unit",
+                {"id": "ai-tokens", "status": "active", "is_unlimited": False, "overdraft_amount": "100.5"},
+            ),
+            (
+                "Meters",
+                "/v2/meters",
+                "meter",
+                {"id": "api-calls", "type": "simple", "query": "SELECT SUM(api_calls) FROM events"},
             ),
         ],
     )
@@ -394,3 +418,9 @@ class TestChargebeeIncrementalFilter:
         sent_params = self._drive(endpoint, incremental=False, last_value=1750000000)
 
         assert self.CURSOR_PARAMS[endpoint] not in sent_params[0]
+
+    @pytest.mark.parametrize("endpoint", ["CreditUnits", "Meters"])
+    def test_full_refresh_only_endpoints_ignore_incremental_watermark(self, endpoint: str) -> None:
+        sent_params = self._drive(endpoint, incremental=True, last_value=1750000000)
+
+        assert sent_params == [{"limit": 100}]

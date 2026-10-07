@@ -1,12 +1,13 @@
 # Inbox ranking training examples
 
-The tabular, report-embedding and title-embedding ranking families use one example per report per head, from the report's birth-day snapshot.
+The report-embedding and title-embedding ranking families use one example per report per head, from the report's birth-day snapshot.
 This prevents long-lived reports from receiving more weight in training because they appear in more daily snapshots.
 Birth days use the UTC interval returned by `snapshot_bounds`, including the start and excluding the end.
 The label comes from the snapshot `horizon_days` later, including outcomes already present on the birth day.
 
 The `pr_merged` head includes every report and reads merges within 14 days.
 The `dismiss_wrong` head includes every report and reads wrong-dismissal outcomes within 21 days.
+The `dismiss_lowvalue` head includes every report and reads `wontfix_irrelevant` dismissals within 21 days.
 
 The examples asset records `reports_missing_birth_snapshot` for observed reports born inside the lookback whose birth-day partition is missing.
 These reports produce no birth-grain example; reports born before the lookback do not contribute to this count.
@@ -26,25 +27,26 @@ Each head is conditioned on its cohort (`training/heads.py`).
 Every head uses every report as its cohort, so the probabilities are over the same reports and can be compared.
 Each head is graded only on its cohort.
 
-| Head            | Probability                              | Horizon |
-| --------------- | ---------------------------------------- | ------- |
-| `open`          | P(opened) over every report              | 3d      |
-| `action`        | P(acted on) over every report            | 7d      |
-| `discuss`       | P(discuss) over every report             | 7d      |
-| `dismiss_wrong` | P(dismissed as wrong) over every report  | 21d     |
-| `reviewer_fix`  | P(reviewers corrected) over every report | 14d     |
-| `thumbs_up`     | P(thumbs up) over every report           | 7d      |
-| `pr_created`    | P(PR created) over every report          | 7d      |
-| `pr_merged`     | P(PR merged) over every report           | 14d     |
-| `fixed`         | P(fixed) over every report               | 21d     |
-| `refund`        | P(refund) over every report              | 14d     |
+| Head               | Probability                                                 | Horizon |
+| ------------------ | ----------------------------------------------------------- | ------- |
+| `open`             | P(opened) over every report                                 | 3d      |
+| `action`           | P(acted on) over every report                               | 7d      |
+| `discuss`          | P(discuss) over every report                                | 7d      |
+| `dismiss_wrong`    | P(dismissed as wrong) over every report                     | 21d     |
+| `reviewer_fix`     | P(reviewers corrected) over every report                    | 14d     |
+| `thumbs_up`        | P(thumbs up) over every report                              | 7d      |
+| `pr_created`       | P(PR created) over every report                             | 7d      |
+| `pr_merged`        | P(PR merged) over every report                              | 14d     |
+| `fixed`            | P(fixed) over every report                                  | 21d     |
+| `refund`           | P(refund) over every report                                 | 14d     |
+| `dismiss_lowvalue` | P(dismissed as real but not worth fixing) over every report | 21d     |
 
 Each head in `metadata.json` records `cohort` (`everyone`) and `horizon_days`.
 
 ## Row budget
 
 A feature set can limit the rows one head keeps (`max_examples_per_head`).
-The embedding families set it to 100,000; the tabular family has no budget.
+The embedding families set it to 100,000.
 The budget limits history, not the rows inside a day:
 
 - The head's examples are grouped by report-creation day, newest first.

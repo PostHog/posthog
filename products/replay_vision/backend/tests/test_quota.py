@@ -22,7 +22,6 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
 from products.replay_vision.backend.quota import (
     MONTHLY_CREDIT_QUOTA,
     BillingPeriod,
@@ -86,27 +85,6 @@ class _VisionQuotaTestCase(APIBaseTest):
                 "observation_created_at": observation.created_at,
                 "model": model,
                 "credits": observation_credits_for_model(model),
-            },
-        )
-
-    @staticmethod
-    def _make_running_evaluation(
-        *,
-        scanner: ReplayScanner,
-        total: int,
-        status: str = "running",
-        age: timedelta = timedelta(0),
-        settled: int = 0,
-    ) -> ReplayScannerPromptSuggestion:
-        return ReplayScannerPromptSuggestion.objects.create(
-            scanner=scanner,
-            team=scanner.team,
-            suggested_prompt="p",
-            evaluation={
-                "status": status,
-                "started_at": (timezone.now() - age).isoformat(),
-                "total": total,
-                "results": [{"session_id": f"s-{i}"} for i in range(settled)],
             },
         )
 
@@ -186,25 +164,9 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
             completed_at=timezone.now(),
         )
         self._make_receipt(other_obs)
-        self._make_running_evaluation(scanner=other_scanner, total=5)
 
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         assert snapshot.credits_used == 0
-
-    @parameterized.expand(
-        [
-            ("running_counts_unsettled", "running", timedelta(0), 2, 3),
-            # A dead workflow can't charge anymore, so a stale "running" row holds no quota.
-            ("stale_running_ignored", "running", timedelta(hours=4), 0, 0),
-            ("finished_ignored", "succeeded", timedelta(0), 0, 0),
-        ]
-    )
-    def test_running_evaluations_count_unsettled_sessions(
-        self, _name: str, status: str, age: timedelta, settled: int, expected_unsettled: int
-    ) -> None:
-        self._make_running_evaluation(scanner=self.scanner, total=5, status=status, age=age, settled=settled)
-        expected = expected_unsettled * observation_credits_for_model(self.scanner.model)
-        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == expected
 
     def test_exhausted_when_usage_meets_quota(self) -> None:
         with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 30):
@@ -325,14 +287,6 @@ class TestComputeScannerBudget(_VisionQuotaTestCase):
         self._make_observation(status=ObservationStatus.SUCCEEDED, created_at=last_month, completed_at=last_month)
         assert compute_scanner_budget(self.scanner).credits_used == 0
 
-    def test_a_running_evaluation_reserves_against_the_scanners_own_cap(self) -> None:
-        self._make_running_evaluation(scanner=self.scanner, total=4)
-        assert compute_scanner_budget(self.scanner).credits_used == 4 * 15
-
-    def test_another_scanners_running_evaluation_does_not_count(self) -> None:
-        self._make_running_evaluation(scanner=self._other_scanner(), total=4)
-        assert compute_scanner_budget(self.scanner).credits_used == 0
-
     def test_a_caller_supplied_period_is_billed_against(self) -> None:
         self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
         previous = start_of_month(datetime.now(UTC)) - timedelta(days=1)
@@ -378,91 +332,6 @@ class TestComputeScannerBudget(_VisionQuotaTestCase):
             budget = compute_scanner_budget(self.scanner)
 
         assert budget.credits_used >= 15
-
-
-class TestBackfillUsageScannerId(_VisionQuotaTestCase):
-    def test_backfills_null_scanner_ids_only_where_the_observation_still_exists(self) -> None:
-        import uuid
-        import importlib
-
-        from django.apps import apps as django_apps
-        from django.db import connection
-
-        observation = self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
-        ReplayObservationUsage.objects.filter(observation_id=observation.id).update(scanner_id=None)
-        orphan = ReplayObservationUsage.objects.create(
-            organization_id=self.organization.id,
-            observation_id=uuid.uuid4(),
-            observation_created_at=timezone.now(),
-        )
-
-        migration = importlib.import_module("products.replay_vision.backend.migrations.0070_backfill_usage_scanner_id")
-        with connection.schema_editor(atomic=False) as schema_editor:
-            migration.backfill_scanner_id(django_apps, schema_editor)
-
-        assert ReplayObservationUsage.objects.get(observation_id=observation.id).scanner_id == self.scanner.id
-        orphan.refresh_from_db()
-        assert orphan.scanner_id is None
-
-    def test_backfill_attributes_all_receipts_across_batches(self) -> None:
-        import uuid
-        import importlib
-
-        from django.apps import apps as django_apps
-        from django.db import connection
-
-        observations = [
-            self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now()) for _ in range(3)
-        ]
-        ReplayObservationUsage.objects.filter(observation_id__in=[o.id for o in observations]).update(scanner_id=None)
-        orphan = ReplayObservationUsage.objects.create(
-            organization_id=self.organization.id,
-            observation_id=uuid.uuid4(),
-            observation_created_at=timezone.now(),
-        )
-
-        migration = importlib.import_module("products.replay_vision.backend.migrations.0070_backfill_usage_scanner_id")
-        # BATCH_SIZE=1 forces one keyset iteration per receipt, exercising the pagination loop.
-        with patch.object(migration, "BATCH_SIZE", 1):
-            with connection.schema_editor(atomic=False) as schema_editor:
-                migration.backfill_scanner_id(django_apps, schema_editor)
-
-        for observation in observations:
-            assert ReplayObservationUsage.objects.get(observation_id=observation.id).scanner_id == self.scanner.id
-        orphan.refresh_from_db()
-        assert orphan.scanner_id is None
-
-
-class TestRebackfillUsageScannerId(_VisionQuotaTestCase):
-    def test_rebackfill_attributes_receipts_across_batches_and_leaves_orphans_null(self) -> None:
-        import uuid
-        import importlib
-
-        from django.apps import apps as django_apps
-        from django.db import connection
-
-        observations = [
-            self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now()) for _ in range(3)
-        ]
-        ReplayObservationUsage.objects.filter(observation_id__in=[o.id for o in observations]).update(scanner_id=None)
-        orphan = ReplayObservationUsage.objects.create(
-            organization_id=self.organization.id,
-            observation_id=uuid.uuid4(),
-            observation_created_at=timezone.now(),
-        )
-
-        migration = importlib.import_module(
-            "products.replay_vision.backend.migrations.0073_rebackfill_usage_scanner_id"
-        )
-        # BATCH_SIZE=1 forces one keyset iteration per receipt, exercising the pagination loop.
-        with patch.object(migration, "BATCH_SIZE", 1):
-            with connection.schema_editor(atomic=False) as schema_editor:
-                migration.rebackfill_scanner_id(django_apps, schema_editor)
-
-        for observation in observations:
-            assert ReplayObservationUsage.objects.get(observation_id=observation.id).scanner_id == self.scanner.id
-        orphan.refresh_from_db()
-        assert orphan.scanner_id is None
 
 
 class TestScannerBudgetBlocked(SimpleTestCase):
@@ -611,7 +480,6 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
             scanner_snapshot=_snapshot_for(other_scanner),
             triggered_by=ObservationTrigger.ON_DEMAND,
         )
-        self._make_running_evaluation(scanner=other_scanner, total=4)
         result = compute_scanner_budgets(self.organization.id, [other_scanner.id])
         assert result[other_scanner.id].credits_used == 0
         assert result[other_scanner.id].credit_limit is None

@@ -385,6 +385,7 @@ const CHECK_OUTCOME: Record<NonNullable<CheckResultContent['outcome']>, { label:
     passed: { label: 'Still holds', type: 'success' },
     failed: { label: 'No longer holds', type: 'danger' },
     errored: { label: "Couldn't measure", type: 'warning' },
+    inconclusive: { label: 'Inconclusive', type: 'warning' },
 }
 
 function CheckResultBody({ content }: { content: CheckResultContent }): JSX.Element | null {

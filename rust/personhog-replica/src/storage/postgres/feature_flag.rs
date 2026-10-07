@@ -8,7 +8,7 @@ use personhog_common::grpc::{current_client_name, current_method_name};
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::FeatureFlagStorage;
-use crate::storage::types::{HashKeyOverride, HashKeyOverrideContext};
+use crate::storage::types::{HashKeyOverride, HashKeyOverrideContext, COOKIELESS_SENTINEL_VALUE};
 
 // Kept as an intermediate struct because the rows are aggregated into
 // HashKeyOverrideContext via HashMap grouping logic. All field types already
@@ -21,6 +21,8 @@ struct HashKeyOverrideContextRow {
     hash_key: Option<String>,
 }
 
+// The override queries in this impl apply the same sentinel rules as the hash key override SQL
+// in `rust/feature-flags/src/flags/flag_matching_utils.rs`. Keep the two in sync.
 #[async_trait]
 impl FeatureFlagStorage for PostgresStorage {
     async fn get_hash_key_override_context(
@@ -61,6 +63,8 @@ impl FeatureFlagStorage for PostgresStorage {
         let pool = self.pool_for_consistency(consistency);
         let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
+        // Every cookieless visitor shares the sentinel, so a stored sentinel would give all of
+        // them the same variant.
         let rows = if check_person_exists {
             sqlx::query_as!(
                 HashKeyOverrideContextRow,
@@ -71,11 +75,13 @@ impl FeatureFlagStorage for PostgresStorage {
                 FROM posthog_persondistinctid p
                 LEFT JOIN posthog_featureflaghashkeyoverride existing
                     ON existing.person_id = p.person_id AND existing.team_id = p.team_id
+                    AND existing.hash_key <> $3
                 WHERE p.team_id = $1 AND p.distinct_id = ANY($2) AND p.is_deleted = false
                     AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id AND is_deleted = false)
                 "#,
                 team_id as i32,
-                distinct_ids
+                distinct_ids,
+                COOKIELESS_SENTINEL_VALUE
             )
             .fetch_all(&mut *conn)
             .await?
@@ -89,10 +95,12 @@ impl FeatureFlagStorage for PostgresStorage {
                 FROM posthog_persondistinctid ppd
                 LEFT JOIN posthog_featureflaghashkeyoverride fhko
                     ON fhko.person_id = ppd.person_id AND fhko.team_id = ppd.team_id
+                    AND fhko.hash_key <> $3
                 WHERE ppd.team_id = $1 AND ppd.distinct_id = ANY($2) AND ppd.is_deleted = false
                 "#,
                 team_id as i32,
-                distinct_ids
+                distinct_ids,
+                COOKIELESS_SENTINEL_VALUE
             )
             .fetch_all(&mut *conn)
             .await?
@@ -168,20 +176,34 @@ impl FeatureFlagStorage for PostgresStorage {
 
         let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
 
+        // DO UPDATE locks each conflicting row even when its WHERE is false, so NOT EXISTS
+        // skips the pairs that already hold a real key. The WHERE still keeps a real key that a
+        // concurrent write commits after NOT EXISTS reads its snapshot. DO UPDATE also fails
+        // when two distinct ids of one person produce the same row twice, so DISTINCT removes
+        // the duplicates. ORDER BY makes concurrent upserts lock rows in the same order.
         let result = sqlx::query!(
             r#"
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-            SELECT $1, p.person_id, f.flag_key, $2
+            SELECT DISTINCT $1::integer, p.person_id, f.flag_key, $2::text
             FROM posthog_persondistinctid p
             CROSS JOIN UNNEST($4::text[]) AS f(flag_key)
             WHERE p.team_id = $1 AND p.distinct_id = ANY($3) AND p.is_deleted = false
               AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id AND is_deleted = false)
-            ON CONFLICT DO NOTHING
+              AND NOT EXISTS (
+                  SELECT 1 FROM posthog_featureflaghashkeyoverride o
+                  WHERE o.team_id = p.team_id AND o.person_id = p.person_id
+                    AND o.feature_flag_key = f.flag_key AND o.hash_key <> $5
+              )
+            ORDER BY p.person_id, f.flag_key
+            ON CONFLICT (team_id, person_id, feature_flag_key) DO UPDATE
+                SET hash_key = EXCLUDED.hash_key
+                WHERE posthog_featureflaghashkeyoverride.hash_key = $5
             "#,
             team_id as i32,
             hash_key,
             distinct_ids,
-            feature_flag_keys
+            feature_flag_keys,
+            COOKIELESS_SENTINEL_VALUE
         )
         .execute(&mut *conn)
         .await?;

@@ -66,6 +66,45 @@ def _context_for_desktop_bootstrap(
     )
 
 
+@pytest.mark.parametrize("marker", [None, "scout_trial", "scout_trial_judge"])
+@override_settings(
+    DEBUG=False,
+    SANDBOX_AGENT_OTEL_LOGS_URL="https://telemetry.example/logs",
+    SANDBOX_AGENT_OTEL_LOGS_TOKEN="synthetic-token",
+)
+def test_private_trial_keeps_the_pinned_model_after_overload(mocker, marker: str | None) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.state = {marker: {"version": 1}} if marker else {}
+    context.agent_otel_telemetry_enabled = True
+    for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
+        mocker.patch.object(provision_sandbox_module, name, return_value={})
+    mocker.patch.object(provision_sandbox_module, "get_sandbox_jwt_public_key", return_value="public-key")
+
+    task = mocker.Mock(is_scout_experiment=marker is not None)
+    environment = provision_sandbox_module._build_environment_variables(context, task, "", "fake-token")
+
+    assert environment.get("POSTHOG_DISABLE_MODEL_FALLBACK") == ("1" if marker else None)
+    assert environment.get("POSTHOG_AGENT_OTEL_LOGS_TOKEN") == (None if marker else "synthetic-token")
+
+
+def test_judge_does_not_inherit_github_credentials(mocker) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.state = {"github_read_access": True, "scout_trial_judge": {"version": 1}}
+    task = Task(origin_product="signals_scout", origin_key="scout-trial-judge:synthetic-evaluation:synthetic-launch")
+    token = mocker.patch.object(provision_sandbox_module, "get_sandbox_github_token")
+    readonly_token = mocker.patch.object(provision_sandbox_module, "get_readonly_github_token")
+
+    assert (
+        provision_sandbox_module._resolve_sandbox_github_token(
+            context, task=task, actor_user=None, repository=None, has_repo=False
+        )
+        == ""
+    )
+    assert context.github_read_access is False
+    token.assert_not_called()
+    readonly_token.assert_not_called()
+
+
 class _ShellSandbox:
     def __init__(self, env: dict[str, str]) -> None:
         self.config = type("Config", (), {"image_fallback": None})()

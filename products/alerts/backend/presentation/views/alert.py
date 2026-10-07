@@ -81,8 +81,6 @@ from products.alerts.backend.evaluation.validation import (
     validate_alert_insight_query,
 )
 from products.alerts.backend.facade.api import (
-    INSIGHT_ALERT_DESTINATION_TYPES,
-    INSIGHT_ALERT_EVENT_IDS,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     MAX_PROMPT_POINTS,
     LLMAlertWrite,
@@ -92,11 +90,7 @@ from products.alerts.backend.facade.api import (
     is_llm_detector_config,
     llm_detector_access_error,
 )
-from products.alerts.backend.facade.contracts import (
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    DestinationType,
-)
+from products.alerts.backend.facade.contracts import INSIGHT_ALERT_DESTINATION_TYPES, INSIGHT_ALERT_EVENT_IDS
 from products.alerts.backend.facade.destinations import (
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     MAX_DESTINATIONS_PER_ALERT,
@@ -107,7 +101,6 @@ from products.alerts.backend.facade.destinations import (
     validate_destination_data,
 )
 from products.alerts.backend.facade.evaluation import DelayedEvaluationUnavailable, validate_evaluation_delay
-from products.alerts.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
@@ -116,7 +109,13 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_unsnooze,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
-from products.alerts.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
+)
+from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
+from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
@@ -457,11 +456,6 @@ class TeamScopedInsightReferenceField(TeamScopedPrimaryKeyRelatedField):
             return insight
 
         self.fail("does_not_exist", pk_value=data)
-
-
-@extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
-class ScheduleRestrictionField(serializers.JSONField):
-    pass
 
 
 class ThresholdSerializer(serializers.ModelSerializer):

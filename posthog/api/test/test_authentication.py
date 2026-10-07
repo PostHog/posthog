@@ -17,7 +17,7 @@ from django.core import mail
 from django.core.asgi import get_asgi_application
 from django.core.cache import cache
 from django.db import connection
-from django.http import HttpResponse
+from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -39,7 +39,9 @@ from two_factor.utils import totp_digits
 from posthog.api.authentication import password_reset_token_generator, social_login_notification
 from posthog.api.email_verification import is_email_verification_disabled
 from posthog.auth import (
+    ExportRendererAuthentication,
     InternalAPIUser,
+    JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
@@ -47,14 +49,17 @@ from posthog.auth import (
     SessionAuthentication,
     TeamSecretTokenAuthentication,
     TeamSecretTokenUser,
+    WidgetAuthentication,
     _extract_phs_token,
+    mint_export_renderer_token,
 )
-from posthog.clickhouse.query_tagging import AccessMethod
+from posthog.clickhouse.query_tagging import AccessMethod, get_query_tags, tags_context
 from posthog.helpers.user_devices import (
     KNOWN_DEVICE_COOKIE,
     build_known_device_cookie_value,
     has_valid_known_device_cookie,
 )
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.middleware import KnownLoginDeviceCookieMiddleware
 from posthog.models import User
 from posthog.models.activity_logging.signal_handlers import post_login
@@ -68,6 +73,7 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
@@ -837,16 +843,59 @@ class TestDevLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
+class TestInternalTokensRefuseBlockedAccounts(APIBaseTest):
+    def _authenticator_and_request(
+        self, kind: str
+    ) -> tuple[ExportRendererAuthentication | JwtAuthentication, HttpRequest]:
+        if kind == "export_renderer":
+            asset = ExportedAsset.objects.create(
+                team=self.team,
+                created_by=self.user,
+                export_format=ExportedAsset.ExportFormat.PNG,
+                export_context={"session_recording_id": "recording-id"},
+            )
+            token = mint_export_renderer_token(
+                user_id=self.user.id, team_id=self.team.id, exported_asset_id=asset.id, scope="session_recording:read"
+            )
+            authenticator: ExportRendererAuthentication | JwtAuthentication = ExportRendererAuthentication()
+        else:
+            token = encode_jwt({"id": self.user.id}, timedelta(minutes=5), PosthogJwtAudience.IMPERSONATED_USER)
+            authenticator = JwtAuthentication()
+        return authenticator, APIRequestFactory().get("/", headers={"authorization": f"Bearer {token}"})
+
+    @parameterized.expand([("export renderer token", "export_renderer"), ("internal JWT", "jwt")])
+    def test_a_refused_account_keeps_the_refusal_code(self, _name: str, kind: str) -> None:
+        # Both authenticators wrap their body in a catch-all that would turn the refusal into "Token invalid."
+        authenticator, request = self._authenticator_and_request(kind)
+
+        with patch("posthog.auth.security_access_refused", return_value=True):
+            with pytest.raises(AuthenticationFailed) as raised:
+                authenticator.authenticate(request)
+        assert raised.value.get_codes() == "access_blocked"
+
+        with patch("posthog.auth.security_access_refused", return_value=False):
+            result = authenticator.authenticate(request)
+        assert result is not None and result[0] == self.user
+
+
 class TestLogoutRedirect(APIBaseTest):
     """
     Tests that /logout preserves a safe `next` param so users return to where they were
     after logging back in.
     """
 
-    def test_logout_without_next_redirects_to_login(self):
-        response = self.client.post("/logout")
+    @parameterized.expand(
+        [
+            ("no reason", {}, None),
+            ("an unknown reason", {"reason": "Your account was hacked, call this number"}, None),
+            ("an access rule refusal", {"reason": "access_blocked"}, "access_blocked"),
+        ]
+    )
+    def test_logout_without_next_redirects_to_login(self, _name, data, error_code):
+        response = self.client.post("/logout", data, format="multipart")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response["Location"], settings.LOGIN_URL)
+        expected = settings.LOGIN_URL if error_code is None else f"{settings.LOGIN_URL}?error_code={error_code}"
+        self.assertEqual(response["Location"], expected)
 
     def test_logout_forwards_safe_next_param(self):
         response = self.client.post("/logout", {"next": "/settings/user-notifications"}, format="multipart")
@@ -2541,6 +2590,15 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
         self.assertEqual(user.team, self.team)
 
 
+class TestWidgetAuthentication(SimpleTestCase):
+    @parameterized.expand([(Team.DoesNotExist,), (Team.MultipleObjectsReturned,)])
+    def test_invalid_token_fails_authentication(self, lookup_error: type[Exception]) -> None:
+        request = Request(APIRequestFactory().get("/", HTTP_X_CONVERSATIONS_TOKEN="test-widget-token"))
+        with patch("posthog.models.Team.objects.get", side_effect=lookup_error):
+            with self.assertRaises(AuthenticationFailed):
+                WidgetAuthentication().authenticate(request)
+
+
 class TestSyntheticUser(SimpleTestCase):
     def _team(self, team_id=42):
         return type("FakeTeam", (), {"id": team_id})()
@@ -2734,6 +2792,36 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         assert self.psak.last_used_at is not None
         # Should have updated to a recent timestamp
         self.assertGreater(self.psak.last_used_at, old + timedelta(hours=1))
+
+
+class TestScoutPrivateCaptureAuthentication(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("ordinary", "query:read", True, False),
+            ("unbound", "scout_experiment_internal:read", False, False),
+            ("trial", "query:read scout_experiment_internal:read", True, True),
+        ]
+    )
+    def test_capture_policy_requires_the_bound_scope(self, _name: str, scope: str, bound: bool, private: bool) -> None:
+        token = OAuthAccessToken(
+            user=User(id=1, current_team_id=2),
+            scope=scope,
+            sandbox_task_id=uuid.uuid4() if bound else None,
+        )
+        request = Request(
+            APIRequestFactory().get(
+                "/?is_scout_experiment=true",
+                HTTP_AUTHORIZATION="Bearer pha_synthetic",
+                HTTP_X_POSTHOG_SUPPRESS_ANALYTICS="true",
+            )
+        )
+        with (
+            tags_context(is_scout_experiment=False),
+            patch.object(OAuthAccessTokenAuthentication, "_validate_token", return_value=token),
+            patch("posthog.auth.activity_storage.is_request_scoped", return_value=False),
+        ):
+            self.assertIsNotNone(OAuthAccessTokenAuthentication().authenticate(request))
+            self.assertEqual(get_query_tags().is_scout_experiment, private)
 
 
 class TestOAuthAccessTokenAuthentication(APIBaseTest):

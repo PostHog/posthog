@@ -203,7 +203,11 @@ def _validate_adhoc_export_context(export_context: dict) -> None:
         if kind == "InsightVizNode":
             return
         inner = source.get("source")
-        if kind == "DataVisualizationNode" and isinstance(inner, dict) and inner.get("kind") == "HogQLQuery":
+        if (
+            kind in ("DataVisualizationNode", "BIVisualizationNode")
+            and isinstance(inner, dict)
+            and inner.get("kind") == "HogQLQuery"
+        ):
             return
     raise ValueError("export_context.source must be an InsightVizNode- or DataVisualizationNode-wrapped query")
 

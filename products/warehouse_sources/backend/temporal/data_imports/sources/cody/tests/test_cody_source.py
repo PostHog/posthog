@@ -18,6 +18,7 @@ ALL_ENDPOINTS = [
     "usage_by_user_day",
     "usage_by_user_day_client_language",
     "credits",
+    "user_registry",
 ]
 
 

@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { useActions, useValues } from 'kea'
 import { HttpResponse } from 'msw'
 import { ReactNode, useEffect } from 'react'
@@ -19,7 +20,7 @@ import type {
 } from 'products/tasks/frontend/generated/api.schemas'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { expect, userEvent, waitFor } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { TaskDetailPage } from './components/TaskDetailPage'

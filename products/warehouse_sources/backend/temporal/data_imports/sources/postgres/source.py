@@ -94,6 +94,10 @@ _HOST_HAS_PORT_ERROR = (
     "in the port field instead."
 )
 
+_PORT_OUT_OF_RANGE_ERROR = (
+    "The port must be between 1 and 65535. Enter the port your database listens on, usually 5432."
+)
+
 # Railway's DATABASE_URL points at the service's private-network host, so it is the value customers
 # paste most often. The name only resolves inside Railway's own network, and the DNS failure that
 # follows asks them to check a spelling that is already correct, so name the public host instead.
@@ -183,6 +187,18 @@ PostgresErrors = {
         "database project is paused or deleted, or the pooler username/host is wrong. Check that "
         "your database is active and the connection details are correct."
     ),
+    # Supavisor runs an `auth_query` against the tenant's database to fetch the user's password
+    # secret. These two "(EAUTHQUERY)" outcomes are permanent, unlike the "secret check timed out"
+    # race `postgres.py` retries: the user doesn't exist, or its password is stored in a format the
+    # pooler can't verify (no password, or a non-SCRAM hash). Setting the password again stores it
+    # as SCRAM.
+    "user not found in the database": (
+        "Your database doesn't have a user with the username you entered. Check the user for this source and try again."
+    ),
+    "unsupported or invalid secret format": (
+        "Your connection pooler can't check this user's password because of how your database "
+        "stores it. Reset the user's password in your database, then try again."
+    ),
     # Supabase/Supavisor's shared regional pooler (aws-0-<region>.pooler.supabase.com) can't
     # identify the project from SNI, so the pooler username must embed the project ref (for example
     # "postgres.<project-ref>"). A plain "postgres" username leaves it nothing to route on and it
@@ -225,6 +241,28 @@ PostgresErrors = {
         "Your database's connection pooler has temporarily blocked new connections after repeated "
         'authentication failures ("too many authentication failures"). This usually means the '
         "username or password is wrong. Check your credentials and try again."
+    ),
+    # A server using `pam` auth in pg_hba.conf words a bad password this way, so the libpq
+    # password keys above don't match it.
+    "PAM authentication failed": _INVALID_CREDENTIALS_VALIDATION_ERROR,
+    # A PgBouncer-style pooler (for example Supabase's on port 6543) rejects a username that isn't
+    # in its own user list before Postgres sees it.
+    "no such user": (
+        "Your connection pooler doesn't recognize this username. Use the username your pooler "
+        "expects, such as postgres.<project-ref> for Supabase, then try again."
+    ),
+    # The role exists but has NOLOGIN, which is the default for a role made with CREATE ROLE.
+    "is not permitted to log in": (
+        "Your database user isn't allowed to sign in. Grant it the LOGIN privilege or use a "
+        "different user, then try again."
+    ),
+    # Supavisor rejects a client IP outside the project's network restrictions with
+    # "FATAL: (EADDRNOTALLOWED) address not in tenant allow_list: ...". `get_non_retryable_errors`
+    # already handles this on the streaming path; map it here too so validation returns an
+    # actionable message instead of the generic fallback.
+    "address not in tenant allow_list": (
+        "Your database provider rejected the connection because PostHog's IP address isn't on its IP "
+        "allow list. Add PostHog's IP addresses to that allow list, then try again."
     ),
     "could not translate host name": _DNS_RESOLUTION_VALIDATION_ERROR,
     # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
@@ -518,6 +556,16 @@ class PostgresSource(
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # A serverless provider (observed on Xata) refuses the connection while the branch is
+            # hibernated. A hibernated branch does not wake on connect: the refusal itself asks for a
+            # reactivation, which only the customer can do, so every retry re-hits the same refusal.
+            # Match the stable phrase because libpq prefixes it with the customer's host and port.
+            # This entry comes first because the finalizer takes the first match, and a multi-address
+            # refusal can also carry a generic "Connection refused" or timeout for another address.
+            "branch is hibernated": (
+                "Your database provider hibernated this branch, so PostHog can't connect. "
+                "Reactivate the branch in your provider's dashboard, then re-enable the sync."
+            ),
             # xmin can't run against this relation (server < PG13, no primary key, or a partitioned
             # parent) — deterministic, so don't retry. `XminUnsupportedError` matches once Temporal
             # wraps the failure; the message fragment matches the raw activity-level `str(e)`.
@@ -1657,6 +1705,11 @@ class PostgresSource(
         if host_value.count(":") == 1 and not host_value.startswith("["):
             return False, _HOST_HAS_PORT_ERROR
 
+        # Out of range, the port reaches sshtunnel as a bare AssertionError or libpq as a connection
+        # failure, and both end in the generic "check all connection details" message.
+        if not 1 <= config.port <= 65535:
+            return False, _PORT_OUT_OF_RANGE_ERROR
+
         # A bastion inside the customer's Railway project can reach the private host, so only reject
         # it for a direct connection.
         if not self.ssh_tunnel_enabled(config) and host_value.lower().endswith(_RAILWAY_INTERNAL_HOST_SUFFIX):
@@ -1889,18 +1942,7 @@ class PostgresSource(
                 supports_resume=False,
             )
 
-        # Defense in depth for the v3-forcing invariant: a run that resolved its pipeline version
-        # before its table started streaming, or a worker one deploy behind, would consume this
-        # buffer on v2, which stamps no position on the rows it writes, so every later run would
-        # find nothing to resume from and re-merge the whole buffer. Fail the run loudly instead of
-        # degrading silently.
         job = ExternalDataJob.objects.filter(id=inputs.job_id, team_id=inputs.team_id).first()
-        if job is not None and job.pipeline_version != ExternalDataJob.PipelineVersion.V3:
-            raise ValueError(
-                f"Buffered CDC schema {schema.name} reached a {job.pipeline_version} pipeline run. "
-                "Buffered consumption requires v3, whose loader stamps each row with the position "
-                "the next run resumes from."
-            )
 
         # A CDC reset must travel through snapshot mode, which re-seeds the table before the buffer
         # replays over it; every reset writer does that. Merging the buffer into a wiped table

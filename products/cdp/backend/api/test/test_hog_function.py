@@ -192,15 +192,16 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         )
         self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
 
-    def test_generic_api_cannot_subscribe_to_managed_alert_events(self):
+    @parameterized.expand([("$billing_alert_firing",), ("$logs_alert_incident_closed",)])
+    def test_generic_api_cannot_subscribe_to_managed_alert_events(self, event_id):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
-                "name": "Forged billing destination",
+                "name": "Forged alert destination",
                 "hog": "fetch('https://example.com');",
                 "type": "internal_destination",
                 "enabled": True,
-                "filters": {"events": [{"id": "$billing_alert_firing", "type": "events"}]},
+                "filters": {"events": [{"id": event_id, "type": "events"}]},
             },
         )
 
