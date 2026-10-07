@@ -382,6 +382,7 @@ export function EvaluationBackfillsTab({
                         <LemonButton
                             size="small"
                             loading={transitioningIds.includes(backfill.id)}
+                            data-attr="llma-eval-backfill-retry-remaining"
                             disabledReason={
                                 !evaluation?.enabled
                                     ? 'Re-enable the evaluation before retrying.'
@@ -397,6 +398,7 @@ export function EvaluationBackfillsTab({
                                     primaryButton: {
                                         children: 'Retry remaining',
                                         onClick: () => retryBackfill(backfill.id),
+                                        'data-attr': 'llma-eval-backfill-retry-remaining-confirm',
                                     },
                                     secondaryButton: { children: 'Cancel' },
                                 })

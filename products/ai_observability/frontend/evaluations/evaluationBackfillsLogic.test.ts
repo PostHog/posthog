@@ -623,30 +623,36 @@ describe('evaluationBackfillsLogic', () => {
         await expectLogic(logic).toMatchValues({ transitioningIds: [] })
     })
 
-    it('retries the saved scope once and keeps existing results', async () => {
-        const previous = backfill({ status: 'interrupted', rerun_existing: true })
-        listMock.mockResolvedValue({ count: 1, results: [previous] })
-        await mountAndSettle()
-        let finish!: (value: EvaluationBackfillApi) => void
-        createMock.mockImplementationOnce(
-            () =>
-                new Promise((resolve) => {
-                    finish = resolve
-                })
-        )
+    it.each(['backfill-1', 'backfill-2'])(
+        'guards a concurrent retry of %s and keeps existing results',
+        async (secondId) => {
+            const previous = backfill({ status: 'interrupted', rerun_existing: true })
+            listMock.mockResolvedValue({
+                count: 2,
+                results: [previous, backfill({ id: 'backfill-2', status: 'interrupted' })],
+            })
+            await mountAndSettle()
+            let finish!: (value: EvaluationBackfillApi) => void
+            createMock.mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        finish = resolve
+                    })
+            )
 
-        logic.actions.retryBackfill(previous.id)
-        logic.actions.retryBackfill(previous.id)
-        expect(createMock).toHaveBeenCalledTimes(1)
-        expect(createMock).toHaveBeenCalledWith(expect.any(String), EVALUATION_ID, {
-            window_start: previous.window_start,
-            window_end: previous.window_end,
-            conditions: previous.conditions.map((condition, index) => ({ ...condition, id: `retry-${index}` })),
-            rerun_existing: false,
-        })
-        expect(logic.values.transitioningIds).toContain(previous.id)
-        finish(backfill({ status: 'running' }))
-        await expectLogic(logic).toDispatchActions(['transitionBackfillDone', 'loadBackfills'])
-        expect(logic.values.transitioningIds).toEqual([])
-    })
+            logic.actions.retryBackfill(previous.id)
+            logic.actions.retryBackfill(secondId)
+            expect(createMock).toHaveBeenCalledTimes(1)
+            expect(createMock).toHaveBeenCalledWith(expect.any(String), EVALUATION_ID, {
+                window_start: previous.window_start,
+                window_end: previous.window_end,
+                conditions: previous.conditions.map((condition, index) => ({ ...condition, id: `retry-${index}` })),
+                rerun_existing: false,
+            })
+            expect(new Set(logic.values.transitioningIds)).toEqual(new Set([previous.id]))
+            finish(backfill({ status: 'running' }))
+            await expectLogic(logic).toDispatchActions(['transitionBackfillDone', 'loadBackfills'])
+            expect(logic.values.transitioningIds).toEqual([])
+        }
+    )
 })

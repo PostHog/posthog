@@ -172,11 +172,13 @@ class TestEvaluationBackfillWorkflow:
         "reason,outcome",
         [
             ("parse_error", ChildOutcome.RETRYABLE),
-            ("unparsable_response", ChildOutcome.SKIPPED),
-            ("output_limit_exceeded", ChildOutcome.SKIPPED),
+            ("unparsable_response", ChildOutcome.RETRYABLE),
+            ("output_limit_exceeded", ChildOutcome.RETRYABLE),
+            ("content_filtered", ChildOutcome.SKIPPED),
+            ("request_rejected", ChildOutcome.SKIPPED),
         ],
     )
-    def test_unrecorded_parse_errors_are_retryable_but_recorded_skips_are_preserved(
+    def test_unusable_responses_are_retryable_but_terminal_skips_are_preserved(
         self, reason: str, outcome: ChildOutcome
     ) -> None:
         assert (
@@ -188,12 +190,15 @@ class TestEvaluationBackfillWorkflow:
 
     @pytest.mark.asyncio
     async def test_bounded_dispatch_waits_for_outcomes_before_advancing(self) -> None:
+        found = dataclasses.replace(
+            _found([_candidate(f"u{i}") for i in range(19)], exhausted=True),
+            next_cursor_timestamp=(UNIT_TIMESTAMP - timedelta(hours=1)).isoformat(),
+            next_cursor_unit_id="filtered-out-unit",
+        )
         mocks = _BackfillMocks(
             activity_results={
                 prepare_evaluation_backfill_tick_activity: _tick(),
-                find_evaluation_backfill_candidates_activity: _found(
-                    [_candidate(f"u{i}") for i in range(19)], exhausted=True
-                ),
+                find_evaluation_backfill_candidates_activity: found,
             }
         )
 
@@ -205,6 +210,10 @@ class TestEvaluationBackfillWorkflow:
         assert sum(value.completed_delta for value in advances) == 19
         assert [value.exhausted for value in advances] == [False, False, False, False, True]
         assert advances[1].expected_cursor_unit_id == advances[0].new_cursor_unit_id
+        assert (advances[-1].new_cursor_timestamp, advances[-1].new_cursor_unit_id) == (
+            found.next_cursor_timestamp,
+            found.next_cursor_unit_id,
+        )
 
     @pytest.mark.asyncio
     async def test_bounded_dispatch_records_execution_failures_and_skips(self) -> None:

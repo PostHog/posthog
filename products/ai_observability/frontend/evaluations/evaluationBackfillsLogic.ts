@@ -634,13 +634,16 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                 const teamId = teamLogic.values.currentTeamId
                 const backfill = values.backfills.find((run) => run.id === id)
                 if (cache.retryingBackfill) {
+                    if (cache.retryingBackfill !== id) {
+                        actions.transitionBackfillDone(id)
+                    }
                     return
                 }
                 if (!teamId || !backfill) {
                     actions.transitionBackfillDone(id)
                     return
                 }
-                cache.retryingBackfill = true
+                cache.retryingBackfill = id
                 try {
                     await evaluationsBackfillsCreate(String(teamId), props.evaluationId, {
                         window_start: backfill.window_start,

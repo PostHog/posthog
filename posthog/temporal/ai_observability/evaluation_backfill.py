@@ -211,9 +211,13 @@ def _child_outcome(result: WorkflowResult) -> ChildOutcome:
         return ChildOutcome.EVALUATED
     reason = result.get("skip_reason", "")
     spec = USER_ERROR_SPECS.get(reason)
-    if reason in ("evaluation_disabled", "evaluation_deleted", "parse_error") or (
-        spec is not None and spec.disables_evaluation
-    ):
+    if reason in (
+        "evaluation_disabled",
+        "evaluation_deleted",
+        "parse_error",
+        "unparsable_response",
+        "output_limit_exceeded",
+    ) or (spec is not None and spec.disables_evaluation):
         return ChildOutcome.RETRYABLE
     return ChildOutcome.SKIPPED
 
@@ -608,8 +612,8 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             # boffin: advance only after every child in this group has a known outcome.
             results = await asyncio.gather(*(self._run_child(inputs, tick, candidate) for candidate in candidates))
             last_group = offset + BACKFILL_MAX_IN_FLIGHT >= len(found.candidates)
-            next_timestamp = candidates[-1].unit_timestamp if candidates else found.next_cursor_timestamp
-            next_unit_id = candidates[-1].unit_id if candidates else found.next_cursor_unit_id
+            next_timestamp = found.next_cursor_timestamp if last_group else candidates[-1].unit_timestamp
+            next_unit_id = found.next_cursor_unit_id if last_group else candidates[-1].unit_id
             advance = await temporalio.workflow.execute_activity(
                 advance_evaluation_backfill_cursor_activity,
                 AdvanceCursorInputs(
@@ -649,6 +653,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
                     retry_policy=FAIL_BACKFILL_RETRY_POLICY,
                 )
                 return
+        await temporalio.workflow.sleep(BACKFILL_TICK_INTERVAL)
         temporalio.workflow.continue_as_new(replace(inputs, consecutive_failures=0))
 
     async def _run_child(
