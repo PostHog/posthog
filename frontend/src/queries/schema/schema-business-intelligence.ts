@@ -88,6 +88,8 @@ export interface BITableCalculation {
     computeUsing?: string
     /** Number of points, including the current point, in a trailing moving average. */
     window?: positive_integer
+    /** Require a complete window of non-null values before displaying a moving average. */
+    requireFullWindow?: boolean
 }
 
 export interface BITopN {
@@ -124,9 +126,38 @@ export interface BIConfig {
     columns: BIField[]
     values: BIValue[]
     filters: BIFilter[]
+    rowFilterGroup?: BIConditionGroup
+    resultFilters?: BIResultFilter[]
+    resultFilterGroup?: BIConditionGroup
     limit: BIQueryLimit
     /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
     sort?: BISort | null
     topN?: BITopN
     totals?: BITotals
+    /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
+    missingDates?: 'gap' | 'zero'
+}
+
+export interface BIConditionGroup {
+    operator: 'AND' | 'OR'
+    filters: string[]
+    groups: BIConditionGroup[]
+}
+
+export interface BIResultFilter {
+    id: string
+    measureIndex: non_negative_integer
+    operator:
+        | 'equals'
+        | 'not_equals'
+        | 'greater_than'
+        | 'less_than'
+        | 'greater_than_or_equal'
+        | 'less_than_or_equal'
+        | 'between'
+        | 'is_set'
+        | 'is_not_set'
+    value: string
+    valueTo?: string
+    enabled?: boolean
 }

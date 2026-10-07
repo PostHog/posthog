@@ -6,17 +6,46 @@ import { ChartDisplayType } from '~/types'
 
 import { biEditorLogic } from './biEditorLogic'
 import { getBIValuePillLabel, isDateTimeBIField } from './biEditorTypes'
+import { getBIMissingDatesDisabledReason } from './biTimeSeries'
 import { BIShelfCard } from './components/BIShelfCard'
 
 export function BIAnalysisControls(): JSX.Element {
     const { config } = useValues(biEditorLogic)
-    const { setTopN, setTotals } = useActions(biEditorLogic)
+    const { setTopN, setTotals, setMissingDates } = useActions(biEditorLogic)
     const dimensions = [...config.rows, ...config.columns].filter((field) => !isDateTimeBIField(field))
     const table = [ChartDisplayType.ActionsTable, ChartDisplayType.TwoDimensionalHeatmap].includes(config.chartType)
     return (
         <BIShelfCard title="Analysis">
             <div className="flex min-w-0 flex-col gap-2">
+                {[...config.rows, ...config.columns].some(isDateTimeBIField) ? (
+                    <>
+                        <LemonLabel>Missing dates</LemonLabel>
+                        <LemonSelect
+                            size="xsmall"
+                            fullWidth
+                            aria-label="Missing dates"
+                            data-attr="bi-editor-missing-dates"
+                            value={getBIMissingDatesDisabledReason(config) ? null : (config.missingDates ?? null)}
+                            options={[
+                                { value: null, label: 'Observed points only' },
+                                {
+                                    value: 'gap',
+                                    label: 'Show gaps',
+                                    disabledReason: getBIMissingDatesDisabledReason(config),
+                                },
+                                {
+                                    value: 'zero',
+                                    label: 'Fill with zero',
+                                    disabledReason: getBIMissingDatesDisabledReason(config),
+                                },
+                            ]}
+                            onChange={(value) => setMissingDates(value ?? undefined)}
+                        />
+                        <span className="text-xs text-secondary">Applied per series before table calculations.</span>
+                    </>
+                ) : null}
                 <LemonCheckbox
+                    labelClassName="text-xs"
                     label="Top N breakdown"
                     checked={!!config.topN}
                     disabledReason={!dimensions.length ? 'Add a categorical dimension first' : undefined}
@@ -65,6 +94,7 @@ export function BIAnalysisControls(): JSX.Element {
                             onChange={(measureIndex) => setTopN({ ...config.topN!, measureIndex })}
                         />
                         <LemonCheckbox
+                            labelClassName="text-xs"
                             label='Include "Other"'
                             checked={config.topN.includeOther}
                             onChange={(includeOther) => setTopN({ ...config.topN!, includeOther })}
@@ -78,6 +108,7 @@ export function BIAnalysisControls(): JSX.Element {
                     <>
                         <LemonLabel>Totals</LemonLabel>
                         <LemonCheckbox
+                            labelClassName="text-xs"
                             label={
                                 config.chartType === ChartDisplayType.ActionsTable ? 'Grand total' : 'Row grand totals'
                             }
@@ -86,12 +117,14 @@ export function BIAnalysisControls(): JSX.Element {
                         />
                         {config.chartType === ChartDisplayType.TwoDimensionalHeatmap ? (
                             <LemonCheckbox
+                                labelClassName="text-xs"
                                 label="Column grand totals"
                                 checked={!!config.totals?.columns}
                                 onChange={(columns) => setTotals({ ...config.totals, columns })}
                             />
                         ) : null}
                         <LemonCheckbox
+                            labelClassName="text-xs"
                             label="Subtotals"
                             checked={!!config.totals?.subtotals}
                             onChange={(subtotals) => setTotals({ ...config.totals, subtotals })}

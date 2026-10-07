@@ -4,7 +4,7 @@ A source decides whether its data breached; everything about what that means for
 and every write to these rows, stays here. A source never holds one of these models.
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 
 from django.db import transaction
@@ -16,6 +16,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
+    source_condition,
 )
 from products.alerts_platform.backend.facade.platform_metrics import increment_history_rows_dropped, safe_record
 from products.alerts_platform.backend.facade.scheduling import (
@@ -88,16 +89,24 @@ def suppressed() -> Exists:
     )
 
 
-def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> tuple[PlatformAlertCheckInput, ...]:
-    """Every configuration in one batch key, with its runtime state, ready to evaluate."""
-    configurations = list(
+def due_checks(
+    team_id: int, source_kind: str, slot: str, cutoff: datetime, *, configuration_ids: Collection[str] | None = None
+) -> tuple[PlatformAlertCheckInput, ...]:
+    """Every configuration in one batch key, with its runtime state, ready to evaluate.
+
+    `configuration_ids` narrows the batch to those rows, for a source that evaluates one check at
+    a time and must still read nothing the batch would not.
+    """
+    due = (
         PlatformAlertConfiguration.objects.for_team(team_id)
         .filter(enabled=True, source_kind=source_kind)
         .filter(due_q(cutoff))
         .exclude(suppressed())
-        # Ordered so a retried attempt keeps the same alerts under any downstream cap.
-        .order_by("id")
     )
+    if configuration_ids is not None:
+        due = due.filter(id__in=list(configuration_ids))
+    # Ordered so a retried attempt keeps the same alerts under any downstream cap.
+    configurations = list(due.order_by("id"))
     configurations = [c for c in configurations if slot_of(c.next_check_at, cutoff) == slot]
     if not configurations:
         return ()
@@ -112,9 +121,6 @@ def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> Platfo
         team_id=c.team_id,
         name=c.name,
         source_config=c.source_config,
-        threshold_count=c.threshold_count,
-        threshold_operator=c.threshold_operator,
-        window_minutes=c.window_minutes,
         check_interval_minutes=c.check_interval_minutes,
         evaluation_periods=c.evaluation_periods,
         datapoints_to_alarm=c.datapoints_to_alarm,
@@ -151,11 +157,12 @@ def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, 
     only through a hand-run backfill command, and only for a configuration already copied whose
     source row changed since. The row then states the new condition beside a verdict measured
     against the old one. Carry the snapshot on the outcome if that stops being acceptable.
+
+    The source's bound is flattened in beside the platform's own fields, so a reader finds it at
+    the top level whatever shape the source gives it.
     """
     return {
-        "threshold_count": configuration.threshold_count,
-        "threshold_operator": configuration.threshold_operator,
-        "window_minutes": configuration.window_minutes,
+        **source_condition(configuration.source_config),
         "evaluation_periods": configuration.evaluation_periods,
         "datapoints_to_alarm": configuration.datapoints_to_alarm,
         "cooldown_minutes": configuration.cooldown_minutes,
@@ -297,9 +304,6 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
                 "enabled": upsert.enabled,
                 "source_kind": upsert.source_kind.value,
                 "source_config": upsert.source_config,
-                "threshold_count": upsert.threshold_count,
-                "threshold_operator": upsert.threshold_operator,
-                "window_minutes": upsert.window_minutes,
                 "check_interval_minutes": upsert.check_interval_minutes,
                 "recurrence_unit": upsert.recurrence_unit,
                 "anchor_time": anchor_time,
@@ -315,3 +319,16 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
         alert.snooze_until = upsert.snooze_until
         alert.save(update_fields=["snooze_until"])
     return created
+
+
+def disable_configurations(source_kind: str, *, team_id: int | None = None) -> int:
+    """Switches off a source's copies, or one team's, and returns how many it switched off.
+
+    Rows, state and history stay, so a comparison can still read what ran. Discovery and the batch
+    read both skip a disabled row, so no new check starts after this. Checks already running finish.
+    """
+    # Cross-team on purpose, for an operator stopping a whole source at once.
+    rows = PlatformAlertConfiguration.objects.unscoped().filter(source_kind=source_kind, enabled=True)
+    if team_id is not None:
+        rows = rows.filter(team_id=team_id)
+    return rows.update(enabled=False)

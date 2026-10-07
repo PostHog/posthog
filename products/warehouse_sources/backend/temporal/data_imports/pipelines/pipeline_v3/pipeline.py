@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     is_young_first_attempt,
     persist_primary_keys,
     reset_rows_synced_if_needed,
+    resets_table_before_extraction,
     resolve_primary_keys,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
@@ -517,6 +518,15 @@ class PipelineV3(Generic[ResumableData]):
             self._release_held_batches()
         await asyncio.to_thread(self._resumable_source_manager.commit)
 
+    def _confirm_resume_state(self) -> None:
+        """Make the cursors the source saved so far ready to commit.
+
+        Call it only while the source cannot hold a row that those cursors skip: it is suspended at
+        the `yield` of an item, or it has ended.
+        """
+        if self._resumable_source_manager is not None:
+            self._resumable_source_manager.confirm()
+
     async def _stage_handoff_resume_value(self, *, force: bool = False) -> None:
         """Persist the checkpoint's value. Call it only when every observed batch has its queue row.
 
@@ -629,7 +639,15 @@ class PipelineV3(Generic[ResumableData]):
             if self._attempt <= 1:
                 # Revive a corrupt-`_delta_log` table before extraction so it self-heals in this run
                 # instead of looping forever (an interrupted repartition swap or OOM-crashed merge).
-                await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_ref, self._logger)
+                await handle_corrupted_delta_log(
+                    self._schema,
+                    self._job,
+                    self._delta_table_ref,
+                    self._logger,
+                    table_will_be_reset=resets_table_before_extraction(
+                        self._reset_pipeline, should_resume, self._schema, self._resource.webhook_only
+                    ),
+                )
 
                 await handle_reset_or_full_refresh(
                     self._reset_pipeline,
@@ -643,6 +661,9 @@ class PipelineV3(Generic[ResumableData]):
             is_fresh_sync = self._delta_table_ref.is_first_sync or self._schema.table is None
             if is_fresh_sync:
                 self._mark_first_ever_sync()
+                # No pre-write maintenance runs, so nothing here reads the handle that the corruption
+                # check opened. Release it before extraction.
+                self._delta_table_ref.pop_cached_table()
 
             # Defensive pre-write compaction so a sync that arrived at a fragmented Delta
             # target cleans up before adding more small files; see DeltaMaintenance.run_scheduled.
@@ -668,7 +689,7 @@ class PipelineV3(Generic[ResumableData]):
                         get_batches_produced_metric(team_id_str, schema_id_str).add(1)
 
                     chunk_index += 1
-                # Every yielded row is staged now, so whatever the source staged last is safe.
+                # Every yielded row is staged now, so the cursor confirmed last is safe.
                 await self._commit_resume_state()
 
             if self._attempt > 1:
@@ -693,6 +714,7 @@ class PipelineV3(Generic[ResumableData]):
                         schema_name=self._schema.name,
                     )
 
+                    self._confirm_resume_state()
                     self._batcher.batch(item)
 
                     # A single batched table may be split into several when a string/binary/list
@@ -742,9 +764,12 @@ class PipelineV3(Generic[ResumableData]):
                     await stage_remaining_rows()
                 raise
             except Exception:
-                # A resumable source that ends its own attempt (a page or time budget) has staged a
-                # cursor for rows the batcher still holds. Staging them lets that cursor commit, so the
-                # next attempt continues from it instead of restarting the sweep.
+                # The source raised, so a cursor it saved after its last yield is not confirmed: it can
+                # skip rows that the source fetched and did not hand on. The cursor confirmed at that
+                # yield covers rows the batcher still holds. Staging them lets that cursor commit, so
+                # the next attempt continues from it instead of restarting the sweep. A source that
+                # ends its own attempt (a page or time budget) reaches a safe point first to keep its
+                # last cursor.
                 if awaiting_source and source_is_resumable:
                     try:
                         await stage_remaining_rows()
@@ -757,6 +782,8 @@ class PipelineV3(Generic[ResumableData]):
                     # Stops the thread of the source now. A loop that ended early left it waiting.
                     await source_items.aclose()
 
+            # The source ended, so it holds no rows and its last cursor is safe.
+            self._confirm_resume_state()
             await stage_remaining_rows()
             await self._finalize(row_count=row_count)
 

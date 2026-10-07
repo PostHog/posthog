@@ -19,6 +19,7 @@ import {
     fieldExpression,
     getBIResultDimensions,
 } from './biEditorTypes'
+import { isBIConditionGroup, normalizeBIConditionGroup } from './biFilterGroups'
 
 export interface BIDrillSelection {
     filters: BIFilter[]
@@ -86,7 +87,12 @@ export function getBIDrillSelection(config: BIConfig, record: Record<string, unk
             continue
         }
         const displayValue = value
-        if (config.totals?.rows || config.totals?.columns || config.totals?.subtotals) {
+        if (
+            config.chartType === ChartDisplayType.TwoDimensionalHeatmap ||
+            config.totals?.rows ||
+            config.totals?.columns ||
+            config.totals?.subtotals
+        ) {
             if (value === 'Total') {
                 continue
             }
@@ -188,10 +194,34 @@ export function getBIDrillQueries(
     if (!saved) {
         return null
     }
+    const selectionFilters = saved.rowFilterGroup
+        ? selection.filters.map((filter, index) => ({
+              ...filter,
+              field: { ...filter.field, id: `drill:${saved.filters.length + index}:${filter.field.id}` },
+          }))
+        : selection.filters
+    const existingGroup = saved.rowFilterGroup
+        ? normalizeBIConditionGroup(
+              saved.rowFilterGroup,
+              saved.filters.map((filter) => filter.field.id)
+          )
+        : undefined
     const config: BIConfig = {
         ...saved,
         dateRange: node.source.filters?.dateRange ?? saved.dateRange,
-        filters: [...saved.filters, ...selection.filters],
+        filters: [...saved.filters, ...selectionFilters],
+        ...(existingGroup
+            ? {
+                  rowFilterGroup: {
+                      operator: 'AND' as const,
+                      filters: [
+                          ...selectionFilters.map((filter) => filter.field.id),
+                          ...(existingGroup.operator === 'AND' ? existingGroup.filters : []),
+                      ],
+                      groups: existingGroup.operator === 'AND' ? existingGroup.groups : [existingGroup],
+                  },
+              }
+            : {}),
         topN: undefined,
     }
     const source = buildBIRowsQuery(config, selection.previous)
@@ -200,7 +230,10 @@ export function getBIDrillQueries(
     }
     source.filters = { ...source.filters, ...node.source.filters }
     source.variables = node.source.variables
-    const generated = selection.previous ? null : buildBIQuery(config)?.node
+    const generated =
+        selection.previous || (config.rowFilterGroup && !isBIConditionGroup(config.rowFilterGroup))
+            ? null
+            : buildBIQuery(config)?.node
     const worksheet: BIVisualizationNode | null = generated
         ? { ...generated, kind: NodeKind.BIVisualizationNode, config }
         : null

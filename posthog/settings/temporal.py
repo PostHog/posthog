@@ -286,6 +286,10 @@ DATA_WAREHOUSE_IMPORT_PREEMPTION_ENABLED: bool = get_from_env(
 DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS: float = get_from_env(
     "DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS", 60.0, type_cast=float
 )
+# Restore unfinished append runs only after all extract and load workers have this implementation.
+DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED", False, type_cast=str_to_bool
+)
 MAX_AI_TASK_QUEUE = _set_temporal_task_queue("max-ai-task-queue")
 BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("batch-exports-task-queue")
 DATA_MODELING_TASK_QUEUE = _set_temporal_task_queue("data-modeling-task-queue")
@@ -330,6 +334,15 @@ ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-tas
 ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE = "alerts-platform-shared-orchestration-task-queue"
 ALERTS_PLATFORM_EVALUATION_TASK_QUEUE = "alerts-platform-evaluation-task-queue"
 ALERTS_PLATFORM_DELIVERY_TASK_QUEUE = "alerts-platform-delivery-task-queue"
+# The platform's parallel insight checks allowed to run at once, across every team. A pool of its
+# own, so the parallel run never takes a slot from `ALERTS_MAX_INFLIGHT_EVALUATIONS`.
+ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS: int = get_from_env(
+    "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS", 10, type_cast=int
+)
+if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
+    )
 # Insight alert checks allowed to run against ClickHouse at once, across every team.
 ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)
 if ALERTS_MAX_INFLIGHT_EVALUATIONS <= 0:

@@ -353,6 +353,26 @@ class DeltaTableRef:
         self._known_missing = False
         self._expect_missing = False
 
+    async def adopt_open_table(self, table: deltalake.DeltaTable) -> bool:
+        """Take a handle that an earlier ref opened on this table, in place of a new open.
+
+        The handle first reads the commits that landed since its last use, which is one log listing
+        and one read for each new commit. A commit from another writer is thus in the snapshot before
+        any caller reads it. Returns False and keeps nothing when that read fails, so the next
+        `get_delta_table` opens the table and classifies the error as it always did.
+
+        Only for a caller that knows the table was not replaced under this URI since the handle was
+        last used: an incremental read cannot tell a new table from the old one.
+        """
+        try:
+            await asyncio.to_thread(table.update_incremental)
+        except Exception:
+            return False
+        self._cached_table = table
+        self._cached_table_stale = False
+        self._known_missing = False
+        return True
+
     async def _refresh_cached_table(self, table: deltalake.DeltaTable) -> None:
         try:
             await asyncio.to_thread(table.update_incremental)
@@ -485,16 +505,27 @@ class DeltaTableRef:
 
         The signature of a `_delta_log` left inconsistent by an interrupted repartition swap or an
         OOM-crashed merge — after which every sync fails to open the table and loops. Non-destructive:
-        only attempts an open (bypassing the get_delta_table cache). A table that simply doesn't exist is
+        only attempts an open. A table that simply doesn't exist is
         not corrupt; an unknown open error is not classified as corrupt, so a transient failure never
         triggers a destructive revive. A recognized transient blip (see is_transient_object_store_error,
         is_transient_delta_maintenance_error) is excluded the same way — otherwise a concurrent purge
         racing this open would misread as corruption and trigger a needless destructive revive.
+
+        A table that opens stays on this ref as the cached handle, so the next `get_delta_table`
+        call in the same run does not read the log again. A handle that this ref already holds is
+        proof that the table opened, so it answers the question with no request.
         """
+        if self._cached_table is not None:
+            return False
+
         delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
 
-        if await self._open_directly(delta_uri, storage_options) is not None:
+        table = await self._open_directly(delta_uri, storage_options)
+        if table is not None:
+            self._cached_table = table
+            self._cached_table_stale = False
+            self._known_missing = False
             return False
 
         is_delta = await asyncio.to_thread(

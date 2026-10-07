@@ -14,7 +14,8 @@ use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::{
     DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, PersonVersionFloorResult, SplitResult,
-    TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
+    TombstoneTarget, TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
+    VersionFloorOutcome,
 };
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
@@ -650,10 +651,10 @@ impl PersonLookup for PostgresStorage {
     async fn delete_tombstoned_persons(
         &self,
         team_id: i64,
-        uuids: &[Uuid],
+        targets: &[TombstoneTarget],
         max_rows: i64,
     ) -> StorageResult<TombstonedDeleteOutcome> {
-        if uuids.is_empty() {
+        if targets.is_empty() {
             return Ok(TombstonedDeleteOutcome::default());
         }
 
@@ -670,9 +671,16 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        // One outcome per uuid: a duplicate must not be counted or reported twice.
-        let mut seen = HashSet::with_capacity(uuids.len());
-        let unique: Vec<Uuid> = uuids.iter().copied().filter(|u| seen.insert(*u)).collect();
+        // One outcome per uuid: a duplicate must not be counted or reported twice. It keeps its
+        // lowest bound, the one that deletes the least.
+        let mut bounds: HashMap<Uuid, i64> = HashMap::with_capacity(targets.len());
+        for target in targets {
+            bounds
+                .entry(target.uuid)
+                .and_modify(|bound| *bound = (*bound).min(target.max_version))
+                .or_insert(target.max_version);
+        }
+        let unique: Vec<Uuid> = bounds.keys().copied().collect();
 
         // The caller picks the row budget; the server caps it so no call outlives its deadline.
         let budget = max_rows.clamp(1, self.tombstoned_delete_max_rows as i64);
@@ -684,38 +692,37 @@ impl PersonLookup for PostgresStorage {
             .execute(&mut *tx)
             .await?;
 
-        // Resolved without locks. The delete re-checks the tombstone under its row lock, so a
-        // person revived in between drops out and reads as neither deleted nor live.
-        let candidates: Vec<(i64, Uuid)> = sqlx::query!(
+        // This read takes no lock. The delete re-checks the tombstone and the bound under its row
+        // lock, so a person revived or tombstoned again after this read lands in no outcome bucket.
+        let persons = sqlx::query!(
             r#"
-            SELECT id::bigint AS "id!", uuid AS "uuid!"
+            SELECT id::bigint AS "id!", uuid AS "uuid!", is_deleted AS "is_deleted!",
+                   COALESCE(version, 0)::bigint AS "version!"
             FROM posthog_person
-            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted
+            WHERE team_id = $1 AND uuid = ANY($2)
             ORDER BY id
             "#,
             team_id as i32,
             unique.as_slice()
         )
         .fetch_all(&mut *tx)
-        .await?
-        .into_iter()
-        .map(|row| (row.id, row.uuid))
-        .collect();
-
-        let skipped_live: i64 = sqlx::query_scalar!(
-            r#"
-            SELECT count(*) AS "count!"
-            FROM posthog_person
-            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = false
-            "#,
-            team_id as i32,
-            unique.as_slice()
-        )
-        .fetch_one(&mut *tx)
         .await?;
+        let mut skipped_live = 0;
+        let mut skipped_version = 0;
+        let mut candidates: Vec<(i64, Uuid)> = Vec::with_capacity(persons.len());
+        for row in persons {
+            if !row.is_deleted {
+                skipped_live += 1;
+            } else if row.version > bounds[&row.uuid] {
+                skipped_version += 1;
+            } else {
+                candidates.push((row.id, row.uuid));
+            }
+        }
 
         let mut outcome = TombstonedDeleteOutcome {
             skipped_live,
+            skipped_version,
             ..TombstonedDeleteOutcome::default()
         };
         if candidates.is_empty() {
@@ -747,22 +754,28 @@ impl PersonLookup for PostgresStorage {
             ..
         } = admission;
 
-        // Lock only the persons that are still tombstoned, in id order. READ COMMITTED re-checks
-        // is_deleted on the row version that wins the lock, so a person revived a moment ago
-        // drops out here. Live writers touch live persons, never locked here, and the identity
-        // saga locks persons before distinct ids in this same order.
-        let mut lock_ids: Vec<i64> = admitted.iter().map(|(id, _)| *id).collect();
-        lock_ids.extend(trim.map(|(id, _)| id));
+        // READ COMMITTED re-checks the tombstone and the bound on the row version that wins the
+        // lock, so a person revived or tombstoned again a moment ago drops out, trimmed or not.
+        // Live writers touch only live persons, which this never locks, and the identity saga locks
+        // persons before distinct ids in this same id order.
+        let (lock_ids, lock_bounds): (Vec<i64>, Vec<i64>) = admitted
+            .iter()
+            .chain(trim.iter())
+            .map(|(id, uuid)| (*id, bounds[uuid]))
+            .unzip();
         let locked: HashSet<i64> = sqlx::query_scalar!(
             r#"
-            SELECT id::bigint AS "id!"
-            FROM posthog_person
-            WHERE team_id = $1 AND id = ANY($2) AND is_deleted
-            ORDER BY id
-            FOR UPDATE
+            SELECT p.id::bigint AS "id!"
+            FROM posthog_person p
+            JOIN UNNEST($2::bigint[], $3::bigint[]) AS bound(id, max_version) ON bound.id = p.id
+            WHERE p.team_id = $1 AND p.id = ANY($2) AND p.is_deleted
+              AND COALESCE(p.version, 0) <= bound.max_version
+            ORDER BY p.id
+            FOR UPDATE OF p
             "#,
             team_id as i32,
-            lock_ids.as_slice()
+            lock_ids.as_slice(),
+            lock_bounds.as_slice()
         )
         .fetch_all(&mut *tx)
         .await?
@@ -2074,6 +2087,10 @@ fn record_tombstoned_delete_rows(outcome: &TombstonedDeleteOutcome, client: &str
         (
             "delete_tombstoned_persons_skipped_live",
             outcome.skipped_live,
+        ),
+        (
+            "delete_tombstoned_persons_skipped_version",
+            outcome.skipped_version,
         ),
         (
             "delete_tombstoned_persons_blocked",

@@ -37,6 +37,7 @@ defs = dagster.Definitions(
         drop_materialized_column.drop_materialized_column,
         deletes.deletes_job,
         deletes.manual_deletes_job,
+        deletes.monthly_old_events_cleanup_job,
         export_query_log_archive_to_s3.export_query_log_archive_to_s3,
         backfill_materialized_column.backfill_materialized_column,
         fix_person_id_overrides.fix_person_id_overrides_job,
