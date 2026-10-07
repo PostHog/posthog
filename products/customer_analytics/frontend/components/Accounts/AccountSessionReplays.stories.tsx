@@ -63,21 +63,29 @@ export default meta
 
 type Story = StoryObj<typeof AccountSessionReplays>
 
-const recordingsMocks = mswDecorator({
-    get: {
-        [RECORDINGS_ENDPOINT]: ({ request }: MockResolverInfo) => {
-            const params = new URL(request.url).searchParams
-            const filtered = params.get('person_uuid')
-                ? recordings.filter((recording) => recording.person?.uuid === params.get('person_uuid'))
-                : recordings
-            return {
-                results: params.has('after') ? [recordings[2]] : filtered.slice(0, 2),
-                has_next: !params.has('after') && !params.has('person_uuid'),
-                next_cursor: params.has('after') ? undefined : 'example-cursor',
-            }
+function createRecordingsMocks(recordings: SessionRecordingType[], pageSize: number): ReturnType<typeof mswDecorator> {
+    return mswDecorator({
+        get: {
+            [RECORDINGS_ENDPOINT]: ({ request }: MockResolverInfo) => {
+                const params = new URL(request.url).searchParams
+                const personUUID = params.get('person_uuid')
+                const filtered = personUUID
+                    ? recordings.filter((recording) => recording.person?.uuid === personUUID)
+                    : recordings
+                const offset = Number(params.get('after') ?? params.get('offset') ?? 0)
+                const nextOffset = offset + pageSize
+                const hasNext = filtered.length > nextOffset
+                return {
+                    results: filtered.slice(offset, nextOffset),
+                    has_next: hasNext,
+                    next_cursor: hasNext ? String(nextOffset) : undefined,
+                }
+            },
         },
-    },
-})
+    })
+}
+
+const recordingsMocks = createRecordingsMocks(recordings, 2)
 
 export const Recordings: Story = { decorators: [recordingsMocks] }
 
@@ -92,23 +100,7 @@ const overflowRecordings: SessionRecordingType[] = Array.from({ length: 40 }, (_
     start_url: index % 2 === 0 ? 'https://example.com/settings' : undefined,
 }))
 
-const overflowMocks = mswDecorator({
-    get: {
-        [RECORDINGS_ENDPOINT]: ({ request }: MockResolverInfo) => {
-            const params = new URL(request.url).searchParams
-            const filtered = params.get('person_uuid')
-                ? overflowRecordings.filter((recording) => recording.person?.uuid === params.get('person_uuid'))
-                : overflowRecordings
-            const offset = params.has('after') ? 20 : 0
-            const hasNext = filtered.length > offset + 20
-            return {
-                results: filtered.slice(offset, offset + 20),
-                has_next: hasNext,
-                next_cursor: hasNext ? 'example-overflow-cursor' : undefined,
-            }
-        },
-    },
-})
+const overflowMocks = createRecordingsMocks(overflowRecordings, 20)
 
 export const Overflow: Story = {
     parameters: { testOptions: { waitForSelector: '[data-attr="account-replays-list"][data-height-ready="true"]' } },
@@ -124,7 +116,9 @@ export const OverflowNarrow: Story = {
 }
 
 export const Loading: Story = {
-    parameters: { testOptions: { waitForSelector: '[data-attr="account-replays-loading"]' } },
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="account-replays-loading"]', waitForLoadersToDisappear: false },
+    },
     decorators: [
         mswDecorator({
             get: {

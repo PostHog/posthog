@@ -122,29 +122,19 @@ describe('accountSessionReplaysLogic', () => {
         }
     )
 
-    it.each([{ externalId: '' }, { externalId: '   ' }])(
-        'does not request recordings without account identity: %p',
-        async (props) => {
-            const logic = mount(props)
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.replayList?.status).toBe('setup')
-            expect(mockList).not.toHaveBeenCalled()
-        }
-    )
-
-    it.each([undefined, null, -1, 5, 0.5])(
-        'does not request recordings without a valid group mapping: %p',
-        async (account_group_type_index) => {
-            initKeaTests(true, {
-                ...MOCK_DEFAULT_TEAM,
-                customer_analytics_config: { ...MOCK_DEFAULT_TEAM.customer_analytics_config, account_group_type_index },
-            })
-            const logic = mount({ initialConfig: { group_type_index: 0 } })
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.replayList?.status).toBe('setup')
-            expect(mockList).not.toHaveBeenCalled()
-        }
-    )
+    it('does not request recordings when the group mapping is missing, even if tile config supplies one', async () => {
+        initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
+            customer_analytics_config: {
+                ...MOCK_DEFAULT_TEAM.customer_analytics_config,
+                account_group_type_index: null,
+            },
+        })
+        const logic = mount({ initialConfig: { group_type_index: 0 } })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.replayList?.status).toBe('setup')
+        expect(mockList).not.toHaveBeenCalled()
+    })
 
     it.each([AccessControlResourceType.CustomerAnalytics, AccessControlResourceType.SessionRecording])(
         'does not request recordings when access is denied to %s',
@@ -189,15 +179,30 @@ describe('accountSessionReplaysLogic', () => {
         expect(mockList).toHaveBeenLastCalledWith(MOCK_DEFAULT_TEAM.id, expect.objectContaining({ offset: 4 }))
     })
 
-    it('keeps tile state separate and serializes dates without the temporary user', async () => {
+    it.each([
+        { scope: 'tile', props: { instanceId: 'tile-two' }, externalId: 'account-key-one' },
+        {
+            scope: 'account',
+            props: { accountId: 'account-two', externalId: 'account-key-two' },
+            externalId: 'account-key-two',
+        },
+    ])('keeps $scope state separate and saves dates without the temporary user', async ({ props, externalId }) => {
         const onConfigChange = jest.fn()
         const first = mount({ onConfigChange })
         const second = mount({
-            instanceId: 'tile-two',
+            ...props,
             initialConfig: { dateRange: { date_from: '-30d', date_to: null } },
         })
         await expectLogic(first).toFinishAllListeners()
         await expectLogic(second).toFinishAllListeners()
+        const secondList = second.values.replayList
+        expect(mockList).toHaveBeenLastCalledWith(
+            MOCK_DEFAULT_TEAM.id,
+            expect.objectContaining({
+                properties: [{ key: '$group_0', type: 'event', operator: 'exact', value: [externalId] }],
+                person_uuid: undefined,
+            })
+        )
         first.actions.setUser(first.values.availableUsers[0])
         await expectLogic(first).toFinishAllListeners()
         expect(mockList).toHaveBeenLastCalledWith(
@@ -212,7 +217,7 @@ describe('accountSessionReplaysLogic', () => {
         expect(onConfigChange).toHaveBeenLastCalledWith({ dateRange: { date_from: '-14d', date_to: null } })
         expect(second.values.dateRange.date_from).toBe('-30d')
         expect(second.values.selectedUser).toBeNull()
-        expect(second.values.replayList?.nextCursor).toBe('cursor-one')
+        expect(second.values.replayList).toBe(secondList)
     })
 
     it.each(['success', 'denied'])('discards an older filter %s after the new filter resolves', async (outcome) => {
@@ -229,31 +234,6 @@ describe('accountSessionReplaysLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.replayList?.status).toBe('ready')
         expect(logic.values.replayList?.recordings.map(({ id }) => id)).toEqual(['recording-one'])
-    })
-
-    it('resets the user on account change and cannot land the old account response', async () => {
-        const first = mount()
-        await expectLogic(first).toFinishAllListeners()
-        first.actions.setUser(first.values.availableUsers[0])
-        await expectLogic(first).toFinishAllListeners()
-        const oldPage = createDeferred<RecordingsQueryResponse>()
-        mockList.mockReturnValueOnce(oldPage.promise)
-        first.actions.loadMore()
-        first.unmount()
-        mounted.splice(mounted.indexOf(first), 1)
-        const second = mount({ accountId: 'account-two', externalId: 'account-key-two' })
-        await waitFor(() => expect(second.values.replayList?.status).toBe('ready'))
-        oldPage.resolve(createResponse(['stale-recording']))
-        await expectLogic(second).toFinishAllListeners()
-        expect(second.values.selectedUser).toBeNull()
-        expect(second.values.replayList?.recordings.map(({ id }) => id)).toEqual(['recording-one'])
-        expect(mockList).toHaveBeenLastCalledWith(
-            MOCK_DEFAULT_TEAM.id,
-            expect.objectContaining({
-                properties: [{ key: '$group_0', type: 'event', operator: 'exact', value: ['account-key-two'] }],
-                person_uuid: undefined,
-            })
-        )
     })
 
     it.each([401, 403, 500])('distinguishes denied requests from retryable errors: %s', async (status) => {

@@ -258,6 +258,10 @@ export type accountViewsLogicType = MakeLogicType<
     accountViewsLogicMeta
 >
 
+function getAccountViewFailureType(error: unknown): 'conflict' | 'request' {
+    return error instanceof ApiError && error.status === 409 ? 'conflict' : 'request'
+}
+
 function updateAccountViewComponents(
     projectId: number,
     view: AccountViewApi,
@@ -656,11 +660,12 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                 actions.saveEditorSuccess(view)
                 actions.setEditorOpen(false)
             } catch (error) {
+                const failureType = getAccountViewFailureType(error)
                 posthog.capture(AccountsEvents.AccountViewSaveFailed, {
                     is_new: isNew,
-                    failure_type: error instanceof ApiError && error.status === 409 ? 'conflict' : 'request',
+                    failure_type: failureType,
                 })
-                if (error instanceof ApiError && error.status === 409) {
+                if (failureType === 'conflict') {
                     actions.setEditorConflict(true)
                 } else {
                     lemonToast.error("Couldn't save the view. Try again.")
@@ -688,10 +693,11 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                 actions.deleteViewSuccess(viewId)
                 actions.setEditorOpen(false)
             } catch (error) {
+                const failureType = getAccountViewFailureType(error)
                 posthog.capture(AccountsEvents.AccountViewDeletionFailed, {
-                    failure_type: error instanceof ApiError && error.status === 409 ? 'conflict' : 'request',
+                    failure_type: failureType,
                 })
-                if (error instanceof ApiError && error.status === 409) {
+                if (failureType === 'conflict') {
                     actions.setEditorConflict(true)
                 } else {
                     lemonToast.error("Couldn't delete the view. Try again.")
@@ -723,11 +729,12 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                     actions.saveEditorSuccess(updatedView)
                     actions.closeTileEditor()
                 } catch (error) {
+                    const failureType = getAccountViewFailureType(error)
                     posthog.capture(AccountsEvents.AccountViewTileRenameFailed, {
-                        failure_type: error instanceof ApiError && error.status === 409 ? 'conflict' : 'request',
+                        failure_type: failureType,
                     })
                     lemonToast.error(
-                        error instanceof ApiError && error.status === 409
+                        failureType === 'conflict'
                             ? 'This view changed. Refresh and try again.'
                             : "Couldn't rename the tile. Try again."
                     )
@@ -815,11 +822,12 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                     posthog.capture(AccountsEvents.AccountViewTileRemoved, { component_count: components.length })
                     actions.saveEditorSuccess(updatedView)
                 } catch (error) {
+                    const failureType = getAccountViewFailureType(error)
                     posthog.capture(AccountsEvents.AccountViewTileRemovalFailed, {
-                        failure_type: error instanceof ApiError && error.status === 409 ? 'conflict' : 'request',
+                        failure_type: failureType,
                     })
                     lemonToast.error(
-                        error instanceof ApiError && error.status === 409
+                        failureType === 'conflict'
                             ? 'This view changed. Refresh and try again.'
                             : "Couldn't remove the tile. Try again."
                     )

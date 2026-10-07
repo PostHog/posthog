@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 
@@ -56,7 +56,8 @@ describe('AccountSessionReplays', () => {
         render(<AccountSessionReplays accountId="example-account" externalId="example-account-key" />)
         await screen.findByLabelText('Open recording')
         fireEvent.click(screen.getByLabelText('Filter recordings by user'))
-        const option = await screen.findByRole('menuitem', { name: 'example-user@example.com' })
+        const menu = await screen.findByRole('menu')
+        const option = within(menu).getByText('example-user@example.com')
         expect(option.closest('.ph-no-capture')).not.toBeNull()
         fireEvent.click(option)
         await waitFor(() =>
@@ -68,22 +69,28 @@ describe('AccountSessionReplays', () => {
     })
 
     it('keeps every paged row in the scrollport with filters, description, and Load more outside', async () => {
-        const loadedRecordings = Array.from({ length: 40 }, (_, index) => ({
+        const names = Array.from({ length: 12 }, (_, index) => `Example user ${index + 1}`)
+        const loadedRecordings = names.map((name, index) => ({
             ...recording,
             id: `example-loaded-recording-${index}`,
+            person: { ...recording.person!, name },
         }))
         mockList.mockResolvedValue({
-            results: loadedRecordings.slice(0, 20),
+            results: loadedRecordings.slice(0, 11),
             has_next: true,
             next_cursor: 'example-cursor',
         })
         const { container } = render(
             <AccountSessionReplays accountId="example-account" externalId="example-account-key" />
         )
-        await waitFor(() => expect(screen.getAllByLabelText('Open recording')).toHaveLength(20))
+        await screen.findByText('Example user 11')
         const scrollport = container.querySelector('[data-attr="account-replays-list"]')
-        expect(scrollport).not.toBeNull()
-        expect(scrollport?.querySelectorAll('button[data-attr="account-replays-open-recording"]')).toHaveLength(20)
+        const getRowNames = (): (string | null)[] =>
+            Array.from(
+                scrollport?.querySelectorAll<HTMLButtonElement>('button[data-attr="account-replays-open-recording"]') ??
+                    []
+            ).map((row) => within(row).getByText(/^Example user \d+$/).textContent)
+        expect(getRowNames()).toEqual(names.slice(0, 11))
         const dateFilter = container.querySelector('[data-attr="date-filter"]')
         expect(dateFilter).not.toBeNull()
         expect(dateFilter?.closest('[data-attr="account-replays-list"]')).toBeNull()
@@ -96,10 +103,9 @@ describe('AccountSessionReplays', () => {
                 .closest('[data-attr="account-replays-list"]')
         ).toBeNull()
         expect(screen.getByText('Load more').closest('[data-attr="account-replays-list"]')).toBeNull()
-        mockList.mockResolvedValueOnce({ results: loadedRecordings.slice(20), has_next: false })
+        mockList.mockResolvedValueOnce({ results: loadedRecordings.slice(11), has_next: false })
         fireEvent.click(screen.getByText('Load more'))
-        await waitFor(() => expect(screen.getAllByLabelText('Open recording')).toHaveLength(40))
-        expect(scrollport?.querySelectorAll('button[data-attr="account-replays-open-recording"]')).toHaveLength(40)
+        await waitFor(() => expect(getRowNames()).toEqual(names))
         expect(screen.queryByText('Load more')).toBeNull()
     })
 })

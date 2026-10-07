@@ -24,7 +24,7 @@ import type {
     UserCustomerAnalyticsConfigApi,
 } from '../../generated/api.schemas'
 import { createAccountViewContent, type AccountViewComponentInstance } from './accountViewDocument'
-import { accountViewsLogic } from './accountViewsLogic'
+import { accountViewsLogic, type accountViewsLogicValues } from './accountViewsLogic'
 
 jest.mock('../../generated/api', () => ({
     ...jest.requireActual('../../generated/api'),
@@ -67,7 +67,9 @@ const view: AccountViewApi = {
     can_delete: true,
     can_change_visibility: true,
 }
-
+const updatedView: AccountViewApi = { ...view, version: 2 }
+const createdView: AccountViewApi = { ...updatedView, id: '66666666-7777-4888-8999-000000000000' }
+const removedTileView: AccountViewApi = { ...updatedView, content: createAccountViewContent(components.slice(1)) }
 const tabSettings: AccountDetailTabsConfigApi = {
     ordered_tab_ids: ['system:notes', `view:${view.id}`],
     hidden_tab_ids: ['system:usage'],
@@ -78,25 +80,27 @@ const userConfig: UserCustomerAnalyticsConfigApi = {
     task_digest: { enabled: false, send_time: '09:00', cadence: 'weekdays' },
     account_detail_tabs: { ordered_tab_ids: [], hidden_tab_ids: [], default_tab_id: null },
 }
+const updatedUserConfig: UserCustomerAnalyticsConfigApi = { ...userConfig, account_detail_tabs: tabSettings }
 
-type WriteOperation = 'create' | 'save' | 'rename' | 'remove' | 'delete' | 'tabs'
-const operations: WriteOperation[] = ['create', 'save', 'rename', 'remove', 'delete', 'tabs']
-const successEvents = {
-    create: AccountsEvents.AccountViewSaved,
-    save: AccountsEvents.AccountViewSaved,
-    rename: AccountsEvents.AccountViewTileRenamed,
-    remove: AccountsEvents.AccountViewTileRemoved,
-    delete: AccountsEvents.AccountViewDeleted,
-    tabs: AccountsEvents.AccountViewTabSettingsSaved,
+type Capture = Parameters<typeof posthog.capture>
+type WriteFailure = { status: number; failureType: 'conflict' | 'request' }
+interface WriteScenario {
+    operation: 'create' | 'save' | 'rename' | 'remove' | 'delete' | 'tabs'
+    start: () => void
+    mockWrite: (write: () => Promise<void>) => void
+    entries: Capture[]
+    success: Capture
+    successValues: Partial<accountViewsLogicValues>
+    failureValues: Partial<accountViewsLogicValues>
+    showsEditorConflict: boolean
+    failureEvent: string
+    failureContext?: { is_new: boolean }
+    failures: WriteFailure[]
 }
-const failureEvents = {
-    create: AccountsEvents.AccountViewSaveFailed,
-    save: AccountsEvents.AccountViewSaveFailed,
-    rename: AccountsEvents.AccountViewTileRenameFailed,
-    remove: AccountsEvents.AccountViewTileRemovalFailed,
-    delete: AccountsEvents.AccountViewDeletionFailed,
-    tabs: AccountsEvents.AccountViewTabSettingsSaveFailed,
-}
+const conflictFailures: WriteFailure[] = [
+    { status: 409, failureType: 'conflict' },
+    { status: 500, failureType: 'request' },
+]
 
 function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
     let resolve!: (value: T) => void
@@ -106,15 +110,6 @@ function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void
     return { promise, resolve }
 }
 
-function createWriteResponse(operation: WriteOperation): AccountViewApi {
-    return {
-        ...view,
-        id: operation === 'create' ? '66666666-7777-4888-8999-000000000000' : view.id,
-        version: 2,
-        content: createAccountViewContent(operation === 'remove' ? components.slice(1) : components),
-    }
-}
-
 describe('accountViewsLogic tracking', () => {
     let logic: ReturnType<typeof accountViewsLogic.build>
     let capture: jest.SpiedFunction<typeof posthog.capture>
@@ -122,6 +117,107 @@ describe('accountViewsLogic tracking', () => {
     const mockUpdate = jest.mocked(accountViewsPartialUpdate)
     const mockDelete = jest.mocked(accountViewsDestroy)
     const mockConfigUpdate = jest.mocked(userCustomerAnalyticsConfigPartialUpdate)
+    const scenarios: WriteScenario[] = [
+        {
+            operation: 'create',
+            start: () => {
+                logic.actions.openCreateEditor()
+                logic.actions.setEditorName('Invented private input name')
+                logic.actions.addEditorComponent('notes')
+                logic.actions.addEditorComponent('usage')
+                logic.actions.saveEditor()
+            },
+            mockWrite: (write) => mockCreate.mockImplementationOnce(() => write().then(() => createdView)),
+            entries: [[AccountsEvents.AccountViewEditorOpened, { is_new: true }]],
+            success: [AccountsEvents.AccountViewSaved, { is_new: true, component_count: 2 }],
+            successValues: { views: [view, createdView] },
+            failureValues: { editorOpen: true },
+            showsEditorConflict: true,
+            failureEvent: AccountsEvents.AccountViewSaveFailed,
+            failureContext: { is_new: true },
+            failures: conflictFailures,
+        },
+        {
+            operation: 'save',
+            start: () => {
+                logic.actions.openEditEditor(view)
+                logic.actions.setEditorName('Invented private input name')
+                logic.actions.saveEditor()
+            },
+            mockWrite: (write) => mockUpdate.mockImplementationOnce(() => write().then(() => updatedView)),
+            entries: [[AccountsEvents.AccountViewEditorOpened, { is_new: false }]],
+            success: [AccountsEvents.AccountViewSaved, { is_new: false, component_count: 2 }],
+            successValues: { views: [updatedView] },
+            failureValues: { editorOpen: true },
+            showsEditorConflict: true,
+            failureEvent: AccountsEvents.AccountViewSaveFailed,
+            failureContext: { is_new: false },
+            failures: conflictFailures,
+        },
+        {
+            operation: 'rename',
+            start: () => {
+                logic.actions.openTileEditor(view.id, components[0].nodeId, 'Invented private input title')
+                logic.actions.saveTileEditor()
+            },
+            mockWrite: (write) => mockUpdate.mockImplementationOnce(() => write().then(() => updatedView)),
+            entries: [[AccountsEvents.AccountViewTileEditorOpened]],
+            success: [AccountsEvents.AccountViewTileRenamed, { component_count: 2 }],
+            successValues: { views: [updatedView] },
+            failureValues: {},
+            showsEditorConflict: false,
+            failureEvent: AccountsEvents.AccountViewTileRenameFailed,
+            failures: conflictFailures,
+        },
+        {
+            operation: 'remove',
+            start: () => logic.actions.removeViewComponent(view.id, components[0].nodeId),
+            mockWrite: (write) => mockUpdate.mockImplementationOnce(() => write().then(() => removedTileView)),
+            entries: [[AccountsEvents.AccountViewTileRemovalStarted]],
+            success: [AccountsEvents.AccountViewTileRemoved, { component_count: 1 }],
+            successValues: { views: [removedTileView] },
+            failureValues: {},
+            showsEditorConflict: false,
+            failureEvent: AccountsEvents.AccountViewTileRemovalFailed,
+            failures: conflictFailures,
+        },
+        {
+            operation: 'delete',
+            start: () => logic.actions.deleteView(view.id, view.version),
+            mockWrite: (write) => mockDelete.mockImplementationOnce(write),
+            entries: [[AccountsEvents.AccountViewDeletionStarted]],
+            success: [AccountsEvents.AccountViewDeleted],
+            successValues: { views: [] },
+            failureValues: { views: [view] },
+            showsEditorConflict: true,
+            failureEvent: AccountsEvents.AccountViewDeletionFailed,
+            failures: conflictFailures,
+        },
+        {
+            operation: 'tabs',
+            start: () => {
+                logic.actions.openConfigure(tabSettings)
+                logic.actions.saveConfig()
+            },
+            mockWrite: (write) => mockConfigUpdate.mockImplementationOnce(() => write().then(() => updatedUserConfig)),
+            entries: [
+                [AccountsEvents.AccountViewTabSettingsOpened],
+                [AccountsEvents.AccountViewTabSettingsSaveStarted],
+            ],
+            success: [
+                AccountsEvents.AccountViewTabSettingsSaved,
+                { has_default: true, ordered_count: 2, hidden_count: 1 },
+            ],
+            successValues: { config: updatedUserConfig, configureOpen: false },
+            failureValues: { configureOpen: true, configSaving: false },
+            showsEditorConflict: false,
+            failureEvent: AccountsEvents.AccountViewTabSettingsSaveFailed,
+            failures: [
+                { status: 409, failureType: 'request' },
+                { status: 500, failureType: 'request' },
+            ],
+        },
+    ]
 
     beforeEach(async () => {
         jest.clearAllMocks()
@@ -129,7 +225,7 @@ describe('accountViewsLogic tracking', () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]: true })
         jest.mocked(accountViewsList).mockResolvedValue([view])
-        jest.mocked(accountViewsRetrieve).mockResolvedValue({ ...view, version: 2 })
+        jest.mocked(accountViewsRetrieve).mockResolvedValue(updatedView)
         jest.mocked(userCustomerAnalyticsConfigRetrieve).mockResolvedValue(userConfig)
         mockCreate.mockReset().mockResolvedValue(view)
         mockUpdate.mockReset().mockResolvedValue(view)
@@ -148,131 +244,50 @@ describe('accountViewsLogic tracking', () => {
         jest.restoreAllMocks()
     })
 
-    function getAccountViewCaptures(): Parameters<typeof posthog.capture>[] {
+    function getAccountViewCaptures(): Capture[] {
         return capture.mock.calls.filter(([event]) => event.startsWith('customer analytics account view '))
     }
 
-    function startWrite(operation: WriteOperation): void {
-        if (operation === 'create') {
-            logic.actions.openCreateEditor()
-            logic.actions.setEditorName('Invented private input name')
-            logic.actions.addEditorComponent('notes')
-            logic.actions.addEditorComponent('usage')
-            logic.actions.saveEditor()
-        } else if (operation === 'save') {
-            logic.actions.openEditEditor(view)
-            logic.actions.setEditorName('Invented private input name')
-            logic.actions.saveEditor()
-        } else if (operation === 'rename') {
-            logic.actions.openTileEditor(view.id, components[0].nodeId, 'Invented private input title')
-            logic.actions.saveTileEditor()
-        } else if (operation === 'remove') {
-            logic.actions.removeViewComponent(view.id, components[0].nodeId)
-        } else if (operation === 'delete') {
-            logic.actions.deleteView(view.id, view.version)
-        } else {
-            logic.actions.openConfigure(tabSettings)
-            logic.actions.saveConfig()
-        }
-    }
-
-    it.each(operations)(
-        'reports %s only after acknowledgement with exactly the allowed properties',
-        async (operation) => {
+    it.each(scenarios)(
+        'reports $operation only after acknowledgement with exactly the allowed properties',
+        async (scenario) => {
             const response = createDeferred<void>()
             const started = createDeferred<void>()
-            const acknowledgedView = createWriteResponse(operation)
-            const write = async (): Promise<void> => {
+            scenario.mockWrite(async () => {
                 started.resolve(undefined)
                 await response.promise
-            }
-            const writeView = async (): Promise<AccountViewApi> => {
-                await write()
-                return acknowledgedView
-            }
-            mockCreate.mockImplementation(writeView)
-            mockUpdate.mockImplementation(writeView)
-            mockDelete.mockImplementation(write)
-            mockConfigUpdate.mockImplementation(async () => {
-                await write()
-                return { ...userConfig, account_detail_tabs: tabSettings }
             })
-
-            startWrite(operation)
+            scenario.start()
             await started.promise
-            expect(capture.mock.calls.map(([event]) => event)).not.toContain(successEvents[operation])
+            expect(getAccountViewCaptures()).toEqual(scenario.entries)
             response.resolve(undefined)
             await expectLogic(logic).toFinishAllListeners()
-
-            const expectedEntries = {
-                create: [[AccountsEvents.AccountViewEditorOpened, { is_new: true }]],
-                save: [[AccountsEvents.AccountViewEditorOpened, { is_new: false }]],
-                rename: [[AccountsEvents.AccountViewTileEditorOpened]],
-                remove: [[AccountsEvents.AccountViewTileRemovalStarted]],
-                delete: [[AccountsEvents.AccountViewDeletionStarted]],
-                tabs: [
-                    [AccountsEvents.AccountViewTabSettingsOpened],
-                    [AccountsEvents.AccountViewTabSettingsSaveStarted],
-                ],
-            }[operation]
-            const expectedProperties =
-                operation === 'create' || operation === 'save'
-                    ? { is_new: operation === 'create', component_count: 2 }
-                    : operation === 'rename' || operation === 'remove'
-                      ? { component_count: operation === 'remove' ? 1 : 2 }
-                      : operation === 'tabs'
-                        ? { has_default: true, ordered_count: 2, hidden_count: 1 }
-                        : undefined
-            const expectedOutcome = expectedProperties
-                ? [successEvents[operation], expectedProperties]
-                : [successEvents[operation]]
-            expect(getAccountViewCaptures()).toEqual([...expectedEntries, expectedOutcome])
-            if (operation === 'delete') {
-                expect(logic.values.views.find(({ id }) => id === view.id)).toBeUndefined()
-            } else if (operation === 'tabs') {
-                expect(logic.values.config?.account_detail_tabs).toEqual(tabSettings)
-                expect(logic.values.configureOpen).toBe(false)
-            } else {
-                expect(logic.values.views.find(({ id }) => id === acknowledgedView.id)?.version).toBe(2)
-            }
+            expect(getAccountViewCaptures()).toEqual([...scenario.entries, scenario.success])
+            expect(logic.values).toMatchObject(scenario.successValues)
         }
     )
 
-    it.each(operations.flatMap((operation) => [409, 500].map((status) => ({ operation, status }))))(
+    it.each(scenarios.flatMap((scenario) => scenario.failures.map((failure) => ({ ...scenario, ...failure }))))(
         'reports failed $operation ($status) without success or private error content',
-        async ({ operation, status }) => {
-            const error = new ApiError('Invented private error message', status, undefined, {
-                detail: 'Invented private error response',
+        async (scenario) => {
+            scenario.mockWrite(async () => {
+                throw new ApiError('Invented private error message', scenario.status, undefined, {
+                    detail: 'Invented private error response',
+                })
             })
-            mockCreate.mockRejectedValueOnce(error)
-            mockUpdate.mockRejectedValueOnce(error)
-            mockDelete.mockRejectedValueOnce(error)
-            mockConfigUpdate.mockRejectedValueOnce(error)
-            startWrite(operation)
+            scenario.start()
             await expectLogic(logic).toFinishAllListeners()
-
-            const expectedProperties = {
-                ...(operation === 'create' || operation === 'save' ? { is_new: operation === 'create' } : {}),
-                failure_type: status === 409 && operation !== 'tabs' ? 'conflict' : 'request',
-            }
-            expect(capture.mock.calls.filter(([event]) => event === failureEvents[operation])).toEqual([
-                [failureEvents[operation], expectedProperties],
+            expect(getAccountViewCaptures()).toEqual([
+                ...scenario.entries,
+                [scenario.failureEvent, { ...scenario.failureContext, failure_type: scenario.failureType }],
             ])
-            expect(capture.mock.calls.map(([event]) => event)).not.toContain(successEvents[operation])
             expect(JSON.stringify(capture.mock.calls)).not.toMatch(
                 /Invented|11111111|example-private|invented-private|-14d/
             )
-            if (operation === 'create' || operation === 'save') {
-                expect(logic.values.editorOpen).toBe(true)
-                expect(logic.values.editorConflict).toBe(status === 409)
-            } else if (operation === 'delete') {
-                expect(logic.values.views).toContainEqual(view)
-                expect(logic.values.editorConflict).toBe(status === 409)
-            } else if (operation === 'tabs') {
-                expect(logic.values.configureOpen).toBe(true)
-                expect(logic.values.configSaving).toBe(false)
-                expect(logic.values.editorConflict).toBe(false)
-            }
+            expect(logic.values).toMatchObject({
+                ...scenario.failureValues,
+                editorConflict: scenario.showsEditorConflict && scenario.failureType === 'conflict',
+            })
         }
     )
 

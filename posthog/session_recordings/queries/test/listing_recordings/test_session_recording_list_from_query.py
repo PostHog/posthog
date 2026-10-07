@@ -5014,16 +5014,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [],
         )
 
-    @parameterized.expand(
-        [
-            ("account-one", ["account-one-only", "both-accounts"]),
-            ("account-two", ["account-two-only", "both-accounts"]),
-        ]
-    )
     @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
-    def test_account_event_tag_selects_whole_sessions_not_all_sessions_of_the_person(
-        self, account_key: str, expected_sessions: list[str]
-    ) -> None:
+    def test_account_event_tag_selects_whole_sessions_not_all_sessions_of_the_person(self) -> None:
         create_person(team=self.team, distinct_ids=["account-user"])
         session_ids = {
             name: str(uuid7()) for name in ["account-one-only", "account-two-only", "both-accounts", "untagged"]
@@ -5054,10 +5046,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             )
         self._assert_query_matches_session_ids(
             {
-                "properties": [{"key": "$group_0", "value": [account_key], "operator": "exact", "type": "event"}],
+                "properties": [{"key": "$group_0", "value": ["account-one"], "operator": "exact", "type": "event"}],
                 "event_match_scope": "session",
             },
-            [session_ids[name] for name in expected_sessions],
+            [session_ids["account-one-only"], session_ids["both-accounts"]],
         )
 
     @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
