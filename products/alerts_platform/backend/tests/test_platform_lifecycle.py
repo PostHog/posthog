@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from typing import Any
+from uuid import UUID, uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -142,6 +143,25 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         assert rows == [("not_firing", self.cutoff)]
         assert self._alert().firing_started_at is None
 
+    def _copy(self, legacy_id: UUID, **overrides: Any) -> None:
+        fields: dict[str, Any] = {
+            "legacy_configuration_id": legacy_id,
+            "team_id": self.team.id,
+            "name": "Copied alert",
+            "enabled": True,
+            "source_kind": SourceKind.LOGS,
+            "source_config": {"condition": {"threshold_count": 1, "threshold_operator": "above", "window_minutes": 5}},
+            "check_interval_minutes": 5,
+            "evaluation_periods": 1,
+            "datapoints_to_alarm": 1,
+            "cooldown_minutes": 0,
+            "schedule_restriction": None,
+            "next_check_at": self.cutoff - timedelta(minutes=1),
+            "snooze_until": None,
+        }
+        fields.update(overrides)
+        upsert_configuration(PlatformAlertUpsert(**fields))
+
     @parameterized.expand(
         [
             # The source parks its own next check at the end of quiet hours. The platform still
@@ -157,63 +177,28 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         self, _name: str, disabled_between: bool, interval_on_rerun: int, expected_offset: timedelta
     ) -> None:
         legacy_id = uuid4()
+        quiet_hours = {"blocked_windows": [{"start": "15:00", "end": "15:34"}]}
 
-        def copy(next_check_at: datetime, check_interval_minutes: int = 5) -> None:
-            upsert_configuration(
-                PlatformAlertUpsert(
-                    legacy_configuration_id=legacy_id,
-                    team_id=self.team.id,
-                    name="Quiet hours alert",
-                    enabled=True,
-                    source_kind=SourceKind.LOGS,
-                    source_config={
-                        "condition": {"threshold_count": 1, "threshold_operator": "above", "window_minutes": 5}
-                    },
-                    check_interval_minutes=check_interval_minutes,
-                    evaluation_periods=1,
-                    datapoints_to_alarm=1,
-                    cooldown_minutes=0,
-                    schedule_restriction={"blocked_windows": [{"start": "15:00", "end": "15:34"}]},
-                    next_check_at=next_check_at,
-                    snooze_until=None,
-                )
-            )
-
-        def scheduled() -> datetime | None:
-            with team_scope(self.team.id):
-                return PlatformAlertConfiguration.objects.get(legacy_configuration_id=legacy_id).next_check_at
-
-        copy(self.cutoff - timedelta(minutes=1))
+        self._copy(legacy_id, schedule_restriction=quiet_hours)
         if disabled_between:
             disable_configurations(SourceKind.LOGS, team_id=self.team.id)
-        copy(self.cutoff + timedelta(minutes=34), check_interval_minutes=interval_on_rerun)
+        self._copy(
+            legacy_id,
+            schedule_restriction=quiet_hours,
+            next_check_at=self.cutoff + timedelta(minutes=34),
+            check_interval_minutes=interval_on_rerun,
+        )
 
-        assert scheduled() == self.cutoff + expected_offset
+        with team_scope(self.team.id):
+            copied = PlatformAlertConfiguration.objects.get(legacy_configuration_id=legacy_id)
+        assert copied.next_check_at == self.cutoff + expected_offset
 
     def test_a_copied_snooze_mutes_without_holding_back_the_check(self) -> None:
         legacy_id = uuid4()
         snoozed_until = self.cutoff + timedelta(hours=2)
 
         def copy(snooze_until: datetime | None) -> None:
-            upsert_configuration(
-                PlatformAlertUpsert(
-                    legacy_configuration_id=legacy_id,
-                    team_id=self.team.id,
-                    name="Snoozed alert",
-                    enabled=True,
-                    source_kind=SourceKind.LOGS,
-                    source_config={
-                        "condition": {"threshold_count": 1, "threshold_operator": "above", "window_minutes": 5}
-                    },
-                    check_interval_minutes=5,
-                    evaluation_periods=1,
-                    datapoints_to_alarm=1,
-                    cooldown_minutes=0,
-                    schedule_restriction=None,
-                    next_check_at=self.cutoff - timedelta(minutes=1),
-                    snooze_until=snooze_until,
-                )
-            )
+            self._copy(legacy_id, snooze_until=snooze_until)
 
         def snooze_seen_by_check() -> tuple[str, datetime | None]:
             (check,) = [

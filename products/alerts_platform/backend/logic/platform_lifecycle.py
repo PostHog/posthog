@@ -325,8 +325,11 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
             "cooldown_minutes": upsert.cooldown_minutes,
             "schedule_restriction": upsert.schedule_restriction,
         }
-        cadence_changed = existing is not None and any(existing[key] != defaults[key] for key in _CADENCE_FIELDS)
-        if existing is None or not existing["enabled"] or cadence_changed:
+        if (
+            existing is None
+            or not existing["enabled"]
+            or any(existing[key] != defaults[key] for key in _CADENCE_FIELDS)
+        ):
             defaults["next_check_at"] = upsert.next_check_at
         configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
             legacy_configuration_id=upsert.legacy_configuration_id, defaults=defaults
