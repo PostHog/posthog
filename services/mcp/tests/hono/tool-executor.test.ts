@@ -23,6 +23,7 @@ import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
+import { GENERATED_TOOLS as QUERY_RUNNERS } from '@/tools/generated/query-wrappers'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
@@ -30,9 +31,9 @@ import { makeToolExecutorState, mockApi } from '../shared/test-utils'
 
 // A tool with a renderable (dispatchable) UI app — used to exercise the render-ui path.
 const uiAppTool = {
-    name: 'survey-get',
+    name: 'query-trends',
     annotations: { readOnlyHint: true },
-    _meta: { ui: { resourceUri: URI_MAP['survey'] } },
+    _meta: { ui: { resourceUri: URI_MAP['query-results'] } },
 }
 
 describe('ToolExecutor', () => {
@@ -633,39 +634,46 @@ describe('ToolExecutor', () => {
             expect(result.content[0]!.text).toContain('### Rendering visualizations')
         })
 
-        it('lists render-ui alongside exec when render-ui is enabled and a UI-app tool is available', async () => {
-            const tools = [
-                uiAppTool,
-                { name: 'query-trends', annotations: { readOnlyHint: true } },
-                { name: 'survey-create', annotations: { readOnlyHint: false } },
-            ]
-            const state = makeToolExecutorState(tools, { useSingleExec: true, renderUiEnabled: true })
+        it.each([{ queryNames: Object.keys(QUERY_RUNNERS) }, { queryNames: ['query-trends'] }])(
+            'lists only permitted query runners %j alongside exec and render-ui',
+            async ({ queryNames }) => {
+                const queryTools = queryNames.map((name) => ({
+                    ...QUERY_RUNNERS[name]!(),
+                    annotations: { readOnlyHint: true },
+                }))
+                const tools = [
+                    ...queryTools,
+                    {
+                        name: 'survey-get',
+                        annotations: { readOnlyHint: true },
+                        _meta: { ui: { resourceUri: URI_MAP['survey'] } },
+                    },
+                    { name: 'user-get', annotations: { readOnlyHint: true } },
+                    { name: 'survey-create', annotations: { readOnlyHint: false } },
+                ]
+                const state = makeToolExecutorState(tools, { useSingleExec: true, renderUiEnabled: true })
 
-            const result = await executor.handleToolsList(state)
-            expect(result.tools.map((t) => t.name)).toEqual(
-                expect.arrayContaining(['exec', 'render-ui', 'survey-get', 'query-trends'])
-            )
-            expect(result.tools).toHaveLength(4)
-            for (const name of ['survey-get', 'query-trends']) {
-                const appTool = result.tools.find((tool) => tool.name === name)!
-                expect(appTool._meta?.ui).toMatchObject({
-                    visibility: ['app'],
-                })
-                expect(appTool.inputSchema.required ?? []).not.toContain('context')
-                expect(appTool.inputSchema.required ?? []).not.toContain('llm_model')
+                const result = await executor.handleToolsList(state)
+                expect(result.tools.map((t) => t.name).sort()).toEqual(['exec', 'render-ui', ...queryNames].sort())
+                for (const name of queryNames) {
+                    const appTool = result.tools.find((tool) => tool.name === name)!
+                    expect(appTool._meta?.ui).toMatchObject({ visibility: ['app'] })
+                    expect(appTool.inputSchema.required ?? []).not.toContain('context')
+                    expect(appTool.inputSchema.required ?? []).not.toContain('llm_model')
+                }
+
+                // Pin the complete advertised schema because clients generate
+                // render-ui calls from this list response.
+                const renderUiEntry = result.tools[1]!
+                const properties = renderUiEntry.inputSchema.properties as Record<string, Record<string, unknown>>
+                expect(properties.tool_name!.enum).toEqual(queryNames)
+                expect(properties.tool_name!.description).toBeTruthy()
+                expect(properties.tool_input!.description).toBeTruthy()
+                expect(properties.context!.description).toBeTruthy()
+                expect(properties.llm_model!.description).toBeTruthy()
+                expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context', 'llm_model'])
             }
-
-            // Pin the complete advertised schema because clients generate
-            // render-ui calls from this list response.
-            const renderUiEntry = result.tools[1]!
-            const properties = renderUiEntry.inputSchema.properties as Record<string, Record<string, unknown>>
-            expect(properties.tool_name!.enum).toEqual(['survey-get'])
-            expect(properties.tool_name!.description).toBeTruthy()
-            expect(properties.tool_input!.description).toBeTruthy()
-            expect(properties.context!.description).toBeTruthy()
-            expect(properties.llm_model!.description).toBeTruthy()
-            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context', 'llm_model'])
-        })
+        )
 
         it('omits render-ui when render-ui is disabled, even with a UI-app tool available', async () => {
             const state = makeToolExecutorState([uiAppTool], { useSingleExec: true, renderUiEnabled: false })
@@ -680,20 +688,20 @@ describe('ToolExecutor', () => {
             const state = makeToolExecutorState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
 
             const result = (await executor.handleToolCall(
-                { name: 'render-ui', arguments: { tool_name: 'survey-get', tool_input: { surveyId: 'abc' } } },
+                { name: 'render-ui', arguments: { tool_name: 'query-trends', tool_input: { series: [] } } },
                 state
             )) as any
 
             expect(result._meta.ui.resourceUri).toBe(RENDER_UI_RESOURCE_URI)
-            expect(result.structuredContent.tool_name).toBe('survey-get')
-            expect(result.structuredContent.app_key).toBe('survey')
+            expect(result.structuredContent.tool_name).toBe('query-trends')
+            expect(result.structuredContent.app_key).toBe('query-results')
         })
 
         it('rejects a render-ui call when render-ui is disabled', async () => {
             const state = makeToolExecutorState([uiAppTool], { useSingleExec: true, renderUiEnabled: false })
 
             const result = (await executor.handleToolCall(
-                { name: 'render-ui', arguments: { tool_name: 'survey-get', tool_input: { surveyId: 'abc' } } },
+                { name: 'render-ui', arguments: { tool_name: 'query-trends', tool_input: { series: [] } } },
                 state
             )) as any
 
@@ -765,7 +773,7 @@ describe('ToolExecutor', () => {
                 state.clientProfile = { ...state.clientProfile, consumer: 'posthog_ai' } as typeof state.clientProfile
             }
 
-            const result = (await executor.handleToolCall({ name: 'survey-get', arguments: {} }, state)) as any
+            const result = (await executor.handleToolCall({ name: 'query-trends', arguments: {} }, state)) as any
 
             expect(result.content[0].text).toContain(formattedTable)
             expect('structuredContent' in result).toBe(expectStructuredContent)

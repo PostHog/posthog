@@ -26,34 +26,39 @@ function makeTool(name: string, resourceUri?: string): Tool<ZodObjectAny> {
 
 // Generated and opted-in custom apps are dispatchable; other custom apps are not.
 const surveyTool = makeTool('survey-get', URI_MAP['survey'])
+const queryActorsTool = makeTool('query-trends-actors', URI_MAP['insight-actors'])
 const queryTrendsTool = makeTool('query-trends', URI_MAP['query-results'])
 const debugTool = makeTool('debug-tool', URI_MAP['debug'])
 const plainTool = makeTool('plain-tool')
 
 describe('render-ui tool', () => {
-    it('only counts tools whose UI app has a reusable view as renderable', () => {
-        expect(getRenderableToolNames([surveyTool, queryTrendsTool, debugTool, plainTool])).toEqual([
-            'survey-get',
+    it('only renders query runners with reusable UI views', () => {
+        expect(getRenderableToolNames([surveyTool, queryTrendsTool, queryActorsTool, debugTool, plainTool])).toEqual([
             'query-trends',
+            'query-trends-actors',
         ])
     })
 
     it('excludes non-read-only tools so render-ui cannot dispatch mutating tools', () => {
-        const mutatingTool = makeTool('survey-launch', URI_MAP['survey'])
+        const mutatingTool = makeTool('query-trends', URI_MAP['query-results'])
         mutatingTool.annotations.readOnlyHint = false
         expect(getRenderableToolNames([mutatingTool])).toEqual([])
     })
 
     it('returns null when no tool has a renderable UI app', () => {
-        expect(createRenderUiTool([debugTool, plainTool], mockContext)).toBeNull()
+        expect(createRenderUiTool([surveyTool, debugTool, plainTool], mockContext)).toBeNull()
     })
 
     it('restricts tool_name to the renderable tools', () => {
-        const tool = createRenderUiTool([surveyTool, queryTrendsTool, debugTool, plainTool], mockContext)
+        const tool = createRenderUiTool(
+            [surveyTool, queryTrendsTool, queryActorsTool, debugTool, plainTool],
+            mockContext
+        )
         expect(tool).not.toBeNull()
         const schema = tool!.schema
 
-        expect(schema.safeParse({ tool_name: 'survey-get', tool_input: { surveyId: 'abc' } }).success).toBe(true)
+        expect(schema.safeParse({ tool_name: 'survey-get' }).success).toBe(false)
+        expect(schema.safeParse({ tool_name: 'query-trends-actors' }).success).toBe(true)
         expect(schema.safeParse({ tool_name: 'query-trends', tool_input: { kind: 'TrendsQuery' } }).success).toBe(true)
         // Non-UI and non-dispatchable custom-app tools are not valid enum members.
         expect(schema.safeParse({ tool_name: 'plain-tool' }).success).toBe(false)
@@ -61,7 +66,10 @@ describe('render-ui tool', () => {
     })
 
     it('advertises the render-ui input schema', () => {
-        const tool = createRenderUiTool([surveyTool, queryTrendsTool, debugTool, plainTool], mockContext)
+        const tool = createRenderUiTool(
+            [surveyTool, queryTrendsTool, queryActorsTool, debugTool, plainTool],
+            mockContext
+        )
         expect(tool).not.toBeNull()
 
         expect(toMcpInputSchema(tool!.schema)).toMatchInlineSnapshot(`
@@ -78,8 +86,8 @@ describe('render-ui tool', () => {
               "tool_name": {
                 "description": "A tool that has a UI app — its visualization will be rendered for the user.",
                 "enum": [
-                  "survey-get",
                   "query-trends",
+                  "query-trends-actors",
                 ],
                 "type": "string",
               },
@@ -93,37 +101,37 @@ describe('render-ui tool', () => {
     })
 
     it('emits a render directive payload with the envelope and render-ui resourceUri', async () => {
-        const tool = createRenderUiTool([surveyTool, debugTool, plainTool], mockContext)!
+        const tool = createRenderUiTool([queryTrendsTool, debugTool, plainTool], mockContext)!
         const result = (await tool.handler(mockContext, {
-            tool_name: 'survey-get',
-            tool_input: { surveyId: 'abc' },
+            tool_name: 'query-trends',
+            tool_input: { series: [] },
         })) as ToolResultPayload
 
         expect(isToolCallPayload(result)).toBe(true)
         expect(result.structuredContent).toEqual({
-            tool_name: 'survey-get',
-            tool_input: { surveyId: 'abc' },
-            app_key: 'survey',
+            tool_name: 'query-trends',
+            tool_input: { series: [] },
+            app_key: 'query-results',
             _analytics: { distinctId: 'test-distinct-id', toolName: RENDER_UI_TOOL_NAME },
         })
         expect(result._meta?.ui).toEqual({ resourceUri: RENDER_UI_RESOURCE_URI })
     })
 
     it('defaults tool_input to an empty object when omitted', async () => {
-        const tool = createRenderUiTool([surveyTool], mockContext)!
-        const result = (await tool.handler(mockContext, { tool_name: 'survey-get' })) as ToolResultPayload
+        const tool = createRenderUiTool([queryTrendsTool], mockContext)!
+        const result = (await tool.handler(mockContext, { tool_name: 'query-trends' })) as ToolResultPayload
         expect((result.structuredContent as Record<string, unknown>).tool_input).toEqual({})
     })
 
     it('does not execute the inner tool — it only emits a render directive', async () => {
         let innerCalled = false
-        const spyTool = makeTool('survey-get', URI_MAP['survey'])
+        const spyTool = makeTool('query-trends', URI_MAP['query-results'])
         spyTool.handler = async () => {
             innerCalled = true
             return { ok: true }
         }
         const tool = createRenderUiTool([spyTool], mockContext)!
-        await tool.handler(mockContext, { tool_name: 'survey-get' })
+        await tool.handler(mockContext, { tool_name: 'query-trends' })
         expect(innerCalled).toBe(false)
     })
 })

@@ -42,7 +42,7 @@ import {
     type ExecInnerCallTracker,
 } from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
-import { createRenderUiTool } from '@/tools/render-ui'
+import { createRenderUiTool, getRenderableToolNames } from '@/tools/render-ui'
 import { skillAnalyticsProperties, skillLookupMissProperties } from '@/tools/skills/analytics'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from '@/tools/skills/notFound'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
@@ -183,11 +183,7 @@ export class ToolExecutor {
         if (state.useSingleExec) {
             const renderUiEntry = state.renderUiEnabled ? this.instructionsBuilder.buildRenderUiToolEntry(state) : null
             // Hosts authorize app calls against tools/list, including tools hidden from the model.
-            const appToolNames = new Set(
-                renderUiEntry
-                    ? state.allTools.filter((tool) => tool.annotations.readOnlyHint).map((tool) => tool.name)
-                    : []
-            )
+            const appToolNames = new Set(renderUiEntry ? getRenderableToolNames(state.allTools) : [])
             const appTools = this.catalog
                 .getPreBuiltEntries()
                 .filter((entry) => appToolNames.has(entry.name))

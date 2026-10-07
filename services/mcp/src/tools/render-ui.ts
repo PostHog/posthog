@@ -5,6 +5,7 @@ import { markExecPayload, type ToolResultPayload } from '@/lib/build-tool-result
 import { DISPATCHABLE_APP_KEYS, RENDER_UI_RESOURCE_URI, URI_MAP, type UiAppKey } from '@/resources/ui-apps.generated'
 import RENDER_UI_PROMPT from '@/templates/render-ui-prompt.md'
 
+import { GENERATED_TOOLS as QUERY_RUNNERS } from './generated/query-wrappers'
 import { type Context, type Tool, type ZodObjectAny } from './types'
 
 export const RENDER_UI_TOOL_NAME = 'render-ui'
@@ -17,6 +18,7 @@ const URI_TO_APP_KEY = new Map<string, UiAppKey>(
 )
 
 const DISPATCHABLE = new Set<UiAppKey>(DISPATCHABLE_APP_KEYS)
+const QUERY_RUNNER_NAMES = new Set(Object.keys(QUERY_RUNNERS))
 
 /** The dispatchable app key for a tool, or undefined when it has no renderable UI app. */
 function toDispatchableAppKey(tool: Tool<ZodObjectAny>): UiAppKey | undefined {
@@ -29,13 +31,17 @@ function toDispatchableAppKey(tool: Tool<ZodObjectAny>): UiAppKey | undefined {
 }
 
 /**
- * Names of the tools `render-ui` can render — those whose UI app exposes a reusable view.
  * Restricted to read-only tools: `render-ui` is annotated read-only, so it must not be a
  * back door for dispatching state-changing tools (e.g. `survey-launch`, `workflows-create`).
  */
 export function getRenderableToolNames(allTools: Tool<ZodObjectAny>[]): string[] {
     return allTools
-        .filter((tool) => tool.annotations.readOnlyHint && toDispatchableAppKey(tool) !== undefined)
+        .filter(
+            (tool) =>
+                QUERY_RUNNER_NAMES.has(tool.name) &&
+                tool.annotations.readOnlyHint &&
+                toDispatchableAppKey(tool) !== undefined
+        )
         .map((tool) => tool.name)
 }
 
@@ -116,7 +122,11 @@ export function createRenderUiTool(
                     tool_name: tool.name,
                     tool_input: toolInput,
                     app_key: appKey,
-                    _analytics: { distinctId, toolName: RENDER_UI_TOOL_NAME, ...(mcpClientName ? { mcpClientName } : {}) },
+                    _analytics: {
+                        distinctId,
+                        toolName: RENDER_UI_TOOL_NAME,
+                        ...(mcpClientName ? { mcpClientName } : {}),
+                    },
                 },
                 _meta: {
                     ui: { resourceUri: RENDER_UI_RESOURCE_URI },

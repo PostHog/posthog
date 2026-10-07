@@ -1054,14 +1054,14 @@ describe('ToolExecutor metrics', () => {
 
     describe('render-ui', () => {
         const uiAppTool = {
-            name: 'survey-get',
+            name: 'query-trends',
             annotations: { readOnlyHint: true },
-            _meta: { ui: { resourceUri: URI_MAP['survey'] } },
+            _meta: { ui: { resourceUri: URI_MAP['query-results'] } },
         }
 
         it('emits an errored event when the wrapper schema rejects the arguments', async () => {
             const result = await executor.handleToolCall(
-                { name: 'render-ui', arguments: { toolName: 'survey-get' } },
+                { name: 'render-ui', arguments: { toolName: 'query-trends' } },
                 makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
             )
 
