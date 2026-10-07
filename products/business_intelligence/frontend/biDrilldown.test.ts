@@ -1,9 +1,9 @@
-import { BIConfig, BIField, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
+import { BIConditionGroup, BIConfig, BIField, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { getBIChartRecord, getBIDrillQueries, getBIDrillSelection, getBIEffectiveQuery } from './biDrilldown'
-import { buildBIQuery, DEFAULT_BI_CONFIG } from './biEditorTypes'
+import { BIEditorView, buildBIQuery, DEFAULT_BI_CONFIG, parseBIEditorState } from './biEditorTypes'
 
 const field = (name: string, type: BIField['type'] = 'string'): BIField => ({
     id: name,
@@ -28,6 +28,60 @@ function buildWorksheet(config: BIConfig): { node: BIVisualizationNode } {
 }
 
 describe('BI drill-down', () => {
+    it('keeps grouped filters loadable across repeated drill-downs', () => {
+        let node = buildWorksheet({
+            ...config,
+            rowFilterGroup: { operator: 'OR', filters: config.filters.map((filter) => filter.field.id), groups: [] },
+        }).node
+        for (let index = 0; index < 10; index++) {
+            const selection = getBIDrillSelection(node.config, { bi_column_event: 'purchase' })
+            const queries = getBIDrillQueries(node, selection)!
+            expect(queries.worksheet).not.toBeNull()
+            node = queries.worksheet!
+            expect(parseBIEditorState(BIEditorView.BI, node.config)).not.toBeNull()
+            expect(node.config.filters).toHaveLength(config.filters.length + index + 1)
+            expect(queries.rows.source.query).toContain("properties.environment = 'production'")
+            expect(queries.rows.source.query).toContain("event = 'purchase'")
+        }
+    })
+
+    it.each(['AND', 'OR'] as const)('preserves rows at the group depth limit (root: %s)', (operator) => {
+        let group: BIConditionGroup = {
+            operator,
+            filters: config.filters.map((filter) => filter.field.id),
+            groups: [],
+        }
+        for (let index = 0; index < 8; index++) {
+            group = { operator: group.operator === 'AND' ? 'OR' : 'AND', filters: [], groups: [group] }
+        }
+        const node = buildWorksheet({ ...config, rowFilterGroup: group }).node
+        expect(parseBIEditorState(BIEditorView.BI, node.config)).not.toBeNull()
+        const selection = getBIDrillSelection(node.config, { bi_column_event: 'purchase' })
+        const queries = getBIDrillQueries(node, selection)!
+        expect(queries.rows.source.query).toContain("properties.environment = 'production'")
+        expect(queries.rows.source.query).toContain("event = 'purchase'")
+        if (operator === 'AND') {
+            expect(queries.worksheet).not.toBeNull()
+            expect(parseBIEditorState(BIEditorView.BI, queries.worksheet!.config)).not.toBeNull()
+        } else {
+            expect(queries.worksheet).toBeNull()
+        }
+    })
+
+    it('combines an OR group with the selected cell using AND', () => {
+        const grouped: BIConfig = {
+            ...config,
+            filters: [...config.filters, { field: field('event'), operator: 'equals', value: 'purchase' }],
+            rowFilterGroup: { operator: 'OR', filters: config.filters.map((filter) => filter.field.id), groups: [] },
+        }
+        const selection = getBIDrillSelection(grouped, { bi_row_timestamp: '2026-06-01', bi_column_event: 'signup' })
+        const queries = getBIDrillQueries(buildWorksheet(grouped).node, selection)!
+        expect(queries.rows.source.query).toContain(
+            "AND ((properties.environment = 'production') OR (event = 'purchase'))"
+        )
+        expect(queries.rows.source.query).toContain("(event = 'signup') AND")
+    })
+
     it('uses raw date and category values, escapes labels, and preserves effective dashboard filters', () => {
         const node = buildWorksheet(config)!.node
         node.source.variables = { variable: { variableId: 'variable', code_name: 'plan', value: 'starter' } }

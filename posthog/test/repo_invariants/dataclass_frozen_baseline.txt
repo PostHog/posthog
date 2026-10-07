@@ -731,7 +731,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/klaus/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/klaviyo/klaviyo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/knock/knock.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/knowbe4/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kommo/kommo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kong_konnect/kong_konnect.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kong_konnect/settings.py

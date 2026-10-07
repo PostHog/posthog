@@ -58,35 +58,34 @@ REPLAY_VISION_MISSION_PASSES = Counter(
     ["model", "path"],
 )
 
-# LLM analytics cannot answer this: the scanner runs with privacy mode on, so `$ai_tools_called` is
-# derived from an output the provider events never carry.
+# LLM analytics cannot answer this: the scanner runs with privacy mode on, so the lookup plan the model
+# writes never reaches the provider events.
 REPLAY_VISION_EVENTS_TOOL_CALLS = Counter(
     "replay_vision_events_tool_calls_total",
-    "Calls the scanner model made to the analytics events lookup",
+    "Analytics events lookups the scanner model asked for",
     ["scanner_type", "model"],
 )
 
 REPLAY_VISION_NETWORK_TOOL_CALLS = Counter(
     "replay_vision_network_tool_calls_total",
-    "Calls the scanner model made to the network request lookup",
+    "Network request lookups the scanner model asked for",
     ["scanner_type", "model"],
 )
 
-REPLAY_VISION_UNKNOWN_TOOL_CALLS = Counter(
-    "replay_vision_unknown_tool_calls_total",
-    "Calls the scanner model made to a name no tool answers, which means it invented one",
-    ["scanner_type", "model"],
-)
-
-# A round is one provider turn that asked for at least one lookup, which is what the tool budget spends.
-# The histogram separates a model that asks for several moments at once from one that spends a round on each.
-_TOOL_CALLS_PER_ROUND_BUCKETS = (1, 2, 3, 4, 5, 6, 8, 10, 15)
+# A scan has one lookup round, so this is the size of the model's lookup plan when the plan asks for anything.
+_TOOL_CALLS_PER_ROUND_BUCKETS = (1, 2, 3, 4, 5, 6, 7, 8)
 
 REPLAY_VISION_TOOL_ROUNDS = Histogram(
     "replay_vision_tool_calls_per_round",
-    "Lookups the scanner model asked for in one provider turn",
+    "Lookups in the scan's lookup plan, recorded when the plan asks for any",
     ["scanner_type", "model"],
     buckets=_TOOL_CALLS_PER_ROUND_BUCKETS,
+)
+
+REPLAY_VISION_LOOKUP_PLANS = Counter(
+    "replay_vision_lookup_plans_total",
+    "Lookup round outcomes per scan: planned, empty, or failed (the step answered without lookups)",
+    ["scanner_type", "model", "outcome"],
 )
 
 REPLAY_VISION_NETWORK_STATE = Counter(
@@ -259,16 +258,16 @@ def record_network_tool_call(scanner_type: str, model: str) -> None:
     _otel.record_counter_twin(REPLAY_VISION_NETWORK_TOOL_CALLS, 1, labels)
 
 
-def record_unknown_tool_call(scanner_type: str, model: str) -> None:
-    labels = {"scanner_type": scanner_type, "model": model}
-    REPLAY_VISION_UNKNOWN_TOOL_CALLS.labels(**labels).inc()
-    _otel.record_counter_twin(REPLAY_VISION_UNKNOWN_TOOL_CALLS, 1, labels)
-
-
 def record_tool_round(scanner_type: str, model: str, calls: int) -> None:
     labels = {"scanner_type": scanner_type, "model": model}
     REPLAY_VISION_TOOL_ROUNDS.labels(**labels).observe(calls)
     _otel.record_histogram_twin(REPLAY_VISION_TOOL_ROUNDS, calls, labels)
+
+
+def record_lookup_plan(scanner_type: str, model: str, outcome: str) -> None:
+    labels = {"scanner_type": scanner_type, "model": model, "outcome": outcome}
+    REPLAY_VISION_LOOKUP_PLANS.labels(**labels).inc()
+    _otel.record_counter_twin(REPLAY_VISION_LOOKUP_PLANS, 1, labels)
 
 
 def record_network_state(scanner_type: str, state: str) -> None:
