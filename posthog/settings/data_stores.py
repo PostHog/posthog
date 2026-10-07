@@ -266,9 +266,6 @@ for route in product_routes:
         # transaction see uncommitted data.
         DATABASES[writer_alias]["TEST"] = {"MIGRATE": False, "DEPENDENCIES": []}
         DATABASES[reader_alias]["TEST"] = {"MIRROR": writer_alias}
-        if TEST_ISOLATION_SUFFIX:
-            # posthog/conftest.py repoints the alias at "<default test database>_<db>" after setup, so create that name.
-            DATABASES[writer_alias]["TEST"]["NAME"] = f"test_{DATABASES['default']['NAME']}{TEST_ISOLATION_SUFFIX}_{db}"
 
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES[writer_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True

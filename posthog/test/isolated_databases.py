@@ -15,6 +15,8 @@ from django.conf import settings
 import psycopg
 from psycopg import sql
 
+from posthog.product_db_config import load_product_db_routes
+
 # How long to wait for other sessions to leave a shared test database before giving up on the clone.
 # Running every migration instead takes far longer, so the wait is generous.
 TEMPLATE_WAIT_SECONDS = 300.0
@@ -29,11 +31,19 @@ class IsolatedRunConflict(Exception):
     pass
 
 
+def configure_isolated_product_databases() -> None:
+    # pytest-django appends the worker suffix last, but product setup appends the product name last.
+    database = settings.DATABASES["default"]["TEST"]["NAME"]
+    for route in load_product_db_routes(settings.BASE_DIR):
+        alias = f"{route.database}_db_writer"
+        if alias in settings.DATABASES:
+            settings.DATABASES[alias]["TEST"]["NAME"] = f"{database}_{route.database}"
+
+
 @contextmanager
-def isolated_run(announce: Callable[[str], None], *, clone: bool) -> Iterator[None]:
+def isolated_run() -> Iterator[psycopg.Connection]:
     default = settings.DATABASES["default"]
     database = default["TEST"]["NAME"]
-    shared = f"test_{default['NAME']}"
     with psycopg.connect(
         host=default.get("HOST") or None,
         port=default.get("PORT") or None,
@@ -50,13 +60,17 @@ def isolated_run(announce: Callable[[str], None], *, clone: bool) -> Iterator[No
         if row != (True,):
             raise IsolatedRunConflict(
                 f"Another test run is using the isolated databases {database}. Wait for it to finish, or "
-                "pick another name with `hogli test --isolated <name>` or POSTHOG_TEST_ISOLATION=<name>."
+                "pick another name with `hogli test <path> --isolated <name>` or POSTHOG_TEST_ISOLATION=<name>."
             )
-        if clone:
-            deadline = time.monotonic() + TEMPLATE_WAIT_SECONDS
-            _clone_database(connection, database, shared, deadline, announce)
-            _clone_database(connection, f"{database}_persons", f"{shared}_persons", deadline, announce)
-        yield
+        yield connection
+
+
+def _has_sessions(connection: psycopg.Connection, database: str) -> bool:
+    # Postgres refuses to copy a database that has other sessions. CREATE DATABASE also blocks new
+    # connections to the template while it waits for them to leave, so check first instead of letting
+    # every attempt stall the other test run.
+    row = connection.execute("SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = %s)", (database,)).fetchone()
+    return row == (True,)
 
 
 def _clone_database(
@@ -96,9 +110,10 @@ def _clone_database(
         time.sleep(TEMPLATE_POLL_SECONDS)
 
 
-def _has_sessions(connection: psycopg.Connection, database: str) -> bool:
-    # Postgres refuses to copy a database that has other sessions. CREATE DATABASE also blocks new
-    # connections to the template while it waits for them to leave, so check first instead of letting
-    # every attempt stall the other test run.
-    row = connection.execute("SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = %s)", (database,)).fetchone()
-    return row == (True,)
+def clone_test_databases(connection: psycopg.Connection, announce: Callable[[str], None]) -> None:
+    default = settings.DATABASES["default"]
+    database = default["TEST"]["NAME"]
+    shared = f"test_{default['NAME']}"
+    deadline = time.monotonic() + TEMPLATE_WAIT_SECONDS
+    _clone_database(connection, database, shared, deadline, announce)
+    _clone_database(connection, f"{database}_persons", f"{shared}_persons", deadline, announce)

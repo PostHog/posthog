@@ -6,6 +6,7 @@ import click
 from hogli_commands.isolated_test_runs import (
     IsolatedDatabases,
     group_isolated_databases,
+    isolation_lock_keys,
     isolation_name,
     select_for_drop,
 )
@@ -68,6 +69,15 @@ def test_group_isolated_databases_never_matches_shared_databases() -> None:
             running=True,
         ),
     ]
+
+
+def test_cleanup_locks_clickhouse_only_workers() -> None:
+    group = IsolatedDatabases("foo", (), ("posthog_test_iso_foo_gw0",), running=False)
+
+    assert isolation_lock_keys(group) == {
+        "posthog-test-isolation:test_posthog_iso_foo",
+        "posthog-test-isolation:test_posthog_iso_foo_gw0",
+    }
 
 
 _IDLE = IsolatedDatabases("idle", ("test_posthog_iso_idle",), ("posthog_test_iso_idle",), running=False)

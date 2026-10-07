@@ -374,7 +374,9 @@ Postgres copies a database only while nothing is connected to it, so the first r
 If the shared database is still in use after that, the run builds its database by running every migration, and prints a message saying so.
 
 Two runs with the same name at the same time are not safe, so the second one stops with an error.
-The isolated set also gets its own Redis database number, Kafka topic names and Temporal task queue.
+The run holds its lock even for ClickHouse-only tests, and cleanup checks the locks of xdist workers before dropping their databases.
+The isolated set also gets Kafka topic names and a Temporal task queue.
+Redis uses database numbers 1 through 15, so two names can share a Redis database. Most tests use in-process fakeredis instead.
 Object storage and the `test_dagster` database stay shared, so two runs can overwrite each other's files when a test writes to a path that only contains a team ID.
 
 The databases stay after the run, which is what makes the next run fast.

@@ -7,6 +7,7 @@ import contextlib
 from collections.abc import Generator, Iterable, Iterator
 from functools import update_wrapper
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 import time_machine
@@ -14,8 +15,16 @@ import time_machine
 from django.conf import settings
 
 from posthog.test.events_schema_prune import EventsSchemaPruner
-from posthog.test.isolated_databases import IsolatedRunConflict, isolated_run
+from posthog.test.isolated_databases import (
+    IsolatedRunConflict,
+    clone_test_databases,
+    configure_isolated_product_databases,
+    isolated_run,
+)
 from posthog.test.junit import set_junit_report_location
+
+if TYPE_CHECKING:
+    import psycopg
 
 # The default MIXED mode reads naive strings as local time, so a non-UTC machine would
 # freeze at a different instant than CI does.
@@ -301,18 +310,35 @@ def pytest_cmdline_main(config: pytest.Config) -> Generator[None, int | pytest.E
     return exit_code
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_test_run(
+    django_db_modify_db_settings_parallel_suffix: None,
+) -> Generator[psycopg.Connection | None]:
+    # ClickHouse-only tests do not request Django database setup, but cleanup must still see their lock.
+    if settings.TEST_ISOLATION_NAME is None:
+        yield None
+        return
+
+    try:
+        with isolated_run() as connection:
+            yield connection
+    except IsolatedRunConflict as error:
+        pytest.exit(reason=str(error), returncode=pytest.ExitCode.USAGE_ERROR)
+
+
 @pytest.fixture(scope="session")
 def django_db_modify_db_settings(
     request: pytest.FixtureRequest,
-    django_db_modify_db_settings_parallel_suffix: None,
+    _isolated_test_run: psycopg.Connection | None,
     django_db_keepdb: bool,
     django_db_createdb: bool,
-) -> Generator[None]:
-    # Overrides pytest-django's fixture, which runs after the xdist suffix is applied and before any test
-    # database is created. It lives here rather than in posthog/conftest.py because ee/ and products/
-    # star-import that file, and a second copy of a session fixture would run a second time.
-    if settings.TEST_ISOLATION_NAME is None:
-        yield
+) -> None:
+    # Keep this override at the root because ee/ and products/ star-import posthog/conftest.py.
+    if _isolated_test_run is None:
+        return
+
+    configure_isolated_product_databases()
+    if not django_db_keepdb or django_db_createdb:
         return
 
     capture = request.config.pluginmanager.getplugin("capturemanager")
@@ -321,11 +347,7 @@ def django_db_modify_db_settings(
         with capture.global_and_fixture_disabled() if capture else contextlib.nullcontext():
             sys.stderr.write(f"[isolated test run] {message}\n")
 
-    try:
-        with isolated_run(announce, clone=django_db_keepdb and not django_db_createdb):
-            yield
-    except IsolatedRunConflict as error:
-        pytest.exit(reason=str(error), returncode=pytest.ExitCode.USAGE_ERROR)
+    clone_test_databases(_isolated_test_run, announce)
 
 
 @pytest.fixture(autouse=True)

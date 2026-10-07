@@ -78,6 +78,14 @@ def select_for_drop(groups: list[IsolatedDatabases], names: Iterable[str], drop_
     return selected
 
 
+def isolation_lock_keys(group: IsolatedDatabases) -> set[str]:
+    # ClickHouse-only workers hold a lock even when their Postgres database has never been created.
+    databases = {f"test_posthog_iso_{group.name}", *group.postgres} | {
+        database.replace("posthog_test_iso_", "test_posthog_iso_", 1) for database in group.clickhouse
+    }
+    return {f"{_RUN_LOCK_PREFIX}{database}" for database in databases}
+
+
 @click.command(
     name="test:isolated:clean",
     help=(
@@ -129,14 +137,13 @@ def isolated_clean(names: tuple[str, ...], drop_all: bool, yes: bool) -> None:
         for group in selected:
             # A run that starts after the pg_stat_activity snapshot above would lose its ClickHouse database,
             # so hold its locks while dropping. A run that starts now stops at its own lock instead.
-            lock_keys = {f"{_RUN_LOCK_PREFIX}test_posthog_iso_{group.name}"} | {
-                f"{_RUN_LOCK_PREFIX}{database}" for database in group.postgres
-            }
-            locked = [
-                connection.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (key,)).fetchone() == (True,)
-                for key in sorted(lock_keys)
-            ]
-            if all(locked):
+            locked = True
+            for key in sorted(isolation_lock_keys(group)):
+                row = connection.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (key,)).fetchone()
+                if row != (True,):
+                    locked = False
+                    break
+            if locked:
                 for database in group.postgres:
                     connection.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database)))
                 for database in group.clickhouse:
