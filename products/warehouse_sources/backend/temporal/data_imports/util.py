@@ -748,3 +748,6 @@ async def prepare_s3_files_for_querying(
         await _log(f"Returning S3 folder for querying: {s3_folder_for_querying}")
 
     return s3_folder_for_querying
+
+
+# Throwaway edit for a CI measurement.
