@@ -51,7 +51,7 @@ describe('biEditorLogic', () => {
         limit: 1000,
         sort: null,
     }
-    it.each([0, 1, 2])('keeps Top N attached to its measure when removing value %s', (index) => {
+    it.each([0, 1, 2])('keeps Top N and result filters attached to their measures when removing value %s', (index) => {
         const logic = biEditorLogic({ tabId: TAB_ID })
         logic.mount()
         logic.actions.setAutoUpdate(false)
@@ -64,9 +64,21 @@ describe('biEditorLogic', () => {
                     aggregation: 'sum',
                 })),
                 topN: { fieldId: eventField.id, count: 5, measureIndex: 1, includeOther: false },
+                resultFilters: [0, 1, 2].map((measureIndex) => ({
+                    id: `filter-${measureIndex}`,
+                    measureIndex,
+                    operator: 'greater_than',
+                    value: '5',
+                })),
             },
         })
         logic.actions.removeFieldFromShelf('values', index)
+        expect(logic.values.config.resultFilters).toHaveLength(2)
+        for (const filter of logic.values.config.resultFilters!) {
+            expect(logic.values.config.values[filter.measureIndex].field.id).toBe(
+                filter.id.replace('filter-', 'measure-')
+            )
+        }
         if (index === 1) {
             expect(logic.values.config.topN).toBeUndefined()
         } else {

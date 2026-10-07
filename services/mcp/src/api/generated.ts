@@ -10718,6 +10718,45 @@ export namespace Schemas {
       Number50000: 50000,
     } as const;
 
+    export type Operator1 = typeof Operator1[keyof typeof Operator1];
+
+
+    export const Operator1 = {
+      And: 'AND',
+      Or: 'OR',
+    } as const;
+
+    export interface BIConditionGroup {
+      filters: string[];
+      groups: BIConditionGroup[];
+      operator: Operator1;
+    }
+
+    export type Operator2 = typeof Operator2[keyof typeof Operator2];
+
+
+    export const Operator2 = {
+      Equals: 'equals',
+      NotEquals: 'not_equals',
+      GreaterThan: 'greater_than',
+      LessThan: 'less_than',
+      GreaterThanOrEqual: 'greater_than_or_equal',
+      LessThanOrEqual: 'less_than_or_equal',
+      Between: 'between',
+      IsSet: 'is_set',
+      IsNotSet: 'is_not_set',
+    } as const;
+
+    export interface BIResultFilter {
+      enabled?: boolean | null;
+      id: string;
+      /** @minimum 0 */
+      measureIndex: number;
+      operator: Operator2;
+      value: string;
+      valueTo?: string | null;
+    }
+
     export type BISortDirection = typeof BISortDirection[keyof typeof BISortDirection];
 
 
@@ -10798,6 +10837,9 @@ export namespace Schemas {
       dateRange?: DateRange | null;
       filters: BIFilter[];
       limit: BIQueryLimit;
+      resultFilterGroup?: BIConditionGroup | null;
+      resultFilters?: BIResultFilter[] | null;
+      rowFilterGroup?: BIConditionGroup | null;
       rows: BIField[];
       /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
       sort?: BISort | null;

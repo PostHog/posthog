@@ -28,6 +28,20 @@ function buildWorksheet(config: BIConfig): { node: BIVisualizationNode } {
 }
 
 describe('BI drill-down', () => {
+    it('combines an OR group with the selected cell using AND', () => {
+        const grouped: BIConfig = {
+            ...config,
+            filters: [...config.filters, { field: field('event'), operator: 'equals', value: 'purchase' }],
+            rowFilterGroup: { operator: 'OR', filters: config.filters.map((filter) => filter.field.id), groups: [] },
+        }
+        const selection = getBIDrillSelection(grouped, { bi_row_timestamp: '2026-06-01', bi_column_event: 'signup' })
+        const queries = getBIDrillQueries(buildWorksheet(grouped).node, selection)!
+        expect(queries.rows.source.query).toContain(
+            "AND ((properties.environment = 'production') OR (event = 'purchase'))"
+        )
+        expect(queries.rows.source.query).toContain("(event = 'signup') AND")
+    })
+
     it('uses raw date and category values, escapes labels, and preserves effective dashboard filters', () => {
         const node = buildWorksheet(config)!.node
         node.source.variables = { variable: { variableId: 'variable', code_name: 'plan', value: 'starter' } }
