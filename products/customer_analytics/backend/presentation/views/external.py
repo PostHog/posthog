@@ -403,7 +403,7 @@ class ExternalAccountView(APIView):
             return error
 
         assert team is not None
-        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method="patch").inc()
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method=_get_auth_method_label(request), http_method="patch").inc()
         return handle_account_update(request, team)
 
 

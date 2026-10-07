@@ -159,8 +159,9 @@ class TestExternalAccountAPI(APIBaseTest):
         self.account.refresh_from_db()
         self.assertIsNone(self.account.churned_at)
 
-    def test_patch_accepts_project_secret_api_key_with_account_write_scope(self) -> None:
-        token = self._create_psak_token(scopes=["account:write"])
+    @parameterized.expand([("write", ["account:write"]), ("wildcard", ["*"])])
+    def test_patch_accepts_project_secret_api_key_with_account_write_scope(self, _name: str, scopes: list[str]) -> None:
+        token = self._create_psak_token(scopes=scopes)
         response = self._patch({"external_id": "acme-1", "churned_at": "2026-08-01"}, token=token)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.account.refresh_from_db()
