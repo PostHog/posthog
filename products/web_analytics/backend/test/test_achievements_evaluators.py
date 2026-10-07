@@ -9,6 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models import Element, Team, User
+from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, filter_through_warehouse_join
 
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.achievements.definitions import STREAK_ARM_DAILY, STREAK_ARM_WEEKLY
@@ -24,10 +25,6 @@ from products.web_analytics.backend.achievements.evaluators import (
     evaluate_streak,
 )
 from products.web_analytics.backend.models import WebAnalyticsInteraction, WebAnalyticsVisit
-from products.web_analytics.backend.test.warehouse_access_test_utils import (
-    WAREHOUSE_ACCESS_CONTROL_FLAG,
-    filter_through_warehouse_join,
-)
 
 TODAY = date(2026, 6, 15)
 

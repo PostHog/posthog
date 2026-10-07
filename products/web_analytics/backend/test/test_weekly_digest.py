@@ -23,13 +23,10 @@ from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.models import Team
 from posthog.models.utils import uuid7
+from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, filter_through_warehouse_join
 
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.web_goals import NoActionsError
-from products.web_analytics.backend.test.warehouse_access_test_utils import (
-    WAREHOUSE_ACCESS_CONTROL_FLAG,
-    filter_through_warehouse_join,
-)
 from products.web_analytics.backend.weekly_digest import (
     _default_overview,
     _format_duration,
