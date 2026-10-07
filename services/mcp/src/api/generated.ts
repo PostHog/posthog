@@ -63103,6 +63103,8 @@ export namespace Schemas {
       success: boolean;
       /** Failure category for MCP analytics. */
       error_type?: MCPToolResponseErrorType;
+      /** Machine-readable name of the leaf failure for MCP analytics, such as a ClickHouse error name. */
+      error_code?: string | null;
     }
 
     /**
@@ -66610,6 +66612,11 @@ export namespace Schemas {
       readonly created_at: string;
       readonly updated_at: string;
       readonly membership_level: OrganizationMembershipLevelEnum;
+      /**
+         * When the requesting user joined this organization. Null if the user is not a member.
+         * @nullable
+         */
+      readonly membership_joined_at: string | null;
       readonly plugins_access_level: OrganizationPluginsAccessLevelEnum;
       readonly teams: readonly OrganizationTeamsItem[];
       readonly projects: readonly OrganizationProjectsItem[];
@@ -79593,6 +79600,11 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly updated_at?: string;
       readonly membership_level?: OrganizationMembershipLevelEnum;
+      /**
+         * When the requesting user joined this organization. Null if the user is not a member.
+         * @nullable
+         */
+      readonly membership_joined_at?: string | null;
       readonly plugins_access_level?: OrganizationPluginsAccessLevelEnum;
       readonly teams?: readonly PatchedOrganizationTeamsItem[];
       readonly projects?: readonly PatchedOrganizationProjectsItem[];

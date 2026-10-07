@@ -426,14 +426,16 @@ while True:
     url = next_url  # advance before the next fetch, otherwise we loop on the same page
 ```
 
-Save state **before** yielding the batch it covers. `save_state` only stages the cursor; the pipeline commits it to Redis once that batch is written, so a crash resumes exactly after the last written batch. A source that saves after yielding still works, but a crash re-yields its last batch (merge dedupes on primary key, append does not). A source with nothing yielded yet, such as one persisting an export job id before polling it, stages inside `with manager.committing():`, which commits when the block ends.
+Save state **before** yielding the batch it covers. `save_state` only stages the cursor; the pipeline commits it to Redis once that batch is written, so a crash resumes exactly after the last written batch. Do not save after the yield. On a worker shutdown the pipeline ends the attempt before control returns to the source, so state saved after the `yield` is lost for the last batch: the next attempt reads that batch again (merge dedupes on primary key, a resumed full refresh appends it twice), and an attempt that writes one batch or fewer keeps no progress. A source with nothing yielded yet, such as one persisting an export job id before polling it, stages inside `with manager.committing():`, which commits when the block ends.
 
 Call `manager.safe_point()` wherever the source can make many requests that return no rows: an empty delta page, a fan-out parent with no children, a page with no comments.
 The pipeline checks for a worker shutdown only when an item arrives, so a run of empty responses otherwise holds the worker for the whole graceful shutdown timeout, and its cursor never commits.
 At a safe point the pipeline can hand the run to another worker, and it commits the staged cursor when nothing is waiting to be written.
 Call it only where resuming from the staged cursor loses no rows: every row the cursor covers is already yielded, and none sits in a local buffer.
 References: `document_deltas` in `convex/convex.py`, the sparse-sweep checkpoint in `stripe/stripe.py`, `_page_fan_out` in `notion/notion.py`.
-The `rest_source` framework reaches a safe point after each page on its own, but only when `SourceResponse.items` returns the framework's `Resource` directly. A source that wraps it gets no framework safe points, because the wrapper could buffer rows.
+The `rest_source` framework reaches a safe point after each page and before each retry wait on its own, but only when `SourceResponse.items` returns the framework's `Resource` directly. A source that wraps it gets no framework safe points, because the wrapper could buffer rows.
+The same condition decides when a `resume_hook` runs. When `items` returns the `Resource` directly, the hook runs before the page reaches the pipeline, so a page and its cursor commit together and a hand-off repeats no rows. When a source wraps the `Resource`, the hook runs when the wrapper asks for the next page, so a hand-off reads the last page again. Return the `Resource` directly when you can: use `data_map`, `add_map` and `add_filter` for row changes. A wrapper that hands each page on unchanged and holds no rows can keep the framework behavior by returning `Resource(wrapper, name=..., hints=resource._hints)` (see the usage report in `anthropic/anthropic.py`).
+Do not call `safe_point()` or `commit()` in a `resume_hook`.
 
 ### Webhook source pattern
 
