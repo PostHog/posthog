@@ -1472,6 +1472,24 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         mock_capture.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("revenue_view_lookup", "revenue_analytics.events.purchase.charge_events_revenue_view"),
+            ("mistyped_name_suggestions", "revenue_analytic_typo"),
+        ]
+    )
+    def test_temporal_cancellation_during_deferred_revenue_views_build_propagates(self, _name, table_name):
+        self._configure_revenue_events()
+        database = Database.create_for(team=self.team, user=self.user)
+        with (
+            patch.object(TableNode, "create_nested_for_chain", side_effect=TemporalCancelledError("Cancelled")),
+            patch("posthog.hogql.database.database.capture_exception") as mock_capture,
+        ):
+            with pytest.raises(TemporalCancelledError):
+                database.get_table(table_name)
+
+        mock_capture.assert_not_called()
+
     def test_cached_sources_expire_and_pick_up_new_views(self):
         Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
         DataWarehouseSavedQuery.objects.create(

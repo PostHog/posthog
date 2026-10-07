@@ -1063,6 +1063,8 @@ class Database(BaseModel):
             candidates.update(self._warehouse_table_names)
             candidates.update(self._warehouse_self_managed_table_names)
             candidates.update(self._view_table_names)
+        except TemporalCancelledError:
+            raise
         except Exception:
             return []
         # Drop any candidate that matches the input — suggesting `persons` for `persons`
