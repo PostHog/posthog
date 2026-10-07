@@ -54,8 +54,7 @@ export class DistinctIdConflictError extends Error {
 /**
  * A tombstone delete found live distinct id rows still pointing at the person
  * (a concurrent merge added or moved them in after ours moved the known set).
- * The tombstone-mode equivalent of the FK violation a hard delete would raise;
- * callers refresh the person and retry, re-moving the new rows.
+ * Callers refresh the person and retry, re-moving the new rows.
  */
 export class PersonTombstoneBlockedError extends Error {
     constructor(

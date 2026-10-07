@@ -123,8 +123,6 @@ export interface BatchWritingPersonsStoreOptions {
      * always wants a positive interval).
      */
     metricEmissionIntervalMs: number
-    /** Teams on the new-world merge behavior (lifecycle-mark claims plus tombstone deletes); '*' for all. */
-    mergeTombstoneTeamAllowlist: string
     /** Teams whose merges lock the person rows and write the survivor in the transaction; others queue it for the flush. */
     mergeLockedOutcomeTeamAllowlist: string
     /** Gate, partition count, and team allowlist ('*' for all) for the cross-partition merge-event producer. */
@@ -145,7 +143,6 @@ const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
     optimisticUpdateRetryInterval: 50,
     updateAllProperties: false,
     metricEmissionIntervalMs: 30_000,
-    mergeTombstoneTeamAllowlist: '',
     mergeLockedOutcomeTeamAllowlist: '*',
     mergeEventsEnabled: false,
     mergeEventsPartitionCount: 64,
@@ -197,7 +194,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.options = { ...DEFAULT_OPTIONS, ...options }
         this.mergePolicy = {
             updateAllProperties: this.options.updateAllProperties,
-            isTombstoneTeam: buildIntegerMatcher(this.options.mergeTombstoneTeamAllowlist, true),
             isLockedOutcomeTeam: buildIntegerMatcher(this.options.mergeLockedOutcomeTeamAllowlist, true),
             mergeEvents: {
                 enabled: this.options.mergeEventsEnabled,

@@ -192,12 +192,6 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_FOLD_ENABLED: boolean
     // Teams eligible for merge folding: comma-separated team IDs, or '*' for all teams.
     PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string
-    // Teams whose merges and deletes tombstone the person row instead of hard-deleting it, and
-    // whose creates revive a tombstoned key. Every environment rolled this out to all teams, so
-    // '*' is the default. Comma-separated team IDs, or '*' for all teams; empty means no teams.
-    // Teams off this list attach distinct ids without lifecycle marks. Personhog's tombstone RPC
-    // cannot coordinate with those attaches, so a delete can leave a live mapping on a deleted person.
-    PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
     // Teams whose merges lock the person rows and write the survivor in the transaction; other teams queue it for
     // the next flush. Enable after PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST. Team IDs, or '*'; empty means none.
     PERSON_MERGE_LOCKED_OUTCOME_TEAM_ALLOWLIST: string
@@ -207,12 +201,6 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: boolean
     PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: number
     PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: number
-    // Teams whose person creation claims an existing unreachable posthog_person row holding
-    // the same deterministic (team_id, uuid) instead of inserting a duplicate row. Scope to
-    // teams whose distinct-ID mappings were destroyed outside the write path (stranded rows);
-    // for everyone else the probe is wasted load on the hottest write statement.
-    // Comma-separated team IDs, or '*' for all teams; empty means no teams.
-    PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: string
 
     // Group batch writing config
     GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -385,12 +373,10 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
-        PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '*',
         PERSON_MERGE_LOCKED_OUTCOME_TEAM_ALLOWLIST: '',
         PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: false,
         PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: 500_000,
         PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: 60 * 60 * 1000,
-        PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: '',
 
         // Group batch writing config
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,

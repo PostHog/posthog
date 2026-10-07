@@ -238,7 +238,6 @@ export class IngestionConsumer {
             maxOptimisticUpdateRetries: this.config.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.config.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
             updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
-            mergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
             mergeLockedOutcomeTeamAllowlist: this.config.PERSON_MERGE_LOCKED_OUTCOME_TEAM_ALLOWLIST,
             mergeEventsEnabled: effectivePersonMergeEventsEnabled(this.config),
             mergeEventsPartitionCount: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
