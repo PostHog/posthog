@@ -408,7 +408,12 @@ function productDefinitionFiles(product: string): string[] {
     return files.filter((file) => /\.ya?ml$/.test(file) && fs.existsSync(file)).sort()
 }
 
-function formatCandidates(candidates: DiscoveredOperation[], product: string, productFiles: string[]): string {
+function formatCandidates(
+    candidates: DiscoveredOperation[],
+    product: string,
+    productFiles: string[],
+    defaultFile: string | undefined
+): string {
     if (candidates.length === 0) {
         return `Every OpenAPI operation of "${product}" already has a YAML entry.\n`
     }
@@ -424,8 +429,10 @@ function formatCandidates(candidates: DiscoveredOperation[], product: string, pr
         `\nAdd one as an enabled tool:\n` +
         `  pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product ${product}\n` +
         // Without --file the entry lands in the default file, and codegen builds its links from that file's url_prefix.
-        (productFiles.length > 1
-            ? `Add --file <path> to write it to another file of "${product}":\n` +
+        (productFiles.some((file) => file !== defaultFile)
+            ? (defaultFile
+                  ? `Add --file <path> to write it to another file of "${product}":\n`
+                  : `"${product}" has no tools.yaml, so add --file <path>:\n`) +
               productFiles.map((file) => `  ${path.relative(MCP_ROOT, file)}\n`).join('')
             : '')
     )
@@ -710,7 +717,9 @@ function main(): void {
             process.exit(1)
         }
         const candidates = findCandidates(spec, product, collectClaims().baseIds)
-        process.stdout.write(formatCandidates(candidates, product, productDefinitionFiles(product)))
+        process.stdout.write(
+            formatCandidates(candidates, product, productDefinitionFiles(product), defaultProductFile(product))
+        )
         return
     }
 

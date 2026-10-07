@@ -156,11 +156,21 @@ describe('scaffold-yaml', () => {
             operation: { security: [{ PersonalAPIKeyAuth: ['thing:read'] }], 'x-request-dependent-scopes': true },
             asks: true,
         },
-    ])('asks for scopes after an add when $name', ({ operation, asks }) => {
+        {
+            name: 'only the named variant lacks spec scopes',
+            operation: {},
+            asks: true,
+            otherVariant: { security: [{ PersonalAPIKeyAuth: ['thing:read'] }] },
+        },
+    ])('asks for scopes after an add when $name', ({ operation, asks, otherVariant }) => {
+        // Dedup prefers the /api/projects/ variant, so the add below names the other one.
         const scopedSpec: OpenApiSpec = {
             paths: {
-                '/api/projects/{project_id}/things/': {
+                '/api/environments/{project_id}/things/': {
                     get: { operationId: 'things_list', 'x-product': ['things'], ...operation },
+                },
+                '/api/projects/{project_id}/things/': {
+                    get: { operationId: 'things_list_2', 'x-product': ['things'], ...(otherVariant ?? operation) },
                 },
             },
         }
@@ -171,16 +181,26 @@ describe('scaffold-yaml', () => {
     })
 
     it.each([
-        { name: 'one file', files: ['/repo/products/things/mcp/tools.yaml'], fileHint: false },
+        { name: 'only the default file', files: ['/repo/products/things/mcp/tools.yaml'], fileHint: null },
         {
             name: 'several files',
             files: ['/repo/products/things/mcp/extras.yaml', '/repo/products/things/mcp/tools.yaml'],
-            fileHint: true,
+            fileHint: 'Add --file <path> to write it to another file',
         },
-    ])('offers --file in the candidate list only for a product with $name', ({ files, fileHint }) => {
-        const output = formatCandidates(findCandidates(spec, 'things', new Set()), 'things', files)
+        {
+            name: 'one file that is not the default',
+            files: ['/repo/products/things/mcp/extras.yaml'],
+            fileHint: 'has no tools.yaml, so add --file <path>',
+        },
+    ])('offers --file in the candidate list for a product with $name', ({ files, fileHint }) => {
+        const defaultFile = files.find((file) => file.endsWith('/tools.yaml'))
 
-        expect(output.includes('Add --file <path>')).toBe(fileHint)
+        const output = formatCandidates(findCandidates(spec, 'things', new Set()), 'things', files, defaultFile)
+
+        expect(output.includes('--file')).toBe(fileHint !== null)
+        if (fileHint) {
+            expect(output).toContain(fileHint)
+        }
     })
 
     it.each([
