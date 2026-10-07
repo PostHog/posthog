@@ -364,6 +364,16 @@ class TestMCPToolsAPI(APIBaseTest):
                 "query_was_cancelled",
                 "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Query failed. You may retry with adjusted inputs.",
             ),
+            param(
+                "storage_error",
+                None,
+                None,
+                "S3_ERROR",
+                "Tool failed: MaxToolRetryableError: PostHog couldn't read from storage while running this query. "
+                "Wait a few minutes, then run the query again. If the problem continues, contact support.. "
+                "You may retry with adjusted inputs.",
+                expected_error_code="s3_error",
+            ),
             (
                 "polling_error",
                 ConnectionError("Query status unavailable"),
@@ -386,6 +396,8 @@ class TestMCPToolsAPI(APIBaseTest):
         mock_query: Mock,
         mock_status: Mock,
         _mock_sleep: AsyncMock,
+        *,
+        expected_error_code: str | None = None,
     ) -> None:
         mock_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
         mock_status.side_effect = polling_error
@@ -404,7 +416,10 @@ class TestMCPToolsAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"success": False, "content": content, "error_type": "internal"})
+        expected = {"success": False, "content": content, "error_type": "internal"}
+        if expected_error_code:
+            expected["error_code"] = expected_error_code
+        self.assertEqual(response.json(), expected)
 
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):

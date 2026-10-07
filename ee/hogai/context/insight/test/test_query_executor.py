@@ -325,6 +325,13 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 "bad_arguments",
             ),
             (
+                "storage_error",
+                ExposedCHQueryError("Storage read failed", code=499),
+                "Storage read failed",
+                "internal",
+                "s3_error",
+            ),
+            (
                 "server_error",
                 ExposedCHQueryError("Server failure", code=99999, code_name="caller-supplied-name"),
                 "Server failure",
@@ -447,21 +454,23 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("validation", "Unknown field: missing_column", None, "Unknown field: missing_column"),
-            ("timeout", "Query timed out", "error", "Query timed out"),
+            ("validation", "Unknown field: missing_column", None, "Unknown field: missing_column", None),
+            ("timeout", "Query timed out", "error", "Query timed out", None),
             (
                 "memory_limit",
                 "Query memory limit exceeded",
                 "clickhouse_memory_limit_exceeded",
                 "Query memory limit exceeded",
+                None,
             ),
-            ("warehouse_connection", "Warehouse connection failed", None, "Warehouse connection failed"),
+            ("warehouse_connection", "Warehouse connection failed", None, "Warehouse connection failed", None),
             (
                 "known_server_code",
                 None,
-                "too_many_parts",
+                "TOO_MANY_PARTS",
                 "The database had a temporary problem while it ran this query. "
                 "Wait a few minutes, then run the query again. If the problem continues, contact support.",
+                "too_many_parts",
             ),
             (
                 "storage_failure",
@@ -469,12 +478,14 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 "s3_error",
                 "PostHog couldn't read from storage while running this query. Wait a few minutes, "
                 "then run the query again. If the problem continues, contact support.",
+                "s3_error",
             ),
             (
                 "unrecognized_code",
                 "Query input is invalid",
                 '{"property":"synthetic-private-value"}',
                 "Query input is invalid",
+                None,
             ),
         ]
     )
@@ -486,6 +497,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         error_message: str | None,
         error_code: str | None,
         expected_message: str,
+        expected_code: str | None,
         mock_get_query_status: Mock,
         mock_process_query: Mock,
     ) -> None:
@@ -510,12 +522,12 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertEqual(str(context.exception), expected_message)
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
         self.assertEqual(context.exception.error_type, "internal")
-        self.assertIsNone(context.exception.error_code)
+        self.assertEqual(context.exception.error_code, expected_code)
 
     @parameterized.expand(
         [
             (
-                "unknown_identifier",
+                "UNKNOWN_IDENTIFIER",
                 None,
                 "A column in this query doesn't exist in the data. Check the column names. "
                 "If the query uses a view, check that the view still matches its source table. "
@@ -563,7 +575,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
         self.assertEqual(str(context.exception), expected_message)
         self.assertEqual(context.exception.error_type, "validation")
-        self.assertEqual(context.exception.error_code, error_code)
+        self.assertEqual(context.exception.error_code, error_code.lower())
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
 
     @parameterized.expand(
