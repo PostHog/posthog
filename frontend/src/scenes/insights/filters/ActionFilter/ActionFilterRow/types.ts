@@ -7,16 +7,10 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 
-import {
-    ActionFilter as ActionFilterType,
-    ChartDisplayCategory,
-    FunnelExclusionLegacy,
-    InsightType,
-    PropertyOperator,
-} from '~/types'
+import { ChartDisplayCategory, InsightType, PropertyOperator } from '~/types'
 
-import { LocalFilter } from '../entityFilterLogic'
 import type { entityFilterLogicType } from '../entityFilterLogic'
+import { SeriesNode, WarehouseSeriesNodeKind } from '../seriesNode'
 
 export enum MathAvailability {
     All,
@@ -29,7 +23,9 @@ export enum MathAvailability {
 
 export interface ActionFilterRowProps {
     logic: BuiltLogic<entityFilterLogicType>
-    filter: LocalFilter
+    node: SeriesNode
+    /** Sidecar row identity, for the drag key. Nodes stay schema-pure so they carry none. */
+    uuid: string
     index: number
     typeKey: string
     mathAvailability: MathAvailability
@@ -52,11 +48,7 @@ export interface ActionFilterRowProps {
     customRowSuffix?:
         | string
         | JSX.Element
-        | ((props: {
-              filter: ActionFilterType | FunnelExclusionLegacy
-              index: number
-              onClose: () => void
-          }) => JSX.Element) // Custom suffix element to show in each row
+        | ((props: { node: SeriesNode; index: number; onClose: () => void }) => JSX.Element) // Custom suffix element to show in each row
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
     actionsTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for actions selector
@@ -78,6 +70,8 @@ export interface ActionFilterRowProps {
     allowedMathTypes?: readonly string[]
     /** Fields to display in the data warehouse filter popover */
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
+    /** Node kind to create when a data warehouse table is picked */
+    dataWarehouseNodeKind?: WarehouseSeriesNodeKind
     /** Whether to add left padding to the filters div to align with suffix content */
     filtersLeftPadding?: boolean
     /** Doc link to show in the tooltip of the New Filter button */

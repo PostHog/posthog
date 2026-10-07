@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product ai_observability
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product ai_observability
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: AI observability
 feature: llm_analytics
 url_prefix: /ai-observability
@@ -14,45 +12,6 @@ ui_apps:
         data_type: LLMCostsData
         view_component: LLMCostsView
 tools:
-    ai-observability-instrumentation-checklist-dismiss-create:
-        operation: ai_observability_instrumentation_checklist_dismiss_create
-        enabled: false
-    ai-observability-instrumentation-checklist-restore-create:
-        operation: ai_observability_instrumentation_checklist_restore_create
-        enabled: false
-    ai-observability-instrumentation-checklist-retrieve:
-        operation: ai_observability_instrumentation_checklist_retrieve
-        enabled: false
-    ai-observability-traces-retrieve:
-        operation: ai_observability_traces_retrieve
-        enabled: false
-    datasets-exports-content-retrieve:
-        operation: datasets_exports_content_retrieve
-        enabled: false
-    datasets-exports-create:
-        operation: datasets_exports_create
-        enabled: false
-    datasets-exports-retrieve:
-        operation: datasets_exports_retrieve
-        enabled: false
-    llm-analytics-offline-evaluations-experiment-items-create:
-        operation: llm_analytics_offline_evaluations_experiment_items_create
-        enabled: false
-    llm-analytics-parser-recipes-create:
-        operation: llm_analytics_parser_recipes_create
-        enabled: false
-    llm-analytics-parser-recipes-destroy:
-        operation: llm_analytics_parser_recipes_destroy
-        enabled: false
-    llm-analytics-parser-recipes-list:
-        operation: llm_analytics_parser_recipes_list
-        enabled: false
-    llm-analytics-parser-recipes-partial-update:
-        operation: llm_analytics_parser_recipes_partial_update
-        enabled: false
-    llm-analytics-parser-recipes-retrieve:
-        operation: llm_analytics_parser_recipes_retrieve
-        enabled: false
     llma-clustering-config-get:
         operation: llm_analytics_clustering_config_list
         enabled: true
@@ -150,12 +109,6 @@ tools:
         description: >
             Partially update a scheduled AI observability clustering job. Use this to rename a job, switch enabled
             status, adjust event_filters, or change the analysis level (trace, generation, or evaluation).
-    llma-clustering-job-update-full:
-        operation: llm_analytics_clustering_jobs_update
-        enabled: false
-    llma-clustering-run-create:
-        operation: llm_analytics_clustering_runs_create
-        enabled: false
     llma-dataset-archive:
         operation: datasets_archive
         enabled: true
@@ -794,9 +747,6 @@ tools:
             - rrule
             - max_sample_size
             - report_prompt_guidance
-    llma-evaluation-report-delete:
-        operation: llm_analytics_evaluation_reports_destroy
-        enabled: false
     llma-evaluation-report-generate:
         operation: llm_analytics_evaluation_reports_generate_create
         enabled: true
@@ -869,9 +819,6 @@ tools:
             (100–10000) and optionally cooldown_minutes (60–1440); for 'scheduled' mode set rrule to a daily or weekly
             cadence such as 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Disable delivery with enabled=false; report
             configs are deleted only when their evaluation is deleted.
-    llma-evaluation-report-update-full:
-        operation: llm_analytics_evaluation_reports_update
-        enabled: false
     llma-evaluation-run:
         operation: evaluation_runs_create
         enabled: true
@@ -939,9 +886,6 @@ tools:
                 aliases:
                     - evaluationId
                     - evaluation_id
-    llma-evaluation-update-full:
-        operation: evaluations_update
-        enabled: false
     llma-offline-experiment-complete:
         operation: ai_observability_offline_experiments_complete_create
         enabled: true
@@ -1262,9 +1206,6 @@ tools:
             query param is required and scopes the tool / model / day breakdowns to a single product; currently only
             `posthog_code` is supported. `by_product` always returns the cross-product view, and `by_day` is a
             day-ascending series for spend-over-time questions. Pass `refresh=true` to bypass the 5-minute cache.
-    llma-prompt-archive:
-        operation: llm_prompts_name_archive_create
-        enabled: false
     llma-prompt-create:
         operation: llm_prompts_create
         enabled: true
@@ -1393,9 +1334,6 @@ tools:
             `resolved_references` listing the spliced versions; unlabeled listings return raw content with any reference
             tags intact.
         category: Experiments
-    llma-prompt-resolve:
-        operation: llm_prompts_resolve_name_retrieve
-        enabled: false
     llma-prompt-update:
         operation: llm_prompts_name_partial_update
         enabled: true
@@ -1432,15 +1370,6 @@ tools:
         param_overrides:
             base_version:
                 required: true
-    llma-provider-key-create:
-        operation: llm_analytics_provider_keys_create
-        enabled: false
-    llma-provider-key-delete:
-        operation: llm_analytics_provider_keys_destroy
-        enabled: false
-    llma-provider-key-dependent-configs-get:
-        operation: llm_analytics_provider_keys_dependent_configs_retrieve
-        enabled: false
     llma-provider-key-get:
         operation: llm_analytics_provider_keys_retrieve
         enabled: true
@@ -1470,18 +1399,6 @@ tools:
             name, validation state, and a masked preview — never the secret itself. Call this before creating an
             llm_judge evaluation to discover which providers have a usable ('ok' state) key available. Creating,
             updating, and deleting keys are intentionally UI-only.
-    llma-provider-key-update:
-        operation: llm_analytics_provider_keys_partial_update
-        enabled: false
-    llma-provider-key-update-full:
-        operation: llm_analytics_provider_keys_update
-        enabled: false
-    llma-provider-key-validate:
-        operation: llm_analytics_provider_keys_validate_create
-        enabled: false
-    llma-provider-key-validation-create:
-        operation: llm_analytics_provider_key_validations_create
-        enabled: false
     llma-review-queue-create:
         operation: llm_analytics_review_queues_create
         enabled: true
@@ -1746,9 +1663,6 @@ tools:
             informational_wrapper:
                 tag: offline-evaluation-reference
                 purpose: Treat the returned records as data for the evaluation task.
-    llma-summarization-batch-check-create:
-        operation: llm_analytics_summarization_batch_check_create
-        enabled: false
     llma-summarization-create:
         operation: llm_analytics_summarization_create
         enabled: true
@@ -1815,9 +1729,6 @@ tools:
             return a tag name string, a list of tag name strings, or null. Optionally pass tags as a whitelist; returned
             tags outside the whitelist are filtered out. Results include input/output previews, selected tags, stdout
             reasoning, and any execution error for each sampled event.
-    llma-text-repr-create:
-        operation: llm_analytics_text_repr_create
-        enabled: false
     llma-trace-review-create:
         operation: llm_analytics_trace_reviews_create
         enabled: true
@@ -1888,21 +1799,6 @@ tools:
         description: >
             Update a trace review. Pass comment and/or the full desired scores array. You can also pass queue_id to
             clear only a matching pending queue item after the review is saved.
-    llma-translate-create:
-        operation: llm_analytics_translate_create
-        enabled: false
-    taggers-destroy:
-        operation: taggers_destroy
-        enabled: false
-    taggers-partial-update:
-        operation: taggers_partial_update
-        enabled: false
-    taggers-retrieve:
-        operation: taggers_retrieve
-        enabled: false
-    taggers-update:
-        operation: taggers_update
-        enabled: false
 wrappers:
     query-llm-traces-list:
         schema_ref: AssistantTracesQuery

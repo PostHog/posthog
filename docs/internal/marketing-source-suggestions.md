@@ -11,6 +11,13 @@ It ranks below a source with 25 paid events, regardless of that source's total t
 
 These counts guide connection suggestions; they do not change report attribution or connected-source sync checks.
 
+## Search performance
+
+Spend and conversions require a synced ad platform source in the current search filters.
+Google Search Console reports organic traffic metrics only.
+When no paid source is ready, the disabled control directs users to check their source settings or filters.
+For Google Ads landing pages, enable `landing_page_stats` and wait for its first sync to finish.
+
 ## X Ads
 
 X Ads uses `twitter`, `x`, `twitter_ads`, and `x_ads` as its default source aliases.
@@ -29,3 +36,11 @@ Clicks include the engagement clicks reported by X, not only outbound link click
 The current import provides spend, clicks, and impressions; platform-reported conversions and revenue are not imported.
 PostHog conversion goals still work through campaign attribution.
 Ad-level reporting is unavailable because the connector does not import promoted-post statistics.
+
+## Bing Ads landing pages
+
+Search performance includes Bing Ads in the Landing pages view.
+Enable `destination_url_performance_report` in the Bing Ads source settings and wait for its first successful sync.
+The view groups search distribution metrics by destination URL and currency, with clicks, impressions, spend, and platform-attributed conversions.
+The connector uses `ConversionsQualified` because Microsoft deprecated `Conversions` for this report.
+Keyword reporting continues to use `keyword_performance_report`.
