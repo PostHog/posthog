@@ -71,12 +71,7 @@ from products.logs.backend.alert_check_query import (
     resolve_alert_date_to,
     rolling_check_lookback_minutes,
 )
-from products.logs.backend.alert_destinations import (
-    EVENT_KIND_CONFIG,
-    LOGS_ALERT_INCIDENT_CLOSED_EVENT,
-    LOGS_ALERT_INCIDENT_OPENED_EVENT,
-    EventKind,
-)
+from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.logs.backend.alert_error_classifier import classify as classify_alert_error
 
 # Private to the production activity. Reimplementing either would let this path drift from
@@ -347,6 +342,7 @@ def _request(
         evaluation_key=recorded.evaluation_key,
         destination_alert_id=destination_alert_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
+        event_ids_by_incident_action=_EVENT_IDS_BY_INCIDENT_ACTION,
         # Logs does not group, so its one row has the empty grouping key.
         incident_actions={"": incident_action} if incident_action is not None else {},
         sends_messages=sends_messages,
@@ -359,7 +355,7 @@ def _has_incident_destination(team_id: int, destination_alert_id: str) -> bool:
         configured_destination_template_ids(
             team_id=team_id,
             alert_id=destination_alert_id,
-            allowed_event_ids=(LOGS_ALERT_INCIDENT_OPENED_EVENT, LOGS_ALERT_INCIDENT_CLOSED_EVENT),
+            allowed_event_ids=tuple(_EVENT_IDS_BY_INCIDENT_ACTION.values()),
         )
     )
 
@@ -370,6 +366,11 @@ _EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
     kind.value: EVENT_KIND_CONFIG[cast(EventKind, kind.value)].event_id
     for kind in AlertEventKind
     if kind.value in EVENT_KIND_CONFIG
+}
+
+# Which event id an incident manager destination filters on for each incident action.
+_EVENT_IDS_BY_INCIDENT_ACTION: Final[dict[str, str]] = {
+    spec.incident_action.value: spec.event_id for spec in EVENT_KIND_CONFIG.values() if spec.incident_action
 }
 
 

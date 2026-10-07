@@ -16,6 +16,7 @@ from posthog.models import Team
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import deliver
+from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport
 from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.teams import TeamsTransport
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
@@ -27,6 +28,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AnnouncedTransition,
     DestinationType,
     EvaluationAnnouncement,
+    IncidentAction,
 )
 from products.alerts_platform.backend.logic.platform_alert_events import announcement
 
@@ -47,6 +49,7 @@ _TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {
     DestinationType.WEBHOOK: WebhookTransport,
     DestinationType.TEAMS: TeamsTransport,
     DestinationType.DISCORD: DiscordTransport,
+    DestinationType.PAGERDUTY: PagerDutyTransport,
 }
 
 
@@ -112,6 +115,9 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     # Per subscription rather than per destination. A destination subscribes to some of the
     # kinds an alert can announce, so one that asked for firings must not be handed the resolve
     # that another group produced in the same evaluation.
+    action_by_event_id = {
+        event_id: IncidentAction(action) for action, event_id in request.event_ids_by_incident_action.items()
+    }
     for event_id, transitions in _by_subscription(request, announced).items():
         for target in _destinations(request, event_id):
             transport_class = _TRANSPORTS.get(target["type"])
@@ -127,6 +133,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     evaluation_key=request.evaluation_key,
                     target=target,
                     announcement=replace(announced, transitions=transitions),
+                    incident_action=action_by_event_id.get(event_id),
                 )
             except ThreadBusy as error:
                 busy.append(str(error))
@@ -155,20 +162,22 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
 def _by_subscription(
     request: AlertDeliveryRequest, announced: EvaluationAnnouncement
 ) -> dict[str, tuple[AnnouncedTransition, ...]]:
-    """The transitions this evaluation announced, grouped by the event a destination subscribes to.
+    """The transitions this evaluation announced or moved an incident with, grouped by the event a
+    destination subscribes to.
 
     A kind the source does not map to an event id reaches nobody: no destination can have asked
-    for it. Nor does anything on a delivery the source did not announce, which exists only for
-    its incident actions.
+    for it. Nor does a message on a delivery the source did not announce, which exists only for
+    its incident actions. An incident event is set apart from every message event, so a chat
+    destination never hears about an incident and an incident manager never gets a message.
     """
-    if not request.sends_messages:
-        return {}
     grouped: dict[str, list[AnnouncedTransition]] = {}
     for transition in announced.transitions:
-        event_id = request.event_ids_by_kind.get(transition.kind.value)
-        if event_id is None:
-            continue
-        grouped.setdefault(event_id, []).append(transition)
+        message_event = request.event_ids_by_kind.get(transition.kind.value) if request.sends_messages else None
+        action = request.incident_actions.get(transition.grouping_key)
+        incident_event = request.event_ids_by_incident_action.get(action.value) if action else None
+        for event_id in (message_event, incident_event):
+            if event_id is not None:
+                grouped.setdefault(event_id, []).append(transition)
     return {event_id: tuple(transitions) for event_id, transitions in grouped.items()}
 
 

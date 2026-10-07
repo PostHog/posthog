@@ -9,6 +9,8 @@ from typing import Any, ClassVar
 from urllib.parse import urlsplit
 
 from products.alerts_platform.backend.facade.contracts import (
+    DEFAULT_PAGERDUTY_REGION,
+    DEFAULT_PAGERDUTY_SEVERITY,
     AlertDestinationAction,
     AlertDestinationConfig,
     AlertDestinationData,
@@ -327,13 +329,13 @@ class PagerDutyDestination(DestinationSpec):
             raise ValueError(f"PagerDuty has nothing to send for the {event_kind_spec.display_kind} event kind.")
         return {
             "routing_key": {"value": data["pagerduty_routing_key"]},
-            "region": {"value": data.get("pagerduty_region") or PagerDutyRegion.US.value},
+            "region": {"value": data.get("pagerduty_region") or DEFAULT_PAGERDUTY_REGION.value},
             "event_action": {"value": event_kind_spec.incident_action.value},
             # Both incident kinds carry `alert_id`, so a trigger and its resolve share one key.
             "dedup_key": {"value": "posthog-alert-{event.properties.alert_id}"},
             "summary": {"value": pagerduty_summary(event_kind_spec)},
             "source": {"value": "{project.name}"},
-            "severity": {"value": data.get("pagerduty_severity") or PagerDutySeverity.CRITICAL.value},
+            "severity": {"value": data.get("pagerduty_severity") or DEFAULT_PAGERDUTY_SEVERITY.value},
             "custom_details": {"value": pagerduty_custom_details(event_kind_spec)},
             "links": {"value": pagerduty_links(event_kind_spec)},
         }
