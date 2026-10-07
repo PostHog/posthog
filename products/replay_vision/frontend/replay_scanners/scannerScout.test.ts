@@ -125,7 +125,10 @@ describe('scannerScout', () => {
         { scannerType: 'monitor', keys: ['daily-digest', 'root-cause', 'trend-watch', 'new-issues', 'scratch'] },
         // A summarizer has no outcome to explain and no metric to trend.
         { scannerType: 'summarizer', keys: ['daily-digest', 'weekly-themes', 'new-issues', 'scratch'] },
-        { scannerType: 'experiment', keys: ['daily-digest', 'trend-watch', 'new-issues', 'scratch'] },
+        {
+            scannerType: 'experiment',
+            keys: ['variant-analysis', 'daily-digest', 'trend-watch', 'new-issues', 'scratch'],
+        },
         // A scanner whose type hasn't loaded still gets a usable set rather than nothing.
         { scannerType: undefined, keys: ['daily-digest', 'root-cause', 'trend-watch', 'new-issues', 'scratch'] },
     ] as const)('offers a $scannerType scanner only the templates that fit it', ({ scannerType, keys }) => {
@@ -146,6 +149,20 @@ describe('scannerScout', () => {
         // The reasoning comes from the recording itself; event data may only corroborate it.
         expect(rootCause.body).toContain('scanner_output_reasoning')
         expect(rootCause.body.indexOf('scanner_output_reasoning')).toBeLessThan(rootCause.body.indexOf('`events`'))
+    })
+
+    it('has variant analysis record its comparison and ask the server for the record schema', () => {
+        const experimentTemplates = scannerScoutTemplates(scannerId, 'experiment', 'Checkout test')
+        expect(experimentTemplates[0].body).toContain('scout-record-output')
+        expect(scoutBodyPlaceholders(experimentTemplates[0].body)).toEqual([])
+
+        const payload = scannerScoutCreatePayload('Checkout test', {
+            name: 'signals-scout-checkout-test-variant-analysis',
+            body: experimentTemplates[0].body,
+            cron: experimentTemplates[0].cron,
+            templateKey: 'variant-analysis',
+        })
+        expect(payload.variant_analysis).toBe(true)
     })
 
     it('writes the trend template for the one output the scanner actually emits', () => {
@@ -199,6 +216,8 @@ describe('scannerScout', () => {
         // Slack rides on the platform's own delivery, which posts the one report each run files.
         expect(payload.config?.output_destinations).toEqual({})
         expect(payload.config?.run_cron_schedule).toBe('30 7 * * *')
+        // Only the variant analysis template asks the server for the record schema the variants view reads.
+        expect(payload).not.toHaveProperty('variant_analysis')
         expect(payload.config?.enabled).toBe(true)
         expect(payload.config?.emit).toBe(true)
     })

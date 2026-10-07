@@ -293,8 +293,8 @@ class TemplateGlobalsValidator(TraversingVisitor):
     """
 
     invalid_globals: set[str]
-    # Calls the Node runtime would refuse for their argument count, as messages. Only checked for
-    # names the runtime table knows, so a name it does not know is left to the globals check.
+    # Calls the Node runtime would refuse, as messages: a name it does not have, or the wrong
+    # argument count for one it does.
     invalid_calls: list[str]
 
     def __init__(
@@ -346,6 +346,12 @@ class TemplateGlobalsValidator(TraversingVisitor):
             return
         arity = FILTER_FUNCTIONS.get(node.name)
         if arity is None:
+            # The globals check never sees this name, because a call is not a field. Without this the
+            # template compiles, and the VM refuses the call on every event that reaches it.
+            # print is left out of the runtime table, but the Node VM has it. The async functions
+            # (fetch, postHogCapture, product ones) are not exempt: inputs run without them.
+            if node.name != "print":
+                self.invalid_calls.append(f"{node.name} is not a function inputs can use")
             return
         minimum, maximum = arity
         count = len(node.args)

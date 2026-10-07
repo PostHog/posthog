@@ -1,3 +1,4 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '~/types'
@@ -38,6 +39,16 @@ export const manifest: ProductManifest = {
             iconType: 'data_modeling',
             iconColor: ['var(--color-product-models-light)', 'var(--color-product-models-dark)'],
             href: urls.models(),
+            searchKeywords: ['materialized views', 'materialization', 'data modeling'],
+            searchTabs: [
+                { name: 'Lineage', href: urls.models('lineage') },
+                {
+                    name: 'Data quality',
+                    href: urls.models('data-quality'),
+                    flag: FEATURE_FLAGS.DATA_QUALITY_CHECKS,
+                    searchKeywords: ['tests'],
+                },
+            ],
             sceneKey: 'Models',
             sceneKeys: ['Models'],
         },

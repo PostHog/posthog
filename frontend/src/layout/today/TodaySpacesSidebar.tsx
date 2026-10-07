@@ -13,6 +13,7 @@ import { SpacePresenceAvatars } from 'products/tasks/frontend/spaces/SpacePresen
 
 import { TodayChatRow } from './TodayChatRow'
 import { TodayListAppearanceDialog } from './TodayListAppearanceDialog'
+import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
 import { TodayPaneSearchList } from './TodayPaneSearchList'
 import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
@@ -249,16 +250,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                     loadError('Some sessions didn’t load.', loadRecentTasks, 'today-recent-retry')}
                 {recentGroups.map((group, index) => (
                     <Fragment key={group.key}>
-                        {group.label && (
-                            <Text
-                                size="xs"
-                                weight="medium"
-                                variant="muted"
-                                className={cn('block px-2 pb-1', index === 0 ? 'pt-1' : 'pt-3')}
-                            >
-                                {group.label}
-                            </Text>
-                        )}
+                        {group.label && <TodayPaneGroupLabel first={index === 0}>{group.label}</TodayPaneGroupLabel>}
                         {group.items.map((item) =>
                             renderItem(
                                 item,

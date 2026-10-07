@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -15,9 +16,11 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.constants import AvailableFeature
 from posthog.models import Comment, Integration
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
@@ -25,9 +28,11 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.annotations.backend.models.annotation import Annotation
-from products.canvas.backend import activity_visibility, build_service
+from products.canvas.backend import build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
+from products.canvas.backend.facade import access as canvas_facade
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.facade.access import DesktopAccessDecision
@@ -250,6 +255,32 @@ class TestCanvasCrud(CanvasAPIBaseTest):
             f"This sandbox can file canvases only in its task's space. Use the task's channel \"{self.channel.id}\"."
         )
         assert Canvas.objects.unscoped().get(id=canvas_id).channel_id == self.channel.id
+
+    def test_object_level_none_access_hides_the_canvas_from_a_member(self):
+        hidden_canvas_id = self._create_canvas(name="Hidden")
+        visible_canvas_id = self._create_canvas(name="Visible")
+        member = User.objects.create_and_join(self.organization, "restricted@example.com", None)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="canvas",
+            resource_id=hidden_canvas_id,
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=member),
+            access_level="none",
+        )
+        cache.clear()
+        self.client.force_login(member)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/canvases/")
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert {row["id"] for row in listed.json()["results"]} == {visible_canvas_id}
+        for path in ("", "view/", "source/"):
+            response = self.client.get(f"/api/projects/{self.team.id}/canvases/{hidden_canvas_id}/{path}")
+            assert response.status_code == status.HTTP_403_FORBIDDEN, (path, response.json())
+        assert self.client.get(f"/api/projects/{self.team.id}/canvases/{visible_canvas_id}/").status_code == 200
 
     def test_personal_channel_canvases_are_invisible_to_other_users(self):
         # A canvas filed into a teammate's personal channel is private to them:
@@ -1412,8 +1443,8 @@ class TestCanvasActivityVisibility(CanvasAPIBaseTest):
         public_id = self._create_canvas(name="Public")
         notebook_widget = self._notebook_widget()
 
-        owner_visible = activity_visibility.visible_canvas_ids(self.team.id, self.user)
-        other_visible = activity_visibility.visible_canvas_ids(self.team.id, other)
+        owner_visible = canvas_facade.visible_canvas_ids(self.team.id, self.user.id)
+        other_visible = canvas_facade.visible_canvas_ids(self.team.id, other.id)
 
         assert {public_id, str(private.id)} <= owner_visible
         assert public_id in other_visible
@@ -1426,10 +1457,10 @@ class TestCanvasActivityVisibility(CanvasAPIBaseTest):
         private = self._personal_canvas(self.user)
         notebook_widget = self._notebook_widget()
 
-        assert str(private.id) not in activity_visibility.hidden_canvas_ids_for_org(self.organization.id, self.user)
-        assert str(private.id) in activity_visibility.hidden_canvas_ids_for_org(self.organization.id, other)
-        assert str(notebook_widget.id) in activity_visibility.hidden_canvas_ids_for_org(self.organization.id, self.user)
-        assert str(notebook_widget.id) in activity_visibility.hidden_canvas_ids_for_org(self.organization.id, other)
+        assert str(private.id) not in canvas_facade.hidden_canvas_ids_for_org(self.organization.id, self.user.id)
+        assert str(private.id) in canvas_facade.hidden_canvas_ids_for_org(self.organization.id, other.id)
+        assert str(notebook_widget.id) in canvas_facade.hidden_canvas_ids_for_org(self.organization.id, self.user.id)
+        assert str(notebook_widget.id) in canvas_facade.hidden_canvas_ids_for_org(self.organization.id, other.id)
 
     def test_team_activity_feed_hides_notebook_widget_rows(self):
         public_id = self._create_canvas(name="Public")
@@ -1849,7 +1880,7 @@ class TestCanvasState(CanvasAPIBaseTest):
         oversized = self._set_state(canvas_id, "shared", "big", "x" * (64 * 1024))
         assert oversized.status_code == status.HTTP_400_BAD_REQUEST
 
-        with patch("products.canvas.backend.presentation.views.CANVAS_STATE_MAX_KEYS_PER_SCOPE", 2):
+        with patch("products.canvas.backend.logic.runtime.CANVAS_STATE_MAX_KEYS_PER_SCOPE", 2):
             assert self._set_state(canvas_id, "shared", "one", 1).status_code == status.HTTP_200_OK
             assert self._set_state(canvas_id, "shared", "two", 2).status_code == status.HTTP_200_OK
             # Rewriting an existing key is not a new key, so it stays allowed.

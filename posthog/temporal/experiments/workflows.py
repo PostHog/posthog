@@ -1,5 +1,7 @@
 import asyncio
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
+from typing import Any
 
 import temporalio.workflow
 from temporalio.common import RetryPolicy
@@ -18,21 +20,32 @@ with temporalio.workflow.unsafe.imports_passed_through():
     )
     from posthog.temporal.experiments.models import (
         TIMESERIES_METRIC_MAX_ATTEMPTS,
+        ExperimentRegularMetricInput,
+        ExperimentRegularMetricResult,
         ExperimentRegularMetricsWorkflowInputs,
+        ExperimentSavedMetricInput,
+        ExperimentSavedMetricResult,
         ExperimentSavedMetricsWorkflowInputs,
         ExperimentTimeseriesRecalculationWorkflowInputs,
     )
 
 MAX_CONCURRENT_METRICS = 10
 
+# One helper serves both workflows, so its metric type is whichever pair the caller passes.
+type MetricInput = ExperimentRegularMetricInput | ExperimentSavedMetricInput
+type MetricResult = ExperimentRegularMetricResult | ExperimentSavedMetricResult
+
 
 def _record_publish_outcome(succeeded: int, recalculations_synced: int) -> None:
-    """Per-run counter behind the missing-publish alert: a run that computed metrics but published zero
-    recalculation rows is the silent-failure mode where results exist yet never reach users.
+    """Per-run publish counter for the executions that still publish.
 
-    A single "missing" run can be legitimate (every row already covered by another run or a manual
-    recalculation), so the threshold lives in the Grafana alert rule, not here. `workflow.metric_meter()`
-    skips emission during replay, so no patch gate is needed."""
+    A run that computed metrics but published zero recalculation rows is the silent-failure mode
+    where results exist yet never reach users. Only the legacy branches call this, so the counter
+    keeps that meaning: on the calculate-only path nothing publishes by design, and emitting there
+    would report every healthy run as missing.
+
+    `workflow.metric_meter()` skips emission during replay, so no patch gate is needed.
+    """
     if succeeded == 0:
         return
     status = "published" if recalculations_synced > 0 else "missing"
@@ -133,6 +146,29 @@ async def _calculate_and_publish_per_experiment(
     return results, published
 
 
+async def _calculate_metrics(
+    calculate_activity: Callable[..., Any],
+    experiment_metrics: Sequence[MetricInput],
+    semaphore: asyncio.Semaphore,
+) -> list[MetricResult | BaseException]:
+    """Run one activity per metric, bounded by the shared concurrency limit."""
+
+    async def _run_metric(em: MetricInput) -> MetricResult:
+        async with semaphore:
+            return await temporalio.workflow.execute_activity(
+                calculate_activity,
+                args=[em.experiment_id, em.metric_uuid, em.fingerprint],
+                start_to_close_timeout=timedelta(minutes=15),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=TIMESERIES_METRIC_MAX_ATTEMPTS,
+                    initial_interval=timedelta(seconds=10),
+                    maximum_interval=timedelta(seconds=60),
+                ),
+            )
+
+    return await asyncio.gather(*[_run_metric(em) for em in experiment_metrics], return_exceptions=True)
+
+
 @temporalio.workflow.defn(name="experiment-regular-metrics-workflow")
 class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
     """
@@ -140,8 +176,7 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
 
     Runs daily per hour (24 schedules total). Each run:
     1. Discovers experiment-metrics for teams scheduled at this hour
-    2. Per experiment: calculates its metrics in parallel (one activity per metric, shared concurrency
-       limit), then assembles its completed metrics recalculation from this run's points
+    2. Calculates those metrics in parallel (one activity per metric, shared concurrency limit)
     3. Returns summary of successes/failures
     """
 
@@ -151,8 +186,6 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ExperimentRegularMetricsWorkflowInputs) -> dict:
-        run_started_at = temporalio.workflow.now()
-
         # Step 1: Discover experiment-metrics for this hour
         experiment_metrics = await temporalio.workflow.execute_activity(
             get_experiment_regular_metrics_for_hour,
@@ -167,39 +200,27 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
                 "total": 0,
                 "succeeded": 0,
                 "failed": 0,
-                "recalculations_synced": 0,
             }
 
-        # Step 2: Per experiment, calculate its metrics and publish its recalculation as soon as they
-        # finish, so a team's results land minutes after its own experiments compute instead of hours
-        # after the whole batch. The patch gates keep replay of older histories deterministic.
+        # Step 2: Calculate every metric, bounded by one shared concurrency limit.
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_METRICS)
+        run_started_at = temporalio.workflow.now()
 
-        if temporalio.workflow.patched("experiment-per-experiment-publish-2026-09"):
-            results, recalculations_synced = await _calculate_and_publish_per_experiment(
+        # Only an execution carrying this marker skips the publish activities. A history without it
+        # replays the commands it recorded, so the branches below must stay until no such execution
+        # is left. These workflows set no execution timeout, so nothing bounds that wait.
+        published: int | None = None
+        if temporalio.workflow.patched("experiment-drop-timeseries-publish-2026-10"):
+            results = await _calculate_metrics(calculate_experiment_regular_metric, experiment_metrics, semaphore)
+        elif temporalio.workflow.patched("experiment-per-experiment-publish-2026-09"):
+            results, published = await _calculate_and_publish_per_experiment(
                 calculate_experiment_regular_metric, experiment_metrics, run_started_at, semaphore
             )
         else:
-
-            async def _run_metric(em):
-                async with semaphore:
-                    return await temporalio.workflow.execute_activity(
-                        calculate_experiment_regular_metric,
-                        args=[em.experiment_id, em.metric_uuid, em.fingerprint],
-                        start_to_close_timeout=timedelta(minutes=15),
-                        retry_policy=RetryPolicy(
-                            maximum_attempts=TIMESERIES_METRIC_MAX_ATTEMPTS,
-                            initial_interval=timedelta(seconds=10),
-                            maximum_interval=timedelta(seconds=60),
-                        ),
-                    )
-
-            tasks = [_run_metric(em) for em in experiment_metrics]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            recalculations_synced = 0
+            results = await _calculate_metrics(calculate_experiment_regular_metric, experiment_metrics, semaphore)
+            published = 0
             if temporalio.workflow.patched("experiment-timeseries-recalculation-sync-2026-09"):
-                recalculations_synced = await _create_recalculations_from_timeseries(
+                published = await _create_recalculations_from_timeseries(
                     {(em.experiment_id, em.team_id) for em in experiment_metrics if em.team_id is not None},
                     run_started_at,
                     semaphore,
@@ -217,14 +238,14 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
             else:
                 failed += 1
 
-        _record_publish_outcome(succeeded, recalculations_synced)
+        if published is not None:
+            _record_publish_outcome(succeeded, published)
 
         return {
             "hour": inputs.hour,
             "total": len(experiment_metrics),
             "succeeded": succeeded,
             "failed": failed,
-            "recalculations_synced": recalculations_synced,
         }
 
 
@@ -235,8 +256,7 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
 
     Runs daily per hour (24 schedules total). Each run:
     1. Discovers experiment-saved metrics for teams scheduled at this hour
-    2. Per experiment: calculates its metrics in parallel (one activity per metric, shared concurrency
-       limit), then assembles its completed metrics recalculation from this run's points
+    2. Calculates those metrics in parallel (one activity per metric, shared concurrency limit)
     3. Returns summary of successes/failures
     """
 
@@ -246,8 +266,6 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ExperimentSavedMetricsWorkflowInputs) -> dict:
-        run_started_at = temporalio.workflow.now()
-
         # Step 1: Discover experiment-saved metrics for this hour
         experiment_metrics = await temporalio.workflow.execute_activity(
             get_experiment_saved_metrics_for_hour,
@@ -262,39 +280,27 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
                 "total": 0,
                 "succeeded": 0,
                 "failed": 0,
-                "recalculations_synced": 0,
             }
 
-        # Step 2: Per experiment, calculate its metrics and publish its recalculation as soon as they
-        # finish, so a team's results land minutes after its own experiments compute instead of hours
-        # after the whole batch. The patch gates keep replay of older histories deterministic.
+        # Step 2: Calculate every metric, bounded by one shared concurrency limit.
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_METRICS)
+        run_started_at = temporalio.workflow.now()
 
-        if temporalio.workflow.patched("experiment-per-experiment-publish-2026-09"):
-            results, recalculations_synced = await _calculate_and_publish_per_experiment(
+        # Only an execution carrying this marker skips the publish activities. A history without it
+        # replays the commands it recorded, so the branches below must stay until no such execution
+        # is left. These workflows set no execution timeout, so nothing bounds that wait.
+        published: int | None = None
+        if temporalio.workflow.patched("experiment-drop-timeseries-publish-2026-10"):
+            results = await _calculate_metrics(calculate_experiment_saved_metric, experiment_metrics, semaphore)
+        elif temporalio.workflow.patched("experiment-per-experiment-publish-2026-09"):
+            results, published = await _calculate_and_publish_per_experiment(
                 calculate_experiment_saved_metric, experiment_metrics, run_started_at, semaphore
             )
         else:
-
-            async def _run_metric(em):
-                async with semaphore:
-                    return await temporalio.workflow.execute_activity(
-                        calculate_experiment_saved_metric,
-                        args=[em.experiment_id, em.metric_uuid, em.fingerprint],
-                        start_to_close_timeout=timedelta(minutes=15),
-                        retry_policy=RetryPolicy(
-                            maximum_attempts=TIMESERIES_METRIC_MAX_ATTEMPTS,
-                            initial_interval=timedelta(seconds=10),
-                            maximum_interval=timedelta(seconds=60),
-                        ),
-                    )
-
-            tasks = [_run_metric(em) for em in experiment_metrics]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            recalculations_synced = 0
+            results = await _calculate_metrics(calculate_experiment_saved_metric, experiment_metrics, semaphore)
+            published = 0
             if temporalio.workflow.patched("experiment-timeseries-recalculation-sync-2026-09"):
-                recalculations_synced = await _create_recalculations_from_timeseries(
+                published = await _create_recalculations_from_timeseries(
                     {(em.experiment_id, em.team_id) for em in experiment_metrics if em.team_id is not None},
                     run_started_at,
                     semaphore,
@@ -312,14 +318,14 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
             else:
                 failed += 1
 
-        _record_publish_outcome(succeeded, recalculations_synced)
+        if published is not None:
+            _record_publish_outcome(succeeded, published)
 
         return {
             "hour": inputs.hour,
             "total": len(experiment_metrics),
             "succeeded": succeeded,
             "failed": failed,
-            "recalculations_synced": recalculations_synced,
         }
 
 

@@ -2,7 +2,7 @@
 
 Six assets on one daily partition, each writing Parquet under the configured S3 prefix:
 
-    inbox_report_state/v1/dt=D/             Postgres spine + report state + tabular features
+    inbox_report_state/v1/dt=D/             Postgres spine + report-state columns
     inbox_report_embeddings/v1/dt=D/        report_id -> small-1536 vector as of snapshot end
     inbox_report_labels/v1/dt=D/            cumulative label columns from the dogfood project's events
     inbox_report_model_data/v1/dt=D/        materialized join of the three, plus a rewritten latest/
@@ -1055,10 +1055,11 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
     ],
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and
-    # the label windows only grow, since they accumulate from LABELS_EPOCH.
+    # the label windows only grow, since they accumulate from LABELS_EPOCH. The cap must end before
+    # the training schedule starts, so a stuck run fails instead of leaving training without snapshots.
     tags={
         **owner_tags,
-        "dagster/max_runtime": str(3 * 60 * 60),
+        "dagster/max_runtime": str(2 * 60 * 60),
         # The state, embeddings, signal-embeddings and labels assets execute as parallel subprocesses
         # in one run pod, and the embeddings snapshot holds a 1536-float vector per live report, so
         # the pod's peak memory grows with the inventory. The default 8Gi limit is what a run gets
@@ -1067,7 +1068,7 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
             "container_config": {
                 "resources": {
                     "requests": {"memory": "8Gi"},
-                    "limits": {"memory": "16Gi"},
+                    "limits": {"memory": "24Gi"},
                 }
             }
         },

@@ -34,6 +34,7 @@ class _ActiveSafePoint:
 
 
 _active_safe_point: ContextVar[_ActiveSafePoint | None] = ContextVar("warehouse_source_safe_point", default=None)
+_safe_points_held: ContextVar[bool] = ContextVar("warehouse_source_safe_points_held", default=False)
 
 
 @contextmanager
@@ -48,15 +49,34 @@ def activate_safe_point(hook: SafePointHook, *, covers_framework_checkpoints: bo
         _active_safe_point.reset(token)
 
 
+@contextmanager
+def hold_safe_points() -> Iterator[None]:
+    """Make safe points do nothing inside the block.
+
+    The REST framework stages a page's cursor before it hands the page on. A resume hook that
+    reaches a safe point would then let the pipeline commit a cursor for rows it does not have yet.
+    """
+    token = _safe_points_held.set(True)
+    try:
+        yield
+    finally:
+        _safe_points_held.reset(token)
+
+
 def reach_safe_point() -> None:
     """Tell the pipeline that the source is at a safe point. Does nothing outside an extraction."""
     active = _active_safe_point.get()
-    if active is not None:
+    if active is not None and not _safe_points_held.get():
         active.hook()
+
+
+def framework_checkpoints_are_covered() -> bool:
+    """Whether the pipeline iterates the REST framework's own generator, with no source wrapper around it."""
+    active = _active_safe_point.get()
+    return active is not None and active.covers_framework_checkpoints
 
 
 def reach_framework_safe_point() -> None:
     """The REST framework's safe point, which applies only when nothing wraps the framework's output."""
-    active = _active_safe_point.get()
-    if active is not None and active.covers_framework_checkpoints:
-        active.hook()
+    if framework_checkpoints_are_covered():
+        reach_safe_point()

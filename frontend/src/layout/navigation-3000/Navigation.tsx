@@ -163,7 +163,8 @@ export function Navigation({
             <div
                 className={cn('app-layout bg-surface-tertiary', {
                     'app-layout--mobile': (mobileLayout && !todayRail) || todayPhone,
-                    TodayAppLayout: todayRail,
+                    'TodayAppLayout scrollbar-thin scrollbar-track-transparent scrollbar-thumb-[var(--color-bg-fill-scroll-thumb)]':
+                        todayRail,
                     'TodayAppLayout--phone': todayPhone,
                     'TodayAppLayout--no-phone-header': todayPhoneHeaderHidden,
                 })}

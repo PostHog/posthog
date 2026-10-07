@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -24,8 +24,17 @@ MAX_PAGE_SIZE = 1000
 # on longer-retention plans can raise it; a value beyond retention is clamped by the API to what exists.
 DEFAULT_INITIAL_LOOKBACK_DAYS = 30
 
+CONTROL_PLANES_PAGE_SIZE = 100
 
-@dataclass
+# Core entity list endpoints cap `size` at 1000 and paginate with an opaque `offset` token.
+CORE_ENTITY_PAGE_SIZE = 1000
+
+# A control plane group composes the config of its member control planes, which are listed (and fanned
+# out over) individually, so listing entities on the group too would duplicate them.
+CONTROL_PLANE_GROUP_CLUSTER_TYPE = "CLUSTER_TYPE_CONTROL_PLANE_GROUP"
+
+
+@dataclass(frozen=True)
 class KongKonnectEndpointConfig:
     name: str
     path: str
@@ -35,6 +44,10 @@ class KongKonnectEndpointConfig:
     partition_key: Optional[str] = None
     primary_keys: list[str] = field(default_factory=lambda: ["request_id"])
     should_sync_default: bool = True
+    # `analytics` is the time-windowed POST query; `control_planes` is the page-number list; `core_entity`
+    # fans out over every control plane.
+    kind: Literal["analytics", "control_planes", "core_entity"] = "analytics"
+    description: Optional[str] = None
 
 
 KONG_KONNECT_ENDPOINTS: dict[str, KongKonnectEndpointConfig] = {
@@ -53,6 +66,45 @@ KONG_KONNECT_ENDPOINTS: dict[str, KongKonnectEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
+        description="Detailed records for every request proxied through the gateway (Advanced Analytics). "
+        "Historical depth on initial sync is limited by your Konnect plan's data retention.",
+    ),
+    # Lookups that resolve the IDs carried on api_requests rows. None of these list endpoints accept a
+    # timestamp filter, so they sync as full refresh.
+    "control_planes": KongKonnectEndpointConfig(
+        name="control_planes",
+        path="/control-planes",
+        kind="control_planes",
+        partition_key="created_at",
+        primary_keys=["id"],
+        incremental_fields=[],
+        description="Control planes in your Konnect organization. Resolves the control_plane ID on api_requests.",
+    ),
+    # Entity IDs are only guaranteed unique within a control plane (decK can copy IDs between control
+    # planes), so core entities key on the control plane ID too.
+    "services": KongKonnectEndpointConfig(
+        name="services",
+        path="/core-entities/services",
+        kind="core_entity",
+        primary_keys=["control_plane_id", "id"],
+        incremental_fields=[],
+        description="Gateway services across all control planes. Resolves the gateway_service ID on api_requests.",
+    ),
+    "routes": KongKonnectEndpointConfig(
+        name="routes",
+        path="/core-entities/routes",
+        kind="core_entity",
+        primary_keys=["control_plane_id", "id"],
+        incremental_fields=[],
+        description="Gateway routes across all control planes. Resolves the route ID on api_requests to its paths and methods.",
+    ),
+    "consumers": KongKonnectEndpointConfig(
+        name="consumers",
+        path="/core-entities/consumers",
+        kind="core_entity",
+        primary_keys=["control_plane_id", "id"],
+        incremental_fields=[],
+        description="Gateway consumers across all control planes. Resolves the consumer ID on api_requests.",
     ),
 }
 
@@ -60,4 +112,8 @@ ENDPOINTS = tuple(KONG_KONNECT_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in KONG_KONNECT_ENDPOINTS.items()
+}
+
+DESCRIPTIONS: dict[str, str] = {
+    name: config.description for name, config in KONG_KONNECT_ENDPOINTS.items() if config.description
 }

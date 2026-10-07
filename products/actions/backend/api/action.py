@@ -23,6 +23,7 @@ from posthog.api.documentation import (
     StringPropertyFilterSerializer,
 )
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -231,6 +232,17 @@ class ActionSerializer(
                 raise serializers.ValidationError(
                     {"name": f"This project already has an action with this name, ID {colliding_action_ids[0]}"},
                     code="unique",
+                )
+
+        if "steps" in attrs:
+            step_filters = [prop for step in attrs["steps"] for prop in (step.get("properties") or [])]
+            denied_table = table_blocking_property_filters(
+                self.context["request"].user, self.context["get_team"](), step_filters
+            )
+            if denied_table:
+                raise serializers.ValidationError(
+                    {"steps": f"This filter uses the table '{denied_table}', which you don't have access to."},
+                    code="permission_denied",
                 )
 
         return attrs

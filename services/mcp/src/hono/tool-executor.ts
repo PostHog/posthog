@@ -23,6 +23,7 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
+import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
 import { getPostHogClient } from '@/lib/posthog'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import {
@@ -55,7 +56,7 @@ import {
     type ToolCallAnalyticsMeta,
 } from './analytics'
 import type { InstructionsBuilder } from './instructions'
-import { getEffectiveMCPClientContext, resolveSessionKey } from './mcp-context'
+import { getEffectiveMCPClientContext, getEffectiveMCPClientIdentity, resolveSessionKey } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
@@ -401,9 +402,11 @@ export class ToolExecutor {
                 ? await state.reqCtx.safelyGetAnalyticsContext(state.context)
                 : undefined
 
-            const handlerResult = markNoncanonicalMetricRun(
-                tool.name,
-                await tool.handler(state.context, validation.data)
+            // Computed before the handler runs, so a failure here cannot follow a write that succeeded.
+            const ignoredKeys = findIgnoredInputKeys(toolArgs, validation.data, tool.schema)
+            const handlerResult = withIgnoredInputKeys(
+                markNoncanonicalMetricRun(tool.name, await tool.handler(state.context, validation.data)),
+                ignoredKeys
             )
 
             if (isContextSwitch) {
@@ -435,6 +438,8 @@ export class ToolExecutor {
                         renderUiEnabled: state.renderUiEnabled,
                     }),
                     distinctId,
+                    mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext)
+                        .mcpClientName,
                 })
             }
 
@@ -811,6 +816,7 @@ export class ToolExecutor {
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
+                mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
                 learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
                     state,
                     this.skillCatalogService?.getCatalog()
@@ -839,7 +845,11 @@ export class ToolExecutor {
         state: ResolvedState,
         analyticsMeta?: ToolCallAnalyticsMeta
     ): Promise<unknown> {
-        const renderUiTool = createRenderUiTool(state.allTools, state.context)
+        const renderUiTool = createRenderUiTool(
+            state.allTools,
+            state.context,
+            getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName
+        )
         if (!renderUiTool) {
             return {
                 content: [{ type: 'text', text: 'render-ui is not available — no tool has a UI app' }],
@@ -939,7 +949,8 @@ function classifyToolError(error: unknown, toolName: string): ToolErrorClassific
 
 function resolveToolErrorClassification(error: unknown): ToolErrorClassification {
     if (error instanceof MCPToolResultError) {
-        return { errorType: error.errorType }
+        const errorCode = error.errorCode ? sanitizeErrorToken(error.errorCode) : undefined
+        return { errorType: error.errorType, ...(errorCode ? { errorCode } : {}) }
     }
     if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
         return { errorType: 'missing_context' }

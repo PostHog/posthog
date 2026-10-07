@@ -240,7 +240,7 @@ export interface SubscriptionApi {
     readonly insight_short_id: string | null
     /** @nullable */
     readonly resource_name: string | null
-    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
+    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 20. */
     dashboard_export_insights?: number[]
     /**
      * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
@@ -405,7 +405,7 @@ export interface SubscriptionWriteApi {
     readonly insight_short_id: string | null
     /** @nullable */
     readonly resource_name: string | null
-    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
+    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 20. */
     dashboard_export_insights?: number[]
     /**
      * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
@@ -564,7 +564,7 @@ export interface PatchedSubscriptionWriteApi {
     readonly insight_short_id?: string | null
     /** @nullable */
     readonly resource_name?: string | null
-    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
+    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 20. */
     dashboard_export_insights?: number[]
     /**
      * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.

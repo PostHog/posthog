@@ -962,6 +962,8 @@ export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOn
 export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const visionScannersScoutsCreateBodyConfigOneRunCronScheduleMax = 100
 
+export const visionScannersScoutsCreateBodyVariantAnalysisDefault = false
+
 export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
     .object({
         display_name: zod
@@ -1144,6 +1146,12 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination.'
             ),
+        variant_analysis: zod
+            .boolean()
+            .default(visionScannersScoutsCreateBodyVariantAnalysisDefault)
+            .describe(
+                "Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only."
+            ),
     })
     .describe(
         "A scout to stand up for this scanner. The scanner comes from the URL, never the body: it is\nwhat the caller's access is checked against, and what the scout is recorded as belonging to.\n\nInherits the Signals scout definition so a scout created here clears the same name and prompt-size\nbars as one created through the generic endpoint."
@@ -1183,6 +1191,8 @@ export const visionScannersEstimateCreateBodySamplingRateMax = 1
 export const visionScannersEstimateCreateBodySamplingModeDefault = `comprehensive`
 export const visionScannersEstimateCreateBodyModelDefault = `gemini-3-flash-preview`
 export const visionScannersEstimateCreateBodyExperimentTargetingOneVariantMax = 400
+
+export const visionScannersEstimateCreateBodyExperimentOneVariantsItemMax = 400
 
 export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1242,6 +1252,22 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user.'
+            ),
+        experiment: zod
+            .union([
+                zod.object({
+                    experiment_id: zod.number().min(1).describe('The experiment an experiment scanner watches.'),
+                    variants: zod
+                        .array(zod.string().max(visionScannersEstimateCreateBodyExperimentOneVariantsItemMax))
+                        .min(1)
+                        .nullish()
+                        .describe('The variant keys it watches. Null or omitted means every variant.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'For an experiment scanner: the `experiment_id` and `variants` it will keep in its config, merged into the query as its exposure filter so the estimate counts only exposed sessions. Not combined with `experiment_targeting`.'
             ),
     })
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')

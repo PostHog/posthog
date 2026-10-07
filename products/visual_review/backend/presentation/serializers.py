@@ -4,6 +4,10 @@ DRF serializers for visual_review.
 Converts DTOs to/from JSON using DataclassSerializer.
 """
 
+from datetime import datetime
+
+from django.utils import timezone
+
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -408,9 +412,22 @@ class QuarantineInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = QuarantineInput
 
+    def validate_expires_at(self, value: datetime | None) -> datetime | None:
+        # A past expiry would end the active quarantine and store one that is already over.
+        if value is not None and value <= timezone.now():
+            raise serializers.ValidationError("The expiry must be in the future.")
+        return value
+
 
 class UnquarantineQuerySerializer(serializers.Serializer):
     identifier = serializers.CharField(max_length=512, help_text="Snapshot identifier to unquarantine")
+
+
+class ErrorDetailSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="What went wrong and what to do next.")
+    code = serializers.CharField(
+        required=False, help_text="A stable code for the error, such as `lift_commit_unknown` or `rate_limited`."
+    )
 
 
 class LiftOnMergeInputSerializer(DataclassSerializer):
@@ -638,8 +655,8 @@ class FlakinessEntrySerializer(DataclassSerializer):
             "every run, so its baseline is wrong and quarantining it only hides that. `unstable` "
             "fails some runs and not others, the classic flake. `at_risk` never fails, but its "
             "worst absorbed diff is already touching the threshold, so the next unrelated change "
-            "turns it red. `noisy` renders variants and absorbs them with room to spare. `clean` "
-            "matched its baseline on every run in the window."
+            "turns it red. `clean` has no gate failure inside the rate span, and any diff it absorbed "
+            "sits far below the threshold."
         ),
     )
     needs_decision = serializers.BooleanField(
@@ -679,11 +696,10 @@ class FlakinessTotalsSerializer(DataclassSerializer):
     broken = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `broken`.")
     unstable = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `unstable`.")
     at_risk = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `at_risk`.")
-    noisy = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `noisy`.")
     clean = serializers.IntegerField(
         help_text=(
-            "Identifiers whose `flakiness_state` is `clean`. They are listed because they carry live "
-            "variants or older history, and reported here so every listed entry is reachable."
+            "Identifiers whose `flakiness_state` is `clean`. They are listed because they carry a "
+            "quarantine or older gate failures, and reported here so every listed entry is reachable."
         )
     )
     by_run_type = serializers.DictField(

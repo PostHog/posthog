@@ -18,6 +18,7 @@ import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
+import { scannerExperimentScope, scopeVariantsLabel } from '../experimentTargeting'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerEditorStep, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
 import {
@@ -119,12 +120,12 @@ export interface EligibleFilterGroup {
 
 /** The targeted experiment and variant, named so the row stands alone before the experiment loads. */
 function experimentValues(scanner: ReplayScanner, experimentName?: string): string[] {
-    const targeting = scanner.experiment_targeting
-    if (!targeting?.experiment_id) {
+    const scope = scannerExperimentScope(scanner)
+    if (!scope) {
         return []
     }
-    const variant = targeting.variant ? `${targeting.variant} variant` : 'all variants'
-    return [`${experimentName ?? `Experiment ${targeting.experiment_id}`} (${variant})`]
+    const variant = scopeVariantsLabel(scope, 'all variants')
+    return [`${experimentName ?? `Experiment ${scope.experimentId}`} (${variant})`]
 }
 
 /** The pages a session must have visited.
