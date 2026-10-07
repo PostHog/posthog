@@ -28,9 +28,8 @@ FACET_FIELDS: frozenset[str] = frozenset({"severity_text", "service_name"})
 
 DEFAULT_FACET_LIMIT = 100
 
-# Every facet reads a pre-aggregated rollup (logs_volume_buckets for column facets,
-# log_attributes for attribute facets); cap the read and return partial results rather than
-# erroring, matching LogValuesQueryRunner.
+# Column facets read the logs_volume_buckets rollup. Attribute facets read the log_attributes rollup.
+# At this limit, the query returns partial results and does not fail. LogValuesQueryRunner does the same.
 MAX_ROLLUP_READ_BYTES = 5_000_000_000
 
 
@@ -50,27 +49,26 @@ class _AttributeFacet:
 class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
     """Per-value counts for a single facet.
 
-    A column facet (severity_text/service_name) groups the pre-aggregated logs_volume_buckets
-    rollup, which carries both dimensions directly. An attribute facet — a resource attribute like
-    k8s.namespace.name, or a log-body attribute like log.iostream — reads the pre-aggregated
-    log_attributes rollup instead. Both rollups are orders of magnitude cheaper than grouping the
-    logs table itself, and the only way to keep the query under the read cap at scale.
+    A column facet (severity_text or service_name) groups the logs_volume_buckets rollup. This rollup
+    has both columns. An attribute facet groups the log_attributes rollup. Examples of attribute
+    facets are the resource attribute k8s.namespace.name and the log attribute log.iostream. Each
+    rollup costs much less to read than the logs table. At scale, a rollup is the only way to stay
+    under the read limit.
 
-    Cross-filtering (a facet's counts reflect every *other* active filter, so selecting a value
-    re-scopes its siblings rather than itself) depends on what each rollup carries. A column facet
-    strips its own WHERE clause exactly, since logs_volume_buckets carries service_name and
-    severity_text as real dimensions; it does not honour body search, log-attribute filters, or
-    resource-attribute filters, which aren't in that rollup. Every attribute facet honours
-    service_name, severity levels and resource-attribute filters, but not body search or
-    log-attribute filters — those dimensions aren't there either. And only a resource-attribute
-    facet can strip its own filter, because rollup rows for a resource key share a
-    resource_fingerprint; log attributes have no equivalent grouping column, so a log-attribute
-    facet can't exclude itself.
+    Cross-filtering: the counts of a facet use all active filters, but not the filter of that facet.
+    Thus, when the user selects a value, the other facets change, but this facet does not change.
+    The applied filters depend on the columns that each rollup has:
 
-    personId/sessionId scoping (the person/session-scoped Logs tab) isn't in either rollup, and
-    unlike the other gaps above it must stay exact — those views exist to show only one person's
-    or session's own lines. So a column facet falls back to grouping the logs table directly
-    whenever personId or sessionId is set; the rollup path only serves the common unscoped case.
+    - A column facet removes its own filter exactly. It ignores body search, log-attribute filters,
+      and resource-attribute filters, because logs_volume_buckets does not have these columns.
+    - An attribute facet applies service, severity, and resource-attribute filters. It ignores body
+      search and log-attribute filters.
+    - Only a resource-attribute facet can remove its own filter. Its rollup rows share one
+      resource_fingerprint. Log attributes have no such column, so a log-attribute facet cannot
+      remove its own filter.
+
+    Neither rollup has personId or sessionId. The person and session Logs tabs must show exact
+    counts. Thus, when personId or sessionId is set, a column facet groups the logs table.
     """
 
     query: LogsQuery
@@ -121,15 +119,15 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
         if self.facet_field is not None and self._scoped_to_person_or_session:
-            # personId/sessionId scoping isn't in logs_volume_buckets, so this falls back to
-            # grouping the logs table directly — fail fast rather than scan unbounded data.
+            # logs_volume_buckets has no personId or sessionId, so this query groups the logs table.
+            # At this limit, the query fails. It does not read an unlimited quantity of data.
             return HogQLGlobalSettings(
                 max_execution_time=30,
                 max_bytes_to_read=10_000_000_000,
                 read_overflow_mode="throw",
             )
-        # Every other facet reads a small pre-aggregated rollup; "break" returns partial results
-        # instead of erroring if a very large window ever hits the cap (mirrors LogValuesQueryRunner).
+        # All other facets read a small rollup. At this limit, "break" returns partial results and
+        # the query does not fail. LogValuesQueryRunner does the same.
         return HogQLGlobalSettings(
             read_overflow_mode="break",
             max_bytes_to_read=MAX_ROLLUP_READ_BYTES,
@@ -149,7 +147,7 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
 
     @cached_property
     def _volume_buckets_query_date_range(self) -> QueryDateRange:
-        # logs_volume_buckets is bucketed at 5-minute granularity; align bounds to it.
+        # logs_volume_buckets uses 5-minute buckets. Align the range limits to these buckets.
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
@@ -181,13 +179,12 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
         return self._column_facet_query_from_rollup()
 
     def _column_facet_query_from_rollup(self) -> ast.SelectQuery:
-        # Served from the pre-aggregated logs_volume_buckets rollup (sum(log_count)) rather than
-        # grouping the logs table, which reads every row in the window and blows past the read cap
-        # at scale. The rollup carries service_name and severity_text directly, so this facet can
-        # still strip its own filter exactly (exclude_facet_field); it does not carry body search,
-        # log-attribute filters, or resource-attribute filters, so those aren't applied here. Never
-        # called when personId/sessionId is set — to_query() routes that to
-        # _column_facet_query_from_logs instead, since the rollup can't scope to either.
+        # This query sums log_count in the logs_volume_buckets rollup. A query on the logs table
+        # reads each row in the range, and at scale it goes above the read limit.
+        # The rollup has service_name and severity_text, so exclude_facet_field removes the filter
+        # of this facet exactly. The rollup has no body, log attributes, or resource attributes, so
+        # this query ignores these filters. When personId or sessionId is set, to_query() calls
+        # _column_facet_query_from_logs, because the rollup has neither column.
         facet = ast.Field(chain=[cast(str, self.facet_field)])
         filter_builder = LogsFilterBuilder(
             self.query,
@@ -225,8 +222,8 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
                     },
                 )
             )
-        # Level and service also arrive as `log` filters in filterGroup, which is where the viewer
-        # keeps a facet selection; column_filter_exprs() strips this facet's own key already.
+        # The viewer also keeps level and service selections as `log` filters in filterGroup.
+        # column_filter_exprs() removes the filter of this facet.
         exprs.extend(filter_builder.column_filter_exprs())
         if self.facet_search:
             exprs.append(
@@ -234,7 +231,7 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
                     "{facet} ILIKE {pattern}",
                     placeholders={
                         "facet": facet,
-                        # Escape %, _ and \ so user input matches literally instead of as wildcards.
+                        # Escape %, _, and \ so that the search matches them as text, not as wildcards.
                         "pattern": ast.Constant(value=ilike_pattern(self.facet_search)),
                     },
                 )
@@ -258,10 +255,9 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
         return query
 
     def _column_facet_query_from_logs(self) -> ast.SelectQuery:
-        # personId/sessionId scoping isn't in logs_volume_buckets, so a person- or session-scoped
-        # Logs tab falls back to grouping the logs table directly, exactly as every column facet
-        # did before that rollup existed. Narrower than the unscoped case this bypasses: bounded to
-        # one person's or session's own lines, not a full team-wide scan.
+        # logs_volume_buckets has no personId or sessionId. Thus, for the person and session Logs
+        # tabs, this query groups the logs table. The query reads only the lines of one person or
+        # one session, not all the lines of the team.
         facet = ast.Field(chain=[cast(str, self.facet_field)])
         filter_builder = LogsFilterBuilder(
             self.query,
@@ -285,7 +281,7 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
                     "{facet} ILIKE {pattern}",
                     placeholders={
                         "facet": facet,
-                        # Escape %, _ and \ so user input matches literally instead of as wildcards.
+                        # Escape %, _, and \ so that the search matches them as text, not as wildcards.
                         "pattern": ast.Constant(value=ilike_pattern(self.facet_search)),
                     },
                 )
@@ -345,10 +341,9 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
             date_range,
             exclude_resource_attribute=facet.key if facet.attribute_type == "resource" else None,
         )
-        # Level and service also arrive as `log` filters in filterGroup, which is where the viewer
-        # keeps a facet selection. Nothing is stripped here: an attribute facet never owns a column,
-        # and a column facet is served by _column_facet_query_from_rollup/_column_facet_query_from_logs,
-        # both of which pass exclude_facet_field.
+        # The viewer also keeps level and service selections as `log` filters in filterGroup.
+        # This query removes none of these filters, because an attribute facet has no column.
+        # The two column facet queries pass exclude_facet_field to remove their own filter.
         where_exprs.extend(filter_builder.column_filter_exprs())
         where_exprs.append(filter_builder.resource_filter(existing_filters=where_exprs))
 
