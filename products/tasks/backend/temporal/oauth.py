@@ -166,6 +166,8 @@ def dispatched_run_scopes(task: Task, state: dict[str, Any] | None) -> PosthogMc
     MCP session, or a shell fallback runs with less than the run was given. A recorded value
     that does not parse fails closed to ``read_only``.
     """
+    if task.is_scout_trial_judge:
+        return "signals_scout_judge"
     pending = (state or {}).get("pending_dispatch")
     raw = pending.get("posthog_mcp_scopes") if isinstance(pending, dict) else None
     if raw is None:
@@ -274,6 +276,25 @@ def create_oauth_access_token_for_run(
         # `start_agent_server` mints its token with explicit scopes.
         if scopes == "signals_research":
             scopes = [*resolve_scopes(scopes), *RESEARCH_WITHHELD_SCOPES]
+    judge_marker = (state or {}).get("scout_trial_judge")
+    if task.is_scout_trial_judge or judge_marker is not None:
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 -- private judge validation loads evaluation storage
+            is_scout_trial_judge_context,
+        )
+
+        if (
+            not task.is_scout_trial_judge
+            or task.created_by_id is None
+            or not isinstance(judge_marker, dict)
+            or task.origin_key
+            != f"scout-trial-judge:{judge_marker.get('evaluation_id')}:{judge_marker.get('launch_id')}"
+            or not is_scout_trial_judge_context(team_id=task.team_id, user_id=task.created_by_id, marker=judge_marker)
+        ):
+            raise TaskInvalidStateError(
+                "The scout trial judge has no trusted evaluation context.",
+                {"task_id": task.id},
+                cause=RuntimeError("missing scout trial judge context"),
+            )
     with transaction.atomic():
         locked_task = (
             Task.objects.select_for_update(of=("self",))
@@ -291,6 +312,32 @@ def create_oauth_access_token_for_run(
         actor_user = get_task_run_credential_user(locked_task, state)
         loop_id = (state or {}).get("loop_id")
         effective_scopes = scopes
+        trial_origin = locked_task.is_scout_experiment
+        if locked_task.is_scout_trial_judge or judge_marker is not None:
+            if (
+                not locked_task.is_scout_trial_judge
+                or not isinstance(judge_marker, dict)
+                or locked_task.created_by_id != judge_marker.get("user_id")
+                or locked_task.origin_key
+                != f"scout-trial-judge:{judge_marker.get('evaluation_id')}:{judge_marker.get('launch_id')}"
+            ):
+                raise TaskInvalidStateError(
+                    "The scout trial judge has no trusted evaluation context.",
+                    {"task_id": task.id},
+                    cause=RuntimeError("missing scout trial judge context"),
+                )
+            effective_scopes = "signals_scout_judge"
+        elif trial_origin or "scout_experiment_internal:read" in resolve_scopes(scopes):
+            # The Signals facade imports its workflow graph, so load it only for trial credentials.
+            from products.signals.backend.facade.api import is_scout_trial_task  # noqa: PLC0415
+
+            if not trial_origin or not is_scout_trial_task(team_id=task.team_id, task_id=task.id):
+                raise TaskInvalidStateError(
+                    "The scout trial has no trusted execution context.",
+                    {"task_id": task.id},
+                    cause=RuntimeError("missing scout trial context"),
+                )
+            effective_scopes = "signals_scout_experiment"
         credential_owner_kind: str | None = None
         if locked_task.origin_product == Task.OriginProduct.WORKFLOW:
             effective_scopes = _workflow_run_scopes(scopes, state)

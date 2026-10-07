@@ -16,7 +16,12 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
-from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricsRecalculation
+from products.experiments.backend.models.experiment import (
+    EXPOSURE_FROZEN_GROUP_KEY,
+    Experiment,
+    ExperimentHoldout,
+    ExperimentMetricsRecalculation,
+)
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     EXPERIMENT_RECALCULATION_MAX_AGE_DAYS,
@@ -126,6 +131,32 @@ class TestScheduledRecalculationLogic(BaseTest):
 
     @parameterized.expand(
         [
+            ("paused", False, False),
+            ("active", True, True),
+        ]
+    )
+    def test_a_paused_experiment_is_excluded(self, _name: str, flag_active: bool, expected: bool):
+        # Pausing leaves status RUNNING and only deactivates the flag, so this is the one
+        # exclusion the stored status cannot express.
+        experiment = self._experiment()
+        experiment.feature_flag.active = flag_active
+        experiment.feature_flag.save()
+        assert experiment.status == Experiment.Status.RUNNING
+        assert (experiment.id in self._candidate_ids(2)) is expected
+
+    def test_an_exposure_frozen_experiment_is_still_a_candidate(self):
+        # Frozen exposure closes enrollment but metric events keep arriving, so the results
+        # still move and the experiment stays worth recalculating.
+        experiment = self._experiment()
+        flag = experiment.feature_flag
+        flag.filters = {"groups": [{"properties": [], "rollout_percentage": 100, EXPOSURE_FROZEN_GROUP_KEY: True}]}
+        flag.save()
+        experiment.refresh_from_db()
+        assert experiment.is_exposure_frozen
+        assert experiment.id in self._candidate_ids(2)
+
+    @parameterized.expand(
+        [
             ("too_new", 3, False),
             ("just_old_enough", 13, True),
             ("too_old", 24 * 61, False),
@@ -209,19 +240,35 @@ class TestScheduledRecalculationLogic(BaseTest):
             ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(created_at=stale)
         assert recent_recalculation_skip(experiment, self.team.id) is None
 
-    def test_recent_completed_run_skips(self):
+    @parameterized.expand(
+        [
+            # heal_latest_run and metric_config_change reuse the previous window, so a run can
+            # finish minutes ago and still hold yesterday's data. Skipping on completed_at alone
+            # would leave the page a day behind until the next slot.
+            ("stale_window", timedelta(days=1), False),
+            ("fresh_window", timedelta(minutes=10), True),
+            # A run that resolved no window gives nothing to judge staleness by, so it still skips.
+            ("no_window", None, True),
+        ]
+    )
+    def test_a_recent_run_skips_only_on_a_recent_window(
+        self, _name: str, query_to_age: timedelta | None, expected_skip: bool
+    ):
         experiment = self._experiment()
         with team_scope(self.team.id, canonical=True):
             ExperimentMetricsRecalculation.objects.create(
                 team=self.team,
                 experiment=experiment,
                 status=ExperimentMetricsRecalculation.Status.COMPLETED,
+                trigger=ExperimentMetricsRecalculation.Trigger.HEAL_LATEST_RUN,
                 completed_at=timezone.now() - timedelta(minutes=10),
+                query_to=None if query_to_age is None else timezone.now() - query_to_age,
             )
         decision = recent_recalculation_skip(experiment, self.team.id)
-        assert decision is not None
-        assert decision.reason == SKIP_RECENT_RUN
-        assert decision.detail["minutes_since_completion"] == 10
+        assert (decision is not None) is expected_skip
+        if decision is not None:
+            assert decision.reason == SKIP_RECENT_RUN
+            assert decision.detail["minutes_since_completion"] == 10
 
     def test_old_completed_run_does_not_skip(self):
         experiment = self._experiment()

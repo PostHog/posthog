@@ -612,9 +612,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     </LemonField.Pure>
                                                     <p className="text-muted text-sm -mt-2">
                                                         {isSessionTarget
-                                                            ? 'Runs once per session on every trace it contains, after the session settles. Only fires for events that carry an AI session id.'
+                                                            ? 'Runs once per session on every trace it contains, after the session settles. Only fires for generations that have an $ai_session_id property.'
                                                             : evaluation.target === 'trace'
-                                                              ? 'Runs once per trace on all of its events together, after it settles.'
+                                                              ? 'Runs once per trace on all of its events together, after it settles. Only fires for generations that have an $ai_trace_id property.'
                                                               : 'Runs on each matching generation event individually, right after it is ingested.'}
                                                     </p>
                                                     {isAggregateTarget && (

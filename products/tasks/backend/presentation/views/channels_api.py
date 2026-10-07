@@ -16,6 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
+from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request
 from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
@@ -805,7 +806,16 @@ class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="The task's thread in chronological order.",
     )
     def list(self, request, *args, **kwargs):
-        messages = tasks_facade.list_thread_messages(self._task_id(), self.team_id, self._user_id())
+        task_id = self._task_id()
+        if is_sandbox_oauth_request(request) and not tasks_facade.task_accessible_for_run_view(
+            task_id,
+            self.team_id,
+            self._user_id(),
+            sandbox_request=True,
+            sandbox_task_id=getattr(get_oauth_access_token(request), "sandbox_task_id", None),
+        ):
+            raise NotFound("Task not found")
+        messages = tasks_facade.list_thread_messages(task_id, self.team_id, self._user_id())
         if messages is None:
             raise NotFound("Task not found")
         return Response(TaskThreadMessageSerializer(messages, many=True).data)

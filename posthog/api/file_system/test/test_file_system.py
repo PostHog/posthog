@@ -39,7 +39,6 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
@@ -292,6 +291,80 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertFalse(FileSystem.objects.filter(pk=folder_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
+
+    def _create_retired_row_in_folder(self) -> tuple[FileSystem, FileSystem]:
+        folder = FileSystem.objects.create(team=self.team, path="Unfiled/Links", type="folder", created_by=self.user)
+        retired = FileSystem.objects.create(
+            team=self.team,
+            path="Unfiled/Links/abc123",
+            type="link",
+            ref="0190a1b2-0000-7000-8000-000000000001",
+            href="/link/abc123",
+            created_by=self.user,
+        )
+        return folder, retired
+
+    @parameterized.expand(
+        [
+            ("file", False, ""),
+            ("parent_folder", True, ""),
+            ("parent_folder_without_cascading", True, "?recursive=false"),
+        ]
+    )
+    def test_delete_row_of_retired_type(self, _name: str, delete_parent: bool, query: str) -> None:
+        folder, retired = self._create_retired_row_in_folder()
+
+        target = folder if delete_parent else retired
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{target.pk}/{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        self.assertFalse(FileSystem.objects.filter(pk=retired.pk).exists())
+        self.assertEqual(FileSystem.objects.filter(pk=folder.pk).exists(), not delete_parent)
+
+    def test_rows_of_retired_type_are_hidden_from_the_tree(self) -> None:
+        folder, retired = self._create_retired_row_in_folder()
+        base = f"/api/projects/{self.team.id}/file_system"
+
+        listed = self.client.get(f"{base}/?parent=Unfiled/Links").json()
+        searched = self.client.get(f"{base}/?search=abc123").json()
+        counted = self.client.post(f"{base}/{folder.pk}/count/").json()
+        retrieved = self.client.get(f"{base}/{retired.pk}/")
+
+        self.assertEqual([listed["results"], searched["results"], counted["count"]], [[], [], 0])
+        self.assertEqual(retrieved.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_recents_skip_views_of_retired_types(self) -> None:
+        _folder, retired = self._create_retired_row_in_folder()
+        dashboard = Dashboard.objects.create(team=self.team, name="Viewed earlier", created_by=self.user)
+        entry = FileSystem.objects.create(
+            team=self.team, path="Viewed earlier", type="dashboard", ref=str(dashboard.id), created_by=self.user
+        )
+        base = f"/api/projects/{self.team.id}/file_system"
+        self.client.post(
+            f"{base}/log_view/", {"type": "dashboard", "ref": entry.ref, "viewed_at": "2026-09-01T00:00:00Z"}
+        )
+        self.client.post(f"{base}/log_view/", {"type": "link", "ref": retired.ref, "viewed_at": "2026-09-02T00:00:00Z"})
+
+        recents = self.client.get(f"{base}/?order_by=-last_viewed_at&limit=1").json()
+
+        self.assertEqual([item["id"] for item in recents["results"]], [str(entry.id)])
+
+    def test_log_view_list_skips_views_of_retired_types(self) -> None:
+        _folder, retired = self._create_retired_row_in_folder()
+        dashboard = Dashboard.objects.create(team=self.team, name="Viewed earlier", created_by=self.user)
+        entry = FileSystem.objects.create(
+            team=self.team, path="Viewed earlier", type="dashboard", ref=str(dashboard.id), created_by=self.user
+        )
+        base = f"/api/projects/{self.team.id}/file_system"
+        self.client.post(
+            f"{base}/log_view/", {"type": "dashboard", "ref": entry.ref, "viewed_at": "2026-09-01T00:00:00Z"}
+        )
+        self.client.post(f"{base}/log_view/", {"type": "link", "ref": retired.ref, "viewed_at": "2026-09-02T00:00:00Z"})
+
+        response = self.client.get(f"{base}/log_view/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual([item["ref"] for item in response.json()], [entry.ref])
 
     @parameterized.expand([("empty", False), ("child_added_before_delete", True)])
     def test_delete_empty_folder_without_cascading(self, _name: str, add_child: bool) -> None:
@@ -1894,6 +1967,39 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         dashboard.refresh_from_db()
         self.assertFalse(dashboard.deleted)
 
+    @parameterized.expand(
+        [
+            ("retired_row_without_cascading", "link", "?recursive=false", False),
+            ("retired_row_with_cascading", "link", "", False),
+            ("live_row_with_cascading", "dashboard", "", True),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_folder_delete_with_a_row_in_a_denied_environment(
+        self, _name: str, child_type: str, query: str, expect_repaired_folder: bool, mock_flag: MagicMock
+    ):
+        team2 = self._create_sibling_team()
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        self._create_access_control(
+            resource="project",
+            resource_id=str(team2.id),
+            access_level="none",
+            organization_member=membership,
+            team=team2,
+        )
+        folder = FileSystem.objects.create(team=self.team, path="Shared", type="folder", created_by=self.user)
+        denied_child = FileSystem.objects.create(
+            team=team2, path="Shared/abc123", type=child_type, ref="0190a1b2-0000-7000-8000-000000000002"
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder.pk}/{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        self.assertTrue(FileSystem.objects.filter(pk=denied_child.pk).exists())
+        self.assertEqual(
+            FileSystem.objects.filter(team=team2, path="Shared", type="folder").exists(), expect_repaired_folder
+        )
+
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_list_queries_do_not_scale_with_environment_count(self, mock_flag):
         insight = Insight.objects.create(team=self.team, name="Denied insight", created_by=self.other_user)
@@ -2325,12 +2431,6 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
                 "extra_restore_fields": ["enabled"],
             },
             {
-                "file_type": "link",
-                "scope": "Link",
-                "factory": self._prepare_link_case,
-                "supports_restore": False,
-            },
-            {
                 "file_type": "early_access_feature",
                 "scope": "EarlyAccessFeature",
                 "factory": self._prepare_early_access_feature_case,
@@ -2544,22 +2644,6 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
             "fs_entry": fs_entry,
             "item_id": str(hog_function.id),
             "ref": str(hog_function.id),
-            "path": fs_entry.path,
-        }
-
-    def _prepare_link_case(self):
-        link = Link.objects.create(
-            team=self.team,
-            redirect_url="https://example.com",
-            short_link_domain="hog.gg",
-            short_code="abc123",
-            created_by=self.user,
-        )
-        fs_entry = self._ensure_file_system_entry(file_type="link", ref=str(link.id), fallback_name=str(link.id))
-        return {
-            "fs_entry": fs_entry,
-            "item_id": str(link.id),
-            "ref": str(link.id),
             "path": fs_entry.path,
         }
 

@@ -41,3 +41,16 @@ class HogFlowBatchJobState(LabeledStrEnum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     FAILED = "failed"
+
+
+class HogFlowScheduleStatus(LabeledStrEnum):
+    ACTIVE = "active"
+    PAUSED = "paused"
+    COMPLETED = "completed"  # RRULE exhausted (COUNT/UNTIL reached)
+
+
+class WorkflowProposalStatus(LabeledStrEnum):
+    SUGGESTED = "suggested", "Suggested"
+    APPROVED = "approved", "Approved"
+    REJECTED = "rejected", "Rejected"
+    APPLIED = "applied", "Applied"

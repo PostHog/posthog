@@ -83,7 +83,10 @@ from products.replay_vision.backend.temporal.activities.emit_observation_signal 
     emit_observation_signals_activity,
 )
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
-from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
+from products.replay_vision.backend.temporal.activities.fetch_session_events import (
+    _process_events,
+    fetch_session_events_activity,
+)
 from products.replay_vision.backend.temporal.activities.fetch_session_network import fetch_session_network_activity
 from products.replay_vision.backend.temporal.activities.observation_state import (
     mark_observation_failed_activity,
@@ -185,7 +188,6 @@ def test_scanner_snapshot_loads_rows_with_retired_model_and_provider_ids() -> No
     )
     assert snapshot.model == "gemini-1.0-flash-retired-preview"
     assert snapshot.provider == "hooli"
-    assert snapshot.verify_positives == "off"
 
 
 def _make_scanner(**overrides) -> ReplayScanner:
@@ -294,6 +296,28 @@ class TestCreateObservationActivity:
         assert observation.scanner_snapshot["sampling_mode"] == str(scanner.sampling_mode)
         assert observation.started_at is None  # set when transitioning to running, not here
         assert observation.completed_at is None
+
+    def test_records_the_dispatching_ticks_variant_sampling_rates_on_the_snapshot(self) -> None:
+        # The variants readout explains even per-variant counts with these rates; a snapshot built
+        # only from the scanner row would silently drop them, since the row never carries them.
+        scanner = _make_scanner(
+            scanner_type=ScannerType.EXPERIMENT, scanner_config={"prompt": "p", "experiment_id": 42}
+        )
+        result = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-balanced",
+                triggered_by=ObservationTrigger.SCHEDULE,
+                triggered_by_user_id=None,
+                workflow_id="wf-balanced",
+                variant_sampling_rates={"control": 0.055, "test": 0.5},
+            )
+        )
+
+        assert result.observation_id is not None
+        observation = ReplayObservation.objects.get(id=result.observation_id)
+        assert observation.scanner_snapshot["variant_sampling_rates"] == {"control": 0.055, "test": 0.5}
 
     def test_decays_enqueue_claim_once_the_row_exists(self) -> None:
         # A claim that never decays holds a phantom cap slot for the full TTL.
@@ -1514,6 +1538,31 @@ class TestEmitObservationEventActivity:
         assert properties["$group_2"] == "proj-9"
         assert properties["$groups"] == {"organization": "acme-inc", "project": "proj-9"}
 
+    @pytest.mark.parametrize(
+        "session_geoip",
+        [{"$geoip_country_code": "US", "$geoip_subdivision_1_code": "CA"}, None],
+    )
+    def test_event_carries_the_session_location_with_geoip_disabled(self, session_geoip) -> None:
+        # Without `$geoip_disable` the GeoIP transformation geolocates the worker, not the recorded user.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, session_geoip=session_geoip)
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+        ) as capture:
+            _emit_event(inputs)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["$geoip_disable"] is True
+        for key, value in (session_geoip or {}).items():
+            assert properties[key] == value
+        if not session_geoip:
+            assert not any(key.startswith("$geoip_") for key in properties if key != "$geoip_disable")
+
     def test_event_omits_group_properties_when_the_session_carried_none(self) -> None:
         # Observations scanned before group keys were resolved leave the column null; they must still emit.
         scanner = _make_scanner()
@@ -1862,7 +1911,13 @@ class TestFetchSessionEventsActivity:
             ),
             patch(
                 "products.replay_vision.backend.temporal.activities.fetch_session_events.fetch_session_person_properties",
-                return_value={"email": "rene@customer.example", "name": "Rene Diaz", "org__name": "Customer Co"},
+                return_value={
+                    "email": "rene@customer.example",
+                    "name": "Rene Diaz",
+                    "org__name": "Customer Co",
+                    "$geoip_country_code": "US",
+                    "$geoip_subdivision_1_code": "CA",
+                },
             ),
         ):
             await fetch_session_events_activity(
@@ -1876,9 +1931,11 @@ class TestFetchSessionEventsActivity:
         assert stored.identity.person_email == "rene@customer.example"
         assert stored.identity.person_name == "Rene Diaz"
         assert stored.identity.person_organization == "Customer Co"
+        assert stored.session_geoip == {"$geoip_country_code": "US", "$geoip_subdivision_1_code": "CA"}
 
         await sync_to_async(observation.refresh_from_db)()
         assert observation.recording_subject_email == "rene@customer.example"
+        assert observation.session_geoip == {"$geoip_country_code": "US", "$geoip_subdivision_1_code": "CA"}
 
     @pytest.mark.asyncio
     async def test_fetches_a_single_page_with_the_configured_limit(self) -> None:
@@ -4213,3 +4270,18 @@ async def test_apply_scanner_workflow_counts_signals_for_pre_patch_histories() -
     assert succeeded.scanner_result.signals_count == 2
     assert succeeded.scanner_result.signal_problem_types == []
     assert succeeded.scanner_result.signal_summaries == []
+
+
+def test_process_events_reads_the_device_type_and_keeps_it_from_the_model() -> None:
+    columns = ["uuid", "event", "timestamp", "$device_type"]
+    start = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+    rows = [
+        ["u1", "$pageview", start, None],
+        ["u2", "$autocapture", start + dt.timedelta(seconds=1), "Mobile"],
+    ]
+
+    processed = _process_events(columns, rows, session_start=start)
+
+    assert processed.device_type == "Mobile"
+    assert "$device_type" not in processed.columns
+    assert all("Mobile" not in row for row in processed.rows)

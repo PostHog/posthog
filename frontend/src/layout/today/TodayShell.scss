@@ -69,6 +69,10 @@
 
     padding-top: var(--today-phone-header-height);
     padding-bottom: var(--today-tab-bar-height);
+
+    &.TodayAppLayout--no-phone-header {
+        --today-phone-header-height: 0px;
+    }
 }
 
 .TodayPhoneHeader {
@@ -92,19 +96,6 @@
     }
 }
 
-.TodayPhoneHeader__title {
-    opacity: 0;
-    transition:
-        opacity 200ms var(--today-ease),
-        transform 200ms var(--today-ease);
-    transform: translateY(4px);
-
-    .TodayPhoneHeader[data-scrolled='true'] & {
-        opacity: 1;
-        transform: none;
-    }
-}
-
 .TodayShell--phone {
     display: contents;
 }
@@ -119,11 +110,11 @@
     }
 }
 
-body:has(.TodayAppLayout--phone) :is(input, textarea, select) {
+body.has-today-phone-layout :is(input, textarea, select) {
     font-size: 1rem;
 }
 
-body:has(.TodayAppLayout--phone) .Toastify__toast-container--bottom-right {
+body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     bottom: calc(84px + env(safe-area-inset-bottom));
 }
 
@@ -150,7 +141,6 @@ body:has(.TodayAppLayout--phone) .Toastify__toast-container--bottom-right {
     .quill-button--size-row {
         -webkit-touch-callout: none;
         height: 2.75rem;
-        font-size: 0.9375rem;
     }
 
     .quill-input-group {
@@ -171,6 +161,7 @@ body:has(.TodayAppLayout--phone) .Toastify__toast-container--bottom-right {
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
     user-select: none;
     background: var(--today-paper);
+    border-top: 1px solid var(--border);
     -webkit-tap-highlight-color: transparent;
     -webkit-touch-callout: none;
 }
@@ -179,8 +170,7 @@ body:has(.TodayAppLayout--phone) .Toastify__toast-container--bottom-right {
     .TodayShell__scrim,
     .TodayShell__drawer,
     .TodayShell__page,
-    .TodayPhoneHeader,
-    .TodayPhoneHeader__title {
+    .TodayPhoneHeader {
         transition: none;
     }
 }
@@ -197,7 +187,7 @@ body:has(.TodayAppLayout--phone) .Toastify__toast-container--bottom-right {
     flex: 1 1 auto;
     flex-direction: column;
     min-height: 0;
-    padding: 12px 12px 0;
+    padding: 8px 8px 0;
 }
 
 .TodayPane__filters {

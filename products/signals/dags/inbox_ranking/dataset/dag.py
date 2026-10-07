@@ -2,7 +2,7 @@
 
 Six assets on one daily partition, each writing Parquet under the configured S3 prefix:
 
-    inbox_report_state/v1/dt=D/             Postgres spine + report state + tabular features
+    inbox_report_state/v1/dt=D/             Postgres spine + report-state columns
     inbox_report_embeddings/v1/dt=D/        report_id -> small-1536 vector as of snapshot end
     inbox_report_labels/v1/dt=D/            cumulative label columns from the dogfood project's events
     inbox_report_model_data/v1/dt=D/        materialized join of the three, plus a rewritten latest/
@@ -48,7 +48,7 @@ Point-in-time caveats, per source:
 
 import json
 import datetime
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator, Mapping
 from typing import Any, cast
 
 from django.db.models import Count, Min
@@ -77,6 +77,7 @@ from products.signals.backend.signal_metadata import (
 from products.signals.dags.inbox_ranking.common import (
     DATASET_VERSION,
     HUMAN_ACTOR_KINDS,
+    PARQUET_PART_NAME,
     S3_BUCKET_ENV,
     dataset_bucket,
     dataset_unconfigured,
@@ -85,6 +86,7 @@ from products.signals.dags.inbox_ranking.common import (
     latest_object_key,
     merge_emission_rows,
     object_row_count,
+    object_schema_version,
     object_snapshot_date,
     owner_tags,
     partition_def,
@@ -867,7 +869,13 @@ def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
     rows = merge_label_streams(stream_rows, datetime.date.fromisoformat(partition_key))
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, LABELS_TABLE, partition_key)
-    write_parquet(s3_client(), bucket, key, pa.Table.from_pylist(rows, schema=LABELS_SCHEMA))
+    write_parquet(
+        s3_client(),
+        bucket,
+        key,
+        pa.Table.from_pylist(rows, schema=LABELS_SCHEMA),
+        schema_version=FEATURE_SCHEMA_VERSION,
+    )
     context.add_output_metadata(
         {
             "rows": dagster.MetadataValue.int(len(rows)),
@@ -1097,3 +1105,95 @@ def inbox_ranking_dataset_schedule(
     # builds the partition it was scheduled for; run_key dedupes a re-evaluated tick.
     previous_day = context.scheduled_execution_time.date() - datetime.timedelta(days=1)
     return dagster.RunRequest(partition_key=previous_day.isoformat(), run_key=previous_day.isoformat())
+
+
+inbox_ranking_labels_refresh_job = dagster.define_asset_job(
+    name="inbox_ranking_labels_refresh_job",
+    selection=[LABELS_TABLE],
+    tags={**owner_tags, "dagster/max_runtime": str(3 * 60 * 60)},
+)
+
+
+def stale_label_partitions(
+    stamps: Mapping[str, int | None], current: int, limit: int, requested: Collection[str] = ()
+) -> list[str]:
+    """The partitions to rewrite, newest first. `stamps` holds only partitions whose labels object
+    exists. A missing object has no state snapshot either, so a rewrite cannot make it an example.
+    `requested` are partitions already requested at `current`, in flight or failed."""
+    stale = [
+        partition
+        for partition, version in stamps.items()
+        if (version is None or version < current) and partition not in requested
+    ]
+    return sorted(stale, reverse=True)[:limit]
+
+
+def label_refresh_window(today: datetime.date) -> list[str]:
+    """The training lookback, without the newest day. The daily schedule writes `today - 1`, so the
+    sensor never writes the same object at the same time."""
+    start = max(
+        today - datetime.timedelta(days=1 + settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS),
+        partition_def.start.date(),
+    )
+    end = today - datetime.timedelta(days=2)
+    return [(start + datetime.timedelta(days=offset)).isoformat() for offset in range((end - start).days + 1)]
+
+
+def _existing_label_partitions(client, bucket: str, prefix: str) -> set[str]:
+    table_prefix = f"{prefix}/{LABELS_TABLE}/{DATASET_VERSION}/dt="
+    partitions: set[str] = set()
+    for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=table_prefix):
+        for item in page.get("Contents", []):
+            partition, _, name = item["Key"].removeprefix(table_prefix).partition("/")
+            if name == PARQUET_PART_NAME:
+                partitions.add(partition)
+    return partitions
+
+
+# A label column change bumps FEATURE_SCHEMA_VERSION, and the training lookback then holds
+# partitions without that column. The heads that read it train on almost no examples until those
+# partitions are rewritten. A partition is requested at most once per version: the cursor skips a
+# run that is in flight or failed, so the next tick moves on to older partitions. A failed refresh
+# alerts like any other run failure and needs a person.
+@dagster.sensor(
+    job=inbox_ranking_labels_refresh_job,
+    minimum_interval_seconds=60 * 60,
+    default_status=dagster.DefaultSensorStatus.RUNNING
+    if settings.CLOUD_DEPLOYMENT == "US"
+    else dagster.DefaultSensorStatus.STOPPED,
+)
+def inbox_ranking_labels_refresh_sensor(
+    context: dagster.SensorEvaluationContext,
+) -> dagster.SensorResult | dagster.SkipReason:
+    if dataset_unconfigured():
+        return dagster.SkipReason(f"{S3_BUCKET_ENV} is not set; skipping until the dedicated bucket is provisioned")
+    cursor = json.loads(context.cursor) if context.cursor else {}
+    requested = set(cursor.get("requested", [])) if cursor.get("version") == FEATURE_SCHEMA_VERSION else set()
+
+    client, bucket, prefix = s3_client(), dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX
+    existing = _existing_label_partitions(client, bucket, prefix)
+    stamps = {
+        partition: object_schema_version(client, bucket, partition_object_key(prefix, LABELS_TABLE, partition))
+        for partition in label_refresh_window(datetime.datetime.now(datetime.UTC).date())
+        if partition in existing
+    }
+    stale = stale_label_partitions(stamps, FEATURE_SCHEMA_VERSION, len(stamps))
+    batch = stale_label_partitions(
+        stamps, FEATURE_SCHEMA_VERSION, settings.INBOX_RANKING_LABELS_REFRESH_MAX_RUNS, requested
+    )
+    context.log.info(f"stale_label_partitions={len(stale)} requesting={len(batch)} (schema v{FEATURE_SCHEMA_VERSION})")
+    if not batch:
+        return dagster.SkipReason(f"stale_label_partitions={len(stale)}, none left to request")
+    return dagster.SensorResult(
+        run_requests=[
+            dagster.RunRequest(
+                partition_key=partition,
+                run_key=f"{partition}-labels-v{FEATURE_SCHEMA_VERSION}",
+                tags=owner_tags,
+            )
+            for partition in batch
+        ],
+        cursor=json.dumps(
+            {"version": FEATURE_SCHEMA_VERSION, "requested": sorted(requested.union(batch) & set(stale))}
+        ),
+    )

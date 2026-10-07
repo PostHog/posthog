@@ -29,13 +29,19 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import NoteArtefact
 from products.signals.backend.auto_start import (
     RequestedImplementation,
     maybe_autostart_from_report_artefacts,
     start_requested_implementation,
 )
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
-from products.signals.backend.models import SIGNALS_AT_RUN_INCREMENT, SignalReport, SignalTeamConfig
+from products.signals.backend.models import (
+    SIGNALS_AT_RUN_INCREMENT,
+    SignalReport,
+    SignalReportArtefact,
+    SignalTeamConfig,
+)
 from products.signals.backend.quota import (
     capture_signal_report_quota_paused,
     record_quota_check_failed_open,
@@ -166,12 +172,20 @@ class ReportDecision:
     # The chart rollout state the research run saw (see `RunAgenticReportOutput.charts_enabled`).
     # `None` for the no-repo branch, which does no research and so never asks.
     charts_enabled: bool | None = None
-    # Suggested prompts to store with the title/summary. Always `[]`, because every decision carries
-    # a freshly written title and summary, and the pipeline does not author prompts yet: whatever a
-    # scout suggested was written against the prose this decision replaces, so leaving it would put
-    # prompts about the old report under the new one. Not a constant so the pipeline can author its
-    # own set later without moving the write.
-    suggested_prompts: list[str] = field(default_factory=list)
+    # Suggested prompts to store with the title/summary. `[]` when the decision carries a freshly
+    # written title and summary, because the pipeline does not author prompts yet: whatever a scout
+    # suggested was written against the prose this decision replaces, so leaving it would put
+    # prompts about the old report under the new one. `None` for the no-repo branch, which keeps
+    # the prose and so keeps the prompts too.
+    suggested_prompts: list[str] | None = field(default_factory=list)
+    # Work-log note to append with the transition. The no-repo branch records its blocker here
+    # instead of in the title/summary.
+    note: str | None = None
+    # Set by the no-repo branch, which does no research. Its `title`/`summary` are placeholders that
+    # fill only blank fields (a recurrence of a safety-failed report starts blank), so a report keeps
+    # the content it is searched and deduplicated by. They stay non-null because an older activity
+    # worker in a rolling deploy rejects `None`.
+    keep_existing_content: bool = False
     # Which of the two doors into PENDING_INPUT produced this decision, so telemetry can tell a
     # broken repo-selection integration apart from the agent legitimately asking for human input.
     # Irrelevant (left `None`) unless `choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT`.
@@ -432,11 +446,15 @@ class SignalReportSummaryWorkflow:
                     "Report has no repository selected",
                     reason=repo_result.reason,
                 )
+                blocker = f"Could not automatically select a repository: {repo_result.reason}"
                 decision = ReportDecision(
                     title="Repository selection required",
-                    summary=f"Could not automatically select a repository: {repo_result.reason}",
+                    summary=blocker,
                     choice=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
                     explanation=repo_result.reason,
+                    suggested_prompts=None,
+                    note=blocker,
+                    keep_existing_content=True,
                     pending_reason="repo_selection_required",
                 )
             else:
@@ -521,6 +539,8 @@ class SignalReportSummaryWorkflow:
                         suggested_prompts=decision.suggested_prompts,
                         charts_enabled=decision.charts_enabled,
                         pending_reason=decision.pending_reason,
+                        note=decision.note,
+                        keep_existing_content=decision.keep_existing_content,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1201,8 +1221,9 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
 class MarkReportPendingInput:
     team_id: int
     report_id: str
-    title: str
-    summary: str
+    # `None` keeps the report's current title/summary.
+    title: str | None
+    summary: str | None
     reason: str
     signal_count: int = 0
     source_products: list[str] = field(default_factory=list)
@@ -1227,6 +1248,10 @@ class MarkReportPendingInput:
     # Coarse cause of the transition ("repo_selection_required" / "agent_requested"), see
     # ReportDecision.pending_reason.
     pending_reason: str | None = None
+    # See ReportDecision.note. Appended to the work log in the same transaction.
+    note: str | None = None
+    # See ReportDecision.keep_existing_content.
+    keep_existing_content: bool = False
 
 
 @temporalio.activity.defn
@@ -1241,8 +1266,10 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.PENDING_INPUT:
                 return _ReportTransition(run_count=report.run_count, chart_count=0, was_duplicate=True)
+            title = report.title if input.keep_existing_content and report.title else input.title
+            summary = report.summary if input.keep_existing_content and report.summary else input.summary
             updated_fields = report.transition_to(
-                SignalReport.Status.PENDING_INPUT, title=input.title, summary=input.summary, error=input.reason
+                SignalReport.Status.PENDING_INPUT, title=title, summary=summary, error=input.reason
             )
             if input.charts is not None:
                 report.charts = input.charts
@@ -1258,6 +1285,13 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             report._pending_reason = input.pending_reason  # type: ignore[attr-defined]
             report.save(update_fields=updated_fields)
             _write_research_checks(report, input)
+            if input.note is not None:
+                SignalReportArtefact.add_log(
+                    team_id=input.team_id,
+                    report_id=input.report_id,
+                    content=NoteArtefact(note=input.note),
+                    attribution=ArtefactAttribution.system(),
+                )
             return _ReportTransition(
                 run_count=report.run_count, chart_count=len(report.charts or []), was_duplicate=False
             )

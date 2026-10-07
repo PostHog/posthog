@@ -76,12 +76,11 @@ REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
 #
 # The list follows `posthog/urls.py`. The Contour ingress keeps a similar list in
 # `charts/argocd/contour-ingress/values/values.{dev,prod-us,prod-eu}.yaml`, which omits
-# `/interview/` and the bare `/exporter`. Sync to the URL patterns, not to that list.
+# the bare `/exporter`. Sync to the URL patterns, not to that list.
 EMBEDDABLE_PATH_PREFIXES = (
     "/shared_dashboard/",
     "/shared/",
     "/embedded/",
-    "/interview/",
     "/exporter/",
     "/external_surveys/",
 )
@@ -399,9 +398,7 @@ class CSPMiddleware:
                 # SQL editor all render blob URLs, so they lose their images without it.
                 f"img-src 'self' data: blob: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 frame_ancestors,
-                # The live debugger's repo browser reads PostHog/posthog from the GitHub API. The path keeps
-                # the rest of the API, and every other repository, out of reach of injected script.
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/ {object_storage_source}",
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com/PostHog/terminal-assets/ {object_storage_source}",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
                 "frame-src 'self' https:",

@@ -3,12 +3,13 @@ import './TodayShell.scss'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { Suspense, useEffect, useRef } from 'react'
 
-import { IconChevronLeft } from '@posthog/icons'
-import { Button, Heading, Skeleton, ToastProvider } from '@posthog/quill'
+import { Heading, Skeleton, ToastProvider } from '@posthog/quill'
 
 import 'scenes/project-homepage/today/Today.scss'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { TodayHomeSidebar } from 'scenes/project-homepage/today/TodayHomeSidebar'
@@ -19,13 +20,7 @@ import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
 import { todayRecentsLogic } from './todayRecentsLogic'
-import {
-    TODAY_MORE_PANES,
-    TODAY_RAIL_WIDTH,
-    TODAY_SIDEBAR_CLOSE_THRESHOLD,
-    clampSidebarWidth,
-    todayShellLogic,
-} from './todayShellLogic'
+import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
 import { TodayTabBar } from './TodayTabBar'
 
@@ -33,14 +28,8 @@ const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m)
 const TodayViewsSidebar = lazyWithRetry(() =>
     import('./TodayViewsSidebar').then((m) => ({ default: m.TodayViewsSidebar }))
 )
-const TodayToolsSidebar = lazyWithRetry(() =>
-    import('./TodayToolsSidebar').then((m) => ({ default: m.TodayToolsSidebar }))
-)
-const TodayMoreSidebar = lazyWithRetry(() =>
-    import('./TodayMoreSidebar').then((m) => ({ default: m.TodayMoreSidebar }))
-)
-const TodayLibrarySidebar = lazyWithRetry(() =>
-    import('./TodayLibrarySidebar').then((m) => ({ default: m.TodayLibrarySidebar }))
+const TodayProductsSidebar = lazyWithRetry(() =>
+    import('./TodayProductsSidebar').then((m) => ({ default: m.TodayProductsSidebar }))
 )
 const NewSpaceDialog = lazyWithRetry(() =>
     import('products/tasks/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
@@ -50,18 +39,24 @@ const PANE_LABELS = {
     home: 'Today',
     spaces: 'Spaces',
     views: 'Views',
-    library: 'Library',
-    tools: 'Tools',
-    more: 'More',
+    products: 'Products',
 }
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */
 export function TodayShell({ className }: { className?: string }): JSX.Element {
-    const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth } = useValues(todayShellLogic)
+    const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
+        useValues(todayShellLogic)
     // Records the tools and sessions visited while other panes are open, so each pane's Recent group is ready.
     useMountedLogic(todayRecentsLogic)
-    const { pickPane, setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } =
-        useActions(todayShellLogic)
+    const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
+    useShortcut({
+        name: 'ToggleLeftNav',
+        keybind: [keyBinds.toggleLeftNav, keyBinds.toggleLeftNavFallback],
+        intent: 'Toggle collapse left navigation',
+        interaction: 'function',
+        callback: toggleSidebar,
+        ignoreInEditable: true,
+    })
     const sidebarRef = useRef<HTMLDivElement | null>(null)
     const drawerRef = useRef<HTMLElement | null>(null)
     const returnFocusRef = useRef<HTMLElement | null>(null)
@@ -108,12 +103,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 <TodaySpacesPane />
             ) : activePane === 'views' ? (
                 <TodayViewsSidebar />
-            ) : activePane === 'library' ? (
-                <TodayLibrarySidebar />
-            ) : activePane === 'more' ? (
-                <TodayMoreSidebar />
             ) : (
-                <TodayToolsSidebar />
+                <TodayProductsSidebar />
             )}
         </Suspense>
     )
@@ -141,7 +132,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         return (
             <ToastProvider>
                 <div data-quill className={cn('Today TodayShell TodayShell--phone', className)}>
-                    {!sidebarVisible && <TodayPhoneHeader />}
+                    {!sidebarVisible && !phoneHeaderHidden && <TodayPhoneHeader />}
                     <aside
                         ref={drawerRef}
                         tabIndex={-1}
@@ -152,17 +143,6 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         {...(sidebarVisible ? {} : { inert: '' })}
                     >
                         <div className="flex min-h-14 shrink-0 items-end gap-1 px-4 pt-3">
-                            {TODAY_MORE_PANES.includes(activePane) && (
-                                <Button
-                                    size="icon-lg"
-                                    className="-ml-2 rounded-full"
-                                    aria-label="Back to More"
-                                    data-attr="today-more-back"
-                                    onClick={() => pickPane('more')}
-                                >
-                                    <IconChevronLeft />
-                                </Button>
-                            )}
                             <Heading render={<h1 />} size="2xl" className="m-0 truncate leading-10">
                                 {PANE_LABELS[activePane]}
                             </Heading>

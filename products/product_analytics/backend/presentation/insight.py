@@ -463,13 +463,18 @@ class _InsightQuerySchema(RootModel):
     """The query definition for this insight. The `kind` field determines the query type:
     - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
     - `DataVisualizationNode` — SQL insights using HogQL
+    - `BIVisualizationNode` — business intelligence worksheets with a HogQL source
     - `DataTableNode` — raw data tables
     - `HogQuery` — Hog language queries
     """
 
-    root: schema.InsightVizNode | schema.DataTableNode | schema.DataVisualizationNode | schema.HogQuery = PydanticField(
-        discriminator="kind"
-    )
+    root: (
+        schema.InsightVizNode
+        | schema.DataTableNode
+        | schema.DataVisualizationNode
+        | schema.BIVisualizationNode
+        | schema.HogQuery
+    ) = PydanticField(discriminator="kind")
 
 
 @extend_schema_field(_InsightQuerySchema)  # type: ignore[arg-type]
@@ -1085,7 +1090,7 @@ class InsightSerializer(InsightBasicSerializer):
         if (
             query
             and isinstance(query, dict)
-            and query.get("kind") == "DataVisualizationNode"
+            and query.get("kind") in ("DataVisualizationNode", "BIVisualizationNode")
             and query.get("source", {}).get("variables")
         ):
             query["source"]["variables"] = map_stale_to_latest(
@@ -1534,11 +1539,11 @@ class MCPInsightSerializer(InsightSerializer):
             pass
 
         # Already-wrapped node → use as-is
-        for wrapped_cls in (schema.DataVisualizationNode, schema.InsightVizNode):
+        for wrapped_cls in (schema.DataVisualizationNode, schema.BIVisualizationNode, schema.InsightVizNode):
             try:
                 wrapped_node = wrapped_cls.model_validate(value)
                 normalized_query = wrapped_node.model_dump(exclude_none=True, mode="json")
-                if isinstance(wrapped_node, schema.DataVisualizationNode):
+                if isinstance(wrapped_node, (schema.DataVisualizationNode, schema.BIVisualizationNode)):
                     box_plot = wrapped_node.chartSettings.boxPlot if wrapped_node.chartSettings else None
                     if box_plot is not None:
                         normalized_box_plot = normalized_query.setdefault("chartSettings", {}).setdefault("boxPlot", {})

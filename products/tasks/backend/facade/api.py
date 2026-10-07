@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
-from typing import Any, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
@@ -49,6 +49,7 @@ from django.utils.http import content_disposition_header
 import posthoganalytics
 
 from posthog.api.tagged_item import cleanup_orphan_tags, set_tags_on_object
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
@@ -60,7 +61,6 @@ from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
 from posthog.utils import absolute_uri
 
-from products.canvas.backend.models import Canvas
 from products.cdp.backend.facade import api as cdp_facade
 from products.posthog_ai.backend.task_ownership import (
     detach_conversations_for_task_handoff,
@@ -95,6 +95,7 @@ from products.tasks.backend.constants import (
     is_same_run_resume_state,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
     is_workflow_dispatch_shadow_enabled,
@@ -175,6 +176,7 @@ from products.tasks.backend.repository_config_analytics import (
 )
 from products.tasks.backend.visibility import (
     TEAM_READABLE_ORIGIN_PRODUCTS,
+    scout_trial_visibility_q,
     task_control_q,
     task_run_visibility_q,
     task_visibility_q,
@@ -182,6 +184,9 @@ from products.tasks.backend.visibility import (
 
 from . import contracts
 from .task_run_signals import hidden_task_ids, task_run_start_refusal
+
+if TYPE_CHECKING:
+    from products.canvas.backend.facade.contracts import CanvasSummary
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +219,8 @@ class _AutoArchiveUnchanged:
 _AUTO_ARCHIVE_UNCHANGED = _AutoArchiveUnchanged()
 
 __all__ = [
+    "mint_private_gateway_token",
+    "revoke_private_gateway_token",
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TaskOriginProduct",
@@ -223,6 +230,7 @@ __all__ = [
     "WarmRunActivationUnavailable",
     "append_imported_task_run_log",
     "append_task_run_log",
+    "attach_task_run_input_files",
     "create_imported_task",
     "create_imported_task_run",
     "get_imported_task_run",
@@ -907,7 +915,7 @@ def _task_detail_to_dto(
         latest_run_id=latest_run_id,
         channel=task.channel_id,
         slack_thread_references=_task_slack_thread_references(task),
-        origin_key=task.origin_key,
+        origin_key=None if task.is_scout_experiment else task.origin_key,
     )
 
 
@@ -2642,6 +2650,9 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
+        "scout_trial",
+        "scout_trial_judge",
+        "scout_trial_private",
         "analytics_query_context",
         "sandbox_oauth_token_ids",
         "resume_from_run_id",
@@ -2896,6 +2907,8 @@ def task_accessible_for_run_view(
     *,
     bypass_visibility: bool = False,
     for_control: bool = False,
+    sandbox_task_id: UUID | None = None,
+    sandbox_request: bool = False,
 ) -> bool:
     """Whether the parent task exists and (unless bypassed) is visible to the user.
 
@@ -2918,11 +2931,26 @@ def task_accessible_for_run_view(
     Threads from a direct message are excluded: a DM has no audience beyond its author, so
     there is nobody the widened read is for. See ``PRIVATE_CONVERSATION_TYPES``.
     """
-    task_filter = Task.objects.filter(id=task_id, team_id=team_id, deleted=False)
+    trial_visibility = scout_trial_visibility_q(user_id)
+    if sandbox_request or sandbox_task_id is not None:
+        trial_visibility = ~Task.scout_experiment_q() | Q(id=sandbox_task_id)
+    visibility = trial_visibility & Q(deleted=False)
     if not bypass_visibility:
         scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
-        task_filter = task_filter.filter(scope_q)
-    return task_filter.exists()
+        visibility &= scope_q
+    # Classify the same row used for authorization, including denied reads whose errors stay private.
+    task = (
+        Task.objects.filter(id=task_id, team_id=team_id)
+        .annotate(
+            is_trial=Case(When(Task.scout_experiment_q(), then=Value(True)), default=Value(False)),
+            accessible=Exists(Task.objects.filter(id=OuterRef("pk"), team_id=team_id).filter(visibility)),
+        )
+        .values("is_trial", "accessible")
+        .first()
+    )
+    if task is not None and task["is_trial"]:
+        tag_queries(is_scout_experiment=True)
+    return task is not None and bool(task["accessible"])
 
 
 def list_task_runs(
@@ -3534,7 +3562,7 @@ def set_task_run_summary(
         updates[TASK_RUN_TAGS_STATE_KEY] = list(dict.fromkeys(tags))
     with transaction.atomic():
         run.state = TaskRun.update_state_atomic(run.id, updates=updates)
-        if tags is not None:
+        if tags is not None and not run.task.is_scout_experiment:
             set_tags_on_object(tags, run.task)
             cleanup_orphan_tags(run.team_id)
     run.refresh_from_db()
@@ -3589,6 +3617,36 @@ def append_task_run_log(
     run.clear_echoed_followup_messages(entries)
     run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
+
+
+def attach_task_run_input_files(*, team_id: int, run_id: UUID, files: Sequence[contracts.TaskRunInputFile]) -> None:
+    """Bind trusted, already-stored inputs inside the caller's run-creation transaction.
+
+    The caller owns the objects and verifies their scope before attaching them. Keeping their
+    immutable locations avoids storage I/O while the task creation transaction is open.
+    """
+    from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415 — keep storage deps off the facade import path
+        build_task_artifact_entry,
+    )
+
+    run = TaskRun.objects.get(id=run_id, team_id=team_id, task__team_id=team_id)
+    if run.status not in {TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED} or run.artifacts:
+        raise ValueError("Input files must be attached before the task run starts.")
+    if len({file.id for file in files}) != len(files):
+        raise ValueError("Input files must have distinct identifiers.")
+    run.artifacts = [
+        build_task_artifact_entry(
+            artifact_id=file.id,
+            name=file.name,
+            artifact_type="file",
+            source="internal",
+            size=file.size_bytes,
+            content_type=file.content_type,
+            storage_path=file.storage_path,
+        )
+        for file in files
+    ]
+    run.save(update_fields=["artifacts", "updated_at"])
 
 
 def get_task_by_origin_key(team_id: int, origin_key: str) -> contracts.TaskDetailDTO | None:
@@ -4755,12 +4813,12 @@ def get_task_run_log_urls(run_id: str | UUID, task_id: str | UUID, team_id: int)
     return [ancestor.log_url for ancestor in run.get_resume_chain()]
 
 
-def get_task_run_log_size(log_urls: list[str]) -> int:
+def get_task_run_log_size(log_urls: list[str], *, strict: bool = False) -> int:
     """Total byte size of the given log objects, without downloading them. Storage-only: safe off the request thread."""
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
     def _size(log_url: str) -> int:
-        head = object_storage.head_object(log_url)
+        head = object_storage.head_object_strict(log_url) if strict else object_storage.head_object(log_url)
         return int(head.get("ContentLength", 0)) if head else 0
 
     if len(log_urls) == 1:
@@ -5813,7 +5871,7 @@ def _resolve_cloud_pr_authorship_mode(
             task.save(update_fields=["github_user_integration", "updated_at"])
         return PrAuthorshipMode.USER, None
 
-    if _ensure_task_team_github_integration(task):
+    if _ensure_task_team_github_integration(task) or task.origin_product == Task.OriginProduct.POSTHOG_AI:
         return PrAuthorshipMode.BOT, None
 
     return None, contracts.TaskRunValidationError(
@@ -6377,7 +6435,7 @@ def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bo
     is readable team-wide, matching ``task_accessible_for_run_view``. Without it the run
     endpoint admits a channel collaborator while task detail returns 404 for the same task.
     """
-    qs = Task.objects.filter(team_id=team_id, deleted=False)
+    qs = Task.objects.filter(team_id=team_id, deleted=False).filter(scout_trial_visibility_q(user_id))
     if not bypass_visibility:
         qs = qs.filter(
             task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
@@ -6525,8 +6583,40 @@ def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_
     return _visible_task_qs(team_id, user_id, for_control=for_control).filter(id=task_id).exists()
 
 
-def list_pinned_task_ids(team_id: int, user_id: int) -> list[UUID]:
-    visible_tasks = _visible_task_qs(team_id, user_id).values("id")
+def scout_trial_task_ids(team_id: int, *, visible_task_id: UUID | None = None) -> Iterable[UUID]:
+    tasks = Task.objects.filter(Task.scout_experiment_q(), team_id=team_id)
+    if visible_task_id is not None:
+        tasks = tasks.exclude(id=visible_task_id)
+    return tasks.values_list("id", flat=True)
+
+
+def is_scout_trial_task(task_id: str | UUID, team_id: int) -> bool:
+    return Task.objects.filter(Task.scout_experiment_q(), id=task_id, team_id=team_id).exists()
+
+
+def is_scout_trial_judge_task_run(*, team_id: int, task_id: UUID, run_id: UUID | None = None) -> bool:
+    runs = TaskRun.objects.filter(task_id=task_id, team_id=team_id, task__team_id=team_id)
+    if run_id is not None:
+        runs = runs.filter(id=run_id)
+    row = (
+        runs.filter(task__origin_product=Task.OriginProduct.SIGNALS_SCOUT, task__deleted=False)
+        .values("state", "task__origin_key", "task__created_by_id")
+        .first()
+    )
+    marker = (row["state"] or {}).get("scout_trial_judge") if row else None
+    return bool(
+        row
+        and isinstance(marker, dict)
+        and type(marker.get("version")) is int
+        and marker["version"] == 1
+        and type(marker.get("user_id")) is int
+        and marker.get("user_id") == row["task__created_by_id"]
+        and row["task__origin_key"] == f"scout-trial-judge:{marker.get('evaluation_id')}:{marker.get('launch_id')}"
+    )
+
+
+def list_pinned_task_ids(team_id: int, user_id: int, *, exclude_task_ids: Iterable[UUID] = ()) -> list[UUID]:
+    visible_tasks = _visible_task_qs(team_id, user_id).exclude(id__in=exclude_task_ids).values("id")
     return list(
         TaskPin.objects.filter(user_id=user_id, task_id__in=Subquery(visible_tasks))
         .order_by("-pinned_at")
@@ -6886,12 +6976,16 @@ def search_tasks(
     *,
     limit: int = 20,
     bypass_visibility: bool = False,
+    exclude_task_ids: Iterable[UUID] = (),
 ) -> list[dict]:
     normalized = query.strip().lower()
     if not normalized:
         return []
     visible_task_ids = (
-        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).filter(internal=False).values("id")
+        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility)
+        .filter(internal=False)
+        .exclude(id__in=exclude_task_ids)
+        .values("id")
     )
     visibility = Q(task_id__in=Subquery(visible_task_ids)) | (
         Q(task__isnull=True, channel__deleted=False) & Channel.visible_to_q(user_id, relation="channel")
@@ -6941,9 +7035,13 @@ def inaccessible_repositories_via_integration(team_id: int, integration_id: int,
     return _inaccessible_repositories_via_integration(team_id, integration_id, repositories)
 
 
-def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
+def list_task_repositories(team_id: int, user_id: int | None, *, exclude_task_ids: Iterable[UUID] = ()) -> list[str]:
     """Distinct repositories used by non-deleted, non-internal visible tasks for the team."""
-    tasks = Task.objects.filter(team_id=team_id, deleted=False, internal=False).filter(task_visibility_q(user_id))
+    tasks = (
+        Task.objects.filter(team_id=team_id, deleted=False, internal=False)
+        .filter(task_visibility_q(user_id))
+        .exclude(id__in=exclude_task_ids)
+    )
     plural = (
         tasks.exclude(repositories=[])
         .annotate(repository_name=Func(F("repositories"), function="unnest", output_field=CharField()))
@@ -6988,6 +7086,7 @@ def get_task_summaries(
     ids: list,
     limit: int | None = None,
     offset: int = 0,
+    exclude_task_ids: Iterable[UUID] = (),
     analytics_context_reader: Callable[[object], bool] | None = None,
 ) -> tuple[list[contracts.TaskSummaryDTO], int]:
     """Summary fields for the requested tasks, mirroring ``TaskViewSet.summaries``."""
@@ -7039,6 +7138,7 @@ def get_task_summaries(
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
         .filter(task_visibility_q(user_id))
+        .exclude(id__in=exclude_task_ids)
         .annotate(
             _latest_run=Subquery(latest_run.values("_data")[:1]),
             _latest_pr_run=Subquery(latest_pr_run.values("_pr")[:1]),
@@ -7675,6 +7775,8 @@ def handoff_task(
             return None
         if locked.created_by_id != previous_owner_id:
             raise TaskHandoffError("Someone else has already handed this task off. Refresh and try again.")
+        if locked.is_scout_experiment:
+            raise TaskHandoffError("Scout comparison tasks stay with the operator who launched them.")
         if not Task.objects.filter(id=locked.id).filter(task_control_q(user_id)).exists():
             return None
         target = locked.team.all_users_with_access().filter(id=target_user_id).first()
@@ -9809,18 +9911,21 @@ def list_channel_contributors(team_id: int, user_id: int | None) -> list[contrac
         .values("channel_id", "created_by_id")
         .annotate(last_active=Max(Coalesce("last_activity_at", "created_at")))
     )
-    canvas_rows = (
-        Canvas.objects.for_team(team_id)
-        .filter(channel_id__in=channel_ids, deleted=False, created_by_id__isnull=False)
-        .values("channel_id", "created_by_id")
-        .annotate(last_active=Max("updated_at"))
+    from products.canvas.backend.facade import (
+        access as canvas_access,  # noqa: PLC0415 — keeps canvas off django.setup()
+    )
+
+    owner_rows = [(row["channel_id"], row["created_by_id"], row["last_active"]) for row in task_rows]
+    owner_rows.extend(
+        (row.channel_id, row.created_by_id, row.last_active)
+        for row in canvas_access.canvas_owner_activity(team_id=team_id, channel_ids=channel_ids)
     )
     last_active: dict[UUID, dict[int, datetime]] = {}
-    for row in [*task_rows, *canvas_rows]:
-        per_channel = last_active.setdefault(row["channel_id"], {})
-        previous = per_channel.get(row["created_by_id"])
-        if previous is None or row["last_active"] > previous:
-            per_channel[row["created_by_id"]] = row["last_active"]
+    for channel_id, created_by_id, active_at in owner_rows:
+        per_channel = last_active.setdefault(channel_id, {})
+        previous = per_channel.get(created_by_id)
+        if previous is None or active_at > previous:
+            per_channel[created_by_id] = active_at
     user_ids = {owner_id for owners in last_active.values() for owner_id in owners}
     users = {user.id: user for user in User.objects.filter(id__in=user_ids)}
     contributors: list[contracts.ChannelContributorsDTO] = []
@@ -10046,6 +10151,10 @@ def update_channel(
 
 
 def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> str:
+    from products.canvas.backend.facade import (
+        access as canvas_facade,  # noqa: PLC0415 — keeps canvas off django.setup()
+    )
+
     with transaction.atomic():
         channel = _locked_visible_channel(channel_id, team_id, user_id)
         if channel is None:
@@ -10054,9 +10163,8 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
             return "personal" if channel.created_by_id == user_id else "not_found"
         if _is_general_channel(channel):
             return "general"
-        if (
-            channel.tasks.filter(deleted=False, archived=False).exists()
-            or Canvas.objects.filter(channel=channel, deleted=False).exists()
+        if channel.tasks.filter(deleted=False, archived=False).exists() or canvas_facade.channel_has_canvases(
+            team_id=team_id, channel_id=channel.id
         ):
             return "not_empty"
 
@@ -10868,6 +10976,7 @@ def list_mentions(
         # Legacy turn_complete rows are hidden from threads (see list_thread_messages),
         # so their indexed mentions must not surface notifications pointing at them.
     ).exclude(message__event="turn_complete")
+    qs = qs.exclude(Task.scout_experiment_q(relation="task"))
     if since is not None:
         qs = qs.filter(created_at__gt=since)
     mentions = qs.select_related("message__author", "task__channel").order_by("-created_at")[:limit]
@@ -10960,18 +11069,34 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     return TaskActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
 
 
-def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActivity]:
-    from products.tasks.backend.logic.services.task_comments import visible_canvas_comment_item_ids
+def _visible_activity_canvas_ids(team_id: int, user_id: int) -> set[str]:
+    """Ids of the visible canvases among those the requester's comment activity names."""
+    from products.canvas.backend.facade import (
+        access as canvas_access,  # noqa: PLC0415 — keeps canvas off django.setup()
+    )
 
+    # Only the canvases in the requester's own feed are candidates, so the lookup
+    # stays bounded by their activity and not by every canvas in the team.
+    item_ids = (
+        TaskCommentActivity.objects.for_team(team_id)
+        .filter(user_id=user_id, comment__deleted=False, comment__scope__in=CANVAS_COMMENT_SCOPES)
+        .values_list("comment__item_id", flat=True)
+        .distinct()
+    )
+    return canvas_access.live_visible_canvas_ids(team_id, user_id, [item_id for item_id in item_ids if item_id])
+
+
+def _comment_activity_qs(
+    team_id: int, user_id: int, visible_canvas_ids: set[str] | None = None
+) -> QuerySet[TaskCommentActivity]:
     visible_tasks = _activity_visible_task_qs(team_id, user_id)
+    if visible_canvas_ids is None:
+        visible_canvas_ids = _visible_activity_canvas_ids(team_id, user_id)
     return (
         TaskCommentActivity.objects.for_team(team_id)
         .filter(user_id=user_id, comment__deleted=False)
         .filter(
-            Q(
-                comment__scope__in=CANVAS_COMMENT_SCOPES,
-                comment__item_id__in=visible_canvas_comment_item_ids(team_id, user_id),
-            )
+            Q(comment__scope__in=CANVAS_COMMENT_SCOPES, comment__item_id__in=visible_canvas_ids)
             | (~Q(comment__scope__in=CANVAS_COMMENT_SCOPES) & Q(task__in=visible_tasks))
         )
     )
@@ -10979,7 +11104,11 @@ def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActi
 
 def _visible_canvases_by_id(
     team_id: int, user_id: int, comment_rows: Sequence[TaskCommentActivity]
-) -> dict[str, Canvas]:
+) -> dict[str, "CanvasSummary"]:
+    from products.canvas.backend.facade import (
+        access as canvas_access,  # noqa: PLC0415 — keeps canvas off django.setup()
+    )
+
     canvas_ids: list[UUID] = []
     for row in comment_rows:
         if row.comment.scope not in CANVAS_COMMENT_SCOPES:
@@ -10988,15 +11117,7 @@ def _visible_canvases_by_id(
             canvas_ids.append(UUID(row.comment.item_id))
         except ValueError:
             continue
-    if not canvas_ids:
-        return {}
-    canvases = (
-        Canvas.objects.for_team(team_id)
-        .filter(id__in=canvas_ids, deleted=False)
-        .filter(visible_channels_q(user_id, relation="channel"))
-        .select_related("channel")
-    )
-    return {str(canvas.id): canvas for canvas in canvases}
+    return canvas_access.visible_canvas_summaries(team_id=team_id, user_id=user_id, canvas_ids=canvas_ids)
 
 
 @frozen
@@ -11007,13 +11128,13 @@ class _ActivityTaskDetails:
 
 
 def _activity_task_details(
-    row: TaskActivity | TaskCommentActivity, canvases_by_id: dict[str, Canvas]
+    row: TaskActivity | TaskCommentActivity, canvases_by_id: dict[str, "CanvasSummary"]
 ) -> _ActivityTaskDetails:
     if isinstance(row, TaskCommentActivity) and row.comment.scope in CANVAS_COMMENT_SCOPES and row.comment.item_id:
         canvas = canvases_by_id.get(row.comment.item_id)
         if canvas is not None:
             return _ActivityTaskDetails(
-                title=canvas.name, channel_id=canvas.channel_id, channel_name=canvas.channel.name
+                title=canvas.name, channel_id=canvas.channel_id, channel_name=canvas.channel_name
             )
     if row.task is None:
         return _ActivityTaskDetails(title="", channel_id=None, channel_name=None)
@@ -11028,9 +11149,13 @@ def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
     """Unread tasks across the requester's whole feed. Backs the sidebar badge."""
     if user_id is None:
         return 0
+    return _count_unread_activity(team_id, user_id, _visible_activity_canvas_ids(team_id, user_id))
+
+
+def _count_unread_activity(team_id: int, user_id: int, visible_canvas_ids: set[str]) -> int:
     return (
         _task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
-        + _comment_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
+        + _comment_activity_qs(team_id, user_id, visible_canvas_ids).filter(read_at__isnull=True).count()
     )
 
 
@@ -11050,7 +11175,8 @@ def list_task_activity(
     if user_id is None:
         return contracts.TaskActivityPageDTO(results=[], unread_count=0)
     task_qs = _task_activity_qs(team_id, user_id)
-    comment_qs = _comment_activity_qs(team_id, user_id)
+    visible_canvas_ids = _visible_activity_canvas_ids(team_id, user_id)
+    comment_qs = _comment_activity_qs(team_id, user_id, visible_canvas_ids)
     if before is not None and before_id is not None:
         cursor = Q(activity_at__lt=before) | Q(activity_at=before, id__lt=before_id)
         task_qs = task_qs.filter(cursor)
@@ -11104,7 +11230,7 @@ def list_task_activity(
             for row in rows
             for task_details in [_activity_task_details(row, canvases_by_id)]
         ],
-        unread_count=count_unread_task_activity(team_id, user_id),
+        unread_count=_count_unread_activity(team_id, user_id, visible_canvas_ids),
         next_before=next_row.activity_at if next_row else None,
         next_before_id=next_row.id if next_row else None,
     )
