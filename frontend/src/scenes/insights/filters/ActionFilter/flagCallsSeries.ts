@@ -1,4 +1,5 @@
 import { FEATURE_FLAG_CALLED_EVENT, FLAG_EVALUATIONS_TABLE } from 'scenes/feature-flags/flagEvaluationsTable'
+import { getHogQLValue } from 'scenes/insights/filters/aggregationTarget'
 
 import {
     DataWarehouseNode,
@@ -40,8 +41,7 @@ export function readsFlagCalls(query: InsightQueryNode): boolean {
 /** Sets the actor column of each flag calls series to the query's aggregation: a group key, or the person. */
 export function withFlagCallsAggregationTarget<Q extends InsightQueryNode>(query: Q): Q {
     const groupTypeIndex = 'aggregation_group_type_index' in query ? query.aggregation_group_type_index : null
-    const target =
-        groupTypeIndex != null ? `$group_${groupTypeIndex}` : FLAG_EVALUATIONS_SERIES_FIELDS.aggregation_target_field
+    const target = getHogQLValue(groupTypeIndex)
     const retarget = <T>(node: T): T => {
         const fields = node as { table_name?: string; aggregation_target_field?: string } | null | undefined
         return fields?.table_name === FLAG_EVALUATIONS_TABLE &&

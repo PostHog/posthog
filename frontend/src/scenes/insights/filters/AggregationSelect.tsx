@@ -19,25 +19,8 @@ import { InsightLogicProps } from '~/types'
 
 import { GroupIntroductionFooter } from 'products/groups/frontend/components/GroupsIntroduction'
 
-export function getHogQLValue(groupIndex?: number | null, aggregationQuery?: string | null): string {
-    if (groupIndex != undefined) {
-        return `$group_${groupIndex}`
-    } else if (aggregationQuery) {
-        return aggregationQuery
-    }
-    return UNIQUE_USERS
-}
+import { UNIQUE_USERS, getHogQLValue, hogQLToFilterValue } from './aggregationTarget'
 
-export function hogQLToFilterValue(value?: string): { groupIndex?: number; aggregationQuery?: string } {
-    if (value?.match(/^\$group_[0-9]+$/)) {
-        return { groupIndex: parseInt(value.replace('$group_', '')) }
-    } else if (value === 'person_id') {
-        return {}
-    }
-    return { aggregationQuery: value }
-}
-
-const UNIQUE_USERS = 'person_id'
 export const CUSTOM_DATA_WAREHOUSE_ITEMS = '__custom_data_warehouse_items__'
 
 export function getCustomAggregationEditorValue(value: string, baseValues: string[]): string {
