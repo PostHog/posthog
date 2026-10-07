@@ -41,10 +41,6 @@ from products.data_quality.backend.facade.enums import SuiteRunTrigger
 
 MAX_CONCURRENT_CHILDREN = 10
 
-# Deprecated: kept only so replay accepts histories that still carry the marker.
-TRINO_DEPENDENCIES_PATCH = "trino-model-dependencies-2026-09"
-NODE_AUDIT_PATCH = "data-quality-node-audit-2026-08"
-
 
 class EmptyDAGOrCycleError(Exception):
     """Raised when the DAG is empty or contains a cycle according to _dag_execution_levels."""
@@ -293,7 +289,6 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         suspended_node_set: set[str] = set(dag_structure.suspended_nodes.get(serving_engine, []))
         downstreams = _get_downstream_lookup(edge_lookup)
         skipped_jobs: list[SkippedDataModelingNode] = []
-        temporalio.workflow.deprecate_patch(TRINO_DEPENDENCIES_PATCH)
         unavailable_trino_nodes: set[str] = set(dag_structure.suspended_nodes.get("managed_warehouse", []))
         skipped_trino_jobs: list[SkippedDataModelingNode] = []
         # execute child workflows with bounded concurrency using a sliding window;
@@ -577,7 +572,6 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         of which need the database. Asking first keeps a team with no checks, or an org that never
         opted in, from paying for a child workflow and a suite row on every materialization.
         """
-        temporalio.workflow.deprecate_patch(NODE_AUDIT_PATCH)
         checkable_node_ids = [
             result.node_id
             for result in node_results
