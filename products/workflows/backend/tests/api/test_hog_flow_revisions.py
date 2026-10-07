@@ -368,6 +368,9 @@ class TestHogFlowRevisions(APIBaseTest):
         assert flow.action_redirects is None, "re-adding the deleted step must prune its redirect entry"
         assert flow.draft is None
         assert [r["version"] for r in self._list_revisions(flow_id)] == [3, 2, 1]
+        page = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions?limit=1&offset=1").json()
+        assert page["count"] == 3
+        assert [r["version"] for r in page["results"]] == [2]
 
     def _stage_draft_delete_action_1(self, flow_id: str) -> None:
         response = self.client.patch(

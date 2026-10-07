@@ -27,7 +27,7 @@ import {
     ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ActivityScope } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
@@ -112,6 +112,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/autoresearch': ['Autoresearch', 'autoresearch'],
     '/autoresearch/new': ['AutoresearchNew', 'autoresearchNew'],
     '/autoresearch/:id': ['AutoresearchPipeline', 'autoresearchPipeline'],
+    '/bi': ['BusinessIntelligence', 'businessIntelligence'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
     '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
@@ -667,6 +668,14 @@ export const productConfiguration: Record<string, any> = {
     },
     AutoresearchNew: { name: 'New model', projectBased: true },
     AutoresearchPipeline: { name: 'Autoresearch model', projectBased: true },
+    BusinessIntelligence: {
+        name: 'Business intelligence',
+        projectBased: true,
+        layout: 'app-raw-no-header',
+        hideProjectNotice: true,
+        description: 'Explore data and build charts with a visual worksheet.',
+        iconType: 'business_intelligence',
+    },
     BusinessKnowledge: {
         name: 'Business knowledge',
         projectBased: true,
@@ -1310,6 +1319,30 @@ export const productUrls = {
     autoresearch: (): string => '/autoresearch',
     autoresearchNew: (): string => '/autoresearch/new',
     autoresearchPipeline: (id: string): string => `/autoresearch/${id}`,
+    businessIntelligence: ({
+        insightShortId,
+        viewId,
+        dashboard,
+        filters,
+    }: {
+        insightShortId?: string
+        viewId?: string
+        dashboard?: number
+        filters?: HogQLFilters
+    } = {}): string => {
+        const search = new URLSearchParams()
+        if (insightShortId) {
+            search.set('open_insight', insightShortId)
+        } else if (viewId) {
+            search.set('open_view', viewId)
+        }
+        if (dashboard) {
+            search.set('dashboard', String(dashboard))
+        }
+        const hash = filters ? `#filters=${encodeURIComponent(JSON.stringify(filters))}` : ''
+        const query = search.toString()
+        return `/bi${query ? `?${query}` : ''}${hash}`
+    },
     businessKnowledge: (): string => '/business-knowledge',
     businessKnowledgeSettings: (): string => '/business-knowledge/settings',
     businessKnowledgePlayground: (chatId?: string): string =>
@@ -1533,11 +1566,13 @@ export const productUrls = {
         sourceId,
         template,
         intent,
+        format,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
         template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
         intent?: 'local-eval' | 'first-page-load'
+        format?: 'rules_v2'
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -1551,6 +1586,9 @@ export const productUrls = {
         }
         if (intent) {
             params.set('intent', intent)
+        }
+        if (format) {
+            params.set('format', format)
         }
         return `/feature_flags/new?${params.toString()}`
     },
@@ -1619,6 +1657,11 @@ export const productUrls = {
         query?: Node
         sceneSource?: InsightSceneSource
     } = {}): string => {
+        if (isBIVisualizationNode(query)) {
+            return combineUrl(urls.businessIntelligence(), dashboardId ? { dashboard: dashboardId } : {}, {
+                q: JSON.stringify(query),
+            }).url
+        }
         if (isHogQLQuery(query)) {
             return urls.sqlEditor({ query: query.query })
         }
@@ -2106,6 +2149,7 @@ export type ProductTreePath =
     | 'Apps'
     | 'Autoresearch'
     | 'Broadcasts'
+    | 'Business intelligence'
     | 'Business knowledge'
     | 'Clusters'
     | 'Code review'
@@ -2201,6 +2245,20 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-broadcasts-light)', 'var(--color-product-broadcasts-dark)'],
         sceneKey: 'Broadcasts',
         sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcasts', 'Broadcast'],
+    },
+    {
+        path: 'Business intelligence',
+        intents: [],
+        category: ProductItemCategory.DATA,
+        iconType: 'business_intelligence',
+        iconColor: [
+            'var(--color-product-business-intelligence-light)',
+            'var(--color-product-business-intelligence-dark)',
+        ],
+        href: urls.businessIntelligence(),
+        flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
+        sceneKey: 'BusinessIntelligence',
+        sceneKeys: ['BusinessIntelligence'],
     },
     {
         path: 'Business knowledge',

@@ -22,7 +22,6 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import posthog from 'posthog-js'
-import { createElement } from 'react'
 import { toast } from 'react-toastify'
 
 import api, { PaginatedResponse } from 'lib/api'
@@ -31,11 +30,12 @@ import { handleApprovalRequired } from 'lib/approvals/utils'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { describeCron } from 'lib/cron'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { stringifyWithBigInts } from 'lib/utils/json'
@@ -93,6 +93,7 @@ import {
     FeatureFlagConfigFormat,
     featureFlagConfigFormat,
     featureFlagDeleteOptions,
+    isRulesV2EditableConfig,
     isV1FeatureFlagConfig,
     reloadIfStaleRowVersion,
     rowVersionToken,
@@ -111,6 +112,7 @@ import type {
 } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import type { CopyFlagsResponseApi } from '../../../../products/feature_flags/frontend/generated/api.schemas'
+import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
 import type { Node } from '../../queries/schema/schema-general'
@@ -137,6 +139,7 @@ import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtil
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
+import { confirmFeatureFlagKeyChange } from './featureFlagKeyChangeDialog'
 import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
 import {
     ProjectSelectOption,
@@ -561,6 +564,9 @@ function validatePayloadRequired(is_remote_configuration: boolean, payload?: Jso
     return undefined
 }
 
+/** The editor the flag scene mounts, if any; a document never reaches the editor of another config format. */
+export type FeatureFlagEditorKind = 'v1' | 'rules_v2' | null
+
 export interface FeatureFlagLogicProps {
     id: number | 'new' | 'link'
 }
@@ -917,6 +923,7 @@ function cleanFilterGroups(groups?: FeatureFlagGroupType[]): FeatureFlagGroupTyp
 export interface featureFlagLogicValues {
     defaultEvaluationContexts: DefaultEvaluationContextsResponse | null // defaultEvaluationContextsLogic
     defaultReleaseConditions: DefaultReleaseConditionsResponse | null // defaultReleaseConditionsLogic
+    enabledFeatures: FeatureFlagsSet // enabledFeaturesLogic
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     currentOrganization: OrganizationType | null // organizationLogic
     currentOrganizationId: string // organizationLogic
@@ -955,6 +962,7 @@ export interface featureFlagLogicValues {
     dependentFlagsLoading: boolean
     disableCopiedFlag: boolean
     earlyAccessFeaturesList: MinimalEarlyAccessFeatureType[]
+    editorKind: FeatureFlagEditorKind
     emailDomain: string
     endDate: Dayjs | null
     expandAdvancedOnEdit: boolean
@@ -1111,6 +1119,7 @@ export interface featureFlagLogicValues {
     rowVersionToken: {
         version?: number
     }
+    rulesV2DraftDirty: boolean
     scheduleDateMarker: any
     scheduleDefaultsAppliedFromFlag: boolean
     scheduleFormCollapsible: boolean
@@ -1790,6 +1799,9 @@ export interface featureFlagLogicActions {
     setRepeatsValue: (value: RecurrenceInterval | 'cron' | 'none') => {
         value: RecurrenceInterval | 'cron' | 'none'
     }
+    setRulesV2DraftDirty: (dirty: boolean) => {
+        dirty: boolean
+    }
     setScheduleDateMarker: (dateMarker: any) => {
         dateMarker: any
     }
@@ -2133,6 +2145,13 @@ export interface featureFlagLogicMeta {
         props: (arg: any) => any
         availableTabs: (featureFlag: FeatureFlagType, props: any) => FeatureFlagsTab[]
         configFormat: (featureFlag: FeatureFlagType) => FeatureFlagConfigFormat
+        editorKind: (
+            props: any,
+            isEditingFlag: boolean,
+            featureFlag: FeatureFlagType,
+            enabledFeatures: FeatureFlagsSet,
+            searchParams: Record<string, any>
+        ) => FeatureFlagEditorKind
         rowVersionToken: (featureFlag: FeatureFlagType) => {
             version?: number
         }
@@ -2254,6 +2273,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['hasAvailableFeature', 'user'],
             organizationLogic,
             ['currentOrganization', 'currentOrganizationId'],
+            enabledFeaturesLogic,
+            ['featureFlags as enabledFeatures'],
             defaultEvaluationContextsLogic,
             ['defaultEvaluationContexts'],
             defaultReleaseConditionsLogic,
@@ -2283,6 +2304,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setFeatureFlagMissing: true,
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setRemoteConfigEnabled: (enabled: boolean) => ({ enabled }),
+        // The rules v2 editor keeps its draft in its own logic; this mirrors whether it has unsaved edits.
+        setRulesV2DraftDirty: (dirty: boolean) => ({ dirty }),
         resetEncryptedPayload: () => ({}),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
@@ -2409,6 +2432,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
     reducers({
+        rulesV2DraftDirty: [false, { setRulesV2DraftDirty: (_, { dirty }) => dirty }],
         // Read by the refresh loader, which samples it around its request to tell whether newer
         // state landed while the request was open.
         flagMutationCount: [
@@ -4684,31 +4708,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             const keyChanged = originalFlag && featureFlag.id && originalFlag.key !== featureFlag.key
 
             if (keyChanged) {
-                const confirmed = await new Promise<boolean>((resolve) => {
-                    LemonDialog.open({
-                        title: 'Change flag key?',
-                        description: createElement(
-                            'span',
-                            null,
-                            'Renaming this key will break any existing code that references it (e.g. ',
-                            createElement(
-                                'code',
-                                { className: 'text-xs bg-fill-secondary rounded px-1 py-0.5' },
-                                `getFeatureFlag('${originalFlag.key}')`
-                            ),
-                            '). Make sure to update all SDK calls and integrations.'
-                        ),
-                        primaryButton: {
-                            children: 'Change key',
-                            status: 'danger',
-                            onClick: () => resolve(true),
-                        },
-                        secondaryButton: {
-                            children: 'Cancel',
-                        },
-                        onAfterClose: () => resolve(false),
-                    })
-                })
+                const confirmed = await confirmFeatureFlagKeyChange(originalFlag.key)
                 if (!confirmed) {
                     return
                 }
@@ -4782,6 +4782,28 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         configFormat: [
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType): FeatureFlagConfigFormat => featureFlagConfigFormat(featureFlag.filters),
+        ],
+        editorKind: [
+            (s) => [s.props, s.isEditingFlag, s.featureFlag, s.enabledFeatures, router.selectors.searchParams],
+            (
+                props: FeatureFlagLogicProps,
+                isEditingFlag: boolean,
+                featureFlag: FeatureFlagType,
+                enabledFeatures: FeatureFlagsSet,
+                searchParams: Record<string, any>
+            ): FeatureFlagEditorKind => {
+                const rulesV2 = !!enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR]
+                if (props.id === 'new') {
+                    return rulesV2 && searchParams.format === 'rules_v2' ? 'rules_v2' : 'v1'
+                }
+                if (!isEditingFlag) {
+                    return null
+                }
+                if (isV1FeatureFlagConfig(featureFlag.filters)) {
+                    return 'v1'
+                }
+                return isRulesV2EditableConfig(featureFlag.filters, enabledFeatures) ? 'rules_v2' : null
+            },
         ],
         rowVersionToken: [
             (s) => [s.featureFlag],
@@ -5302,7 +5324,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // because its listener calls `loadFeatureFlag()` whenever `editing === true` —
             // which would wipe the form on any re-push carrying `?edit=true`.
             // The `initial` mount must still run so first-load setup happens.
-            if (method === 'PUSH' && values.isFormDirty) {
+            if (method === 'PUSH' && (values.isFormDirty || values.rulesV2DraftDirty)) {
                 return
             }
 

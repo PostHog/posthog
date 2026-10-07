@@ -299,6 +299,11 @@
         "params": [],
         "scope": "project"
     },
+    "businessIntelligence": {
+        "template": "/bi",
+        "params": [],
+        "scope": "project"
+    },
     "businessKnowledge": {
         "template": "/business-knowledge",
         "params": [],

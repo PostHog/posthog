@@ -484,6 +484,9 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
 
     keyword = "Bearer"
     activity_credential_type = "project_secret_key"
+    # True on routes where a backfilled PSAK (#63111) mirroring the team's legacy token
+    # must fall through to the route's legacy branch; transitional until #66179.
+    defer_migrated_team_tokens = False
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         token = _extract_phs_token(request)
@@ -492,6 +495,12 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
 
         psak = find_project_secret_api_key(token)
         if psak is None:
+            return None
+
+        if self.defer_migrated_team_tokens and token in (
+            psak.team.secret_api_token,
+            psak.team.secret_api_token_backup,
+        ):
             return None
 
         now = timezone.now()

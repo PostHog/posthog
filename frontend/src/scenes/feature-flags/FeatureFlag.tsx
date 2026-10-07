@@ -84,6 +84,7 @@ import {
     canArchiveFeatureFlag,
     canRestoreFeatureFlag,
     featureFlagConfigFormatLabel,
+    isRulesV2EditableConfig,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
@@ -97,10 +98,12 @@ import { FeedbackTab } from './FeatureFlagFeedbackTab'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagOverview } from './FeatureFlagOverview'
 import FeatureFlagProjects from './FeatureFlagProjects'
+import { FeatureFlagRulesV2Editor } from './FeatureFlagRulesV2Editor'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
 import { FeatureFlagUsageMetrics } from './FeatureFlagUsageMetrics'
+import { FLAG_EVALUATIONS_RETENTION_DAYS, readsFlagEvaluationsTable } from './featureFlagUsageQueries'
 import { useFeatureFlagAgentRefresh } from './useFeatureFlagAgentRefresh'
 
 const RESOURCE_TYPE = 'feature_flag'
@@ -137,7 +140,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         featureFlag,
         featureFlagLoading,
         featureFlagMissing,
-        isEditingFlag,
         activeTab,
         availableTabs,
         accessDeniedToFeatureFlag,
@@ -146,6 +148,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         featureFlagRestoreLoading,
         dependentFlags,
         configFormat,
+        editorKind,
     } = useValues(featureFlagLogic)
     const isV1Config = configFormat === 'v1'
     const canRestore = canRestoreFeatureFlag(featureFlag.filters)
@@ -218,7 +221,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     // immediately when the scene first renders already in form mode (deep-link/new flag), but when the
     // user clicks Edit on the readonly view, defer one frame so the click flips state and the loading
     // skeleton paints before that render — otherwise the click blocks the thread and reads as dead.
-    const shouldShowForm = isNewFeatureFlag || (isEditingFlag && isV1Config)
+    const shouldShowForm = editorKind === 'v1'
     const [isFormMounted, setIsFormMounted] = useState(shouldShowForm)
     useEffect(() => {
         if (!shouldShowForm) {
@@ -245,12 +248,36 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         ),
     })
 
+    const editButton = (
+        <AccessControlAction
+            resourceType={AccessControlResourceType.FeatureFlag}
+            minAccessLevel={AccessControlLevel.Editor}
+            userAccessLevel={featureFlag.user_access_level}
+        >
+            {({ disabledReason }) => (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    disabledReason={disabledReason}
+                    onClick={() => editFeatureFlag(true)}
+                    data-attr={isV1Config ? undefined : 'edit-rules-v2-flag'}
+                >
+                    Edit
+                </LemonButton>
+            )}
+        </AccessControlAction>
+    )
+
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
     }
 
     if (featureFlagLoading) {
         return <FeatureFlagFormSkeleton />
+    }
+
+    if (editorKind === 'rules_v2') {
+        return <FeatureFlagRulesV2Editor id={props.id} />
     }
 
     // Use the form UI for creating new flags or editing existing flags.
@@ -658,26 +685,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         }}
                         actions={
                             isV1Config ? (
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.FeatureFlag}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={featureFlag.user_access_level}
-                                >
-                                    {({ disabledReason }) => (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            disabledReason={disabledReason}
-                                            onClick={() => editFeatureFlag(true)}
-                                        >
-                                            Edit
-                                        </LemonButton>
-                                    )}
-                                </AccessControlAction>
+                                editButton
                             ) : (
-                                <LemonTag type="highlight" data-attr="feature-flag-config-format">
-                                    {featureFlagConfigFormatLabel(featureFlag.filters)}
-                                </LemonTag>
+                                <div className="flex items-center gap-2">
+                                    <LemonTag type="highlight" data-attr="feature-flag-config-format">
+                                        {featureFlagConfigFormatLabel(featureFlag.filters)}
+                                    </LemonTag>
+                                    {isRulesV2EditableConfig(featureFlag.filters, featureFlags) && editButton}
+                                </div>
                             )
                         }
                     />
@@ -763,6 +778,7 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
     } = featureFlag
     const { enrichAnalyticsNoticeAcknowledged } = useValues(featureFlagsLogic)
     const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const propertyFilter: AnyPropertyFilter[] = [
         {
@@ -803,6 +819,11 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
             <div className="mt-4 mb-4">
                 <b>Log</b>
                 <div className="text-secondary">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
+                {readsFlagEvaluationsTable(currentTeam) && (
+                    <div className="text-secondary">
+                        The log can show calls from up to {FLAG_EVALUATIONS_RETENTION_DAYS} days ago.
+                    </div>
+                )}
             </div>
             <Query
                 query={{

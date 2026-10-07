@@ -1,7 +1,9 @@
 import { isApprovalRequiredError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
-import { FeatureFlagConfig, FeatureFlagFilters, FeatureFlagRulesV2Config } from '~/types'
+import { FeatureFlagConfig, FeatureFlagFilters, FeatureFlagRulesV2Config, TeamPublicType, TeamType } from '~/types'
 
 export type FeatureFlagConfigFormat = 'v1' | 'v2' | 'unsupported'
 
@@ -93,4 +95,25 @@ export function featureFlagConfigFormatLabel(filters: FeatureFlagConfig | null |
         default:
             return typeof version === 'number' ? `Config v${version} (unsupported)` : 'Unsupported config'
     }
+}
+
+/** The rules v2 create contract rejects `evaluation_contexts`, so a project that requires them rejects every rules v2 create. */
+export function rulesV2CreateDisabledReason(
+    team: TeamPublicType | TeamType | null,
+    enabledFeatures: FeatureFlagsSet
+): string | null {
+    return enabledFeatures[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && team?.require_evaluation_contexts
+        ? "This project requires evaluation contexts on new flags, and rules v2 flags can't set them yet."
+        : null
+}
+
+/** Whether the rules v2 editor is on and can edit this document: boolean return type, person assignment, no experiment rules. */
+export function isRulesV2EditableConfig(filters: FeatureFlagConfig, enabledFeatures: FeatureFlagsSet): boolean {
+    return (
+        !!enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR] &&
+        isRulesV2FeatureFlagConfig(filters) &&
+        filters.return_type === 'boolean' &&
+        filters.aggregation_group_type_index == null &&
+        filters.rules.every((rule) => rule.rule_type !== 'experiment' && typeof rule.value === 'boolean')
+    )
 }

@@ -126,6 +126,7 @@ the row lists both.
 | aws_step_functions               | HTTP                        | requests                                                        | ✅                          |
 | aws_systems_manager              | HTTP                        | requests                                                        | ✅                          |
 | aws_waf                          | HTTP                        | requests                                                        | ✅                          |
+| axiom                            | HTTP                        | requests                                                        | ✅                          |
 | azure_application_insights       | HTTP                        | requests                                                        | ✅                          |
 | azure_cost_management            | HTTP                        | requests                                                        | ✅                          |
 | azure_devops                     | HTTP                        | requests                                                        | ✅                          |
@@ -193,9 +194,12 @@ the row lists both.
 | chargify                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | charthop                         | HTTP                        | requests                                                        | ✅                          |
 | chatwoot                         | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
+| checkly                          | HTTP                        | requests                                                        | ✅                          |
 | checkmarx                        | HTTP                        | requests                                                        | ✅                          |
 | checkout_com                     | HTTP                        | requests                                                        | ✅                          |
 | churnkey                         | HTTP                        | requests                                                        | ✅                          |
+| cisco_meraki                     | HTTP                        | requests                                                        | ✅                          |
+| clarifai                         | HTTP                        | requests                                                        | ✅                          |
 | clever                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cliniko                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clip                             | HTTP                        | requests                                                        | ✅                          |
@@ -880,6 +884,7 @@ the row lists both.
 | wufoo                            | HTTP                        | requests                                                        | ✅                          |
 | xendit                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | xmatters                         | HTTP                        | requests                                                        | ✅                          |
+| xsolla                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ynab                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | yoco                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | yousign                          | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
@@ -990,7 +995,6 @@ doesn't conflict with concurrent PRs.
 - aws_support
 - aws_trusted_advisor
 - aws_xray
-- axiom
 - azure_activity_log
 - azure_advisor
 - azure_api_management
@@ -1032,12 +1036,13 @@ doesn't conflict with concurrent PRs.
 - cart_com
 - cashfree
 - castor_edc
+- chargebackstop
+- chargeflow
 - checkly
 - chift
 - chorus
 - cin7
 - circle_so
-- cisco_meraki
 - clarifai
 - classy
 - clazar
@@ -1085,6 +1090,7 @@ doesn't conflict with concurrent PRs.
 - dragonboat
 - drata
 - drchrono
+- dreamdata
 - dremio
 - dropbox
 - dubsado
@@ -1166,6 +1172,7 @@ doesn't conflict with concurrent PRs.
 - google_ad_manager
 - google_adsense
 - google_analytics
+- google_business_profile
 - google_calendar
 - google_chat
 - google_classroom
@@ -1225,6 +1232,7 @@ doesn't conflict with concurrent PRs.
 - lambda_labs
 - lawmatics
 - learnworlds
+- ledyer
 - lemon_squeezy
 - lettrlabs
 - lever
@@ -1269,6 +1277,7 @@ doesn't conflict with concurrent PRs.
 - mirakl
 - miro
 - missive
+- modal
 - mode
 - moesif
 - monaco
@@ -1425,6 +1434,7 @@ doesn't conflict with concurrent PRs.
 - sprinklr
 - sprinto
 - sprout_social
+- sqlite
 - starburst
 - statsig
 - stockx
@@ -1433,6 +1443,7 @@ doesn't conflict with concurrent PRs.
 - streamlabs
 - substack
 - sumsub
+- supermetrics
 - superwall
 - surveymonkey
 - svix
@@ -1446,6 +1457,7 @@ doesn't conflict with concurrent PRs.
 - tenjin
 - terabox
 - ternary
+- tessitura
 - terra_api
 - thinkific_courses
 - thoughtspot
@@ -1494,6 +1506,7 @@ doesn't conflict with concurrent PRs.
 - wikipedia_pageviews
 - windsor_ai
 - wisprflow
+- wistia
 - wiz
 - wompi
 - workato
@@ -1502,7 +1515,6 @@ doesn't conflict with concurrent PRs.
 - wps_office
 - wufoo
 - xero
-- xsolla
 - yahoo_finance
 - yandex_metrica
 - yotpo

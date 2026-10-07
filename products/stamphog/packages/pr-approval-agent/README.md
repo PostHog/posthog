@@ -335,6 +335,16 @@ So a Cargo.lock bump hard-denies on its own but doesn't silence the scripts guar
 
 A deny category may carry `exempt_path_prefixes`, for code that legitimately looks like a sensitive domain without touching one.
 
+A deny category may also carry `exempt_author_teams`, a list of bare GitHub team slugs.
+It makes the category owner-only: the category does not deny a PR whose author is on one of the teams, and denies everyone else's, so stamphog approves those paths only for the team that owns them.
+The deny-list gate message names the teams, so a refused author knows who has to review.
+Membership comes from GitHub, never from the PR.
+The hosted server looks up every team the author is on, and a local run asks GitHub per team.
+A failed lookup counts as no team, so the category denies.
+Bot authors are never on a team.
+The `stamphog_policy` category cannot carry the key, because a team that may approve policy edits could widen its own exemption.
+Unlike CODEOWNERS, the category only stops stamphog: any human approval still counts on GitHub.
+
 The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe).
 The check is the same signal humans see in the PR's Checks tab.
 See `migration_risk.py` for how the engine reads it.
