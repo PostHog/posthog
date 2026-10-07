@@ -9,6 +9,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.db.models.functions import Now
 from django.utils import timezone
 
 import structlog
@@ -1083,4 +1084,88 @@ class ErrorTrackingAlertThread(TeamScopedRootMixin, UUIDTModel):
             models.UniqueConstraint(
                 fields=["alert", "issue", "destination"], name="unique_error_tracking_alert_thread"
             ),
+        ]
+
+
+class ErrorTrackingIssueChange(TeamScopedRootMixin, UUIDModel):
+    """One change to an issue, written in the same transaction as the change itself.
+
+    Rows are an outbox: a dispatcher claims rows where `dispatched_at` is null and
+    fans them out to alerts and automations, so a change that commits is never lost.
+    The row id is also the notification id, so delivery retries stay idempotent per change.
+
+    `snapshot` holds the watched issue fields after the change, so consumers never read
+    the issue row, which can change again or be merged away before dispatch. `data`
+    holds only what the snapshot cannot: its shape depends on `kind` and is defined by
+    the payload types in logic/issue_changes.py.
+    """
+
+    class Kind(models.TextChoices):
+        CREATED = "created", "Created"
+        STATUS_CHANGED = "status_changed", "Status changed"
+        ASSIGNEE_CHANGED = "assignee_changed", "Assignee changed"
+        SEVERITY_CHANGED = "severity_changed", "Severity changed"
+        NAME_CHANGED = "name_changed", "Name changed"
+        MERGED = "merged", "Merged"
+        SPLIT = "split", "Split"
+        # An observation, not a change: nothing on the issue changes. It is here because
+        # spike alerts open notification threads like the changes above.
+        SPIKING = "spiking", "Spiking"
+
+    class ActorType(models.TextChoices):
+        INGESTION = "ingestion", "Ingestion"
+        USER = "user", "User"
+        AUTOMATION = "automation", "Automation"
+
+    # db_constraint=False keeps inserts lock-free on posthog_team (a hot table);
+    # team scoping is enforced at the ORM layer via TeamScopedRootMixin.
+    # idx_et_issue_change_issue leads with team, so the default foreign key index is redundant.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False, db_index=False
+    )
+    # Not a foreign key: the history of a merged issue must outlive the issue row.
+    issue_id = models.UUIDField()
+    kind = models.TextField(choices=Kind)
+    data = models.JSONField(default=dict, db_default={})
+    snapshot = models.JSONField(default=dict, db_default={})
+    # One id per user action, ingestion transaction or automation run. Rows of one
+    # operation are delivered together, e.g. a resolve and an assign in one request.
+    operation_id = models.UUIDField()
+    bulk = models.BooleanField(default=False, db_default=False)
+    actor_type = models.TextField(choices=ActorType)
+    # Plain ids, not foreign keys: the history must outlive deleted users and automations.
+    actor_user_id = models.IntegerField(null=True, blank=True)
+    actor_automation_id = models.UUIDField(null=True, blank=True)
+    # The change that caused this one, when an automation reacts to an earlier change.
+    causation_id = models.UUIDField(null=True, blank=True)
+    # Length of the automation chain that led here. Dispatch stops chains past a limit.
+    depth = models.PositiveSmallIntegerField(default=0, db_default=0)
+    # Reference to the exception that caused an ingestion change. The event itself stays in ClickHouse.
+    event_uuid = models.UUIDField(null=True, blank=True)
+    event_timestamp = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
+    dispatched_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingissuechange"
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(actor_type="ingestion", actor_user_id__isnull=True, actor_automation_id__isnull=True)
+                    | models.Q(actor_type="user", actor_user_id__isnull=False, actor_automation_id__isnull=True)
+                    | models.Q(actor_type="automation", actor_user_id__isnull=True, actor_automation_id__isnull=False)
+                ),
+                name="et_issue_change_actor_matches_type",
+            ),
+        ]
+        indexes = [
+            # Outbox claim. Stays small because rows are dispatched within seconds.
+            models.Index(
+                fields=["created_at"],
+                name="idx_et_issue_change_pending",
+                condition=models.Q(dispatched_at__isnull=True),
+            ),
+            models.Index(fields=["team", "issue_id", "created_at"], name="idx_et_issue_change_issue"),
+            # Retention cleanup.
+            models.Index(fields=["created_at"], name="idx_et_issue_change_created"),
         ]
