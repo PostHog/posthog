@@ -4045,7 +4045,7 @@ Note: learn.hex.tech renders the reference client-side from Docusaurus; the oper
 
 ## HiBob — **thin**
 
-Today (10): `applications`, `candidates`, `employee_employment`, `employee_lifecycle`, `employee_salaries`, `employees`, `named_lists`, `tasks`, `time_off_calendars`, `time_off_request_changes`
+Today (20): `applications`, `candidates`, `employee_deductions`, `employee_dependents`, `employee_employment`, `employee_entitlements`, `employee_equities`, `employee_lifecycle`, `employee_right_to_work`, `employee_salaries`, `employee_variable_pay`, `employees`, `employers`, `named_lists`, `skill_proficiency_levels`, `skills`, `tasks`, `time_off_calendars`, `time_off_request_changes`, `work_locations`
 
 Diffed against: <https://apidocs.hibob.com/reference/get_tasks>
 
@@ -4062,6 +4062,9 @@ Diffed against: <https://apidocs.hibob.com/reference/get_tasks>
 - [ ] `GET /payroll/history` — payroll runs over time, plus POST /people/actual-payments/search (medium)
 - [ ] `POST /goals/goals/search` — goals and key results with progress, including /goals/goals/key-results/search (medium)
 - [ ] `GET /timeoff/policies and /timeoff/policy-types` — lookup tables resolving the policy ids on time off requests (medium)
+- [x] `GET /bulk/people/deduction`, `/entitlement`, `/variable`, `/dependents`, `/right-to-work` and `/equities` — bulk reads of the payroll and other employee tables, announced in the vendor changelog (medium). Added as `employee_deductions`, `employee_entitlements`, `employee_variable_pay`, `employee_dependents`, `employee_right_to_work` and `employee_equities`, full refresh like the other bulk history tables.
+- [x] `POST /employers/search` and `POST /employers/{employerId}/work-locations/search` — employer legal entities and their work locations from the Employer API (medium). Added as `employers` and `work_locations`; work locations fan out over employer ids, full refresh.
+- [x] `POST /skills/search` and `GET /skills/proficiency-levels` — the Skills API catalog and its proficiency levels lookup (low). Added as `skills` and `skill_proficiency_levels`, full refresh. The search only returns skills created through the Public API.
 
 Note: PostHog exposes only employees (POST /v1/people/search) and tasks (GET /v1/tasks) from a very large HR API — the reference nav on apidocs.hibob.com lists roughly 190 operations across people, time off, attendance, hiring, goals, job catalog, payroll, documents and workforce planning. Endpoints are static in hibob/settings.py with no dynamic table discovery. Note most read endpoints are POST /...\/search rather than GET, which the implementation will need to handle.
 
