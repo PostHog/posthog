@@ -3,14 +3,67 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import { autoresearchNewLogic } from './autoresearchNewLogic'
-import { autoresearchValidateCreate } from './generated/api'
+import {
+    autoresearchResolveTemplateCreate,
+    autoresearchTemplatesList,
+    autoresearchValidateCreate,
+} from './generated/api'
 
 jest.mock('./generated/api', () => ({
     autoresearchCreate: jest.fn(),
     autoresearchValidateCreate: jest.fn(),
+    autoresearchTemplatesList: jest.fn(),
+    autoresearchResolveTemplateCreate: jest.fn(),
 }))
 
 const mockValidate = autoresearchValidateCreate as jest.Mock
+const mockTemplates = autoresearchTemplatesList as jest.Mock
+const mockResolve = autoresearchResolveTemplateCreate as jest.Mock
+
+const TEMPLATES = [
+    {
+        key: 'likely_active_soon',
+        display_name: 'Likely active soon',
+        description: '',
+        default_horizon_days: 7,
+        requires_user_event: false,
+        requires_activity_resolution: true,
+        notes: '',
+    },
+    {
+        key: 'feature_adoption',
+        display_name: 'Likely to adopt a feature',
+        description: '',
+        default_horizon_days: 14,
+        requires_user_event: true,
+        requires_activity_resolution: false,
+        notes: '',
+    },
+]
+
+function resolved(overrides: Record<string, unknown>): Record<string, unknown> {
+    return {
+        template_key: 'likely_active_soon',
+        display_name: 'Likely active soon',
+        description: '',
+        suggested_name: 'Likely active soon',
+        target_event: '$pageview',
+        resolved_activity_event: '$pageview',
+        activity_event_alternatives: [],
+        horizon_days: 7,
+        training_lookback_days: 180,
+        training_population: { kind: 'performed_event_within_days', days: 30, event: '$pageview' },
+        inference_population: { kind: 'performed_event_within_days', days: 30, event: '$pageview' },
+        output_person_property: 'predicted_p_active_soon_pageview_7d',
+        notes: '',
+        ...overrides,
+    }
+}
+
+async function settle(logic: ReturnType<typeof autoresearchNewLogic.build>): Promise<void> {
+    await jest.advanceTimersByTimeAsync(1000)
+    await expectLogic(logic).toFinishAllListeners()
+}
 
 describe('autoresearchNewLogic', () => {
     beforeEach(() => {
@@ -18,6 +71,7 @@ describe('autoresearchNewLogic', () => {
         jest.useFakeTimers()
         initKeaTests()
         mockValidate.mockResolvedValue({ can_proceed: true, warnings: [] })
+        mockTemplates.mockResolvedValue(TEMPLATES)
     })
 
     afterEach(() => {
@@ -36,10 +90,75 @@ describe('autoresearchNewLogic', () => {
         logic.mount()
 
         logic.actions.setNewPipelineValues({ target_event: '$pageview', ...days })
-        await jest.advanceTimersByTimeAsync(1000)
-        await expectLogic(logic).toFinishAllListeners()
+        await settle(logic)
 
         expect(mockValidate).toHaveBeenCalledTimes(expectedCalls)
         expect(logic.values.validationFailed).toBe(false)
+    })
+
+    it('fills the form from an activity template and validates with its population', async () => {
+        mockResolve.mockResolvedValue(resolved({}))
+        const logic = autoresearchNewLogic()
+        logic.mount()
+        await settle(logic)
+
+        logic.actions.selectTemplate('likely_active_soon')
+        await settle(logic)
+
+        expect(mockResolve).toHaveBeenCalledTimes(1)
+        expect(mockResolve.mock.calls[0][1]).toEqual({ template_key: 'likely_active_soon' })
+        expect(logic.values.newPipeline).toMatchObject({
+            name: 'Likely active soon',
+            target_event: '$pageview',
+            horizon_days: 7,
+            output_person_property: 'predicted_p_active_soon_pageview_7d',
+        })
+        const population = { kind: 'performed_event_within_days', days: 30, event: '$pageview' }
+        expect(mockValidate).toHaveBeenLastCalledWith(
+            expect.anything(),
+            expect.objectContaining({ training_population: population, inference_population: population })
+        )
+    })
+
+    it('asks for a target before it resolves a template that needs one, and keeps an edited name', async () => {
+        mockResolve.mockImplementation((_team, { target_event, horizon_days }) =>
+            Promise.resolve(
+                resolved({
+                    template_key: 'feature_adoption',
+                    suggested_name: `Likely to adopt a feature: ${target_event}`,
+                    target_event,
+                    resolved_activity_event: null,
+                    horizon_days: horizon_days ?? 14,
+                    training_population: { kind: 'active_not_performed_target', active_within_days: 30 },
+                    inference_population: { kind: 'active_not_performed_target', active_within_days: 30 },
+                })
+            )
+        )
+        const logic = autoresearchNewLogic()
+        logic.mount()
+        await settle(logic)
+
+        logic.actions.selectTemplate('feature_adoption')
+        await settle(logic)
+        expect(mockResolve).not.toHaveBeenCalled()
+        expect(logic.values.newPipeline).toMatchObject({ template_key: 'feature_adoption', horizon_days: 14 })
+
+        logic.actions.setNewPipelineValues({ target_event: 'file_shared' })
+        await settle(logic)
+        expect(mockResolve.mock.calls[0][1]).toEqual({
+            template_key: 'feature_adoption',
+            target_event: 'file_shared',
+            horizon_days: 14,
+        })
+        expect(logic.values.newPipeline).toMatchObject({
+            name: 'Likely to adopt a feature: file_shared',
+            inference_population_kind: { kind: 'active_not_performed_target', active_within_days: 30 },
+        })
+
+        logic.actions.setNewPipelineValues({ name: 'Sharing adoption' })
+        logic.actions.setNewPipelineValues({ horizon_days: 30 })
+        await settle(logic)
+        expect(mockResolve).toHaveBeenCalledTimes(2)
+        expect(logic.values.newPipeline).toMatchObject({ name: 'Sharing adoption', horizon_days: 30 })
     })
 })
