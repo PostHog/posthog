@@ -34,7 +34,7 @@ CORE_ENTITY_PAGE_SIZE = 1000
 CONTROL_PLANE_GROUP_CLUSTER_TYPE = "CLUSTER_TYPE_CONTROL_PLANE_GROUP"
 
 
-@dataclass
+@dataclass(frozen=True)
 class KongKonnectEndpointConfig:
     name: str
     path: str
