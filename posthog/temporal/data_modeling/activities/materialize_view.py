@@ -39,7 +39,6 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.clickhouse import (
     ClickHouseError,
     ClickHouseQueryPlanningError,
-    ClickHouseUserQueryError,
     get_client as get_clickhouse_client,
 )
 from posthog.temporal.common.db_errors import is_transient_db_error
@@ -172,10 +171,9 @@ async def _describe_columns(
             ) as ch_response:
                 table_describe_response = await ch_response.content.read()
     except ClickHouseError as error:
-        if error.code != 8:
+        if error.code != 8 or query_settings is None:
             raise
-        error_class = ClickHouseQueryPlanningError if query_settings is not None else ClickHouseUserQueryError
-        raise error_class(str(error), query=error.query, query_id=error.query_id) from error
+        raise ClickHouseQueryPlanningError(str(error), query=error.query, query_id=error.query_id) from error
     columns: list[_DescribedColumn] = []
     for line in table_describe_response.decode("utf-8").splitlines():
         column_name, ch_type = line.strip().split("\t")
@@ -833,29 +831,24 @@ async def hogql_table(
             nonlocal arrow_schema
             arrow_schema = schema
 
-        try:
-            with tags_context(**context.read_tags()):
-                async for batch in client.astream_query_as_arrow(
-                    arrow_printed,
-                    query_parameters=context.values,
-                    on_schema=capture_arrow_schema,
-                    external_tables=list(context.external_tables.values()),
-                ):
-                    batches_size = batches_size + batch.nbytes
-                    batches.append(batch)
+        with tags_context(**context.read_tags()):
+            async for batch in client.astream_query_as_arrow(
+                arrow_printed,
+                query_parameters=context.values,
+                on_schema=capture_arrow_schema,
+                external_tables=list(context.external_tables.values()),
+            ):
+                batches_size = batches_size + batch.nbytes
+                batches.append(batch)
 
-                    if batches_size >= MB_100_IN_BYTES:
-                        await logger.adebug(
-                            f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
-                        )
-                        yield (_combine_batches(batches), ch_typings_pairs)
-                        yielded_results = True
-                        batches_size = 0
-                        batches = []
-        except ClickHouseError as error:
-            if error.code == 8:
-                raise ClickHouseUserQueryError(str(error), query=error.query, query_id=error.query_id) from error
-            raise
+                if batches_size >= MB_100_IN_BYTES:
+                    await logger.adebug(
+                        f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
+                    )
+                    yield (_combine_batches(batches), ch_typings_pairs)
+                    yielded_results = True
+                    batches_size = 0
+                    batches = []
 
         if len(batches) > 0:
             await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")

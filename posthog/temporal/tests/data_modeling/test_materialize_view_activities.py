@@ -23,11 +23,7 @@ from posthog.hogql.resolver import ResolverFactory
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import (
-    ClickHouseError,
-    ClickHouseTooManySimultaneousQueriesError,
-    ClickHouseUserQueryError,
-)
+from posthog.temporal.common.clickhouse import ClickHouseError, ClickHouseTooManySimultaneousQueriesError
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
@@ -2042,7 +2038,7 @@ class TestHogqlTableDescribeSettings:
             assert "globalIn(" in client.describe_calls[1][0]
         assert [settings for _, settings in client.describe_calls] == expected_settings
 
-    async def test_query_column_error_is_a_permanent_user_error(self, ateam: Team) -> None:
+    async def test_arrow_query_preserves_a_generic_column_error(self, ateam: Team) -> None:
         client = _EmptyArrowClient(pa.schema([pa.field("distinct_id", pa.string())]))
         client.describe_body = b"distinct_id\tString\n"
         client.arrow_error = ClickHouseError("Code: 8. DB::Exception: Cannot find column in source stream")
@@ -2054,9 +2050,10 @@ class TestHogqlTableDescribeSettings:
         with unittest.mock.patch(
             "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
         ):
-            with pytest.raises(ClickHouseUserQueryError):
+            with pytest.raises(ClickHouseError) as error:
                 _ = [batch async for batch in hogql_table("SELECT distinct_id FROM events", ateam, LOGGER.bind())]
 
+        assert error.value is client.arrow_error
         assert client.arrow_query_calls == 1
 
 
