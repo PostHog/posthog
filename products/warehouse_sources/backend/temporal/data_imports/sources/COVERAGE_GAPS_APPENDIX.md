@@ -4721,9 +4721,9 @@ Diffed against: <https://documenter.gw.postman.com/api/collections/15284493/TzCT
 - [ ] `vulnerability-management/detections` — per-device CVE detections — the fact table for vulnerability posture reporting (high)
 - [ ] `vulnerability-management/vulnerabilities` — CVE lookup table resolving the vulnerability IDs carried on detections (high)
 - [ ] `v2/threat/threat-details` — malware/threat detections per device with quarantine status (high)
-- [ ] `users` — lookup table resolving the user IDs already carried on every device record (high)
-- [ ] `devices/{device_id}/status` — library-item run status per device — the compliance state behind device_library_items (high)
-- [ ] `library/custom-apps, library/custom-scripts, library/custom-profiles, library/ipa-apps` — catalog lookup resolving the library item IDs we already sync in device_library_items (high)
+- [x] `users` — lookup table resolving the user IDs already carried on every device record (high)
+- [x] `devices/{device_id}/status` — library-item run status per device — the compliance state behind device_library_items (high)
+- [x] `library/custom-apps, library/custom-scripts, library/custom-profiles, library/ipa-apps` — catalog lookup resolving the library item IDs we already sync in device_library_items (high)
 - [ ] `v2/threat/behavioral-detections/events` — behavioral detection event stream, the time-series counterpart to threat details (medium)
 - [ ] `devices/{device_id}/activity` — per-device activity/state-transition history for enrollment and drift analysis (medium)
 - [ ] `audit/events` — tenant-wide audit event log — who changed what, when (medium)
@@ -5930,6 +5930,14 @@ Diffed against: <https://developers.northpass.com/reference/get_v2-courses>
 - [ ] `GET /v2/quiz-attempts/{quiz_attempt_uuid}/answers and /v2/question-banks` — per-question answer detail and the question bank lookup; quizzes are synced but nothing about how learners answered (low)
 
 Note: Enumerated every /reference/get_v2-\* route from the ReadMe-hosted reference page (no public OpenAPI file is served). PostHog covers the 6 core objects plus 2 enrollment fan-outs; the learner-activity and assessment halves of the API are entirely absent.
+
+## Notion — gaps
+
+Today (6): `blocks`, `comments`, `databases`, `pages`, `permission_groups`, `users`
+
+Diffed against: <https://developers.notion.com/openapi-adminApi.json>
+
+- [x] `GET /admin/v1/spaces/{space_id}/groups` — workspace permission groups from the Admin API, admin-managed and SCIM-managed (medium). Added as `permission_groups`. It needs an optional organization bot token with the `permission-group:read` scope, which only eligible Enterprise organizations get. The workspace id comes from the integration token's bot user.
 
 ## NpmRegistry — gaps
 
