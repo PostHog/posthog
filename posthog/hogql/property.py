@@ -655,7 +655,7 @@ _RE2_QUIET = re2.Options()
 _RE2_QUIET.log_errors = False
 
 
-def _validate_regex(value: ValueT) -> None:
+def validate_regex(value: ValueT) -> None:
     """Reject an invalid regular expression with a clear user-facing error rather
     than letting ClickHouse fail the whole query with CANNOT_COMPILE_REGEXP. The
     same RE2 engine ClickHouse uses validates the pattern here."""
@@ -739,7 +739,7 @@ def _expr_to_compare_op(
             values_list = cast(list, [value])
         return _multi_search_not_found_for_values(expr, values_list)
     elif operator == PropertyOperator.REGEX:
-        _validate_regex(value)
+        validate_regex(value)
         return ast.Call(
             name="ifNull",
             args=[
@@ -748,7 +748,7 @@ def _expr_to_compare_op(
             ],
         )
     elif operator == PropertyOperator.NOT_REGEX:
-        _validate_regex(value)
+        validate_regex(value)
         return ast.Call(
             name="ifNull",
             args=[
@@ -1688,7 +1688,7 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
                 exprs.append(tag_name_to_expr(step.tag_name))
             if step.href is not None:
                 if step.href_matching == "regex":
-                    _validate_regex(step.href)
+                    validate_regex(step.href)
                     exprs.append(
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.Regex,
@@ -1715,7 +1715,7 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
             if step.text is not None:
                 value = step.text
                 if step.text_matching == "regex":
-                    _validate_regex(value)
+                    validate_regex(value)
                     exprs.append(
                         parse_expr(
                             "arrayExists(x -> x =~ {value}, elements_chain_texts)",
@@ -1751,7 +1751,7 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
                     right=ast.Constant(value=step.url),
                 )
             elif step.url_matching == "regex":
-                _validate_regex(step.url)
+                validate_regex(step.url)
                 expr = ast.CompareOperation(
                     op=ast.CompareOperationOp.Regex,
                     left=ast.Field(

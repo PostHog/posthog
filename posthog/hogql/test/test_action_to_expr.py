@@ -4,10 +4,13 @@ import pytest
 from posthog.test.base import BaseTest, _create_event
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, steps_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clear_locations
+
+from posthog.models import Team
 
 from products.actions.backend.models.action import Action, ActionStepJSON
 
@@ -180,29 +183,18 @@ class TestActionToExpr(BaseTest):
 
 
 class TestStepsToExprRegexValidation:
-    """#96347: a stored action step with an RE2-invalid regex fails with a clear
-    QueryError instead of a ClickHouse CANNOT_COMPILE_REGEXP 500."""
-
     @pytest.mark.parametrize(
         "step",
         [
-            ActionStepJSON(event="$pageview", url="/shardlibrary/\\d+\\", url_matching="regex"),
-            ActionStepJSON(event="$autocapture", href="/shardlibrary/\\d+\\", href_matching="regex"),
-            ActionStepJSON(event="$autocapture", text="/shardlibrary/\\d+\\", text_matching="regex"),
+            ActionStepJSON(event="$pageview", url="/token-abc123/\\d+\\", url_matching="regex"),
+            ActionStepJSON(event="$autocapture", href="/token-abc123/\\d+\\", href_matching="regex"),
+            ActionStepJSON(event="$autocapture", text="/token-abc123/\\d+\\", text_matching="regex"),
         ],
         ids=["url", "href", "text"],
     )
-    def test_invalid_step_regex_raises_query_error(self, step):
-        from posthog.hogql.errors import QueryError
-
+    def test_invalid_step_regex_raises_query_error_without_logging_it(
+        self, step: ActionStepJSON, capfd: pytest.CaptureFixture[str]
+    ) -> None:
         with pytest.raises(QueryError, match="Invalid regular expression"):
-            steps_to_expr([step], team=None)  # type: ignore[arg-type]
-
-    def test_invalid_step_regex_is_not_logged(self, capfd):
-        from posthog.hogql.errors import QueryError
-
-        step = ActionStepJSON(event="$pageview", url="/token-abc123/\\d+\\", url_matching="regex")
-        with pytest.raises(QueryError):
-            steps_to_expr([step], team=None)  # type: ignore[arg-type]
-        _, err = capfd.readouterr()
-        assert "token-abc123" not in err
+            steps_to_expr([step], team=Team())
+        assert "token-abc123" not in capfd.readouterr().err
