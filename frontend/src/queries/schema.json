@@ -6401,8 +6401,14 @@
                 "customExpression": {
                     "type": "string"
                 },
+                "display": {
+                    "$ref": "#/definitions/ChartSettingsDisplay"
+                },
                 "field": {
                     "$ref": "#/definitions/BIField"
+                },
+                "formatting": {
+                    "$ref": "#/definitions/ChartSettingsFormatting"
                 },
                 "label": {
                     "type": "string"
