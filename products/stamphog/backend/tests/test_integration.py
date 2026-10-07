@@ -860,6 +860,7 @@ def test_sandbox_gets_a_scoped_gateway_token_when_the_go_gateway_is_configured(
         "POSTHOG_API_KEY",
         "POSTHOG_HOST",
         "STAMPHOG_EXTRA_PROPERTIES",
+        "STAMPHOG_ENGINE_CHANNEL",
         *NETWORK_RESTRICTED_AGENT_ENV,
     }
     assert all(env[name] == "1" for name in NETWORK_RESTRICTED_AGENT_ENV)
@@ -883,6 +884,65 @@ def test_sandbox_gets_a_scoped_gateway_token_when_the_go_gateway_is_configured(
     assert revoke_call.kwargs["headers"] == {"Authorization": "Bearer phs_stamphog_mint"}
     assert "ai-gateway.test" in config.outbound_domain_allowlist
     assert "github.com" in config.outbound_domain_allowlist
+
+
+@pytest.mark.parametrize(
+    "flag_result,expected_channel",
+    [
+        ("beta-shadow", "beta-shadow"),
+        ("beta-live", "beta-live"),
+        ("stable", "stable"),
+        (None, "stable"),
+        (False, "stable"),
+        (True, "stable"),
+        ("nightly", "stable"),
+        (RuntimeError("flags endpoint down"), "stable"),
+    ],
+    ids=["beta_shadow", "beta_live", "stable", "absent", "not_matched", "boolean", "unknown", "error"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_engine_channel_is_decided_once_per_run_and_reaches_the_sandbox(
+    team, stamphog_chain: StamphogChain, flag_result: object, expected_channel: str
+) -> None:
+    _repo_config(team.id)
+    event = _register_review(stamphog_chain, 119, "sha119a")
+    get_feature_flag = MagicMock(
+        side_effect=flag_result if isinstance(flag_result, Exception) else None,
+        return_value=flag_result,
+    )
+
+    with patch("posthog.ph_client.posthoganalytics.get_feature_flag", get_feature_flag):
+        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+
+    # The sandbox start and the context fetch both need the channel. The second one reuses the stored
+    # decision, so the flag is evaluated once, with the PR as the sticky distinct id.
+    get_feature_flag.assert_called_once()
+    assert get_feature_flag.call_args.args == ("stamphog-engine-channel", f"{REPO}#119")
+    run = ReviewRun.objects.for_team(team.id).get(pull_request__pr_number=119)
+    assert run.output["engine_channel"] == expected_channel
+    env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
+    assert env["STAMPHOG_ENGINE_CHANNEL"] == expected_channel
+    assert json.loads(env["STAMPHOG_EXTRA_PROPERTIES"])["stamphog_engine_channel"] == expected_channel
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_engine_channel_adopts_a_decision_stored_by_the_concurrent_activity(team) -> None:
+    repo_config = _repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=121, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha121a", status=ReviewRunStatus.REVIEWING
+    )
+    # The other activity decided while this one held a copy loaded before that write.
+    ReviewRun.objects.for_team(team.id).filter(id=run.id).update(output={"engine_channel": "beta-live"})
+
+    with patch("posthog.ph_client.posthoganalytics.get_feature_flag", return_value="stable"):
+        channel = activities._decide_engine_channel(run)
+
+    assert channel == "beta-live"
+    run.refresh_from_db()
+    assert run.output["engine_channel"] == "beta-live"
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -1407,7 +1467,7 @@ def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_err
         pull_request=pull_request,
         head_sha="sha-x",
         status=ReviewRunStatus.REVIEWING,
-        output={"review_trigger": "manual"},
+        output={"review_trigger": "manual", "engine_channel": "beta-shadow"},
     )
 
     # ph_scoped_capture is a context manager yielding the capture callable, so the patch
@@ -1427,6 +1487,7 @@ def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_err
     assert props["stamphog_repo"] == REPO
     assert props["stamphog_error"] == expected_stored
     assert props["stamphog_review_trigger"] == "manual"
+    assert props["stamphog_engine_channel"] == "beta-shadow"
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
