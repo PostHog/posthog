@@ -33,6 +33,7 @@ function MobileProjectCreation({ projectLimit }: { projectLimit: number }): JSX.
     })
     const { isCreateProjectModalShown } = useValues(globalModalsLogic)
     const { user } = useValues(userLogic)
+    const { preflight: loadedPreflight } = useValues(preflightLogic)
     const { loadUserSuccess } = useActions(userLogic)
     const { loadCurrentOrganizationSuccess } = useActions(organizationLogic)
     const { hideCreateProjectModal } = useActions(globalModalsLogic)
@@ -51,9 +52,12 @@ function MobileProjectCreation({ projectLimit }: { projectLimit: number }): JSX.
     }, [loadPreflightSuccess, loadUserSuccess, loadCurrentOrganizationSuccess, projectLimit])
     return (
         <>
-            {user?.organization?.available_product_features?.some(
-                (feature) => feature.key === AvailableFeature.ORGANIZATIONS_PROJECTS && feature.limit === projectLimit
-            ) && <span data-attr="project-creation-fixture-ready" />}
+            {loadedPreflight?.cloud &&
+                loadedPreflight.can_create_org &&
+                user?.organization?.available_product_features?.some(
+                    (feature) =>
+                        feature.key === AvailableFeature.ORGANIZATIONS_PROJECTS && feature.limit === projectLimit
+                ) && <span data-attr="project-creation-fixture-ready" />}
             <PanelLayout />
             <UpgradeModal />
             <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />
