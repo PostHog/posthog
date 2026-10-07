@@ -11,7 +11,7 @@ from parameterized import parameterized
 
 from posthog.schema import ActorsQuery, PersonPropertyFilter, PropertyOperator
 
-from posthog.hogql.ast import And, CompareOperation, Constant, SelectQuery
+from posthog.hogql.ast import And, CompareOperation, Constant, SelectQuery, SelectSetQuery
 from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
     LimitContext,
@@ -560,7 +560,7 @@ class TestAlertPaginator(SimpleTestCase):
             ("SELECT 1 LIMIT 0",),
             ("SELECT 1 LIMIT 50000",),
             ("SELECT 1 LIMIT 3 OFFSET {n}",),
-            ("SELECT 1 UNION ALL SELECT 2",),
+            ("(SELECT 1 UNION ALL SELECT 2) LIMIT 50000",),
             ("SELECT 1 ORDER BY 1 LIMIT 3 WITH TIES",),
         ]
     )
@@ -586,3 +586,15 @@ class TestAlertPaginator(SimpleTestCase):
         inner_limit = subquery.limit
         assert isinstance(inner_limit, Constant)
         assert inner_limit.value == 2, "the subquery's own LIMIT is left untouched"
+
+    def test_set_query_gets_an_outer_probe_limit(self):
+        query = cast(SelectSetQuery, parse_select("(SELECT 1 AS value UNION ALL SELECT 2 AS value LIMIT 1) LIMIT 2"))
+        paginator = HogQLHasMorePaginator.from_alert_query(query, limit_context=LimitContext.SQL_ALERT)
+        assert paginator is not None
+        branch_limits = [branch.limit for branch in query.select_queries()]
+        paginated = paginator.paginate(query)
+        assert isinstance(paginated, SelectQuery)
+        assert paginated.select_from is not None and paginated.select_from.table is query
+        assert paginated.limit == Constant(value=paginator.limit + 1)
+        assert query.limit is None, "the probe row replaces the set's own LIMIT"
+        assert [branch.limit for branch in query.select_queries()] == branch_limits, "branch LIMITs are left untouched"
