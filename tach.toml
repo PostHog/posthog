@@ -1654,3 +1654,22 @@ expose = [
 from = [
     "products.cross_project_dashboards",
 ]
+
+[[modules]]
+path = "products.warehouse_suggestions"
+depends_on = [
+    "posthog",
+    "products.access_control",
+    "products.data_modeling",
+    "products.warehouse_sources",
+]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.warehouse_suggestions",
+]

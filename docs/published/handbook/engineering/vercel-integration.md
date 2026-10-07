@@ -437,6 +437,11 @@ sequenceDiagram
 
 Vercel users can SSO into PostHog without a separate login.
 
+An existing active PostHog account can link automatically when the signed Vercel SSO token contains a verified, matching email.
+Accounts with two-factor authentication or enforced domain SSO must complete PostHog login.
+The installation's verified-domain restrictions also apply before automatic linking.
+A stored mapping keeps its original account, and a removed organization member cannot regain access by retrying SSO.
+
 ```mermaid
 sequenceDiagram
     actor User
