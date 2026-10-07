@@ -532,6 +532,9 @@ importers:
       mockdate:
         specifier: ^3.0.5
         version: 3.0.5
+      posthog-js-lite:
+        specifier: 4.12.1
+        version: 4.12.1
       sass:
         specifier: ^1.26.2
         version: 1.56.0
@@ -863,6 +866,9 @@ importers:
       '@posthog/products-warehouse-sources':
         specifier: workspace:*
         version: link:../products/warehouse_sources
+      '@posthog/products-warehouse-suggestions':
+        specifier: workspace:*
+        version: link:../products/warehouse_suggestions
       '@posthog/products-web-analytics':
         specifier: workspace:*
         version: link:../products/web_analytics
@@ -5265,6 +5271,8 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
   products/warehouse_sources_queue: {}
+
+  products/warehouse_suggestions: {}
 
   products/web_analytics:
     dependencies:

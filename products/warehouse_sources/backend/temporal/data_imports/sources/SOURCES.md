@@ -91,6 +91,7 @@ the row lists both.
 | appsflyer                        | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | appsignal                        | HTTP (REST + GraphQL)       | requests                                                        | ✅                          |
 | appstack                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| arcade                           | HTTP                        | requests                                                        | ✅                          |
 | argocd                           | HTTP                        | requests                                                        | ✅                          |
 | asaas                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | asana                            | HTTP                        | requests                                                        | ✅                          |
@@ -558,6 +559,7 @@ the row lists both.
 | n8n                              | HTTP                        | requests                                                        | ✅                          |
 | nager_date                       | HTTP                        | requests                                                        | ✅                          |
 | nebius_ai                        | HTTP                        | requests                                                        | ✅                          |
+| neo4j                            | HTTP                        | requests                                                        | ✅                          |
 | neon                             | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | netlify                          | HTTP                        | requests                                                        | ✅                          |
 | new_relic                        | HTTP (GraphQL/NerdGraph)    | requests                                                        | ✅                          |
@@ -710,6 +712,7 @@ the row lists both.
 | scale_ai                         | HTTP                        | requests                                                        | ✅                          |
 | scaleway                         | HTTP                        | requests                                                        | ✅                          |
 | scalr                            | HTTP                        | requests                                                        | ✅                          |
+| scrunch                          | HTTP                        | requests                                                        | ✅                          |
 | secoda                           | HTTP                        | requests                                                        | ✅                          |
 | secureframe                      | HTTP                        | requests                                                        | ✅                          |
 | segment                          | HTTP                        | requests                                                        | ✅                          |
@@ -862,6 +865,7 @@ the row lists both.
 | vendr                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | veracode                         | HTTP                        | requests (custom HMAC signing)                                  | ✅                          |
 | vercel                           | HTTP                        | requests                                                        | ✅                          |
+| vimeo                            | HTTP                        | requests                                                        | ✅                          |
 | vitally                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vultr                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wasabi                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1247,6 +1251,7 @@ doesn't conflict with concurrent PRs.
 - logrocket
 - lokalise
 - looker
+- loom
 - m3ter
 - mailtrap
 - mantle
@@ -1460,6 +1465,7 @@ doesn't conflict with concurrent PRs.
 - ternary
 - tessitura
 - terra_api
+- testdino
 - thinkific_courses
 - thoughtspot
 - threads
