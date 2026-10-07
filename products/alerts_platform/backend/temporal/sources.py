@@ -59,5 +59,9 @@ SOURCE_BINDINGS: dict[SourceKind, SourceBinding] = {
 }
 
 
+def source_evaluation_timeout(source: SourceKind) -> dt.timedelta:
+    return SOURCE_BINDINGS[source].evaluation_timeout
+
+
 def discovery_limits() -> dict[SourceKind, int]:
     return {source: binding.discovery_limit for source, binding in SOURCE_BINDINGS.items()}

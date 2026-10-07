@@ -22,7 +22,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
     SourceOutcomeInputs,
 )
-from products.alerts_platform.backend.facade.temporal import SOURCE_BINDINGS
+from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
 
 QUEUE = "test-platform-insight-evaluation"
 ADMITTED = ("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")
@@ -82,4 +82,4 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
 
 
 def test_the_binding_holds_the_whole_batch() -> None:
-    assert SOURCE_BINDINGS[SourceKind.INSIGHT].evaluation_timeout > EVALUATION_BUDGET
+    assert source_evaluation_timeout(SourceKind.INSIGHT) > EVALUATION_BUDGET
