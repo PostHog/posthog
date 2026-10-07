@@ -88,6 +88,8 @@ export interface BITableCalculation {
     computeUsing?: string
     /** Number of points, including the current point, in a trailing moving average. */
     window?: positive_integer
+    /** Require a complete window of non-null values before displaying a moving average. */
+    requireFullWindow?: boolean
 }
 
 export interface BITopN {
@@ -132,6 +134,8 @@ export interface BIConfig {
     sort?: BISort | null
     topN?: BITopN
     totals?: BITotals
+    /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
+    missingDates?: 'gap' | 'zero'
 }
 
 export interface BIConditionGroup {
