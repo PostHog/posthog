@@ -19,11 +19,14 @@ from products.exports.backend.temporal.subscriptions.types import (
 
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
+    INVALID_EMAIL_RECIPIENTS_DISABLE_REASON,
     SLACK_DISCONNECTED_DISABLE_REASON,
     SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON,
     SLACK_PERMISSION_REVOKED_DISABLE_REASON,
     DisableReason,
     disable_invalid_subscription,
+    is_valid_email_recipient,
+    parse_email_recipients,
 )
 from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult, get_slack_integration_for_team
 
@@ -33,6 +36,10 @@ LOGGER = get_logger(__name__)
 # details into history events capped at the gRPC payload limit, and an oversized non-retryable
 # error can't be recorded, leaving the workflow unable to complete its failing task.
 _MAX_ERROR_DETAIL_RESULTS = 50
+
+# Listed in EXPECTED_CONTROL_FLOW_ERROR_TYPES: each rejected recipient is already captured once.
+EMAIL_RECIPIENTS_REJECTED_ERROR_TYPE = "EmailRecipientsRejected"
+INVALID_EMAIL_RECIPIENT_MESSAGE = "Not a valid email address"
 
 
 def strip_null_bytes(value: Any) -> Any:
@@ -69,6 +76,15 @@ def error_detail_results(recipient_results: list[RecipientResult]) -> list[dict[
     return details
 
 
+def _invalid_email_result(email: str) -> RecipientResult:
+    return RecipientResult(
+        recipient=email,
+        status="failed",
+        error={"message": INVALID_EMAIL_RECIPIENT_MESSAGE, "type": "invalid_email_recipient"},
+        human_readable_error=INVALID_EMAIL_RECIPIENT_MESSAGE,
+    )
+
+
 async def auto_disable_and_return(
     subscription: Subscription,
     reason: DisableReason,
@@ -99,7 +115,10 @@ async def deliver_email(
 ) -> DeliverSubscriptionResult:
     """Send to each recipient via `send_one`. Partial success is kept; only an all-failed run
     raises, so a Temporal retry won't re-send to recipients who already succeeded."""
-    emails = list(dict.fromkeys(e.strip() for e in subscription.target_value.split(",") if e.strip()))
+    emails = parse_email_recipients(subscription.target_value)
+    if not any(is_valid_email_recipient(email) for email in emails):
+        recipient_results.extend(_invalid_email_result(email) for email in emails)
+        return await auto_disable_and_return(subscription, INVALID_EMAIL_RECIPIENTS_DISABLE_REASON, recipient_results)
     previous_target_value = inputs.previous_target_value
     if previous_target_value is None:
         previous_target_value = inputs.previous_value
@@ -119,6 +138,10 @@ async def deliver_email(
     success_count = 0
     failures: list[tuple[str, Exception]] = []
     for email in emails:
+        if not is_valid_email_recipient(email):
+            # The provider rejects this address on every run, so do not send or report it.
+            recipient_results.append(_invalid_email_result(email))
+            continue
         try:
             await send_one(email)
             recipient_results.append(RecipientResult(recipient=email, status="success", error=None))
@@ -165,6 +188,7 @@ async def deliver_email(
             raise ApplicationError(
                 f"all {len(failures)} recipients permanently rejected delivery",
                 {"recipient_results": details},
+                type=EMAIL_RECIPIENTS_REJECTED_ERROR_TYPE,
                 non_retryable=True,
             ) from permanent[0]
         # Mixed or all-transient: re-raise a retryable error so Temporal retries the batch.

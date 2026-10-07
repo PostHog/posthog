@@ -37,6 +37,8 @@ logger = get_write_only_logger()
 # retry schedule is the poll loop. Each settle target keeps its own type, so a new target must
 # list its type here too; `_NOT_SETTLED_ERROR_TYPES` is tested against this set.
 # The "tagger_" types are runs RunTaggerWorkflow skips; `SKIPPED_RESULT_ERROR_TYPES` is tested against this set.
+# "EmailRecipientsRejected" wraps permanent email rejections that the subscription delivery activity
+# already captures one by one, so a second report only duplicates them.
 EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
     {
         "trace_not_settled",
@@ -52,6 +54,7 @@ EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
         "tagger_provider_key_required",
         "tagger_key_invalid",
         "tagger_no_default_model",
+        "EmailRecipientsRejected",
     }
 )
 
