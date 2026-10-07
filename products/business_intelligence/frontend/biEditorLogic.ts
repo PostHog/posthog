@@ -636,7 +636,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     activeDropShelf === shelf ? null : activeDropShelf,
             },
         ],
-        autoUpdate: [true, { persist: true }, { setAutoUpdate: (_, { autoUpdate }) => autoUpdate }],
+        autoUpdate: [false, { persist: true }, { setAutoUpdate: (_, { autoUpdate }) => autoUpdate }],
         showMeOpen: [true, { persist: true }, { setShowMeOpen: (_, { showMeOpen }) => showMeOpen }],
         hoveredChartType: [
             null as ChartDisplayType | null,
