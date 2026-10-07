@@ -49,7 +49,7 @@ function ScoredBody({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.El
             {trend.length > 1 && (
                 <Tooltip title="Realized AUC on recent checked dates">
                     <span className="shrink-0">
-                        <MetricSparkline points={trend} width={96} height={32} floor={0.5} ceil={1} />
+                        <MetricSparkline points={trend} width={96} height={32} />
                     </span>
                 </Tooltip>
             )}

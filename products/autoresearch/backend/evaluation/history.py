@@ -1,6 +1,5 @@
 """The realized history of a pipeline: its completed validation runs, one per validated group."""
 
-from collections.abc import Iterable
 from datetime import date
 from uuid import UUID
 
@@ -45,7 +44,7 @@ def realized_auc_trends(
     """
     if not model_ids_by_pipeline:
         return {}
-    runs: Iterable[AutoresearchRun] = (
+    runs = (
         AutoresearchRun.objects.for_team(team_id)
         .filter(
             pipeline_id__in=list(model_ids_by_pipeline),

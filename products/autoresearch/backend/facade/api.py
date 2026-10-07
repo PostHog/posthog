@@ -156,15 +156,6 @@ class _PipelineActivity:
     live_training_run: LiveTrainingRun | None
 
 
-_NO_ACTIVITY = _PipelineActivity(
-    champion_realized_auc_trend=[],
-    people_scored=None,
-    training_run_count=0,
-    experiment_count=0,
-    live_training_run=None,
-)
-
-
 def _live_training_run(run: AutoresearchTrainingRun, iterations: list[AutoresearchIteration]) -> LiveTrainingRun:
     # The run's own counters land only at completion, so progress comes from the live iteration rows.
     scores = [i.holdout_score for i in iterations if i.holdout_score is not None]
@@ -254,7 +245,7 @@ def _pipeline_to_contract(
     row: AutoresearchPipeline,
     *,
     champion: AutoresearchModel | None = None,
-    activity: _PipelineActivity = _NO_ACTIVITY,
+    activity: _PipelineActivity,
 ) -> Pipeline:
     return Pipeline(
         id=row.id,
