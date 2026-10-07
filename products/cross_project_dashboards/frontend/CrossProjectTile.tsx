@@ -33,7 +33,8 @@ const UNAVAILABLE_COPY: Record<TileUnavailableReason, string> = {
 function asCardTile(tile: CrossProjectDashboardTileApi): DashboardTile {
     return {
         id: tile.id,
-        filters_overrides: tile.filters_overrides,
+        // The card's links carry any override as a URL parameter, an empty one included.
+        filters_overrides: Object.keys(tile.filters_overrides ?? {}).length > 0 ? tile.filters_overrides : null,
         show_description: null,
         color: tile.color,
         layouts: tile.layouts,
