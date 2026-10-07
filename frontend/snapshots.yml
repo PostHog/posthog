@@ -3844,6 +3844,10 @@ snapshots:
         hash: v1.k794b7964.c47d48ad6a252d8a5dfc135b3d269bc028523df242a7b79c5b96d9d111ae0376._DhCXEiBO9wMl5fx3iWvB8BVIaxe19bUBzUQb55bkAo
     insights-sqlpiegraph--legend-at-bottom--light:
         hash: v1.k794b7964.edbf042650a6322573f4e64763cd4409162aca5fce5a35b2a51689d0b45a3867.KCSWIbrsWY4EZKnAeZHXdZXnZLEs0_oT1CnSBS-PmQE
+    insights-sqlpiegraph--proportion-bar--dark:
+        hash: v1.k794b7964.a41cdc3dee8148bb6a8f887c32163c27813091bced9d31b7598fb2ba059221ab.s9k_65oKELtHb-A48wZE9UnUDxKYFBX6qQwi5qZ7oug
+    insights-sqlpiegraph--proportion-bar--light:
+        hash: v1.k794b7964.fd3e9559a02a02108b81cf7115b10be5683a536557ead1a30d6183bedea406c1.aPPqn1LGZDvCsk4KSGaWOO5V_AFoYlPPZ80RYA--p3o
     insights-sqlpiegraph--with-legend--dark:
         hash: v1.k794b7964.d15af2bc969e9e442db3d5520d7b4c26a29f82dd001f9a3656da9cb838cd904e.HU5scx_5_NP2zMcUStE930Oaa1UgjhjHkEOUjAZ-u3w
     insights-sqlpiegraph--with-legend--light:
@@ -3988,6 +3992,10 @@ snapshots:
         hash: v1.k794b7964.9b44378c8b23c54996de740b079e0029d0a474c9ca7f977b7d7aab07eece7f8e.DH5BI-XTKBTeGu8xAITjb7Ktz0BulqIqgPauao-MDpU
     insights-trendspiechart--min-height-parent--light:
         hash: v1.k794b7964.cd52243e5d45d2eb6397a1efffcb6b6c9a5f98ef4a265fab0abc5974c69c0999.17OfM6Hht52excrKELBhQIdviX7ue6tytC6UMA-KrMk
+    insights-trendspiechart--proportion-bar--dark:
+        hash: v1.k794b7964.7d8e5824f3e200d837b72df83ca34eb07fa32a71bc09893be709710eda989bc5.2I-jkk3nlpECbj08GhT8PYgpilzZIqVlrd2RdNGPWhk
+    insights-trendspiechart--proportion-bar--light:
+        hash: v1.k794b7964.536923258c65b36537c2d66c08c0a91a49d323e87da8868b2217e5ae5bd4716b.Z30-Z_ndUXxEOLRLw8tyR53GVW2td8-_825J1Y5vIpE
     insights-trendsslopechart--default--dark:
         hash: v1.k794b7964.f843b256c76c813e822e3c899d5bb4302f8970671422576d82eab10dba5cec17.QicU0ACrmlNYm9zJKICNpTr7h41TZAYTe4xNsHoy2so
     insights-trendsslopechart--default--light:
@@ -4433,9 +4441,9 @@ snapshots:
     lemon-ui-icons2--shelf-o--light:
         hash: v1.k794b7964.2af9cd7fca97270f8ce11698e014a928851ff2021cb6f5ac1f82b49924637295.hNvwQ5qzm6pPgp93CAoYrn-VgjPmzWT7ZiDiE_H5QPs
     lemon-ui-icons2--shelf-p--dark:
-        hash: v1.k794b7964.d5e3c0761a0d77d08e5db21e9cd88f9d6071f7b8c9c02e86f98624daa6f66bf2.6VDrOQ0RkdizoTCf1fyBI8r7sht6vfYdPzslpABSOvw
+        hash: v1.k794b7964.06736fe539d74737a210c19b4e6cd26a271b59819af0bb64463fd31ce54d208a.V2n-b5E0nFYb8_EwOpKsPzLtJz-Nrj-GVKFk-JYOjBw
     lemon-ui-icons2--shelf-p--light:
-        hash: v1.k794b7964.9bad75e6e288d37855557c6c7a69f3ab0c1b75ec8f5fc04aa311c87f559a7c35.qx8rjJ17Yy2bV5G3iQEMJbgmYVJW23nsclSc_HAhxl8
+        hash: v1.k794b7964.eb63ff48968cf1f7a60f957fa2007a0607a0d917f14efec6e48586933d6d94c8.DSctX2ym2EsiONbQjHVZyT6lLl-MfAWfyBwhrOOYFWs
     lemon-ui-icons2--shelf-q--dark:
         hash: v1.k794b7964.5a9d82b6aafe0fe15ba59213f33bcc9a55ece2fdd1055a09c16372aabcec884e.7_SflSd_yazp-C7g7cd-cU1HTwid_0XLpMMIqsM1glo
     lemon-ui-icons2--shelf-q--light:
