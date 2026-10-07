@@ -525,7 +525,8 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         """Write a fresh user token pair + expirations onto the integration row."""
         now = int(time.time())
         access_token = payload.get("access_token")
-        refresh_token = payload.get("refresh_token") or self.user_refresh_token
+        rotated_refresh_token = payload.get("refresh_token")
+        refresh_token = rotated_refresh_token or self.user_refresh_token
         access_expires_in = payload.get("expires_in")
         refresh_expires_in = payload.get("refresh_token_expires_in")
 
@@ -549,7 +550,22 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             config.pop("user_refresh_token_expires_at", None)
         self.integration.config = config
         self.integration.save(update_fields=["sensitive_config", "config", "updated_at"])
-        GitHubAudit.personal(self.integration).record("credential_refreshed", after_commit=True, reason="oauth_refresh")
+        GitHubAudit.personal(self.integration).record(
+            "credential_refreshed",
+            after_commit=True,
+            reason="oauth_refresh",
+            refresh_token_rotated=bool(rotated_refresh_token),
+        )
+
+    def _user_token_age_seconds(self) -> int | None:
+        """Seconds since the stored user token pair was last written, or None when the row holds no
+        refresh timestamp. A discard destroys the row, so the audit trail records this age as the only
+        surviving measure of how old the rejected credential was.
+        """
+        refreshed_at = (self.integration.config or {}).get("user_token_refreshed_at")
+        if not isinstance(refreshed_at, (int, float)):
+            return None
+        return int(time.time()) - int(refreshed_at)
 
     def _discard(self, reason: str) -> None:
         """Delete the integration when stored credentials are unusable.
@@ -557,11 +573,12 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         Deletion keeps the invariant that every integration row carries working tokens.
         The user falls back to the Connect flow.
         """
+        token_age_seconds = self._user_token_age_seconds()
         logger.info("UserGitHubIntegration: discarding integration", user_id=self.integration.user_id, reason=reason)
         audit = GitHubAudit.personal(self.integration)
         try:
             self.integration.delete()
-            audit.record("credential_deleted", after_commit=True, reason=reason)
+            audit.record("credential_deleted", after_commit=True, reason=reason, token_age_seconds=token_age_seconds)
         except Exception as exc:
             audit.record("credential_delete_failed", failure_type=type(exc).__name__)
             logger.warning("UserGitHubIntegration: failed to delete unusable integration", exc_info=True)

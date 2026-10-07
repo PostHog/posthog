@@ -17,6 +17,7 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
+from structlog.testing import capture_logs
 
 from posthog.api.github_callback.state import (
     load_authorize_state,
@@ -1140,26 +1141,42 @@ class TestUserGitHubIntegration(APIBaseTest):
         gh = self._make_integration()
         self.assertFalse(gh.user_access_token_expired())
 
+    @parameterized.expand(
+        [
+            ("github_returns_a_new_refresh_token", {"refresh_token": "ghr_new"}, "ghr_new", True),
+            ("github_returns_no_refresh_token", {}, "ghr_refresh", False),
+        ]
+    )
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.models.user_integration.requests.post")
-    def test_refresh_user_access_token_updates_credentials(self, mock_post):
+    def test_refresh_user_access_token_updates_credentials(
+        self,
+        _name: str,
+        refresh_token_field: dict[str, str],
+        expected_refresh_token: str,
+        expected_rotated: bool,
+        mock_post,
+    ):
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "access_token": "gho_new",
-            "refresh_token": "ghr_new",
+            **refresh_token_field,
             "expires_in": 28800,
             "refresh_token_expires_in": 15897600,
         }
         mock_post.return_value = mock_response
 
         gh = self._make_integration(credential_version="synthetic-old-version", identity_verified_at=123)
-        gh.refresh_user_access_token()
+        with capture_logs() as logs, self.captureOnCommitCallbacks(execute=True):
+            gh.refresh_user_access_token()
 
         gh.integration.refresh_from_db()
         self.assertNotEqual(gh.integration.config["credential_version"], "synthetic-old-version")
         self.assertEqual(gh.integration.config["identity_verified_at"], 123)
         self.assertEqual(gh.user_access_token, "gho_new")
-        self.assertEqual(gh.user_refresh_token, "ghr_new")
+        self.assertEqual(gh.user_refresh_token, expected_refresh_token)
+        refreshed = next(entry for entry in logs if entry["event"] == "credential_refreshed")
+        self.assertIs(refreshed["refresh_token_rotated"], expected_rotated)
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.models.user_integration.requests.post")

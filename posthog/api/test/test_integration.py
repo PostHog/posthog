@@ -7929,6 +7929,7 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
                 "originating_organization_id": str(self.organization.id),
                 "github_user": {"id": 101, "login": "synthetic-reader"},
                 "user_refresh_token_expires_at": 1,
+                "user_token_refreshed_at": int(time.time()) - 7200,
             },
             sensitive_config={"user_access_token": "synthetic-private-secret"},
         )
@@ -7941,6 +7942,7 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         assert log.organization_id == self.organization.id
         assert log.detail is not None
         assert log.detail["trigger"]["payload"]["event"] == "credential_deleted"
+        assert 7200 <= log.detail["trigger"]["payload"]["token_age_seconds"] < 7500
         assert not UserIntegration.objects.filter(pk=integration_id).exists()
         assert "synthetic-private-secret" not in json.dumps(log.detail)
         produce.assert_not_called()
