@@ -920,9 +920,8 @@ class TestTrinoDependencyOutcomes:
     @pytest.mark.parametrize(
         "upstream_success,downstream_enabled", [(True, True), (False, True), (None, True), (None, False)]
     )
-    @pytest.mark.parametrize("patched", [True, False])
     async def test_downstream_trino_waits_for_upstream_success(
-        self, upstream_success: bool | None, downstream_enabled: bool, patched: bool
+        self, upstream_success: bool | None, downstream_enabled: bool
     ) -> None:
         plan = DAGPlan(nodes=["a", "b", "c"], executable_nodes=["a", "b", "c"], edges=[("a", "b"), ("b", "c")])
         child_inputs: list[MaterializeViewWorkflowInputs] = []
@@ -956,7 +955,7 @@ class TestTrinoDependencyOutcomes:
                 temporal_workflow, "execute_activity", new=AsyncMock(side_effect=execute_activity)
             ) as activities,
             patch.object(temporal_workflow, "start_child_workflow", new=AsyncMock(side_effect=start_child)),
-            patch.object(temporal_workflow, "patched", return_value=patched),
+            patch.object(temporal_workflow, "deprecate_patch"),
             patch.object(temporal_workflow, "now", return_value=dt.datetime(2026, 1, 1, tzinfo=dt.UTC)),
             patch.object(temporal_workflow, "info", return_value=info),
             patch.object(temporal_workflow, "metric_meter", return_value=MagicMock()),
@@ -966,7 +965,7 @@ class TestTrinoDependencyOutcomes:
 
         assert result.successful_nodes == 3
         assert [i.node_id for i in child_inputs] == ["a", "b", "c"]
-        blocked = patched and upstream_success is not True
+        blocked = upstream_success is not True
         assert [i.skip_trino for i in child_inputs] == [False, blocked, blocked]
         skips = [
             c.args[1]

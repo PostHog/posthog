@@ -12,6 +12,7 @@ from unittest import TestCase
 from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.core.cache import cache
+from django.db import DatabaseError
 from django.test import SimpleTestCase
 from django.utils.timezone import now
 
@@ -1470,6 +1471,39 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         assert self.client.get("/api/billing").json()["billing_managed_by_partner"] == {
             "partner_name": "Example Partner"
         }
+
+    def test_detach_database_failure_can_be_retried_after_billing_confirms(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        self._provision(pays_for_customers=True)
+        self.organization.billing_has_payer = True
+        self.organization.save(update_fields=["billing_has_payer"])
+        detached_at = datetime(2026, 10, 5, 12, tzinfo=UTC)
+        error = DatabaseError("Database unavailable")
+        payload = {"organization_id": str(self.organization.pk)}
+
+        with (
+            patch.object(BillingManager, "detach_from_payer", return_value=detached_at) as mock_detach,
+            patch("ee.api.billing.capture_exception") as mock_capture,
+        ):
+            with patch.object(Organization.objects, "select_for_update", side_effect=error):
+                response = self.client.post("/api/billing/payer/detach", payload, content_type="application/json")
+
+            assert response.status_code == status.HTTP_502_BAD_GATEWAY
+            assert response.json()["code"] == "payer_detach_unconfirmed"
+            assert "safe to repeat" in response.json()["detail"]
+            mock_detach.assert_called_once()
+            mock_capture.assert_called_once_with(error, {"organization_id": str(self.organization.pk)})
+            self.organization.refresh_from_db()
+            assert self.organization.partner_payer_detached_at is None
+            assert self.organization.billing_has_payer is True
+
+            retried = self.client.post("/api/billing/payer/detach", payload, content_type="application/json")
+
+        assert retried.status_code == status.HTTP_200_OK
+        self.organization.refresh_from_db()
+        assert self.organization.partner_payer_detached_at == detached_at
+        assert self.organization.billing_has_payer is False
 
 
 class TestPartnerBillingLockCoverage(SimpleTestCase):

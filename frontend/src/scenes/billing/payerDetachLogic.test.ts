@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { payerDetachLogic } from 'scenes/billing/payerDetachLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -71,16 +72,45 @@ describe('payerDetachLogic', () => {
         })
         await mountAs(OrganizationMembershipLevel.Owner)
 
+        let releaseBilling = (): void => {}
+        const billingReleased = new Promise<void>((resolve) => {
+            releaseBilling = resolve
+        })
+        useMocks({
+            get: {
+                '/api/billing': async () => {
+                    await billingReleased
+                    return [200, billingState]
+                },
+            },
+        })
+
         logic.actions.openPayerDetachModal()
         logic.actions.detachFromPayer()
         expect(logic.values.isDetachingFromPayer).toBe(true)
 
         releaseDetach()
-        await expectLogic(logic).toDispatchActions(['detachFromPayerSuccess']).toFinishAllListeners()
+        try {
+            await expectLogic(logic).toDispatchActions(['detachFromPayerSuccess'])
+
+            expect(billingLogic.values.isBillingManagedByPartner).toBe(true)
+            expect(logic.values.canDetachFromPayer).toBe(false)
+        } finally {
+            releaseBilling()
+        }
+        await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values).toMatchObject({ isPayerDetachModalOpen: false, isDetachingFromPayer: false })
         expect(billingLogic.values.isBillingManagedByPartner).toBe(false)
         expect(detachBody).toEqual({ organization_id: MOCK_DEFAULT_ORGANIZATION.id })
+
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            id: '01984035-0000-7000-8000-000000000002',
+            membership_level: OrganizationMembershipLevel.Owner,
+        })
+        billingLogic.actions.loadBillingSuccess(PARTNER_PAID_BILLING as BillingType)
+        expect(logic.values.canDetachFromPayer).toBe(true)
     })
 
     it('keeps the modal open with the explanation from billing when the detach fails', async () => {

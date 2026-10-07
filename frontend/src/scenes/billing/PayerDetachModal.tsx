@@ -28,6 +28,7 @@ export function PayerDetachModal(): JSX.Element | null {
                         type="secondary"
                         onClick={() => closePayerDetachModal()}
                         disabled={isDetachingFromPayer}
+                        data-attr="billing-payer-detach-cancel"
                     >
                         Cancel
                     </LemonButton>
@@ -46,7 +47,7 @@ export function PayerDetachModal(): JSX.Element | null {
                 {payerDetachError && <LemonBanner type="error">{payerDetachError}</LemonBanner>}
                 <p className="mb-0">When you confirm:</p>
                 <ul className="list-disc pl-6 mb-0 space-y-1">
-                    <li>{`${billingPartnerName} pays for this organization's usage up to the moment you confirm.`}</li>
+                    <li>{`${billingPartnerName} pays for this organization's usage until billing confirms the change.`}</li>
                     <li>From then on, this organization pays for its own usage and needs its own payment method.</li>
                     <li>
                         Until you add a payment method, the organization is on the free plan and free tier limits apply.

@@ -20,6 +20,7 @@ export interface payerDetachLogicValues {
     isBillingManagedByPartner: boolean // billingLogic
     currentOrganization: OrganizationType | null // organizationLogic
     canDetachFromPayer: boolean
+    detachedOrganizationId: string | null
     isDetachingFromPayer: boolean
     isPayerDetachModalOpen: boolean
     payerDetachError: string | null
@@ -37,8 +38,8 @@ export interface payerDetachLogicActions {
     detachFromPayerFailure: (error: string) => {
         error: string
     }
-    detachFromPayerSuccess: () => {
-        value: true
+    detachFromPayerSuccess: (organizationId: string) => {
+        organizationId: string
     }
     openPayerDetachModal: () => {
         value: true
@@ -50,7 +51,8 @@ export interface payerDetachLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         canDetachFromPayer: (
             isBillingManagedByPartner: boolean,
-            currentOrganization: OrganizationType | null
+            currentOrganization: OrganizationType | null,
+            detachedOrganizationId: string | null
         ) => boolean
     }
 }
@@ -77,10 +79,16 @@ export const payerDetachLogic = kea<payerDetachLogicType>([
         openPayerDetachModal: true,
         closePayerDetachModal: true,
         detachFromPayer: true,
-        detachFromPayerSuccess: true,
+        detachFromPayerSuccess: (organizationId: string) => ({ organizationId }),
         detachFromPayerFailure: (error: string) => ({ error }),
     }),
     reducers({
+        detachedOrganizationId: [
+            null as string | null,
+            {
+                detachFromPayerSuccess: (_, { organizationId }) => organizationId,
+            },
+        ],
         isPayerDetachModalOpen: [
             false,
             {
@@ -108,9 +116,14 @@ export const payerDetachLogic = kea<payerDetachLogicType>([
     }),
     selectors({
         canDetachFromPayer: [
-            (s) => [s.isBillingManagedByPartner, s.currentOrganization],
-            (isBillingManagedByPartner: boolean, currentOrganization: OrganizationType | null): boolean =>
+            (s) => [s.isBillingManagedByPartner, s.currentOrganization, s.detachedOrganizationId],
+            (
+                isBillingManagedByPartner: boolean,
+                currentOrganization: OrganizationType | null,
+                detachedOrganizationId: string | null
+            ): boolean =>
                 isBillingManagedByPartner &&
+                currentOrganization?.id !== detachedOrganizationId &&
                 (currentOrganization?.membership_level ?? 0) >= OrganizationMembershipLevel.Owner,
         ],
     }),
@@ -129,7 +142,7 @@ export const payerDetachLogic = kea<payerDetachLogicType>([
                 )
                 return
             }
-            actions.detachFromPayerSuccess()
+            actions.detachFromPayerSuccess(organizationId)
         },
         detachFromPayerSuccess: () => {
             lemonToast.success('You now pay for this organization yourself.')

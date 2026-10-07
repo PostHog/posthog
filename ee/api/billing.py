@@ -6,7 +6,7 @@ from typing import Any, NoReturn, Optional, cast
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.http import HttpResponse, StreamingHttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -29,7 +29,6 @@ from posthog.event_usage import groups, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
-from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.permissions import get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.user_permissions import UserPermissions
@@ -41,6 +40,7 @@ from ee.billing.billing_manager import (
     BillingManager,
     BillingServiceResponseError,
     PayerDetachUnconfirmed,
+    get_billing_lock_partner,
     http_session,
     raise_if_billing_managed_by_partner,
 )
@@ -797,11 +797,15 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 raise PayerDetachRefused() from error
             raise PayerDetachOutcomeUnknown() from error
 
-        with transaction.atomic():
-            organization = Organization.objects.select_for_update(no_key=True).get(pk=organization.pk)
-            organization.partner_payer_detached_at = organization.partner_payer_detached_at or detached_at
-            organization.billing_has_payer = False
-            organization.save(update_fields=["partner_payer_detached_at", "billing_has_payer"])
+        try:
+            with transaction.atomic():
+                organization = Organization.objects.select_for_update(no_key=True).get(pk=organization.pk)
+                organization.partner_payer_detached_at = organization.partner_payer_detached_at or detached_at
+                organization.billing_has_payer = False
+                organization.save(update_fields=["partner_payer_detached_at", "billing_has_payer"])
+        except DatabaseError as error:
+            capture_exception(error, {"organization_id": str(organization.id)})
+            raise PayerDetachOutcomeUnknown() from error
         report_user_action(
             cast(User, request.user), "billing payer detached", organization=organization, request=request
         )

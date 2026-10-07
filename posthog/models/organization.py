@@ -194,7 +194,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
         ]
 
     class ProvisioningSource(models.TextChoices):
-        PROVISIONING_API = "provisioning_api"
+        PROVISIONING_API = "provisioning_api", "Provisioning API"
         STRIPE_PROJECTS = "stripe_projects"
         VERCEL = "vercel"
 

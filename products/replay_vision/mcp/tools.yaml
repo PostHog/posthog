@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product replay_vision
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product replay_vision
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Replay vision
 feature: replay_vision
 url_prefix: /replay-vision
@@ -124,9 +122,6 @@ tools:
             List replay vision alerts in the project, newest first. Pass `scanner_id` to list one scanner's alerts. Each
             alert returns its configuration plus its current `state` (`not_firing`, `firing`, `pending_resolve`,
             `errored`, `snoozed` or `broken`), `last_checked_at`, `next_check_at` and `last_notified_at`.
-    vision-alerts-replace:
-        operation: vision_alerts_update
-        enabled: false
     vision-alerts-reset:
         operation: vision_alerts_reset_create
         enabled: true
@@ -351,12 +346,6 @@ tools:
             defaults to 20 (max 50). Use `vision-observations-get` for a result's full detail, or
             `vision-observations-list` for everything observed about one session.
         requires_ai_consent: true
-    vision-observations-search-suggestions-retrieve:
-        operation: vision_observations_search_suggestions_retrieve
-        enabled: false
-    vision-observations-search-viewed-create:
-        operation: vision_observations_search_viewed_create
-        enabled: false
     vision-observations-signal-reports-list:
         operation: vision_observations_signal_reports_list
         enabled: true
@@ -373,12 +362,6 @@ tools:
             List the Signals inbox reports that a replay vision observation's emitted signals were grouped into, newest
             first. Empty when the scanner does not emit signals or the signals have not been grouped yet. Use it to go
             from a finding to the report tracking it.
-    vision-observations-thumbnail-retrieve:
-        operation: vision_observations_thumbnail_retrieve
-        enabled: false
-    vision-observations-viewed-create:
-        operation: vision_observations_viewed_create
-        enabled: false
     vision-quota-get:
         operation: environment_vision_quota_retrieve
         enabled: true
@@ -606,9 +589,6 @@ tools:
             - created_by
             - updated_at
         requires_ai_consent: true
-    vision-scanners-creators-retrieve:
-        operation: vision_scanners_creators_retrieve
-        enabled: false
     vision-scanners-delete:
         operation: vision_scanners_destroy
         enabled: true
@@ -816,9 +796,6 @@ tools:
                     Filter by enabled state. Accepts `enabled`, `disabled`, a comma-separated list of both, or the
                     boolean form `true` / `false`. Omit to list every scanner.
                 cast: boolean-string
-    vision-scanners-observations-create-task-create:
-        operation: vision_scanners_observations_create_task_create
-        enabled: false
     vision-scanners-observations-get:
         operation: vision_scanners_observations_retrieve
         enabled: true
@@ -846,12 +823,6 @@ tools:
             `model_output.chapters` breaks the recording into ordered parts; each chapter's `start_ms` seeks the same
             way.
         url_prefix: /replay
-    vision-scanners-observations-label-create:
-        operation: vision_scanners_observations_label_create
-        enabled: false
-    vision-scanners-observations-label-destroy:
-        operation: vision_scanners_observations_label_destroy
-        enabled: false
     vision-scanners-observations-list:
         operation: vision_scanners_observations_list
         enabled: true
@@ -896,12 +867,6 @@ tools:
                 - created_at
                 - scanner_id
                 - _posthogUrl
-    vision-scanners-observations-retry-create:
-        operation: vision_scanners_observations_retry_create
-        enabled: false
-    vision-scanners-observations-signal-reports-list:
-        operation: vision_scanners_observations_signal_reports_list
-        enabled: false
     vision-scanners-observations-stats:
         operation: vision_scanners_observations_stats_retrieve
         enabled: true
@@ -926,15 +891,6 @@ tools:
             scanner has results almost nobody has rated, so it has little to learn from. Say so, and ask the person to
             rate a few results. Record their verdicts with `vision-observations-label-create` rather than supplying your
             own.
-    vision-scanners-observations-thumbnail-retrieve:
-        operation: vision_scanners_observations_thumbnail_retrieve
-        enabled: false
-    vision-scanners-observations-viewed-create:
-        operation: vision_scanners_observations_viewed_create
-        enabled: false
-    vision-scanners-partial-update:
-        operation: vision_scanners_partial_update
-        enabled: false
     vision-scanners-scan-session:
         operation: vision_scanners_observe_create
         enabled: true
