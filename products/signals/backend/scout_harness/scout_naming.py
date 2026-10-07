@@ -20,6 +20,7 @@ from secrets import token_hex
 from django.utils.text import slugify
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.skill_loader import reserved_scout_name_error
 from products.skills.backend.api.skill_services import MAX_SKILL_NAME_LENGTH
 from products.skills.backend.models.skills import LLMSkill
 
@@ -73,12 +74,15 @@ def allocate_scout_slug(*, team_id: int, display_name: str, taken: set[str] | No
     `taken` adds names this caller has already tried and lost — the create path passes the slugs
     a concurrent create won from under it, so a retry does not re-pick one of them.
 
+    Candidates the scout name rule refuses are skipped, so "Trials" becomes `trials-2`: the create
+    path stores the slug without validating it, and a reserved one would open an inbox page.
+
     Best-effort, like every read-then-insert: the caller still has to handle losing the race.
     """
     base = slugify_scout_name(display_name)
     if not base:
         return fallback_scout_slug()
-    candidates = _slug_candidates(base)
+    candidates = [candidate for candidate in _slug_candidates(base) if reserved_scout_name_error(candidate) is None]
     # Matched against the exact candidates rather than a `startswith(base)` prefix, because a name
     # that fills the length cap has its base cut back to make room for the suffix: the candidate
     # after a 64-character `base` is `base[:62]-2`, which the prefix would not have found. Missing

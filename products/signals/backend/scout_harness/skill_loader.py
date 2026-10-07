@@ -26,8 +26,8 @@ RESERVED_SCOUT_NAMES: frozenset[str] = frozenset({"scratchpad", "findings", "run
 def reserved_scout_name_error(name: str) -> str | None:
     """Why `name` cannot be a scout name, or None when it can.
 
-    Applied by the scout create serializer and by explicit config registration — the two paths
-    that mint a scout — so both refuse the same set.
+    Applied by the scout create serializer, by explicit config registration, and by the slug
+    allocator — the paths that mint a scout — so all of them refuse the same set.
     """
     if name.lower() in RESERVED_SCOUT_NAMES:
         return (
