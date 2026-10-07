@@ -93,7 +93,7 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
     }
     if (status === PROPOSED_METRIC_STATUS && !isDrifted) {
         return {
-            NONCANONICAL: `status=proposed is_drifted=false. Not approved: use it only if its definition fits the question, open the answer with the 📝 proposed badge, and say why you used it.`,
+            NONCANONICAL: `status=proposed is_drifted=false. Not approved: use it only if its definition fits the question. If you use it, open the answer with '📝 **Proposed definition in your data catalog**: [<display_name>](<url>), not yet approved. Review it and approve it if it fits.', with the url from generate-app-url for '/data-catalog/metrics/{name}', and say in one sentence why you used it.`,
             ...envelope,
         }
     }

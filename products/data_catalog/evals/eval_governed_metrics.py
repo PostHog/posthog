@@ -292,8 +292,8 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             },
             setup=seed_top_customers_metric,
         ),
-        # Only a proposed metric exists: derive independently; noting the proposal is fine,
-        # presenting it as official is not.
+        # Only a proposed metric exists: using it with the proposed badge or deriving independently are
+        # both fine when the answer explains the choice; presenting it as official is not.
         SandboxedEvalCase(
             name="governed_metric_proposed_only",
             prompt="What's our activation rate? Is there an approved company definition I should be using?",

@@ -459,6 +459,7 @@ def test_new_catalog_scorers_self_skip_when_not_requested(scorer: Any, scorer_na
     [
         ("badge_expected_and_shown", True, "\U0001f6e1\ufe0f **From your data catalog**: MRR\n\n$42k", 1.0),
         ("badge_expected_but_missing", True, "MRR is $42k.", 0.0),
+        ("badge_expected_but_trailing", True, "MRR is $42k.\n\n\U0001f6e1\ufe0f **From your data catalog**: MRR", 0.0),
         ("no_badge_expected_and_none", False, "Activation is 31%.", 1.0),
         ("badge_claimed_for_unapproved", False, "\U0001f6e1 Activation is 31%.", 0.0),
     ]
@@ -480,7 +481,13 @@ _PROPOSED_LINK = "[Activation](https://example.com/project/1/data-catalog/metric
             f"\U0001f4dd **Proposed definition in your data catalog**: {_PROPOSED_LINK}",
             1.0,
         ),
-        ("ran_without_badge", "completed", "Activation is 31%.", 0.0),
+        ("ran_without_badge", "completed", f"Activation is 31%. {_PROPOSED_LINK}", 0.0),
+        (
+            "ran_with_badge_after_the_result",
+            "completed",
+            f"Activation is 31%.\n\n\U0001f4dd **Proposed definition in your data catalog**: {_PROPOSED_LINK}",
+            0.0,
+        ),
         (
             "ran_with_badge_but_no_link",
             "completed",

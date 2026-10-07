@@ -1127,7 +1127,7 @@ describe('exec tool', () => {
         }
 
         it.each([
-            ['proposed', { status: 'proposed', is_drifted: false }, 'use it only if its definition fits'],
+            ['proposed', { status: 'proposed', is_drifted: false }, "'/data-catalog/metrics/{name}'"],
             ['drifted proposed', { status: 'proposed', is_drifted: true }, 'Do not present this as the answer'],
             ['drifted approved', { status: 'approved', is_drifted: true }, 'Do not present this as the answer'],
             ['deprecated', { status: 'deprecated', is_drifted: false }, 'Do not present this as the answer'],

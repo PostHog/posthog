@@ -13,7 +13,7 @@ import json
 from typing import Any
 
 from products.data_catalog.evals.constants import (
-    APPROVED_BADGE_ICON,
+    APPROVED_BADGE_CODE_POINT,
     DEPRECATION_CANONICAL_SOURCE_NAME,
     DEPRECATION_STALE_SOURCE_NAME,
     EVAL_DESCRIPTION_CHAR_LIMIT,
@@ -44,7 +44,6 @@ __all__ = [
     "MetricsCatalogNotQueried",
     "GovernedBehaviorCorrectness",
     "ClarificationAsked",
-    "ProposedMetricNotRun",
     "MetricDescribeBeforeAdaptedSql",
     "ProposedBadgeShown",
     "TrustBadgeShown",
@@ -246,6 +245,10 @@ class MetricsCatalogBeforeDataDiscovery(Scorer):
                 },
             )
         return Score(name=self._name(), score=1.0, metadata={"failed_catalog_lookups": failed_catalog_lookups})
+
+
+def _first_line(answer: str) -> str:
+    return next((line for line in answer.splitlines() if line.strip()), "")
 
 
 def _expected_metric_names(metric_name: object) -> list[str]:
@@ -573,35 +576,6 @@ class ClarificationAsked(Scorer):
         return Score(name=self._name(), score=1.0, metadata={"question_position": first_question})
 
 
-class ProposedMetricNotRun(Scorer):
-    """Binary: the named non-approved metric must not have been run for the answer."""
-
-    def _name(self) -> str:
-        return "proposed_metric_not_run"
-
-    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        spec = expected.get(self._name()) if isinstance(expected, dict) else None
-        if spec is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
-        metric_name = spec.get("metric_name") if isinstance(spec, dict) else None
-        if not isinstance(metric_name, str) or not metric_name:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "metric_name is required"})
-        parser = _parser_for(output)
-        if parser is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-
-        runs = [
-            call
-            for call in parser.get_tool_calls(METRIC_RUN_TOOL)
-            if not call.is_error and call.input.get("name") == metric_name
-        ]
-        return Score(
-            name=self._name(),
-            score=0.0 if runs else 1.0,
-            metadata={"metric_name": metric_name, "runs": len(runs)},
-        )
-
-
 class MetricDescribeBeforeAdaptedSql(Scorer):
     """Soft: SQL adapted from a catalog definition should follow a `metric-describe`."""
 
@@ -913,12 +887,13 @@ class TrustBadgeShown(Scorer):
         if not answer:
             return Score(name=self._name(), score=0.0, metadata={"reason": "no final answer"})
 
-        # The variation selector is optional in rendered text, so match the shield code point alone.
-        has_badge = APPROVED_BADGE_ICON[0] in answer
+        opens_with_badge = APPROVED_BADGE_CODE_POINT in _first_line(answer)
+        has_badge = APPROVED_BADGE_CODE_POINT in answer
+        passed = opens_with_badge if should_show else not has_badge
         return Score(
             name=self._name(),
-            score=1.0 if has_badge is should_show else 0.0,
-            metadata={"expected_shown": should_show, "has_badge": has_badge},
+            score=1.0 if passed else 0.0,
+            metadata={"expected_shown": should_show, "opens_with_badge": opens_with_badge, "has_badge": has_badge},
         )
 
 
@@ -950,12 +925,12 @@ class ProposedBadgeShown(Scorer):
             return Score(name=self._name(), score=None, metadata={"reason": "proposed metric not used"})
 
         answer = (output or {}).get("last_message") or ""
-        badge_lines = [line for line in answer.splitlines() if PROPOSED_BADGE_ICON in line]
+        opening = _first_line(answer)
         # A markdown link whose target ends at this metric's page, so a bare path or a metric whose
         # name only starts the same way does not count.
         link = re.compile(rf"\]\([^)\s]*/data-catalog/metrics/{re.escape(metric_name)}(?:[?#][^)\s]*)?\)")
-        has_badge = bool(badge_lines)
-        has_link = any(link.search(line) for line in badge_lines)
+        has_badge = PROPOSED_BADGE_ICON in opening
+        has_link = bool(link.search(opening))
         return Score(
             name=self._name(),
             score=1.0 if has_badge and has_link else 0.0,
