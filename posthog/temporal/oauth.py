@@ -1,17 +1,16 @@
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import timedelta
 from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
 
 from django.conf import settings
-from django.utils import timezone
 
 import structlog
 
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
-from posthog.models import OAuthAccessToken, OAuthApplication
+from posthog.models import OAuthApplication
+from posthog.models.oauth import mint_oauth_access_token
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_oauth_access_token
 from posthog.scopes import (
     API_SCOPE_OBJECTS,
     INTERNAL_API_SCOPE_OBJECTS,
@@ -21,6 +20,10 @@ from posthog.scopes import (
     resolve_ceiling,
 )
 from posthog.utils import get_instance_region
+
+from products.security.backend.facade.api import access_refused as security_access_refused
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 
 logger = structlog.get_logger(__name__)
 
@@ -102,11 +105,18 @@ POSTHOG_AI_OAUTH_APP_CLIENT_IDS = frozenset(
     }
 )
 
+# The WebMCP proxy mints its tokens server-side against this CIMD application, so a request
+# bearing one is attributable to WebMCP for the same reason as above. The CIMD document lives in
+# the posthog.com repo, so one client_id serves every region.
+WEBMCP_APP_CLIENT_ID = "https://posthog.com/.well-known/oauth/webmcp/client-metadata.json"
+
 McpScopePreset = Literal[
     "read_only",
     "full",
     "signals_scout",
     "signals_scout_reports",
+    "signals_scout_experiment",
+    "signals_scout_judge",
     "signals_research",
     "signals_implementation",
 ]
@@ -235,6 +245,19 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          others meet. One scope object covers the whole surface, so the two
 #                          exclusions live in `products/replay_vision/backend/scout_writes.py`
 #                          instead: a scout cannot delete, and must cap what it creates or enables.
+#   customer_task:write    Every Customer analytics task in the scout's project: create, update
+#                          (status, due date, assignee, linked account) and archive. There is no
+#                          delete: archive is recoverable through restore, and every change is
+#                          written to the task's activity history. An update can reassign a task
+#                          to any member of the project, so the scout's body has to say whose
+#                          tasks it tends.
+#   hog_flow_proposal:write
+#                          Queue a suggested change on a workflow whose owner opted in, for a
+#                          person to approve or reject. Deliberately not `hog_flow:write`, which
+#                          also publishes, updates and test-sends a workflow: this scope can put
+#                          nothing in front of anyone. Creates only; a suggestion is resolved by
+#                          a person. A person grants it in the scout's write access settings, the
+#                          same way as every other scope here, so no scout holds it by default.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -242,16 +265,25 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 # reaches, or drop the scopes. `llm_skill:write` carries the same kind of open question: a scout
 # holding it can rewrite the skill body it runs from. That is accepted while the grant is a
 # deliberate per-scout choice a person makes, and the surfaces that offer it say so.
+# Grantable although INTERNAL, which normally means "never on a token a person can obtain". A scout
+# token is minted server-side from this allowlist and never through the consent flow, and the MCP
+# server gates each tool on the token's own scopes rather than on what OAuth advertises, so the grant
+# still reaches the run. Listed explicitly so a typo or a genuinely unreachable scope still fails
+# `test_grantable_write_scopes_are_mcp_write_scopes`.
+SCOUT_GRANTABLE_INTERNAL_SCOPES: frozenset[str] = frozenset({"hog_flow_proposal:write"})
+
 SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
     {
         "dashboard:write",
         "insight:write",
         "annotation:write",
         "alert:write",
+        "customer_task:write",
         "llm_skill:write",
         "warehouse_view:write",
         "warehouse_table:write",
         "replay_scanner:write",
+        "hog_flow_proposal:write",
     }
 )
 
@@ -259,7 +291,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
 # Derived from posthog.scopes so the token issued to a sandboxed agent cannot
 # drift out of subset of what the MCP server advertises in
 # `services/mcp/src/lib/oauth-scopes.generated.ts` (itself generated from
-# `get_oauth_scopes_supported()` via `bin/build-mcp-oauth-scopes.py`). Scopes
+# `get_oauth_scopes_supported()` via `posthog/scopes_projection.py`). Scopes
 # already covered by INTERNAL_SCOPES are excluded so resolve_scopes() doesn't
 # emit duplicates.
 def _build_mcp_scopes(action: Literal["read", "write"]) -> list[str]:
@@ -308,6 +340,8 @@ MCP_SCOPE_PRESETS = (
     "full",
     "signals_scout",
     "signals_scout_reports",
+    "signals_scout_experiment",
+    "signals_scout_judge",
     "signals_research",
     "signals_implementation",
 )
@@ -412,6 +446,21 @@ def resolve_scopes(
             # `RESEARCH_WITHHELD_SCOPES` for why `task:write` comes back out.
             reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
             resolved = [*reads, *scratchpad]
+        elif scopes == "signals_scout_judge":
+            resolved = ["scout_experiment_internal:read"] if include_internal_scopes else []
+        elif scopes == "signals_scout_experiment":
+            # Trials use a separate private Go token; their tool credential must not reach the legacy gateway.
+            reads = [
+                scope
+                for scope in (*MCP_READ_SCOPES, *internal)
+                if scope not in RESEARCH_WITHHELD_SCOPES and scope != "llm_gateway:read"
+            ]
+            private_writes = (
+                [*SCOUT_INTERNAL_SCOPES, *SCOUT_REPORT_SCOPES, "scout_experiment_internal:read"]
+                if include_internal_scopes
+                else []
+            )
+            resolved = [*reads, *private_writes]
         elif scopes in SCOUT_SCOPE_PRESETS:
             # The scout sandbox: reads, the scout's own internal write scope, and a narrow
             # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`) for the durable
@@ -459,6 +508,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
             "full",
             "signals_scout",
             "signals_scout_reports",
+            "signals_scout_experiment",
             "signals_research",
             "signals_implementation",
         )
@@ -551,22 +601,18 @@ def get_sandbox_oauth_app(application: SandboxOAuthApplication = "array") -> OAu
     return get_array_app()
 
 
-def _mint_oauth_access_token(
+def _mint_run_access_token(
     user, team_id: int, *, app: OAuthApplication, scopes: list[str], sandbox_task_id: UUID | None = None
 ) -> str:
-    token_value = generate_random_oauth_access_token(None)
-
-    OAuthAccessToken.objects.create(
-        user=user,
+    access_token = mint_oauth_access_token(
         application=app,
-        token=token_value,
-        expires=timezone.now() + timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
+        user=user,
         scope=" ".join(dict.fromkeys(scopes)),
+        lifetime=timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
         scoped_teams=[team_id],
         sandbox_task_id=sandbox_task_id,
     )
-
-    return token_value
+    return access_token.token
 
 
 def create_oauth_access_token_for_user(
@@ -580,8 +626,13 @@ def create_oauth_access_token_for_user(
     include_slack_run_scope: bool = False,
     application: SandboxOAuthApplication = "array",
     sandbox_task_id: UUID | None = None,
+    withhold_scopes: Collection[str] = (),
 ) -> str:
-    resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
+    resolved = [
+        scope
+        for scope in resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
+        if scope not in withhold_scopes
+    ]
     if include_mcp_builtin_agent_scope:
         # Provenance marker: the MCP Store uses it to deny the human/member
         # surface and route the agent through its explicit gateway grants. It
@@ -594,7 +645,7 @@ def create_oauth_access_token_for_user(
     if include_slack_run_scope:
         resolved.append(SLACK_RUN_SCOPE)
     app = get_sandbox_oauth_app(application)
-    return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
+    return _mint_run_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
 
 
 def get_wizard_app() -> OAuthApplication:
@@ -625,14 +676,31 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     Gated here rather than only at the HTTP kickoff, which a workflow retry or
     resume reaches with no request in front of it.
     """
+    organization_id = _organization_id_for_team(team_id)
     if wizard_identity_blocked(
         distinct_id=str(user.distinct_id),
         email=user.email,
         surface="wizard_mint",
         user_uuid=str(user.uuid),
-        organization_ids=[_organization_id_for_team(team_id)],
+        organization_ids=[organization_id],
         team_ids=[team_id],
     ):
+        raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
+
+    try:
+        refused = security_access_refused(
+            SecuritySubject(
+                email=user.email,
+                user_uuid=str(user.uuid),
+                organization_ids=(organization_id,),
+            ),
+            SecuritySurface.AI_GATEWAY,
+            call_site="wizard_mint",
+        )
+    except Exception:
+        logger.exception("security_access_check_site_failed", call_site="wizard_mint")
+        refused = False
+    if refused:
         raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
 
     app = get_wizard_app()
@@ -641,4 +709,4 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     if ceiling is None or len(ceiling) == 0:
         raise RuntimeError("Wizard app has no scope ceiling. Must be configured in the database.")
 
-    return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(ceiling))
+    return _mint_run_access_token(user, team_id, app=app, scopes=sorted(ceiling))

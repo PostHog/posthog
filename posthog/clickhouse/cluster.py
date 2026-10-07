@@ -9,16 +9,25 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
 from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
 from copy import copy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
-from typing import Any, ClassVar, Generic, Literal, NamedTuple, Optional, TypeVar
+from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
 
 from clickhouse_driver import Client
 from clickhouse_driver.errors import ServerException
 from clickhouse_pool import ChPool
 
 from posthog import settings
-from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_pool, default_client
+from posthog.clickhouse.client.connection import (
+    ClickHouseUser,
+    NodeRole,
+    Workload,
+    _make_ch_pool,
+    default_client,
+    get_clickhouse_creds,
+    is_file_backed_user,
+)
+from posthog.dataclasses import frozen
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, TEST
 
@@ -166,6 +175,7 @@ class ClickhouseCluster:
         retry_policy: RetryPolicy | None = None,
         connection_overrides: Mapping[str, Any] | None = None,
         shard_role: NodeRole = NodeRole.DATA,
+        bootstrap_credential_provider: Callable[[], str] | None = None,
     ) -> None:
         if logger is None:
             logger = logging.getLogger(__name__)
@@ -183,7 +193,16 @@ class ClickhouseCluster:
         # nodes whose role is `events`, and reading their shard numbers as absent would leave this
         # handle with no shards to dispatch over at all.
         self.__shard_role = shard_role
-        cluster_hosts = self.__get_cluster_hosts(bootstrap_client, migrations_cluster, retry_policy)
+        self.__bootstrap_credential_provider = bootstrap_credential_provider
+        # A token login fails while the ch-podauth bridge on the answering node is down, so discovery retries it.
+        discovery_retry_policy = retry_policy
+        if bootstrap_credential_provider is not None:
+            discovery_retry_policy = (
+                retry_policy.also_retrying(_is_authentication_failure)
+                if retry_policy is not None
+                else _REJECTED_LOGIN_RETRY_POLICY
+            )
+        cluster_hosts = self.__get_cluster_hosts(bootstrap_client, migrations_cluster, discovery_retry_policy)
 
         for row in cluster_hosts:
             (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
@@ -204,7 +223,7 @@ class ClickhouseCluster:
         # the main posthog cluster which has the complete shard topology
         if data_cluster and data_cluster != migrations_cluster:
             self.__shards.clear()
-            data_hosts = self.__get_cluster_hosts(bootstrap_client, data_cluster, retry_policy)
+            data_hosts = self.__get_cluster_hosts(bootstrap_client, data_cluster, discovery_retry_policy)
             for row in data_hosts:
                 (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
                 if host_cluster_role == shard_role:
@@ -227,7 +246,7 @@ class ClickhouseCluster:
 
         for satellite_name in satellite_clusters or []:
             satellite_hosts = self.__get_satellite_cluster_hosts(
-                bootstrap_client, satellite_name, migrations_cluster, retry_policy
+                bootstrap_client, satellite_name, migrations_cluster, discovery_retry_policy
             )
             logger.info("Discovered %d hosts from satellite cluster %r", len(satellite_hosts), satellite_name)
             for row in satellite_hosts:
@@ -295,23 +314,30 @@ class ClickhouseCluster:
                 retry_policy=self.__retry_policy,
                 connection_overrides=self.__connection_overrides,
                 shard_role=shard_role,
+                bootstrap_credential_provider=self.__bootstrap_credential_provider,
             )
         return sibling
 
+    def __stamp_bootstrap_credential(self, client: Client) -> None:
+        # sibling() runs discovery on this client hours into a job, and a reconnect sends the stored password.
+        if self.__bootstrap_credential_provider is not None:
+            client.connection.password = self.__bootstrap_credential_provider()
+
     def __get_cluster_hosts(self, client: Client, cluster: str, retry_policy: RetryPolicy | None = None):
-        get_cluster_hosts_fn = lambda client: client.execute(
-            f"""
-            SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
-            FROM clusterAllReplicas(%(name)s, system.clusters)
-            WHERE name = %(name)s and is_local
-            ORDER BY shard_num, replica_num
-            """,
-            {"name": cluster},
-        )
+        def get_cluster_hosts_fn(client: Client) -> list[tuple[Any, ...]]:
+            self.__stamp_bootstrap_credential(client)
+            return client.execute(
+                f"""
+                SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+                FROM clusterAllReplicas(%(name)s, system.clusters)
+                WHERE name = %(name)s and is_local
+                ORDER BY shard_num, replica_num
+                """,
+                {"name": cluster},
+            )
 
         if retry_policy is not None:
-            get_cluster_hosts_fn = retry_policy(get_cluster_hosts_fn)
-
+            return retry_policy(get_cluster_hosts_fn)(client)
         return get_cluster_hosts_fn(client)
 
     def __get_satellite_cluster_hosts(
@@ -321,19 +347,20 @@ class ClickhouseCluster:
         migrations_cluster: str,
         retry_policy: RetryPolicy | None = None,
     ):
-        get_hosts_fn = lambda client: client.execute(
-            """
-            SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
-            FROM clusterAllReplicas(%(satellite_name)s, system.clusters)
-            WHERE is_local AND cluster = %(migrations_cluster)s
-            ORDER BY shard_num, replica_num
-            """,
-            {"satellite_name": satellite_cluster, "migrations_cluster": migrations_cluster},
-        )
+        def get_hosts_fn(client: Client) -> list[tuple[Any, ...]]:
+            self.__stamp_bootstrap_credential(client)
+            return client.execute(
+                """
+                SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+                FROM clusterAllReplicas(%(satellite_name)s, system.clusters)
+                WHERE is_local AND cluster = %(migrations_cluster)s
+                ORDER BY shard_num, replica_num
+                """,
+                {"satellite_name": satellite_cluster, "migrations_cluster": migrations_cluster},
+            )
 
         if retry_policy is not None:
-            get_hosts_fn = retry_policy(get_hosts_fn)
-
+            return retry_policy(get_hosts_fn)(client)
         return get_hosts_fn(client)
 
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
@@ -616,8 +643,20 @@ def get_cluster(
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
         extra_hosts.append(ConnectionInfo(host_config.pop("host"), None))
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
+
+    creds = get_clickhouse_creds(ClickHouseUser.DEFAULT)
+    overrides = dict(connection_overrides or {})
+    bootstrap_credential_provider: Callable[[], str] | None = None
+    if is_file_backed_user(creds, Workload.DEFAULT, creds.user):
+        bootstrap_credential_provider = creds.read_password
+        bootstrap_client = default_client(host=host, password=creds.read_password())
+        if not overrides.keys() & {"user", "password", "credential_provider"}:
+            overrides["credential_provider"] = creds.read_password
+    else:
+        bootstrap_client = default_client(host=host)
+
     return ClickhouseCluster(
-        default_client(host=host),
+        bootstrap_client,
         extra_hosts=extra_hosts,
         logger=logger,
         client_settings=client_settings,
@@ -625,7 +664,8 @@ def get_cluster(
         data_cluster=data_cluster,
         satellite_clusters=satellite_clusters,
         retry_policy=retry_policy,
-        connection_overrides=connection_overrides,
+        connection_overrides=overrides,
+        bootstrap_credential_provider=bootstrap_credential_provider,
     )
 
 
@@ -679,38 +719,30 @@ class Query:
         return f"Query(query={query!r}, parameters={params_repr}, settings={self.settings!r})"
 
 
-@dataclass
-class ExponentialBackoff:
-    delay: float
-    max_delay: Optional[float] = None
-    exp: float = 2.0
-
-    def __call__(self, attempt: int) -> float:
-        delay = self.delay * (attempt**self.exp)
-        return min(delay, self.max_delay) if self.max_delay is not None else delay
-
-
-@dataclass
+@frozen
 class RetryPolicy:
     max_attempts: int
     delay: float | Callable[[int], float]
     exceptions: tuple[type[Exception], ...] | Callable[[Exception], bool] = (Exception,)
 
     def __call__(self, fn: Callable[[Client], T]) -> Retryable[T]:
-        return Retryable(fn, self)
+        return Retryable(callable=fn, policy=self)
+
+    def is_retryable(self, e: Exception) -> bool:
+        if isinstance(self.exceptions, tuple):
+            return isinstance(e, self.exceptions)
+        return self.exceptions(e)
+
+    def also_retrying(self, predicate: Callable[[Exception], bool]) -> RetryPolicy:
+        return replace(self, exceptions=lambda e: predicate(e) or self.is_retryable(e))
 
 
-@dataclass
+@frozen
 class Retryable(Generic[T]):  # note: this class exists primarily to allow a readable __repr__
     callable: Callable[[Client], T]
     policy: RetryPolicy
 
     def __call__(self, client: Client) -> T:
-        if isinstance(self.policy.exceptions, tuple):
-            is_retryable_exception = lambda e: isinstance(e, self.policy.exceptions)
-        else:
-            is_retryable_exception = self.policy.exceptions
-
         if not callable(self.policy.delay):
 
             def delay_fn(_):
@@ -723,7 +755,7 @@ class Retryable(Generic[T]):  # note: this class exists primarily to allow a rea
             try:
                 return self.callable(client)
             except Exception as e:
-                if is_retryable_exception(e) and attempt < self.policy.max_attempts:
+                if self.policy.is_retryable(e) and attempt < self.policy.max_attempts:
                     delay = delay_fn(attempt)
                     logger.warning(
                         "Failed to execute %r (attempt #%s, retry in %0.2fs): %s", self.callable, attempt, delay, e
@@ -739,8 +771,26 @@ class MutationNotFound(Exception):
     pass
 
 
+# The other replicas of a shard fetch a patch part asynchronously, so a read straight after a
+# patch-part sweep can still see the rows on a replica that has not fetched it. This is a grace
+# period before such a read, not a guarantee: a replica that lags longer still shows the rows.
+PATCH_PART_REPLICATION_GRACE_SECONDS = 0 if settings.TEST else 60
+
+
+def wait_for_patch_part_replication() -> None:
+    time.sleep(PATCH_PART_REPLICATION_GRACE_SECONDS)
+
+
 # not present in clickhouse_driver.errors.ErrorCodes; see ClickHouse src/Common/ErrorCodes.cpp
 TOO_MANY_MUTATIONS = 692
+AUTHENTICATION_FAILED = 516
+
+
+def _is_authentication_failure(e: Exception) -> bool:
+    return isinstance(e, ServerException) and e.code == AUTHENTICATION_FAILED
+
+
+_REJECTED_LOGIN_RETRY_POLICY = RetryPolicy(max_attempts=3, delay=5, exceptions=_is_authentication_failure)
 
 
 @dataclass
@@ -798,8 +848,13 @@ class MutationWaiters:
             waiter.wait(client)
 
 
-def wait_for_mutations_on_shards(cluster: ClickhouseCluster, shard_mutations: Mapping[int, MutationWaiter]) -> None:
-    """Block until every mutation in ``shard_mutations`` is complete on all hosts within its shard."""
+def wait_for_mutations_on_shards(
+    cluster: ClickhouseCluster, shard_mutations: Mapping[int, MutationWaiter | MutationWaiters]
+) -> None:
+    """Block until every mutation in ``shard_mutations`` is complete on all hosts within its shard.
+
+    A shard's value can bundle several mutations, which is how a sweep spanning tables waits on one.
+    """
     # during periods of elevated replication lag, it may take some time for mutations to become available on
     # the shards, so give them a little bit of breathing room with retries
     retry_policy = RetryPolicy(max_attempts=3, delay=10.0, exceptions=(MutationNotFound,))
@@ -830,6 +885,10 @@ class MutationRunner(abc.ABC):
     # system.mutations, and adopting that finished mutation deletes nothing while reporting done.
     # None keeps the unbounded match, which is right only where the command text pins the data.
     reuse_since: datetime | None = field(default=None, kw_only=True)
+    # Run the statement as a lightweight update or delete, which writes a patch part and returns once
+    # it is written. There is no mutation in system.mutations to adopt, wait for capacity on, or poll.
+    # The table needs enable_block_number_column and enable_block_offset_column.
+    patch_parts: bool = field(default=False, kw_only=True)
 
     @abc.abstractmethod
     def get_all_commands(self) -> Set[str]:
@@ -851,6 +910,17 @@ class MutationRunner(abc.ABC):
         that can be used to check the status of the mutation and wait for it to be finished.
         """
         expected_commands = self.get_all_commands()
+
+        if self.patch_parts:
+            # lightweight_force fails the statement where a patch part is not possible, rather than
+            # running a mutation this runner would never wait for.
+            settings = {
+                **self.settings,
+                "lightweight_delete_mode": "lightweight_update_force",
+                "alter_update_mode": "lightweight_force",
+            }
+            client.execute(self.get_statement(expected_commands), self.parameters, settings=settings)
+            return MutationWaiter(self.table, set())
 
         if self.force:
             logger.info(
@@ -959,6 +1029,12 @@ class MutationRunner(abc.ABC):
         # value containing the heredoc delimiter would close it early and the rest would parse as
         # SQL. Mutation parameters carry third-party strings (a person's distinct_id), so that is
         # reachable input, and the injection is silent because the surrounding array keeps its length.
+        # Render with this connection's context so datetimes are converted to the server timezone exactly
+        # as `client.execute` does when the mutation is submitted. A fresh pooled client has not connected
+        # yet and has no `server_info`, so connect first. Use a query rather than `force_connect()`, which
+        # leaves the connection marked mid-query and makes the next execute raise PartiallyConsumedQueryError.
+        if client.connection.context.server_info is None:
+            client.execute("SELECT 1")
         rendered_commands = [
             client.substitute_params(f"{alter_prefix}{cmd}", self.parameters, client.connection.context)
             for cmd in command_list

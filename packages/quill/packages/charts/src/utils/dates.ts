@@ -201,18 +201,24 @@ function isDateOnlyLabel(label: string | number): boolean {
     return typeof label === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(label)
 }
 
+const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
+
 function inferInterval(parsedDates: Dayjs[], dateOnlyLabels: boolean): TimeInterval {
-    if (parsedDates.length < 2) {
+    // Use the smallest gap, not the first one, so one early outlier in a sparse daily series
+    // does not make the whole axis look monthly.
+    const gapMs = smallestWallClockGapMs(parsedDates)
+    if (gapMs === null) {
         return 'day'
     }
-    const diffHours = Math.abs(parsedDates[1].diff(parsedDates[0], 'hour'))
+    const diffHours = gapMs / HOUR_MS
     if (diffHours < 1) {
         return 'minute'
     }
     if (!dateOnlyLabels && diffHours < 24) {
         return 'hour'
     }
-    const diffDays = Math.abs(parsedDates[1].diff(parsedDates[0], 'day'))
+    const diffDays = Math.floor(gapMs / DAY_MS)
     if (diffDays >= 300) {
         return 'year'
     }
@@ -226,6 +232,23 @@ function inferInterval(parsedDates: Dayjs[], dateOnlyLabels: boolean): TimeInter
         return 'week'
     }
     return 'day'
+}
+
+// Wall-clock gaps ignore UTC offset changes, so a daily gap across a DST switch stays 24 hours.
+function smallestWallClockGapMs(parsedDates: Dayjs[]): number | null {
+    let smallest: number | null = null
+    for (let i = 1; i < parsedDates.length; i++) {
+        const prev = parsedDates[i - 1]
+        const curr = parsedDates[i]
+        if (!prev.isValid() || !curr.isValid()) {
+            continue
+        }
+        const gap = Math.abs(curr.valueOf() - prev.valueOf() + (curr.utcOffset() - prev.utcOffset()) * 60 * 1000)
+        if (gap > 0 && (smallest === null || gap < smallest)) {
+            smallest = gap
+        }
+    }
+    return smallest
 }
 
 function buildDayStartIndices(parsedDates: Dayjs[]): Set<number> {

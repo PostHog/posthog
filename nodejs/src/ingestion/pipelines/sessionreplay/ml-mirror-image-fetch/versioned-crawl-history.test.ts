@@ -23,6 +23,7 @@ describe('VersionedCrawlHistory', () => {
         const history = new VersionedCrawlHistory(shared, images)
         const september = 'imageurl:v2:7:2026-09:aaaaaaaaaaaaaaaaaaaaaa'
         const october = september.replace('2026-09', '2026-10')
+        const septemberV3 = september.replace(':v2:', ':v3:')
         const origin = 'https://example.com'
         const policies = (['robots', 'tdmrep'] as const).map((kind) => ({
             kind,
@@ -39,9 +40,15 @@ describe('VersionedCrawlHistory', () => {
             { kind: 'url', key: september, nextFetchAtMs: 100, storageExpiresAtMs: 1000, outcome: 'fetched' },
             ...policies,
         ])
-        const result = await history.read([september, october, ...policies.map((item) => item.key)])
+        const result = await history.read([september, october, septemberV3, ...policies.map((item) => item.key)])
         expect(result.has(september)).toBe(true)
         expect(result.has(october)).toBe(false)
+        expect(result.has(septemberV3)).toBe(false)
+        await history.write([
+            { kind: 'url', key: septemberV3, nextFetchAtMs: 100, storageExpiresAtMs: 1000, outcome: 'fetched' },
+        ])
+        expect([...images.items.keys()]).toEqual([september, septemberV3])
+        images.items.delete(septemberV3)
         expect([...shared.items.keys()]).toEqual(policies.map((item) => item.key))
         expect(policies.every((item) => result.get(item.key) === item)).toBe(true)
         expect([...images.items.keys()]).toEqual([september])

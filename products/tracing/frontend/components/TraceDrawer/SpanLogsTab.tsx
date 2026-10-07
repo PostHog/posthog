@@ -7,6 +7,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer/LogsViewer'
 
+import { isAiEventSpan } from '../../aiEventSpans'
 import { traceLookupDateRange } from '../../traceLinks'
 import { buildLogScopeFilter, logsDeepLinkUrl, type TraceLogScope } from '../../traceLogScope'
 import type { Span } from '../../types'
@@ -17,6 +18,12 @@ import type { Span } from '../../types'
 // scope — the viewer's own filters can only narrow within it — and this toggle is the scope control.
 export function SpanLogsTab({ span }: { span: Span }): JSX.Element {
     const [scope, setScope] = useState<TraceLogScope>('trace')
+    // An AI row has no OTel span id to match logs on, so it stays on the trace even when the
+    // user picked "This span" on a real span. The pick comes back when they select a real span.
+    const spanScopeDisabledReason = isAiEventSpan(span)
+        ? "AI events don't have their own span, so logs show for the whole trace"
+        : undefined
+    const effectiveScope: TraceLogScope = spanScopeDisabledReason ? 'trace' : scope
 
     // `initialFilters` (the date range) is stable across scope changes — recompute only when the
     // span timestamp changes. Otherwise a scope toggle would mint a fresh `initialFilters` object;
@@ -32,10 +39,10 @@ export function SpanLogsTab({ span }: { span: Span }): JSX.Element {
     const ids = useMemo(() => ({ traceId: span.trace_id, spanId: span.span_id }), [span.trace_id, span.span_id])
     const { pinnedFilters, deepLink } = useMemo(
         () => ({
-            pinnedFilters: buildLogScopeFilter(scope, ids),
-            deepLink: logsDeepLinkUrl(scope, ids, dateRange),
+            pinnedFilters: buildLogScopeFilter(effectiveScope, ids),
+            deepLink: logsDeepLinkUrl(effectiveScope, ids, dateRange),
         }),
-        [scope, ids, dateRange]
+        [effectiveScope, ids, dateRange]
     )
 
     return (
@@ -43,11 +50,11 @@ export function SpanLogsTab({ span }: { span: Span }): JSX.Element {
             <div className="flex items-center justify-between gap-2">
                 <LemonSegmentedButton
                     size="xsmall"
-                    value={scope}
+                    value={effectiveScope}
                     onChange={setScope}
                     options={[
                         { value: 'trace', label: 'Whole trace' },
-                        { value: 'span', label: 'This span' },
+                        { value: 'span', label: 'This span', disabledReason: spanScopeDisabledReason },
                     ]}
                     data-attr="tracing-logs-scope"
                 />

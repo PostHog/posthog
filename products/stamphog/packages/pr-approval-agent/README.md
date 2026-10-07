@@ -282,7 +282,7 @@ Those files are still readable as untrusted _content_ under the anti-injection n
 The diff scratch file is created with `mkstemp` under an unpredictable name, so a tracked symlink in the tree cannot redirect the write.
 
 The base commit of a stacked PR is its parent branch tip, which the checkout does not necessarily carry.
-`github.ensure_commits` fetches it for `review_pr.py`, and `review_local.py` expects the caller to have fetched it during the clone.
+`github.ensure_commits` fetches it for `review_pr.py`. The hosted server instead passes the merge base in the context, and `review_local.py` diffs `merge_base..head` against the shallow checkout.
 
 ## Tiers
 
@@ -335,6 +335,16 @@ So a Cargo.lock bump hard-denies on its own but doesn't silence the scripts guar
 
 A deny category may carry `exempt_path_prefixes`, for code that legitimately looks like a sensitive domain without touching one.
 
+A deny category may also carry `exempt_author_teams`, a list of bare GitHub team slugs.
+It makes the category owner-only: the category does not deny a PR whose author is on one of the teams, and denies everyone else's, so stamphog approves those paths only for the team that owns them.
+The deny-list gate message names the teams, so a refused author knows who has to review.
+Membership comes from GitHub, never from the PR.
+The hosted server looks up every team the author is on, and a local run asks GitHub per team.
+A failed lookup counts as no team, so the category denies.
+Bot authors are never on a team.
+The `stamphog_policy` category cannot carry the key, because a team that may approve policy edits could widen its own exemption.
+Unlike CODEOWNERS, the category only stops stamphog: any human approval still counts on GitHub.
+
 The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe).
 The check is the same signal humans see in the PR's Checks tab.
 See `migration_risk.py` for how the engine reads it.
@@ -349,6 +359,9 @@ A retry against the now-classified head commit reviews it properly.
 Ownership context for the LLM, not a hard gate.
 The sources are declared in `policy.yml` under `ownership:` and read from the checked-out tree: a `hogli-resolver` source that resolves ownership through the shared hogli resolver over the distributed `owners.yaml` / `product.yaml` files.
 A file's owning teams are the union across all sources.
+A repo that vendors this directory does not need to vendor the resolver as well: add a pinned `owners-yaml` from PyPI to the script dependencies of `review_pr.py`.
+Pin the version, because a new release can change how paths resolve.
+In this monorepo and in the review sandbox, the engine uses the resolver that ships beside it, so the two always match.
 Cross-team typo, test and comment fixes are fine, as are small well-tested behavioral fixes (T1a/T1b) with no outstanding reviewer concerns.
 API contract, data model, and larger behavioral changes get escalated.
 

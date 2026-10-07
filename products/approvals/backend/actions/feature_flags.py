@@ -1,12 +1,35 @@
 from abc import abstractmethod
 from typing import Any, Optional
+from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Model
 
 from products.approvals.backend.actions.base import BaseAction
 from products.approvals.backend.exceptions import ApplyFailed, PreconditionFailed
+from products.approvals.backend.ownership import OWNER_KIND_UNOWNED, owner_kind_changed
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.ownership import flag_owner_kind
+
+
+def _to_wire_form(value: Any) -> Any:
+    """Convert deserialized related objects in a validated change back to primary keys.
+
+    A related field on FeatureFlagSerializer deserializes to model instances, so
+    `analytics_dashboards` reaches the gate as a list of Dashboard objects. The intent must hold
+    the wire form instead, because `intent` is a JSONField and because `validate_intent` and
+    `apply` both feed `full_request_data` back through the serializer, which accepts a primary
+    key and rejects an instance. A UUID primary key becomes a string, because JSON has no UUID
+    type and PrimaryKeyRelatedField accepts the string form.
+    """
+    if isinstance(value, Model):
+        return str(value.pk) if isinstance(value.pk, UUID) else value.pk
+    if isinstance(value, list | tuple):
+        return [_to_wire_form(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _to_wire_form(item) for key, item in value.items()}
+    return value
 
 
 def _get_validated_change(request, view, *args, **kwargs) -> dict[str, Any]:
@@ -44,7 +67,7 @@ def _get_validated_change(request, view, *args, **kwargs) -> dict[str, Any]:
         normalized.setdefault("filters", change["get_filters"])
         change = normalized
 
-    return change
+    return {key: _to_wire_form(value) for key, value in change.items()}
 
 
 def _get_flag_instance(view, *args, **kwargs) -> Optional[FeatureFlag]:
@@ -59,6 +82,15 @@ def _get_flag_instance(view, *args, **kwargs) -> Optional[FeatureFlag]:
         instance = args[0] if args else None
         return instance if isinstance(instance, FeatureFlag) else None
     return view.get_object()
+
+
+def _flag_target_filter(intent_data: dict[str, Any]) -> dict[str, Any]:
+    # An update of an existing flag can reach the gate as a POST, for example an experiment launch,
+    # so it has no resource id either. Match it on the flag id, because the key can change while the
+    # request waits. Only a create has no flag id, so a create matches other creates by key.
+    if intent_data["flag_id"] is not None:
+        return {"intent__flag_id": intent_data["flag_id"]}
+    return {"intent__flag_id": None, "intent__flag_key": intent_data["flag_key"]}
 
 
 def _check_version_staleness(intent_data: dict[str, Any], context: Optional[dict[str, Any]] = None) -> bool:
@@ -77,6 +109,43 @@ def _check_version_staleness(intent_data: dict[str, Any], context: Optional[dict
         return True
 
     return False
+
+
+def _derive_flag_owner_kind(team, resource_id: Optional[str], intent_data: dict[str, Any]) -> Optional[str]:
+    """Classify the flag this change targets, for the ownership record on the change request.
+
+    A create has no flag yet, so there is nothing to classify and nothing to re-verify; the same
+    is true once a flag can no longer be resolved. Both return None rather than a wrong answer.
+    """
+    flag_id = intent_data.get("flag_id") or resource_id
+    if not flag_id:
+        return None
+
+    try:
+        # nosemgrep: idor-lookup-without-team (project_id comes from the change request's own team)
+        flag = FeatureFlag.objects.get(id=flag_id, team__project_id=team.project_id)
+    except (FeatureFlag.DoesNotExist, ValueError, TypeError):
+        return None
+
+    return flag_owner_kind(flag) or OWNER_KIND_UNOWNED
+
+
+def _check_flag_staleness(intent_data: dict[str, Any], context: Optional[dict[str, Any]] = None) -> bool:
+    """Whether the flag moved out from under a pending change request.
+
+    Two ways it can: the flag itself was edited, or a different product adopted it. The second
+    matters on its own, because which policy applies is keyed on the owner, so an owner change
+    puts the request in front of the wrong approvers.
+    """
+    if _check_version_staleness(intent_data, context):
+        return True
+
+    instance = context.get("instance") if context else None
+    if instance is None:
+        return False
+
+    recorded = context.get("recorded_owner_kind") if context else None
+    return owner_kind_changed(recorded, flag_owner_kind(instance) or OWNER_KIND_UNOWNED)
 
 
 def _resolve_existing_flag(change_request) -> Optional[FeatureFlag]:
@@ -161,12 +230,25 @@ class FeatureFlagActionBase(BaseAction):
     target_active_state: bool
 
     @classmethod
+    def derive_owner_kind(
+        cls,
+        team,
+        resource_id: Optional[str],
+        intent_data: dict[str, Any],
+    ) -> Optional[str]:
+        return _derive_flag_owner_kind(team, resource_id, intent_data)
+
+    @classmethod
+    def get_target_filter(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
+        return _flag_target_filter(intent_data)
+
+    @classmethod
     def check_staleness(
         cls,
         intent_data: dict[str, Any],
         context: Optional[dict[str, Any]] = None,
     ) -> bool:
-        return _check_version_staleness(intent_data, context)
+        return _check_flag_staleness(intent_data, context)
 
     @classmethod
     def validate_intent(
@@ -194,6 +276,8 @@ class FeatureFlagActionBase(BaseAction):
         instance = _resolve_existing_flag(change_request)
         if instance is not None:
             context["instance"] = instance
+
+        context["recorded_owner_kind"] = change_request.owner_kind
 
         return context
 
@@ -398,12 +482,25 @@ class UpdateFeatureFlagAction(BaseAction):
     intent_fields = ["rollout_percentage"]
 
     @classmethod
+    def derive_owner_kind(
+        cls,
+        team,
+        resource_id: Optional[str],
+        intent_data: dict[str, Any],
+    ) -> Optional[str]:
+        return _derive_flag_owner_kind(team, resource_id, intent_data)
+
+    @classmethod
+    def get_target_filter(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
+        return _flag_target_filter(intent_data)
+
+    @classmethod
     def check_staleness(
         cls,
         intent_data: dict[str, Any],
         context: Optional[dict[str, Any]] = None,
     ) -> bool:
-        return _check_version_staleness(intent_data, context)
+        return _check_flag_staleness(intent_data, context)
 
     @classmethod
     def _extract_rollout_percentages(cls, filters: dict[str, Any]) -> list[dict[str, Any]]:
@@ -532,6 +629,11 @@ class UpdateFeatureFlagAction(BaseAction):
 
         triggered_paths = cls._get_triggered_paths(old_filters, new_filters)
 
+        # A caller exempt from the serializer's opportunistic filter cleanup stays exempt when
+        # the approved change replays, the way the lifecycle base records it. Without this an
+        # approved rollout writes the filters back without `super_groups` and `holdout_groups`.
+        skip_cleanup = bool(getattr(request, "skip_opportunistic_filter_cleanup", False))
+
         return {
             "flag_id": flag.id if flag is not None else None,
             "flag_key": flag.key if flag is not None else change.get("key"),
@@ -547,6 +649,7 @@ class UpdateFeatureFlagAction(BaseAction):
                 "version": flag.version if flag is not None else None,
                 "updated_at": (flag.updated_at.isoformat() if flag.updated_at else None) if flag is not None else None,
             },
+            "skip_opportunistic_filter_cleanup": skip_cleanup,
         }
 
     @classmethod
@@ -575,6 +678,8 @@ class UpdateFeatureFlagAction(BaseAction):
         instance = _resolve_existing_flag(change_request)
         if instance is not None:
             context["instance"] = instance
+
+        context["recorded_owner_kind"] = change_request.owner_kind
 
         return context
 

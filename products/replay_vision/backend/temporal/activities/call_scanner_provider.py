@@ -1,7 +1,8 @@
-"""Run a scanner as a multi-turn, tool-using Gemini conversation over the cached video.
+"""Run a scanner as a multi-turn Gemini conversation over the cached video.
 
 Each scan is a shared preamble plus the scanner's ordered `mission_steps` (one structured turn each). The video
-is cached once so the steps don't re-process it; the model pulls analytics events on demand via `get_events_around`.
+is cached once so the steps don't re-process it. Before the core step answers, the model gets one lookup round:
+it lists the moments it wants analytics events and network requests for, and the next turn carries all of them.
 Each step validates its own output and re-prompts once on failure; required steps abort the scan, best-effort steps
 (signals) just contribute nothing.
 """
@@ -11,8 +12,9 @@ import math
 import time
 import asyncio
 import functools
+import dataclasses
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, TypeVar
@@ -36,46 +38,38 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
+from products.replay_vision.backend.learned_rules import ScanRules, load_scan_rules
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ScannerModel
 from products.replay_vision.backend.tags import slugify_tag
-from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
-from products.replay_vision.backend.temporal.conversation import (
-    DEFAULT_MAX_TOOL_ITERATIONS,
-    function_calls,
-    run_tool_loop,
-)
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
-from products.replay_vision.backend.temporal.events_tool import (
-    GET_EVENTS_TOOL_NAME,
-    build_events_index,
-    dispatch_events_tool,
-    events_tool,
-)
+from products.replay_vision.backend.temporal.events_tool import build_events_index
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
+from products.replay_vision.backend.temporal.lookups import (
+    LookupPlan,
+    render_lookup_results,
+    render_lookups_unavailable,
+    render_plan_instruction,
+    run_lookups,
+)
 from products.replay_vision.backend.temporal.metrics import (
     record_events_tool_call,
+    record_lookup_plan,
     record_mission_pass,
     record_network_state,
     record_network_tool_call,
     record_provider_call,
     record_tool_round,
-    record_unknown_tool_call,
-    record_verification_outcome,
 )
 from products.replay_vision.backend.temporal.network_capture import SessionNetworkPayload
-from products.replay_vision.backend.temporal.network_tool import (
-    GET_NETWORK_TOOL_NAME,
-    NetworkIndex,
-    build_network_index,
-    dispatch_network_tool,
-    network_tool,
-)
+from products.replay_vision.backend.temporal.network_tool import NetworkIndex, build_network_index
+from products.replay_vision.backend.temporal.pii_check import keep_unrequested_pii_out
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CORE,
-    STEP_MEDIA,
+    STEP_LOOKUPS,
+    STEP_MAX_OUTPUT_TOKENS,
     STEP_SIGNALS,
     TIMESTAMP_CITATION_RE,
     BaseScanner,
@@ -88,7 +82,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     TextSegment,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
-from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorScanner
+from products.replay_vision.backend.temporal.scanners.experiment import ExperimentScanner
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs, load_session_network
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
@@ -96,7 +90,7 @@ from products.replay_vision.backend.temporal.types import (
     ScannerCallOutput,
     ScannerLlmInputs,
     ScannerSnapshot,
-    VerificationRecord,
+    SessionIdentity,
 )
 from products.replay_vision.backend.temporal.video_clock import VideoClock, video_clock_from_export_context
 
@@ -107,21 +101,6 @@ _MAX_LLM_ATTEMPTS = 2  # one initial call + one re-prompt with the validation er
 # where the model stays anchored on the answer it just got wrong; a fresh conversation is an independent draw.
 _MAX_MISSION_ATTEMPTS = 2
 
-# Event lookups a step may spend before the forced tool-free answer. Gemini 3.8 Flash follows "look it up"
-# far more eagerly than earlier Flash models, and each extra round-trip appends an uncached tool response and
-# another reasoning pass, so its scans cost more at the same list price. Cap it lower than the loop default.
-_MAX_TOOL_ITERATIONS_BY_MODEL: dict[str, int] = {ScannerModel.GEMINI_3_8_FLASH: 3}
-
-
-def _tool_budget(model: str) -> int:
-    """Event lookups per step for `model`, accepting either the bare id or the `models/` form the API takes."""
-    return _MAX_TOOL_ITERATIONS_BY_MODEL.get(model.removeprefix("models/"), DEFAULT_MAX_TOOL_ITERATIONS)
-
-
-# Snapshot `verify_positives` values that draw; anything else (including a typo) behaves as `off`.
-_VERIFY_MODES = ("shadow", "enforce")
-# Activity time kept free of verify draws, so assembling and returning the result never races the timeout.
-_VERIFY_BUDGET_RESERVE_SECONDS = 60.0
 # Cache TTL: a scan is a handful of turns and finishes in minutes; well under this.
 _VIDEO_CACHE_TTL = "900s"
 
@@ -138,12 +117,14 @@ class _StepResult:
 
 @frozen
 class _MissionOutcome:
-    """What one scan produced: the finalized output, the side-mission findings, and the verify-positives audit."""
+    """What one scan produced: the finalized output and the side-mission findings."""
 
     finalized: BaseScannerOutput
     signals: list[SignalFinding]
-    verification: VerificationRecord | None = None
     thumbnail_video_s: int | None = None
+    key_moment_video_s: int | None = None
+    # The core turn's raw answer, for fields the scanner still has to move onto the session clock.
+    core_response: BaseModel | None = None
 
 
 @activity.defn
@@ -194,6 +175,8 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         )
     scanner: BaseScanner = scanner_from_snapshot(snapshot)
     scanner = await _inject_known_freeform_tags(scanner, inputs)
+    scanner = await _inject_learned_rules(scanner, snapshot, inputs.team_id)
+    scanner = await _apply_experiment_scan_context(scanner, inputs)
     video_clock = await sync_to_async(_load_video_clock)(
         inputs.team_id, inputs.exported_asset_id, llm_inputs.metadata.duration_seconds
     )
@@ -291,20 +274,22 @@ async def run_scan(
     before calling this; any other caller must do the same before recording data reaches the provider (the eval
     suite is covered because dataset collection is consent-gated and time-boxed).
     """
-    # Built before the preamble so one object decides both the wording and the tool list, which keeps the
-    # prompt from describing a tool the conversation does not carry.
+    # Built before the preamble so one object decides both the wording and what a network lookup returns, which
+    # keeps the prompt from promising network data the scan does not carry.
     network_index = build_network_index(network_payload, llm_inputs.metadata.start_time, video_clock)
+    duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
+    scanner = scanner.bind_session(video_clock, duration_ms)
 
     preamble_text = scanner.preamble(
         team_name=team_name,
         session_metadata=llm_inputs.metadata.as_prompt_dict(),
+        touch=llm_inputs.metadata.touch,
         session_identity=llm_inputs.identity.as_prompt_dict(),
         navigation=[_navigation_on_video_clock(entry, video_clock) for entry in llm_inputs.navigation],
         navigation_dropped=llm_inputs.navigation_dropped,
         events_truncated=llm_inputs.events_truncated,
         product_context=llm_inputs.product_context,
         event_descriptions=llm_inputs.event_descriptions,
-        tool_budget=_tool_budget(snapshot.model),
         network_state=network_index.state(),
     )
     video_part = types.Part(file_data=types.FileData(file_uri=file_uri, mime_type=mime_type))
@@ -320,29 +305,38 @@ async def run_scan(
         network_index=network_index,
         trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
-    duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
-    finalized = _resolve_citations(outcome.finalized, scanner, duration_ms, video_clock)
+    # Before citations resolve, so a rewrite keeps the `(t N)` markers the segment parser reads.
+    checked = await keep_unrequested_pii_out(
+        outcome.finalized,
+        team_id=team_id,
+        question=getattr(scanner, "prompt", "") or "",
+        identity_values=_identity_values(llm_inputs.identity),
+        scanner_type=snapshot.scanner_type.value,
+        trace_id=trace_id if trace_id is not None else str(uuid4()),
+    )
+    finalized = _resolve_citations(checked, scanner, duration_ms, video_clock)
+    finalized = finalized.model_copy(
+        update={"key_moment_ms": _key_moment_session_ms(outcome.key_moment_video_s, duration_ms, video_clock)}
+    )
+    finalized = scanner.resolve_session_clock(finalized, outcome.core_response, video_clock, duration_ms)
     signals = [_signal_on_session_clock(signal, video_clock) for signal in outcome.signals]
     return ScannerCallOutput(
         model_output=finalized,
         signals=signals,
-        verification=outcome.verification,
-        thumbnail_video_s=_clamp_thumbnail(outcome.thumbnail_video_s, video_clock, duration_ms),
+        thumbnail_video_s=outcome.thumbnail_video_s,
         # Read off `outcome.signals`, which is still on the video clock; `signals` above is not.
         signal_video_spans=[(s.start_time, s.end_time) for s in outcome.signals],
     )
 
 
-def _clamp_thumbnail(thumbnail_video_s: int | None, video_clock: VideoClock, duration_ms: int) -> int | None:
-    """Hold the model's pick inside the rendered video, which is shorter than the session wherever the render cut."""
-    if thumbnail_video_s is None:
-        return None
-    ceiling = video_clock.video_duration_s if video_clock.video_duration_s is not None else duration_ms / 1000
-    return max(0, min(thumbnail_video_s, int(ceiling)))
+def _identity_values(identity: SessionIdentity) -> list[str]:
+    """The values `<session_identity>` lets a scanner name when its question asks who the session belongs to."""
+    values = [identity.person_email, identity.person_name, identity.person_organization]
+    return [value for value in [*values, *(group.name for group in identity.groups)] if value]
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
-    """LLM analytics trace id for one scan: the observation id, so every step, tool round-trip, and retry of
+    """LLM analytics trace id for one scan: the observation id, so every step, the lookup round, and retry of
     a scan reads as a single conversation and the observation id doubles as the trace search key. Evaluation
     re-runs (snapshot_override) get a fresh id so they don't interleave with the real scan's trace."""
     if inputs.snapshot_override is not None:
@@ -371,6 +365,17 @@ def _resolve_citations(
     return finalized
 
 
+def _key_moment_session_ms(video_s: int | None, duration_ms: int, clock: VideoClock) -> int | None:
+    """Move the model's key moment onto the session clock, or None when it skipped the pick or named a time past
+    the video. Same bound as a citation, because the clock would clamp an invented time onto the recording's end."""
+    if video_s is None:
+        return None
+    longest_citable_s = duration_ms / 1000 if clock.is_identity else clock.video_duration_s
+    if longest_citable_s is not None and video_s > longest_citable_s:
+        return None
+    return min(clock.video_s_to_session_ms(video_s), duration_ms)
+
+
 def _extract_segments(text: str, duration_ms: int, clock: VideoClock) -> tuple[str, list[Segment]]:
     """Walk `(t <sec>)` markers in `text`; drop times past the recording; return (plain text, render-ready text/chip segments).
 
@@ -391,7 +396,7 @@ def _extract_segments(text: str, duration_ms: int, clock: VideoClock) -> tuple[s
             # Drop citations past the video's end (a time the model invented) before converting, because the
             # clock clamps past its last span and would turn any such value into the recording endpoint. No
             # slack: a moment the model can see has a video second inside the video. The marker is stripped either way.
-            longest_citable_s = duration_ms / 1000 if clock.is_identity else clock.video_duration_s
+            longest_citable_s = clock.citable_duration_s(duration_ms / 1000)
             if longest_citable_s is not None and video_s <= longest_citable_s:
                 segments.append(ChipSegment(timestamp_ms=clock.video_s_to_session_ms(video_s)))
         last_end = match.end()
@@ -422,11 +427,73 @@ def _is_taglike(slug: str) -> bool:
     )
 
 
+async def _apply_experiment_scan_context(scanner: BaseScanner, inputs: CallScannerProviderInputs) -> BaseScanner:
+    """Give an experiment scanner the variant and experiment description the workflow resolved.
+
+    Scan-time context, never persisted (see `ExperimentScanner`). A no-op for the other types.
+    When the inputs carry neither field — a prompt evaluation re-scanning a rated session, or a
+    history from before attribution shipped — the source observation's persisted attribution
+    stands in, so an evaluation tests the prompt with its experiment block rather than without.
+    Best effort there: a lookup failure must not fail the scan, and a pre-attribution row simply
+    has nothing persisted to inject."""
+    if not isinstance(scanner, ExperimentScanner):
+        return scanner
+    variant, context = inputs.experiment_variant, inputs.experiment_context
+    if variant is None and context is None:
+        try:
+            variant, context = await sync_to_async(_load_persisted_experiment_context)(
+                inputs.observation_id, inputs.team_id, scanner.experiment_id
+            )
+        except Exception:
+            logger.warning("replay_vision.call_scanner_provider.experiment_context_fallback_failed", exc_info=True)
+            return scanner
+        if variant is None and context is None:
+            return scanner
+    return scanner.model_copy(update={"experiment_context": context, "session_variant": variant})
+
+
+def _load_persisted_experiment_context(
+    observation_id: UUID, team_id: int, experiment_id: int
+) -> tuple[str | None, dict[str, Any] | None]:
+    # Deferred: the experiments replay facade pulls in the recordings query modules, which circle
+    # back into this package's importers.
+    from products.experiments.backend.facade.replay import experiment_prompt_context  # noqa: PLC0415
+
+    result = (
+        ReplayObservation.objects.filter(pk=observation_id, team_id=team_id)
+        .values_list("scanner_result", flat=True)
+        .first()
+    )
+    variant = result.get("experiment_variant") if isinstance(result, dict) else None
+    if not isinstance(variant, str):
+        return None, None
+    context = experiment_prompt_context(Team.objects.get(pk=team_id), experiment_id=experiment_id)
+    return variant, dataclasses.asdict(context) if context is not None else None
+
+
 def apply_known_freeform_tags(scanner: BaseScanner, tags: list[str]) -> BaseScanner:
     """No-op unless `scanner` is a freeform-emitting classifier and there are tags to inject."""
     if not tags or not isinstance(scanner, ClassifierScanner) or not scanner.allow_freeform_tags:
         return scanner
     return scanner.model_copy(update={"known_freeform_tags": tags})
+
+
+def apply_learned_rules(scanner: BaseScanner, rules: ScanRules) -> BaseScanner:
+    if not rules.project and not rules.scanner:
+        return scanner
+    return scanner.model_copy(update={"project_rules": rules.project, "scanner_rules": rules.scanner})
+
+
+async def _inject_learned_rules(scanner: BaseScanner, snapshot: ScannerSnapshot, team_id: int) -> BaseScanner:
+    """Give the scan the learned rules frozen into its snapshot. Best effort: a lookup failure must not fail the scan."""
+    if not snapshot.learned_ruleset_ids:
+        return scanner
+    try:
+        rules = await sync_to_async(load_scan_rules)(team_id, snapshot.learned_ruleset_ids)
+    except Exception:
+        logger.warning("replay_vision.call_scanner_provider.learned_rules_failed", exc_info=True)
+        return scanner
+    return apply_learned_rules(scanner, rules)
 
 
 async def _inject_known_freeform_tags(scanner: BaseScanner, inputs: CallScannerProviderInputs) -> BaseScanner:
@@ -531,7 +598,8 @@ async def _run_mission(
     trace_id: str,
     network_index: NetworkIndex | None = None,
 ) -> _MissionOutcome:
-    """Cache the video, run every mission step as a tool-using turn, then assemble the output + side-mission findings.
+    """Cache the video, run every mission step (the core step after its lookup round), then assemble the output +
+    side-mission findings.
 
     Caching is best-effort: a video too short to cache (or any cache hiccup) falls back to sending it inline, and a
     cached run that fails for a non-validation reason is retried inline once before giving up.
@@ -559,52 +627,38 @@ async def _run_mission(
 
     events_index = build_events_index(llm_inputs, video_clock)
     network_index = network_index if network_index is not None else NetworkIndex(offsets=[], requests=[])
-
-    # The network tool is offered only when the recording has requests to return. Otherwise every lookup
-    # would be a dead call against the budget the events tool shares.
     scanner_type = snapshot.scanner_type.value
     record_network_state(scanner_type, network_index.state())
-    counters: dict[str, Callable[[str, str], None]] = {
-        GET_EVENTS_TOOL_NAME: record_events_tool_call,
-        GET_NETWORK_TOOL_NAME: record_network_tool_call,
-    }
-    handlers: dict[str, Callable[[Any], dict[str, Any]]] = {
-        GET_EVENTS_TOOL_NAME: lambda call: dispatch_events_tool(call, events_index),
-    }
-    tools = [events_tool()]
-    if network_index.has_requests():
-        handlers[GET_NETWORK_TOOL_NAME] = lambda call: dispatch_network_tool(call, network_index)
-        tools.append(network_tool())
 
-    def dispatch(call: Any) -> dict[str, Any]:
-        raw_name = getattr(call, "name", None)
-        name = raw_name if isinstance(raw_name, str) else ""
-        counters.get(name, record_unknown_tool_call)(scanner_type, snapshot.model)
-        handler = handlers.get(name)
-        if handler is None:
-            # An unoffered or hallucinated name must not fall through to a lookup that returns
-            # plausible data for a question the model did not ask.
-            return {"error": f"unknown tool: {name}"}
-        return handler(call)
+    def look_up(plan: LookupPlan | None) -> list[dict[str, Any]]:
+        if plan is None:
+            record_lookup_plan(scanner_type, snapshot.model, "failed")
+            return []
+        record_lookup_plan(scanner_type, snapshot.model, "planned" if plan.lookups else "empty")
+        if plan.lookups:
+            record_tool_round(scanner_type, snapshot.model, len(plan.lookups))
+        for lookup in plan.lookups:
+            record = record_network_tool_call if lookup.source == "network" else record_events_tool_call
+            record(scanner_type, snapshot.model)
+        return run_lookups(plan, events_index=events_index, network_index=network_index)
 
-    cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text, tools=tools)
-    steps = [
-        replace(
-            step,
-            validate=functools.partial(
-                _validate_signal_timestamps,
-                duration_seconds=llm_inputs.metadata.duration_seconds
-                if video_clock.is_identity
-                else video_clock.video_duration_s,
-            ),
-        )
-        if step.name == STEP_SIGNALS
-        else step
-        for step in scanner.mission_steps()
-    ]
-
-    def on_round(calls: int) -> None:
-        record_tool_round(scanner_type, snapshot.model, calls)
+    cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text)
+    signal_duration_s = video_clock.citable_duration_s(llm_inputs.metadata.duration_seconds)
+    network_available = network_index.has_requests()
+    steps: list[MissionStep] = []
+    for step in scanner.mission_steps():
+        if step.name == STEP_CORE:
+            step = replace(
+                step,
+                plan_instruction=render_plan_instruction(
+                    step.instruction, network_available=network_available, emits_signals=scanner.emits_signals
+                ),
+            )
+        elif step.name == STEP_SIGNALS:
+            step = replace(
+                step, validate=functools.partial(_validate_signal_timestamps, duration_seconds=signal_duration_s)
+            )
+        steps.append(step)
 
     run = functools.partial(
         _run_steps,
@@ -613,122 +667,25 @@ async def _run_mission(
         steps=steps,
         video_part=video_part,
         preamble_text=preamble_text,
-        dispatch=dispatch,
         team_id=team_id,
         metric_labels=metric_labels,
         trace_id=trace_id,
-        tools=tools,
-        on_round=on_round,
+        look_up=look_up,
     )
-    verification: VerificationRecord | None = None
     try:
         step_outputs = await _run_mission_attempts(run=run, cache=cache, model=snapshot.model)
-        core = step_outputs.get(STEP_CORE)
-        if (
-            isinstance(scanner, MonitorScanner)
-            and isinstance(core, MonitorLlmResponse)
-            and snapshot.verify_positives in _VERIFY_MODES
-            and core.verdict == "yes"
-        ):
-            # Verification re-draws over the cache, so it has to finish before the `finally` below deletes it.
-            served, verification = await _verify_positive_verdict(
-                scanner=scanner,
-                mode=snapshot.verify_positives,
-                core_step=next(step for step in steps if step.name == STEP_CORE),
-                first=core,
-                run=run,
-                cache=cache,
-                model=snapshot.model,
-            )
-            step_outputs = {**step_outputs, STEP_CORE: served}
     finally:
         if cache is not None:
             await _delete_video_cache(cache_client, cache.name)
 
     finalized, signals = scanner.assemble(step_outputs)
-    thumbnail_video_s = getattr(step_outputs.get(STEP_MEDIA), "thumbnail_t", None)
     return _MissionOutcome(
-        finalized=finalized, signals=signals, verification=verification, thumbnail_video_s=thumbnail_video_s
+        finalized=finalized,
+        signals=signals,
+        thumbnail_video_s=getattr(step_outputs.get(STEP_CORE), "thumbnail_t", None),
+        key_moment_video_s=getattr(step_outputs.get(STEP_CORE), "key_moment_t", None),
+        core_response=step_outputs.get(STEP_CORE),
     )
-
-
-async def _verify_positive_verdict(
-    *,
-    scanner: MonitorScanner,
-    mode: str,
-    core_step: MissionStep,
-    first: MonitorLlmResponse,
-    run: Any,
-    cache: Any | None,
-    model: str,
-) -> tuple[MonitorLlmResponse, VerificationRecord]:
-    """Re-draw the core step once; a `yes` is served only when the second draw agrees.
-
-    Replay Vision optimizes for precision, not recall: a finding it presents must hold up, and a missed one costs
-    less than a wrong one. So a single dissenting draw is enough to drop the `yes`, and the dissent (its verdict and
-    its reasoning) is what gets served. No third draw breaks the tie in favour of the finding.
-
-    Every draw is a fresh conversation over the same cached video and preamble, so it never sees the first pass or
-    its reasoning. Verification only ever tightens a scan that already succeeded: without a cache, without time left
-    in the activity budget, or when the draw fails for any reason, the first verdict stands and the record says why.
-    """
-    draws = [first]
-    skipped_reason: str | None = None
-    if cache is None:
-        skipped_reason = "no_cache"
-    else:
-        # An activity timeout fires outside the `except` below and fails the whole scan, first verdict included.
-        # Capping the draw at the remaining budget turns that into a `draw_failed` the first pass survives.
-        budget = _remaining_verify_budget_seconds()
-        if budget is not None and budget <= 0:
-            skipped_reason = "no_budget"
-        else:
-            verify_step = replace(core_step, name=f"{STEP_CORE}_verify_2")
-            try:
-                outputs = await asyncio.wait_for(run(steps=[verify_step], cache_name=cache.name), timeout=budget)
-                draw = outputs[verify_step.name]
-                if not isinstance(draw, MonitorLlmResponse):
-                    raise TypeError(f"verify draw returned {type(draw).__name__}")
-                draws.append(draw)
-            except Exception as exc:
-                # No traceback or message: a provider error body can quote the prompt, as at the activity boundary.
-                logger.warning(
-                    "replay_vision.call_scanner_provider.verify_draw_failed",
-                    model=model,
-                    error_type=type(exc).__name__,
-                    code=getattr(exc, "code", None),
-                    status=getattr(exc, "status", None),
-                )
-                skipped_reason = "draw_failed"
-
-    # The dissent, when there is one, is the last draw; otherwise the first pass stands.
-    resolved_draw = draws[-1]
-    served = resolved_draw if mode == "enforce" else first
-    if skipped_reason:
-        outcome = skipped_reason
-    else:
-        outcome = "agreed" if resolved_draw.verdict == first.verdict else "flipped"
-    record_verification_outcome(scanner_type=scanner.scanner_type.value, mode=mode, outcome=outcome)
-    record = VerificationRecord(
-        mode=mode,
-        draws=[draw.verdict for draw in draws],
-        resolved_verdict=resolved_draw.verdict,
-        served_verdict=served.verdict,
-        skipped_reason=skipped_reason,
-    )
-    return served, record
-
-
-def _remaining_verify_budget_seconds() -> float | None:
-    """Seconds a verify draw may take before the activity's start-to-close timeout, or None when there is no timeout
-    (the eval suite calls `run_scan` outside an activity)."""
-    if not activity.in_activity():
-        return None
-    info = activity.info()
-    if info.start_to_close_timeout is None:
-        return None
-    elapsed = (timezone.now() - info.started_time).total_seconds()
-    return info.start_to_close_timeout.total_seconds() - elapsed - _VERIFY_BUDGET_RESERVE_SECONDS
 
 
 def _validate_signal_timestamps(output: BaseModel, *, duration_seconds: float | None) -> str | None:
@@ -800,36 +757,34 @@ async def _run_steps(
     video_part: types.Part,
     preamble_text: str,
     cache_name: str | None,
-    dispatch: Any,
     team_id: int,
     metric_labels: dict[str, str],
     trace_id: str,
-    tools: list[types.Tool],
-    on_round: Callable[[int], None] | None = None,
+    look_up: Callable[[LookupPlan | None], list[dict[str, Any]]],
 ) -> dict[str, BaseModel]:
     """Run the ordered steps over one growing conversation; return the validated output keyed by step name."""
     # The video + preamble lead the conversation inline unless they're already cached as the prefix.
     convo: list[Any] = [] if cache_name else [video_part, types.Part(text=preamble_text)]
     step_outputs: dict[str, BaseModel] = {}
+    run_step = functools.partial(
+        _run_step,
+        client=client,
+        model=model,
+        cache_name=cache_name,
+        team_id=team_id,
+        metric_labels=metric_labels,
+        trace_id=trace_id,
+    )
     for step in steps:
         checkpoint = len(convo)
-        convo.append(types.Part(text=step.instruction))
         try:
-            result = await _run_step(
-                client=client,
-                model=model,
-                step=step,
-                convo=convo,
-                cache_name=cache_name,
-                video_part=video_part,
-                preamble_text=preamble_text,
-                dispatch=dispatch,
-                team_id=team_id,
-                tools=tools,
-                metric_labels=metric_labels,
-                trace_id=trace_id,
-                on_round=on_round,
-            )
+            instruction = step.instruction
+            if step.plan_instruction:
+                instruction = await _run_lookup_round(
+                    run_step, step=step, plan_instruction=step.plan_instruction, convo=convo, look_up=look_up
+                )
+            convo.append(types.Part(text=instruction))
+            result = await run_step(step=step, convo=convo)
         except Exception as exc:
             if step.required:
                 raise
@@ -839,13 +794,44 @@ async def _run_steps(
             continue
         if result.output is None:
             # Roll the failed step's half-finished exchange back so the next instruction follows the last good
-            # model turn, not a dangling correction/tool call (which would leave two user turns in a row).
+            # model turn, not a dangling correction (which would leave two user turns in a row).
             del convo[checkpoint:]
             if step.required:
                 raise _exhausted_step_error(step, result)
             continue
         step_outputs[step.name] = result.output
     return step_outputs
+
+
+async def _run_lookup_round(
+    run_step: Callable[..., Awaitable["_StepResult"]],
+    *,
+    step: MissionStep,
+    plan_instruction: str,
+    convo: list[Any],
+    look_up: Callable[[LookupPlan | None], list[dict[str, Any]]],
+) -> str:
+    """Ask the model which moments to look up for `step`, answer them, and return the instruction for `step`'s turn.
+
+    A plan that fails validation costs the lookups, not the scan: the conversation rolls back and `step` runs
+    without them. A provider error propagates, because the answer turn would send the same request.
+    """
+    plan_step = MissionStep(name=STEP_LOOKUPS, instruction=plan_instruction, response_model=LookupPlan)
+    checkpoint = len(convo)
+    convo.append(types.Part(text=plan_step.instruction))
+    result = await run_step(step=plan_step, convo=convo)
+    if not isinstance(result.output, LookupPlan):
+        logger.warning("replay_vision.call_scanner_provider.lookup_plan_failed", step=step.name)
+        look_up(None)
+        del convo[checkpoint:]
+        return step.instruction
+    try:
+        results = look_up(result.output)
+    except Exception:
+        # A bug in our lookup code must not cost the provider calls already paid for.
+        logger.exception("replay_vision.call_scanner_provider.lookups_failed", step=step.name)
+        return render_lookups_unavailable()
+    return render_lookup_results(results)
 
 
 def _exhausted_step_error(step: MissionStep, result: "_StepResult") -> ScannerFailureError:
@@ -870,31 +856,22 @@ async def _run_step(
     step: MissionStep,
     convo: list[Any],
     cache_name: str | None,
-    video_part: types.Part,
-    preamble_text: str,
-    dispatch: Any,
     team_id: int,
     metric_labels: dict[str, str],
     trace_id: str,
-    tools: list[types.Tool],
-    on_round: Callable[[int], None] | None = None,
 ) -> "_StepResult":
-    """Run one step's tool loop with one re-prompt on failure. Returns the validated output, or why it was exhausted.
+    """Run one step's turn with one re-prompt on failure. Returns the validated output, or why it was exhausted.
 
     On success the model's answer is appended to `convo` so the next step sees it; on failure a correction is
     appended and we retry.
     """
-    config = _step_config(step, cache_name, tools=tools)
-    forced_config = _step_config(step, cache_name, allow_tools=False)
-    # The forced final turn runs inline (it can't reuse the cache, which pins the tool on). When the run is cached,
-    # `convo` omits the video + preamble prefix — those live in the cache — so re-supply them inline for that turn.
-    forced_prefix = [video_part, types.Part(text=preamble_text)] if cache_name else []
+    config = _step_config(step, cache_name)
 
-    async def _generate(c: list[Any], cfg: types.GenerateContentConfig = config) -> Any:
+    async def _generate(c: list[Any]) -> Any:
         return await client.models.generate_content(
             model=model,
             contents=c,
-            config=cfg,
+            config=config,
             posthog_distinct_id=replay_vision_distinct_id(team_id),
             posthog_trace_id=trace_id,
             posthog_properties={"$ai_span_name": step.name},
@@ -908,29 +885,7 @@ async def _run_step(
     for attempt in range(_MAX_LLM_ATTEMPTS):
         started = time.monotonic()
         try:
-            response = await run_tool_loop(
-                generate=_generate,
-                convo=convo,
-                dispatch=dispatch,
-                max_tool_iterations=_tool_budget(model),
-                on_round=on_round,
-            )
-            if function_calls(response):
-                # Tool budget spent and the model still wants a lookup. Rather than hard-fail, complete the
-                # round-trip and force one final tool-free turn so it answers from what it has already seen.
-                record_provider_call(
-                    **metric_labels, outcome="tool_budget_exhausted", seconds=time.monotonic() - started
-                )
-                logger.warning(
-                    "replay_vision.call_scanner_provider.tool_budget_exhausted", step=step.name, attempt=attempt + 1
-                )
-                started = time.monotonic()
-                response = await _force_final_answer(
-                    generate=lambda c: _generate(forced_prefix + c, forced_config),
-                    convo=convo,
-                    exhausted=response,
-                    dispatch=dispatch,
-                )
+            response = await _generate(convo)
         except Exception:
             record_provider_call(**metric_labels, outcome="provider_error", seconds=time.monotonic() - started)
             raise
@@ -971,8 +926,7 @@ async def _run_step(
         )
         if attempt < _MAX_LLM_ATTEMPTS - 1:
             # Keep turn roles alternating on retry: the model's rejected answer is a model turn, then our
-            # correction is the user turn. Without this, a turn that called a tool then returned bad JSON
-            # would leave two consecutive user turns (the tool response and the correction).
+            # correction is the user turn.
             # Thinking can consume the whole output cap and leave a candidate with no parts, which the API
             # rejects on resend, so only a turn that carries something goes back into the conversation.
             rejected = response.candidates[0].content
@@ -997,62 +951,23 @@ async def _run_step(
     return _StepResult(output=None, provider_refused=last_was_empty)
 
 
-_OUT_OF_LOOKUPS_NUDGE = (
-    "You've used all of your event lookups. Don't call the tool again — answer now using only what you've already "
-    "seen in the video and the events you've retrieved."
-)
-
-
-async def _force_final_answer(*, generate: Any, convo: list[Any], exhausted: Any, dispatch: Any) -> Any:
-    """Budget spent mid-tool-use: answer the model's last pending calls, tell it lookups are done, and force one
-    tool-free turn. Completing the call→response round-trip avoids leaving a dangling `function_call` in `convo`."""
-    convo.append(exhausted.candidates[0].content)  # the model's pending-call turn (carries thought signatures)
-    convo.append(
-        types.Content(
-            role="user",
-            parts=[
-                *(
-                    types.Part(function_response=types.FunctionResponse(name=call.name, response=dispatch(call)))
-                    for call in function_calls(exhausted)
-                ),
-                types.Part(text=_OUT_OF_LOOKUPS_NUDGE),
-            ],
-        )
-    )
-    return await generate(convo)
-
-
 def _hit_output_cap(response: Any) -> bool:
     candidates = getattr(response, "candidates", None) or []
     return bool(candidates) and getattr(candidates[0], "finish_reason", None) == types.FinishReason.MAX_TOKENS
 
 
-def _step_config(
-    step: MissionStep, cache_name: str | None, *, allow_tools: bool = True, tools: list[types.Tool] | None = None
-) -> types.GenerateContentConfig:
-    """Generation config for one step: its JSON schema, plus the lookup tools (from the cache when cached).
-
-    Normal turns offer the tool — from the cache when the video is cached (the tool lives there alongside it), or
-    inline otherwise. The forced final turn (`allow_tools=False`, after the tool budget runs out) must answer from
-    what it has, so no tool is offered. It never references the cache: Gemini rejects a `GenerateContent` request
-    that sets `tools`, `tool_config`, or `system_instruction` alongside `cached_content`, so there's no way to
-    disable the cached tool per-request. That turn always runs inline with the tool simply absent — the caller
-    re-supplies the video + preamble inline for it (see `forced_prefix` in `_run_step`).
-    """
+def _step_config(step: MissionStep, cache_name: str | None) -> types.GenerateContentConfig:
+    """Generation config for one step: its JSON schema, plus the cached video + preamble when there is a cache."""
     kwargs: dict[str, Any] = {
         "response_mime_type": "application/json",
         "response_json_schema": step.response_model.model_json_schema(),
         # Return thought summaries so the model's reasoning is visible in LLM analytics. Answer parsing is
         # unaffected (`response.text` skips thought parts); models with thinking off just return none.
         "thinking_config": types.ThinkingConfig(include_thoughts=True),
-        "max_output_tokens": step.max_output_tokens,
+        "max_output_tokens": STEP_MAX_OUTPUT_TOKENS,
     }
-    if not allow_tools:
-        return types.GenerateContentConfig(**kwargs)  # inline, no tool to call — the model must answer now
     if cache_name:
-        kwargs["cached_content"] = cache_name  # video, preamble, and the tool all live in the cache
-    else:
-        kwargs["tools"] = tools or [events_tool()]
+        kwargs["cached_content"] = cache_name
     return types.GenerateContentConfig(**kwargs)
 
 
@@ -1076,16 +991,13 @@ async def _maybe_create_video_cache(
     model: str,
     video_part: types.Part,
     preamble_text: str,
-    *,
-    tools: list[types.Tool],
 ) -> Any | None:
-    """Cache the video + preamble + lookup tools once so the steps reuse them. None on any failure (e.g. too short to cache)."""
+    """Cache the video + preamble once so the steps reuse them. None on any failure (e.g. too short to cache)."""
     try:
         return await cache_client.aio.caches.create(
             model=model,
             config=types.CreateCachedContentConfig(
                 contents=[types.Content(role="user", parts=[video_part, types.Part(text=preamble_text)])],
-                tools=tools,
                 ttl=_VIDEO_CACHE_TTL,
             ),
         )
@@ -1102,4 +1014,10 @@ async def _delete_video_cache(cache_client: GoogleGenAIClient, name: str) -> Non
         logger.info("replay_vision.video_cache.delete_failed", error=str(e))
 
 
-__all__ = ["apply_known_freeform_tags", "call_scanner_provider_activity", "rank_freeform_tags", "run_scan"]
+__all__ = [
+    "apply_known_freeform_tags",
+    "apply_learned_rules",
+    "call_scanner_provider_activity",
+    "rank_freeform_tags",
+    "run_scan",
+]

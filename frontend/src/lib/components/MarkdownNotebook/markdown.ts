@@ -555,6 +555,21 @@ function parseInlineLink(
         return null
     }
 
+    const label = markdown.slice(index + 1, labelEnd)
+
+    // CommonMark's pointy-bracket form, `[label](<href>)`. Slack writes links this way, so it
+    // arrives with every link someone copies out of a Slack message.
+    if (markdown[labelEnd + 2] === '<') {
+        const hrefEnd = markdown.indexOf('>', labelEnd + 3)
+        if (hrefEnd !== -1 && markdown[hrefEnd + 1] === ')') {
+            return {
+                label,
+                href: sanitizeNotebookLinkHref(markdown.slice(labelEnd + 3, hrefEnd)),
+                nextIndex: hrefEnd + 2,
+            }
+        }
+    }
+
     // Hrefs may contain backslash-escaped characters and balanced parentheses (Wikipedia-style URLs)
     let cursor = labelEnd + 2
     let parenDepth = 0
@@ -573,7 +588,7 @@ function parseInlineLink(
         if (character === ')') {
             if (parenDepth === 0) {
                 return {
-                    label: markdown.slice(index + 1, labelEnd),
+                    label,
                     href: sanitizeNotebookLinkHref(rawHref),
                     nextIndex: cursor + 1,
                 }
@@ -1993,11 +2008,35 @@ export function escapeMarkdownLineStart(line: string): string {
         return `${leadingWhitespace}${orderedListMatch[1]}\\${content.slice(orderedListMatch[1].length)}`
     }
 
-    if (/^(#{1,6}\s|>|[-+•](\s|$)|-{3,}\s*$|<[A-Z]|<!--)/.test(content)) {
+    if (/^(#{1,6}\s|>|[-+•](\s|$)|-{3,}\s*$)/.test(content) || COMPONENT_TAG_LINE_START.test(content)) {
         return `${leadingWhitespace}\\${content}`
     }
 
     return line
+}
+
+const COMPONENT_TAG_LINE_START = /^(<[A-Z]|<!--)/
+const COMPONENT_TAG_OPENER = /^\\?(<[A-Z][A-Za-z0-9]*|<!--)/
+// The notebooks backend reads a cell after Python's `str.strip()`, which also removes `\x1c` to `\x1f`
+// and `\x85`. The editor lifts a quoted tag out of its blockquote, so `>` markers count as a prefix too.
+const COMPONENT_TAG_LINE_PREFIX = /^[\s\x1c-\x1f\x85>]*/
+
+// A backslash is not enough: both parsers recover a `\<Tag` that spans lines, because the prose
+// serializer writes multiline components that way. Inline code cannot be recovered into a tag.
+function escapeComponentTagLineStart(line: string): string {
+    const prefix = line.match(COMPONENT_TAG_LINE_PREFIX)?.[0] ?? ''
+    const content = line.slice(prefix.length)
+    const match = content.match(COMPONENT_TAG_OPENER)
+    return match ? `${prefix}\`${match[1]}\`${content.slice(match[0].length)}` : line
+}
+
+// For markdown the author meant to render: only a line that would parse as a component tag or a
+// comment is neutralized, so headings and lists stay live. Lines inside code fences are neutralized
+// too, because the editor and the notebooks backend disagree on where a fence ends, and a fence can
+// span the blocks a caller joins. The cost is a stray pair of backticks in a code sample.
+// The notebooks backend reads `\r` as a line break, so it is one here too.
+export function escapeComponentTagLines(markdown: string): string {
+    return markdown.replace(/\r\n?/g, '\n').split('\n').map(escapeComponentTagLineStart).join('\n')
 }
 
 function getCodeBlockFence(text: string): string {

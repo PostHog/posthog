@@ -3,7 +3,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 export async function deleteWithUndo<T extends Record<string, any>>({
     undo = false,
@@ -13,9 +13,12 @@ export async function deleteWithUndo<T extends Record<string, any>>({
     endpoint: string
     object: T
     idField?: keyof T
+    /** The name the toast shows. It defaults to `object.name`, which the request body also sends. */
+    label?: string
     callback?: (undo: boolean, object: T) => void
 }): Promise<void> {
     try {
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
         await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
             ...props.object,
             deleted: !undo,
@@ -23,7 +26,7 @@ export async function deleteWithUndo<T extends Record<string, any>>({
         props.callback?.(undo, props.object)
         lemonToast[undo ? 'success' : 'info'](
             <>
-                <b>{props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
+                <b>{props.label || props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
                 {undo ? 'restored' : 'deleted'}
             </>,
             {
@@ -51,11 +54,12 @@ export async function deleteInsightWithUndo({
 }: {
     undo?: boolean
     endpoint: string
-    object: QueryBasedInsightModel
-    idField?: keyof QueryBasedInsightModel
-    callback?: (undo: boolean, object: QueryBasedInsightModel) => void
+    object: InsightModel
+    idField?: keyof InsightModel
+    callback?: (undo: boolean, object: InsightModel) => void
 }): Promise<void> {
     try {
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
         await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
             ...props.object,
             deleted: !undo,

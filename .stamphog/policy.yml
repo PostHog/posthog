@@ -73,6 +73,7 @@ deny:
                 - 'dockerfile'
                 - 'docker-compose'
                 - '\.github/workflows'
+                - '\.depot/workflows'
                 - '\.github/pr-deploy'
                 - 'iam'
                 - 'cloudflare'
@@ -128,10 +129,51 @@ deny:
                 # runs the previous engine needs this exact literal.
                 - 'tools/pr-approval-agent/'
                 - 'products/stamphog/backend/logic/policy_defaults/'
+                - 'packages/owners-yaml/'
+                # Transitional: branches that predate the move still carry the resolver here.
                 - 'tools/owners/'
                 - 'CODEOWNERS'
-                - 'owners\.yaml'
-                - 'product\.yaml'
+                - '(?:^|/)owners\.yaml$'
+                - '(?:^|/)product\.yaml$'
+    devex_guardrails:
+        description: 'The guards that keep the house patterns for API codegen, egress, ingress, product isolation, migrations, URLs and startup imports.'
+        rationale: 'These files define what CI blocks, so a small edit can turn a guard off. Most are .yaml, .md, .txt or test files, and without this category they ride the allow-list or the test-only rule to a T0 auto-approve. Busy files stay out on purpose, because most edits to them are routine: tach.toml, pyproject.toml, lib/api.ts, model_crossing_uses_baseline.txt and the setup receivers baseline. owners.yaml routes those to team-devex instead.'
+        match:
+            paths:
+                - '^\.github/scripts/migration-deletion-allowlist\.txt$'
+                - '^\.semgrep/rules/devex/'
+                - '^\.semgrep/rules/security/prefer-codegen-api\.'
+                - '^frontend/src/lib/api-ratchet-baseline\.txt$'
+                - '^posthog/(egress|ingress)/agents\.md$'
+                - '^posthog/egress/(limiter|observability|transport)/'
+                - '^posthog/ingress/(dispatch|observability|verify)/'
+                - '^posthog/ingress/views\.py$'
+                - '^posthog/management/migration_analysis/'
+                - '^posthog/migration_helpers/'
+                - '^posthog/product_urls\.py$'
+                - '^posthog/settings/nextgensquash\.py$'
+                - '^posthog/test/repo_invariants/(dataclass_secret_field_exemptions\.txt|setup_import_baseline\.txt)$'
+                - '^posthog/test/repo_invariants/test_(admin_url_conf|dataclass_secret_fields|generated_files_are_registered|migration_dependencies_share_a_database|migration_run_before|model_crossing_uses|model_enum_defaults|squash_partial_fallback|startup_import_budget)\.py$'
+                - '^products/(architecture\.md|isolation_baseline\.txt|readme\.md)$'
+                - '^docs/internal/django-startup-time\.md$'
+                - '^docs/published/handbook/engineering/type-system\.md$'
+                - '^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\.py$'
+                - '^tools/hogli-commands/hogli_commands/product_structure\.yaml$'
+                - '^tools/hogli-commands/hogli_commands/product/'
+    workflows_delivery:
+        description: 'CDP, Workflows and Messaging code that decides which customer configurations exist and what gets delivered.'
+        rationale: "Owner-only: stamphog approves team-workflows' own changes here and refuses everyone else's. Another team's change here breaks a customer silently: the API and models decide which of a tenant's rows get listed and updated, and the plugin-server worker decides what gets delivered. Teams usually edit these paths to carve out an exception for their own rows, their tests still pass, and existing customer configurations stop appearing or stop being delivered. Product frontends stay out, because a mistake there is visible. As in CODEOWNERS, only the API test directories and `*.test.ts` files stay out. Nothing else under the worker does: the template, legacy-plugin, legacy-webhook and segment directories hold live delivery code and mutable registries."
+        match:
+            paths:
+                - '^products/cdp/backend/(api|models)/'
+                - '^products/workflows/backend/(facade|presentation|models)/'
+                - '^products/messaging/backend/(api|models)/'
+                - '^nodejs/src/cdp/[\s\S]*(?<!\.test\.ts)\Z'
+        exempt_path_prefixes:
+            - 'products/cdp/backend/api/test/'
+            - 'products/messaging/backend/api/test/'
+        exempt_author_teams:
+            - 'team-workflows'
 allow:
     path_patterns:
         - 'docs/'

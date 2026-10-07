@@ -2,6 +2,7 @@ import json
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any, Literal, Optional, cast
+from uuid import UUID
 
 import pytest
 from posthog.test.base import (
@@ -51,20 +52,18 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
-from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import json_dynamic_read_sql, json_dynamic_read_sql_from_parts
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
 from posthog.models import PropertyDefinition
-from posthog.models.event.sql import (
-    EVENTS_JSON_DATA_TABLE,
-    EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
-    PERSON_PROPERTIES_JSON_SUBCOLUMNS,
-)
+from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE, EVENTS_PROPERTIES_JSON_TYPE
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.team.team import WeekStartDay
@@ -139,64 +138,27 @@ class TestPrinter(BaseTest):
     def _events_table_ref(self) -> str:
         return "events_json AS events" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
 
-    def _json_reconstructed_blob(self, root: str) -> str:
-        return (
-            "concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), "
-            + f"arrayFilter(kv -> {self._json_reconstructed_pair_filter(root)}, "
-            + f"JSONExtractKeysAndValuesRaw(toJSONString({root})))), ','), "
-            + "'}')"
-        )
-
-    def _json_reconstructed_pair_filter(self, root: str) -> str:
-        subcolumns = (
-            PERSON_PROPERTIES_JSON_SUBCOLUMNS
-            if root.endswith("person_properties")
-            else EVENTS_PROPERTIES_JSON_SUBCOLUMNS
-        )
-        array_keys = [key for key, column_type in subcolumns.items() if column_type.startswith("Array(")]
-        map_keys = [key for key, column_type in subcolumns.items() if column_type.startswith("Map(")]
-
-        filters = ["kv.2 != 'null'"]
-        if array_keys:
-            filters.append(f"NOT (kv.2 = '[]' AND has({self._clickhouse_string_array(array_keys)}, kv.1))")
-        if map_keys:
-            filters.append(f"NOT (kv.2 = '{{}}' AND has({self._clickhouse_string_array(map_keys)}, kv.1))")
-        return " AND ".join(filters)
-
-    def _clickhouse_string_array(self, values: list[str]) -> str:
-        return "[" + ", ".join(escape_clickhouse_string(value) for value in values) + "]"
-
     def _json_dynamic_subcolumn_expr(self, root: str, property_name: str) -> str:
-        if "%" in property_name:
-            subcolumns = [f"getSubcolumn({root}, %(hogql_val_{index})s)" for index in range(10)]
-            return (
-                f"if(notEquals(toJSONString({subcolumns[0]}), '{{}}'), toJSONString({subcolumns[1]}), "
-                f"if(isNull({subcolumns[2]}), NULL, if(startsWith(dynamicType({subcolumns[3]}), 'DateTime'), "
-                f"replaceOne(toString({subcolumns[4]}), ' ', 'T'), if(or(startsWith(dynamicType({subcolumns[5]}), "
-                f"'Array'), startsWith(dynamicType({subcolumns[6]}), 'Map'), startsWith(dynamicType({subcolumns[7]}), "
-                f"'Tuple')), toJSONString({subcolumns[8]}), toString({subcolumns[9]})))))"
-            )
+        if "%" in property_name or "." in property_name:
+            # A key the printer cannot inline is parameterized: every occurrence takes the next placeholder.
+            # A dotted key is bound with its dots escaped, so it reads as one path name rather than a nested path.
+            counter = iter(range(100))
+            next_placeholder = lambda: f"getSubcolumn({root}, %(hogql_val_{next(counter)})s)"  # noqa: E731
+            return json_dynamic_read_sql_from_parts(next_placeholder, next_placeholder)
         return self._json_dynamic_subcolumn_path_expr(root, [property_name])
 
     def _json_dynamic_subcolumn_path_expr(self, root: str, property_path: list[str]) -> str:
-        escaped = [escape_clickhouse_identifier(key) for key in property_path]
-        field = ".".join([root, *escaped])
-        sub_object = f"{root}.^" + ".".join(escaped)
-        object_read = f"toJSONString({sub_object})"
-        scalar_read = (
-            f"if(isNull({field}), NULL, "
-            f"if(startsWith(dynamicType({field}), 'DateTime'), "
-            f"replaceOne(toString({field}), ' ', 'T'), "
-            f"if(or(startsWith(dynamicType({field}), 'Array'), startsWith(dynamicType({field}), 'Map'), "
-            f"startsWith(dynamicType({field}), 'Tuple')), toJSONString({field}), toString({field}))))"
-        )
-        return f"if(notEquals({object_read}, '{{}}'), {object_read}, {scalar_read})"
+        return json_dynamic_read_sql(root, property_path)
 
     def _json_dynamic_property_expr(self, property_name: str, table_alias: str = "events") -> str:
         return self._json_dynamic_subcolumn_expr(f"{table_alias}.properties", property_name)
 
     def _json_dynamic_person_property_expr(self, property_name: str, table_alias: str = "events") -> str:
         return self._json_dynamic_subcolumn_expr(f"{table_alias}.person_properties", property_name)
+
+    def _native_read_settings_suffix(self) -> str:
+        # The printer appends this to the global settings of every query that reads the native events table.
+        return ", json_type_escape_dots_in_keys=1" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else ""
 
     def _with_active_events_table(self, expected_sql: str) -> str:
         if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
@@ -972,7 +934,7 @@ class TestPrinter(BaseTest):
     def test_hogql_properties_use_active_storage_schema(self):
         context = HogQLContext(team_id=self.team.pk)
         expected_browser_sql = (
-            "events.properties.`$browser`"
+            self._json_dynamic_property_expr("$browser")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
         )
@@ -986,7 +948,7 @@ class TestPrinter(BaseTest):
 
         context = HogQLContext(team_id=self.team.pk)
         expected_ai_trace_sql = (
-            "events.properties.`$ai_trace_id`"
+            self._json_dynamic_property_expr("$ai_trace_id")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
         )
@@ -1008,10 +970,10 @@ class TestPrinter(BaseTest):
             self._expr("properties.`Account.client_id`", context),
             expected_client_id_sql,
         )
-        self.assertEqual(
-            context.values,
-            {} if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"hogql_val_0": "Account.client_id"},
-        )
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertEqual(set(context.values.values()), {"Account%2Eclient_id", "^`Account%2Eclient_id`"})
+        else:
+            self.assertEqual(context.values, {"hogql_val_0": "Account.client_id"})
 
         context = HogQLContext(team_id=self.team.pk)
         expected_dynamic_sql = (
@@ -1030,10 +992,8 @@ class TestPrinter(BaseTest):
 
     def test_hogql_property_comparisons_use_active_storage_schema(self):
         context = HogQLContext(team_id=self.team.pk)
-        # The isNotNull guard keeps the comparison non-nullable while the bare column read stays
-        # skip-index eligible — same shape as nullable materialized columns on the legacy schema.
         expected_sql = (
-            "and(equals(events.properties.`$browser`, %(hogql_val_0)s), isNotNull(events.properties.`$browser`))"
+            f"ifNull(equals({self._json_dynamic_property_expr('$browser')}, %(hogql_val_0)s), 0)"
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_1)s), 0)"
         )
@@ -1110,7 +1070,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("properties['$browser']"),
             (
-                "events.properties.`$browser`"
+                self._json_dynamic_property_expr("$browser")
                 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
                 else "nullIf(nullIf(events.`mat_$browser`, ''), 'null')"
             ),
@@ -1426,15 +1386,14 @@ class TestPrinter(BaseTest):
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_json_has_uses_direct_json_subcolumns(self) -> None:
-        expected_by_expr = {
-            "JSONHas(properties, 'dynamic_key')": "or(isNotNull(events.properties.dynamic_key), notEquals(toJSONString(events.properties.^dynamic_key), '{}'))",
-            "JSONHas(properties, '$ai_trace_id')": "isNotNull(events.properties.`$ai_trace_id`)",
-            "JSONHas(properties, '$browser')": "isNotNull(events.properties.`$browser`)",
-        }
-        for expression, expected in expected_by_expr.items():
+        for key in ("dynamic_key", "$ai_trace_id", "$browser", "$exception_list", "$feature_flags"):
             context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-            printed = self._expr(expression, context)
-            self.assertEqual(printed, expected)
+            printed = self._expr(f"JSONHas(properties, '{key}')", context)
+            rows = sync_execute(
+                f"SELECT {printed} FROM (SELECT CAST(arrayJoin(%(documents)s), %(json_type)s) AS properties) AS events",
+                {**context.values, "documents": ["{}"], "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+            )
+            self.assertEqual(rows, [(0,)])
             self.assertNotIn("JSONExtractKeysAndValuesRaw", printed)
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -1462,18 +1421,128 @@ class TestPrinter(BaseTest):
             self.assertNotIn("JSONExtractKeysAndValuesRaw", printed, expression)
             self.assertIn("events.properties.", printed, expression)
 
+    @parameterized.expand(
+        [
+            (expression, properties, expected)
+            for expression in ["properties", "toJSONString(properties)"]
+            for properties, expected in [
+                ({}, {}),
+                (
+                    {"$exception_types": ["TypeError"], "items": [None, "", {}, []], "custom_empty": []},
+                    {"$exception_types": ["TypeError"], "items": [None, "", {}, []], "custom_empty": []},
+                ),
+                ({"$exception_types": [], "custom_empty": []}, {"custom_empty": []}),
+            ]
+        ]
+    )
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_new_events_schema_to_json_string_scrubs_absent_typed_paths(self) -> None:
-        printed = self._expr("toJSONString(properties)")
+    def test_new_events_schema_to_json_string_strips_empty_values(
+        self, expression: str, properties: dict[str, object], expected: dict[str, object]
+    ) -> None:
+        printed = self._expr(expression)
+        [(serialized,)] = sync_execute(
+            f"SELECT {printed} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties, "
+            "CAST('{}', %(temporary_type)s) AS temporary_properties) AS events",
+            {
+                "raw": json.dumps(properties),
+                "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
+                "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
+            },
+        )
+        self.assertEqual(json.loads(serialized), expected)
 
-        self.assertEqual(printed, self._json_reconstructed_blob("events.properties"))
+    @parameterized.expand(
+        [
+            ({}, None, 0, 0),
+            ({"$groups": {"project": "p"}}, {"project": "p"}, 1, 0),
+            ({"$groups": {"organization": "o", "custom": "c"}}, {"organization": "o", "custom": "c"}, 1, 1),
+        ]
+    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_groups_omit_typed_defaults(
+        self,
+        properties: dict[str, object],
+        expected_groups: dict[str, str] | None,
+        has_groups: int,
+        has_organization: int,
+    ) -> None:
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._expr(
+            "tuple(properties.$groups, JSONHas(properties, '$groups'), JSONHas(properties, '$groups', 'organization'), properties.$groups IS NULL, properties.$groups.organization)",
+            context,
+        )
+        [(result,)] = sync_execute(
+            f"SELECT {printed} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties) AS events",
+            {**context.values, "raw": json.dumps(properties), "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+        )
+        self.assertEqual(json.loads(result[0]) if result[0] is not None else None, expected_groups)
+        self.assertEqual(result[1:4], (has_groups, has_organization, int(expected_groups is None)))
+        self.assertEqual(result[4], (expected_groups or {}).get("organization"))
+
+    @parameterized.expand(
+        [
+            (None, True),
+            ("$feature/flag.with.dot", True),
+            ("$feature_flags", True),
+            (None, False),
+        ]
+    )
+    def test_feature_flag_json_extracts_match_map_document(self, restricted: str | None, populated: bool) -> None:
+        flags = {"flag.with.dot": "control", "numeric": "42", "enabled": "true"} if populated else {}
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True)
+        context.restricted_properties = (
+            {RestrictedProperty(name=restricted, property_type=PropertyDefinition.Type.EVENT)} if restricted else set()
+        )
+        extracts = [
+            "JSONExtractString(properties, '$feature_flags', 'flag.with.dot')",
+            "JSONExtractString(properties, '$feature_flags', concat('flag.', 'with.dot'))",
+            "JSONExtractString(properties, '$feature_flags', 'missing')",
+            "JSONExtractRaw(properties, '$feature_flags')",
+            "JSONExtractRaw(properties, '$feature_flags', 'flag.with.dot')",
+            "JSONExtract(properties, '$feature_flags', 'Map(String, String)')",
+            "JSONExtractKeys(properties, '$feature_flags')",
+            "JSONExtractKeysAndValues(properties, '$feature_flags', 'String')",
+            "JSONExtractKeysAndValuesRaw(properties, '$feature_flags')",
+            "JSONExtractArrayRaw(properties, '$feature_flags')",
+            "JSONExtractInt(properties, '$feature_flags', 'numeric')",
+            "JSONExtractUInt(properties, '$feature_flags', 'numeric')",
+            "JSONExtractFloat(properties, '$feature_flags', 'numeric')",
+            "JSONExtractBool(properties, '$feature_flags', 'enabled')",
+        ]
+        expression = "tuple(" + ", ".join(extracts) + ")"
+        printed = self._expr(expression, context)
+        actual = sync_execute(
+            f"SELECT {printed} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties) AS events",
+            {
+                **context.values,
+                "raw": json.dumps({"$feature_flags": flags}),
+                "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
+            },
+        )
+        visible_flags = {
+            key: value for key, value in flags.items() if restricted not in ("$feature_flags", f"$feature/{key}")
+        }
+        expected = sync_execute(
+            f"SELECT {expression} FROM (SELECT %(raw)s AS properties)",
+            {"raw": json.dumps({"$feature_flags": visible_flags} if visible_flags else {})},
+        )
+        self.assertEqual(actual, expected)
 
     def test_instance_setting_enables_new_events_schema(self) -> None:
         # The production rollout lever is the instance setting, not the env var — a fresh context
         # must pick up a runtime flip.
         with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", True):
             sql = self._select("SELECT event FROM events")
+            legacy_sql = self._select(
+                "SELECT event FROM events",
+                HogQLContext(
+                    team_id=self.team.pk,
+                    enable_select_queries=True,
+                    modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
+                ),
+            )
         self.assertIn("FROM events_json", sql)
+        self.assertNotIn("events_json", legacy_sql)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_instance_setting_team_allowlist_enables_new_events_schema(self) -> None:
@@ -1482,10 +1551,19 @@ class TestPrinter(BaseTest):
                 sql = self._select("SELECT event FROM events")
             self.assertIn("FROM events_json", sql)
 
-            # A list naming only other teams must not flip this team.
+            # A list naming only other teams must not flip this team, unless the query's modifier asks for it.
             with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "999999"):
                 sql = self._select("SELECT event FROM events")
+                native_sql = self._select(
+                    "SELECT event FROM events",
+                    HogQLContext(
+                        team_id=self.team.pk,
+                        enable_select_queries=True,
+                        modifiers=HogQLQueryModifiers(useNewEventsSchema=True),
+                    ),
+                )
             self.assertNotIn("FROM events_json", sql)
+            self.assertIn("FROM events_json", native_sql)
 
             with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "invalid"):
                 with pytest.raises(ValueError):
@@ -1501,12 +1579,31 @@ class TestPrinter(BaseTest):
             self.assertNotIn("JSONExtractKeysAndValuesRaw", printed)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_new_events_schema_runtime_first_property_keys_fail_fast(self) -> None:
+    def test_new_events_schema_dotted_property_keys_stay_flat(self) -> None:
+        # `a.b` in backticks is one key, stored under the escaped path name; `properties.a.b` is the nested path.
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        self.assertEqual(
+            self._expr("properties.`a.b`", context), self._json_dynamic_subcolumn_expr("events.properties", "a.b")
+        )
+        self.assertEqual(set(context.values.values()), {"a%2Eb", "^`a%2Eb`"})
 
-        for expression in ("JSONHas(properties, event)", "JSONExtractRaw(properties, event)"):
-            with pytest.raises(QueryError, match="constant first key"):
-                self._expr(expression, context)
+        nested_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        self.assertEqual(
+            self._expr("properties.a.b", nested_context),
+            self._json_dynamic_subcolumn_path_expr("events.properties", ["a", "b"]),
+        )
+        self.assertEqual(nested_context.values, {})
+
+        document = json.dumps({"a.b": "flat", "a": {"b": "nested"}})
+        for expression, expected in (("properties.`a.b`", "flat"), ("properties.a.b", "nested")):
+            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+            printed = self._expr(expression, context)
+            [(value,)] = sync_execute(
+                f"SELECT {printed} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties) AS events",
+                {**context.values, "raw": document, "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+                settings={"json_type_escape_dots_in_keys": 1, "type_json_skip_duplicated_paths": 1},
+            )
+            self.assertEqual(value, expected, expression)
 
     def test_property_groups_optimized_in_comparisons(self) -> None:
         # The IN operator works much like equality when the right hand side of the expression is all constants. Like
@@ -1685,6 +1782,10 @@ class TestPrinter(BaseTest):
             else:
                 assert "properties_group_custom" in enabled_response.clickhouse
                 assert "properties_group_custom" in optimized_response.clickhouse
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                labels = labels - {"empty_string"}
+                if "null" in labels:
+                    labels = labels | {"empty_string"}
             assert {row[0] for row in disabled_response.results} == labels
             assert {row[0] for row in enabled_response.results} == labels
             assert {row[0] for row in optimized_response.results} == labels
@@ -2207,6 +2308,15 @@ class TestPrinter(BaseTest):
             ),
         )
         self._assert_query_error("select 1 from other", "Unknown table `other`.")
+
+    @parameterized.expand(
+        [
+            ("SELECT * FROM numbers(10)",),
+            ("SELECT * FROM numbers(2, 5) AS n",),
+        ]
+    )
+    def test_unresolved_hogql_keeps_table_function_arguments(self, query: str) -> None:
+        assert parse_select(query).to_hogql() == query
 
     def test_select_from_placeholder(self):
         self.assertEqual(
@@ -2736,6 +2846,11 @@ class TestPrinter(BaseTest):
                 "grouping_sets",
                 "select event, distinct_id, count() as c from events group by grouping sets ((event), (distinct_id), ())",
                 "GROUP BY GROUPING SETS ((events.event), (events.distinct_id), ())",
+            ),
+            (
+                "grouping_mask",
+                "select grouping(event, distinct_id) as mask, count() as c from events group by grouping sets ((event), (distinct_id), ())",
+                "grouping(events.event, events.distinct_id) AS mask",
             ),
             (
                 "cube",
@@ -3468,7 +3583,7 @@ class TestPrinter(BaseTest):
         mock_matcols_by_table.return_value = {"events": {("$ai_trace_id", "properties"): mat_col}}
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            expected_expr = "events.properties.`$ai_trace_id`"
+            expected_expr = self._json_dynamic_property_expr("$ai_trace_id")
         else:
             expected_expr = "events.`mat_$ai_trace_id`"
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -3484,12 +3599,14 @@ class TestPrinter(BaseTest):
         # Verify the equals for $ai_trace_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
 
-        # Direct property read should stay on the active indexed path with no sentinel scrubbing.
+        # The read itself already maps an empty value to NULL, so no outer nullIf wraps it.
         context = HogQLContext(team_id=self.team.pk)
         sql = self._expr("properties.$ai_trace_id", context)
 
-        self.assertEqual(sql.strip(), expected_expr)
-        self.assertNotIn("nullIf", sql)
+        self.assertEqual(
+            sql.strip(),
+            expected_expr,
+        )
 
         # IN operations - no ifNull wrapping
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -3500,7 +3617,8 @@ class TestPrinter(BaseTest):
         assert trace1_param_key is not None, "Expected 'trace1' to be recorded as a parameter value"
         trace2_param_key = next((k for k, v in context.values.items() if v == "trace2"), None)
         assert trace2_param_key is not None, "Expected 'trace2' to be recorded as a parameter value"
-        self.assertIn(f"in({expected_expr}, tuple(%({trace1_param_key})s, %({trace2_param_key})s))", sql)
+        expected_in = f"in({expected_expr}, tuple(%({trace1_param_key})s, %({trace2_param_key})s))"
+        self.assertIn(expected_in, sql)
         self.assertNotIn("ifNull(in", sql)
 
         # NOT IN operations - no ifNull wrapping
@@ -3550,7 +3668,7 @@ class TestPrinter(BaseTest):
         mock_matcols_by_table.return_value = {"events": {("$ai_session_id", "properties"): mat_col}}
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            expected_expr = "events.properties.`$ai_session_id`"
+            expected_expr = self._json_dynamic_property_expr("$ai_session_id")
         else:
             expected_expr = "events.`mat_$ai_session_id`"
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -3563,12 +3681,14 @@ class TestPrinter(BaseTest):
         # Verify the equals for $ai_session_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
 
-        # Direct property read should stay on the active indexed path with no sentinel scrubbing.
+        # The read itself already maps an empty value to NULL, so no outer nullIf wraps it.
         context = HogQLContext(team_id=self.team.pk)
         sql = self._expr("properties.$ai_session_id", context)
 
-        self.assertEqual(sql.strip(), expected_expr)
-        self.assertNotIn("nullIf", sql)
+        self.assertEqual(
+            sql.strip(),
+            expected_expr,
+        )
 
         # IN operations - no ifNull wrapping
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -3579,7 +3699,8 @@ class TestPrinter(BaseTest):
         assert session1_param_key is not None, "Expected 'session1' to be recorded as a parameter value"
         session2_param_key = next((k for k, v in context.values.items() if v == "session2"), None)
         assert session2_param_key is not None, "Expected 'session2' to be recorded as a parameter value"
-        self.assertIn(f"in({expected_expr}, tuple(%({session1_param_key})s, %({session2_param_key})s))", sql)
+        expected_in = f"in({expected_expr}, tuple(%({session1_param_key})s, %({session2_param_key})s))"
+        self.assertIn(expected_in, sql)
         self.assertNotIn("ifNull(in", sql)
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             self.assertNotIn("mat_$ai_session_id", sql)
@@ -3759,9 +3880,41 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             printed,
             self._with_active_events_table(
-                f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0{self._native_read_settings_suffix()}"
             ),
         )
+
+    def test_log_entries_queries_inherit_profile_spill(self):
+        printed = self._print(
+            "SELECT instance_id, max(timestamp) FROM log_entries GROUP BY instance_id",
+            settings=HogQLGlobalSettings(),
+        )
+        assert "max_bytes_before_external_group_by" not in printed, printed
+
+    def test_log_entries_subquery_inherits_profile_spill(self):
+        printed = self._print(
+            "SELECT session_id FROM session_replay_events WHERE session_id IN (SELECT log_source_id FROM console_logs_log_entries)",
+            settings=HogQLGlobalSettings(),
+        )
+        assert "max_bytes_before_external_group_by" not in printed, printed
+
+    def test_non_log_entries_queries_keep_spill_disabled(self):
+        printed = self._print("SELECT event FROM events", settings=HogQLGlobalSettings())
+        assert "max_bytes_before_external_group_by=0" in printed, printed
+
+    def test_log_entries_keeps_explicit_spill_threshold(self):
+        printed = self._print(
+            "SELECT message FROM log_entries",
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=1_000_000),
+        )
+        assert "max_bytes_before_external_group_by=1000000" in printed, printed
+
+    def test_log_entries_keeps_explicit_zero_spill_threshold(self):
+        printed = self._print(
+            "SELECT message FROM log_entries",
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=0),
+        )
+        assert "max_bytes_before_external_group_by=0" in printed, printed
 
     def test_print_query_level_settings(self):
         query = parse_select("SELECT 1 FROM events")
@@ -3792,7 +3945,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             printed,
             self._with_active_events_table(
-                f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0{self._native_read_settings_suffix()}"
             ),
         )
 
@@ -4021,7 +4174,7 @@ class TestPrinter(BaseTest):
             self._with_active_events_table(
                 f"SELECT timestamp AS timestamp FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s), "
                 f"toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk})) "
-                f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0{self._native_read_settings_suffix()}"
             ),
         )
 
@@ -4035,7 +4188,7 @@ class TestPrinter(BaseTest):
             self._with_active_events_table(
                 f"SELECT event AS event FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s) AS event, "
                 f"event FROM events WHERE equals(events.team_id, {self.team.pk})) "
-                f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0{self._native_read_settings_suffix()}"
             ),
         )
 
@@ -4053,7 +4206,7 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         browser_expr = (
-            "events.properties.`$browser`"
+            self._json_dynamic_property_expr("$browser")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "nullIf(nullIf(events.`mat_$browser`, ''), 'null')"
         )
@@ -4062,7 +4215,7 @@ class TestPrinter(BaseTest):
             self._with_active_events_table(
                 f"SELECT `$browser` AS `$browser` FROM (SELECT {browser_expr} AS `$browser` "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
-                f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0{self._native_read_settings_suffix()}"
             ),
         )
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
@@ -4082,7 +4235,7 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         browser_expr = (
-            "events.properties.`$browser`"
+            self._json_dynamic_property_expr("$browser")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "nullIf(nullIf(events.`mat_$browser`, ''), 'null')"
         )
@@ -4092,7 +4245,7 @@ class TestPrinter(BaseTest):
                 f"SELECT `$browser` AS `$browser` FROM (SELECT {browser_expr} AS `$browser`, "
                 f"{browser_expr} AS `$browser` "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
-                f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0{self._native_read_settings_suffix()}"
             ),
         )
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
@@ -4112,7 +4265,7 @@ class TestPrinter(BaseTest):
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
                 "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
                 "max_ast_elements=4000000, "
-                "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                f"max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0{self._native_read_settings_suffix()}"
             )
             == printed
         )
@@ -4131,7 +4284,7 @@ class TestPrinter(BaseTest):
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
                 "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
                 "max_ast_elements=4000000, "
-                "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                f"max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0{self._native_read_settings_suffix()}"
             )
             == printed
         )
@@ -4146,7 +4299,7 @@ class TestPrinter(BaseTest):
                 f"SELECT dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_paid', "
                 "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                f"readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0{self._native_read_settings_suffix()}"
             )
             == printed
         )
@@ -4165,7 +4318,7 @@ class TestPrinter(BaseTest):
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
                 "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
                 "max_ast_elements=4000000, "
-                "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                f"max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0{self._native_read_settings_suffix()}"
             )
             == printed
         )
@@ -4180,7 +4333,7 @@ class TestPrinter(BaseTest):
                 f"SELECT dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_organic', "
                 "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                f"readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0{self._native_read_settings_suffix()}"
             )
             == printed
         )
@@ -4192,7 +4345,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
@@ -4205,7 +4358,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
@@ -4364,7 +4517,7 @@ class TestPrinter(BaseTest):
             self.assertIn("JSONExtractString", result.clickhouse)
             # Should NOT contain Float64 casting which would cause type mismatch
             self.assertNotIn("accurateCastOrNull", result.clickhouse)
-        self.assertNotIn("Float64", result.clickhouse)
+            self.assertNotIn("Float64", result.clickhouse)
 
     def test_unique_survey_submissions_filter(self):
         printed = self._print(
@@ -4968,6 +5121,26 @@ class TestPrinter(BaseTest):
                 "SELECT event FROM events WHERE nullIf(event, '') NOT IN (SELECT event FROM events WHERE event = 'signup')",
                 "ifNull(globalNotIn(",
             ),
+            (
+                "in_log_entries_subquery",
+                "SELECT session_id FROM session_replay_events WHERE session_id IN (SELECT log_source_id FROM log_entries WHERE log_source = 'session_replay')",
+                "globalIn(",
+            ),
+            (
+                "not_in_log_entries_subquery",
+                "SELECT session_id FROM session_replay_events WHERE session_id NOT IN (SELECT log_source_id FROM log_entries WHERE log_source = 'session_replay')",
+                "globalNotIn(",
+            ),
+            (
+                "in_console_logs_log_entries_subquery",
+                "SELECT session_id FROM session_replay_events WHERE session_id IN (SELECT log_source_id FROM console_logs_log_entries WHERE message ILIKE '%error%')",
+                "globalIn(",
+            ),
+            (
+                "in_batch_export_log_entries_subquery",
+                "SELECT event FROM events WHERE event IN (SELECT instance_id FROM batch_export_log_entries WHERE level = 'ERROR')",
+                "globalIn(",
+            ),
         ]
     )
     def test_sharded_in_subqueries_promoted_to_global(self, _name, select, expected):
@@ -5321,12 +5494,7 @@ class TestPrinter(BaseTest):
                 # not block the uuid index.
                 "eq_property_access",
                 "properties.$session_id = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'",
-                (
-                    "and(equals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull(%(hogql_val_0)s, 'UUID'))), "
-                    "isNotNull(events.properties.`$session_id`))"
-                )
-                if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-                else "equals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull(%(hogql_val_0)s, 'UUID')))",
+                "equals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull(%(hogql_val_0)s, 'UUID')))",
             ),
             (
                 "in_operation",
@@ -5346,6 +5514,10 @@ class TestPrinter(BaseTest):
         ]
     )
     def test_session_id_uuid_optimization(self, _name, expr, expected):
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            expected = expected.replace(
+                "events.`$session_id_uuid`", "toUInt128(toUUIDOrNull(events.properties.`$session_id`))"
+            )
         self.assertEqual(self._expr(expr), expected)
 
     @parameterized.expand(
@@ -5461,15 +5633,27 @@ class TestNewEventsSchemaDefaults(BaseTest):
                 parse_select("SELECT properties.schema_test_property FROM events"),
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True),
                 "clickhouse",
+                settings=HogQLGlobalSettings(),
+            )
+            printed_without_events, _ = prepare_and_print_ast(
+                parse_select("SELECT id FROM persons"),
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                "clickhouse",
+                settings=HogQLGlobalSettings(),
             )
 
+        # Only a read of the native table needs ClickHouse to unescape stored dotted keys, and an older
+        # ClickHouse rejects the setting name, so it must not leak onto other queries.
+        self.assertNotIn("json_type_escape_dots_in_keys", printed_without_events)
         if use_new_events_schema:
             self.assertIn("FROM events_json AS events", printed)
             self.assertIn("events.properties.schema_test_property", printed)
             self.assertNotIn("JSONExtractRaw", printed)
+            self.assertIn("json_type_escape_dots_in_keys=1", printed)
         else:
             self.assertIn("FROM events ", printed)
             self.assertIn("JSONExtractRaw(events.properties", printed)
+            self.assertNotIn("json_type_escape_dots_in_keys", printed)
 
 
 @snapshot_clickhouse_queries
@@ -5483,24 +5667,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             sync_execute(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")
 
     def _json_dynamic_subcolumn_expr(self, root: str, property_name: str, *, as_json: bool = False) -> str:
-        escaped = escape_clickhouse_identifier(property_name)
-        field = f"{root}.{escaped}"
-        object_read = f"toJSONString({root}.^{escaped})"
-        scalar_value = (
-            f"concat('\"', ifNull(toString(replaceOne(toString({field}), ' ', 'T')), ''), '\"')"
-            if as_json
-            else f"replaceOne(toString({field}), ' ', 'T')"
-        )
-        fallback_value = (
-            f"toJSONString({field})"
-            if as_json
-            else (
-                f"if(or(startsWith(dynamicType({field}), 'Array'), startsWith(dynamicType({field}), 'Map'), "
-                f"startsWith(dynamicType({field}), 'Tuple')), toJSONString({field}), toString({field}))"
-            )
-        )
-        scalar_read = f"if(isNull({field}), NULL, if(startsWith(dynamicType({field}), 'DateTime'), {scalar_value}, {fallback_value}))"
-        return f"if(notEquals({object_read}, '{{}}'), {object_read}, {scalar_read})"
+        return json_dynamic_read_sql(root, [property_name], as_json=as_json)
 
     def _json_dynamic_property_expr(
         self, property_name: str, table_alias: str = "events", *, as_json: bool = False
@@ -5705,7 +5872,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             printed = self._expr("properties.numeric_test_prop < 5")
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert self._json_dynamic_property_expr("numeric_test_prop") in printed
+            # A numeric comparison casts the bare JSON path instead of going through the string read.
+            assert "accurateCastOrNull(events.properties.numeric_test_prop, 'Float64')" in printed
             assert mat_col.name not in printed
         else:
             assert f"less(accurateCastOrNull(events.{mat_col.name}," in printed
@@ -5755,7 +5923,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         printed = self._expr("properties.numeric_test_prop < 5")
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert self._json_dynamic_property_expr("numeric_test_prop") in printed
+            # A numeric comparison casts the bare JSON path instead of going through the string read.
+            assert "accurateCastOrNull(events.properties.numeric_test_prop, 'Float64')" in printed
             assert "mat_numeric_test_prop" not in printed
             assert "accurateCastOrNull" in printed
         else:
@@ -5858,7 +6027,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
             index_name = get_minmax_index_name(mat_col.name)
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                expected_lt_mango = [("d_empty",), ("d_low",)]
+                expected_lt_mango = [("d_low",)]
                 expected_gte_mango = [("d_high",), ("d_mid",), ("d_null_str",)]
 
             lt_result = execute_hogql_query(
@@ -5973,7 +6142,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
         Expected behavior:
         - with_email: is_not_set=0 - property has a value
-        - test_with_empty_string: is_not_set=0 - property has a value
+        - test_with_empty_string: is_not_set=1 for native String paths and materialized columns, otherwise 0
         - with_null: is_not_set=1 - null is treated as "not set"
         - without: is_not_set=1 - property doesn't exist
 
@@ -6073,10 +6242,10 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         )
         assert result.clickhouse
 
-        # Materialized string columns use nullIf(nullIf(..., ''), 'null'), so empty strings become NULL.
-        materialized_column_nullifies_empty_string = is_materialized and (
-            not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-            or poe_mode != PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+        # Native String paths and materialized string columns use empty strings for missing values.
+        materialized_column_nullifies_empty_string = is_materialized or (
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            and poe_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
         )
         expected_results = {
             (distinct_id_with_email, "test@example.com", 0, 0),
@@ -6099,6 +6268,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             and poe_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
         ):
             assert "jsonextractraw" not in sql_lower
+            assert "tojsonstring(events.person_properties)" not in sql_lower
         elif not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             # JSONHas is used in calculating is_not_set_result_historical, but nowhere else
             assert sql_lower.count("jsonhas") == 1
@@ -6582,6 +6752,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 and not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             ):
                 ilike_expected = ilike_expected_if_non_nullable
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                ilike_expected = (ilike_expected | {""}) if pattern == "None" else ilike_expected - {""}
             pattern_expr = ast.Constant(value=pattern if pattern != "None" else None)
             ilike_result = execute_hogql_query(
                 team=self.team,
@@ -6677,6 +6849,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             ):
                 in_expected = in_expected_if_non_nullable
 
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                in_expected = in_expected - {""}
             in_values_exprs: list[ast.Expr] = [ast.Constant(value=v) for v in in_values]
             in_tuple = ast.Tuple(exprs=in_values_exprs)
 
@@ -6813,7 +6987,12 @@ class TestSessionIdUuidOptimization(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             team=self.team,
             distinct_id="user1",
-            properties={"$session_id": self.SESSION_UUID_1, "color": "blue"},
+            properties={
+                "$session_id": self.SESSION_UUID_1,
+                "$window_id": "window1",
+                "$group_0": "group1",
+                "color": "blue",
+            },
         )
         _create_event(
             event="$pageview",
@@ -6854,6 +7033,13 @@ class TestSessionIdUuidOptimization(ClickhouseTestMixin, APIBaseTest):
                 "not_in_operation",
                 "SELECT properties.color FROM events WHERE $session_id NOT IN ('{session_uuid_1}') AND $session_id = '{session_uuid_2}' ORDER BY properties.color",
                 [("red",)],
+            ),
+            (
+                "aggregate_aliases",
+                "SELECT argMin(e.$session_id, timestamp) AS $session_id, "
+                "argMin(e.$window_id, timestamp) AS $window_id, argMin(e.$group_0, timestamp) AS $group_0, "
+                "argMin(e.$session_id_uuid, timestamp) AS $session_id_uuid FROM events AS e WHERE properties.color = 'blue'",
+                [(SESSION_UUID_1, "window1", "group1", UUID(SESSION_UUID_1).int)],
             ),
         ]
     )

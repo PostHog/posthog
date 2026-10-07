@@ -273,7 +273,6 @@ Available features:
 | `surveys`                | [Surveys](https://posthog.com/docs/surveys)                                                     |
 | `tasks`                  | [Tasks](https://posthog.com/docs/posthog-desktop/tasks)                                         |
 | `tracing`                | Tracing                                                                                         |
-| `user_interviews`        | User interview topics                                                                           |
 | `visual_review`          | Visual review                                                                                   |
 | `warehouse_sources`      | Warehouse sources                                                                               |
 | `web_analytics`          | [Web analytics](https://posthog.com/docs/web-analytics)                                         |
@@ -287,7 +286,7 @@ To view which tools are available per feature, see our [documentation](https://p
 ### Learning and skills in cli mode
 
 Claude web and desktop silently drop `exec` when its serialized `inputSchema` reaches 16,384 characters.
-In cli mode, the `posthog` tool keeps the guidance needed for routine calls in its schema.
+In cli mode, the `exec` tool keeps the guidance needed for routine calls in its schema.
 The compact tool-domain index stays inline in the `command` schema so Claude can discover relevant tools before making a call.
 Optional, task-specific guidance is served through the same tool:
 
@@ -297,16 +296,16 @@ Optional, task-specific guidance is served through the same tool:
 - `learn urls` loads the PostHog app link formatting rules (kept inline for other clients; served as a guide on Claude web and desktop to protect the schema budget).
 - `learn feedback` loads feedback guidance when feedback is available.
 - `learn skills` lists qualified names from the published PostHog bundle (`posthog:`) and the current project's Skills store (`project:`).
-- `learn -s <query>` searches both sources in names, descriptions, Markdown bodies, and bundled file paths. Results from both sources are merged into one relevance order.
+- `learn -s "<up to 8 keywords>"` searches both sources in names, descriptions, Markdown bodies, and bundled file paths. Longer keywords take priority when a query contains more than eight. Results from both sources are merged into one relevance order.
 - `learn -d <source>:<skill> [...]` prints the one-line description of each named skill without reading its body (up to 20 per call). Unknown names are reported inline without failing the batch.
 - `learn posthog:<skill> [path]` or `learn project:<skill> [path]` reads a skill or one of its bundled files.
 - `learn <source>:<skill> <path> [path...]` reads several bundled files, and `learn <source>:<skill> [<source>:<skill>...]` reads several skills, in one call (up to 10 targets).
-- `learn <source>:<skill> <path> -s <query>` searches within one Markdown file.
+- `learn <source>:<skill> <path> -s "<up to 8 keywords>"` searches within one Markdown file.
 - `learn <source>:<skill> <path> --lines <start>:<end>` reads an inclusive line range.
 
 Built-in guides are specific to Claude web and desktop. Skill discovery is independently available to every cli-mode client when the `mcp-exec-skills` feature flag is enabled. Other clients, including Claude Code, receive only the skill commands and do not receive Claude's built-in guides. If the flag is missing, disabled, or cannot be evaluated, skill commands are omitted from the schema and rejected at runtime.
 When skill discovery is enabled, the inline prompt tells every non-plugin cli client, including Claude web and desktop, to search with `learn -s "<task keywords>"` before non-trivial PostHog work, load matches by exact qualified name, and follow the loaded `SKILL.md` before choosing tools. Trivial lookups and unrelated conversation skip this workflow.
-A product `call` in a session that loaded no skill is rejected with an instruction to search first; `call --no-skills ...` records that no skill applies and opens the gate for the rest of the session. Clients without an MCP session id are not gated.
+Skill use is advisory: a product `call` is never rejected for skipping `learn`, so every client behaves the same whether or not it holds an MCP session id.
 
 The skill bundle is shared through Redis: each pod loads it once at startup, parses it into memory, and serves every `learn` command from that parsed catalog.
 A background timer polls a small version key in Redis; only when the version changes does a pod read the archive bytes again.
@@ -343,7 +342,7 @@ The example above exposes all flag tools plus `dashboard-get`.
 
 ### Server mode (tools vs cli)
 
-The MCP server can register either every PostHog tool individually (**tools** mode) or wrap them all behind a single `posthog` CLI-like tool (**cli** mode).
+The MCP server can register either every PostHog tool individually (**tools** mode) or wrap them all behind a single `exec` CLI-like tool (**cli** mode).
 **cli is the default for all clients.**
 When the caller does not pin a mode, the server only auto-selects tools mode for a short allow-list of clients that are better served by the full per-tool roster — currently Cursor (matched by its self-reported client name or its `Cursor/…` User-Agent).
 Every OpenAI surface (ChatGPT, Codex, Agent Builder, Responses API) gets the cli default. OpenAI's `openai-mcp` client caches the roster it captures for a published plugin and serves that snapshot to every user of the plugin, so the mode a plugin listing should run in is pinned on the URL submitted to OpenAI rather than inferred from a User-Agent label.
@@ -360,10 +359,10 @@ x-posthog-mcp-mode: cli
 x-posthog-mcp-mode: tools
 ```
 
-| Value   | Behavior                                                |
-| ------- | ------------------------------------------------------- |
-| `tools` | Force tools mode (one MCP tool per PostHog tool).       |
-| `cli`   | Force cli mode (single `posthog` tool wraps all tools). |
+| Value   | Behavior                                             |
+| ------- | ---------------------------------------------------- |
+| `tools` | Force tools mode (one MCP tool per PostHog tool).    |
+| `cli`   | Force cli mode (single `exec` tool wraps all tools). |
 
 The header wins when both the header and the query parameter are set.
 An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
@@ -407,6 +406,12 @@ Then replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in t
 
 The server defaults to port **8787**, reads config from `.env` (see `.env.example`), and expects a local Redis on port `6379` for session state; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint.
 
+`render-ui` is available in production for Claude UI hosts and OpenAI's MCP transport used by ChatGPT and Codex. OpenAI's generic plugin-discovery client receives it too, so the cached plugin tool list includes the app tools.
+
+To test MCP Apps locally, run `pnpm run build:ui-apps`. Connect the client to `http://localhost:8787/mcp?mode=cli` and start a fresh chat so it discovers both `exec` and `render-ui`. Use `exec` to resolve an existing entity before calling `render-ui` with its read-only tool and input. Verify that the interactive app renders and fetches its data, as well as that the tool call succeeds. `MCP_APPS_BASE_URL` must point to the local MCP server so its UI assets can load. For ChatGPT web or desktop, expose the MCP server and local PostHog through HTTPS development tunnels. Set `MCP_APPS_BASE_URL` to the MCP tunnel, and `POSTHOG_PUBLIC_URL` to the PostHog tunnel. The local backend's `SITE_URL` must also use the PostHog tunnel so OAuth discovery advertises reachable endpoints. Its development frontend assets must be available over HTTPS. Create a custom MCP plugin in ChatGPT using the MCP tunnel's `/mcp?mode=cli&readonly=true` URL, complete OAuth, and start a fresh chat with that plugin selected. Keep `POSTHOG_API_BASE_URL` pointing to local PostHog. Stop the tunnels after testing. Refresh the plugin's tools after changing the advertised roster, then start a fresh chat.
+
+In single-exec mode, UI hosts also discover the connection's permitted read-only tools with `ui.visibility: ["app"]`. These tools load data and support drill-down inside the visualization; the model continues to use `exec` and `render-ui`. Refresh the custom plugin's tool list after changing these descriptors, then start a fresh chat.
+
 ### Session cache
 
 A session's client context lives in one `mcp:s:<id>:c` key with a 24-hour idle expiry, refreshed on every request in the session.
@@ -440,7 +445,6 @@ Changes in the examples repo will be reflected on the next request.
 - `src/` - The MCP server: Hono app (`src/hono/`), tool handlers (`src/tools/`), prompt templates (`src/templates/`)
 - `definitions/` - Hand-authored YAML tool definitions (per-product YAML lives at `products/<product>/mcp/` in the monorepo)
 - `schema/` - Generated schema files, including `tool-definitions-all.json` (the full tool catalog)
-- `typescript/` - A small shim (`typescript/src/tools/posthogAiTools/`) consumed by posthog-ai
 
 ### Development Commands
 
@@ -453,7 +457,9 @@ Changes in the examples repo will be reflected on the next request.
 
 ### Adding New Tools
 
-See the [tools documentation](src/tools/README.md) for a guide on adding new tools to the MCP server.
+Most tools are generated from `products/<product>/mcp/tools.yaml`.
+Follow the [implementing MCP tools skill](../../.agents/skills/implementing-mcp-tools/SKILL.md) and the [handbook guide](../../docs/published/handbook/engineering/ai/implementing-mcp-tools.md) for that flow.
+Use [src/tools/README.md](src/tools/README.md) only for hand-written tools.
 
 ### Environment variables
 

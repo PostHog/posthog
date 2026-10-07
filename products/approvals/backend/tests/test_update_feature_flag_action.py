@@ -18,6 +18,9 @@ from products.approvals.backend.actions.feature_flags import (
 )
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.policies import PolicyEngine
+from products.approvals.backend.services import ChangeRequestService
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 SINGLE_DICT_PATHS = {"holdout"}
@@ -259,6 +262,49 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
         assert any("groups" in path for path in intent["triggered_paths"])
 
 
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestRelatedFieldsInIntent(APIBaseTest):
+    def test_gated_update_stores_related_field_as_primary_keys_then_applies(self, _mock_enabled):
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.enable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="Flag analytics", created_by=self.user)
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            active=False,
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"active": True, "analytics_dashboards": [dashboard.id]},
+            format="json",
+        )
+
+        assert response.status_code == 409, response.content
+        assert response.json().get("code") == "approval_required"
+
+        change_request = ChangeRequest.objects.get(action_key="feature_flag.enable")
+        assert change_request.intent["full_request_data"]["analytics_dashboards"] == [dashboard.id]
+
+        assert FeatureFlag.objects.get(team=self.team, key="test-flag").active is False
+
+        # Apply replays the stored intent through the serializer, so the related field has to survive the round trip.
+        result = ChangeRequestService(change_request, self.user).approve()
+        assert result.status == "applied"
+
+        applied_flag = FeatureFlag.objects.get(team=self.team, key="test-flag")
+        assert applied_flag.active is True
+        assert list(applied_flag.analytics_dashboards.all()) == [dashboard]
+
+
 class TestUpdateFeatureFlagActionDisplayData(APIBaseTest):
     def test_get_display_data_generates_human_readable_diff(self):
         intent_data = {
@@ -345,6 +391,26 @@ class TestCheckStaleness(APIBaseTest):
         result = UpdateFeatureFlagAction.check_staleness(intent, {})
 
         assert result is True
+
+    @parameterized.expand(
+        [
+            ("adopted by an experiment", "unowned", True, True),
+            ("released by its experiment", "experiment", False, True),
+            ("owner unchanged", "unowned", False, False),
+            ("still owned by the same experiment", "experiment", True, False),
+            ("never classified", None, True, False),
+        ]
+    )
+    def test_staleness_by_owner(self, _name, recorded, owned_now, expected_stale):
+        flag = self._create_flag()
+        if owned_now:
+            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+
+        intent = {"preconditions": {"version": flag.version}}
+        context = {"instance": flag, "recorded_owner_kind": recorded}
+
+        assert EnableFeatureFlagAction.check_staleness(intent, context) is expected_stale
+        assert UpdateFeatureFlagAction.check_staleness(intent, context) is expected_stale
 
     def test_base_action_check_staleness_always_returns_false(self):
         from products.approvals.backend.actions.base import BaseAction

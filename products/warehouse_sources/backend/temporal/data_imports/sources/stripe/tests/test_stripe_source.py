@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import stripe as stripe_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     APPLICATION_FEE_RESOURCE_NAME,
+    BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_GRANT_RESOURCE_NAME,
@@ -247,6 +248,9 @@ class TestStripeSource:
             # listing a specific customer's nested resources — every retry replays the same request
             # against the same customer and fails identically.
             "Request req_abc123: error_details_unknown",
+            # The key belongs to a connected account, so Stripe refuses to nest Connect access two
+            # levels deep when an "Account id" is also configured — a customer misconfiguration.
+            "Request req_abc123: You cannot access the connected accounts of your platform's connected accounts.",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
@@ -270,6 +274,22 @@ class TestStripeSource:
         assert messages
         assert messages[0] is not None
         assert "isn't authorized for the configured Stripe account" in messages[0]
+
+    def test_connect_account_topology_rejection_has_actionable_message(self):
+        # Stripe's own text names no fix a customer can act on — the guidance has to say what will,
+        # which is removing the 'Account id' or switching to a platform key, since the rejection is
+        # about the key/account combination and surfaces on any endpoint the sync calls, not one table.
+        observed_error = (
+            "Request req_abc123: You cannot access the connected accounts of your platform's connected accounts."
+        )
+        messages = [
+            message
+            for pattern, message in self.source.get_non_retryable_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert messages
+        assert messages[0] is not None
+        assert "Account id" in messages[0]
 
     @pytest.mark.parametrize(
         "other_error",
@@ -651,17 +671,31 @@ class TestStripeNestedResourceGetRows:
         assert called_for == ["cus_credit", "cus_owed"]
         assert {row["customer"] for row in rows} == {"cus_credit", "cus_owed"}
 
-    def test_sparse_sweep_checkpoints_by_parent_count(self):
+    @pytest.mark.parametrize(
+        "checkpoint_parents,checkpoint_seconds,expected_positions,expected_rows_totals",
+        [
+            (3, 3600.0, ["cus_2", "cus_5"], [3, 6, 8]),
+            (1000, 0.0, [f"cus_{i}" for i in range(7)], [1, 2, 3, 4, 5, 6, 7, 8]),
+        ],
+        ids=["by_parent_count", "by_elapsed_time"],
+    )
+    def test_sparse_sweep_checkpoints_and_reaches_a_safe_point(
+        self, checkpoint_parents, checkpoint_seconds, expected_positions, expected_rows_totals
+    ):
         # A nested resource where no parent has data (CustomerPaymentMethod over customers with no
         # stored payment method) never fills a chunk, so the row-driven checkpoint never fires and
         # a killed run restarted the whole customer walk. Position must be recorded by parents
-        # walked, regardless of how few rows come back.
+        # walked or time spent, regardless of how few rows come back, and each such checkpoint is
+        # where the sweep can hand off during a worker shutdown.
         def nested_method(customer=None, params=None):
             return _list_object([])
 
         manager = MagicMock()
         logger = MagicMock()
-        with patch.object(stripe_module, "NESTED_SWEEP_CHECKPOINT_PARENTS", 3):
+        with (
+            patch.object(stripe_module, "NESTED_SWEEP_CHECKPOINT_PARENTS", checkpoint_parents),
+            patch.object(stripe_module, "NESTED_SWEEP_CHECKPOINT_SECONDS", checkpoint_seconds),
+        ):
             rows = _run_nested_get_rows(
                 nested_method,
                 parent_objects=[{"id": f"cus_{i}"} for i in range(8)],
@@ -670,11 +704,12 @@ class TestStripeNestedResourceGetRows:
             )
 
         assert rows == []
-        # Checkpointed after the 3rd and 6th parent; the 7th and 8th are still in flight.
-        assert [call.args[0].starting_after for call in manager.save_state.call_args_list] == ["cus_2", "cus_5"]
+        assert [call.args[0].starting_after for call in manager.save_state.call_args_list] == expected_positions
+        manager.committing.assert_not_called()
+        assert manager.safe_point.call_count == len(expected_positions)
         # The pipeline kills this loop mid-sweep on a worker shutdown, so every checkpoint carries
         # the running fan-out size instead of leaving the attempt's only line until after the loop.
-        assert [call.kwargs["rows_total"] for call in logger.info.call_args_list] == [3, 6, 8]
+        assert [call.kwargs["rows_total"] for call in logger.info.call_args_list] == expected_rows_totals
 
     def test_query_param_service_receives_parent_in_params(self):
         # Flat Stripe services with a required filter (e.g. entitlements.active_entitlements.list)
@@ -1118,6 +1153,7 @@ class TestWebhookEventMapping:
 
     @parameterized.expand(
         [
+            (BALANCE_TRANSACTION_RESOURCE_NAME,),
             (SUBSCRIPTION_ITEM_RESOURCE_NAME,),
             (SETUP_ATTEMPT_RESOURCE_NAME,),
             (SHIPPING_RATE_RESOURCE_NAME,),
@@ -1650,6 +1686,9 @@ class TestSchemaWebhookCapability:
             expected = name in RESOURCE_TO_STRIPE_WEBHOOK_EVENT or schema.webhook_only
             assert schema.supports_webhooks is expected, name
 
+    def test_balance_transaction_does_not_offer_webhook_sync(self):
+        assert self.by_name[BALANCE_TRANSACTION_RESOURCE_NAME].supports_webhooks is False
+
 
 class TestCreateWebhookPermissionErrorCopy:
     # Regression test: a permission-denied webhook creation used to always tell the user to add
@@ -1662,7 +1701,7 @@ class TestCreateWebhookPermissionErrorCopy:
             (
                 "api_key",
                 "forbidden",
-                "add the 'Write' permission for 'Webhook endpoints' to your API key",
+                "Give it Write access on Webhook endpoints in Stripe, then select Try again",
                 None,
             ),
             ("oauth", "forbidden", "cannot create webhooks", "reconnect"),
@@ -2124,8 +2163,9 @@ class TestStripeNestedSweepResume:
 
         def run(manager):
             collected: list[dict] = []
-            checkpoints: list[tuple[int, Any]] = []
-            manager.save_state.side_effect = lambda state: checkpoints.append((len(collected), state))
+            staged: list[Any] = []
+            committed: list[tuple[int, Any]] = []
+            manager.save_state.side_effect = staged.append
             with (
                 patch.object(stripe_module, "StripeClient"),
                 patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2),
@@ -2147,12 +2187,15 @@ class TestStripeNestedSweepResume:
                     warehouse_parent=warehouse_parent,
                 ):
                     collected.extend(table.to_pylist())
-            return collected, checkpoints
+                    if staged:
+                        committed.append((len(collected), staged[-1]))
+                        staged.clear()
+            return collected, committed
 
         killed = MagicMock()
         killed.can_resume.return_value = False
-        all_rows, checkpoints = run(killed)
-        rows_written, crash_state = checkpoints[0]
+        all_rows, committed = run(killed)
+        rows_written, crash_state = committed[0]
 
         restarted = MagicMock()
         restarted.can_resume.return_value = True

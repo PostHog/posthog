@@ -2,12 +2,14 @@
 name: merging-prs
 description: >
   Merge a PR into `master` through the Trunk merge queue and babysit it until it
-  lands. Enqueue with a `/trunk merge` comment, then watch `trunk merge status`
+  lands. Enqueue with the `trunk merge` CLI (the `/trunk merge` comment is the
+  fallback), then watch `trunk merge status`
   and the PR state until it is MERGED or the queue kicks it out, reporting
   Trunk's own reason for the terminal transition. Use when asked to merge a PR,
-  "merge when ready", "land it", "ship it", to merge a whole stack (comment on
+  "merge when ready", "land it", "ship it", to merge a whole stack (enqueue
   the top PR — the queue merges it and every layer below atomically), to get a
-  PR approved via the `stamphog` label, or to babysit/watch a PR through the
+  PR approved by stamphog (MCP review request first, `stamphog` label as the
+  fallback), or to babysit/watch a PR through the
   queue. Never use `gh pr merge` in this repo — the queue is the only path into
   master.
 ---
@@ -16,11 +18,13 @@ description: >
 
 Merges into `master` go **exclusively** through the [Trunk](https://trunk.io) merge queue.
 `gh pr merge` and the GitHub merge button are blocked by branch ruleset.
-To merge, you enqueue the PR with a comment, then watch it until Trunk lands it.
+To merge, you enqueue the PR with the `trunk` CLI, then watch it until Trunk lands it.
+Use the `trunk` CLI for queue actions (enqueue, status, cancel). Post a `/trunk ...` comment on the PR only when the CLI is not available, or for an option the CLI does not have (see step 2).
+The CLI talks to Trunk over an authenticated session and reports the result at once. A comment adds noise to the PR thread, and you only learn whether Trunk took it from the bot's reply.
 
 ## Required user approval
 
-Before posting `/trunk merge`, invoking `trunk merge`, or re-enqueueing, obtain explicit user approval in the current conversation for the identified PR or stack. These actions can cause a PR to land. Never infer approval from a request to prepare a PR, move it toward merge, make it ready, resolve blockers, monitor it, or babysit it. You may inspect status, address reviews and CI, apply `stamphog` when approval is missing, and report that the PR is ready; then wait for a direct instruction to merge or enqueue it.
+Before posting `/trunk merge`, invoking `trunk merge`, or re-enqueueing, obtain explicit user approval in the current conversation for the identified PR or stack. These actions can cause a PR to land. Never infer approval from a request to prepare a PR, move it toward merge, make it ready, resolve blockers, monitor it, or babysit it. You may inspect status, address reviews and CI, request a stamphog review when approval is missing, and report that the PR is ready; then wait for a direct instruction to merge or enqueue it.
 
 `<n>` below is the PR number.
 Resolve the repo slug once if you need it: `REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)`.
@@ -33,22 +37,50 @@ gh pr view <n> --json state,isDraft,mergeable,reviewDecision,statusCheckRollup,b
 
 - **Not open** (already merged/closed) → report and stop.
 - **Draft** → it can't be merged. Ask the developer to confirm, then `gh pr ready <n>` before continuing. Don't un-draft silently.
+- **Cancelled runs on the head** → check for these before the failing-checks stop below, because a cancelled run also turns `statusCheckRollup` to `FAILURE`. A push can start two runs of a workflow for one head, and the concurrency group cancels one. GitHub keeps both runs' checks, and a newer green check with the same name does not clear them. A cancelled run that carries a required check (a workflow's `... Tests Pass` gate, or the org-level `semgrep` workflow) keeps the merge box blocked and Trunk at "Not ready". Rerun every cancelled run rather than working out which ones carry one. Reruns need the developer's permission.
+
+  ```bash
+  # GitHub Actions. `gh run rerun` returns 404 for the org-level semgrep workflow; the API call works for every run.
+  gh api "repos/$REPO/actions/runs?head_sha=<head-sha>&per_page=100" --paginate \
+      --jq '.workflow_runs[] | select(.conclusion == "cancelled")
+          | select((.pull_requests | length) == 0 or any(.pull_requests[]; .number == <n>))
+          | "\(.id)\t\(.name)"'
+  gh api -X POST "repos/$REPO/actions/runs/<run-id>/rerun"
+
+  # Depot CI. A run with more than one workflow also needs --workflow <workflow-id>, listed by `depot ci status <run-id>`.
+  depot ci run list --repo "$REPO" --sha <head-sha> --status cancelled
+  depot ci rerun <run-id>
+  ```
+
 - **Failing required checks** (`statusCheckRollup`) → the queue will just reject it. Report which checks are red and stop; fix them first. **Pending** checks are fine — the queue waits for them. To work out _why_ a check is red, use `/debugging-ci-failures`.
+
 - **Merge conflicts** (`mergeable == "CONFLICTING"`) → report and stop; merge `master` in first.
 - **Head is on a fork** (`isCrossRepository == true`) → backend CI ran on GitHub Actions, so the required check is on the head as usual. Depot's optional checks are absent; that is expected and needs no action.
-- **Missing approval** (`reviewDecision == "REVIEW_REQUIRED"`, or a stamphog approval was dismissed) → apply the `stamphog` label yourself: `gh pr edit <n> --add-label stamphog`. That triggers the automated review-and-approve flow ([the engine README](../../../products/stamphog/packages/pr-approval-agent/README.md)); on an `APPROVED` verdict the Stamphog app posts the approval that satisfies the required review. Re-applying the label is always safe and is the intended retry path — it gets stripped on a `REFUSED`/`ESCALATE` verdict, and after addressing that feedback you re-apply it to request a fresh review. Read the reason first: every verdict is its own review from the Stamphog app, opening with whether it approved. Re-applying the label without changing anything just repeats the same verdict. It stays sticky across ordinary pushes (non-trivial deltas re-review automatically), and it never works on bot-authored PRs.
-- **Part of a stack** (`baseRefName != "master"`, or the PR appears in `gh api repos/$REPO/stacks`) → the queue handles stacks natively: enqueueing a PR enqueues it **and every unmerged layer below it**, tests them together, and merges them atomically. After explicit user approval, comment `/trunk merge` on the **top** PR to merge the whole stack, or on the highest layer you want landed to merge just the bottom part. Run this preflight on every layer being merged, not only the one you comment on. `/stacking-prs` covers restack mechanics and the post-merge `gh stack sync --prune`.
+- **Missing approval** (`reviewDecision == "REVIEW_REQUIRED"`, or a stamphog approval was dismissed) → ask stamphog for a review. Stamphog is the automated review-and-approve flow ([the engine README](../../../products/stamphog/packages/pr-approval-agent/README.md)): on an `APPROVED` verdict the Stamphog app posts the approval that satisfies the required review. Use the MCP route first, and the label only when MCP is not available.
+  - **MCP (first choice).** Call the PostHog MCP tool `stamphog-review-runs-create` with `repository` (the `$REPO` slug) and `pr_number`. It returns the run at once, with status `queued`. Poll `stamphog-review-runs-get` with the run `id` until `status` is `completed`, `gated`, `failed`, or `superseded`. Read `verdict` and `reasoning` there, not on GitHub. `created: false` means a run already covers the current head, so do not request again until the head moves. A request covers one head: after you push, request again.
+  - **Refusals.** A `409 not_reviewable` means stamphog does not review this PR at all (a draft, closed, bot-authored, from outside the repo, or an author without write access). The message says which. The label cannot help there, so report it.
+  - **Label (fallback).** Use `gh pr edit <n> --add-label stamphog` when the MCP tool is not in your tool list, when the call fails on auth, or when it returns `404 not_found` (the repo is not connected in that PostHog project) or `503`. The label is sticky across ordinary pushes (non-trivial deltas re-review automatically), and it gets stripped on a `REFUSED`/`ESCALATE` verdict. Each verdict is its own review from the Stamphog app, opening with whether it approved.
+  - **Either route:** read the reason before you retry. A retry without a change repeats the same verdict. Stamphog never approves bot-authored PRs.
+- **Part of a stack** (`baseRefName != "master"`, or the PR appears in `gh api repos/$REPO/stacks`) → the queue handles stacks natively: enqueueing a PR enqueues it **and every unmerged layer below it**, tests them together, and merges them atomically. After explicit user approval, enqueue the **top** PR to merge the whole stack, or the highest layer you want landed to merge just the bottom part. Run this preflight on every layer being merged, not only the one you enqueue. `/stacking-prs` covers restack mechanics and the post-merge `gh stack sync --prune`.
 
 ## 2. Enqueue
 
 Confirm the required explicit user approval before running this command. If it is absent, report that the PR is ready and stop.
 
 ```bash
-gh pr comment <n> --body "/trunk merge"
+trunk merge <n>
 ```
 
 For a stack, `<n>` is the highest layer you want merged — it and everything below it enqueue together (see the stack preflight bullet above).
-Append `--no-batch` to the comment to have the queue test the PR (or stack) alone instead of batched with other queued PRs.
+`--priority <0-255>` sets the queue priority (0 is highest and skips the line); use it only when the developer asks.
+
+Fall back to a PR comment only when the CLI is not usable: `trunk` is not installed, or `trunk merge` fails on auth (no `trunk login`).
+
+```bash
+gh pr comment <n> --body "/trunk merge"
+```
+
+The CLI has no flag for an unbatched run. When the developer wants the queue to test the PR (or stack) alone instead of batched with other queued PRs, use the comment with `--no-batch` appended.
 
 Within ~2 minutes, confirm Trunk picked it up:
 
@@ -73,9 +105,9 @@ If nothing appears after a couple of minutes, check in this order:
    gh run list --branch "$(gh pr view <n> --json headRefName -q .headRefName)" --workflow "PR housekeeping" --limit 3
    ```
 
-2. Whether the developer has write access, or GitHub-comment commands are
-   disabled — report that and suggest the `trunk-merge-queue-submit` label as a
-   fallback.
+2. Whether the developer has write access. If you enqueued with a comment, also check
+   whether GitHub-comment commands are disabled — report that and suggest `trunk merge <n>`
+   or the `trunk-merge-queue-submit` label as a fallback.
 
 ## 3. Watch until it lands
 
@@ -147,10 +179,11 @@ Optionally, Trunk's MCP server (`https://mcp.trunk.io/mcp`, OAuth or bearer toke
 If the developer asks to stop the merge:
 
 ```bash
-gh pr comment <n> --body "/trunk cancel"
+trunk merge cancel <n>
 ```
 
-Confirm the check run reports cancelled.
+Without the CLI, comment `/trunk cancel` on the PR instead.
+Confirm that `trunk merge status <n>` reports `Cancelled`.
 
 ## The pre-push merge queue guard
 
@@ -161,7 +194,7 @@ When the guard blocks you, leave the branch alone and put further changes on a n
 To update the queued PR on purpose, run `trunk merge cancel <n>` (or comment `/trunk cancel`), wait for it to leave the queue, then push.
 
 The check fails open — missing `gh` or `trunk`, not logged in, offline, API errors — and `TRUNK_QUEUE_PUSH_CHECK_DISABLED=1` skips it.
-`trunk login` arms it, which is why the one-time interactive login is worth running even if you prefer the PR comments.
+`trunk login` arms it and enables `trunk merge` and `trunk merge cancel`, so run the one-time interactive login when you can. Without it, the PR comments in steps 2 and 5 still work.
 
 ## Hard rules
 

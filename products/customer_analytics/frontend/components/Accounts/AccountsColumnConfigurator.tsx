@@ -36,6 +36,10 @@ import {
 } from './accountsColumnConfigLogic'
 import { accountsViewsLogic } from './accountsViewsLogic'
 
+const ACCOUNT_COLUMN_LABELS: Record<string, string> = {
+    tag_names: 'tags',
+}
+
 export function AccountsColumnConfigurator(): JSX.Element {
     const { columnConfiguratorVisible } = useValues(accountsColumnConfigLogic)
     const { showColumnConfigurator, hideColumnConfigurator } = useActions(accountsColumnConfigLogic)
@@ -278,7 +282,11 @@ function SelectedAccountColumn({
     const alias = extractDisplayLabel(column)
     // Custom-property and relationship columns are aliased to opaque `cp_<id>` / `rel_<id>`
     // (or legacy role keys); show the definition name instead.
-    const label = aliasToDefinition[alias]?.name ?? aliasToRelationshipDefinition[alias]?.name ?? alias
+    const label =
+        aliasToDefinition[alias]?.name ??
+        aliasToRelationshipDefinition[alias]?.name ??
+        ACCOUNT_COLUMN_LABELS[alias] ??
+        alias
     // `name` carries the row identity (account id) and external_id for the
     // Account cell — removing it would break row expansion and role updates.
     const isMandatory = column === ACCOUNTS_NAME_COLUMN

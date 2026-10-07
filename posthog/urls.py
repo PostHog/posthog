@@ -3,7 +3,7 @@ from django.urls import include, path, re_path
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import RedirectView
 
-from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerSplitView
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
@@ -24,11 +24,9 @@ from posthog.api import (
 )
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.integration_connect import integration_connect_redirect
+from posthog.api.livestream import LivestreamAuthorizationView
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
-from posthog.api.oauth.hogli_metadata import HOGLI_METADATA_PATH, HogliClientMetadataView
-from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.toolbar_views import authorize_and_redirect
-from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.web_experiment import web_experiments
@@ -42,7 +40,7 @@ from posthog.temporal.codec_server import decode_payloads
 from posthog.web_bot_auth import http_message_signatures_directory
 
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
-from products.canvas.backend.artifacts import canvas_artifact
+from products.canvas.backend.presentation.views import canvas_artifact, canvas_sandbox_document
 from products.cdp.backend.api import hog_function_template
 from products.conversations.backend.api.internal import InternalTicketView as ConversationsInternalTicketView
 from products.customer_analytics.backend.presentation.views.internal import (
@@ -59,6 +57,7 @@ from products.notebooks.backend.facade.sql_v2 import (
     notebook_sql_v2_data_plane_status,
 )
 from products.product_tours.backend.api import product_tours
+from products.security.backend.presentation.hub_api import urlpatterns as security_hub_urlpatterns
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
 from products.slack_app.backend.api import (
@@ -74,10 +73,9 @@ from products.slack_app.backend.views import (
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
-from products.user_interviews.backend.presentation.webhooks import start_call as user_interviews_start_call
+from products.tasks.backend.presentation.views.gateway_generation_requests import gateway_generation_request
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
-from products.workflows.backend.api import hog_flow, hog_flow_template
-from products.workflows.backend.api.ses_events_webhook import ses_tenant_events_webhook
+from products.workflows.backend.presentation.views import hog_flow
 
 from .utils import opt_slash_path
 from .views import (
@@ -99,6 +97,7 @@ from .views import (
 github_app_webhook = build_webhook_view(build_github_provider("posthog"))
 
 urlpatterns = [
+    path("api/livestream/authorize/", LivestreamAuthorizationView.as_view(), name="livestream-authorize"),
     # EU spend must precede both the API router and the API fallback.
     *(
         [
@@ -115,7 +114,9 @@ urlpatterns = [
     # Optional UI:
     path(
         "api/schema/swagger-ui/",
-        SpectacularSwaggerView.as_view(url_name="schema"),
+        # The split view serves its init script from this URL with ?script. The plain view inlines
+        # that script without a nonce, and the app policy refuses it.
+        SpectacularSwaggerSplitView.as_view(url_name="schema"),
         name="swagger-ui",
     ),
     path(
@@ -147,14 +148,13 @@ urlpatterns = [
         name="user_signal_autonomy",
     ),
     path("api/projects/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
-    path(
-        "api/user_interviews/share/<str:access_token>/start_call/",
-        csrf_exempt(user_interviews_start_call),
-        name="user_interviews_start_call",
-    ),
     path("api/sdk_health/", sdk_health),
+    # Conversations serves its widget and channel API from backend/api/, which its routes module
+    # may not import (import-linter contract "routes must only import presentation"), so the mount
+    # stays here until those views move into presentation/.
     path("api/conversations/", include("products.conversations.backend.api.urls")),
-    path("api/customer_analytics/", include("products.customer_analytics.backend.presentation.views.urls")),
+    # Routes the security hub calls from outside the cluster (auth: scoped service JWT)
+    path("api/security/", include(security_hub_urlpatterns)),
     path(
         "api/projects/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
@@ -204,10 +204,6 @@ urlpatterns = [
         hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
     ),
     opt_slash_path(
-        "api/public_hog_flow_templates",
-        hog_flow_template.PublicHogFlowTemplateViewSet.as_view({"get": "list"}),
-    ),
-    opt_slash_path(
         "api/public_source_configs",
         PublicSourceConfigViewSet.as_view({"get": "list"}),
     ),
@@ -215,6 +211,10 @@ urlpatterns = [
     path(
         "internal/tasks/runs/<str:run_id>/agent-proxy-callback/",
         csrf_exempt(agent_proxy_callback),
+    ),
+    path(
+        "internal/teams/<int:team_id>/task_runs/<str:run_id>/generation_requests/<str:request_id>/",
+        csrf_exempt(gateway_generation_request),
     ),
     # Internal SQLV2 run result callback (auth: signed callback token)
     path(
@@ -279,23 +279,8 @@ urlpatterns = [
         "api/oauth/connected-apps/<uuid:pk>/revoke/",
         ConnectedAppsViewSet.as_view({"post": "revoke"}),
     ),
-    path(
-        WIZARD_METADATA_PATH,
-        WizardClientMetadataView.as_view(),
-        name="wizard-client-metadata",
-    ),
-    path(
-        RAYCAST_METADATA_PATH,
-        RaycastClientMetadataView.as_view(),
-        name="raycast-client-metadata",
-    ),
-    path(
-        HOGLI_METADATA_PATH,
-        HogliClientMetadataView.as_view(),
-        name="hogli-client-metadata",
-    ),
-    # The one slot for root routes products declare themselves, after every core route and before
-    # the API fallback and the frontend catch-all. See docs/internal/url-routing.md.
+    # The one slot for root routes products declare themselves, after every core api/ route and
+    # before the API fallback and the frontend catch-all. See docs/internal/url-routing.md.
     *ProductRootRoutes.collect(),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
@@ -310,10 +295,6 @@ urlpatterns = [
     ),
     path(
         "embedded/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
-    ),
-    path(
-        "interview/<str:access_token>",
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("render_query", render_query, name="render_query"),
@@ -333,6 +314,7 @@ urlpatterns = [
     opt_slash_path(".well-known/http-message-signatures-directory", http_message_signatures_directory),
     # auth
     opt_slash_path("logout", authentication.logout, name="logout"),
+    opt_slash_path("reauth/complete", authentication.sso_reauth_complete, name="sso_reauth_complete"),
     path(
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
@@ -352,12 +334,10 @@ urlpatterns = [
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
     opt_slash_path("slack/command-callback", slack_app_command_handler),
     opt_slash_path("slack/workspace/claims", slack_workspace_claims_view),
-    # GitHub App webhook — ingress fans it out to the tasks, conversations and workflows consumers.
+    # GitHub App webhook — ingress fans it out to the registered product consumers.
     # It stays in core because the App is shared: no single product owns its registration.
     opt_slash_path("webhooks/github/pr", github_app_webhook),
     opt_slash_path("webhooks/github", github_app_webhook),
-    # AWS SES tenant reputation events (EventBridge -> SNS HTTPS subscription)
-    opt_slash_path("webhooks/workflows/ses-events", ses_tenant_events_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
@@ -372,6 +352,12 @@ urlpatterns = [
     *([path("delete_events/", playwright_setup.delete_events)] if settings.TEST else []),
     # Temporal UI decryption is needed in tests even when DEBUG is off.
     *([path("decode", decode_payloads, name="temporal_decode")] if settings.TEST and not settings.DEBUG else []),
+    # Precedes the artifact route, which would otherwise read "sandbox" as a token.
+    re_path(
+        r"^canvas-artifacts/sandbox/(?P<content_hash>[0-9a-f]{64})/index\.html$",
+        canvas_sandbox_document,
+        name="canvas-sandbox-document",
+    ),
     re_path(r"^canvas-artifacts/(?P<token>[^/]+)/(?P<artifact_path>.+)$", canvas_artifact, name="canvas-artifact"),
     # Preserve the host and query when redirecting the legacy signup URL.
     opt_slash_path("sign-up", RedirectView.as_view(url="/signup", permanent=True, query_string=True)),

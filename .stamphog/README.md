@@ -12,7 +12,9 @@ It overrides `deny` and `allow`, and the differences are:
 
 - `auth` and `billing` exempt `products/warehouse_sources/backend/temporal/data_imports/sources/`, because connector code does OAuth and talks to the Stripe API without touching PostHog's auth system or its billing.
 - `infra_cicd` also matches `.github/pr-deploy`.
-- `stamphog_policy` also matches `products/stamphog/backend/logic/policy_defaults/`, `tools/owners/`, `owners.yaml` and `product.yaml`, because those are gate inputs here.
+- `stamphog_policy` also matches `products/stamphog/backend/logic/policy_defaults/`, `packages/owners-yaml/`, `owners.yaml` and `product.yaml`, because those are gate inputs here.
+- `devex_guardrails` is an extra category. It matches the semgrep rules, ratchet baselines, invariant tests and lint code that guard the house patterns, so an edit to a guard always gets a human review.
+- `workflows_delivery` is an extra, owner-only category. It matches the CDP, Workflows and Messaging API, models and plugin-server worker code, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-workflows`.
 - `allow` also lists `.github/CODEOWNERS`.
 - Every `rationale` records the false positives that shaped the rule in this repository.
 
@@ -25,7 +27,8 @@ It differs from the default in six lines:
 - The incidental-keyword example is a warehouse connector fix.
 - The philosophy line says "We move fast" rather than "Move fast".
 
-There is no `steering.md`.
+`steering.md` tells the reviewer to refuse a diff that adds a suppression or an exemption for one of those guards.
+A path rule cannot see these, because the marker sits in product code or in a busy file.
 
 `ownership` declares one `hogli-resolver` source at the repo root, so stamphog reads the same merged view the reviewer auto-assigner builds.
 

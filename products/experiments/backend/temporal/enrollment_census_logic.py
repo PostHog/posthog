@@ -17,9 +17,9 @@ from posthog.clickhouse.client import sync_execute
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
+from products.experiments.backend.metric_resolution import is_scheduled_metric
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.temporal.metric_resolution import is_scheduled_metric
 
 logger = structlog.get_logger(__name__)
 
@@ -181,10 +181,10 @@ def fetch_direct_scan_stats(window_days: int) -> list[TeamDirectScanStats]:
 def running_experiment_load(team_ids: list[int]) -> dict[int, TeamRunningLoad]:
     """Per team: running experiment count and scheduled metric count across them.
 
-    Mirrors iter_metric_dicts (inline primary + secondary + saved-metric links, filtered by
+    Mirrors discover_experiment_metrics (inline primary + secondary + saved-metric links, filtered by
     the shared is_scheduled_metric predicate) so the projected build load matches what
     nightly recalculation would actually schedule. Counts in two bulk queries instead of
-    calling iter_metric_dicts per experiment, so a team running thousands of experiments
+    resolving the metrics of each experiment, so a team running thousands of experiments
     cannot amplify the census into thousands of saved-metric queries.
     """
     load: dict[int, TeamRunningLoad] = {}

@@ -150,9 +150,10 @@ def test_validate_credentials_status_mapping(
     assert mock_session.call_args.kwargs["allow_redirects"] is False
 
 
-def _make_http_response(body: list[dict[str, Any]], status_code: int = 200) -> Response:
+def _make_http_response(rows: list[dict[str, Any]], status_code: int = 200) -> Response:
     resp = Response()
     resp.status_code = status_code
+    body = {"data": rows, "meta": {"total": 101, "returned": len(rows), "page": 0, "pageSize": 100}}
     resp._content = json.dumps(body).encode()
     resp.headers["Content-Type"] = "application/json"
     return resp
@@ -163,7 +164,7 @@ class TestKickscaleSourceResumeBehavior:
 
     def _drive(
         self, endpoint: str, manager: MagicMock, responses: list[Response]
-    ) -> tuple[MagicMock, list[dict[str, Any]]]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         sent_params: list[dict[str, Any]] = []
         response_iter = iter(responses)
 
@@ -187,8 +188,8 @@ class TestKickscaleSourceResumeBehavior:
                 job_id="test_job",
                 resumable_source_manager=manager,
             )
-            list(cast(Iterable[Any], response.items()))
-            return mock_session, sent_params
+            rows = [row for page in cast(Iterable[Any], response.items()) for row in page]
+            return rows, sent_params
 
     @pytest.mark.parametrize("endpoint", ["meetings", "calls"])
     def test_fresh_run_pages_until_short_page(self, endpoint: str) -> None:
@@ -199,13 +200,23 @@ class TestKickscaleSourceResumeBehavior:
             _make_http_response([{"id": f"m{i}"} for i in range(100)]),
             _make_http_response([{"id": "m100"}]),
         ]
-        _, sent_params = self._drive(endpoint, manager, responses)
+        rows, sent_params = self._drive(endpoint, manager, responses)
 
         pages_sent = [p.get("page") for p in sent_params]
         assert pages_sent == [0, 1]
+        assert [row["id"] for row in rows] == [f"m{i}" for i in range(101)]
 
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [KickscaleResumeConfig(page=1)]
+
+    def test_empty_page_yields_no_rows(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        rows, sent_params = self._drive("calls", manager, [_make_http_response([])])
+
+        assert rows == []
+        assert [p.get("page") for p in sent_params] == [0]
 
     def test_resume_seeds_paginator_with_saved_page(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)

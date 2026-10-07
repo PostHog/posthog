@@ -1,4 +1,6 @@
+import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from django.conf import settings
@@ -44,6 +46,7 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
         ImportDataActivityInputs,
     )
@@ -76,23 +79,84 @@ def build_non_retryable_errors_redis_key(team_id: int, source_id: str, run_id: s
 
 
 NON_RETRYABLE_ERROR_RETRY_LIMIT = 3
+NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE = timedelta(minutes=10)
+
+
+UNREADABLE_JOB_INPUTS_MESSAGE = (
+    "Can't read this source's saved connection settings. Reconnect the source to fix the sync."
+)
+
+
+class UnreadableJobInputsError(Exception):
+    """A stored `job_inputs` value that holds no mapping, so no run of this source can read it.
+
+    Raised as the cause of a `NonRetryableException` because the workflow reads the customer-facing
+    error text off the cause, not off the wrapper.
+    """
+
+
+def _decode_job_inputs(job_inputs: str) -> dict[str, Any]:
+    """Recover the config mapping from a `job_inputs` value stored as a JSON string.
+
+    `EncryptedJSONField` encrypts a mapping value by value, but stringifies and encrypts anything
+    else whole, and its read path hands a scalar straight back without parsing it. So a config
+    written as a JSON string instead of a mapping decodes to that same string on every later read,
+    with the mapping still inside it as plain JSON. `Config.from_dict` recovers such a config the
+    same way, so decoding here keeps the two readers in agreement.
+    """
+    try:
+        decoded = json.loads(job_inputs)
+    except ValueError:
+        # Text that holds no JSON and JSON that holds no mapping leave the caller with the same
+        # unusable config, so both take the branch below.
+        decoded = None
+
+    if not isinstance(decoded, dict):
+        raise NonRetryableException() from UnreadableJobInputsError(UNREADABLE_JOB_INPUTS_MESSAGE)
+
+    return decoded
 
 
 async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
-    # job_inputs is an EncryptedJSONField, so it can decode to a non-dict (e.g. a bare string)
-    # for a malformed source config — nothing to trim key-by-key in that case.
-    if not isinstance(source.job_inputs, dict):
+    decoded_from_string = isinstance(source.job_inputs, str)
+    if decoded_from_string:
+        job_inputs = _decode_job_inputs(source.job_inputs)
+    elif isinstance(source.job_inputs, dict):
+        job_inputs = source.job_inputs
+    else:
+        # An unconfigured source (`None`) or any other non-mapping has no keys to trim. The config
+        # parse in the import activity reports an unusable value.
         return
 
-    did_update_inputs = False
-    for key, value in source.job_inputs.items():
+    # A value decoded out of a string is saved even when no key needs trimming, so the row is
+    # rewritten as a mapping once instead of every run reading the string back.
+    did_update_inputs = decoded_from_string
+    for key, value in job_inputs.items():
         if isinstance(value, str):
             if value.startswith(" ") or value.endswith(" "):
-                source.job_inputs[key] = value.strip()
+                job_inputs[key] = value.strip()
                 did_update_inputs = True
 
     if did_update_inputs:
+        source.job_inputs = job_inputs
         await database_sync_to_async_pool(source.save)()
+
+
+def _source_type_for_death_event(inputs: "ImportDataActivityInputs") -> str | None:
+    """The source type behind a dying run, so a death event is diagnosable per connector without
+    joining against the source table. Best-effort: the death event must survive a failed lookup."""
+    try:
+        from products.warehouse_sources.backend.models.external_data_source import (  # noqa: PLC0415 — Django models must not be imported at this activity module's load time
+            ExternalDataSource,
+        )
+
+        return (
+            ExternalDataSource.objects.filter(id=inputs.source_id, team_id=inputs.team_id)
+            .values_list("source_type", flat=True)
+            .first()
+        )
+    except Exception:
+        return None
 
 
 def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: FilteringBoundLogger) -> None:
@@ -169,6 +233,7 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
                 "workflow_run_id": info.workflow_run_id,
                 "workflow_type": info.workflow_type,
                 "attempt": info.attempt,
+                "source_type": _source_type_for_death_event(inputs),
             }
             # What the dead attempt said it was doing, and what its pod neighbours said, at the moment
             # of death — the per-activity context this event otherwise cannot carry. Adds nothing when
@@ -266,27 +331,14 @@ async def handle_non_retryable_error(
     raise NonRetryableException() from error
 
 
-async def reset_rows_synced_if_needed(
-    job: "ExternalDataJob",
-    is_incremental: bool,
-    reset_pipeline: bool,
-    should_resume: bool,
-    *,
-    incremental_cursor_staged: bool = False,
-) -> None:
+async def reset_rows_synced_if_needed(job: "ExternalDataJob", should_resume: bool) -> None:
     # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout.
     #
-    # Incremental syncs are exempt only when the durable cursor advances per batch (pipeline v2), so
-    # a retried attempt resumes past the rows already counted. When the cursor is staged and only
-    # promoted on completion (pipeline v3), a retried attempt re-extracts the whole window from
-    # batch 0, so keeping the previous attempt's count double-counts every re-read row —
-    # `rows_synced` feeds billed usage via `Sum("rows_synced")` in usage reports.
-    if (
-        job.rows_synced is not None
-        and job.rows_synced != 0
-        and (not is_incremental or reset_pipeline is True or incremental_cursor_staged)
-        and not should_resume
-    ):
+    # The incremental cursor is staged and only promoted on completion, so a retried attempt
+    # re-extracts the whole window from batch 0, and keeping the previous attempt's count
+    # double-counts every re-read row — `rows_synced` feeds billed usage via `Sum("rows_synced")`
+    # in usage reports. A resumed attempt picks up the earlier attempt's staged batches instead.
+    if job.rows_synced is not None and job.rows_synced != 0 and not should_resume:
         job.rows_synced = 0
         await database_sync_to_async_pool(job.save)(update_fields=["rows_synced", "updated_at"])
 
@@ -432,6 +484,21 @@ async def setup_row_tracking_with_billing_check(
             )
 
 
+def resets_table_before_extraction(
+    reset_pipeline: bool, should_resume: bool, schema: "ExternalDataSchema", webhook_only: bool = False
+) -> bool:
+    """Whether `handle_reset_or_full_refresh` deletes the table for these inputs."""
+    from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
+        ExternalDataSchema,
+    )
+
+    if should_resume:
+        return False
+    if reset_pipeline:
+        return not webhook_only
+    return schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+
 async def handle_reset_or_full_refresh(
     reset_pipeline: bool,
     should_resume: bool,
@@ -507,6 +574,8 @@ async def handle_corrupted_delta_log(
     job: "ExternalDataJob",
     delta_table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
+    *,
+    table_will_be_reset: bool = False,
 ) -> bool:
     """Detect and revive a corrupt Delta table before extraction.
 
@@ -527,10 +596,17 @@ async def handle_corrupted_delta_log(
     - Otherwise the table is reset so this run rebuilds it from source, and the job is marked
       non-billable — the corruption is our fault, not the customer's.
 
+    `table_will_be_reset` says that this run deletes the table before extraction in any case (a
+    scheduled full refresh or a requested reset). The delete does not read the log, so an unreadable
+    log needs no detection there, and the open is skipped. A revive marker and a staged swap are
+    still handled, because they need more than the delete.
+
     Returns True if a revive happened. Best-effort: any failure here must not block the sync.
     """
     revive_marker = schema.delta_revive_required
     if revive_marker is None:
+        if table_will_be_reset and schema.repartition_swap is None:
+            return False
         try:
             if not await delta_table_ref.is_table_corrupted():
                 return False
@@ -725,6 +801,14 @@ async def update_row_tracking_after_batch(
     await decrement_rows(team_id, schema_id, row_count)
 
 
+def _is_young_first_attempt() -> bool:
+    if not activity.in_activity():
+        return False
+
+    info = activity.info()
+    return info.attempt == 1 and datetime.now(UTC) - info.started_time < NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE
+
+
 def should_check_shutdown(
     schema: "ExternalDataSchema",
     resource: SourceResponse,
@@ -734,12 +818,13 @@ def should_check_shutdown(
     # Only raise if we're not running in descending order, otherwise we'll often not
     # complete the job before the incremental value can be updated. Or if the source is
     # resumable
-    # TODO: raise when we're within `x` time of the worker being forced to shutdown
+    # Let a new attempt leave a shutting-down worker before it holds the worker for hours.
+    # Limit handoffs to attempt one so full refresh keeps two attempts for retries.
     # Raising during a full reset will reset our progress back to 0 rows
     incremental_sync_raise_during_shutdown = (
         schema.should_use_incremental_field and resource.sort_mode != "desc" and not reset_pipeline
     )
-    return incremental_sync_raise_during_shutdown or source_is_resumable
+    return incremental_sync_raise_during_shutdown or source_is_resumable or _is_young_first_attempt()
 
 
 async def finalize_desc_sort_incremental_value(
@@ -764,31 +849,28 @@ async def finalize_desc_sort_incremental_value(
             await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
 
 
-async def advance_xmin_state(
-    resource: SourceResponse,
+async def commit_source_cursor(
+    source_cursor_manager: "SourceCursorManager[Any] | None",
     schema: "ExternalDataSchema",
     logger: FilteringBoundLogger,
+    *,
+    staging_run_uuid: str | None,
     log_prefix: str = "",
 ) -> None:
-    """Persist the xmin ceiling captured at sync start, once the run's data is durable.
+    """Persist the cursor the source staged, once this run's rows are durable or about to be.
 
-    Persist-then-advance: the ceiling was captured before streaming and is stored only here, at
-    completion, so a mid-run crash re-reads the window next time (the upsert on PK is idempotent).
-    Deliberately not the per-batch MAX-of-observed advance, which would store the wrong value and is
-    wraparound-unsafe for xmin.
+    With `staging_run_uuid`, the cursor waits in the staged slot until the loader promotes it with
+    the final batch, so a load that fails never leaves the cursor past rows it did not write.
+    Without it, the caller has already written every row and the cursor is stored directly.
     """
-    if (
-        not schema.is_xmin
-        or resource.xmin_ceiling_xid is None
-        or resource.xmin_ceiling_xid8 is None
-        or resource.xmin_num_wraparound is None
-    ):
+    if source_cursor_manager is None:
+        return
+    payload = source_cursor_manager.staged_payload()
+    if payload is None:
         return
 
-    await logger.adebug(f"{log_prefix}Advancing xmin cursor to ceiling {resource.xmin_ceiling_xid8}")
-    await database_sync_to_async_pool(schema.refresh_from_db)()
-    await database_sync_to_async_pool(schema.update_xmin_state)(
-        ceiling_xid=resource.xmin_ceiling_xid,
-        ceiling_xid8=resource.xmin_ceiling_xid8,
-        num_wraparound=resource.xmin_num_wraparound,
-    )
+    await logger.adebug(f"{log_prefix}Committing source cursor", kind=payload["kind"], staged=staging_run_uuid)
+    if staging_run_uuid is not None:
+        await database_sync_to_async_pool(schema.stage_source_cursor)(staging_run_uuid, payload)
+    else:
+        await database_sync_to_async_pool(schema.update_source_cursor)(payload)

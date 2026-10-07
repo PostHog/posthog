@@ -1,8 +1,9 @@
 """Signature schemes: the part of a provider incarnation that decides "this is really them".
 
-A scheme with a network step answers `UNAVAILABLE` when that step fails on transport rather than
-on the signature, because a fetch that never completed proves nothing about the caller. `BearerJwt`
-does this for a JWKS fetch failure, and `SnsSignature` owes the same for its certificate fetch.
+A scheme whose lookup step fails answers `UNAVAILABLE` rather than judging the signature, because
+a step that never completed proves nothing about the caller. `BearerJwt` does this for a JWKS
+fetch failure, `HmacSha256` for a secret read that the database refuses, and `SnsSignature` for
+a signing certificate its verifier could not fetch.
 """
 
 import re
@@ -15,9 +16,13 @@ from dataclasses import field
 from enum import StrEnum
 from typing import Any, Literal, Protocol
 
+from django.db import DatabaseError, InterfaceError
+
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.ingress.verify.errors import VerifierUnavailable
+from posthog.ingress.verify.sns_signature import verify_sns_message
 
 logger = structlog.get_logger(__name__)
 
@@ -129,7 +134,7 @@ class HmacSignature:
     timestamp_header: str | None = None
     timestamp_max_age_seconds: int = 300
     timestamp_max_future_seconds: int = 300
-    # Cheap shape gate run before the HMAC, so a probe cannot drive digest CPU (Vapi).
+    # Cheap shape gate run before the HMAC, so a probe cannot drive digest CPU.
     signature_pattern: re.Pattern[str] | None = None
 
     def _timestamp_is_fresh(self, timestamp: str) -> bool:
@@ -163,12 +168,28 @@ class HmacSignature:
 
     def rejects_headers(self, headers: Mapping[str, str]) -> bool:
         # An unconfigured endpoint keeps answering NOT_CONFIGURED, whatever the headers carry.
-        if not self.secret_getter():
+        try:
+            secret = self.secret_getter()
+        except (DatabaseError, InterfaceError):
+            # Leave a failed read to `_outcome`, which answers UNAVAILABLE for it.
+            return False
+        if not secret:
             return False
         return self._headers_fail(headers)
 
     def _outcome(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
-        secret = self.secret_getter()
+        try:
+            secret = self.secret_getter()
+        except (DatabaseError, InterfaceError) as error:
+            # A getter that keeps its secret in Postgres reads it here, so a dropped connection
+            # leaves the signature unchecked. Letting the error out answers 500, which asks no
+            # sender to come back and leaves the lost delivery uncounted.
+            logger.warning(
+                "ingress_secret_unavailable",
+                signature_header=self.signature_header,
+                error_type=type(error).__name__,
+            )
+            return VerificationOutcome.UNAVAILABLE
         if not secret:
             return VerificationOutcome.NOT_CONFIGURED
         if self._headers_fail(headers):
@@ -207,11 +228,11 @@ class SnsSignature:
     """AWS SNS message signature plus a topic-ARN allowlist.
 
     The signature proves "from AWS SNS" and the allowlist proves "from our topic", so
-    neither half is optional. The RSA work stays with the caller-supplied verifier, which
-    owns the certificate fetch and its own cache.
+    neither half is optional. The signature half is the same for every SNS topic and lives
+    in `sns_signature.py`, which raises `VerifierUnavailable` when it could not obtain the
+    certificate at all; only the allowlist belongs to the endpoint.
     """
 
-    verify_message: Callable[[Mapping[str, Any]], bool]
     allowed_topic_arns: Callable[[], frozenset[str]]
 
     def rejects_headers(self, headers: Mapping[str, str]) -> bool:
@@ -233,7 +254,14 @@ class SnsSignature:
         if message.get("TopicArn") not in allowed:
             logger.warning("ingress_sns_unknown_topic", topic=message.get("TopicArn"))
             return VerificationOutcome.INVALID
-        if not self.verify_message(message):
+        try:
+            verified = verify_sns_message(message)
+        except VerifierUnavailable:
+            # UNAVAILABLE rather than INVALID: the signature was never checked, and SNS reads
+            # the invalid-signature status as a verdict and stops delivering.
+            logger.warning("ingress_sns_signing_certificate_unavailable", message_id=message.get("MessageId"))
+            return VerificationOutcome.UNAVAILABLE
+        if not verified:
             logger.warning("ingress_sns_invalid_signature", message_id=message.get("MessageId"))
             return VerificationOutcome.INVALID
         return VerificationOutcome.VERIFIED

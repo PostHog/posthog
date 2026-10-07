@@ -111,3 +111,52 @@
         opacity: 0;
     }
 }
+
+/*
+ * Scrollbar utilities. They style the element and every scroll area inside it, so one class on a
+ * layout root restyles the whole subtree. Declarations are !important because the app's global
+ * scrollbar rules in base.scss are unlayered and would otherwise beat any utility.
+ * Usage: `scrollbar-thin scrollbar-track-transparent scrollbar-thumb-[var(--color-bg-fill-scroll-thumb)]`.
+ */
+@utility scrollbar-thin {
+    /* Chrome ignores ::-webkit-scrollbar on an element with a non-auto scrollbar-width or scrollbar-color. */
+    &,
+    & * {
+        scrollbar-width: auto !important;
+        scrollbar-color: auto !important;
+    }
+
+    &::-webkit-scrollbar,
+    & ::-webkit-scrollbar {
+        width: 6px !important;
+        height: 6px !important;
+    }
+
+    &::-webkit-scrollbar-track,
+    & ::-webkit-scrollbar-track {
+        background: var(--scrollbar-track, transparent) !important;
+    }
+
+    &::-webkit-scrollbar-thumb,
+    & ::-webkit-scrollbar-thumb {
+        background-color: var(--scrollbar-thumb, gray) !important;
+        border-radius: 10px !important;
+    }
+
+    /* Firefox has no scrollbar pseudo-elements, so it gets the standard properties instead. */
+    @supports (-moz-appearance: none) {
+        &,
+        & * {
+            scrollbar-width: thin !important;
+            scrollbar-color: var(--scrollbar-thumb, gray) var(--scrollbar-track, transparent) !important;
+        }
+    }
+}
+
+@utility scrollbar-track-transparent {
+    --scrollbar-track: transparent;
+}
+
+@utility scrollbar-thumb-* {
+    --scrollbar-thumb: --value(--color-*, [color], [*]);
+}

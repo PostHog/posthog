@@ -14,7 +14,7 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from .models import DataQualityCheck
 
 if TYPE_CHECKING:
-    from .logic.schedules import MetricCheckSchedule
+    from .logic.schedules import CheckSchedule
 
 
 @mutable_receiver(model_activity_signal, sender=DataQualityCheck)
@@ -38,11 +38,12 @@ def handle_data_quality_check_activity(
     )
 
 
-def log_metric_schedule_change(
+def log_schedule_change(
     team_id: int,
-    metric_id: str,
-    before: "MetricCheckSchedule",
-    after: "MetricCheckSchedule",
+    subject_type: str,
+    subject_uuid: str,
+    before: "CheckSchedule",
+    after: "CheckSchedule",
     user: User,
 ) -> None:
     from .logic.subjects import resolve_subject  # noqa: PLC0415 — avoids loading the catalog during Django startup
@@ -60,7 +61,7 @@ def log_metric_schedule_change(
     ]
     if not changes:
         return
-    subject = resolve_subject(team_id, "metric", metric_id)
+    subject = resolve_subject(team_id, subject_type, subject_uuid)
     log_activity(
         organization_id=None,
         team_id=team_id,
@@ -69,5 +70,5 @@ def log_metric_schedule_change(
         item_id=str(after.id),
         scope="DataQualityCheckSchedule",
         activity="updated",
-        detail=Detail(name=f"metric check schedule on {subject.name or metric_id}", changes=changes),
+        detail=Detail(name=f"{subject_type} check schedule on {subject.name or subject_uuid}", changes=changes),
     )

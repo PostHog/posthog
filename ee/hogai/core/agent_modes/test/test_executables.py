@@ -1,11 +1,14 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import SimpleTestCase, override_settings
+
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     HumanMessage as LangchainHumanMessage,
+    SystemMessage,
 )
-from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables import RunnableBinding, RunnableConfig
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -21,6 +24,8 @@ from posthog.models import Team, User
 
 from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
 from ee.hogai.context import AssistantContextManager
+from ee.hogai.core.agent_modes.executables import AgentExecutable
+from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool_errors import MaxToolError, MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.tools.read_taxonomy.core import ReadEvents
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
@@ -68,6 +73,77 @@ def _create_agent_tools_node(
 
     # Use the mode manager's tools_node property which calls configure()
     return mode_manager.tools_node
+
+
+class TestAgentCompactionInput(SimpleTestCase):
+    async def test_repeated_compaction_preserves_model_input_and_iteration_count(self) -> None:
+        toolkit = MagicMock()
+        toolkit.get_tools = AsyncMock(return_value=[])
+        prompts = MagicMock()
+        prompts.get_prompts = AsyncMock(side_effect=lambda *_: [SystemMessage(content="Analyze the example data")])
+        node = AgentExecutable(
+            team=Team(),
+            user=User(),
+            toolkit_manager_class=MagicMock(return_value=toolkit),
+            prompt_builder_class=MagicMock(return_value=prompts),
+            node_path=(),
+        )
+        model = MagicMock()
+        model.get_num_tokens_from_messages.return_value = 450_000
+        model.ainvoke = AsyncMock(
+            return_value=LangchainAIMessage(
+                content="", tool_calls=[{"id": "next-tool", "name": "execute_sql", "args": {"query": "SELECT 3"}}]
+            )
+        )
+        state = AssistantState(
+            start_id="request",
+            root_tool_calls_count=5,
+            messages=[
+                HumanMessage(id="request", content="Compare the example cohorts"),
+                AssistantMessage(
+                    id="large-call",
+                    content="",
+                    tool_calls=[AssistantToolCall(id="large", name="execute_sql", args={"query": "SELECT 1"})],
+                ),
+                AssistantToolCallMessage(id="large-result", tool_call_id="large", content="x" * 9000),
+                AssistantMessage(
+                    id="small-call",
+                    content="",
+                    tool_calls=[AssistantToolCall(id="small", name="execute_sql", args={"query": "SELECT 2"})],
+                ),
+                AssistantToolCallMessage(id="small-result", tool_call_id="small", content="2"),
+            ],
+        )
+        with (
+            patch.object(node, "_get_model", return_value=model),
+            patch(
+                "ee.hogai.core.agent_modes.executables.AnthropicConversationSummarizer.summarize",
+                new=AsyncMock(side_effect=["First comparison complete", "Second comparison complete"]),
+            ),
+        ):
+            first = await node.arun(state, {})
+            first_input = str([message.content for message in model.ainvoke.call_args.args[0]])
+            self.assertIn("First comparison complete", first_input)
+            self.assertIn("Compare the example cohorts", first_input)
+            self.assertNotIn("x" * 9000, first_input)
+            self.assertEqual(first.root_tool_calls_count, 6)
+            assert first.messages is not None
+            state = AssistantState(
+                messages=[
+                    *first.messages,
+                    AssistantToolCallMessage(id="next-result", tool_call_id="next-tool", content="y" * 9000),
+                ],
+                start_id=first.start_id,
+                root_conversation_start_id=first.root_conversation_start_id,
+                root_tool_calls_count=first.root_tool_calls_count,
+            )
+            second = await node.arun(state, {})
+        second_input = str([message.content for message in model.ainvoke.call_args.args[0]])
+        self.assertIn("Second comparison complete", second_input)
+        self.assertIn("Compare the example cohorts", second_input)
+        self.assertNotIn("First comparison complete", second_input)
+        self.assertNotIn("y" * 9000, second_input)
+        self.assertEqual(second.root_tool_calls_count, 7)
 
 
 class TestAgentNode(ClickhouseTestMixin, BaseTest):
@@ -1157,3 +1233,46 @@ class TestRootNodeTools(BaseTest):
             from pydantic import ValidationError as PydanticValidationError
 
             self.assertIsInstance(captured_error, PydanticValidationError)
+
+
+@patch.dict("os.environ", {"ANTHROPIC_API_KEY": "direct-api-key"})
+class TestAgentNodeModelRouting(BaseTest):
+    def _root_model(self) -> MaxChatAnthropic:
+        node = _create_agent_node(self.team, self.user)
+        model = node._get_model(AssistantState(messages=[HumanMessage(content="Hello")]), [])
+        assert isinstance(model, RunnableBinding)
+        assert isinstance(model.bound, MaxChatAnthropic)
+        return model.bound
+
+    @override_settings(
+        AI_GATEWAY_URL="https://ai-gateway.test/v1",
+        AI_GATEWAY_API_KEY="phs_gateway",
+        LLM_GATEWAY_URL="http://llm-gateway.test",
+        LLM_GATEWAY_API_KEY="legacy-key",
+    )
+    @patch("ee.hogai.core.agent_modes.executables.get_llm_gateway_variant", return_value="gateway-bedrock")
+    def test_root_model_routes_through_the_ai_gateway_when_configured(self, mock_variant):
+        root_model = self._root_model()
+
+        self.assertEqual(root_model.anthropic_api_url, "https://ai-gateway.test")
+        self.assertIsNone(root_model.default_headers)
+        assert isinstance(root_model.ai_gateway_fallback, MaxChatAnthropic)
+        self.assertEqual(root_model.ai_gateway_fallback.model, "claude-sonnet-4-6")
+        self.assertTrue(root_model.billable)
+        mock_variant.assert_not_called()
+
+    @override_settings(
+        AI_GATEWAY_URL="",
+        AI_GATEWAY_API_KEY="",
+        LLM_GATEWAY_URL="http://llm-gateway.test",
+        LLM_GATEWAY_API_KEY="legacy-key",
+    )
+    @patch("ee.hogai.core.agent_modes.executables.get_llm_gateway_variant", return_value="gateway-bedrock")
+    def test_root_model_keeps_the_legacy_gateway_arm_without_ai_gateway_config(self, _mock_variant):
+        root_model = self._root_model()
+
+        self.assertIsNone(root_model.ai_gateway_fallback)
+        self.assertEqual(root_model.anthropic_api_url, "http://llm-gateway.test/django")
+        assert root_model.default_headers is not None
+        self.assertEqual(root_model.default_headers["X-PostHog-Provider"], "bedrock")
+        self.assertTrue(root_model.bypass_proxy)

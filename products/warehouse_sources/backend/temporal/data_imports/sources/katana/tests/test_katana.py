@@ -344,6 +344,8 @@ class TestKatanaSourceResponse:
             ("inventory", ["variant_id", "location_id"], None),
             ("price_lists", ["id"], None),
             ("inventory_movements", ["id"], "created_at"),
+            ("sales_order_rows", ["id"], "created_at"),
+            ("manufacturing_order_productions", ["id"], "created_at"),
         ]
     )
     def test_source_response_shape(self, endpoint: str, expected_pk: list[str], partition_key: str | None) -> None:

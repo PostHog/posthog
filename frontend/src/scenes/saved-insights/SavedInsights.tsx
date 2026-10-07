@@ -2,20 +2,22 @@ import './SavedInsights.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ComponentType } from 'react'
 
-import { IconHeart, IconHeartFilled, IconTrash } from '@posthog/icons'
+import { IconEllipsis, IconHeart, IconHeartFilled, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
+import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -25,29 +27,27 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
-import { isNonEmptyObject } from 'lib/utils/guards'
+import { UNFILED_DASHBOARDS_FOLDER } from 'scenes/dashboard/dashboardConstants'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { SavedInsightsEmptyState, SavedInsightsErrorState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { NewInsightShortcuts } from 'scenes/saved-insights/newInsightsMenu'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { isNodeWithSource } from '~/queries/utils'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    ActivityScope,
-    QueryBasedInsightModel,
-    SavedInsightsTabs,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope, SavedInsightsTabs } from '~/types'
 
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
+import { HomeDashboardStarterModal } from 'products/product_analytics/frontend/insights/home/HomeDashboardStarterModal'
 
 export * from './insightTypesMetadata'
 
@@ -56,7 +56,8 @@ import { productAnalyticsNotificationsLogic } from 'products/product_analytics/f
 
 import { isDraftInsightRow } from './draftInsight'
 import { DraftInsightMoreMenu, DraftInsightNameCell } from './DraftInsightRow'
-import { QUERY_TYPES_METADATA } from './insightTypesMetadata'
+import { HomeTab } from './HomeTab'
+import { InsightIcon } from './InsightIcon'
 import { NewInsightButton } from './NewInsightMenu'
 import { SavedInsightListItem, savedInsightsLogic } from './savedInsightsLogic'
 
@@ -65,24 +66,6 @@ export const scene: SceneExport = {
     logic: savedInsightsLogic,
     productKey: ProductKey.PRODUCT_ANALYTICS,
     emptyState: productAnalyticsEmptyState,
-}
-
-export function InsightIcon({
-    insight,
-    className,
-}: {
-    insight: QueryBasedInsightModel
-    className?: string
-}): JSX.Element | null {
-    let Icon: ComponentType<any> | null = null
-
-    if ('query' in insight && isNonEmptyObject(insight.query)) {
-        const insightType = isNodeWithSource(insight.query) ? insight.query.source.kind : insight.query.kind
-        const insightMetadata = QUERY_TYPES_METADATA[insightType]
-        Icon = insightMetadata && insightMetadata.icon
-    }
-
-    return Icon ? <Icon className={className} /> : null
 }
 
 export function SavedInsights(): JSX.Element {
@@ -105,11 +88,25 @@ export function SavedInsights(): JSX.Element {
         usingFilters,
         bulkDeleteResponseLoading,
         draftInsightRow,
+        showHomeTab,
     } = useValues(savedInsightsLogic)
 
     const { currentProjectId } = useValues(projectLogic)
     const { notificationCount } = useValues(productAnalyticsNotificationsLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const summarizeInsight = useSummarizeInsight()
+    const dashboardChoiceLogic = sceneDashboardChoiceModalLogic({ scene: Scene.ProductAnalyticsHomeTab })
+    const { isOpen: homeDashboardModalOpen, dashboardChoiceView } = useValues(dashboardChoiceLogic)
+    const {
+        closeSceneDashboardChoiceModal,
+        setSceneDashboardChoice,
+        showDashboardPicker,
+        showSceneDashboardChoiceModal,
+        showStarterOptions,
+    } = useActions(dashboardChoiceLogic)
+    const { isLoading: dashboardCreationLoading } = useValues(newDashboardLogic)
+    const { addDashboard, setAsHomeTabDashboardAfterCreation, showNewDashboardModal } = useActions(newDashboardLogic)
 
     const { tab } = filters
 
@@ -293,7 +290,7 @@ export function SavedInsights(): JSX.Element {
                                             LemonDialog.open({
                                                 title: 'Delete insight?',
                                                 description:
-                                                    'Are you sure you want to delete this insight? This action can be undone.',
+                                                    'Are you sure you want to delete this insight? Associated alerts and subscriptions will also be removed. Their removal cannot be undone.',
                                                 primaryButton: {
                                                     children: 'Delete',
                                                     status: 'danger',
@@ -323,8 +320,82 @@ export function SavedInsights(): JSX.Element {
         },
     ]
 
+    const openHomeDashboardStarter = (): void => {
+        showStarterOptions()
+        showSceneDashboardChoiceModal()
+    }
+
+    const createHomeDashboardWithAI = (): void => {
+        if (dashboardCreationLoading) {
+            return
+        }
+        closeSceneDashboardChoiceModal()
+        setAsHomeTabDashboardAfterCreation(true, true)
+        addDashboard({
+            name: 'My product analytics dashboard',
+            description: '',
+            show: false,
+            useTemplate: '',
+            _create_in_folder: UNFILED_DASHBOARDS_FOLDER,
+        })
+    }
+
+    const openHomeDashboardTemplates = (): void => {
+        closeSceneDashboardChoiceModal()
+        setAsHomeTabDashboardAfterCreation(true)
+        showNewDashboardModal()
+    }
+
+    const restorePostHogHome = (): void => {
+        setSceneDashboardChoice(null)
+        closeSceneDashboardChoiceModal()
+    }
+
+    const homeDashboardActions =
+        tab === SavedInsightsTabs.Home && showHomeTab ? (
+            currentTeam?.home_tab_dashboard ? (
+                <LemonMenu
+                    items={[
+                        {
+                            label: 'Change Home dashboard',
+                            onClick: openHomeDashboardStarter,
+                            'data-attr': 'home-tab-choose-dashboard',
+                        },
+                        {
+                            label: 'Use PostHog Home',
+                            onClick: restorePostHogHome,
+                            'data-attr': 'home-tab-restore-posthog-home',
+                        },
+                    ]}
+                >
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        icon={<IconEllipsis />}
+                        aria-label="Home dashboard options"
+                        tooltip="Home dashboard options"
+                        data-attr="home-tab-dashboard-options"
+                    />
+                </LemonMenu>
+            ) : (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    data-attr="home-tab-choose-dashboard"
+                    onClick={openHomeDashboardStarter}
+                >
+                    Make my own dashboard
+                </LemonButton>
+            )
+        ) : null
+
     return (
-        <SceneContent className={cn('saved-insights')}>
+        <SceneContent
+            className={cn(
+                'saved-insights @container/saved-insights',
+                tab === SavedInsightsTabs.Home && showHomeTab && 'saved-insights--home'
+            )}
+        >
             <NewInsightShortcuts />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.SavedInsights].name}
@@ -332,7 +403,14 @@ export function SavedInsights(): JSX.Element {
                 resourceType={{
                     type: sceneConfigurations[Scene.SavedInsights].iconType || 'default_icon_type',
                 }}
-                actions={<NewInsightButton />}
+                actions={
+                    <>
+                        <NewInsightButton compact={tab === SavedInsightsTabs.Home && showHomeTab} />
+                        {currentTeam?.home_tab_dashboard && (
+                            <div className="@min-[48rem]/saved-insights:hidden">{homeDashboardActions}</div>
+                        )}
+                    </>
+                }
             />
             <LemonTabs
                 activeKey={tab}
@@ -344,6 +422,7 @@ export function SavedInsights(): JSX.Element {
                     setSavedInsightsFilters({ tab })
                 }}
                 tabs={[
+                    ...(showHomeTab ? [{ key: SavedInsightsTabs.Home, label: 'Home' }] : []),
                     { key: SavedInsightsTabs.All, label: 'All insights' },
                     { key: SavedInsightsTabs.Yours, label: 'My insights' },
                     { key: SavedInsightsTabs.Alerts, label: 'Alerts' },
@@ -363,9 +442,32 @@ export function SavedInsights(): JSX.Element {
                     { key: SavedInsightsTabs.History, label: 'History' },
                 ]}
                 sceneInset
+                rightSlot={homeDashboardActions}
+                rightSlotClassName="hidden @min-[48rem]/saved-insights:flex"
             />
 
-            {tab === SavedInsightsTabs.Notifications ? (
+            {tab === SavedInsightsTabs.Home && showHomeTab ? (
+                <>
+                    <HomeTab dashboardActions={homeDashboardActions} />
+                    <HomeDashboardStarterModal
+                        isOpen={homeDashboardModalOpen && dashboardChoiceView === 'starter'}
+                        onClose={closeSceneDashboardChoiceModal}
+                        onTalkToAI={createHomeDashboardWithAI}
+                        onStartFromTemplate={openHomeDashboardTemplates}
+                        onChooseExisting={showDashboardPicker}
+                        hasCustomDashboard={!!currentTeam?.home_tab_dashboard}
+                        onRestorePostHogHome={restorePostHogHome}
+                        restoringPostHogHome={currentTeamLoading}
+                        creatingWithAI={dashboardCreationLoading}
+                        aiDisabledReason={
+                            !dataProcessingAccepted &&
+                            (dataProcessingApprovalDisabledReason ?? 'Approve AI data processing to use PostHog AI')
+                        }
+                    />
+                    <SceneDashboardChoiceModal scene={Scene.ProductAnalyticsHomeTab} />
+                    <NewDashboardModal redirectAfterCreation={false} />
+                </>
+            ) : tab === SavedInsightsTabs.Notifications ? (
                 <ProductAnalyticsNotifications />
             ) : tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} />
@@ -448,7 +550,7 @@ export function SavedInsights(): JSX.Element {
                                             const noun = count === 1 ? 'insight' : 'insights'
                                             LemonDialog.open({
                                                 title: `Delete ${count} ${noun}?`,
-                                                description: `Are you sure you want to delete ${count} ${noun}? This action can be undone.`,
+                                                description: `Are you sure you want to delete ${count} ${noun}? Associated alerts and subscriptions will also be removed. Their removal cannot be undone.`,
                                                 primaryButton: {
                                                     children: 'Delete',
                                                     status: 'danger',

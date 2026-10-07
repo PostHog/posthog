@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSearch } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconGridMasonry, IconList, IconSearch } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { dateMapping } from 'lib/utils/dateFilters'
@@ -10,8 +10,9 @@ import { pluralize } from 'lib/utils/strings'
 import { FilterPill } from '../../components/FilterPill'
 import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
 import { SCANNER_TYPE_OPTIONS, ScannerType } from '../types'
-import { watchFeedLogic } from '../watchFeedLogic'
-import { WatchFeedCard } from './WatchFeedCard'
+import { type WatchFeedView, watchFeedLogic } from '../watchFeedLogic'
+import { FILLER_REASON_KINDS, JevWatchFeedTile, WatchFeedCard, WatchFeedGridCard } from './WatchFeedCard'
+import { WatchFeedEmptyState } from './WatchFeedEmptyState'
 
 const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
     value,
@@ -30,6 +31,31 @@ const FEED_DATE_OPTION_KEYS = new Set([
 ])
 const FEED_DATE_OPTIONS = dateMapping.filter((option) => FEED_DATE_OPTION_KEYS.has(option.key))
 
+const GRID_CLASS_NAME = 'grid gap-3 grid-cols-1 @xl:grid-cols-2 @3xl:grid-cols-3'
+
+function FeedSkeleton({ view }: { view: WatchFeedView }): JSX.Element {
+    return view === 'grid' ? (
+        <div className={GRID_CLASS_NAME} aria-busy>
+            {[0, 1, 2].map((i) => (
+                <div key={i} className="flex flex-col border rounded-lg overflow-hidden">
+                    <LemonSkeleton className="aspect-video w-full rounded-none" />
+                    <div className="flex flex-col gap-1.5 p-3">
+                        <LemonSkeleton className="h-4 w-2/3" />
+                        <LemonSkeleton className="h-3 w-full" />
+                        <LemonSkeleton className="h-3 w-1/2" />
+                    </div>
+                </div>
+            ))}
+        </div>
+    ) : (
+        <div className="flex flex-col gap-3" aria-busy>
+            {[0, 1, 2].map((i) => (
+                <LemonSkeleton key={i} className="h-32 rounded" />
+            ))}
+        </div>
+    )
+}
+
 export function WatchFeedTab(): JSX.Element {
     const {
         feedItems,
@@ -43,6 +69,10 @@ export function WatchFeedTab(): JSX.Element {
         tagOptions,
         search,
         hasFeedFilters,
+        emptyReason,
+        view,
+        displayView,
+        feedRanker,
     } = useValues(watchFeedLogic)
     const {
         setDateRange,
@@ -52,6 +82,7 @@ export function WatchFeedTab(): JSX.Element {
         setSearch,
         clearFeedFilters,
         loadFeed,
+        setView,
     } = useActions(watchFeedLogic)
     const { scanners: allScanners } = useValues(visionScannersListLogic)
     const scannerOptions = allScanners.map((scanner) => ({
@@ -63,9 +94,14 @@ export function WatchFeedTab(): JSX.Element {
     // Only the scanner picker narrows *which* scanners are in scope; the others narrow within them.
     const narrowedToScanners = scannerIdsFilter.length
     const scannerCount = new Set(items.map((item) => item.observation.scanner_id)).size
+    // Every card carrying a no-evidence reason means the window produced no findings. A feed that mixes a
+    // finding with padding needs no explaining, so this stays off unless the whole feed is padding.
+    const onlyFiller = items.length > 0 && items.every((item) => FILLER_REASON_KINDS.has(item.reason.kind))
+    // The jev arm gets its own tile, so the experiment compares rankings and layouts as one arm.
+    const GridCard = feedRanker === 'jev' ? JevWatchFeedTile : WatchFeedGridCard
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="@container flex flex-col gap-4">
             <div className="flex flex-wrap items-end justify-between gap-2">
                 <div className="flex flex-col gap-1">
                     <h2 className="text-xl font-semibold m-0">
@@ -92,6 +128,7 @@ export function WatchFeedTab(): JSX.Element {
                     />
                     <FilterPill<string>
                         label="Scanners"
+                        dataAttr="vision-watch-feed-scanners-filter"
                         searchable
                         searchPlaceholder="Search scanners..."
                         options={scannerOptions}
@@ -100,6 +137,7 @@ export function WatchFeedTab(): JSX.Element {
                     />
                     <FilterPill<string>
                         label="Tags"
+                        dataAttr="vision-watch-feed-tags-filter"
                         searchable
                         options={tagOptions}
                         value={tagsFilter}
@@ -107,6 +145,7 @@ export function WatchFeedTab(): JSX.Element {
                     />
                     <FilterPill<ScannerType>
                         label="Type"
+                        dataAttr="vision-watch-feed-type-filter"
                         options={TYPE_OPTIONS}
                         value={scannerTypeFilter ? [scannerTypeFilter] : []}
                         onChange={(values) => setScannerTypeFilter(values[values.length - 1] ?? null)}
@@ -123,15 +162,32 @@ export function WatchFeedTab(): JSX.Element {
                             Clear filters
                         </LemonButton>
                     )}
+                    {feedRanker !== 'jev' && (
+                        <LemonSegmentedButton<WatchFeedView>
+                            size="xsmall"
+                            value={view}
+                            onChange={setView}
+                            options={[
+                                {
+                                    value: 'grid',
+                                    icon: <IconGridMasonry />,
+                                    tooltip: 'Thumbnails',
+                                    'data-attr': 'vision-watch-feed-view-grid',
+                                },
+                                {
+                                    value: 'list',
+                                    icon: <IconList />,
+                                    tooltip: 'List',
+                                    'data-attr': 'vision-watch-feed-view-list',
+                                },
+                            ]}
+                        />
+                    )}
                 </div>
             </div>
 
             {feedItemsLoading && feedItems === null ? (
-                <div className="flex flex-col gap-3">
-                    {[0, 1, 2].map((i) => (
-                        <LemonSkeleton key={i} className="h-32 rounded" />
-                    ))}
-                </div>
+                <FeedSkeleton view={displayView} />
             ) : (
                 <div className="flex flex-col gap-3">
                     {/* kea-loaders keeps the last value on failure, so a later filter or date change can fail
@@ -148,27 +204,34 @@ export function WatchFeedTab(): JSX.Element {
                             </LemonButton>
                         </div>
                     )}
+                    {/* Three newest clips and nothing else is the answer, not a half-loaded feed, so say so
+                        rather than leaving the reader to infer it from three identical reason lines. */}
+                    {onlyFiller && (
+                        <p className="text-sm text-secondary m-0">
+                            Nothing stood out in this window. These are the newest clips. Try a longer date range to see
+                            more.
+                        </p>
+                    )}
                     {items.length > 0 ? (
-                        items.map((item, index) => (
-                            <WatchFeedCard key={item.observation.id} item={item} position={index} />
-                        ))
-                    ) : !feedFailed ? (
-                        <div className="flex flex-col items-center gap-2 text-sm text-secondary border border-dashed rounded p-6 text-center">
-                            {hasFeedFilters ? (
-                                <>
-                                    <span>No clips match these filters in this window.</span>
-                                    <LemonButton type="secondary" size="small" onClick={() => clearFeedFilters()}>
-                                        Clear filters
-                                    </LemonButton>
-                                </>
-                            ) : (
-                                <span>
-                                    Nothing worth watching in this window yet. Observations appear here as your scanners
-                                    run.
-                                </span>
-                            )}
-                        </div>
-                    ) : null}
+                        displayView === 'grid' ? (
+                            <div className={GRID_CLASS_NAME}>
+                                {items.map((item, index) => (
+                                    <GridCard key={item.observation.id} item={item} position={index} />
+                                ))}
+                            </div>
+                        ) : (
+                            items.map((item, index) => (
+                                <WatchFeedCard key={item.observation.id} item={item} position={index} />
+                            ))
+                        )
+                    ) : feedFailed ? null : emptyReason ? (
+                        <WatchFeedEmptyState reason={emptyReason} />
+                    ) : (
+                        // Still resolving why the feed is empty. The scanner list defaults to empty while
+                        // it loads, so naming a reason now would show the no-scanners screen to a reader
+                        // who has scanners.
+                        <LemonSkeleton className="h-32 rounded" />
+                    )}
                 </div>
             )}
         </div>

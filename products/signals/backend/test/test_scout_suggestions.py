@@ -3,7 +3,7 @@ import asyncio
 from datetime import timedelta
 
 import pytest
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import DatabaseError
@@ -16,7 +16,10 @@ from parameterized import parameterized
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.clickhouse.query_tagging import Feature, Product, QueryTags, get_query_tags
+from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
+from posthog.errors import InternalCHQueryError
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
@@ -26,16 +29,22 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalScoutConfig, SignalScoutSuggestionSet, SignalSourceConfig
 from products.signals.backend.scout_harness.suggestions import (
     MAX_DESCRIPTION_CHARS,
+    PlannedSuggestionRun,
     ScoutSuggestionBatch,
     ScoutSuggestionItem,
     SuggestionSettings,
+    TeamActivity,
     dismiss_suggestion,
     mark_generation_failed,
     mark_suggestion_created,
     parse_suggestion_settings,
     persist_suggestion_batch,
     plan_suggestion_runs,
+    read_team_activity,
     reserved_scout_names,
+    select_teams_to_scan,
+    stamp_requested,
+    team_is_active_enough,
     visible_items,
 )
 from products.signals.backend.scout_harness.suggestions_runner import arun_scout_suggestions, validate_suggestion_items
@@ -80,6 +89,22 @@ class TestSuggestionSettings(SimpleTestCase):
         settings = parse_suggestion_settings(payload)
         self.assertEqual(
             (settings.enabled, settings.eligibility_tier, settings.max_children_per_tick), (enabled, tier, cap)
+        )
+
+    @parameterized.expand(
+        [
+            ("defaults", None, 14, 100, 3),
+            ("overridden", {"activity_window_days": 7, "min_events_in_window": 50}, 7, 50, 3),
+            ("checks_off", {"min_events_in_window": 0, "min_active_days_in_window": 0}, 14, 0, 0),
+            ("clamped", {"activity_window_days": 900, "min_active_days_in_window": -1}, 90, 100, 0),
+        ]
+    )
+    def test_activity_knobs(self, _name, extra, window_days, min_events, min_days):
+        payload = None if extra is None else {"enabled": True, **extra}
+        settings = parse_suggestion_settings(payload)
+        self.assertEqual(
+            (settings.activity_window_days, settings.min_events_in_window, settings.min_active_days_in_window),
+            (window_days, min_events, min_days),
         )
 
     def test_allowlist_ignores_non_int_entries(self):
@@ -172,7 +197,11 @@ class TestSuggestionPersistence(BaseTest):
         )
         first_id, custom_id = (record["id"] for record in row.items)
         self.assertIsNotNone(dismiss_suggestion(self.team.id, first_id, user_id=self.user.id))
-        self.assertIsNotNone(mark_suggestion_created(self.team.id, custom_id, config_id="cfg-1"))
+        self.assertIsNotNone(
+            mark_suggestion_created(
+                self.team.id, custom_id, kind="custom", config_id="cfg-1", skill_name="signals-scout-checkout-drop"
+            )
+        )
         row.refresh_from_db()
         self.assertEqual(visible_items(row), [])
 
@@ -287,6 +316,13 @@ class TestPlanSuggestionRuns(BaseTest):
         unapproved = self._team("unapproved", approved=False)
         self._enable_scout(unapproved, engaged=True)
         self._team("no-signals-setup")
+        background_only = self._team("background-only")
+        SignalScoutConfig.objects.create(
+            team=background_only,
+            skill_name="signals-scout-general",
+            enabled=True,
+            managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
+        )
 
         SignalScoutSuggestionSet.all_teams.create(team=engaged_fresh, last_requested_at=self.now - timedelta(days=1))
         SignalScoutSuggestionSet.all_teams.create(team=engaged_overdue, last_requested_at=self.now - timedelta(days=30))
@@ -308,6 +344,41 @@ class TestPlanSuggestionRuns(BaseTest):
 
         planned = plan_suggestion_runs(SuggestionSettings(enabled=True, eligibility_tier=2), self.now)
         self.assertEqual([(run.team_id, run.tier) for run in planned], [(self.team.id, 1), (registered.id, 2)])
+
+    def test_a_low_activity_row_is_re_checked_after_the_refresh_window(self):
+        self._enable_scout(self.team, engaged=True)
+        settings = SuggestionSettings(enabled=True, refresh_days=7, stale_refresh_days=1)
+        row = SignalScoutSuggestionSet.all_teams.create(
+            team=self.team,
+            status=SignalScoutSuggestionSet.Status.LOW_ACTIVITY,
+            last_requested_at=self.now - timedelta(days=3),
+        )
+
+        # The shorter stale window is for a batch the fleet moved past, not for a quiet project.
+        self.assertEqual(plan_suggestion_runs(settings, self.now), [])
+
+        SignalScoutSuggestionSet.all_teams.filter(pk=row.pk).update(last_requested_at=self.now - timedelta(days=8))
+        self.assertEqual([run.team_id for run in plan_suggestion_runs(settings, self.now)], [self.team.id])
+
+        # A breaker tripped before the project went quiet must not delay the activity check:
+        # no scan runs while the stamp holds, so nothing would clear the count.
+        SignalScoutSuggestionSet.all_teams.filter(pk=row.pk).update(
+            consecutive_failures=5, last_completed_at=self.now - timedelta(days=8)
+        )
+        self.assertEqual([run.team_id for run in plan_suggestion_runs(settings, self.now)], [self.team.id])
+        long_cooldown = SuggestionSettings(
+            enabled=True, refresh_days=7, stale_refresh_days=1, failure_cooldown_hours=240
+        )
+        self.assertEqual([run.team_id for run in plan_suggestion_runs(long_cooldown, self.now)], [self.team.id])
+
+    def test_the_limit_overrides_the_per_tick_cap(self):
+        self._enable_scout(self.team, engaged=True)
+        second = self._team("second")
+        self._enable_scout(second, engaged=True)
+        settings = SuggestionSettings(enabled=True, max_children_per_tick=1)
+
+        self.assertEqual(len(plan_suggestion_runs(settings, self.now)), 1)
+        self.assertEqual(len(plan_suggestion_runs(settings, self.now, limit=2)), 2)
 
     def test_cap_allowlist_blocklist_and_breaker(self):
         self._enable_scout(self.team, engaged=True)
@@ -465,6 +536,199 @@ class TestPlanSuggestionRuns(BaseTest):
 
         planned = plan_suggestion_runs(SuggestionSettings(enabled=True), self.now)
         self.assertEqual([run.team_id for run in planned], [project.id])
+
+
+class TestTeamIsActiveEnough(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("over_both_lines", 500, 7, False, 100, 3, True),
+            ("too_few_events", 40, 7, False, 100, 3, False),
+            ("too_few_active_days", 500, 2, False, 100, 3, False),
+            ("exactly_on_both_lines", 100, 3, False, 100, 3, True),
+            ("capped_read_is_active", 0, 0, True, 100, 3, True),
+            ("volume_check_disabled", 40, 7, False, 0, 3, True),
+            ("spread_check_disabled", 500, 1, False, 100, 0, True),
+        ]
+    )
+    def test_thresholds(self, _name, events, days, capped, min_events, min_days, expected):
+        activity = TeamActivity(event_count=events, active_days=days, capped=capped)
+        settings = SuggestionSettings(min_events_in_window=min_events, min_active_days_in_window=min_days)
+        self.assertEqual(team_is_active_enough(activity, settings), expected)
+
+
+class TestSelectTeamsToScan(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.quiet = self._team("quiet-project")
+        self.busy = self._team("busy-project")
+        self.suggestion_settings = SuggestionSettings(enabled=True)
+
+    def _team(self, name: str) -> Team:
+        organization = Organization.objects.create(name=name, is_ai_data_processing_approved=True)
+        return Team.objects.create(organization=organization, name=name, ingested_event=True)
+
+    def _planned(self, *teams: Team) -> list[PlannedSuggestionRun]:
+        return [PlannedSuggestionRun(team_id=team.id, tier=1) for team in teams]
+
+    def _select(self, planned, *, settings=None, limit=10, reads=None):
+        by_team = reads or {
+            self.quiet.id: TeamActivity(event_count=12, active_days=1, capped=False),
+            self.busy.id: TeamActivity(event_count=9000, active_days=12, capped=False),
+        }
+        with patch(
+            "products.signals.backend.scout_harness.suggestions.read_team_activity",
+            side_effect=lambda team_id, **_: by_team[team_id],
+        ):
+            return select_teams_to_scan(planned, settings or self.suggestion_settings, limit=limit)
+
+    def _skip_event_uuids(self, planned) -> list[str | None]:
+        with patch("posthoganalytics.capture") as capture:
+            self._select(planned)
+        return [call.kwargs.get("uuid") for call in capture.call_args_list]
+
+    def _status(self, team: Team) -> str | None:
+        row = SignalScoutSuggestionSet.all_teams.filter(team_id=team.id).first()
+        return row.status if row else None
+
+    def test_quiet_project_is_stamped_and_not_dispatched(self):
+        selection = self._select(self._planned(self.quiet, self.busy))
+
+        self.assertEqual([run.team_id for run in selection.dispatch], [self.busy.id])
+        self.assertEqual(selection.skipped_team_ids, (self.quiet.id,))
+        self.assertEqual(self._status(self.quiet), SignalScoutSuggestionSet.Status.LOW_ACTIVITY)
+        self.assertIsNone(self._status(self.busy))
+
+    def test_a_low_activity_stamp_keeps_the_prior_batch_and_the_breaker(self):
+        SignalScoutSuggestionSet.all_teams.create(
+            team=self.quiet,
+            items=[{"id": "1", "kind": "canonical", "skill_name": "signals-scout-general"}],
+            consecutive_failures=2,
+        )
+
+        self._select(self._planned(self.quiet))
+
+        row = SignalScoutSuggestionSet.all_teams.get(team_id=self.quiet.id)
+        self.assertEqual(row.status, SignalScoutSuggestionSet.Status.LOW_ACTIVITY)
+        self.assertEqual(len(row.items), 1)
+        self.assertEqual(row.consecutive_failures, 2)
+
+    def test_allowlisted_quiet_project_is_still_scanned(self):
+        settings = SuggestionSettings(enabled=True, team_allowlist=frozenset({self.quiet.id}))
+
+        selection = self._select(self._planned(self.quiet), settings=settings)
+
+        self.assertEqual([run.team_id for run in selection.dispatch], [self.quiet.id])
+        self.assertIsNone(self._status(self.quiet))
+
+    def test_both_checks_off_dispatches_without_reading(self):
+        settings = SuggestionSettings(enabled=True, min_events_in_window=0, min_active_days_in_window=0)
+
+        with patch(
+            "products.signals.backend.scout_harness.suggestions.read_team_activity",
+            side_effect=AssertionError("the check must not read when both knobs are off"),
+        ):
+            selection = select_teams_to_scan(self._planned(self.quiet, self.busy), settings, limit=10)
+
+        self.assertEqual([run.team_id for run in selection.dispatch], [self.quiet.id, self.busy.id])
+
+    def test_a_failed_read_dispatches_rather_than_costing_the_refresh_window(self):
+        with patch(
+            "products.signals.backend.scout_harness.suggestions.read_team_activity",
+            side_effect=Exception("clickhouse is down"),
+        ):
+            selection = select_teams_to_scan(self._planned(self.quiet), self.suggestion_settings, limit=10)
+
+        self.assertEqual([run.team_id for run in selection.dispatch], [self.quiet.id])
+        self.assertEqual(selection.skipped_team_ids, ())
+
+    def test_a_replanned_tick_reports_the_skip_once(self):
+        first = self._skip_event_uuids(self._planned(self.quiet))
+        retried = self._skip_event_uuids(self._planned(self.quiet))
+        stamp_requested([self.quiet.id])
+        next_tick = self._skip_event_uuids(self._planned(self.quiet))
+
+        self.assertEqual(first, retried)
+        self.assertNotEqual(first, next_tick)
+        self.assertNotIn(None, first)
+
+    def test_overselected_candidates_past_the_limit_are_left_untouched(self):
+        second_busy = self._team("second-busy")
+        reads = {
+            self.busy.id: TeamActivity(event_count=9000, active_days=12, capped=False),
+            self.quiet.id: TeamActivity(event_count=12, active_days=1, capped=False),
+            second_busy.id: TeamActivity(event_count=9000, active_days=12, capped=False),
+        }
+
+        selection = self._select(self._planned(self.busy, self.quiet, second_busy), limit=1, reads=reads)
+
+        self.assertEqual([run.team_id for run in selection.dispatch], [self.busy.id])
+        self.assertEqual(selection.skipped_team_ids, ())
+        self.assertIsNone(self._status(self.quiet))
+
+
+class TestReadTeamActivity(ClickhouseTestMixin, BaseTest):
+    def test_counts_the_project_and_its_environments_inside_the_window(self):
+        environment = Team.objects.create(organization=self.organization, name="environment", parent_team=self.team)
+        other = Team.objects.create(organization=self.organization, name="other")
+        now = timezone.now()
+        for team, timestamp in (
+            (self.team, now - timedelta(days=1)),
+            (self.team, now - timedelta(days=1)),
+            (environment, now - timedelta(days=3)),
+            (self.team, now - timedelta(days=20)),
+            (other, now - timedelta(days=1)),
+        ):
+            _create_event(team=team, event="$pageview", distinct_id="a", timestamp=timestamp)
+        flush_persons_and_events()
+
+        activity = read_team_activity(self.team.id, window_days=14)
+
+        self.assertEqual((activity.event_count, activity.active_days, activity.capped), (3, 2, False))
+
+    def test_an_empty_project_reads_as_no_activity(self):
+        activity = read_team_activity(self.team.id, window_days=14)
+
+        self.assertEqual((activity.event_count, activity.active_days, activity.capped), (0, 0, False))
+
+    def test_the_read_is_bounded_and_kept_off_the_interactive_cluster(self):
+        with patch("products.signals.backend.scout_harness.suggestions.sync_execute", return_value=[(0, 0)]) as execute:
+            read_team_activity(self.team.id, window_days=14)
+
+        kwargs = execute.call_args.kwargs
+        self.assertEqual(kwargs["workload"], Workload.OFFLINE)
+        self.assertGreater(kwargs["settings"]["max_execution_time"], 0)
+        self.assertEqual(kwargs["settings"]["timeout_overflow_mode"], "throw")
+
+    def test_the_read_is_attributed_to_the_product(self):
+        seen: list[QueryTags] = []
+
+        def _record(*_args, **_kwargs):
+            seen.append(get_query_tags())
+            return [(0, 0)]
+
+        with patch("products.signals.backend.scout_harness.suggestions.sync_execute", side_effect=_record):
+            read_team_activity(self.team.id, window_days=14)
+
+        self.assertEqual((seen[0].product, seen[0].feature), (Product.SIGNALS, Feature.DATA_FRESHNESS))
+
+    @parameterized.expand([("too_many_rows", 158), ("too_many_rows_or_bytes", 396)])
+    def test_a_read_that_hits_the_row_cap_reads_as_capped(self, _name, code):
+        with patch(
+            "products.signals.backend.scout_harness.suggestions.sync_execute",
+            side_effect=InternalCHQueryError("limit for rows exceeded", code=code),
+        ):
+            activity = read_team_activity(self.team.id, window_days=14)
+
+        self.assertTrue(activity.capped)
+        self.assertTrue(team_is_active_enough(activity, SuggestionSettings()))
+
+    def test_any_other_read_failure_is_raised_rather_than_read_as_quiet(self):
+        with patch(
+            "products.signals.backend.scout_harness.suggestions.sync_execute",
+            side_effect=InternalCHQueryError("memory limit exceeded", code=241),
+        ):
+            with self.assertRaises(InternalCHQueryError):
+                read_team_activity(self.team.id, window_days=14)
 
 
 class TestManualSuggestionsDispatch(BaseTest):
@@ -715,12 +979,37 @@ class TestScoutSuggestionsAPI(APIBaseTest):
         config = SignalScoutConfig.all_teams.get(team=self.team, skill_name="signals-scout-checkout-drop")
         self.assertEqual(created["created_config_id"], str(config.id))
 
-    def test_a_suggestion_id_only_marks_the_draft_it_names(self):
-        # A client can send any id it holds; only the draft the new scout was made from is retired.
+    def test_a_renamed_draft_is_still_marked_with_its_final_name(self):
         row = persist_suggestion_batch(
             self.team.id, [_item(), _custom()], task_run_id=None, model="m", fleet_snapshot=[]
         )
         suggestion_id = next(item["id"] for item in row.items if item["kind"] == "custom")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/",
+            {
+                "name": "signals-scout-checkout-renamed",
+                "description": "Watches the checkout funnel.",
+                "body": "# Checkout drop\n\nCheck the checkout funnel daily.",
+                "suggestion_id": suggestion_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        row.refresh_from_db()
+        created = next(item for item in row.items if item["id"] == suggestion_id)
+        self.assertEqual(created["created_config_id"], response.json()["config"]["id"])
+        self.assertEqual(created["created_skill_name"], "signals-scout-checkout-renamed")
+        body = self.client.get(f"/api/projects/{self.team.id}/signals/scout/suggestions/").json()
+        self.assertNotIn(suggestion_id, [item["id"] for item in body["items"]])
+
+    def test_a_create_does_not_mark_a_canonical_suggestion(self):
+        # A canonical pick becomes a scout by turning its config on, so a create naming one is not it.
+        row = persist_suggestion_batch(
+            self.team.id, [_item(), _custom()], task_run_id=None, model="m", fleet_snapshot=[]
+        )
+        suggestion_id = next(item["id"] for item in row.items if item["kind"] == "canonical")
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/signals/scout/",
@@ -737,6 +1026,32 @@ class TestScoutSuggestionsAPI(APIBaseTest):
         row.refresh_from_db()
         untouched = next(item for item in row.items if item["id"] == suggestion_id)
         self.assertIsNone(untouched["created_config_id"])
+
+    @parameterized.expand(
+        [
+            ("turned_on", "signals-scout-error-tracking", True, True),
+            ("left_off", "signals-scout-error-tracking", False, False),
+            ("another_scout", "signals-scout-web-vitals", True, False),
+        ]
+    )
+    def test_turning_on_a_canonical_suggestion_marks_it(self, _name, skill_name, enabled, marked):
+        row = persist_suggestion_batch(
+            self.team.id, [_item(), _custom()], task_run_id=None, model="m", fleet_snapshot=[]
+        )
+        suggestion_id = next(item["id"] for item in row.items if item["kind"] == "canonical")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name, enabled=False)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/signals/scout/configs/{config.id}/",
+            {"enabled": enabled, "suggestion_id": suggestion_id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("suggestion_id", response.json())
+        row.refresh_from_db()
+        item = next(item for item in row.items if item["id"] == suggestion_id)
+        self.assertEqual(item["created_config_id"], str(config.id) if marked else None)
 
     def test_an_unknown_suggestion_id_still_creates_the_scout(self):
         # The batch can compact a record away between the strip reading it and the create landing;

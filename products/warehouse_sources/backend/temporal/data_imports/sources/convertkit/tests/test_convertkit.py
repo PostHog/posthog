@@ -22,15 +22,20 @@ CONVERTKIT_SESSION_PATCH = (
 )
 
 
-def _page(key: str, ids: list[int], *, has_next: bool, end_cursor: str | None) -> Response:
-    body: dict[str, Any] = {
-        key: [{"id": i} for i in ids],
-        "pagination": {"has_next_page": has_next, "end_cursor": end_cursor},
-    }
+def _json_response(body: dict[str, Any], status_code: int = 200) -> Response:
     resp = Response()
-    resp.status_code = 200
+    resp.status_code = status_code
     resp._content = json.dumps(body).encode()
     return resp
+
+
+def _page(key: str, ids: list[int], *, has_next: bool, end_cursor: str | None) -> Response:
+    return _json_response(
+        {
+            key: [{"id": i} for i in ids],
+            "pagination": {"has_next_page": has_next, "end_cursor": end_cursor},
+        }
+    )
 
 
 def _make_manager(resume_state: ConvertKitResumeConfig | None = None) -> mock.MagicMock:
@@ -522,3 +527,94 @@ class TestValidateFanoutCredentials:
         # The child path carries an unresolved id placeholder, so probing it would 404 and
         # report a working key as broken.
         assert mock_session.return_value.get.call_args.args[0] == "https://api.kit.com/v4/forms?per_page=1"
+
+
+class TestGrowthStats:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_yields_the_single_stats_object_without_paging(self, MockSession) -> None:
+        session = MockSession.return_value
+        stats = {
+            "cancellations": 1,
+            "net_new_subscribers": 2,
+            "new_subscribers": 3,
+            "subscribers": 40,
+            "starting": "2026-02-10T00:00:00-05:00",
+            "ending": "2026-02-24T23:59:59-05:00",
+        }
+        calls = _wire_calls(session, [_json_response({"stats": stats})])
+
+        rows = _rows(_source("growth_stats", _make_manager()))
+
+        # One row out of an object body, and the run stops on a response carrying no
+        # pagination envelope — a second request would exhaust the wired responses.
+        assert rows == [stats]
+        assert calls[0][0].endswith("/v4/account/growth_stats")
+        assert "per_page" not in calls[0][1]
+
+
+class TestSequenceEmails:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_sequences_and_keys_rows_by_sequence(self, MockSession) -> None:
+        session = MockSession.return_value
+        calls = _wire_calls(
+            session,
+            [
+                _page("sequences", [11, 12], has_next=False, end_cursor=None),
+                _page("emails", [1], has_next=False, end_cursor=None),
+                _page("emails", [2], has_next=False, end_cursor=None),
+            ],
+        )
+
+        rows = _rows(_source("sequence_emails", _make_manager()))
+
+        assert [(r["sequence_id"], r["id"]) for r in rows] == [(11, 1), (12, 2)]
+        assert calls[1][0].endswith("/v4/sequences/11/emails")
+        assert calls[2][0].endswith("/v4/sequences/12/emails")
+
+
+def _clicks_page(broadcast_id: int, link_ids: list[int]) -> Response:
+    return _json_response(
+        {
+            "broadcast": {
+                "id": broadcast_id,
+                "clicks": [{"id": i, "url": f"https://example.com/{i}", "unique_clicks": i} for i in link_ids],
+            },
+            "pagination": {"has_next_page": False, "end_cursor": None},
+        }
+    )
+
+
+class TestBroadcastClicks:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_reads_the_nested_click_list_and_injects_the_broadcast_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        calls = _wire_calls(
+            session,
+            [
+                _page("broadcasts", [11, 12], has_next=False, end_cursor=None),
+                _clicks_page(11, [51, 52]),
+                _clicks_page(12, [53]),
+            ],
+        )
+
+        rows = _rows(_source("broadcast_clicks", _make_manager()))
+
+        assert [(r["broadcast_id"], r["id"]) for r in rows] == [(11, 51), (11, 52), (12, 53)]
+        assert rows[0]["url"] == "https://example.com/51"
+        assert calls[1][0].endswith("/v4/broadcasts/11/clicks")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_a_broadcast_with_no_click_record_does_not_fail_the_fan_out(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire_calls(
+            session,
+            [
+                _page("broadcasts", [11, 12], has_next=False, end_cursor=None),
+                _json_response({"errors": ["Not Found"]}, status_code=404),
+                _clicks_page(12, [53]),
+            ],
+        )
+
+        rows = _rows(_source("broadcast_clicks", _make_manager()))
+
+        assert [(r["broadcast_id"], r["id"]) for r in rows] == [(12, 53)]

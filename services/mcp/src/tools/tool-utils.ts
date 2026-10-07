@@ -1,5 +1,10 @@
 import { formatResponse } from '@/lib/response'
-import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_INFORMATIONAL_RESPONSE_KEY, type Context } from '@/tools/types'
+import {
+    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_INFORMATIONAL_RESPONSE_KEY,
+    POSTHOG_TEXT_PROJECTION_KEY,
+    type Context,
+} from '@/tools/types'
 
 /**
  * Adds a _posthogUrl field to a result. For object results it's a sibling field; for raw
@@ -114,6 +119,7 @@ export function withTextProjection<T>(result: T, fields: string[]): T {
         return result
     }
     const wrappedResult = { ...source }
+    Object.defineProperty(wrappedResult, POSTHOG_TEXT_PROJECTION_KEY, { value: true, enumerable: false })
     let formattedResult: string | undefined
     Object.defineProperty(wrappedResult, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, {
         enumerable: false,

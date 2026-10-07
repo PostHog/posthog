@@ -22,12 +22,14 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
 import { GroupedJobsTable } from '../components/GroupedJobsTable'
 import { MetricTile } from '../components/MetricTile'
 import { PullRequestComparisonCard } from '../components/PullRequestComparisonCard'
 import { PullRequestDeliveryTimeline } from '../components/PullRequestDeliveryTimeline'
+import { PullRequestFrictionCard } from '../components/PullRequestFrictionCard'
 import { PullRequestStateTag } from '../components/PullRequestStateTag'
 import { RunConclusionTag } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
@@ -58,13 +60,13 @@ export const scene: SceneExport<PullRequestDetailLogicProps> = {
     }),
 }
 
-// Stable per-row key — re-runs share a runId, so start time disambiguates attempts. Used for rowKey and
+// Stable per-row key: re-runs share a runId, so start time disambiguates attempts. Used for rowKey and
 // the expand-state set, so expanding one attempt doesn't open the others.
 function runRowKey(run: WorkflowRun): string {
-    return `${run.workflow}@${run.startedAt ?? run.finishedAt ?? run.runId ?? ''}`
+    return `${run.ciEngine ?? ''}:${run.workflow}@${run.startedAt ?? run.finishedAt ?? run.runId ?? ''}`
 }
 
-/** The runs of one workflow on this PR, one row per push × attempt — jobs live on the run page. */
+/** The runs of one workflow on this PR, one row per push × attempt. Jobs live on the run page. */
 function PerPushRunsTable({
     runs,
     runCostByKey,
@@ -86,7 +88,13 @@ function PerPushRunsTable({
     runJobs: Record<string, WorkflowJobApi[]>
     runJobsLoading: boolean
     expandedRunKeys: string[]
-    setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => void
+    setRunExpanded: (
+        rowKey: string,
+        expanded: boolean,
+        runId: number | null,
+        runAttempt: number | null,
+        ciEngine?: PrRunRow['ciEngine']
+    ) => void
 }): JSX.Element {
     // Oldest push first so rows read in the same order as the timeline strip.
     const ordered = [...runs].sort((a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? ''))
@@ -114,7 +122,7 @@ function PerPushRunsTable({
                 run.runId != null ? (
                     <Link
                         to={withCurrentScope(
-                            urls.engineeringAnalyticsWorkflowRun(repoOwner, repoName, run.runId),
+                            urls.engineeringAnalyticsWorkflowRun(repoOwner, repoName, run.runId, run.ciEngine),
                             sourceId
                         )}
                         className="font-mono text-xs"
@@ -158,7 +166,10 @@ function PerPushRunsTable({
                       key: 'cost',
                       align: 'right',
                       render: (_: unknown, run: PrRunRow) => {
-                          const cost = run.runId != null ? runCostByKey[jobCacheKey(run.runId, run.runAttempt)] : null
+                          const cost =
+                              run.runId != null
+                                  ? runCostByKey[jobCacheKey(run.runId, run.runAttempt, run.ciEngine)]
+                                  : null
                           return (
                               <span className="text-xs tabular-nums whitespace-nowrap">
                                   {cost?.cost != null ? compactUsd(cost.cost) : '—'}
@@ -199,7 +210,8 @@ function PerPushRunsTable({
                                   runRowKey(run),
                                   !expandedRunKeys.includes(runRowKey(run)),
                                   run.runId,
-                                  run.runAttempt
+                                  run.runAttempt,
+                                  run.ciEngine
                               ),
                       }
                     : {}
@@ -210,7 +222,11 @@ function PerPushRunsTable({
                 isRowExpanded: (run) => expandedRunKeys.includes(runRowKey(run)),
                 expandedRowRender: (run) => (
                     <GroupedJobsTable
-                        jobs={run.runId != null ? runJobs[jobCacheKey(run.runId, run.runAttempt)] : undefined}
+                        jobs={
+                            run.runId != null
+                                ? runJobs[jobCacheKey(run.runId, run.runAttempt, run.ciEngine)]
+                                : undefined
+                        }
                         loading={runJobsLoading}
                         embedded
                     />
@@ -250,14 +266,20 @@ function PrWorkflowsTable({
     runJobs: Record<string, WorkflowJobApi[]>
     runJobsLoading: boolean
     expandedRunKeys: string[]
-    setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => void
+    setRunExpanded: (
+        rowKey: string,
+        expanded: boolean,
+        runId: number | null,
+        runAttempt: number | null,
+        ciEngine?: PrRunRow['ciEngine']
+    ) => void
 }): JSX.Element {
     const latestByWorkflow = latestRunPerWorkflow(filteredRuns)
     const isWorkflowFailing = (workflowName: string): boolean => {
         const latest = latestByWorkflow.get(workflowName)
         return latest?.conclusion != null && !isPassingConclusion(latest.conclusion)
     }
-    // Failing workflows first — the order a reviewer triages in — then alphabetical.
+    // Failing workflows first, because that is the order a reviewer triages in, then alphabetical.
     const orderedRows = [...rows].sort(
         (a, b) =>
             Number(isWorkflowFailing(b.workflowName)) - Number(isWorkflowFailing(a.workflowName)) ||
@@ -379,7 +401,6 @@ function PrWorkflowsTable({
                 ),
             }}
             pagination={{ pageSize: 10 }}
-            emptyState="No CI runs match."
             nouns={['workflow', 'workflows']}
         />
     )
@@ -397,6 +418,7 @@ export function PullRequestDetailScene(): JSX.Element {
         prRunsLoading,
         prRunsFailed,
         prCost,
+        prCostFailed,
         prCostLoading,
         pushes,
         rerunCycles,
@@ -416,9 +438,20 @@ export function PullRequestDetailScene(): JSX.Element {
         timelinesLoading,
         timelinesFailed,
         timeline,
+        friction,
+        frictionLoading,
+        frictionFailed,
     } = useValues(pullRequestDetailLogic)
-    const { loadLifecycle, loadPrRuns, loadTimelines, setWorkflowFilter, setRunExpanded } =
-        useActions(pullRequestDetailLogic)
+    const {
+        loadLifecycle,
+        loadPrCost,
+        loadPrRuns,
+        loadTimelines,
+        loadFailureLogs,
+        loadFriction,
+        setWorkflowFilter,
+        setRunExpanded,
+    } = useActions(pullRequestDetailLogic)
 
     const pullRequest = lifecycle?.pull_request
     const githubUrl = pullRequest
@@ -428,6 +461,7 @@ export function PullRequestDetailScene(): JSX.Element {
     const passed = runs.filter((run) => run.conclusion !== null && isPassingConclusion(run.conclusion)).length
     const failed = runs.filter((run) => run.conclusion !== null && !isPassingConclusion(run.conclusion)).length
     const running = runs.filter((run) => run.conclusion === null).length
+    const visiblePrCost = prCostFailed || prCostLoading ? null : prCost
     const latestRound = commitGroups[0] ? pushRoundOf(commitGroups[0].headSha, commitGroups[0].runs) : null
     const tilesLoading = prRunsLoading && commitGroups.length === 0
 
@@ -435,14 +469,12 @@ export function PullRequestDetailScene(): JSX.Element {
         return (
             <SceneContent className="pb-16">
                 <SceneTitleSection name="Pull request" resourceType={{ type: 'health' }} />
-                <div className="flex items-center gap-3">
-                    <span className="text-secondary">
-                        Couldn't load this pull request. It may not exist in the connected GitHub source.
-                    </span>
-                    <LemonButton type="secondary" size="small" onClick={loadLifecycle} loading={lifecycleLoading}>
-                        Retry
-                    </LemonButton>
-                </div>
+                <CIAnalyticsLoadError
+                    title="Couldn't load this pull request"
+                    description="It may not exist in the connected GitHub source. Retry, or check the source's sync status."
+                    onRetry={loadLifecycle}
+                    loading={lifecycleLoading}
+                />
             </SceneContent>
         )
     }
@@ -476,7 +508,7 @@ export function PullRequestDetailScene(): JSX.Element {
                 }
                 lensFilter={{
                     label: `pr: #${pullRequest?.number ?? ''}`,
-                    to: withCurrentScope(urls.engineeringAnalytics(), sourceId),
+                    to: withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId),
                 }}
                 showDate={false}
             />
@@ -560,7 +592,7 @@ export function PullRequestDetailScene(): JSX.Element {
                         <MetricTile
                             label="Pushes"
                             tooltip="Commits that triggered CI on this pull request."
-                            value={`${pushes}`}
+                            value={prRunsFailed ? '—' : `${pushes}`}
                             sub={
                                 rerunCycles > 0 ? (
                                     <span className="font-semibold text-warning-dark">+{rerunCycles} re-runs</span>
@@ -571,24 +603,34 @@ export function PullRequestDetailScene(): JSX.Element {
                         <MetricTile
                             label="CI cost"
                             tooltip={
-                                prCost?.jobs_available
+                                visiblePrCost?.jobs_available
                                     ? `${compactUsd(
-                                          (prCost.estimated_cost_usd ?? 0) / Math.max(1, pushes)
-                                      )} per push${prCost.unsettled_jobs > 0 ? ` · ${pluralize(prCost.unsettled_jobs, 'unsettled job')} excluded` : ''}.`
-                                    : 'Available once the job-level source is synced.'
+                                          (visiblePrCost.estimated_cost_usd ?? 0) / Math.max(1, pushes)
+                                      )} per push${visiblePrCost.unsettled_jobs > 0 ? ` · ${pluralize(visiblePrCost.unsettled_jobs, 'unsettled job')} excluded` : ''}.`
+                                    : prCostFailed
+                                      ? 'Loading CI cost failed.'
+                                      : 'Available once the job-level source is synced.'
                             }
-                            value={prCost?.jobs_available ? compactUsd(prCost.estimated_cost_usd) : '—'}
-                            sub={prCost?.jobs_available ? undefined : 'Job-level source not synced'}
-                            loading={prCostLoading && !prCost}
+                            value={visiblePrCost?.jobs_available ? compactUsd(visiblePrCost.estimated_cost_usd) : '—'}
+                            sub={
+                                prCostFailed ? (
+                                    <LemonButton size="xsmall" onClick={loadPrCost} loading={prCostLoading}>
+                                        Retry
+                                    </LemonButton>
+                                ) : visiblePrCost?.jobs_available ? undefined : (
+                                    'Job-level source not synced'
+                                )
+                            }
+                            loading={prCostLoading}
                         />
-                        {prCost?.llm_spend && (
+                        {visiblePrCost?.llm_spend && (
                             <MetricTile
                                 label="LLM spend"
                                 tooltip="Token spend from AI coding/review sessions on this PR's branch, including spend from the same session before the branch was created."
-                                value={compactUsd(prCost.llm_spend.cost_usd)}
+                                value={compactUsd(visiblePrCost.llm_spend.cost_usd)}
                                 sub={`${compactCount(
-                                    prCost.llm_spend.input_tokens + prCost.llm_spend.output_tokens
-                                )} tokens · ${pluralize(prCost.llm_spend.generations, 'generation')}`}
+                                    visiblePrCost.llm_spend.input_tokens + visiblePrCost.llm_spend.output_tokens
+                                )} tokens · ${pluralize(visiblePrCost.llm_spend.generations, 'generation')}`}
                             />
                         )}
                     </div>
@@ -597,16 +639,25 @@ export function PullRequestDetailScene(): JSX.Element {
                 <LemonSkeleton className="h-24 w-full" />
             )}
 
+            {/* Friction exists only for merged pull requests. It reads a fixed window, like the author and team
+                pages, and comes first there too. */}
+            {pullRequest?.state === 'merged' && (
+                <Section id="pr-friction" title="Friction" note={`Last ${friction?.window_days ?? 30} days`}>
+                    {frictionFailed ? (
+                        <CIAnalyticsLoadError onRetry={loadFriction} loading={frictionLoading} />
+                    ) : (
+                        <PullRequestFrictionCard friction={friction} loading={frictionLoading} />
+                    )}
+                </Section>
+            )}
+
             <Section id="pr-timeline" title="Lifecycle">
                 {timelinesFailed ? (
-                    <div className="flex items-center gap-3">
-                        <span className="text-sm text-secondary">
-                            Couldn't load the timeline for this pull request.
-                        </span>
-                        <LemonButton type="secondary" size="small" onClick={loadTimelines} loading={timelinesLoading}>
-                            Retry
-                        </LemonButton>
-                    </div>
+                    <CIAnalyticsLoadError
+                        title="Couldn't load the timeline for this pull request"
+                        onRetry={loadTimelines}
+                        loading={timelinesLoading}
+                    />
                 ) : !timelines ? (
                     <LemonSkeleton className="h-40 w-full" />
                 ) : timeline ? (
@@ -654,12 +705,11 @@ export function PullRequestDetailScene(): JSX.Element {
                 {prRunsLoading && commitGroups.length === 0 ? (
                     <LemonSkeleton className="h-24 w-full" />
                 ) : prRunsFailed ? (
-                    <div className="flex items-center gap-3">
-                        <span className="text-sm text-secondary">Couldn't load CI runs for this pull request.</span>
-                        <LemonButton type="secondary" size="small" onClick={loadPrRuns} loading={prRunsLoading}>
-                            Retry
-                        </LemonButton>
-                    </div>
+                    <CIAnalyticsLoadError
+                        title="Couldn't load CI runs for this pull request"
+                        onRetry={loadPrRuns}
+                        loading={prRunsLoading}
+                    />
                 ) : commitGroups.length === 0 ? (
                     <div className="text-sm text-secondary">No CI runs attributed to this pull request yet.</div>
                 ) : filteredPrWorkflowRows.length === 0 ? (
@@ -670,7 +720,7 @@ export function PullRequestDetailScene(): JSX.Element {
                         filteredRuns={filteredRuns}
                         failingJobLabelByWorkflow={failingJobLabelByWorkflow}
                         runCostByKey={runCostByKey}
-                        showCost={prCost?.jobs_available ?? false}
+                        showCost={visiblePrCost?.jobs_available ?? false}
                         loading={prRunsLoading}
                         repoOwner={repoOwner}
                         repoName={repoName}
@@ -685,11 +735,15 @@ export function PullRequestDetailScene(): JSX.Element {
 
             {failed > 0 && (
                 <Section id="pr-failures" title="Failures">
-                    <FailureLogGroups logs={failureLogs} loading={failureLogsLoading} />
+                    <FailureLogGroups
+                        logs={failureLogs}
+                        loading={failureLogsLoading}
+                        onRetry={loadFailureLogs}
+                        errorDescription="Retry, or open one of the failed runs on GitHub to read its logs."
+                        emptyText="No failure logs. Fork runs may not be linked to this pull request, nothing failed, or the logs have aged out of retention."
+                    />
                 </Section>
             )}
-
-            <div className="text-xs text-tertiary">Review and comment activity isn't tracked yet.</div>
         </SceneContent>
     )
 }

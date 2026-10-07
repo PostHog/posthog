@@ -24,15 +24,19 @@
 # submodule holds bodies rather than re-exports, and its count is how many are left. The first
 # column says what crosses — `<product>.<Class>`, `<library>.<Type>`, or the facade module for a
 # `facade-logic` line — and the consumer column holds the symbol or the module that carries it.
-# The rule is products/architecture.md § Facades: The Public Interface.
+# The rule is products/architecture.md § Facades: The Public Interface. `facade-wiring` means an
+# Isolated product's facade hands out a class from a wiring location that implements no approved
+# interface (§ Wiring couplings). Only Isolated products get these lines; below that rung the
+# lint reports the class as information.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 #
 # Regenerate after a removal: bin/hogli product:crossings --all --write-baseline
 # That command refuses to write when the scan holds a line this file does not, or a count that
-# went up. A coupling that
-# must stand is a hand-edited line here, together with the amendment in products/architecture.md
-# § Wiring couplings that permits it, because a reviewer can see both.
+# went up. Do not hand-edit a line in: `hogli product:lint --all` refuses growth against the pull
+# request's base unless the change also touches the scanner in tools/hogli-commands/hogli_commands/product/.
+# A coupling that must stand needs that DevEx change (an approved interface, a MODEL_CROSSINGS
+# entry or a carve-out).
 access_control.Role approvals.ApprovalPolicy.bypass_roles reverse-accessor(bypass_policies) 1
 access_control.Role posthog.Organization.default_role reverse-accessor(default_for_organizations) 1
 actions.Action cdp.PluginConfig.match_action reverse-accessor(plugin_configs) 1
@@ -52,8 +56,6 @@ billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.
 billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.api.visible_events_for_alert facade-accepts(alert) 1
 billing_alerts.BillingAlertEvent products.billing_alerts.backend.facade.api.BillingAlertDispatchResult.__init__ facade-accepts(event) 1
 billing_alerts.BillingAlertEvent products.billing_alerts.backend.facade.api.visible_events_for_alert facade-returns 1
-canvas.Canvas products.canvas.backend.facade.api.seed_home_canvas facade-accepts(canvas) 1
-canvas.Canvas products.tasks.backend.logic.services.loop_runs get_model 1
 cohorts.Cohort experiments.Experiment.exposure_cohort reverse-accessor(experiment_set) 1
 context_layer.ContextLayerConfig products.context_layer.backend.facade.api.enable_context_layer facade-returns 1
 context_layer.ContextLayerConfig products.context_layer.backend.facade.api.get_config facade-returns 1
@@ -270,6 +272,7 @@ error_tracking.ErrorTrackingIssueFingerprintV2 posthog.models.team.util get_mode
 error_tracking.ErrorTrackingIssueFingerprintV2 products.demo.backend.logic.products.hedgebox.matrix get_model 1
 error_tracking.ErrorTrackingIssueFingerprintV2 products.posthog_ai.evals.error_tracking.seeders get_model 1
 error_tracking.ErrorTrackingStackFrame products.demo.backend.logic.products.hedgebox.matrix get_model 1
+error_tracking.RecommendationsRefreshInputs products.error_tracking.backend.facade.temporal facade-wiring 1
 error_tracking:backend/facade/queries.py products.error_tracking.backend.facade.queries facade-logic 1
 error_tracking:backend/hogql_queries/ products.posthog_ai.eval_harness.test.test_eval_seeders drives(ErrorTrackingQueryRunner) 1
 error_tracking:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight_query drives(ErrorTrackingQuery) 1
@@ -315,6 +318,11 @@ feature_flags.FeatureFlag surveys.Survey.internal_response_sampling_flag reverse
 feature_flags.FeatureFlag surveys.Survey.internal_targeting_flag reverse-accessor(surveys_internal_targeting_flag) 1
 feature_flags.FeatureFlag surveys.Survey.linked_flag reverse-accessor(surveys_linked_flag) 1
 feature_flags.FeatureFlag surveys.Survey.targeting_flag reverse-accessor(surveys_targeting_flag) 1
+managed_warehouse.DataImportsDuckLakeCopyInputs products.managed_warehouse.backend.facade.temporal facade-wiring 1
+managed_warehouse.DataModelingDuckLakeCopyInputs products.managed_warehouse.backend.facade.temporal facade-wiring 1
+managed_warehouse.DuckLakeCopyModelInput products.managed_warehouse.backend.facade.temporal facade-wiring 1
+managed_warehouse.DuckLakeRegisterDataImportsInputs products.managed_warehouse.backend.facade.temporal facade-wiring 1
+managed_warehouse.DucklakeCompactionInput products.managed_warehouse.backend.facade.temporal facade-wiring 1
 mcp_store.MCPServerInstallation products.mcp_store.backend.facade.api.member_installation_for_host facade-returns 1
 metrics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_alerts drives(MetricsQuery) 1
 notebooks.Notebook posthog.SharingConfiguration.notebook reverse-accessor(sharing_configurations) 1
@@ -422,12 +430,6 @@ posthog.Team slack_app.SlackThreadTaskMapping.team reverse-accessor(slack_thread
 posthog.Team surveys.Survey.team reverse-accessor(surveys) 1
 posthog.Team surveys.SurveyResponseArchive.team reverse-accessor(survey_response_archives) 1
 posthog.Team warehouse_sources.ExternalDataSchema.team reverse-accessor(externaldataschema_set) 1
-posthog.Team workflows.HogFlow.team reverse-accessor(hogflow_set) 1
-posthog.Team workflows.HogFlowBatchJob.team reverse-accessor(hogflowbatchjob_set) 1
-posthog.Team workflows.HogFlowRevision.team reverse-accessor(hogflowrevision_set) 1
-posthog.Team workflows.HogFlowSchedule.team reverse-accessor(hogflowschedule_set) 1
-posthog.Team workflows.HogFlowTemplate.team reverse-accessor(hogflowtemplate_set) 1
-posthog.Team workflows.TeamWorkflowsConfig.team reverse-accessor(teamworkflowsconfig) 1
 posthog.User access_control.AccessControl.created_by reverse-accessor(accesscontrol_set) 1
 posthog.User access_control.OrganizationResourceAccess.created_by reverse-accessor(organizationresourceaccess_set) 1
 posthog.User access_control.Role.created_by reverse-accessor(roles) 1
@@ -531,10 +533,6 @@ posthog.User warehouse_sources.ExternalDataSource.created_by reverse-accessor(ex
 posthog.User warehouse_sources.PendingSourceCredential.created_by reverse-accessor(pendingsourcecredential_set) 1
 posthog.User warehouse_sources.WarehouseColumnAnnotation.created_by reverse-accessor(warehousecolumnannotation_set) 1
 posthog.User web_analytics.WebAnalyticsFilterPreset.last_modified_by reverse-accessor(modified_web_analytics_filter_presets) 1
-posthog.User workflows.HogFlow.created_by reverse-accessor(hogflow_set) 1
-posthog.User workflows.HogFlowBatchJob.created_by reverse-accessor(hogflowbatchjob_set) 1
-posthog.User workflows.HogFlowRevision.created_by reverse-accessor(hogflowrevision_set) 1
-posthog.User workflows.HogFlowTemplate.created_by reverse-accessor(hogflowtemplate_set) 1
 product_analytics.Insight alerts.AlertConfiguration.insight reverse-accessor(alertconfiguration_set) 1
 product_analytics.Insight dashboards.Dashboard.insights reverse-accessor(dashboards) 1
 product_analytics.Insight dashboards.DashboardTile.insight reverse-accessor(dashboard_tiles) 1
@@ -613,6 +611,8 @@ product_analytics.Insight products.reminders.backend.constants in-collection 1
 product_analytics.Insight products.slack_app.backend.slack_link_unfurl instance-single 1
 product_analytics.Insight products.surveys.backend.api.survey instance-single 1
 product_analytics.Insight surveys.Survey.linked_insight reverse-accessor(surveys_linked_insight) 1
+product_analytics.TrendsDisplay products.product_analytics.backend.facade.queries facade-wiring 1
+product_analytics.UpgradeQueriesWorkflowInputs products.product_analytics.backend.facade.temporal facade-wiring 1
 product_analytics:backend/facade/models.py products.product_analytics.backend.facade.models facade-logic 1
 product_analytics:backend/facade/queries.py products.product_analytics.backend.facade.queries facade-logic 1
 product_analytics:backend/hogql_queries/ ee.clickhouse.views.test.test_experiment_saved_metrics drives(TrendsQuery) 2
@@ -635,7 +635,7 @@ product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_
 product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_absolute_alerts drives(TrendsQuery) 2
 product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_relative_alerts drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(TrendsQuery) 9
-product_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 7
+product_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.analytics_platform.backend.lazy_computation.tests.test_lazy_computation_executor drives(TrendsQueryRunner) 2
 product_analytics:backend/hogql_queries/ products.cohorts.backend.models.test.test_util drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.dashboards.backend.api.test.test_dashboard_templates drives(TrendsQuery) 2
@@ -650,7 +650,6 @@ product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_i
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_materialization_suggestion drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_openapi_spec drives(TrendsQuery) 4
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_variable_materialization drives(TrendsQuery) 1
-product_analytics:backend/hogql_queries/ products.experiments.backend.test.test_presentation_api drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.feature_flags.backend.api.test.test_feature_flag drives(TrendsQuery) 6
 product_analytics:backend/hogql_queries/ products.posthog_ai.scripts.hogql_example.test.test_hogql_example drives(TrendsQuery) 3
 product_analytics:backend/hogql_queries/ products.signals.backend.test.test_scout_report_api drives(TrendsQuery) 1
@@ -751,6 +750,19 @@ typing.Any products.signals.backend.facade.api.create_scout_for_source facade-ac
 typing.Any products.signals.backend.facade.api.create_scout_for_source facade-accepts(user) 1
 typing.Any products.tasks.backend.facade.agents.extract_json_from_text facade-returns 1
 user_interviews.IntervieweeContext posthog.SharingConfiguration.interviewee_context reverse-accessor(sharing_configurations) 1
+warehouse_sources.AccountPropertyRowSink products.warehouse_sources.backend.facade.temporal facade-wiring 1
+warehouse_sources.AccountPropertySourceProjection products.warehouse_sources.backend.facade.hooks facade-wiring 1
+warehouse_sources.CDCExtractionInput products.warehouse_sources.backend.facade.pipelines facade-wiring 1
+warehouse_sources.CDCRepairError products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.CDCRepairInProgress products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.CDCSourceAdapter products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.CDPProducer products.warehouse_sources.backend.facade.pipelines facade-wiring 1
+warehouse_sources.ClickHouseConnectionError products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.ClickHouseSource products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.Config products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.CredentialAccountsMixin products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.CustomSource products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.CustomSourceConfig products.warehouse_sources.backend.facade.source_management facade-wiring 1
 warehouse_sources.DataWarehouseCredential posthog.hogql.database.database instance-many(filter) 1
 warehouse_sources.DataWarehouseCredential products.data_warehouse.backend.presentation.views.table drf-model-serializer 1
 warehouse_sources.DataWarehouseCredential products.data_warehouse.backend.presentation.views.table write(create) 1
@@ -815,6 +827,9 @@ warehouse_sources.DataWarehouseTable products.marketing_analytics.backend.manage
 warehouse_sources.DataWarehouseTable products.posthog_ai.evals.data_warehouse.seeder construct 1
 warehouse_sources.DataWarehouseTable products.posthog_ai.evals.data_warehouse.seeder write(bulk_create) 1
 warehouse_sources.DataWarehouseTable products.posthog_ai.evals.data_warehouse.seeder write(create) 1
+warehouse_sources.DocsFetchError products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.DottedNameParts products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.EmitSignalsActivityInputs products.warehouse_sources.backend.facade.hooks facade-wiring 1
 warehouse_sources.ExternalDataJob products.data_warehouse.backend.facade.api.update_external_job_status facade-returns 1
 warehouse_sources.ExternalDataJob products.data_warehouse.backend.logic.data_load.source_templates instance-single 2
 warehouse_sources.ExternalDataJob products.data_warehouse.backend.logic.external_data_source.jobs lock 1
@@ -865,6 +880,7 @@ warehouse_sources.ExternalDataSchema products.data_warehouse.backend.sql_warehou
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.sync_status in-collection 1
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.sync_status instance-many(select_related) 1
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.temporal.health_checks.external_data_failure instance-many(select_related) 1
+warehouse_sources.ExternalDataSchema products.data_warehouse.backend.temporal.health_checks.webhook_subscription_stale instance-many(select_related) 1
 warehouse_sources.ExternalDataSchema products.engineering_analytics.backend.logic.sources instance-many(select_related) 1
 warehouse_sources.ExternalDataSchema products.engineering_analytics.backend.management.commands.seed_engineering_analytics instance-single 1
 warehouse_sources.ExternalDataSchema products.engineering_analytics.backend.management.commands.seed_engineering_analytics write(create) 1
@@ -877,6 +893,7 @@ warehouse_sources.ExternalDataSchema products.marketing_analytics.backend.servic
 warehouse_sources.ExternalDataSchema products.signals.backend.emission.emit_signals instance-many(aget) 1
 warehouse_sources.ExternalDataSchema products.signals.backend.management.commands.emit_signals_from_warehouse instance-single 1
 warehouse_sources.ExternalDataSchema products.signals.backend.views instance-many(select_related) 1
+warehouse_sources.ExternalDataSchemaSyncPausedError products.warehouse_sources.backend.facade.temporal facade-wiring 1
 warehouse_sources.ExternalDataSource data_warehouse.ExternalDataSourceRevenueAnalyticsConfig.external_data_source reverse-accessor(revenue_analytics_config) 1
 warehouse_sources.ExternalDataSource ee.hogai.tools.execute_sql.direct_connection_suggestions instance-many(defer) 1
 warehouse_sources.ExternalDataSource posthog.hogql.database.database instance-many(filter) 1
@@ -924,11 +941,48 @@ warehouse_sources.ExternalDataSource products.marketing_analytics.backend.manage
 warehouse_sources.ExternalDataSource products.marketing_analytics.backend.services.data_source_health instance-many(order_by) 1
 warehouse_sources.ExternalDataSource products.posthog_ai.evals.data_warehouse.seeder write(create) 1
 warehouse_sources.ExternalDataSource products.signals.backend.management.commands.reset_signals_self_driving instance-many(filter) 1
+warehouse_sources.ExternalWebhookInfo products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.GithubSource products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.GithubSourceConfig products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.HostNotAllowedError products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.IntegrationAccountListingError products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.MotherDuckConnectionError products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.MotherduckSource products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.MotherduckSourceConfig products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.MySQLSource products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.MySQLSourceConfig products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.NamingConvention products.warehouse_sources.backend.facade.sources facade-wiring 1
+warehouse_sources.OAuthMixin products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.PersonPropertyRowSink products.warehouse_sources.backend.facade.temporal facade-wiring 1
+warehouse_sources.PersonPropertySourceProjection products.warehouse_sources.backend.facade.hooks facade-wiring 1
+warehouse_sources.PersonPropertySyncActivityInputs products.warehouse_sources.backend.facade.hooks facade-wiring 1
+warehouse_sources.PersonPropertySyncRunRecord products.warehouse_sources.backend.facade.hooks facade-wiring 1
+warehouse_sources.PersonPropertySyncSource products.warehouse_sources.backend.facade.hooks facade-wiring 1
+warehouse_sources.PostgresSource products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.PostgresSourceConfig products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.RedshiftSource products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.RowFilterValidationError products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.SQLSource products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.SSLRequiredError products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.SavedQueryNotFoundError products.warehouse_sources.backend.facade.temporal facade-wiring 1
+warehouse_sources.SavedQueryNotOnV2ScheduleError products.warehouse_sources.backend.facade.temporal facade-wiring 1
+warehouse_sources.SnowflakeSource products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.SnowflakeSourceConfig products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.SourceRegistry products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.SourceSchema products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.SyncNewSchemasActivityInputs products.warehouse_sources.backend.facade.pipelines facade-wiring 1
+warehouse_sources.TemporaryHostResolutionError products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.WarehouseBinding products.warehouse_sources.backend.facade.hooks facade-wiring 1
+warehouse_sources.WarehouseBindingMissingError products.warehouse_sources.backend.facade.temporal facade-wiring 1
 warehouse_sources.WarehouseColumnAnnotation products.data_modeling.backend.logic.enrich_view_semantics instance-many(filter) 1
 warehouse_sources.WarehouseColumnAnnotation products.data_warehouse.backend.presentation.views.column_annotation drf-model-serializer 1
 warehouse_sources.WarehouseColumnAnnotation products.data_warehouse.backend.presentation.views.column_annotation instance-many(unscoped) 1
 warehouse_sources.WarehouseColumnAnnotation products.posthog_ai.evals.data_warehouse.seeder construct 2
 warehouse_sources.WarehouseColumnAnnotation products.posthog_ai.evals.data_warehouse.seeder write(bulk_create) 1
+warehouse_sources.WebhookCreationResult products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.WebhookDeletionResult products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.WebhookSource products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.WebhookSyncResult products.warehouse_sources.backend.facade.source_management facade-wiring 1
 web_analytics.ContentAutopilotProposal products.web_analytics.backend.facade.content_autopilot.edit_proposal facade-returns 1
 web_analytics.ContentAutopilotProposal products.web_analytics.backend.facade.content_autopilot.regenerate_proposal facade-returns 1
 web_analytics.ContentAutopilotProposal products.web_analytics.backend.facade.content_autopilot.reject_proposal facade-returns 1
@@ -962,7 +1016,7 @@ web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_aler
 web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_absolute_alerts drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_relative_alerts drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(TrendsQuery) 9
-web_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 7
+web_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.cohorts.backend.models.test.test_util drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.dashboards.backend.api.test.test_dashboard_templates drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ products.dashboards.backend.api.test.test_run_insights drives(TrendsQuery) 1
@@ -976,11 +1030,9 @@ web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_insig
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_materialization_suggestion drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_openapi_spec drives(TrendsQuery) 4
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_variable_materialization drives(TrendsQuery) 1
-web_analytics:backend/hogql_queries/ products.experiments.backend.test.test_presentation_api drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.feature_flags.backend.api.test.test_feature_flag drives(TrendsQuery) 6
 web_analytics:backend/hogql_queries/ products.posthog_ai.scripts.hogql_example.test.test_hogql_example drives(TrendsQuery) 3
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.hogql_queries.trends.test.test_trends_data_warehouse_query drives(TrendsQuery) 23
-web_analytics:backend/hogql_queries/ products.product_analytics.backend.hogql_queries.trends.test.test_trends_query_builder drives(TrendsQuery) 7
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.hogql_queries.trends.test.test_trends_query_runner drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight drives(TrendsQuery) 21
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight_metadata drives(TrendsQuery) 5

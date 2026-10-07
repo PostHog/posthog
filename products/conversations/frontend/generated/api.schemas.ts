@@ -156,6 +156,17 @@ export interface TicketPersonApi {
 }
 
 /**
+ * Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, replay_url, browser, os and sdk_version.
+ */
+export type TicketApiSessionContext = {
+    /** Page the reporter was on. */
+    readonly current_url?: string
+    /** Replay of the session the ticket came from. */
+    readonly replay_url?: string
+    [key: string]: unknown
+}
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface TicketApi {
@@ -190,7 +201,7 @@ export interface TicketApi {
     ai_resolved?: boolean
     /** @nullable */
     escalation_reason?: string | null
-    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, verdict, blocker, sources). Retrieve hydrates sources from citations. */
     readonly ai_triage: unknown
     readonly created_at: string
     readonly updated_at: string
@@ -203,7 +214,8 @@ export interface TicketApi {
     readonly unread_customer_count: number
     /** @nullable */
     readonly session_id: string | null
-    readonly session_context: unknown
+    /** Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, replay_url, browser, os and sdk_version. */
+    readonly session_context: TicketApiSessionContext
     /**
      * SLA deadline set via workflows. Null means no SLA.
      * @nullable
@@ -415,11 +427,67 @@ export interface AiFeedbackRequestApi {
 }
 
 /**
+ * * `used` - used
+ * * `edited` - edited
+ */
+export type AiDraftHumanOutcomeEnumApi = (typeof AiDraftHumanOutcomeEnumApi)[keyof typeof AiDraftHumanOutcomeEnumApi]
+
+export const AiDraftHumanOutcomeEnumApi = {
+    Used: 'used',
+    Edited: 'edited',
+} as const
+
+/**
+ * Payload for recording whether a human adopted an AI draft.
+ */
+export interface AiHumanOutcomeRequestApi {
+    /**
+     * ID of the private AI draft being adopted.
+     * @maxLength 200
+     */
+    message_id: string
+    /** used when the human inserts the draft as-is; edited after they change it in the composer.
+     *
+     * * `used` - used
+     * * `edited` - edited */
+    outcome: AiDraftHumanOutcomeEnumApi
+}
+
+export interface TicketErrorApi {
+    /** Human-readable error message. */
+    detail: string
+    /** Machine-readable error code. */
+    error_type?: string
+}
+
+/**
+ * * `customer_message` - Customer message
+ * * `sent_reply` - Sent reply
+ * * `internal_note` - Internal note
+ * * `ai_draft` - AI draft
+ */
+export type TicketMessageTypeEnumApi = (typeof TicketMessageTypeEnumApi)[keyof typeof TicketMessageTypeEnumApi]
+
+export const TicketMessageTypeEnumApi = {
+    CustomerMessage: 'customer_message',
+    SentReply: 'sent_reply',
+    InternalNote: 'internal_note',
+    AiDraft: 'ai_draft',
+} as const
+
+/**
  * A single message in a ticket thread (output-only).
  */
 export interface TicketMessageApi {
     /** Message (comment) UUID. */
     readonly id: string
+    /** What the message is, and whether it was sent to the customer. customer_message: written by the customer. sent_reply: a reply sent to the customer by a teammate, a workflow or the AI. It does not confirm that the customer received it, because delivery can fail. internal_note: a note for the team only. It was never sent to the customer. ai_draft: a reply or question the AI wrote for a teammate to review. It was never sent to the customer.
+     *
+     * * `customer_message` - Customer message
+     * * `sent_reply` - Sent reply
+     * * `internal_note` - Internal note
+     * * `ai_draft` - AI draft */
+    readonly message_type: TicketMessageTypeEnumApi
     /** Plain-text message body. */
     readonly content: string
     /** TipTap rich content JSON, if any. */
@@ -456,9 +524,17 @@ export interface TicketFullEmailApi {
     readonly content: string
 }
 
-export interface TicketErrorApi {
-    detail: string
-    error_type?: string
+/**
+ * Payload for adding a private note to a ticket. It has no privacy field: the note is always private.
+ */
+export interface TicketNoteCreateRequestApi {
+    /**
+     * Note content in markdown. The note is visible to your team only and is never sent to the customer.
+     * @maxLength 5000
+     */
+    message: string
+    /** Optional TipTap rich content JSON for the note. Omit it to show the markdown message. */
+    rich_content?: unknown
 }
 
 /**
@@ -604,6 +680,14 @@ export interface ComposeTicketResponseApi {
     id: string
     /** Human-readable ticket number. */
     ticket_number: number
+}
+
+export interface TicketUnreadCountResponseApi {
+    /**
+     * Unread messages across the non-resolved tickets the caller can see.
+     * @minimum 0
+     */
+    count: number
 }
 
 /**

@@ -1,16 +1,31 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockSessionStore, mockTokenStore, mockApiKey, mockSessionScopedStores, mockRefreshTtlCalls } = vi.hoisted(
-    () => ({
-        mockSessionStore: new Map<string, unknown>(),
-        mockTokenStore: new Map<string, unknown>(),
-        mockApiKey: { scopes: ['*'], scoped_teams: [] },
-        mockSessionScopedStores: new Map<string, Map<string, unknown>>(),
-        // Records the keys passed to every session-scoped refreshTtl call (only the
-        // session cache refreshes, so any recorded call is a session refresh).
-        mockRefreshTtlCalls: [] as string[][],
-    })
-)
+const {
+    mockSessionStore,
+    mockTokenStore,
+    mockApiKey,
+    mockSessionScopedStores,
+    mockRefreshTtlCalls,
+    mockRedisFailures,
+} = vi.hoisted(() => ({
+    mockSessionStore: new Map<string, unknown>(),
+    mockTokenStore: new Map<string, unknown>(),
+    mockApiKey: {
+        scopes: ['*'],
+        scoped_teams: [],
+        is_impersonated: undefined as boolean | undefined,
+        suppress_analytics: undefined as boolean | undefined,
+    },
+    mockSessionScopedStores: new Map<string, Map<string, unknown>>(),
+    // Records the keys passed to every session-scoped refreshTtl call (only the
+    // session cache refreshes, so any recorded call is a session refresh).
+    mockRefreshTtlCalls: [] as string[][],
+    mockRedisFailures: {
+        contextError: undefined as Error | undefined,
+        pinWriteGate: undefined as Promise<void> | undefined,
+        contextReads: 0,
+    },
+}))
 
 vi.mock('@/lib/posthog/flags', () => ({
     evaluateFeatureFlags: vi.fn(async () => ({})),
@@ -50,6 +65,9 @@ vi.mock('@/hono/request-context', () => {
             store.set(key, value)
         }),
         setMany: vi.fn(async (entries: Record<string, unknown>) => {
+            if (store === mockTokenStore) {
+                await mockRedisFailures.pinWriteGate
+            }
             for (const [key, value] of Object.entries(entries)) {
                 if (value !== undefined) {
                     store.set(key, value)
@@ -82,16 +100,20 @@ vi.mock('@/hono/request-context', () => {
             return {
                 tokenCache: makeCache(mockTokenStore),
                 sessionScopedCache: props.mcpSessionId ? makeCache(sessionScopedStore(props.mcpSessionId)) : undefined,
-                getContext: vi.fn(async () => ({
-                    stateManager: {
-                        setDefaultOrganizationAndProject: vi.fn(async () => {}),
-                        getApiKey: vi.fn(async () => mockApiKey),
-                        getAiConsentGiven: vi.fn(async () => undefined),
-                        getOrFetchGroupTypes: vi.fn(async () => undefined),
-                        getEnvironmentPrompt: vi.fn(async () => undefined),
-                        getAvailableFeatures: vi.fn(async () => undefined),
-                    },
-                })),
+                getContext: vi.fn(async () => {
+                    mockRedisFailures.contextReads += 1
+                    if (mockRedisFailures.contextError) {
+                        throw mockRedisFailures.contextError
+                    }
+                    return {
+                        stateManager: {
+                            setDefaultOrganizationAndProject: vi.fn(async () => {}),
+                            getApiKey: vi.fn(async () => mockApiKey),
+                            getAiConsentGiven: vi.fn(async () => undefined),
+                            getAvailableFeatures: vi.fn(async () => undefined),
+                        },
+                    }
+                }),
                 safelyGetAnalyticsContext: vi.fn(async () => undefined),
                 getDistinctId: vi.fn(async () => 'distinct-id'),
                 setMcpContexts: vi.fn(),
@@ -105,7 +127,7 @@ import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
-import type { RequestProperties } from '@/lib/request-properties'
+import { parseRequestProperties, type RequestProperties } from '@/lib/request-properties'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
 import type { Env } from '@/tools/types'
 
@@ -143,12 +165,72 @@ function makeResolverWithCatalog(): {
 }
 
 describe('RequestStateResolver MCP client contexts', () => {
+    afterEach(() => {
+        vi.unstubAllEnvs()
+    })
+
     beforeEach(() => {
         mockSessionStore.clear()
         mockTokenStore.clear()
         mockSessionScopedStores.clear()
         mockRefreshTtlCalls.length = 0
+        mockRedisFailures.contextError = undefined
+        mockRedisFailures.pinWriteGate = undefined
+        mockRedisFailures.contextReads = 0
         mockApiKey.scopes = ['*']
+        mockApiKey.is_impersonated = undefined
+        mockApiKey.suppress_analytics = undefined
+    })
+
+    it.each([true, false, undefined])(
+        'passes token capture policy=%s to analytics despite caller headers',
+        async (impersonated) => {
+            mockApiKey.is_impersonated = impersonated
+            mockApiKey.suppress_analytics = impersonated
+
+            const props = parseRequestProperties(
+                new Request('https://example.com/mcp?suppress_analytics=true', {
+                    headers: {
+                        Authorization: 'Bearer pha_test',
+                        'x-posthog-suppress-analytics': 'true',
+                        'x-posthog-task-origin': 'signals_scout',
+                    },
+                }),
+                {}
+            )
+            const result = await makeResolver().resolve(props)
+
+            expect(result.isImpersonated).toBe(impersonated === true)
+            expect(result.suppressAnalytics).toBe(impersonated === true)
+            expect(props.suppressAnalytics).toBe(impersonated === true)
+        }
+    )
+
+    it('handles a Redis context failure while a pinned-context write is pending', async () => {
+        let releasePinWrite!: () => void
+        mockRedisFailures.pinWriteGate = new Promise<void>((resolve) => {
+            releasePinWrite = resolve
+        })
+        mockRedisFailures.contextError = new Error('Command timed out')
+        const unhandled: unknown[] = []
+        const onUnhandled = (error: unknown): void => {
+            unhandled.push(error)
+        }
+        process.on('unhandledRejection', onUnhandled)
+
+        try {
+            const pending = makeResolver().resolve(makeProps())
+            await new Promise<void>((resolve) => setImmediate(resolve))
+            expect(mockRedisFailures.contextReads).toBe(0)
+            expect(unhandled).toEqual([])
+            releasePinWrite()
+            await expect(pending).rejects.toThrow('Command timed out')
+            await new Promise<void>((resolve) => setImmediate(resolve))
+            expect(unhandled).toEqual([])
+        } finally {
+            releasePinWrite()
+            process.off('unhandledRejection', onUnhandled)
+        }
     })
 
     it.each([
@@ -365,6 +447,31 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.renderUiEnabled).toBe(false)
         expect(result.useSingleExec).toBe(true)
     })
+
+    it.each([
+        { mcpClientName: 'openai-mcp' },
+        { mcpClientName: 'openai-mcp (Codex)' },
+        { mcpClientName: 'openai-mcp (ChatGPT)' },
+        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (Codex)' },
+        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (ChatGPT)' },
+        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0' },
+    ])('enables production render-ui for OpenAI transport %j', async (identity) => {
+        vi.stubEnv('NODE_ENV', 'production')
+        const result = await makeResolver().resolve(makeProps(identity))
+
+        expect(result.renderUiEnabled).toBe(true)
+        expect(result.useSingleExec).toBe(true)
+    })
+
+    it.each(['codex', 'codex-mcp-client'])(
+        'does not enable render-ui for terminal client %s',
+        async (mcpClientName) => {
+            const result = await makeResolver().resolve(makeProps({ mcpClientName }))
+
+            expect(result.renderUiEnabled).toBe(false)
+            expect(result.useSingleExec).toBe(true)
+        }
+    )
 
     it('detects Claude web/desktop via the Claude-User user agent and enables render-ui', async () => {
         const props = makeProps({ mcpClientName: 'Claude Desktop', clientUserAgent: 'Claude-User' })

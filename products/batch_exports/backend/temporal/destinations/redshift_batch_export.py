@@ -69,6 +69,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     s3_client,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_absolute_key_prefix
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -260,7 +261,11 @@ class ClientErrorGroup(ExceptionGroup):
 
 class RedshiftClient(PostgreSQLClient):
     @contextlib.asynccontextmanager
-    async def connect(self) -> collections.abc.AsyncIterator[typing.Self]:
+    async def connect(
+        self,
+        *,
+        is_error_retryable: typing.Callable[[Exception], bool] | None = None,
+    ) -> collections.abc.AsyncIterator[typing.Self]:
         """Manage a Redshift connection.
 
         This just yields a Postgres connection but we adjust a couple of things required for
@@ -272,7 +277,7 @@ class RedshiftClient(PostgreSQLClient):
         psycopg._encodings._py_codecs["UNICODE"] = "utf-8"
         psycopg._encodings.py_codecs.update((k.encode(), v) for k, v in psycopg._encodings._py_codecs.items())
 
-        async with super().connect():
+        async with super().connect(is_error_retryable=is_error_retryable):
             self.connection.prepare_threshold = None
             yield self
 
@@ -834,7 +839,10 @@ def _get_table_schemas(
             ("site_url", "VARCHAR(200)"),
             ("timestamp", "TIMESTAMP WITH TIME ZONE"),
             ("person_properties", properties_type),
+            ("person_id", "VARCHAR(200)"),
         ]
+        # A retry can consume files staged before a new default column was added.
+        table_schema = [field for field in table_schema if field[0] in record_batch_schema.names]
 
     else:
         table_schema = get_redshift_fields_from_record_schema(
@@ -1271,6 +1279,9 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
             the Redshift-specific properties_data_type to indicate the type of JSON-like
             fields.
     """
+    if inputs.batch_export.data_interval_end is None:
+        raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
+
     bind_contextvars(
         team_id=inputs.batch_export.team_id,
         destination="Redshift",
@@ -1673,6 +1684,9 @@ async def _get_s3_bucket_aws_credentials(
     Otherwise, credentials are long lived and the second returned parameter is
     None.
     """
+    if inputs.batch_export.data_interval_end is None:
+        raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
+
     credentials = inputs.copy.s3_bucket.credentials
     if isinstance(credentials, IntegrationID):
         credentials = await _resolve_aws_s3_integration(credentials, inputs.batch_export.team_id)
@@ -1713,6 +1727,9 @@ async def _resolve_copy_authorization(
     staged files: a customer role ARN from an integration cannot be passed as
     `IAM_ROLE` in the COPY statement, since it is not attached to the cluster.
     """
+    if inputs.batch_export.data_interval_end is None:
+        raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
+
     authorization = inputs.copy.authorization
     if not isinstance(authorization, IntegrationID):
         return authorization, None
@@ -1782,6 +1799,9 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             the Redshift-specific properties_data_type to indicate the type of JSON-like
             fields.
     """
+    if inputs.batch_export.data_interval_end is None:
+        raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
+
     bind_contextvars(
         team_id=inputs.batch_export.team_id,
         destination="Redshift",

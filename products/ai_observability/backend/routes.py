@@ -23,6 +23,8 @@ from products.ai_observability.backend.api import (
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
+    OfflineExperimentViewSet,
+    OfflineScorerViewSet,
     ParserRecipeViewSet,
     PersonalSpendInternalViewSet,
     PersonalSpendViewSet,
@@ -32,9 +34,22 @@ from products.ai_observability.backend.api import (
     TaggerViewSet,
     TraceReviewViewSet,
 )
+from products.ai_observability.backend.presentation.views import TraceViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(
+        r"ai_observability/offline_experiments",
+        OfflineExperimentViewSet,
+        "project_ai_observability_offline_experiments",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"ai_observability/offline_scorers",
+        OfflineScorerViewSet,
+        "project_ai_observability_offline_scorers",
+        ["team_id"],
+    )
     routers.projects.register(r"ai_blob", AIBlobViewSet, "project_ai_blob", ["project_id"])
     # `ai_observability` is the canonical name; the `llm_analytics/` prefixes below are the
     # unfinished half of a rename the frontend scene URLs already completed.
@@ -42,6 +57,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"ai_observability/instrumentation_checklist",
         AIObservabilityInstrumentationChecklistViewSet,
         "project_ai_observability_instrumentation_checklist",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"ai_observability/traces",
+        TraceViewSet,
+        "project_ai_observability_traces",
         ["team_id"],
     )
     routers.root.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")

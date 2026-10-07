@@ -35,6 +35,15 @@ STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
 # note to: steering meant for one run must not crowd out the run's own instructions.
 MAX_RUN_NOTE_CHARS = 1_000
 
+SCOUT_TRIAL_METADATA_KEY = "scout_trial"
+MAX_TRIAL_VARIANTS = 20
+MAX_TRIAL_REPEATS = 20
+MAX_TRIAL_RUNS = MAX_TRIAL_VARIANTS * MAX_TRIAL_REPEATS
+TRIAL_JUDGE_CONCURRENCY = 3
+TRIAL_JUDGE_TIMEOUT_MINUTES = 18
+# Leave time to load evidence and save the report after every judging wave.
+TRIAL_EVALUATION_TIMEOUT_MINUTES = -(-MAX_TRIAL_RUNS // TRIAL_JUDGE_CONCURRENCY) * TRIAL_JUDGE_TIMEOUT_MINUTES + 10
+
 # Consecutive failed runs after which a scout config trips its circuit breaker and is
 # auto-paused (`SignalScoutConfig.auto_paused_at`). Nothing else in the harness notices a
 # scout that has never once succeeded: every dispatch takes a fresh sandbox lease for the
@@ -170,4 +179,10 @@ WORKFLOW_RUN_COOLDOWN_S = 30 * 60
 # spend, not a routine limit (the canonical fleet is ~16 scouts). Enforced at the write
 # surfaces (config create/update) and in auto-registration, which falls back to registering
 # new scouts disabled once the team is at the cap.
+#
+# This is the LAST-RESORT default, like the run budgets beside it. The effective ceiling
+# resolves most-specific-first through `team_limits.resolve_max_enabled_scouts`: a project's
+# `team_configs` entry → the fleet-wide `default_team_config` → this constant, all under the
+# `max_enabled_scouts` key of the `signals-scout` flag payload. A project that needs more
+# capacity gets it in the flag UI, with no deploy.
 MAX_ENABLED_SCOUTS_PER_TEAM = 250
