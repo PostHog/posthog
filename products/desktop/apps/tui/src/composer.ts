@@ -77,7 +77,10 @@ export const SLASH_COMMANDS = [
   },
   { name: "cloud", description: "Run new chats in this pane in the cloud" },
   { name: "login", description: "Sign in to PostHog" },
-  { name: "logout", description: "Sign out and clear your workspaces" },
+  {
+    name: "logout",
+    description: "Sign out. Your workspaces stay for next time",
+  },
 ];
 
 // A point in the text: a logical line and a string index within it.
