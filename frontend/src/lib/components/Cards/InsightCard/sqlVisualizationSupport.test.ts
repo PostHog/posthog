@@ -118,6 +118,56 @@ describe('dashboard SQL visualization support', () => {
         }
     )
 
+    it.each([responses['date and numeric'], responses['a single numeric column']])(
+        'sets up a dashboard proportion bar from numeric results, like Metric',
+        (response) => {
+            const columns = columnsFromResponse(response)
+            const autoVisualizationType = getAutoVisualizationType(columns, response.result.length)
+
+            expect(
+                sqlVisualizationDisabledReason(
+                    ChartDisplayType.ActionsProportionBar,
+                    baseQuery,
+                    columns,
+                    response.result.length,
+                    autoVisualizationType
+                )
+            ).toBeUndefined()
+        }
+    )
+
+    it('allows a dashboard proportion bar from numeric-only results, with one part per column', () => {
+        const response = responses['all numeric, which the editor plots by promoting the first column to the x axis']
+        const columns = columnsFromResponse(response)
+        const autoVisualizationType = getAutoVisualizationType(columns, response.result.length)
+
+        expect(
+            sqlVisualizationDisabledReason(
+                ChartDisplayType.ActionsProportionBar,
+                baseQuery,
+                columns,
+                response.result.length,
+                autoVisualizationType
+            )
+        ).toBeUndefined()
+    })
+
+    it('still requires a numeric column for a proportion bar', () => {
+        const response = responses['all string, so nothing is left to plot']
+        const columns = columnsFromResponse(response)
+        const autoVisualizationType = getAutoVisualizationType(columns, response.result.length)
+
+        expect(
+            sqlVisualizationDisabledReason(
+                ChartDisplayType.ActionsProportionBar,
+                baseQuery,
+                columns,
+                response.result.length,
+                autoVisualizationType
+            )
+        ).toEqual('This insight has no numeric column to plot')
+    })
+
     it('sets up a dashboard horizontal bar chart from category and numeric columns', () => {
         const response = responses['date and numeric']
         const columns = columnsFromResponse(response)
