@@ -368,12 +368,10 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
         github = GitHubOrg(_github_org(org, settings))
         errors.extend(_validate_owners_live(_live_scope(owners_by_file, paths), github))
 
-    unowned = resolver.unowned(tracked)
+    unowned = [resolution for resolution in map(resolver.resolve, tracked) if resolution.is_unowned]
     warnings.append(f"coverage: {len(unowned)} of {len(tracked)} tracked file(s) resolve to unowned")
     # A consumer acts on `sensitive` through the owners of the path, so without owners the flag does nothing.
-    for path in unowned:
-        if resolver.resolve(path).sensitive:
-            warnings.append(f"{path}: sensitive but unowned")
+    warnings.extend(f"{resolution.path}: sensitive but unowned" for resolution in unowned if resolution.sensitive)
 
     for warning in warnings:
         click.echo(f"⚠ {warning}")
