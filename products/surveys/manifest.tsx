@@ -1,4 +1,4 @@
-import { SurveysTabs } from 'scenes/surveys/surveysLogic'
+import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'

@@ -134,11 +134,11 @@ export const manifest: ProductManifest = {
                 'var(--color-product-engineering-analytics-dark)',
             ],
             href: urls.engineeringAnalytics(),
-            searchKeywords: ['dora', 'ci health', 'flaky tests', 'cycle time'],
+            searchKeywords: ['dora', 'ci health', 'cycle time'],
             searchTabs: [
                 { name: 'Pull requests', href: urls.engineeringAnalyticsPullRequestList() },
                 { name: 'CI workflows', href: urls.engineeringAnalyticsWorkflows() },
-                { name: 'Tests', href: urls.engineeringAnalyticsTests() },
+                { name: 'Tests', href: urls.engineeringAnalyticsTests(), searchKeywords: ['flaky tests'] },
                 { name: 'Deploys', href: urls.engineeringAnalyticsDeploys() },
                 { name: 'Teams', href: urls.engineeringAnalyticsTeams() },
                 { name: 'Authors', href: urls.engineeringAnalyticsAuthors() },

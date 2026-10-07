@@ -25,6 +25,7 @@ import {
     InsightShortId,
     InsightType,
     ProductManifest,
+    SavedInsightsTabs,
 } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -95,7 +96,7 @@ export const manifest: ProductManifest = {
         insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
             `/insights/${id}/subscriptions/${subscriptionId}`,
         insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
-        savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
+        savedInsights: (tab?: SavedInsightsTabs): string => `/insights${tab ? `?tab=${tab}` : ''}`,
         insightAlerts: (insightShortId: InsightShortId): string => `/insights/${insightShortId}/alerts`,
         insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
             `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
@@ -201,9 +202,9 @@ export const manifest: ProductManifest = {
                 'charts',
             ],
             searchTabs: [
-                { name: 'My insights', href: urls.savedInsights('yours') },
+                { name: 'My insights', href: urls.savedInsights(SavedInsightsTabs.Yours) },
                 { name: 'Alerts', href: urls.alerts() },
-                { name: 'Notifications', href: urls.savedInsights('notifications') },
+                { name: 'Notifications', href: urls.savedInsights(SavedInsightsTabs.Notifications) },
             ],
             iconType: 'product_analytics',
             iconColor: ['var(--color-product-product-analytics-light)'],

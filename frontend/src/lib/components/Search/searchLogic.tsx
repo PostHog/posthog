@@ -53,7 +53,7 @@ import type { Noun } from '../../../models/groupsModel'
 import type { FileSystemImport } from '../../../queries/schema/schema-general'
 import type { GroupType, IntegrationType, UserType } from '../../../types'
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
-import { filterSearchItems, shouldSearchTickets } from './utils'
+import { SEARCH_TAB_CATEGORY, filterSearchItems, shouldSearchTickets } from './utils'
 
 let cachedProductIconColorByType: Map<string, FileSystemIconColor> | null = null
 let cachedProductDisplayLabelByPath: Map<string, string> | null = null
@@ -187,7 +187,6 @@ export interface SearchLogicProps {
 }
 
 export const RECENTS_LIMIT = 5
-export const SEARCH_TAB_CATEGORY = 'tabs'
 /** Max starred shortcuts shown in quick search (folders excluded). */
 export const STARRED_LIMIT = 20
 const SEARCH_LIMIT = 5
@@ -1704,7 +1703,7 @@ export const searchLogic = kea<searchLogicType>([
                 })
 
                 // Filter products and data management by search
-                const isSearchTab = (item: SearchItem): boolean => !!item.parentName
+                const isSearchTab = (item: SearchItem): boolean => item.category === SEARCH_TAB_CATEGORY
                 const withoutSearchTabs = (items: SearchItem[]): SearchItem[] =>
                     items.filter((item) => !isSearchTab(item))
                 const filteredProducts = filterBySearch(withoutSearchTabs(productsItems))
@@ -1744,8 +1743,8 @@ export const searchLogic = kea<searchLogicType>([
                 if (hasSearch && filteredSearchTabs.length > 0) {
                     categories.push({
                         key: SEARCH_TAB_CATEGORY,
-                        items: filteredSearchTabs,
-                        isLoading: false,
+                        items: isProductsLoading ? [] : filteredSearchTabs,
+                        isLoading: isProductsLoading,
                     })
                 }
 

@@ -8,7 +8,7 @@ import type { ProductSetupProbe } from 'lib/components/ProductEmptyState/setupPr
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils/url'
 import type { Params } from 'scenes/sceneTypes'
-import { SurveysTabs } from 'scenes/surveys/surveysLogic'
+import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
 import { examples } from '~/queries/examples'
@@ -60,6 +60,7 @@ import {
     InsightType,
     RecordingUniversalFilters,
     ReplayTabs,
+    SavedInsightsTabs,
     UniversalFiltersGroup,
 } from './types'
 
@@ -1702,7 +1703,7 @@ export const productUrls = {
     insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
         `/insights/${id}/subscriptions/${subscriptionId}`,
     insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
-    savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
+    savedInsights: (tab?: SavedInsightsTabs): string => `/insights${tab ? `?tab=${tab}` : ''}`,
     insightAlerts: (insightShortId: InsightShortId): string => `/insights/${insightShortId}/alerts`,
     insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
@@ -2528,11 +2529,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'var(--color-product-engineering-analytics-dark)',
         ],
         href: urls.engineeringAnalytics(),
-        searchKeywords: ['dora', 'ci health', 'flaky tests', 'cycle time'],
+        searchKeywords: ['dora', 'ci health', 'cycle time'],
         searchTabs: [
             { name: 'Pull requests', href: urls.engineeringAnalyticsPullRequestList() },
             { name: 'CI workflows', href: urls.engineeringAnalyticsWorkflows() },
-            { name: 'Tests', href: urls.engineeringAnalyticsTests() },
+            { name: 'Tests', href: urls.engineeringAnalyticsTests(), searchKeywords: ['flaky tests'] },
             { name: 'Deploys', href: urls.engineeringAnalyticsDeploys() },
             { name: 'Teams', href: urls.engineeringAnalyticsTeams() },
             { name: 'Authors', href: urls.engineeringAnalyticsAuthors() },
@@ -2906,9 +2907,9 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'charts',
         ],
         searchTabs: [
-            { name: 'My insights', href: urls.savedInsights('yours') },
+            { name: 'My insights', href: urls.savedInsights(SavedInsightsTabs.Yours) },
             { name: 'Alerts', href: urls.alerts() },
-            { name: 'Notifications', href: urls.savedInsights('notifications') },
+            { name: 'Notifications', href: urls.savedInsights(SavedInsightsTabs.Notifications) },
         ],
         iconType: 'product_analytics',
         iconColor: ['var(--color-product-product-analytics-light)'],
@@ -3014,8 +3015,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.SESSION_REPLAY, ProductKey.MOBILE_REPLAY],
         category: ProductItemCategory.PRODUCT_ENGINEERING,
         href: urls.replay(ReplayTabs.Home),
-        searchKeywords: ['recordings', 'session recording', 'playlists'],
-        searchTabs: [{ name: 'Collections', href: urls.replay(ReplayTabs.Playlists) }],
+        searchKeywords: ['recordings', 'session recording'],
+        searchTabs: [{ name: 'Collections', href: urls.replay(ReplayTabs.Playlists), searchKeywords: ['playlists'] }],
         type: 'session_recording_playlist',
         iconType: 'session_replay',
         iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
