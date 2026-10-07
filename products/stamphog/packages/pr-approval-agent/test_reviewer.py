@@ -212,27 +212,44 @@ _ON_OWNING_TEAM = {"ownership": {"teams": ["@PostHog/team-core"]}, "author_on_ow
 
 
 @pytest.mark.parametrize(
-    "output, classification, verdict",
+    "output, classification, head_reviewed, verdict",
     [
-        pytest.param(_CLEAN_FACTS, {}, "APPROVE", id="valid"),
+        pytest.param(_CLEAN_FACTS, {}, False, "APPROVE", id="valid"),
         pytest.param(
-            {k: v for k, v in _CLEAN_FACTS.items() if k != "other_refusal_grounds"}, {}, "ESCALATE", id="missing"
+            {k: v for k, v in _CLEAN_FACTS.items() if k != "other_refusal_grounds"}, {}, False, "ESCALATE", id="missing"
         ),
-        pytest.param({**_CLEAN_FACTS, "risky_areas": "none"}, {}, "ESCALATE", id="wrong-type"),
+        pytest.param({**_CLEAN_FACTS, "risky_areas": "none"}, {}, False, "ESCALATE", id="wrong-type"),
         pytest.param(
             {**_RISKY_FACTS, "owning_team_author": True, "strong_familiarity": True},
             {"ownership": {"teams": []}},
+            False,
             "ESCALATE",
             id="model-claimed-author-assurance-ignored",
         ),
         pytest.param(
-            {**_RISKY_FACTS, "owning_team_author": True}, _ON_OWNING_TEAM, "APPROVE", id="owning-team-assures"
+            {**_RISKY_FACTS, "owning_team_author": True}, _ON_OWNING_TEAM, False, "APPROVE", id="owning-team-assures"
         ),
-        pytest.param(_RISKY_FACTS, _ON_OWNING_TEAM, "ESCALATE", id="risky-part-owned-by-another-team"),
+        pytest.param(_RISKY_FACTS, _ON_OWNING_TEAM, False, "ESCALATE", id="risky-part-owned-by-another-team"),
+        pytest.param(
+            {**_RISKY_FACTS, "reviews_on_current_head": ["alice: APPROVED"]},
+            {},
+            True,
+            "APPROVE",
+            id="head-review-assures",
+        ),
+        pytest.param(
+            {**_RISKY_FACTS, "reviews_on_current_head": ["alice: APPROVED"]},
+            {},
+            False,
+            "ESCALATE",
+            id="claimed-review-github-does-not-show",
+        ),
     ],
 )
-def test_verdict_from_facts_keeps_the_consumer_contract(output: dict, classification: dict, verdict: str) -> None:
-    result = _verdict_from_facts(output, classification)
+def test_verdict_from_facts_keeps_the_consumer_contract(
+    output: dict, classification: dict, head_reviewed: bool, verdict: str
+) -> None:
+    result = _verdict_from_facts(output, classification, head_reviewed=head_reviewed)
     assert set(result) == {"verdict", "reasoning", "risk", "issues", "change_summary", "facts"}
     assert result["verdict"] == verdict
     assert result["reasoning"] == "No showstoppers."

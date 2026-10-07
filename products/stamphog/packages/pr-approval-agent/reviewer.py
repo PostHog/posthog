@@ -130,12 +130,23 @@ def _keep_ends(items: list[dict], head: int, tail: int) -> tuple[list[dict], lis
     return items[:head], items[-tail:], len(items) - head - tail
 
 
-def _cap_author_facts(facts: ReviewFacts, classification: dict) -> ReviewFacts:
-    """Keep an author fact only when the pipeline's own data backs it, read the way the prompt renders it.
+def has_current_head_review(pr: PRData) -> bool:
+    """Whether GitHub shows a review on the current head, by someone other than the author, that can be assurance."""
+    return any(
+        review.get("is_current_head")
+        and review.get("state") in ("APPROVED", "COMMENTED")
+        and review.get("user") != pr.author
+        for review in pr.reviews
+    )
 
-    The pipeline knows whether the author is on any owning team, and the model judges whether
-    that team owns the risky part, so both must hold. An injected claim or a misread can then
-    narrow assurance for a risky change but never create it.
+
+def _cap_assurance_facts(facts: ReviewFacts, classification: dict, head_reviewed: bool) -> ReviewFacts:
+    """Keep an assurance fact only when the pipeline's own data backs it, read the way the prompt renders it.
+
+    The pipeline knows whether the author is on any owning team and whether any review sits on
+    the current head. The model judges whether that team owns the risky part and whether that
+    review covers it, so both must hold. An injected claim or a misread can then narrow
+    assurance for a risky change but never create it.
     """
     on_owning_team = bool(classification.get("ownership", {}).get("teams")) and bool(
         classification.get("author_on_owning_team", True)
@@ -144,12 +155,13 @@ def _cap_author_facts(facts: ReviewFacts, classification: dict) -> ReviewFacts:
     strong = familiarity is not None and familiarity.band == "STRONG"
     return dataclasses.replace(
         facts,
+        reviews_on_current_head=facts.reviews_on_current_head if head_reviewed else (),
         owning_team_author=facts.owning_team_author and on_owning_team,
         strong_familiarity=facts.strong_familiarity and strong,
     )
 
 
-def _verdict_from_facts(output: dict, classification: dict) -> dict:
+def _verdict_from_facts(output: dict, classification: dict, *, head_reviewed: bool) -> dict:
     """Turn the reviewer's structured facts into the verdict dict the pipeline consumes.
 
     The keys verdict, reasoning, risk, issues and change_summary keep the shape every
@@ -162,7 +174,7 @@ def _verdict_from_facts(output: dict, classification: dict) -> dict:
         "facts": {name: output.get(name) for name in FACT_FIELDS},
     }
     try:
-        ruled = derive_verdict(_cap_author_facts(ReviewFacts.from_output(output), classification))
+        ruled = derive_verdict(_cap_assurance_facts(ReviewFacts.from_output(output), classification, head_reviewed))
     except InvalidFactsError as exc:
         return {
             **result,
@@ -567,7 +579,9 @@ class Reviewer:
                         status = f" (HTTP {api_status})" if api_status else ""
                         raise RuntimeError(f"Anthropic API error{status}: {message.result or message.subtype}")
                     if message.structured_output:
-                        result = _verdict_from_facts(message.structured_output, classification)
+                        result = _verdict_from_facts(
+                            message.structured_output, classification, head_reviewed=has_current_head_review(pr)
+                        )
                         props["stamphog_llm_verdict"] = result["verdict"]
                 elif isinstance(message, AssistantMessage):
                     for block in message.content:

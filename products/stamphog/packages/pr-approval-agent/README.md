@@ -59,7 +59,8 @@ uv run products/stamphog/packages/pr-approval-agent/review_pr.py 46594 --output-
 uv run products/stamphog/packages/pr-approval-agent/review_pr.py 46594 -v
 ```
 
-`review_pr.py` requires the `gh` CLI authenticated and `ANTHROPIC_API_KEY` in your environment.
+`review_pr.py` requires the `gh` CLI authenticated and `OPENAI_API_KEY` in your environment, or `AI_GATEWAY_URL` with `AI_GATEWAY_API_KEY`.
+`ANTHROPIC_API_KEY` is only needed with `STAMPHOG_REVIEWER_ENGINE=claude`.
 It uses PEP 723 inline metadata, so `uv run` handles dependencies automatically.
 
 ## How it works
@@ -291,7 +292,8 @@ How the head tree is materialized differs per entrypoint:
 **The explored tree is PR-authored content.**
 The Claude rollback reviewer runs the Agent SDK with `setting_sources=[]` (isolation mode) plus `strict_mcp_config`, so it does **not** load `.claude/settings.json` hooks (command execution), `CLAUDE.md` (injected instructions), or `.mcp.json` from the tree.
 Those files are still readable as untrusted _content_ under the anti-injection notice, never as configuration.
-The OpenAI reviewer loads no configuration from the tree at all, and its tools resolve every path, symbolic links included, and refuse one outside the checkout.
+The OpenAI reviewer discovers no SDK settings, hooks or MCP servers from the tree. Like the Claude reviewer, its prompt still reads the trusted `.stamphog/review-guidance.md` and optional `.stamphog/steering.md`.
+Its tools search through git, which never follows a symbolic link, and refuse any path that resolves outside the checkout.
 The diff scratch file is created with `mkstemp` under an unpredictable name, so a tracked symlink in the tree cannot redirect the write.
 
 The base commit of a stacked PR is its parent branch tip, which the checkout does not necessarily carry.

@@ -2,6 +2,7 @@
 
 import sys
 import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -29,38 +30,25 @@ def checkout(tmp_path: Path) -> Path:
     (tmp_path / "secret.txt").write_text(SECRET)
     (root / "src" / "link.txt").symlink_to(tmp_path / "secret.txt")
     (root / "src" / "linkdir").symlink_to(tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     return root
 
 
-_GREP_ESCAPES = [
-    ({"pattern": "outside", "path": "..", "glob": None}, "grep-dotdot"),
-    ({"pattern": "outside", "path": "src/linkdir", "glob": None}, "grep-symlink-dir"),
-    ({"pattern": "outside", "path": None, "glob": None}, "grep-walk-skips-links"),
-]
-
-
 @pytest.mark.parametrize(
-    "tool, arguments, ripgrep",
+    "tool, arguments",
     [
-        pytest.param("read_file", {"path": "../secret.txt", "offset": None, "limit": None}, None, id="read-dotdot"),
-        pytest.param(
-            "read_file", {"path": "{outside}/secret.txt", "offset": None, "limit": None}, None, id="read-absolute"
-        ),
-        pytest.param("read_file", {"path": "src/link.txt", "offset": None, "limit": None}, None, id="read-symlink"),
-        *[pytest.param("grep", args, True, id=f"{name}-rg") for args, name in _GREP_ESCAPES],
-        *[pytest.param("grep", args, False, id=f"{name}-python") for args, name in _GREP_ESCAPES],
-        pytest.param("glob", {"pattern": "../*"}, None, id="glob-dotdot"),
-        pytest.param("glob", {"pattern": "src/*"}, None, id="glob-symlink-file"),
-        pytest.param("glob", {"pattern": "src/linkdir/*"}, None, id="glob-symlink-dir"),
+        pytest.param("read_file", {"path": "../secret.txt", "offset": None, "limit": None}, id="read-dotdot"),
+        pytest.param("read_file", {"path": "{outside}/secret.txt", "offset": None, "limit": None}, id="read-absolute"),
+        pytest.param("read_file", {"path": "src/link.txt", "offset": None, "limit": None}, id="read-symlink"),
+        pytest.param("grep", {"pattern": "outside", "path": "..", "glob": None}, id="grep-dotdot"),
+        pytest.param("grep", {"pattern": "outside", "path": "src/linkdir", "glob": None}, id="grep-symlink-dir"),
+        pytest.param("grep", {"pattern": "outside", "path": None, "glob": None}, id="grep-walk-skips-links"),
+        pytest.param("glob", {"pattern": "../*"}, id="glob-dotdot"),
+        pytest.param("glob", {"pattern": "src/*"}, id="glob-symlink-file"),
+        pytest.param("glob", {"pattern": "src/linkdir/*"}, id="glob-symlink-dir"),
     ],
 )
-def test_tools_never_reveal_content_outside_the_checkout(
-    checkout: Path, monkeypatch: pytest.MonkeyPatch, tool: str, arguments: dict, ripgrep: bool | None
-) -> None:
-    if ripgrep is False:
-        monkeypatch.setattr(openai_reviewer.shutil, "which", lambda name: None)
-    elif ripgrep and openai_reviewer.shutil.which("rg") is None:
-        pytest.skip("ripgrep is not installed")
+def test_tools_never_reveal_content_outside_the_checkout(checkout: Path, tool: str, arguments: dict) -> None:
     arguments = {k: v.format(outside=checkout.parent) if isinstance(v, str) else v for k, v in arguments.items()}
 
     output = RepoTools(checkout).call(tool, json.dumps(arguments))
@@ -71,14 +59,22 @@ def test_tools_never_reveal_content_outside_the_checkout(
         assert all((checkout / line).resolve().is_relative_to(checkout.resolve()) for line in listed)
 
 
-@pytest.mark.parametrize("ripgrep", [True, False], ids=["rg", "python"])
-def test_grep_returns_clipped_output_when_a_broad_pattern_matches_too_much(
-    checkout: Path, monkeypatch: pytest.MonkeyPatch, ripgrep: bool
-) -> None:
-    if not ripgrep:
-        monkeypatch.setattr(openai_reviewer.shutil, "which", lambda name: None)
-    elif openai_reviewer.shutil.which("rg") is None:
-        pytest.skip("ripgrep is not installed")
+@pytest.mark.parametrize(
+    "arguments, expected",
+    [
+        pytest.param({"pattern": "def handler", "path": None, "glob": None}, "src/app.py:1:def handler():", id="root"),
+        pytest.param({"pattern": "handler", "path": "src", "glob": "*.py"}, "src/app.py:1:def handler():", id="glob"),
+        pytest.param({"pattern": "no such text", "path": None, "glob": None}, "(no matches)", id="no-match"),
+        pytest.param({"pattern": "(unclosed", "path": None, "glob": None}, "error:", id="bad-pattern"),
+    ],
+)
+def test_grep_finds_untracked_files_and_reports_bad_patterns(checkout: Path, arguments: dict, expected: str) -> None:
+    output = RepoTools(checkout).call("grep", json.dumps(arguments))
+
+    assert output.startswith(expected)
+
+
+def test_grep_returns_clipped_output_when_a_broad_pattern_matches_too_much(checkout: Path) -> None:
     (checkout / "src" / "big.txt").write_text("match this line\n" * 20_000)
 
     output = RepoTools(checkout).call("grep", json.dumps({"pattern": "match", "path": None, "glob": None}))
@@ -185,13 +181,36 @@ def test_tool_loop_reads_the_diff_and_derives_the_verdict_from_the_final_facts(c
     assert diff_path.exists()
 
 
-def test_tool_loop_stops_at_the_turn_limit_with_an_error_the_pipeline_does_not_retry(checkout: Path) -> None:
+@pytest.mark.parametrize(
+    "budget_spent, expected_error",
+    [
+        (False, "Reached maximum number of turns"),
+        (True, "time budget exhausted"),
+    ],
+)
+def test_tool_loop_stops_with_an_error_the_pipeline_does_not_retry(
+    checkout: Path, budget_spent: bool, expected_error: str
+) -> None:
     calls = [_tool_call("glob", {"pattern": "src/*"}) for _ in range(5)]
     reviewer = OpenAIReviewer(checkout, client=SimpleNamespace(responses=_FakeResponses(calls)))
+    if budget_spent:
+        reviewer.deadline = 0.0
     gate_context = {"gate_verdict": "DENIED", "gates": []}
     diff_path = checkout / ".pr-review-diff-test.patch"
     diff_path.write_text("")
 
-    with pytest.raises(RuntimeError, match="Reached maximum number of turns") as raised:
+    with pytest.raises(RuntimeError, match=expected_error) as raised:
         reviewer.review(_pr(), {"tier": "T2-never", "breadth": "narrow", "ownership": {}}, gate_context, diff_path)
     assert not review_pr._is_retryable_error(str(raised.value))
+
+
+@pytest.mark.parametrize(
+    "summary, expected",
+    [
+        pytest.param("Short summary.", "Short summary.", id="under-cap"),
+        pytest.param("First clause. " + "y" * 700, "First clause.", id="cut-at-sentence-end"),
+        pytest.param("x" * 700, "x" * 600, id="no-sentence-end"),
+    ],
+)
+def test_clip_summary_keeps_whole_sentences(summary: str, expected: str) -> None:
+    assert openai_reviewer._clip_summary(summary) == expected

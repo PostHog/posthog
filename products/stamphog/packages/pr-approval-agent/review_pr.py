@@ -148,6 +148,8 @@ def _dim(msg: str) -> str:
 _NON_RETRYABLE_PATTERNS = (
     "Reached maximum number of turns",
     "could not produce valid structured output",
+    # A retry starts with the same spent budget and fails at once.
+    "time budget exhausted",
 )
 
 
