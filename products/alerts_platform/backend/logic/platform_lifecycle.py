@@ -6,6 +6,7 @@ and every write to these rows, stays here. A source never holds one of these mod
 
 from collections.abc import Collection, Sequence
 from datetime import datetime
+from typing import Final
 
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
@@ -283,14 +284,18 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
     return len(configurations)
 
 
+_CADENCE_FIELDS: Final = ("check_interval_minutes", "recurrence_unit", "anchor_time")
+
+
 def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     """Copies one source configuration in. Returns True when it created a row.
 
     Keyed on the row it came from, so a second run updates rather than duplicates.
 
-    `next_check_at` is copied into a new row, and into a disabled copy that this run turns back on.
-    Otherwise the platform owns its schedule: a source can park its own next check, for example at
-    the end of quiet hours, and copying that would skip checks the platform still runs.
+    `next_check_at` is copied into a new row, into a disabled copy, and into a copy whose cadence
+    this run changes. Otherwise the platform owns its schedule: a source can park its own next
+    check, for example at the end of quiet hours, and copying that would skip checks the platform
+    still runs.
 
     The recurrence is checked here rather than where the schedule advances, because an
     unparseable unit or anchor raised there would fail a whole batch of unrelated checks.
@@ -300,10 +305,10 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     anchor_time = validate_and_normalize_schedule_start_time(upsert.anchor_time)
 
     with transaction.atomic():
-        was_enabled = (
+        existing = (
             PlatformAlertConfiguration.objects.unscoped()
             .filter(legacy_configuration_id=upsert.legacy_configuration_id)
-            .values_list("enabled", flat=True)
+            .values("enabled", *_CADENCE_FIELDS)
             .first()
         )
         defaults = {
@@ -320,7 +325,8 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
             "cooldown_minutes": upsert.cooldown_minutes,
             "schedule_restriction": upsert.schedule_restriction,
         }
-        if not was_enabled:
+        cadence_changed = existing is not None and any(existing[key] != defaults[key] for key in _CADENCE_FIELDS)
+        if existing is None or not existing["enabled"] or cadence_changed:
             defaults["next_check_at"] = upsert.next_check_at
         configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
             legacy_configuration_id=upsert.legacy_configuration_id, defaults=defaults

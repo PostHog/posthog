@@ -146,17 +146,19 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         [
             # The source parks its own next check at the end of quiet hours. The platform still
             # checks through them and only mutes, so taking that time would skip the muted checks.
-            ("an_enabled_copy_keeps_its_own_schedule", False, timedelta(minutes=-1)),
+            ("an_enabled_copy_keeps_its_own_schedule", False, 5, timedelta(minutes=-1)),
             # A copy switched off with --disable comes back at the source's next due time.
-            ("a_disabled_copy_takes_the_source_schedule", True, timedelta(minutes=34)),
+            ("a_disabled_copy_takes_the_source_schedule", True, 5, timedelta(minutes=34)),
+            # A new cadence makes the old due time wrong, so the source's own one is the better guess.
+            ("a_new_cadence_takes_the_source_schedule", False, 60, timedelta(minutes=34)),
         ]
     )
     def test_a_second_copy_keeps_the_schedule_the_platform_owns(
-        self, _name: str, disabled_between: bool, expected_offset: timedelta
+        self, _name: str, disabled_between: bool, interval_on_rerun: int, expected_offset: timedelta
     ) -> None:
         legacy_id = uuid4()
 
-        def copy(next_check_at: datetime) -> None:
+        def copy(next_check_at: datetime, check_interval_minutes: int = 5) -> None:
             upsert_configuration(
                 PlatformAlertUpsert(
                     legacy_configuration_id=legacy_id,
@@ -167,7 +169,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                     source_config={
                         "condition": {"threshold_count": 1, "threshold_operator": "above", "window_minutes": 5}
                     },
-                    check_interval_minutes=5,
+                    check_interval_minutes=check_interval_minutes,
                     evaluation_periods=1,
                     datapoints_to_alarm=1,
                     cooldown_minutes=0,
@@ -184,7 +186,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         copy(self.cutoff - timedelta(minutes=1))
         if disabled_between:
             disable_configurations(SourceKind.LOGS, team_id=self.team.id)
-        copy(self.cutoff + timedelta(minutes=34))
+        copy(self.cutoff + timedelta(minutes=34), check_interval_minutes=interval_on_rerun)
 
         assert scheduled() == self.cutoff + expected_offset
 
