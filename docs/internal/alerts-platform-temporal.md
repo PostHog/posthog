@@ -488,6 +488,22 @@ It switches the copies off and keeps their rows, state and history. Checks alrea
 Running the backfill again turns them back on at the production alert's next due time.
 An hourly alert on the platform checks on a UTC grid, while production checks it at the alert's creation minute, so the two stacks check an hourly alert at different minutes.
 
+Billing alerts are copied the same way, with the same `--team-id`, `--sample-percent` and `--disable` flags:
+
+```bash
+python manage.py backfill_platform_billing_alert_configurations
+```
+
+It skips an alert with no execution team, because every platform row belongs to one team.
+A copy delivers nothing and writes only the platform's own rows. The billing tables stay production's.
+Each copy adds a billing service call beside production's, one per organization in a batch, so start with a sample.
+`ALERTS_PLATFORM_BILLING_KEYS_PER_TICK` caps how many batches the scheduler starts per tick.
+The evaluation worker reaches the billing service through the egress proxy and reads the license, which signs the billing service token. A shell on the worker in prod US and prod EU confirmed both.
+
+The billing source names each next due time itself: the daily check time, or a retry on billing's backoff while a date stays unsettled.
+The attempt count for that date lives in the copy's `source_state`.
+A rerun of the backfill keeps that state but moves `next_check_at` to production's next due time, so a pending retry can run at production's time instead of its own.
+
 ## Postgres connectivity probe
 
 Each evaluation activity issues one explicit `SELECT 1` and checks for `(1,)` through Django's `default` main writer connection.
