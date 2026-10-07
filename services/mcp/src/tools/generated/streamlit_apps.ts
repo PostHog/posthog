@@ -71,7 +71,7 @@ const StreamlitAppsEditSourceSchema = () => {
         .extend(StreamlitAppsEditSourceCreateBody.shape)
         .extend({
             base_version: StreamlitAppsEditSourceCreateBody.shape['base_version'].describe(
-                "The version number your edits are based on, from streamlit-apps-get-source. Must be the app's latest version."
+                "The version number your edits are based on, from streamlit-apps-get-source. Must be the app's active version."
             ),
             file_edits: StreamlitAppsEditSourceCreateBody.shape['file_edits'].describe(
                 'Edits to existing text files. Each entry has a `path` and a list of `edits`, each with `old` (exact text that must match exactly once in the file, including whitespace) and `new`. Edits to one file apply in order. Send at most 100 edits in total per call.'

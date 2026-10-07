@@ -37595,7 +37595,7 @@ export namespace Schemas {
 
     export interface EditVersionSourceInput {
       /**
-         * Version number that the changes apply to. Must be the latest version of the app, otherwise the request fails with 409 and returns the current version number.
+         * Version number that the changes apply to. Must be the active version of the app, otherwise the request fails with 409 and returns the active version number.
          * @minimum 1
          */
       base_version: number;
@@ -107585,7 +107585,7 @@ export namespace Schemas {
     export interface VersionConflict {
       /** Why the change was refused. */
       detail: string;
-      /** Latest version number of the app. Read it and retry. */
+      /** Active version number of the app. Read it and retry. */
       current_version: number;
     }
 

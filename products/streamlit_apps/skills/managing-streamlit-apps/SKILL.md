@@ -44,8 +44,9 @@ Change an existing app in two steps, so you never ship an old copy over newer wo
    Each `old` must match exactly once, so include enough surrounding lines to make it unique.
    Files you do not touch stay byte-for-byte the same in the new version.
 
-If another session shipped a version after your read, edit-source returns 409 with `current_version`.
-Read that version again and redo your edits on it.
+If the active version changed after your read, edit-source returns 409 with `current_version`.
+This happens when another session ships a version, or when a person rolls the app back to an older version.
+Read `current_version` again and redo your edits on it.
 Do not fall back to set-source to force your copy through.
 
 Keep `streamlit-apps-set-source` for a new app or a full rewrite.

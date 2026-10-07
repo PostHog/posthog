@@ -844,19 +844,66 @@ class TestVersionSourceAPI(_StreamlitAppsFlagMixin, APIBaseTest):
             "helpers.py": b"y = 2",
         }
 
-    def test_edit_source_with_stale_base_409(self):
-        self._add_version(1, {"app.py": "v1"})
-        self._add_version(2, {"app.py": "v2"})
+    @parameterized.expand([("newer_version_shipped", 2, 1, 2), ("rolled_back_to_older_version", 1, 2, 1)])
+    def test_edit_source_with_stale_base_409(self, _name, active_version, base_version, expected_current):
+        v1 = self._add_version(1, {"app.py": "v1"})
+        v2 = self._add_version(2, {"app.py": "v2"})
+        self.app.active_version = v1 if active_version == 1 else v2
+        self.app.save()
 
         response = self.client.post(
             self._url("edit_source/"),
-            data={"base_version": 1, "file_edits": [{"path": "app.py", "edits": [{"old": "v1", "new": "v3"}]}]},
+            data={
+                "base_version": base_version,
+                "file_edits": [{"path": "app.py", "edits": [{"old": f"v{base_version}", "new": "v3"}]}],
+            },
             format="json",
         )
 
         assert response.status_code == status.HTTP_409_CONFLICT
-        assert response.json()["current_version"] == 2
+        assert response.json()["current_version"] == expected_current
         assert self.app.versions.count() == 2
+
+    def test_edit_source_after_rollback_builds_on_the_active_version(self):
+        v1 = self._add_version(1, {"app.py": "st.title('One')"})
+        self._add_version(2, {"app.py": "st.title('Two')"})
+        self.app.active_version = v1
+        self.app.save()
+
+        response = self.client.post(
+            self._url("edit_source/"),
+            data={"base_version": 1, "file_edits": [{"path": "app.py", "edits": [{"old": "One", "new": "Three"}]}]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["version_number"] == 3
+        assert self._stored_files(3) == {"app.py": b"st.title('Three')"}
+
+    def test_edit_source_409_when_a_rollback_lands_during_the_edit(self):
+        v1 = self._add_version(1, {"app.py": "v1"})
+        self._add_version(2, {"app.py": "v2"})
+
+        def write_then_roll_back(path, content):
+            self.storage[path] = content
+            self.app.active_version = v1
+            self.app.save()
+
+        with (
+            patch("posthog.storage.object_storage.write", side_effect=write_then_roll_back),
+            patch("posthog.storage.object_storage.delete"),
+        ):
+            response = self.client.post(
+                self._url("edit_source/"),
+                data={"base_version": 2, "file_edits": [{"path": "app.py", "edits": [{"old": "v2", "new": "v3"}]}]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["current_version"] == 1
+        assert self.app.versions.count() == 2
+        self.app.refresh_from_db()
+        assert self.app.active_version_id == v1.id
 
     def test_edit_source_that_loses_the_version_number_race_409(self):
         self._add_version(1, {"app.py": "v1"})

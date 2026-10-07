@@ -12349,7 +12349,7 @@
         "feature_flag": "streamlit-apps"
     },
     "streamlit-apps-edit-source": {
-        "description": "Change an existing Streamlit app without resending its whole source. Read the files first with streamlit-apps-get-source, then send exact text edits, new files, and deletions against that version number as base_version. The edits create a new active version; every file you do not touch stays byte-for-byte the same. If base_version is not the latest version, the call fails with 409 and returns current_version: read that version again and redo the edits, do not fall back to set-source. If an edit's `old` text matches zero or many times, the call fails with 400 and names the file and edit index. If the app is running, its sandbox is stopped; call streamlit-apps-start afterwards.",
+        "description": "Change an existing Streamlit app without resending its whole source. Read the files first with streamlit-apps-get-source, then send exact text edits, new files, and deletions against that version number as base_version. The edits create a new active version; every file you do not touch stays byte-for-byte the same. If base_version is not the active version, the call fails with 409 and returns current_version: read that version again and redo the edits, do not fall back to set-source. If an edit's `old` text matches zero or many times, the call fails with 400 and names the file and edit index. If the app is running, its sandbox is stopped; call streamlit-apps-start afterwards.",
         "category": "Streamlit apps",
         "feature": "streamlit_apps",
         "summary": "Edit Streamlit app source",

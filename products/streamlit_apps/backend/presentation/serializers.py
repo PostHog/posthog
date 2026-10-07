@@ -280,8 +280,8 @@ class EditVersionSourceInputSerializer(DataclassSerializer):
     base_version = serializers.IntegerField(
         min_value=1,
         help_text=(
-            "Version number that the changes apply to. Must be the latest version of the app, "
-            "otherwise the request fails with 409 and returns the current version number."
+            "Version number that the changes apply to. Must be the active version of the app, "
+            "otherwise the request fails with 409 and returns the active version number."
         ),
     )
     file_edits = SourceFileEditSerializer(
@@ -342,7 +342,7 @@ class SourceEditErrorSerializer(serializers.Serializer):
 
 class VersionConflictSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Why the change was refused.")
-    current_version = serializers.IntegerField(help_text="Latest version number of the app. Read it and retry.")
+    current_version = serializers.IntegerField(help_text="Active version number of the app. Read it and retry.")
 
 
 class StreamlitAppStatusSerializer(serializers.Serializer):

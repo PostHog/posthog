@@ -136,7 +136,7 @@ class VersionConflictError(Exception):
     def __init__(self, current_version: int) -> None:
         self.current_version = current_version
         super().__init__(
-            f"The base version is not the latest version. The latest version is {current_version}. "
+            f"The base version is not the active version. The active version is {current_version}. "
             "Read its source and apply your changes again."
         )
 
@@ -406,17 +406,27 @@ def upload_version(
     return _store_version(app, user, file_content, was_impersonated)
 
 
+def _active_version_number(app: StreamlitApp) -> int:
+    number = (
+        StreamlitApp.objects.for_team(app.team_id)
+        .filter(id=app.id)
+        .values_list("active_version__version_number", flat=True)
+        .first()
+    )
+    return number or 0
+
+
 def _store_version(
     app: StreamlitApp,
     user: User,
     file_content: bytes,
     was_impersonated: bool,
-    expected_latest_version: int | None = None,
+    expected_active_version_id: uuid.UUID | None = None,
 ) -> contracts.AppVersionContract:
     """Validate, store, and activate a version zip.
 
-    When ``expected_latest_version`` is set, the latest version is checked under the same row lock
-    that allocates the next number, so two concurrent edits from one base cannot both succeed.
+    When ``expected_active_version_id`` is set, the new version becomes active only if that version is
+    still active, so a concurrent edit or a rollback to an older version is never overwritten.
     """
     validation = validate_zip(io.BytesIO(file_content))
     if not validation.valid:
@@ -437,10 +447,6 @@ def _store_version(
     try:
         with transaction.atomic():
             latest_version = app.versions.select_for_update().order_by("-version_number").first()
-            if expected_latest_version is not None and (
-                latest_version is None or latest_version.version_number != expected_latest_version
-            ):
-                raise VersionConflictError(latest_version.version_number if latest_version else 0)
             next_version_number = (latest_version.version_number + 1) if latest_version else 1
 
             version = StreamlitAppVersion.objects.create(
@@ -452,14 +458,24 @@ def _store_version(
                 created_by=user,
             )
 
-            app.active_version = version
-            app.save(update_fields=["active_version", "updated_at"])
+            if expected_active_version_id is None:
+                app.active_version = version
+                app.save(update_fields=["active_version", "updated_at"])
+            else:
+                # Compare-and-set, so an activation that commits after the caller's check is not overwritten.
+                swapped = (
+                    StreamlitApp.objects.for_team(app.team_id)
+                    .filter(id=app.id, active_version_id=expected_active_version_id)
+                    .update(active_version=version, updated_at=timezone.now())
+                )
+                if not swapped:
+                    raise VersionConflictError(_active_version_number(app))
+                app.active_version = version
     except IntegrityError:
         _cleanup_orphan()
-        if expected_latest_version is not None:
+        if expected_active_version_id is not None:
             # A concurrent edit from the same base passed the same check and took the next number first.
-            latest_number = app.versions.order_by("-version_number").values_list("version_number", flat=True).first()
-            raise VersionConflictError(latest_number or 0) from None
+            raise VersionConflictError(_active_version_number(app)) from None
         raise ConcurrentUploadError() from None
     except Exception:
         _cleanup_orphan()
@@ -541,8 +557,8 @@ def edit_version_source(
 ) -> contracts.AppVersionContract:
     """Create and activate a version from exact edits against ``data.base_version``.
 
-    Files the edits do not touch keep their bytes. A base that is not the latest version raises
-    ``VersionConflictError``, so a stale copy cannot overwrite newer work.
+    Files the edits do not touch keep their bytes. A base that is not the active version raises
+    ``VersionConflictError``, so a stale copy cannot overwrite newer work or a rollback.
     """
     app = _get_app(team_id, short_id)
     try:
@@ -550,9 +566,8 @@ def edit_version_source(
     except StreamlitAppVersion.DoesNotExist:
         raise VersionNotFoundError() from None
 
-    latest_number = app.versions.order_by("-version_number").values_list("version_number", flat=True).first()
-    if latest_number != base.version_number:
-        raise VersionConflictError(latest_number or 0)
+    if app.active_version_id != base.id:
+        raise VersionConflictError(_active_version_number(app))
 
     file_content = apply_source_edits(
         _read_version_zip(base),
@@ -561,7 +576,7 @@ def edit_version_source(
         delete_files=data.delete_files,
     )
     check_zip_size(len(file_content))
-    return _store_version(app, user, file_content, was_impersonated, expected_latest_version=base.version_number)
+    return _store_version(app, user, file_content, was_impersonated, expected_active_version_id=base.id)
 
 
 def activate_version(

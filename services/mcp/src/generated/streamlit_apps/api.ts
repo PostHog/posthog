@@ -144,7 +144,7 @@ export const StreamlitAppsEditSourceCreateBody = () => zod.object({
         .number()
         .min(1)
         .describe(
-            'Version number that the changes apply to. Must be the latest version of the app, otherwise the request fails with 409 and returns the current version number.'
+            'Version number that the changes apply to. Must be the active version of the app, otherwise the request fails with 409 and returns the active version number.'
         ),
     file_edits: zod
         .array(
