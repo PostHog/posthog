@@ -1049,10 +1049,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         return value
 
     def validate_subscribed_users(self, value):
-        for user in value:
+        unique_users = list(dict.fromkeys(value))
+        for user in unique_users:
             if not user.teams.filter(pk=self.context["team_id"]).exists():
                 raise ValidationError("User does not belong to the same organization as the alert's team.")
-        return value
+        return unique_users
 
     def validate_schedule_restriction(self, value):
         try:

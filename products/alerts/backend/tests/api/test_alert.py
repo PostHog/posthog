@@ -359,6 +359,20 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_create_alert_with_repeated_subscribed_user(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id, self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "name": "alert name",
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert [u["id"] for u in response.json()["subscribed_users"]] == [self.user.id]
+        assert AlertSubscription.objects.filter(alert_configuration_id=response.json()["id"]).count() == 1
+
     def test_create_and_list_alert(self) -> None:
         creation_request = {
             "insight": self.insight["id"],
