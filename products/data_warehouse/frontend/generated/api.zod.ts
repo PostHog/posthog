@@ -520,7 +520,7 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. When a create makes a new view, any cadence other than 'never' materializes it at that cadence and starts its first run, and a cadence the view's lineage cannot support fails the request with a 400 and creates nothing. On an update, including a create that matches an existing view by name, it only changes the cadence: use the materialize action to materialize an existing view. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -628,7 +628,7 @@ export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. When a create makes a new view, any cadence other than 'never' materializes it at that cadence and starts its first run, and a cadence the view's lineage cannot support fails the request with a 400 and creates nothing. On an update, including a create that matches an existing view by name, it only changes the cadence: use the materialize action to materialize an existing view. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -738,7 +738,7 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. When a create makes a new view, any cadence other than 'never' materializes it at that cadence and starts its first run, and a cadence the view's lineage cannot support fails the request with a 400 and creates nothing. On an update, including a create that matches an existing view by name, it only changes the cadence: use the materialize action to materialize an existing view. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -863,7 +863,7 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. When a create makes a new view, any cadence other than 'never' materializes it at that cadence and starts its first run, and a cadence the view's lineage cannot support fails the request with a 400 and creates nothing. On an update, including a create that matches an existing view by name, it only changes the cadence: use the materialize action to materialize an existing view. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -1012,7 +1012,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. When a create makes a new view, any cadence other than 'never' materializes it at that cadence and starts its first run, and a cadence the view's lineage cannot support fails the request with a 400 and creates nothing. On an update, including a create that matches an existing view by name, it only changes the cadence: use the materialize action to materialize an existing view. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
