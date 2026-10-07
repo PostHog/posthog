@@ -20,7 +20,7 @@ export interface SegmentCalibration {
     actual: number
 }
 
-function percent(value: number): string {
+export function percent(value: number): string {
     return `${(value * 100).toFixed(1)}%`
 }
 

@@ -1,8 +1,4 @@
-import { SegmentCalibration } from '../onlinePerformance'
-
-function percent(value: number): string {
-    return `${(value * 100).toFixed(1)}%`
-}
+import { SegmentCalibration, percent } from '../onlinePerformance'
 
 function Bar({
     label,
