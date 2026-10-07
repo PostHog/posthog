@@ -10,6 +10,7 @@ through the read_file, grep and glob tools below, and every path those tools tou
 inside the checkout.
 """
 
+import os
 import copy
 import json
 import time
@@ -31,6 +32,9 @@ READ_FILE_DEFAULT_LINES = 2000
 GLOB_MAX_RESULTS = 500
 GREP_TIMEOUT_SECONDS = 30
 REQUEST_TIMEOUT_SECONDS = 300
+# The SDK retries a failed or timed-out request this many times, so each attempt gets a share of the
+# remaining budget and the call as a whole still ends inside it.
+SDK_MAX_RETRIES = 2
 # The hosted reviewer step gets 25 minutes, the clone included. One budget covers the whole review,
 # the pipeline's retries too, so a run of slow requests ends in an error before the step is killed.
 REVIEW_TIME_BUDGET_SECONDS = 15 * 60
@@ -124,6 +128,26 @@ def _clip_summary(summary: str) -> str:
     clipped = summary[:CHANGE_SUMMARY_MAX_CHARS]
     end = max(clipped.rfind(". "), clipped.rfind(".\n"))
     return clipped[: end + 1] if end > 0 else clipped
+
+
+# A git hook exports these, and git obeys them over the working directory, so a search run from
+# a hook would read the wrong repository.
+_GIT_LOCATION_VARIABLES = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_NAMESPACE",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+)
+
+
+def git_environment() -> dict[str, str]:
+    """The current environment without the variables that point git at another repository."""
+    return {name: value for name, value in os.environ.items() if name not in _GIT_LOCATION_VARIABLES}
 
 
 class ToolError(Exception):
@@ -222,7 +246,13 @@ class RepoTools:
         """
         with tempfile.TemporaryFile(mode="w+", errors="replace") as stderr:
             process = subprocess.Popen(
-                command, cwd=self.root, stdout=subprocess.PIPE, stderr=stderr, text=True, errors="replace"
+                command,
+                cwd=self.root,
+                env=git_environment(),
+                stdout=subprocess.PIPE,
+                stderr=stderr,
+                text=True,
+                errors="replace",
             )
             timed_out = threading.Event()
 
@@ -314,7 +344,7 @@ class OpenAIReviewer(Reviewer):
         if gateway is None:
             # Local runs only: OPENAI_API_KEY from the environment. The hosted sandbox always has a
             # gateway and holds no OpenAI key, so a missing gateway fails there.
-            return OpenAI(timeout=REQUEST_TIMEOUT_SECONDS)
+            return OpenAI(timeout=REQUEST_TIMEOUT_SECONDS, max_retries=SDK_MAX_RETRIES)
         base_url, api_key = gateway
         # resolve_gateway_config strips /v1 for the Anthropic SDK. The OpenAI SDK needs it back.
         return OpenAI(
@@ -322,6 +352,7 @@ class OpenAIReviewer(Reviewer):
             api_key=api_key,
             default_headers=openai_gateway_headers(self._attribution(pr, classification, gate_context)),
             timeout=REQUEST_TIMEOUT_SECONDS,
+            max_retries=SDK_MAX_RETRIES,
         )
 
     def _request_timeout(self) -> float:
@@ -347,7 +378,7 @@ class OpenAIReviewer(Reviewer):
                 text={"format": FACTS_FORMAT},
                 store=False,
                 include=["reasoning.encrypted_content"],
-                timeout=self._request_timeout(),
+                timeout=self._request_timeout() / (SDK_MAX_RETRIES + 1),
             )
             usage.add(response.usage)
             calls = [item for item in response.output if item.type == "function_call"]

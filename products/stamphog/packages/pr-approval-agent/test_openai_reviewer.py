@@ -30,7 +30,7 @@ def checkout(tmp_path: Path) -> Path:
     (tmp_path / "secret.txt").write_text(SECRET)
     (root / "src" / "link.txt").symlink_to(tmp_path / "secret.txt")
     (root / "src" / "linkdir").symlink_to(tmp_path)
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True, env=openai_reviewer.git_environment())
     return root
 
 
