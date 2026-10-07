@@ -59,10 +59,47 @@ the latest state.
 `AccountPinnedPropertiesPanel` connects both views to the same configuration, loading states, and editors.
 `AccountPropertyField` renders each label, source icon, value, and editor.
 
-Pin preferences belong to `accountSidebarConfigLogic`, keyed by project. Live values and
-editing state belong to `accountSidebarPropertiesLogic`, keyed by project and account.
+Pin preferences belong to `accountSidebarConfigLogic`, keyed by project.
+`accountPropertyDataLogic` holds live values, keyed by project and account.
+`accountSidebarPropertiesLogic` owns editing state for each property panel.
 The Relationships tab and account list refresh after assignment changes.
 Successful writes emit the existing custom-property and role-assignment events.
 The source is `account_sidebar` for sidebar edits and `list_expansion` for expanded-list edits.
 Custom-property events exclude property names and values;
 role-assignment events retain the existing role metadata and internal-user identifiers.
+
+## Properties in account views
+
+With `customer-analytics-account-views` enabled, the view component picker offers Properties.
+Each tile stores its own ordered selection in the view document under `config.properties`.
+The tile's Edit action changes its selection and title through the existing view save flow.
+Adding a tile starts with an empty selection.
+These selections do not change sidebar pins or project defaults.
+
+Properties tiles show a vertical list of custom properties, relationships, and supported account properties.
+Tiles use the sidebar's horizontal padding, and editable rows place the pencil beside the property name in both surfaces.
+A tile shows the first ten visible properties before scrolling vertically to the remaining rows.
+The scrollbar sits at the card's right edge while property rows keep their horizontal padding.
+The viewport adjusts to wrapped values, open editors, and width changes.
+Account properties are website domain, billing ID, Slack channel ID, Salesforce ID, Stripe ID, email domains, and known emails.
+Stripe ID appears only when the current account already has one.
+Account name and arbitrary account property keys are not supported.
+Custom properties and relationships use the same editors and access rules as sidebar rows.
+Only project admins with account editor access can edit email domains and known emails.
+
+Account property saves use the account editor's fresh-read merge and list normalization.
+Local account editor and widget saves run in sequence to keep edits to different fields.
+Saved values refresh visible properties tiles and the sidebar without replacing other editors' drafts.
+Account reads do not broadcast changes to other editors.
+A read started before a save cannot replace that saved value.
+Relationship saves refresh every mounted Relationships tile and refresh the shared property data once.
+Custom-property saves do not reload Relationships tiles.
+Each tile keeps separate editor state for the current account.
+A failed save keeps the input for retry.
+Loading failures and refresh failures show retry actions, separate from missing values.
+Deleted property definitions stay in saved selections and show a warning until removed through the tile's Edit action.
+
+Widget edit events record the source and property type, never property names, values, or account identifiers.
+Widget values and property selections opt out of autocapture.
+The edit source is `account_view`.
+`customer analytics account properties widget configured` records only the selected property count.
