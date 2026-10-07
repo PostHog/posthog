@@ -258,7 +258,12 @@ class TestBrowserTelemetryEvents:
             "category": "network",
             "type": "network_request",
             "ts": 1700000000000000,
-            "data": {"url": "https://example.com/api", "headers": {"Authorization": "Bearer secret"}},
+            "data": {
+                "url": "https://example.com/api",
+                "headers": {"Authorization": "Bearer secret"},
+                "post_data": "password=secret",
+                "body": '{"access_token": "secret"}',
+            },
         }
         screenshot_event = {
             "category": "screenshot",

@@ -44,7 +44,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "browser_telemetry_events": {
-        "description": "A telemetry event captured inside a browser session, such as a console message, network request, page navigation, or crash. Request and response headers and screenshot images are not synced.",
+        "description": "A telemetry event captured inside a browser session, such as a console message, network request, page navigation, or crash. Request and response headers and bodies, and screenshot images, are not synced.",
         "docs_url": "https://kernel.sh/docs/api-reference/browser-telemetry/read-telemetry-events-for-a-browser-session",
         "columns": {
             "browser_session_id": "ID of the browser session that captured the event.",
