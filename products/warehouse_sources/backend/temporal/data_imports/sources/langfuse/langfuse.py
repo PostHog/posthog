@@ -51,6 +51,7 @@ HTTP_NOT_ALLOWED_ERROR = "Langfuse host must use HTTPS"
 RESPONSE_LIMIT_ERROR = "Langfuse response exceeded a transfer limit"
 PAGE_LIMIT_ERROR = "Langfuse pagination page limit reached"
 REPEATED_CURSOR_ERROR = "Langfuse API returned the same pagination cursor twice"
+TABLE_NOT_IN_VERSION_ERROR = "Langfuse table is not available on this API version"
 
 
 class LangfuseRetryableError(Exception):
