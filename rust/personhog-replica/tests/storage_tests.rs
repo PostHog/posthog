@@ -1599,7 +1599,6 @@ async fn test_upsert_hash_key_overrides_replaces_only_a_stored_cookieless_sentin
 }
 
 // The case with no statement_timeout models a connection behind PgBouncer in transaction mode.
-// PgBouncer does not carry the pool's session statement_timeout into the transaction.
 #[rstest]
 #[case::statement_timeout(Some(200), "statement timeout")]
 #[case::lock_timeout_without_a_statement_timeout(None, "lock timeout")]

@@ -179,14 +179,16 @@ impl FeatureFlagStorage for PostgresStorage {
         // The foreign key from posthog_featureflaghashkeyoverride to posthog_person is deferred.
         // Postgres checks deferred keys at COMMIT. statement_timeout does not cover COMMIT. When
         // another transaction holds FOR UPDATE on the person row, as a delete does, the commit
-        // waits until that transaction ends. This statement moves the check into the INSERT.
+        // waits until that transaction ends. This statement moves the check into the INSERT,
+        // where statement_timeout applies.
         sqlx::query("SET CONSTRAINTS ALL IMMEDIATE")
             .execute(&mut *tx)
             .await?;
         // The pool sets statement_timeout per session. PgBouncer in transaction mode does not
-        // carry that setting into this transaction. SET LOCAL lasts only for the transaction.
-        // A held person row fails the INSERT after 2s. That stays under the router's 5s backend
-        // timeout, so the caller gets an error instead of a timeout.
+        // carry that setting into this transaction. SET LOCAL applies to this transaction only,
+        // so the setting reaches the INSERT and no other client. A held person row fails the
+        // INSERT after 2s. That stays under the router's 5s backend timeout, so the caller gets
+        // an error instead of a timeout.
         sqlx::query("SET LOCAL lock_timeout = '2s'")
             .execute(&mut *tx)
             .await?;
