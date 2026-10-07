@@ -3346,11 +3346,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     if (isQueryConflictError(error)) {
                         // Someone saved between the read above and this write. The view logic already
                         // toasts the conflict, so only open the review diff.
-                        const currentView = await warehouseSavedQueriesRetrieve(
-                            String(teamLogic.values.currentTeamId),
-                            view.id
-                        )
-                        reviewConflict(currentView.query?.query as string | undefined, currentView.latest_history_id)
+                        try {
+                            const currentView = await warehouseSavedQueriesRetrieve(
+                                String(teamLogic.values.currentTeamId),
+                                view.id
+                            )
+                            reviewConflict(
+                                currentView.query?.query as string | undefined,
+                                currentView.latest_history_id
+                            )
+                        } catch {
+                            lemonToast.error("Couldn't load the latest version of this view. Try saving again.")
+                        }
                     } else if (!failed) {
                         actions.updateViewSuccess(request, draftId, biEditorState)
                     }
