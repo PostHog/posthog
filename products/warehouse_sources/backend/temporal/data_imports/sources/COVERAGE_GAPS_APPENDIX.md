@@ -4624,7 +4624,7 @@ Note: The OpenAPI 3.0 spec (served to ReDoc from https://judge.me/api/docs.yaml)
 
 ## Jumpcloud — **thin**
 
-Today (11): `application_user_groups`, `application_users`, `applications`, `events`, `system_group_members`, `system_groups`, `system_users`, `systems`, `user_group_members`, `user_groups`, `users`
+Today (41): `alert_occurrences`, `alerts`, `application_user_groups`, `application_users`, `applications`, `events`, `identity_risk_events`, `policies`, `policy_results`, `policy_statuses`, `system_group_members`, `system_groups`, `system_insights_*` (24 tables), `system_users`, `systems`, `user_group_members`, `user_groups`, `users`
 
 Diffed against: <https://docs.jumpcloud.com/api/2.0/index.yaml>
 
@@ -4632,13 +4632,13 @@ Diffed against: <https://docs.jumpcloud.com/api/2.0/index.yaml>
 - [x] `/api/v2/systemgroups/{group_id}/members (and /membership)` — the system-to-group edges completing the already-synced system_groups table (high)
 - [x] `/api/v2/systems/{system_id}/users (or /api/v2/users/{user_id}/systems)` — which users can log into which devices - the central access-review fact table (high)
 - [x] `/api/v2/applications/{application_id}/users and /usergroups` — SSO application entitlements per user and group, resolving the synced applications table (high)
-- [ ] `/api/v2/systeminsights/* (apps, programs, os_version, patches, disk_encryption, browser_plugins, chrome_extensions, ...)` — ~60 device inventory and compliance fact tables keyed by system_id - the richest analytical surface in the API (high)
-- [ ] `/api/v2/policies, /api/v2/policyresults, /api/v2/systems/{id}/policystatuses` — policy catalog plus per-device application results - device compliance state over time (high)
+- [x] `/api/v2/systeminsights/* (apps, programs, os_version, patches, disk_encryption, browser_plugins, chrome_extensions, ...)` — ~60 device inventory and compliance fact tables keyed by system_id - the richest analytical surface in the API (high) - a curated 24 inventory and security-posture tables; credential-adjacent ones (shadow, authorized_keys, user_ssh_keys) are left out
+- [x] `/api/v2/policies, /api/v2/policyresults, /api/v2/systems/{id}/policystatuses` — policy catalog plus per-device application results - device compliance state over time (high) - statuses fan out over `/policies/{id}/policystatuses`, which returns the same rows with far fewer requests
 - [ ] `/api/commands and /api/commandresults` — remote command execution history with exit codes and output (medium)
 - [ ] `/api/v2/softwareapps and /api/v2/softwareapps/{id}/statuses` — managed software catalog and per-device install/update state (medium)
 - [ ] `/api/v2/saas-management/applications, /applications/{id}/usage, /application-licenses, /applications/{id}/accounts` — SaaS app usage, license counts and per-account seats for spend and shadow-IT analysis (medium)
-- [ ] `/api/v2/alerts and /api/v2/alerts/{id}/occurrences` — alert definitions plus firing history for device and identity health (medium)
-- [ ] `/api/v2/identityrisk/events, /identityrisk/identities` — risk-scored identity events, a distinct signal from the Directory Insights event stream already synced (medium)
+- [x] `/api/v2/alerts and /api/v2/alerts/{id}/occurrences` — alert definitions plus firing history for device and identity health (medium)
+- [x] `/api/v2/identityrisk/events, /identityrisk/identities` — risk-scored identity events, a distinct signal from the Directory Insights event stream already synced (medium) - events only; `/identityrisk/identities` is a top-N aggregate over a time window with no pagination, not a table
 - [ ] `/api/v2/directories` — lookup of connected identity sources (AD, Google Workspace, Office 365) that users are bound to (low)
 
 Note: Two separate specs: v1 at https://docs.jumpcloud.com/api/1.0/index.yaml (21 GET paths) and v2 at https://docs.jumpcloud.com/api/2.0/index.yaml (444 GET paths). The connector's 6 tables are all top-level object lists; every association/membership sub-resource is absent, which is the specific thing that makes a directory dataset joinable. The systeminsights family alone is ~60 device-fact endpoints. Nothing is discovered dynamically at sync time.
