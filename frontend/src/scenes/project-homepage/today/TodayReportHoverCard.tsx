@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Suspense, useEffect } from 'react'
 
-import { IconCheckCircle, IconHide, IconPullRequest } from '@posthog/icons'
+import { IconCheckCircle, IconHide, IconLeave, IconPullRequest } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -82,9 +82,6 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
         }
     }
     const isSample = !!reportId && isSampleReportId(reportId)
-    // The click gives the report a state label, which takes the button off the card, so the request
-    // cannot be sent twice and needs no in-flight state of its own.
-    const canLeaveReview = !!reportId && !stateLabel && card.canLeaveReview
     const pullRequestState = pullRequestStateMeta(card.pullRequestState)
     const metric = selectReportCardImpactMetric(card.metrics)
     const aggregateQuery = metric ? asReportMetricAggregateQuery(metric.query) : null
@@ -118,26 +115,9 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                     <ItemTitle className="wrap-anywhere">
                         <span className="min-w-0 font-semibold">{card.title}</span>
                     </ItemTitle>
-                    {(lead || canLeaveReview || card.pullRequestUrl) && (
+                    {(lead || card.pullRequestUrl) && (
                         <ItemDescription className="flex flex-wrap items-center gap-x-1.5">
                             {lead && <span>{lead}</span>}
-                            {canLeaveReview && reportId && (
-                                <span className="flex items-center gap-1.5">
-                                    {lead && <span aria-hidden>·</span>}
-                                    <Button
-                                        variant="link-muted"
-                                        size="xs"
-                                        // Dotted at rest like the pull request link beside it.
-                                        className="h-auto px-0 text-xs underline decoration-dotted underline-offset-2 hover:decoration-solid"
-                                        disabled={isSample}
-                                        title="Remove yourself from this report’s reviewers"
-                                        onClick={() => leaveReportReview(reportId, preview.surface)}
-                                        data-attr="today-report-hover-card-leave-review"
-                                    >
-                                        Not me
-                                    </Button>
-                                </span>
-                            )}
                             {card.pullRequestUrl && (
                                 <span className="flex min-w-0 items-center gap-1.5">
                                     {lead && <span aria-hidden>·</span>}
@@ -264,6 +244,21 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                             <IconCheckCircle />
                             Resolve
                         </Button>
+                        {/* The click gives the report a state label, which takes this whole row off the
+                            card, so the request cannot be sent twice and needs no in-flight state. */}
+                        {card.canLeaveReview && (
+                            <Button
+                                variant="outline"
+                                size="xs"
+                                disabled={isSample}
+                                title="Remove yourself from this report’s reviewers"
+                                onClick={() => leaveReportReview(reportId, preview.surface)}
+                                data-attr="today-report-hover-card-leave-review"
+                            >
+                                <IconLeave />
+                                Not me
+                            </Button>
+                        )}
                         <Button
                             variant="outline"
                             size="xs"
