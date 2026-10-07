@@ -135,7 +135,7 @@ describe('SqlPieGraph', () => {
             <SqlPieGraph {...baseProps(chartSettings, [40, 30, 20, 10], ChartDisplayType.ActionsProportionBar)} />
         )
 
-        const legendRows = getHogChart(container).proportionLegendItems()
+        const legendRows = getHogChart(container).legendItems()
         expect(legendRows.map((row) => row.secondaryLabel)).toEqual(expectedShares)
         expect(screen.queryByText('100') !== null).toBe(showsTotal)
     })

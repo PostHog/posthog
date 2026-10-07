@@ -142,7 +142,7 @@ describe('TrendsPieChart', () => {
                 timeout: 5000,
             })
 
-            expect(getHogChart(container).proportionLegendItems()).toEqual(expectedRows)
+            expect(getHogChart(container).legendItems()).toEqual(expectedRows)
         })
 
         it('floors a negative part at 0 in the total below the bar, matching what the bar renders', async () => {
