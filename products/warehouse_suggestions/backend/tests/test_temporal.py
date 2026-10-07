@@ -33,18 +33,25 @@ class TestTeamBatches(BaseTest):
             ("kill_switch_on", KillSwitchLevel.LIGHT, False),
         ]
     )
-    def test_picks_flagged_teams_skips_demo_teams_and_stops_under_the_kill_switch(
+    def test_picks_flagged_main_environments_skips_demo_teams_and_stops_under_the_kill_switch(
         self, _name: str, kill_switch: KillSwitchLevel, expect_team: bool
     ) -> None:
         demo_team = Team.objects.create(organization=self.organization, is_demo=True)
         unflagged_team = Team.objects.create(organization=self.organization)
-        flagged = {self.team.pk, demo_team.pk}
+        child_environment = Team.objects.create(
+            organization=self.organization, project=self.project, parent_team=self.team
+        )
+        flagged = {self.team.pk, demo_team.pk, child_environment.pk}
 
         with (
             patch(f"{ACTIVITIES}.get_kill_switch_level", return_value=kill_switch),
             patch(f"{ACTIVITIES}.is_warehouse_suggestions_enabled", side_effect=lambda team: team.pk in flagged),
         ):
-            batches = team_batches(WarehouseSuggestionsInputs(team_ids=[self.team.pk, demo_team.pk, unflagged_team.pk]))
+            batches = team_batches(
+                WarehouseSuggestionsInputs(
+                    team_ids=[self.team.pk, demo_team.pk, unflagged_team.pk, child_environment.pk]
+                )
+            )
 
         assert batches == ([[self.team.pk]] if expect_team else [])
 

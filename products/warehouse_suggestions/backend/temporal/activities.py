@@ -37,7 +37,9 @@ def team_batches(inputs: WarehouseSuggestionsInputs) -> list[list[int]]:
         return []
     candidate_ids = inputs.team_ids if inputs.team_ids is not None else _teams_with_reads()
     teams = (
-        Team.objects.filter(id__in=candidate_ids, is_demo=False, organization__for_internal_metrics=False)
+        Team.objects.filter(
+            id__in=candidate_ids, is_demo=False, parent_team__isnull=True, organization__for_internal_metrics=False
+        )
         .select_related("organization")
         .order_by("id")
     )
