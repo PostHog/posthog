@@ -22,6 +22,7 @@ from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
     TeamSerializer,
+    TeamViewSet,
     TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _reset_default_data_color_theme_id_cache,
@@ -3959,6 +3960,42 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         # every setting below behind useRestrictedArea(Admin), so the API must reject too.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
+
+    @parameterized.expand(
+        [
+            (name, viewset, level, enabled)
+            for name, viewset in [("team", TeamViewSet), ("project", None)]
+            for level in [OrganizationMembership.Level.MEMBER, OrganizationMembership.Level.ADMIN]
+            for enabled in [True, False]
+        ]
+    )
+    def test_workflows_engagement_capture_requires_project_admin(
+        self,
+        _name: str,
+        viewset: type[TeamViewSet] | None,
+        level: OrganizationMembership.Level,
+        enabled: bool,
+    ) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team, defaults={"capture_workflows_engagement_events": not enabled}
+        )
+        data = {"workflows_config": {"capture_workflows_engagement_events": enabled}}
+        if viewset:
+            request = test.APIRequestFactory().patch(f"/api/environments/{self.team.id}/", data, format="json")
+            test.force_authenticate(request, user=self.user)
+            response = viewset.as_view({"patch": "partial_update"})(request, id=str(self.team.id))
+        else:
+            response = self.client.patch(f"/api/projects/{self.project.id}/", data, format="json")
+
+        is_admin = level >= OrganizationMembership.Level.ADMIN
+        expected_status = status.HTTP_200_OK if is_admin else status.HTTP_403_FORBIDDEN
+        assert response.status_code == expected_status, response.data
+        if not is_admin:
+            assert "Only project admins" in response.data["detail"]
+        config = TeamWorkflowsConfig.objects.get(team=self.team)
+        assert config.capture_workflows_engagement_events is (enabled if is_admin else not enabled)
 
     @parameterized.expand([(f[0], f[1], f[2]) for f in _ADMIN_GATED_TEAM_CONFIG_FIELDS])
     def test_member_cannot_patch_admin_gated_field_via_environments(
