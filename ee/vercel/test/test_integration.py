@@ -161,6 +161,13 @@ class TestVercelIntegration(TestCase):
             VercelIntegration._get_installation(self.NONEXISTENT_INSTALLATION_ID)
         assert str(context.exception) == "Installation not found"
 
+    def test_find_sso_user_with_unknown_installation_raises_not_found(self):
+        claims = self._create_user_claims("unknown_installation_vercel_id")
+        claims.installation_id = self.NONEXISTENT_INSTALLATION_ID
+        with self.assertRaises(NotFound) as context:
+            VercelIntegration._find_sso_user(claims)
+        assert str(context.exception) == "Installation not found"
+
     def test_get_vercel_plans_structure(self):
         plans = VercelIntegration.get_vercel_plans()
         assert len(plans) > 0
