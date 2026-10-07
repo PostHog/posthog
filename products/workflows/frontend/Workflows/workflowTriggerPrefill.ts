@@ -2,6 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
+import { parseBroadcastAudiencePrefill } from '../Broadcasts/broadcastAudiencePrefill'
 import { HogFlowTriggerSchema } from './hogflows/steps/types'
 import type { HogFlowAction } from './hogflows/types'
 
@@ -20,7 +21,16 @@ export function parseWorkflowTriggerPrefill(raw: unknown): WorkflowTriggerConfig
     }
     try {
         const result = HogFlowTriggerSchema.safeParse(typeof raw === 'string' ? JSON.parse(raw) : raw)
-        return result.success ? (result.data as WorkflowTriggerConfig) : null
+        if (!result.success) {
+            return null
+        }
+        const config = result.data as WorkflowTriggerConfig
+        if (config.type !== 'batch' || !config.filters.properties?.length) {
+            return config
+        }
+        // A batch audience gets the same check as a broadcast link, so a filter the backend drops can't widen it.
+        const properties = parseBroadcastAudiencePrefill(config.filters.properties)
+        return properties ? { ...config, filters: { ...config.filters, properties } } : null
     } catch {
         return null
     }

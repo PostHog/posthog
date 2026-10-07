@@ -16,8 +16,6 @@ export interface BroadcastPrefill {
     source?: string
 }
 
-const AUDIENCE_FILTER_TYPES: string[] = [PropertyFilterType.Person, PropertyFilterType.Cohort]
-
 export function urlForNewBroadcastWithAudience({ properties, name, source }: BroadcastPrefill): string {
     return combineUrl(urls.broadcastNew(), {
         [AUDIENCE_PREFILL_PARAM]: JSON.stringify(properties),
@@ -39,23 +37,60 @@ export function parseBroadcastAudiencePrefill(raw: unknown): AnyPropertyFilter[]
     if (!Array.isArray(value) || value.length === 0) {
         return null
     }
-    return value.every(isUsableAudienceFilter) ? (value as AnyPropertyFilter[]) : null
+    const filters = value.map(toAudienceFilter)
+    return filters.every((filter): filter is AnyPropertyFilter => filter !== null) ? filters : null
 }
 
-// A filter the backend can't apply is dropped there, which would widen the audience to everyone.
-function isUsableAudienceFilter(filter: unknown): boolean {
-    if (!filter || typeof filter !== 'object') {
-        return false
+const PERSON_OPERATORS: string[] = Object.values(PropertyOperator)
+const COHORT_OPERATORS: string[] = [PropertyOperator.In, PropertyOperator.NotIn]
+
+function isFilterValue(value: unknown): boolean {
+    return (
+        typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)) || typeof value === 'boolean'
+    )
+}
+
+// Rebuilt from known fields only: the backend drops a filter with a field it rejects, which would widen the
+// audience to everyone while the wizard still shows the filter.
+function toAudienceFilter(filter: unknown): AnyPropertyFilter | null {
+    if (!filter || typeof filter !== 'object' || Array.isArray(filter)) {
+        return null
     }
-    const { key, type, operator, value } = filter as Record<string, unknown>
-    if (typeof key !== 'string' || typeof type !== 'string' || !AUDIENCE_FILTER_TYPES.includes(type)) {
-        return false
+    const { key, type, operator, value, cohort_name } = filter as Record<string, unknown>
+    if (typeof key !== 'string' || key === '') {
+        return null
     }
     if (type === PropertyFilterType.Cohort) {
-        return typeof value === 'number' && Number.isFinite(value)
+        if (key !== 'id' || typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+            return null
+        }
+        if (operator !== undefined && (typeof operator !== 'string' || !COHORT_OPERATORS.includes(operator))) {
+            return null
+        }
+        return {
+            key: 'id',
+            type: PropertyFilterType.Cohort,
+            value,
+            operator: (operator as PropertyOperator | undefined) ?? PropertyOperator.In,
+            ...(typeof cohort_name === 'string' ? { cohort_name } : {}),
+        }
+    }
+    if (type !== PropertyFilterType.Person || typeof operator !== 'string' || !PERSON_OPERATORS.includes(operator)) {
+        return null
     }
     if (operator === PropertyOperator.IsSet || operator === PropertyOperator.IsNotSet) {
-        return true
+        return { key, type: PropertyFilterType.Person, operator: operator as PropertyOperator }
     }
-    return value !== undefined && value !== null && value !== '' && !(Array.isArray(value) && value.length === 0)
+    const hasValue = Array.isArray(value)
+        ? value.length > 0 && value.every(isFilterValue)
+        : isFilterValue(value) && value !== ''
+    if (!hasValue) {
+        return null
+    }
+    return {
+        key,
+        type: PropertyFilterType.Person,
+        operator: operator as PropertyOperator,
+        value: value as string | number | boolean | (string | number | boolean)[],
+    } as AnyPropertyFilter
 }

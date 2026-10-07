@@ -24,6 +24,10 @@ describe('workflowTriggerPrefill', () => {
         ['a non-JSON string', 'not-json'],
         ['an unknown trigger type', '{"type":"nonsense"}'],
         ['a batch trigger missing its filters', '{"type":"batch"}'],
+        [
+            'a batch audience with a filter the backend would drop',
+            '{"type":"batch","filters":{"properties":[{"key":"email","type":"person","operator":"exact"}]}}',
+        ],
     ])('returns null for %s', (_label, raw) => {
         expect(parseWorkflowTriggerPrefill(raw)).toBeNull()
     })

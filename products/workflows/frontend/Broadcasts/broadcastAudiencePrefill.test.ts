@@ -26,12 +26,41 @@ describe('broadcastAudiencePrefill', () => {
         ['an event filter, which a broadcast audience cannot use', '[{"key":"$browser","type":"event","value":"x"}]'],
         ['a person filter missing its value', '[{"key":"email","type":"person","operator":"exact"}]'],
         ['a cohort filter without a cohort id', '[{"key":"id","type":"cohort","operator":"in"}]'],
+        ['a person filter missing its operator', '[{"key":"email","type":"person","value":"a@example.com"}]'],
+        [
+            'an operator the backend does not know',
+            '[{"key":"email","type":"person","operator":"nonsense","value":"x"}]',
+        ],
+        ['a cohort filter with a negative id', '[{"key":"id","type":"cohort","value":-3}]'],
         [
             'one bad filter next to a good one',
             '[{"key":"id","type":"cohort","value":7},{"key":"email","type":"person","operator":"exact","value":[]}]',
         ],
     ])('returns null for %s', (_label, raw) => {
         expect(parseBroadcastAudiencePrefill(raw)).toBeNull()
+    })
+
+    it('keeps only the fields the audience uses, so a hidden field cannot make the backend drop the filter', () => {
+        const raw = JSON.stringify([
+            { key: 'email', type: 'person', operator: 'exact', value: 'finance@example.com', group_type_index: -1 },
+            { key: 'id', type: 'cohort', value: 7, operator: 'in', cohort_name: 'Beta', group_type_index: -1 },
+        ])
+
+        expect(parseBroadcastAudiencePrefill(raw)).toEqual([
+            {
+                key: 'email',
+                type: PropertyFilterType.Person,
+                operator: PropertyOperator.Exact,
+                value: 'finance@example.com',
+            },
+            {
+                key: 'id',
+                type: PropertyFilterType.Cohort,
+                value: 7,
+                operator: PropertyOperator.In,
+                cohort_name: 'Beta',
+            },
+        ])
     })
 
     it('accepts a person filter that needs no value', () => {
