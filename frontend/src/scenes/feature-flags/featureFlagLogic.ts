@@ -3594,12 +3594,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     const projectId = String(values.currentProjectId)
                     // nosemgrep: prefer-codegen-api-namespaced-feature_flags -- The generated function returns void, so it can't return the new cohort.
                     const { cohort } = await api.featureFlags.createStaticCohort(props.id)
+                    breakpoint()
                     // The cohort fills in the background. Opening the broadcast earlier would let it send to no one.
                     const deadline = Date.now() + BROADCAST_COHORT_WAIT_MS
                     let status = await cohortsRetrieve(projectId, cohort.id as number)
+                    breakpoint()
                     while (status.is_calculating && Date.now() < deadline) {
                         await breakpoint(BROADCAST_COHORT_POLL_MS)
                         status = await cohortsRetrieve(projectId, status.id)
+                        breakpoint()
                     }
                     return status
                 },
