@@ -1,4 +1,4 @@
-from posthog.schema import NativeMarketingSource
+from posthog.schema import NativeMarketingSource, SessionTableVersion
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -14,27 +14,57 @@ class SearchConversionQueryRunner(MarketingAnalyticsAttributionQueryRunner):
     def row_key(page: str | None, platform: str) -> str:
         return f"{platform}:{page or ''}"
 
-    def _breakdown_expr(self) -> ast.Expr:
+    def additional_session_columns(self) -> set[str]:
+        return {"channel_type", "utm_source", "referring_domain", "entry_url", "has_gclid", "has_msclkid"}
+
+    def _search_breakdown_expr(self, *, resolved: bool) -> ast.Expr:
+        def field(column: str, session_field: str) -> ast.Expr:
+            return ast.Field(chain=[column] if resolved else ["events", "session", session_field])
+
+        url = field("entry_url", "$entry_current_url")
+        if resolved:
+            has_gclid: ast.Expr = ast.Field(chain=["has_gclid"])
+            has_msclkid: ast.Expr = ast.Field(chain=["has_msclkid"])
+        else:
+            has_gclid = parse_expr("notEmpty(ifNull(events.session.$entry_gclid, ''))")
+            has_msclkid = parse_expr(
+                "notEmpty(extractURLParameter(ifNull({url}, ''), 'msclkid'))", placeholders={"url": url}
+            )
+            if not self.modifiers or self.modifiers.sessionTableVersion != SessionTableVersion.V3:
+                has_msclkid = ast.Or(
+                    exprs=[has_msclkid, parse_expr("notEmpty(ifNull(events.session.$entry_msclkid, ''))")]
+                )
         return parse_expr(
             """
             concat(
                 multiIf(
-                    events.session.$channel_type = 'Paid Search'
-                        AND ({source} = {google} OR notEmpty(ifNull(events.session.$entry_gclid, ''))), 'GoogleAds',
-                    events.session.$channel_type = 'Organic Search'
-                        AND match(lower(ifNull(events.session.$entry_referring_domain, '')), {google_domain}),
-                        'GoogleSearchConsole',
+                    {channel} = 'Paid Search' AND ({source} = {google} OR {has_gclid}), 'GoogleAds',
+                    {channel} = 'Paid Search' AND ({source} = {bing} OR {has_msclkid}), 'BingAds',
+                    {channel} = 'Organic Search' AND NOT {has_msclkid}
+                        AND match(lower(ifNull({referrer}, '')), {google_domain}), 'GoogleSearchConsole',
                     ''
                 ),
-                ':', cutQueryStringAndFragment(ifNull(events.session.$entry_current_url, ''))
+                ':', cutQueryStringAndFragment(ifNull({url}, ''))
             )
             """,
             placeholders={
-                "source": self._normalized_source_expr(ast.Field(chain=["events", "session", "$entry_utm_source"])),
+                "channel": field("channel_type", "$channel_type"),
+                "source": self._normalized_source_expr(field("utm_source", "$entry_utm_source")),
                 "google": ast.Constant(value=INTEGRATION_PRIMARY_SOURCE[NativeMarketingSource.GOOGLE_ADS]),
+                "bing": ast.Constant(value=INTEGRATION_PRIMARY_SOURCE[NativeMarketingSource.BING_ADS]),
+                "has_gclid": has_gclid,
+                "has_msclkid": has_msclkid,
+                "referrer": field("referring_domain", "$entry_referring_domain"),
                 "google_domain": ast.Constant(value=r"(^|\.)google\.[a-z.]+$"),
+                "url": url,
             },
         )
+
+    def _breakdown_expr(self) -> ast.Expr:
+        return self._search_breakdown_expr(resolved=False)
+
+    def resolved_breakdown_expr(self) -> ast.Expr:
+        return self._search_breakdown_expr(resolved=True)
 
     def _build_outer_select(self) -> ast.SelectQuery:
         query = super()._build_outer_select()
@@ -44,8 +74,3 @@ class SearchConversionQueryRunner(MarketingAnalyticsAttributionQueryRunner):
             placeholders={"keys": ast.Tuple(exprs=[ast.Constant(value=key) for key in self.search_keys])},
         )
         return query
-
-    def to_query(self) -> ast.SelectQuery:
-        # The optimized session reader has no full landing URL or composite breakdown.
-        self._live_session_resolution_eligible = False
-        return super().to_query()

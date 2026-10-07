@@ -17,11 +17,17 @@ Reported conversions and reported CPA require a synced ad platform source in the
 Google Search Console reports organic traffic metrics only.
 The Traffic and Conversions views both include spend when a paid source is ready.
 The first column stays visible while the metrics scroll horizontally.
-In Landing pages, Include PostHog conversions adds each configured event or action goal and its cost per conversion.
+In Landing pages, Include PostHog conversions adds the first five supported event or action goals and their cost per conversion.
+If more goals are configured, a warning directs users to the attribution report for other goals.
+This limits each search request to five attribution queries, or ten with period comparison.
 These conversions use the session attribution engine with the team's attribution model, lookback window, goal filters, and test-account exclusion setting.
 Credit is matched by landing URL and search source after attribution, so other channels retain their share.
 URL query parameters and fragments are combined in this view.
-Google organic search and paid Google search receive separate credit; campaign source aliases use the existing Marketing analytics mappings.
+Google organic search, paid Google search, and paid Bing search receive separate credit; campaign source aliases use the existing Marketing analytics mappings.
+Paid Search sessions can also identify Google through `gclid` and Bing through `msclkid`.
+A click ID alone does not classify a session as search traffic; the session must have the Paid Search channel.
+When `marketing-analytics-live-session-resolution` is enabled, eligible landing-page goals reuse shared live session resolution.
+They do not read session or conversion precomputation tables.
 Organic rows have no cost per conversion, and pages with spend in multiple currencies leave PostHog metrics empty because credit cannot be assigned to individual ad accounts.
 Data warehouse goals are not supported by landing-page attribution.
 The checkbox only loads conversions in the Landing pages Conversions view; keyword detail views do not imply query-level PostHog attribution.

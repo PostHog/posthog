@@ -25,7 +25,10 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 
 from .attribution_base import ConversionGoal
+from .marketing_analytics_config import MarketingAnalyticsConfig
 from .search_conversion_query_runner import SearchConversionQueryRunner
+
+MAX_POSTHOG_CONVERSION_GOALS = 5
 
 
 class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalyticsSearchQueryResponse]):
@@ -63,6 +66,15 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
     @property
     def include_posthog_conversions(self) -> bool:
         return bool(self.query.includePostHogConversions and self.query.breakdown == "page" and not self.query.keyword)
+
+    def get_cache_key_variant(self) -> str:
+        variant = super().get_cache_key_variant()
+        if (
+            self.include_posthog_conversions
+            and MarketingAnalyticsConfig.from_team(self.team).live_session_resolution_enabled
+        ):
+            return f"{variant}_live_session_resolution"
+        return variant
 
     def _page_expr(self, field: str) -> ast.Expr:
         page = parse_expr(field)
@@ -116,9 +128,10 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                 placeholders=placeholders,
             )
         if self.query.breakdown == "page" and source.sourceType == "BingAds":
+            placeholders["page_value"] = self._page_expr("destination_url")
             return parse_select(
                 """
-                SELECT {period} AS period, NULL AS keyword, nullIf(destination_url, '') AS page,
+                SELECT {period} AS period, NULL AS keyword, nullIf({page_value}, '') AS page,
                     'BingAds' AS platform, NULL AS matchType,
                     nullIf(upper(currency_code), '') AS currency,
                     sum(toFloat(clicks)) AS click_count, sum(toFloat(impressions)) AS impression_count,
@@ -254,12 +267,18 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
         goals = goal_runner._get_team_conversion_goals()
         event_goals: list[ConversionGoal] = [goal for goal in goals if goal.kind != "DataWarehouseNode"]
         valid_goals, skipped_goals = goal_runner._filter_invalid_conversion_goals(event_goals)
+        warnings = [goal.message for goal in skipped_goals]
+        if len(valid_goals) > MAX_POSTHOG_CONVERSION_GOALS:
+            warnings.append(
+                f"Search performance shows the first {MAX_POSTHOG_CONVERSION_GOALS} supported PostHog goals. "
+                "Use the attribution report to view other goals."
+            )
+            valid_goals = valid_goals[:MAX_POSTHOG_CONVERSION_GOALS]
         response.posthogConversionGoals = [
             MarketingAnalyticsSearchConversionGoal(id=goal.conversion_goal_id, name=goal.conversion_goal_name)
             for goal in valid_goals
         ]
         response.posthogAttributionMode = goal_runner.config.attribution_mode
-        warnings = [goal.message for goal in skipped_goals]
         if len(event_goals) != len(goals):
             warnings.append(
                 "Landing page attribution supports event and action goals. Data warehouse goals are not included."

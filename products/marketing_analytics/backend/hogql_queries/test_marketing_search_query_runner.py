@@ -3,6 +3,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.core.cache import cache
 
@@ -16,9 +17,12 @@ from posthog.schema import (
     ConversionGoalFilter1,
     DateRange,
     EventPropertyFilter,
+    HogQLQueryResponse,
+    MarketingAnalyticsSearchMetrics,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsSearchSource,
     PropertyOperator,
+    SessionTableVersion,
 )
 
 from posthog.constants import AvailableFeature
@@ -280,14 +284,25 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            (AttributionMode.LAST_TOUCH, 2, 1, False),
-            (AttributionMode.FIRST_TOUCH, 3, 0, False),
-            (AttributionMode.LAST_TOUCH, None, 1, True),
+            (AttributionMode.LAST_TOUCH, 2, 1, False, SessionTableVersion.V2, False),
+            (AttributionMode.LAST_TOUCH, 2, 1, False, SessionTableVersion.V2, True),
+            (AttributionMode.LAST_TOUCH, 2, 1, False, SessionTableVersion.V3, False),
+            (AttributionMode.LAST_TOUCH, 2, 1, False, SessionTableVersion.V3, True),
+            (AttributionMode.FIRST_TOUCH, 3, 0, False, SessionTableVersion.V3, True),
+            (AttributionMode.LAST_TOUCH, None, 1, True, SessionTableVersion.V2, True),
         ]
     )
     def test_posthog_landing_page_conversions_respect_source_model_filters_and_comparison(
-        self, model: AttributionMode, paid_count: int | None, organic_count: int, multiple_currencies: bool
+        self,
+        model: AttributionMode,
+        paid_count: int | None,
+        organic_count: int,
+        multiple_currencies: bool,
+        version: SessionTableVersion,
+        shared_sessions: bool,
     ) -> None:
+        self.team.modifiers = {"sessionTableVersion": version}
+        self.team._ma_precompute_flags = {"conversion": False, "costs": False, "live_sessions": shared_sessions}  # type: ignore[attr-defined]
         config = self.team.marketing_analytics_config
         config.attribution_mode = model
         config.attribution_window_days = 7
@@ -333,6 +348,23 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             },
             "page,clicks,impressions,position,date\nhttps://example.com/pricing,40,200,2,2023-01-10\n",
         )
+        bing = self._table(
+            "search_conversion_bing",
+            {
+                "destination_url": "String",
+                "currency_code": "String",
+                "clicks": "Float64",
+                "impressions": "Float64",
+                "spend": "Float64",
+                "conversions_qualified": "Float64",
+                "time_period": "Date",
+                "ad_distribution": "String",
+            },
+            "destination_url,currency_code,clicks,impressions,spend,conversions_qualified,time_period,ad_distribution\n"
+            "https://example.com/pricing?utm_source=bing,USD,10,100,12,3,2023-01-10,Search\n"
+            "https://example.com/pricing#plans,USD,5,50,8,2,2023-01-10,Search\n"
+            "https://example.com/pricing,USD,3,30,6,1,2022-12-15,Search\n",
+        )
         for person, day, url, medium, referrer, qualified in [
             ("paid", "2023-01-09", "https://example.com/pricing?utm_campaign=spring", "cpc", "$direct", True),
             ("journey", "2023-01-08", "https://example.com/pricing", "cpc", "$direct", True),
@@ -344,6 +376,16 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
                 "https://example.com/pricing?gclid=example-click",
                 "cpc",
                 "www.google.com",
+                True,
+            ),
+            ("bing-paid", "2023-01-09", "https://example.com/pricing?utm_source=bing", "cpc", "www.bing.com", True),
+            ("bing-previous", "2022-12-15", "https://example.com/pricing", "cpc", "www.bing.com", True),
+            (
+                "bing-auto-tagged",
+                "2023-01-09",
+                "https://example.com/pricing?msclkid=example-click",
+                "cpc",
+                "www.bing.com",
                 True,
             ),
             ("excluded", "2023-01-09", "https://example.com/pricing", "cpc", "$direct", False),
@@ -360,7 +402,13 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
                     "$session_id": str(uuid7(at)),
                     "$current_url": url,
                     "$pathname": "/pricing",
-                    "utm_source": "google" if medium and person != "auto-tagged" else "",
+                    "utm_source": (
+                        "microsoft"
+                        if person in ("bing-paid", "bing-previous")
+                        else "google"
+                        if medium and person not in ("auto-tagged", "bing-auto-tagged")
+                        else ""
+                    ),
                     "gclid": "example-click" if person == "auto-tagged" else "",
                     "utm_medium": medium,
                     "$referring_domain": referrer,
@@ -390,6 +438,7 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         query = MarketingAnalyticsSearchQuery(
             sources=[
                 MarketingAnalyticsSearchSource(sourceType="GoogleAds", statsTable=paid),
+                MarketingAnalyticsSearchSource(sourceType="BingAds", statsTable=bing),
                 MarketingAnalyticsSearchSource(sourceType="GoogleSearchConsole", statsTable=organic),
             ],
             breakdown="page",
@@ -398,7 +447,7 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
         )
         result = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate()
-        assert len(result.results) == (3 if multiple_currencies else 2)
+        assert len(result.results) == (4 if multiple_currencies else 3)
         assert bool(result.posthogConversionsWarning) == multiple_currencies
         assert result.posthogAttributionMode == model
         paid_row = next(row for row in result.results if row.platform == "GoogleAds" and row.currency == "USD")
@@ -413,10 +462,76 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert organic_row.posthogConversions is not None
         assert organic_row.posthogConversions[0].conversions == organic_count
         assert organic_row.posthogConversions[0].costPerConversion is None
+        bing_row = next(row for row in result.results if row.platform == "BingAds")
+        assert bing_row.page == "https://example.com/pricing"
+        assert bing_row.cost == 20 and bing_row.conversions == 5
+        assert bing_row.posthogConversions is not None
+        assert bing_row.posthogConversions[0].conversions == 2
+        assert bing_row.posthogConversions[0].costPerConversion == 10
+        assert bing_row.posthogConversions[0].previousConversions == 1
+        assert bing_row.posthogConversions[0].previousCostPerConversion == 6
         query.includePostHogConversions = False
         result = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate()
         assert result.posthogConversionGoals is None
         assert all(row.posthogConversions is None for row in result.results)
+
+
+class TestMarketingSearchConversionBudget(BaseTest):
+    @parameterized.expand([(3, 3), (6, 5)])
+    def test_bounds_goal_queries_and_reports_excluded_goals(self, goal_count: int, expected_count: int) -> None:
+        config = self.team.marketing_analytics_config
+        config.conversion_goals = [
+            ConversionGoalFilter1(
+                kind="EventsNode",
+                event=None if index == 0 else "purchase",
+                name=f"Goal {index}",
+                conversion_goal_id=f"goal-{index}",
+                conversion_goal_name=f"Goal {index}",
+                schema_map={},
+            ).model_dump()
+            for index in range(goal_count + 1)
+        ]
+        config.save()
+        metrics = MarketingAnalyticsSearchMetrics(clicks=1, impressions=10).model_dump()
+        warehouse_row = {
+            "page": "https://example.com/pricing",
+            "platform": "GoogleSearchConsole",
+            "currency_count": 1,
+            **metrics,
+            **{f"previous_{key}": value for key, value in metrics.items()},
+        }
+        with (
+            patch(
+                "products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner.execute_hogql_query",
+                return_value=HogQLQueryResponse(columns=list(warehouse_row), results=[list(warehouse_row.values())]),
+            ),
+            patch(
+                "products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner.execute_hogql_query",
+                return_value=HogQLQueryResponse(results=[]),
+            ) as execute_attribution,
+        ):
+            result = MarketingAnalyticsSearchQueryRunner(
+                query=MarketingAnalyticsSearchQuery(
+                    sources=[MarketingAnalyticsSearchSource(sourceType="GoogleSearchConsole", statsTable="pages")],
+                    breakdown="page",
+                    includePostHogConversions=True,
+                    compareFilter=CompareFilter(compare=True),
+                    dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+                ),
+                team=self.team,
+                user=self.user,
+            ).calculate()
+        assert execute_attribution.call_count == expected_count * 2
+        assert result.posthogConversionGoals is not None
+        assert [goal.id for goal in result.posthogConversionGoals] == [
+            f"goal-{index}" for index in range(1, expected_count + 1)
+        ]
+        conversions = result.results[0].posthogConversions
+        assert conversions is not None and len(conversions) == expected_count
+        assert all(goal.conversions == 0 and goal.previousConversions == 0 for goal in conversions)
+        assert result.posthogConversionsWarning is not None
+        assert "'All Events' cannot be used" in result.posthogConversionsWarning
+        assert ("first 5 supported PostHog goals" in result.posthogConversionsWarning) == (goal_count > expected_count)
 
 
 @pytest.mark.ee
@@ -431,6 +546,20 @@ class TestMarketingSearchCacheAccessControl(BaseTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         self.addCleanup(cache.clear)
+
+    @parameterized.expand([True, False])
+    def test_live_resolution_rollout_partitions_search_conversion_cache(self, include_conversions: bool) -> None:
+        query = MarketingAnalyticsSearchQuery(
+            sources=[], breakdown="page", includePostHogConversions=include_conversions
+        )
+        keys = []
+        for enabled in (False, True, False):
+            self.team._ma_precompute_flags = {"conversion": False, "costs": False, "live_sessions": enabled}  # type: ignore[attr-defined]
+            keys.append(
+                MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+            )
+        assert (keys[0] != keys[1]) == include_conversions
+        assert keys[0] == keys[2]
 
     @parameterized.expand(
         [
