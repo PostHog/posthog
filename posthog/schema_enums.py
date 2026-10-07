@@ -636,6 +636,11 @@ class Operator1(StrEnum):
     OR_ = "OR"
 
 
+class MissingDates(StrEnum):
+    GAP = "gap"
+    ZERO = "zero"
+
+
 class BIDateBucket(StrEnum):
     MINUTE = "minute"
     HOUR = "hour"
