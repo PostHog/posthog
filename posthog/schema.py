@@ -5051,7 +5051,9 @@ class BIValue(BaseModel):
     )
     aggregation: BIAggregation
     customExpression: str | None = None
+    display: ChartSettingsDisplay | None = None
     field: BIField
+    formatting: ChartSettingsFormatting | None = None
     label: str | None = None
     tableCalculation: BITableCalculation | None = None
 
@@ -7265,7 +7267,10 @@ class QueryStatus(BaseModel):
     )
     error_code: str | None = Field(
         default=None,
-        description=("Stable machine-readable code for the error (the DRF exception code), when known."),
+        description=(
+            "Stable machine-readable code for the error, when known: the DRF exception"
+            " code, or the ClickHouse error name."
+        ),
     )
     error_message: str | None = None
     expiration_time: AwareDatetime | None = None

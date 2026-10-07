@@ -22,7 +22,8 @@ use personhog_proto::personhog::types::v1::{
     DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsMode as ProtoDeletePersonsMode,
     DeletePersonsRequest, DeletePersonsResponse, DeleteTombstonedPersonsRequest,
-    DeleteTombstonedPersonsResponse, DistinctIdWithVersion, GetDistinctIdsForPersonRequest,
+    DeleteTombstonedPersonsResponse, DistinctIdWithVersion, EnsurePersonVersionFloorsRequest,
+    EnsurePersonVersionFloorsResponse, GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
     GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
     GetGroupTypeMappingByDashboardIdRequest, GetGroupTypeMappingByDashboardIdResponse,
@@ -39,13 +40,15 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, PersonDistinctIds,
-    PersonTombstoneQueueEntry, PersonWithDistinctIds, PersonWithTeamDistinctId,
-    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
-    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
-    SplitPersonResponse, SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId,
-    TombstonedPerson, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    PersonTombstoneQueueEntry, PersonVersionFloorResult, PersonWithDistinctIds,
+    PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
+    PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
+    SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
+    SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse,
+    SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId, TombstonedPerson,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    VersionFloorOutcome as ProtoVersionFloorOutcome,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -60,6 +63,9 @@ const MAX_LIST_GROUPS_LIMIT: i32 = 1_000;
 // Splits run in a single all-or-nothing transaction holding row locks, so the
 // cap bounds both lock-hold time and payload size — same order as batch lookups.
 const MAX_SPLIT_BATCH_SIZE: usize = 250;
+// Version floors also run in one transaction holding
+// row locks, so they take the same cap as splits.
+const MAX_LOCKED_WRITE_BATCH_SIZE: usize = 250;
 
 use consistency::{reject_strong_consistency, to_storage_consistency};
 use error::log_and_convert_error;
@@ -1520,6 +1526,103 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "set_person_version_floor"))?;
 
         Ok(Response::new(SetPersonVersionFloorResponse { updated }))
+    }
+
+    // ============================================================
+    // Version floors
+    // ============================================================
+
+    async fn ensure_person_version_floors(
+        &self,
+        request: Request<EnsurePersonVersionFloorsRequest>,
+    ) -> Result<Response<EnsurePersonVersionFloorsResponse>, Status> {
+        let req = request.into_inner();
+
+        check_floor_batch(
+            req.floors
+                .iter()
+                .map(|f| (f.person_uuid.as_str(), f.min_version)),
+        )?;
+        let floors: Vec<(Uuid, i64)> = req
+            .floors
+            .iter()
+            .map(|f| parse_uuid(&f.person_uuid).map(|uuid| (uuid, f.min_version)))
+            .collect::<Result<_, _>>()?;
+        // Two spellings of one UUID pass the string check but lock the same row.
+        let mut seen = HashSet::with_capacity(floors.len());
+        if let Some((uuid, _)) = floors.iter().find(|(uuid, _)| !seen.insert(*uuid)) {
+            return Err(Status::invalid_argument(format!(
+                "Duplicate key in request: {uuid}"
+            )));
+        }
+
+        let results = self
+            .storage
+            .ensure_person_version_floors(req.team_id, &floors)
+            .await
+            .map_err(|e| log_and_convert_error(e, "ensure_person_version_floors"))?;
+
+        Ok(Response::new(EnsurePersonVersionFloorsResponse {
+            results: results
+                .into_iter()
+                .map(|r| PersonVersionFloorResult {
+                    person_uuid: r.uuid.to_string(),
+                    outcome: floor_outcome_to_proto(r.outcome) as i32,
+                    version: r.version,
+                })
+                .collect(),
+        }))
+    }
+}
+
+#[allow(clippy::result_large_err)]
+fn parse_uuid(s: &str) -> Result<Uuid, Status> {
+    Uuid::parse_str(s).map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))
+}
+
+#[allow(clippy::result_large_err)]
+fn check_write_batch<'a>(keys: impl ExactSizeIterator<Item = &'a str>) -> Result<(), Status> {
+    if keys.len() > MAX_LOCKED_WRITE_BATCH_SIZE {
+        return Err(Status::invalid_argument(format!(
+            "Maximum {MAX_LOCKED_WRITE_BATCH_SIZE} keys per request"
+        )));
+    }
+    let mut seen = HashSet::with_capacity(keys.len());
+    for key in keys {
+        if !seen.insert(key) {
+            return Err(Status::invalid_argument(format!(
+                "Duplicate key in request: {key}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::result_large_err)]
+fn check_floor_batch<'a>(
+    floors: impl ExactSizeIterator<Item = (&'a str, i64)> + Clone,
+) -> Result<(), Status> {
+    check_write_batch(floors.clone().map(|(key, _)| key))?;
+    for (key, min_version) in floors {
+        if min_version < 0 {
+            return Err(Status::invalid_argument(format!(
+                "min_version must not be negative, got {min_version} for {key}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn floor_outcome_to_proto(outcome: storage::VersionFloorOutcome) -> ProtoVersionFloorOutcome {
+    match outcome {
+        storage::VersionFloorOutcome::TombstoneInserted => {
+            ProtoVersionFloorOutcome::TombstoneInserted
+        }
+        storage::VersionFloorOutcome::TombstoneRaised => ProtoVersionFloorOutcome::TombstoneRaised,
+        storage::VersionFloorOutcome::TombstoneAtFloor => {
+            ProtoVersionFloorOutcome::TombstoneAtFloor
+        }
+        storage::VersionFloorOutcome::Live => ProtoVersionFloorOutcome::Live,
     }
 }
 

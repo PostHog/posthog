@@ -207,6 +207,34 @@ class PostgresProducer:
             incremental_last_value=None if held is None else held[2],
         )
 
+    def send_final_batch_for_resumed_run(self, run_uuid: str) -> None:
+        """Append a final-only copy of the last queued batch from an earlier attempt."""
+        with _queue_db_errors():
+            cursor = self._conn.execute(
+                f"""
+        INSERT INTO {BATCH_TABLE} (
+            team_id, schema_id, source_id, job_id, run_uuid,
+            batch_index, s3_path, row_count, byte_size, is_final_batch,
+            total_batches, total_rows, sync_type, cumulative_row_count,
+            resource_name, is_resume, is_first_ever_sync, metadata, destination_ids, created_at
+        )
+        SELECT
+            team_id, schema_id, source_id, job_id, run_uuid,
+            batch_index, s3_path, row_count, byte_size, TRUE,
+            batch_index + 1, cumulative_row_count, sync_type, cumulative_row_count,
+            resource_name, is_resume, is_first_ever_sync, metadata, destination_ids, now()
+        FROM {BATCH_TABLE}
+        WHERE job_id = %(job_id)s AND run_uuid = %(run_uuid)s
+        ORDER BY batch_index DESC, created_at DESC
+        LIMIT 1
+                """,
+                {"job_id": self._job_id, "run_uuid": run_uuid},
+            )
+        if cursor.rowcount != 1:
+            raise RuntimeError(f"Could not finalize resumed queue run {run_uuid}")
+        self._batches_sent += 1
+        self._logger.info("resumed_run_final_batch_inserted", run_uuid=run_uuid)
+
     def send_batch_notification(
         self,
         batch_result: BatchWriteResult,

@@ -44,6 +44,7 @@ import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import {
+    MCPToolResultError,
     PostHogApiError,
     PostHogRateLimitError,
     PostHogValidationError,
@@ -119,6 +120,7 @@ describe('ToolExecutor metrics', () => {
         { tool: 'execute-sql', useSingleExec: false, type: 'internal' },
         { tool: 'execute-sql', useSingleExec: true, type: 'internal' },
         { tool: 'execute-sql', useSingleExec: true, type: 'validation' },
+        { tool: 'execute-sql', useSingleExec: false, type: 'validation' },
         { tool: 'execute-sql', useSingleExec: false, type: 'memory_limit' },
         { tool: 'execute-sql', useSingleExec: true, type: 'memory_limit' },
         { tool: 'read-data-schema', useSingleExec: false, type: 'permission' },
@@ -142,6 +144,7 @@ describe('ToolExecutor metrics', () => {
                             success: false,
                             content,
                             error_type: type,
+                            error_code: type === 'validation' ? 'unknown_identifier' : undefined,
                         })
                     )
                 )
@@ -162,6 +165,11 @@ describe('ToolExecutor metrics', () => {
             expect(captureException).toHaveBeenCalledTimes(['validation', 'permission'].includes(type) ? 0 : 1)
             const properties = trackToolCallExtras(tool)
             expect(properties).toMatchObject({ $mcp_error_type: type, $mcp_error_message: `Tool failed: ${type}` })
+            if (type === 'validation') {
+                expect(properties?.$mcp_error_code).toBe('unknown_identifier')
+            } else {
+                expect(properties).not.toHaveProperty('$mcp_error_code')
+            }
             expect(JSON.stringify(properties)).not.toContain('private caller query')
             const errorMetadata = {
                 isError: true,
@@ -291,6 +299,47 @@ describe('ToolExecutor metrics', () => {
             })
             // The detail body echoes caller input, so it must never ride along.
             expect(JSON.stringify(extras)).not.toContain("'from' property")
+        })
+
+        // A tool that fails inside PostHog's backend answers with an error type and, when the
+        // backend knows it, the leaf failure name. Without the name every such failure reads
+        // as one `internal` or `validation` bucket.
+        it.each([
+            ['a code from the backend', 'unknown_identifier', 'unknown_identifier'],
+            ['a code with control characters', 'bad\ncode ', 'badcode'],
+        ])('stamps $mcp_error_code for an MCPToolResultError with %s', async (_label, errorCode, expected) => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new MCPToolResultError('Tool failed', 'validation', errorCode)
+                }) as any
+            )
+
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'fail-tool' }])
+            )
+
+            expect(trackToolCallExtras('fail-tool')).toMatchObject({
+                $mcp_error_type: 'validation',
+                $mcp_error_code: expected,
+            })
+        })
+
+        it('omits $mcp_error_code for an MCPToolResultError without a code', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new MCPToolResultError('Tool failed', 'internal')
+                }) as any
+            )
+
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'fail-tool' }])
+            )
+
+            const extras = trackToolCallExtras('fail-tool')
+            expect(extras).toMatchObject({ $mcp_error_type: 'internal' })
+            expect(extras).not.toHaveProperty('$mcp_error_code')
         })
 
         it.each([
