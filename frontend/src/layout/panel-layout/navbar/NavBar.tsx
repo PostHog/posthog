@@ -309,7 +309,12 @@ export function NavBar(): JSX.Element {
                     }}
                     orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}
                 >
-                    <div className={cn('p-1', !isSimpleSidepanelEnabled && isLayoutNavCollapsed && 'hidden')}>
+                    <div
+                        className={cn(
+                            isLayoutNavCollapsed ? 'p-1' : 'px-2 py-1',
+                            !isSimpleSidepanelEnabled && isLayoutNavCollapsed && 'hidden'
+                        )}
+                    >
                         <Tabs.List
                             className={cn(
                                 'relative flex items-center gap-1 shrink-0 z-0 p-1 rounded-lg bg-(--color-bg-fill-highlight-50) dark:bg-surface-primary',
