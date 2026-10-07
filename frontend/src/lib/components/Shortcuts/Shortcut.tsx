@@ -35,7 +35,7 @@ export const Shortcut = forwardRef<HTMLElement, ShortcutProps>(function Shortcut
         scope = 'global',
         disabled = false,
         disabledReason,
-        ignoreInEditable = false,
+        ignoreInEditable,
         priority = 0,
     },
     forwardedRef
