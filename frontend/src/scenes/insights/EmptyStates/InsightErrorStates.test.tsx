@@ -232,6 +232,29 @@ describe('insight error states', () => {
         expect(onRetry).toHaveBeenCalledTimes(1)
     })
 
+    it('keeps rate-limit guidance when a 429 carries an embedded capacity deadline', () => {
+        jest.useFakeTimers()
+        const onRetry = jest.fn()
+        render(
+            <InsightErrorState
+                titleStatus={429}
+                retryAfter="in 2 minutes"
+                retryAfterTimestamp={Date.now() + 10_000}
+                onRetry={onRetry}
+            />
+        )
+
+        expect(screen.getByText('Try again in 2 minutes.')).toBeTruthy()
+        fireEvent.click(screen.getByTestId('insight-retry-button'))
+        expect(onRetry).not.toHaveBeenCalled()
+
+        act(() => jest.advanceTimersByTime(10_000))
+        expect(screen.getByText('Try again in 2 minutes.')).toBeTruthy()
+        expect(screen.queryByText('You can try this query again now.')).toBeNull()
+        fireEvent.click(screen.getByTestId('insight-retry-button'))
+        expect(onRetry).toHaveBeenCalledTimes(1)
+    })
+
     it('updates the capacity countdown after page translation replaces its text node', () => {
         jest.useFakeTimers()
         const onRetry = jest.fn()
