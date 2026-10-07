@@ -175,10 +175,14 @@ class TestCallbackView:
             patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch("products.slack_app.backend.views.slack_user_link.exchange_code", return_value=self._identity()),
             patch("posthog.models.integration.slack.WebClient"),
+            patch("products.slack_app.backend.analytics.ph_background_capture") as mock_ph,
         ):
             response = client.get(f"/complete/slack-link/?code=abc&state={state}")
 
         self._assert_settings_redirect_success(response)
+        mock_ph.return_value.alias.assert_called_once_with(
+            previous_id=f"slack:{SLACK_TEAM_ID}:{SLACK_USER_ID}", distinct_id=user.distinct_id
+        )
         link = UserIntegration.objects.get(user=user, kind=UserIntegration.IntegrationKind.SLACK)
         assert link.integration_id == SLACK_USER_ID
         assert link.config["slack_team_id"] == SLACK_TEAM_ID

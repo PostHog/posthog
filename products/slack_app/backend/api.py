@@ -3847,11 +3847,19 @@ def _handle_untagged_followup_dismiss(payload: dict) -> HttpResponse:
         if integration_id and slack_team_id
         else None
     )
+    dismisser_slack_user_id = payload.get("user", {}).get("id")
     if dismissing_integration is not None:
         capture_slack_event(
             dismissing_integration,
             "slack app untagged followup dismissed",
-            slack_user_id=payload.get("user", {}).get("id"),
+            slack_user_id=dismisser_slack_user_id,
+            posthog_user=resolve_posthog_user_from_event(
+                slack_user_id=dismisser_slack_user_id,
+                probe_integration=dismissing_integration,
+                candidate_integrations=[dismissing_integration],
+            )
+            if dismisser_slack_user_id
+            else None,
         )
     return HttpResponse(status=200)
 
