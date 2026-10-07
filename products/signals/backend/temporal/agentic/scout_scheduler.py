@@ -61,8 +61,8 @@ class RunSignalsScoutInput:
     # Set by a workflow step that parks until this run wakes it.
     workflow_origin_key: str | None = None
     workflow_managed_resume: bool = False
-    # One-off steering typed alongside a manual trigger. Never set on a scheduled dispatch,
-    # where standing steering is a scout note instead.
+    # One-off steering typed alongside a manual trigger, or rendered from the triggering event by a
+    # workflow step. Never set on a scheduled dispatch, where standing steering is a scout note instead.
     run_note: str | None = None
     trial_launch_id: str | None = None
     # The report check a `check` dispatch answers. Stamped on the run row so the check can name
@@ -438,7 +438,12 @@ def start_check_signals_scout_run(
 
 
 def start_workflow_signals_scout_run(
-    client: Client, *, team_id: int, skill_name: str, workflow_origin_key: str | None = None
+    client: Client,
+    *,
+    team_id: int,
+    skill_name: str,
+    workflow_origin_key: str | None = None,
+    run_note: str | None = None,
 ) -> str:
     """Dispatch one workflow-triggered scout run on the signals task queue; return its workflow id.
 
@@ -446,6 +451,8 @@ def start_workflow_signals_scout_run(
     human testing a scout shouldn't 409 the automation, or vice versa. The overlap that matters
     (one live run per `(team, skill)`) is still caught by the runner's single-flight and the
     callers' in-flight pre-check, both source-agnostic.
+
+    `run_note` is the note the step rendered from its triggering event, for this run alone.
     """
     return _start_off_schedule_run(
         client,
@@ -454,4 +461,5 @@ def start_workflow_signals_scout_run(
         skill_name=skill_name,
         source=TRIGGERED_BY_WORKFLOW,
         workflow_origin_key=workflow_origin_key,
+        run_note=run_note,
     )

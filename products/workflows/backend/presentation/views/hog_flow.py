@@ -873,6 +873,31 @@ def _existing_email_from_by_action(instance: "HogFlow") -> dict[str, list[dict]]
     return result
 
 
+def _run_scout_note(inputs: object) -> str:
+    """The "Run scout" step's note template, normalized to bare text. Blank is no note."""
+    note_input = inputs.get("note") if isinstance(inputs, dict) else None
+    value = note_input.get("value") if isinstance(note_input, dict) else None
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _existing_run_scout_notes_by_action(instance: "HogFlow") -> dict[str, set[str]]:
+    """Stored "Run scout" note templates keyed by action id, live and draft variants both kept,
+    for the same reason as `_existing_email_from_by_action`."""
+    result: dict[str, set[str]] = {}
+    draft = instance.draft if isinstance(instance.draft, dict) else {}
+    for actions in (instance.actions, draft.get("actions")):
+        for stored_action in actions or []:
+            if not isinstance(stored_action, dict) or not stored_action.get("id"):
+                continue
+            config = stored_action.get("config") or {}
+            if config.get("template_id") != _RUN_SCOUT_TEMPLATE_ID:
+                continue
+            note = _run_scout_note(config.get("inputs"))
+            if note:
+                result.setdefault(stored_action["id"], set()).add(note)
+    return result
+
+
 def _event_config_has_event_or_action(event_config: dict) -> bool:
     # An "events to wait for" / conversion entry that targets neither events nor actions compiles to
     # always-true bytecode and would fire on every incoming event. Action-based entries (events empty,
@@ -1409,6 +1434,38 @@ class HogFlowActionSerializer(serializers.Serializer):
                 {"template_id": "Run scout is only available in the project's main environment."}
             )
 
+    def _validate_run_scout_note(self, action_id: object, inputs: object) -> None:
+        """A note puts event-derived prose in front of a scout agent on every fire, so writing or
+        changing one needs the same skill editor access as a manual run's note. A note already
+        stored on the step keeps validating, so a person without that access can still edit the
+        rest of the workflow."""
+        note = _run_scout_note(inputs)
+        if not note:
+            return
+        stored = (self.context.get("existing_run_scout_notes") or {}).get(action_id) or set()
+        if note in stored:
+            return
+        get_team = self.context.get("get_team")
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        # No team or person outside a request (internal re-saves), so nothing new is being authored.
+        if get_team is None or user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
+            return
+        team = get_team()
+        if not UserAccessControl(user=user, team=team.parent_team or team).check_access_level_for_resource(
+            "llm_skill", "editor"
+        ):
+            raise serializers.ValidationError(
+                {
+                    "inputs": {
+                        "note": (
+                            "Adding a note to Run scout requires editor access to skills, because the scout "
+                            "reads it on every run. Remove the note, or ask an admin for skill editor access."
+                        )
+                    }
+                }
+            )
+
     def validate(self, data):
         is_draft = self.context.get("is_draft")
         # Drafts from the web builder stay lenient (incomplete graphs save fine); programmatic callers
@@ -1675,6 +1732,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     self._validate_create_task_action(data["config"]["inputs"])
                 if strict and template_id == _RUN_SCOUT_TEMPLATE_ID:
                     self._validate_run_scout_action()
+                if template_id == _RUN_SCOUT_TEMPLATE_ID:
+                    self._validate_run_scout_note(data.get("id"), data["config"].get("inputs"))
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only
@@ -2879,6 +2938,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.
             self.context["existing_action_email_from"] = _existing_email_from_by_action(instance)
+            # Stored "Run scout" notes, so only a new or changed note needs skill editor access.
+            self.context["existing_run_scout_notes"] = _existing_run_scout_notes_by_action(instance)
 
         # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
         # synced row. Flag it before child action validation so function-input compilation rewrites it.

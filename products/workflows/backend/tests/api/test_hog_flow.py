@@ -1,4 +1,6 @@
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from io import StringIO
@@ -30,6 +32,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.fixtures import create_app_metric2
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
@@ -6657,11 +6660,15 @@ class TestRunScoutActionValidation(APIBaseTest):
         template["id"] = "template-posthog-run-scout"
         template["name"] = "Run scout"
         template["inputs_schema"] = [
-            {"key": "skill_name", "type": "string", "label": "Scout", "secret": False, "required": True}
+            {"key": "skill_name", "type": "string", "label": "Scout", "secret": False, "required": True},
+            {"key": "note", "type": "string", "label": "Note", "secret": False, "required": False},
         ]
         sync_template_to_db(template)
 
-    def _post_flow(self, team: Team):
+    def _actions(self, note: str | None = None) -> list[dict]:
+        inputs: dict[str, Any] = {"skill_name": {"value": "signals-scout-general"}}
+        if note is not None:
+            inputs["note"] = {"value": note}
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -6677,17 +6684,38 @@ class TestRunScoutActionValidation(APIBaseTest):
             "type": "function",
             "config": {
                 "template_id": "template-posthog-run-scout",
-                "inputs": {"skill_name": {"value": "signals-scout-general"}},
+                "inputs": inputs,
             },
         }
+        return [trigger_action, action]
+
+    def _post_flow(self, team: Team, note: str | None = None):
         # Strict validation, same as any programmatic caller - the path a misconfigured
         # workflow is actually authored through.
         with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
             return self.client.post(
                 f"/api/projects/{team.id}/hog_flows",
-                {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
+                {"name": "Test Flow", "actions": self._actions(note), "edges": []},
                 HTTP_X_POSTHOG_CLIENT="mcp",
             )
+
+    def _patch_flow(self, flow_id: str, note: str | None):
+        # A web builder draft save: lenient validation, which must still gate a new note.
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            return self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": self._actions(note)}
+            )
+
+    @contextmanager
+    def _without_skill_editor_access(self) -> Iterator[None]:
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_llm_skill(self_: UserAccessControl, resource: str, required_level: str) -> bool:
+            return False if resource == "llm_skill" else real_check(self_, resource, required_level)
+
+        with patch.object(UserAccessControl, "check_access_level_for_resource", autospec=True) as check:
+            check.side_effect = deny_llm_skill
+            yield
 
     def test_rejects_the_action_in_a_child_environment(self):
         child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
@@ -6702,3 +6730,34 @@ class TestRunScoutActionValidation(APIBaseTest):
         response = self._post_flow(self.team)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_a_note_needs_skill_editor_access(self):
+        with self._without_skill_editor_access():
+            response = self._post_flow(self.team, note="PR #{event.properties.pr_number}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "actions__1__inputs__note"
+
+        response = self._post_flow(self.team, note="PR #{event.properties.pr_number}")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand(
+        [
+            ("keeps_the_stored_note", "PR #{event.properties.pr_number}", status.HTTP_200_OK),
+            ("removes_the_note", None, status.HTTP_200_OK),
+            ("changes_the_note", "Issue #{event.properties.issue_number}", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_a_person_without_skill_editor_access_can_only_keep_or_remove_a_stored_note(
+        self, _name: str, note: str | None, expected: int
+    ):
+        created = self._post_flow(self.team, note="PR #{event.properties.pr_number}")
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        with self._without_skill_editor_access():
+            response = self._patch_flow(created.json()["id"], note)
+
+        assert response.status_code == expected, response.json()
+        if expected == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "actions__1__inputs__note"

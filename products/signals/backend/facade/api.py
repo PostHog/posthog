@@ -70,6 +70,10 @@ from products.signals.backend.report_sections import (
     report_sections as report_sections,
 )
 from products.signals.backend.scout_harness.create_access import can_create_scout
+from products.signals.backend.scout_harness.limits import (
+    # Re-exported so a workflow step's note is capped at the same length as a manual run's note.
+    MAX_RUN_NOTE_CHARS as MAX_RUN_NOTE_CHARS,
+)
 from products.signals.backend.scout_harness.run_gates import (
     # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
     # into the scout harness. Every decision behind them stays Signals-side.
