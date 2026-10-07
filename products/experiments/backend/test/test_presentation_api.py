@@ -60,7 +60,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
-from products.experiments.backend.presentation.serializers import ExperimentSerializer
+from products.experiments.backend.presentation.serializers import EXPERIMENT_HEALTH_FINDINGS_FLAG, ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
@@ -673,6 +673,82 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["resolved_exposure_event"], expected_event)
+
+    @parameterized.expand(
+        [
+            ("flag_off", False, None, None),
+            (
+                "no_metric",
+                True,
+                None,
+                [("flag_off_while_running", "running_but_flag_disabled"), ("no_metric", None)],
+            ),
+            (
+                "shared_secondary_metric_counts",
+                True,
+                "secondary",
+                [("flag_off_while_running", "running_but_flag_disabled")],
+            ),
+        ]
+    )
+    def test_detail_reports_health_findings(
+        self,
+        _name: str,
+        flag_enabled: bool,
+        shared_metric_type: str | None,
+        expected: list[tuple[str, str | None]] | None,
+    ) -> None:
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="health-findings",
+            feature_flag=FeatureFlag.objects.create(
+                team=self.team,
+                key=f"health-findings-{_name}",
+                created_by=self.user,
+                active=False,
+                filters={
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    },
+                },
+            ),
+            start_date=timezone.now() - timedelta(days=3),
+            metrics=[],
+            metrics_secondary=[],
+        )
+        if shared_metric_type:
+            saved_metric = ExperimentSavedMetric.objects.create(
+                team=self.team,
+                name="Shared metric",
+                created_by=self.user,
+                query={
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            )
+            ExperimentToSavedMetric.objects.create(
+                experiment=experiment, saved_metric=saved_metric, metadata={"type": shared_metric_type}
+            )
+
+        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_enabled and flag_key == EXPERIMENT_HEALTH_FINDINGS_FLAG
+
+        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        health = response.json()["health"]
+        if expected is None:
+            self.assertIsNone(health)
+            return
+        self.assertEqual([(finding["code"], finding["subcode"]) for finding in health["findings"]], expected)
+        self.assertEqual(health["findings"][0]["actions"], ["open_feature_flag"])
+        self.assertEqual(health["findings"][0]["diagnostic_ref"], "A5")
 
     @parameterized.expand(
         [("after_cutoff", 30, "$experiment_exposure"), ("before_cutoff", -30, "$feature_flag_called")]

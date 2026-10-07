@@ -4,6 +4,9 @@ from posthog.schema import MultipleVariantHandling
 
 from posthog.dataclasses import frozen
 
+from products.experiments.backend.metric_resolution import saved_metric_links
+from products.experiments.backend.models.experiment import Experiment
+
 
 @frozen
 class FlagVariant:
@@ -88,3 +91,30 @@ def _percentage(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     return float(value)
+
+
+def _load_flag_state(experiment: Experiment) -> FlagState | None:
+    # django-stubs types the id as int, but an unsaved instance can carry None.
+    feature_flag_id: int | None = experiment.feature_flag_id
+    if feature_flag_id is None:
+        return None
+    flag = experiment.feature_flag
+    # Read the raw document, as the page does. A document in a config format other than v1 then
+    # reads as a flag without release groups and variants, and does not raise.
+    return parse_flag_state(active=bool(flag.active), deleted=bool(flag.deleted), filters=flag.get_filters())
+
+
+def load_health_context(experiment: Experiment, exposures: ExposureTotals | None = None) -> HealthContext:
+    shared_metric_types = [
+        link.metadata.get("type") if isinstance(link.metadata, dict) else None
+        for link in saved_metric_links(experiment)
+    ]
+    return HealthContext(
+        is_launched=experiment.is_launched,
+        has_ended=experiment.is_stopped,
+        archived=experiment.archived,
+        flag=_load_flag_state(experiment),
+        primary_metric_count=len(experiment.metrics or []) + shared_metric_types.count("primary"),
+        secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_types.count("secondary"),
+        exposures=exposures,
+    )
