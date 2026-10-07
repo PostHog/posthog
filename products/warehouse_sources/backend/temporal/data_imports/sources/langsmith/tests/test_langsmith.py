@@ -48,6 +48,7 @@ class FakeManager:
     def __init__(self, resume: LangSmithResumeConfig | None = None):
         self._resume = resume
         self.saved: list[LangSmithResumeConfig] = []
+        self.safe_points_after_save: list[int] = []
 
     def can_resume(self) -> bool:
         return self._resume is not None
@@ -57,6 +58,9 @@ class FakeManager:
 
     def save_state(self, data: LangSmithResumeConfig) -> None:
         self.saved.append(data)
+
+    def safe_point(self) -> None:
+        self.safe_points_after_save.append(len(self.saved))
 
 
 def _collect(tables) -> list[dict[str, Any]]:
@@ -391,6 +395,7 @@ class TestPaginationAbuseGuards:
                     rows.extend(table.to_pylist())
 
         assert manager.saved[-1].cursor is not None
+        assert manager.safe_points_after_save == [len(manager.saved)]
         assert [r["id"] for r in rows] == ["r1", "r2", "r3"]
 
     def test_offset_page_limit_checkpoints_and_raises(self):

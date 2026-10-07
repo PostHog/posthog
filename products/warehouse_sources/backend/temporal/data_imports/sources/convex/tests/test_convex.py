@@ -645,6 +645,14 @@ def test_truncates_and_expiry_reset_only_when_required(
             reset.assert_not_called()
 
 
+def _pipeline_safe_point(manager: Any) -> Any:
+    def hook() -> None:
+        manager.confirm()
+        manager.commit()
+
+    return hook
+
+
 @pytest.mark.parametrize("rows", [[], [{"value": {"_id": "a"}, "ts": 100, "deleted": False}]])
 def test_each_page_saves_resume_state_after_rows_and_continues_on_retry(
     rows: list[dict[str, Any]], redis_boundary: Mock, http_boundary: Mock
@@ -653,7 +661,7 @@ def test_each_page_saves_resume_state_after_rows_and_continues_on_retry(
     manager = ConvexSource().get_resumable_source_manager(inputs)
     scoped = manager.with_namespace("data_sync")
     http_boundary.post.side_effect = [_page("checkpoint", status="stale", values=rows), RuntimeError("interrupted")]
-    with activate_safe_point(manager.commit, covers_framework_checkpoints=False):
+    with activate_safe_point(_pipeline_safe_point(manager), covers_framework_checkpoints=False):
         iterator = iter(_items(_resource(inputs, manager)))
         if rows:
             assert next(iterator) == [{"_id": "a", "_ts": 100, "_deleted": False}]
@@ -664,7 +672,7 @@ def test_each_page_saves_resume_state_after_rows_and_continues_on_retry(
     http_boundary.post.side_effect = None
     http_boundary.post.return_value = _page("end")
     retry_manager = ConvexSource().get_resumable_source_manager(inputs)
-    with activate_safe_point(retry_manager.commit, covers_framework_checkpoints=False):
+    with activate_safe_point(_pipeline_safe_point(retry_manager), covers_framework_checkpoints=False):
         list(_items(_resource(inputs, retry_manager)))
     assert http_boundary.post.call_args.kwargs["json"]["cursor"] == "checkpoint"
     assert scoped.load_state() == ConvexResumeConfig(cursor="end", started_from_cursor=True)

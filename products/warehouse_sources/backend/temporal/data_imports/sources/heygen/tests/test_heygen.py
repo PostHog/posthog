@@ -30,8 +30,10 @@ def test_cursor_pages_checkpoint_after_yield(
     ]
     pages = iter(sync_items(heygen_source("fake-key", "videos", "v3", 1, "job-test", manager)))
     assert next(pages) == [{"id": "video-first"}]
+    manager.confirm()
     assert not manager.has_staged_state()
     assert next(pages) == [{"id": "video-last"}]
+    manager.confirm()
     manager.commit()
     saved = redis.set.call_args.args[1]
     assert saved == '{"cursor":"opaque+/=token"}'

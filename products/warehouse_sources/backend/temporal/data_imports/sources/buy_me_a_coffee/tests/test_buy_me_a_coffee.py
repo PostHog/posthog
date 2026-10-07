@@ -209,6 +209,7 @@ class TestBuyMeACoffee(SimpleTestCase):
         self.inputs.schema_name = "subscriptions"
         manager = self.source.get_resumable_source_manager(self.inputs)
         manager.save_state(BuyMeACoffeeResumeConfig(page=3))
+        manager.confirm()
         manager.commit()
         self.respond([{"data": [{"subscription_id": 100}], "current_page": 3, "last_page": 3}])
         response = self.source.source_for_pipeline(self.config, manager, self.inputs)

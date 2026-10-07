@@ -40,9 +40,11 @@ def test_pagination_checkpoints_after_yield_and_resumes_at_next_page(
     http.side_effect = [response({"objects": rows}), RuntimeError("interrupted")]
     iterator = iter(sync_items(source.source_for_pipeline(source_config, manager, inputs)))
     assert next(iterator) == rows
+    manager.confirm()
     assert not manager.has_staged_state()
     with pytest.raises(RuntimeError, match="interrupted"):
         next(iterator)
+    manager.confirm()
     manager.commit()
     assert manager.load_state() == SevdeskResumeConfig(offset=PAGE_SIZE)
 
@@ -55,6 +57,7 @@ def test_pagination_checkpoints_after_yield_and_resumes_at_next_page(
     request = http.call_args.args[0]
     assert parse_qs(urlsplit(request.url).query)["offset"] == [str(PAGE_SIZE)]
     http.assert_called_once()
+    resumed_manager.confirm()
     resumed_manager.commit()
     assert resumed_manager.load_state() == SevdeskResumeConfig(completed=True)
     http.reset_mock()
@@ -79,6 +82,7 @@ def test_malformed_success_does_not_replace_table_with_empty_data(
     manager = source.get_resumable_source_manager(inputs)
     with patch("time.sleep"), pytest.raises(RESTClientRetryableError):
         list(sync_items(source.source_for_pipeline(source_config, manager, inputs)))
+    manager.confirm()
     assert not manager.has_staged_state()
 
 
@@ -97,6 +101,7 @@ def test_sync_auth_errors_are_terminal(
     with pytest.raises(HTTPError) as error:
         list(sync_items(source.source_for_pipeline(source_config, manager, inputs)))
     assert any(pattern in str(error.value) for pattern in source.get_non_retryable_errors())
+    manager.confirm()
     assert not manager.has_staged_state()
     http.assert_called_once()
 
