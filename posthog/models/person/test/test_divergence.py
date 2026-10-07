@@ -44,7 +44,6 @@ from posthog.models.person.util import (
     tombstone_persons_in_postgres,
 )
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team import Team
 from posthog.personhog_client.fake_client import get_active_fake
 from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG
 from posthog.test.persons import add_distinct_id, create_person
