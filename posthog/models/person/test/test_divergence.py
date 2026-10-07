@@ -4,11 +4,12 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 from django.utils.timezone import now
 
+import grpc
 from confluent_kafka import KafkaError
 from parameterized import parameterized
 from personhog.types.v1 import person_pb2
@@ -57,6 +58,12 @@ CH_PROPERTIES = {"email": "clickhouse@example.com"}
 _PERSON_COLUMNS = (
     "id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version, last_seen_at"
 )
+
+
+def _rpc_error(code: grpc.StatusCode) -> grpc.RpcError:
+    error = grpc.RpcError()
+    error.code = MagicMock(return_value=code)  # type: ignore[attr-defined]
+    return error
 
 
 def _utc_naive(hours_ago: float) -> datetime:
@@ -518,17 +525,119 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         assert [a.outcome for a in actions] == ["repaired"]
         assert summary.undelivered == 1
 
-    def test_skips_publishing_when_the_reread_misses_the_raise(self) -> None:
+    @parameterized.expand(
+        [
+            ("replica_catches_up_on_the_third_reread", 3, "repaired", [0.025, 0.05]),
+            ("replica_never_catches_up", None, "skipped_reread_lagging", [0.025, 0.05, 0.1, 0.15, 0.175]),
+        ]
+    )
+    def test_rereads_until_the_replica_shows_the_raise(
+        self, _name: str, caught_up_on_reread: int | None, outcome: RepairOutcome, sleeps: list[float]
+    ) -> None:
         person = self._divergent_person("hidden")
         fake = get_active_fake()
+        read = fake.get_persons_by_uuids
+        raised_to: list[int] = []
+        rereads = 0
 
-        with patch.object(
-            fake, "set_person_version_floor", return_value=person_pb2.SetPersonVersionFloorResponse(updated=True)
+        def primary_only_raise(
+            request: person_pb2.SetPersonVersionFloorRequest, timeout: float | None = None
+        ) -> person_pb2.SetPersonVersionFloorResponse:
+            raised_to.append(request.min_version)
+            return person_pb2.SetPersonVersionFloorResponse(updated=True)
+
+        def lagging_replica(request: person_pb2.GetPersonsByUuidsRequest) -> person_pb2.PersonsResponse:
+            nonlocal rereads
+            if raised_to:
+                rereads += 1
+                if rereads == caught_up_on_reread:
+                    stored = fake.stored_person(self.team.pk, str(person.uuid))
+                    assert stored is not None
+                    stored.version = raised_to[0]
+            return read(request)
+
+        with (
+            patch.object(fake, "set_person_version_floor", side_effect=primary_only_raise),
+            patch.object(fake, "get_persons_by_uuids", side_effect=lagging_replica),
+            patch("posthog.models.person.divergence._sleep") as sleep,
         ):
             _, actions = self._repair(person.uuid)
 
-        assert [a.outcome for a in actions] == ["skipped_reread_lagging"]
-        assert self._ch_person(person.uuid) == (1, 103, CH_PROPERTIES)
+        assert [a.outcome for a in actions] == [outcome]
+        assert [c.args[0] for c in sleep.call_args_list] == sleeps
+        if outcome == "repaired":
+            assert self._ch_person(person.uuid) == (0, 104, PG_PROPERTIES)
+        else:
+            assert self._ch_person(person.uuid) == (1, 103, CH_PROPERTIES)
+
+    @parameterized.expand(
+        [
+            ("clickhouse_timeout_while_planning", "planning", ClickHouseQueryTimeOut()),
+            ("personhog_internal_error_on_the_raise", "raise", grpc.StatusCode.INTERNAL),
+            ("personhog_unavailable_on_the_raise", "raise", grpc.StatusCode.UNAVAILABLE),
+        ]
+    )
+    def test_retries_a_transient_error_and_counts_the_person_once(
+        self, _name: str, step: str, error: Exception | grpc.StatusCode
+    ) -> None:
+        person = self._divergent_person("hidden")
+        failure = _rpc_error(error) if isinstance(error, grpc.StatusCode) else error
+
+        with self._failing_once(step, failure), patch("posthog.models.person.divergence._sleep") as sleep:
+            summary, actions = self._repair(person.uuid)
+
+        assert [a.outcome for a in actions] == ["repaired"]
+        assert summary.person_outcomes == {"repaired": 1}
+        assert [c.args[0] for c in sleep.call_args_list] == [1.0]
+        assert self._ch_person(person.uuid) == (0, 104, PG_PROPERTIES)
+
+    @parameterized.expand(
+        [
+            ("non_transient_error_is_not_retried", ValueError("bad request"), 1, []),
+            ("transient_error_on_every_attempt_stops_after_three", _rpc_error(grpc.StatusCode.INTERNAL), 3, [1.0, 2.0]),
+        ]
+    )
+    def test_stops_the_run_on_an_error_that_does_not_clear(
+        self, _name: str, failure: Exception, attempts: int, sleeps: list[float]
+    ) -> None:
+        person = self._divergent_person("hidden")
+        fake = get_active_fake()
+
+        with (
+            patch.object(fake, "set_person_version_floor", side_effect=failure) as raise_floor,
+            patch("posthog.models.person.divergence._sleep") as sleep,
+        ):
+            with self.assertRaises(type(failure)):
+                self._repair(person.uuid)
+
+        assert raise_floor.call_count == attempts
+        assert [c.args[0] for c in sleep.call_args_list] == sleeps
+
+    def _failing_once(self, step: str, failure: Exception) -> Any:
+        fake = get_active_fake()
+        if step == "planning":
+            query = sync_execute
+            failed: list[bool] = []
+
+            def ch_fails_once(*args: Any, **kwargs: Any) -> Any:
+                if not failed:
+                    failed.append(True)
+                    raise failure
+                return query(*args, **kwargs)
+
+            return patch("posthog.models.person.divergence.sync_execute", side_effect=ch_fails_once)
+        raise_floor = fake.set_person_version_floor
+        calls: list[bool] = []
+
+        def raise_fails_once(
+            request: person_pb2.SetPersonVersionFloorRequest, timeout: float | None = None
+        ) -> person_pb2.SetPersonVersionFloorResponse:
+            if not calls:
+                calls.append(True)
+                raise failure
+            return raise_floor(request, timeout)
+
+        return patch.object(fake, "set_person_version_floor", side_effect=raise_fails_once)
 
     def _skipped_person(self, case: str) -> UUID:
         if case == "in_sync":
