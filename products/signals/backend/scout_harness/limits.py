@@ -30,6 +30,15 @@ WORKFLOW_HARD_CEILING_S = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S
 # ticks.
 STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
 
+# How far back the self-heal looks for runs whose worker died after the TaskRun left
+# `QUEUED`/`IN_PROGRESS`. The Tasks inactivity timeout closes such a TaskRun on its own, so the
+# run is no longer stuck, only unreported. The bound keeps the per-dispatch lane scan small.
+FINISHED_ORPHAN_LOOKBACK_S = 7 * 24 * 60 * 60
+
+# Bridge-row `metadata` key the self-heal stamps when it reports a run that the Tasks inactivity
+# timeout closed. It makes the reap a one-time claim, so a later dispatch does not report it again.
+SCOUT_RUN_REAPED_METADATA_KEY = "reaped_at"
+
 # Cap on the one-off steering note an on-demand ("Run now") dispatch carries. It renders verbatim
 # into that run's prompt, so it is held to the 1,000 characters `report_steering` cuts a durable
 # note to: steering meant for one run must not crowd out the run's own instructions.

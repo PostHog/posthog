@@ -12,7 +12,8 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Func, JSONField, Q, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 import posthoganalytics
@@ -40,6 +41,8 @@ from products.signals.backend.scout_harness.limits import (
     DEFAULT_MAX_RUNTIME_S,
     FAILURE_STREAK_MAX_RUNS,
     FAILURE_STREAK_MIN_SPAN_MINUTES,
+    FINISHED_ORPHAN_LOOKBACK_S,
+    SCOUT_RUN_REAPED_METADATA_KEY,
     STALE_RUN_CUTOFF_S,
     TRIGGERED_BY_SCHEDULE,
     failure_streak_pause_threshold,
@@ -1175,17 +1178,27 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
     slack means a run merely at the wall — about to fail or finish on its own — is never
     reaped out from under itself. Best-effort and silent: a failure to reap one row must
     never block the new run, so each is guarded independently.
+
+    A worker death also strands runs that no longer block the lane. Once the agent goes idle,
+    the Tasks inactivity timeout closes the TaskRun as `COMPLETED` or `FAILED`, often before
+    the next dispatch. The scout never ends its own session through that timeout, because
+    every path that survives signals completion, so that marker means the run lost its driver
+    and never emitted `signals_scout_run_finished`. Those runs are reported too, once each.
     """
-    cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
+    now = timezone.now()
+    cutoff = now - timedelta(seconds=STALE_RUN_CUTOFF_S)
+    active_statuses = (tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS)
+    closed_by_inactivity = Q(
+        task_run__status__in=(tasks_facade.TaskRunStatus.COMPLETED, tasks_facade.TaskRunStatus.FAILED),
+        **{f"task_run__state__{tasks_facade.TIMED_OUT_INACTIVITY_STATE_KEY}": True},
+        task_run__created_at__gte=now - timedelta(seconds=FINISHED_ORPHAN_LOOKBACK_S),
+    )
     stale_runs = list(
         SignalScoutRun.objects.unscoped()
-        .filter(
-            team_id=team_id,
-            skill_name=skill_name,
-            task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
-            task_run__created_at__lt=cutoff,
-        )
+        .filter(team_id=team_id, skill_name=skill_name, task_run__created_at__lt=cutoff)
+        .filter(Q(task_run__status__in=active_statuses) | closed_by_inactivity)
         .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
+        .exclude(metadata__has_key=SCOUT_RUN_REAPED_METADATA_KEY)
         .select_related("task_run")
     )
     if not stale_runs:
@@ -1193,7 +1206,6 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
     # Resolve the team once, only when there is actually something to reap, so the reaped
     # event carries the same team / groups shape as the other scout lifecycle events.
     team = _get_team(team_id)
-    now = timezone.now()
     for run in stale_runs:
         try:
             task_run = run.task_run
@@ -1201,17 +1213,20 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
             # the conditional update below doesn't refresh it, so these stay the original values.
             status_before = task_run.status
             age_seconds = (now - task_run.created_at).total_seconds()
-            # Compare-and-set claim on the status transition. Two triggers for the same
-            # `(team, skill)` can reach this self-heal concurrently and load the same stale
-            # row; the conditional UPDATE lets exactly one win — the other matches zero rows
-            # once the first commits `FAILED`. Only the winner falls through to emit, so a
-            # single stranded run can't double-count in the worker-death / mass-stall signal.
-            claimed = tasks_facade.claim_and_fail_stale_run(
-                task_run.id,
-                "Scout run abandoned: no terminal status past the runtime ceiling "
-                "(worker/sandbox lost before finalize).",
-                error_type="stale_run_reaped",
-            )
+            # Compare-and-set claim, on the status transition for a live TaskRun and on the
+            # bridge row for a closed one. Two triggers for the same `(team, skill)` can reach
+            # this self-heal concurrently and load the same stale row; the conditional UPDATE
+            # lets exactly one win — the other matches zero rows. Only the winner falls through
+            # to emit, so a single stranded run can't double-count in the worker-death signal.
+            if status_before in active_statuses:
+                claimed = tasks_facade.claim_and_fail_stale_run(
+                    task_run.id,
+                    "Scout run abandoned: no terminal status past the runtime ceiling "
+                    "(worker/sandbox lost before finalize).",
+                    error_type="stale_run_reaped",
+                )
+            else:
+                claimed = _claim_finished_orphan(run_id=run.id, team_id=team_id)
             if not claimed:
                 continue
             logger.warning(
@@ -1240,6 +1255,31 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
                 "signals_scout: failed to reap stale in-progress run; continuing",
                 extra={"team_id": team_id, "skill_name": skill_name, "run_id": str(run.id)},
             )
+
+
+def _claim_finished_orphan(*, run_id: Any, team_id: int) -> bool:
+    """Compare-and-set claim on a run whose TaskRun is already terminal. Returns whether this caller won.
+
+    The TaskRun status cannot carry the claim here, so the bridge row does: the conditional
+    update stamps `SCOUT_RUN_REAPED_METADATA_KEY` only while it is absent, and the loser of a
+    concurrent reap matches zero rows.
+    """
+    stamp = Value({SCOUT_RUN_REAPED_METADATA_KEY: timezone.now().isoformat()}, output_field=JSONField())
+    return bool(
+        SignalScoutRun.objects.unscoped()
+        .filter(team_id=team_id, id=run_id)
+        .exclude(metadata__has_key=SCOUT_RUN_REAPED_METADATA_KEY)
+        .update(
+            metadata=Func(
+                Coalesce(F("metadata"), Value({}, output_field=JSONField())),
+                stamp,
+                arg_joiner=" || ",
+                template="(%(expressions)s)",
+                output_field=JSONField(),
+            ),
+            updated_at=timezone.now(),
+        )
+    )
 
 
 def _create_run_row(
