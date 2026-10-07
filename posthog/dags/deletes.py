@@ -119,35 +119,25 @@ class SweepTargetsConfig(dagster.Config):
 
 class MonthlyCleanupConfig(dagster.Config):
     team_ids: list[int] = pydantic.Field(
-        default_factory=lambda: [
-            9229,
-            10761,
-            19934,
-            41817,
-            9230,
-            9390,
-            19935,
-            41818,
-            9393,
-            22115,
-            7525,
-            9231,
-            19933,
-            54013,
-            9394,
-            12679,
-            19936,
-            41819,
-            9391,
-            54008,
-            29833,
-        ],
-        description="Team IDs to clean up old events for",
+        min_length=1,
+        description="Team IDs to clean up old events for. Required: every run names its teams explicitly.",
+    )
+    partitions: list[int] = pydantic.Field(
+        min_length=1,
+        description="Events partitions to clean up, as YYYYMM (e.g. [202407]). Required: the run deletes only "
+        "in these months, and only where old rows for the teams exist.",
     )
     min_age_months: int = pydantic.Field(
         default=13,
         description="Minimum age in months for events to be deleted",
     )
+
+
+@frozen
+class OldEventsCleanupPlan:
+    team_ids: list[int]
+    partitions: list[int]
+    min_age_months: int
 
 
 # Reads only team_id, person_id, timestamp, uuid and inserted_at, which every registered target
@@ -1249,10 +1239,11 @@ def find_partitions_to_cleanup(
     context: dagster.OpExecutionContext,
     config: MonthlyCleanupConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-) -> list[int]:
-    """Find partitions that contain old events for the specified teams."""
+) -> OldEventsCleanupPlan:
+    """Find which of the requested partitions contain old events for the specified teams."""
     parameters = {
         "team_ids": config.team_ids,
+        "partitions": config.partitions,
         "min_age_months": config.min_age_months,
     }
 
@@ -1264,11 +1255,12 @@ def find_partitions_to_cleanup(
             SELECT DISTINCT toYYYYMM(timestamp) as partition
             FROM {placement.target.data_table}
             WHERE team_id IN %(team_ids)s
+            AND toYYYYMM(timestamp) IN %(partitions)s
             AND age('month', timestamp, now()) >= %(min_age_months)s
         """
         results = placement.cluster.map_one_host_per_shard(Query(query, parameters=parameters)).result()
         found.update(partition for rows in results.values() for (partition,) in rows)
-    partitions = sorted(found, reverse=True)
+    partitions = sorted(found & set(config.partitions), reverse=True)
 
     context.add_output_metadata(
         {
@@ -1278,30 +1270,30 @@ def find_partitions_to_cleanup(
         }
     )
 
-    return partitions
+    return OldEventsCleanupPlan(team_ids=config.team_ids, partitions=partitions, min_age_months=config.min_age_months)
 
 
 @dagster.op
 def cleanup_old_events_by_partition(
     context: dagster.OpExecutionContext,
-    config: MonthlyCleanupConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    partitions: list[int],
+    plan: OldEventsCleanupPlan,
 ) -> None:
-    """Delete old events from the specified teams in each partition."""
-    if not partitions:
+    """Delete old events from the plan's teams in each of the plan's partitions."""
+    if not plan.partitions:
         context.log.info("No partitions found to clean up")
         return
 
-    total_partitions = len(partitions)
+    total_partitions = len(plan.partitions)
     # Both events tables partition by toYYYYMM(timestamp), so the same partition list applies;
     # deleting IN PARTITION on a partition a table doesn't have is a no-op.
     #
     # Events only, deliberately: this enforces a multi-year retention floor for a named set of
     # teams, and every other personal-data table already expires sooner under its own TTL.
     placements = resolve_placements(cluster, EVENTS_TARGETS)
+    reuse_floor = _mutation_reuse_floor(cluster)
 
-    for idx, partition in enumerate(partitions, 1):
+    for idx, partition in enumerate(plan.partitions, 1):
         context.log.info(f"Processing partition {partition} ({idx}/{total_partitions})")
 
         for placement in placements:
@@ -1312,11 +1304,12 @@ def cleanup_old_events_by_partition(
                 AND age('month', timestamp, now()) >= %(min_age_months)s
             """,
                 parameters={
-                    "team_ids": config.team_ids,
-                    "min_age_months": config.min_age_months,
+                    "team_ids": plan.team_ids,
+                    "min_age_months": plan.min_age_months,
                 },
                 partition=str(partition),
                 settings={"lightweight_deletes_sync": 0},
+                reuse_since=reuse_floor,
                 patch_parts=placement.target.uses_patch_parts,
             )
 
@@ -1337,23 +1330,12 @@ def cleanup_old_events_by_partition(
     context.add_output_metadata(
         {
             "partitions_processed": dagster.MetadataValue.int(total_partitions),
-            "team_ids": dagster.MetadataValue.text(", ".join(str(tid) for tid in config.team_ids)),
+            "team_ids": dagster.MetadataValue.text(", ".join(str(tid) for tid in plan.team_ids)),
         }
     )
 
 
 @dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
 def monthly_old_events_cleanup_job():
-    """Monthly job to clean up old events for specific teams."""
-    partitions = find_partitions_to_cleanup()
-    cleanup_old_events_by_partition(partitions)
-
-
-@dagster.schedule(
-    job=monthly_old_events_cleanup_job,
-    cron_schedule="0 0 1 * *",
-    execution_timezone="UTC",
-)
-def monthly_old_events_cleanup_schedule():
-    """Run monthly cleanup on the 1st of each month at midnight UTC."""
-    return dagster.RunRequest()
+    """Delete old events for the named teams in the named partitions. Launched by hand, with no schedule."""
+    cleanup_old_events_by_partition(find_partitions_to_cleanup())

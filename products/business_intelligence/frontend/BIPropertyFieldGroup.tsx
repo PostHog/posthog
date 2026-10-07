@@ -47,7 +47,7 @@ export function BIPropertyFieldGroup({
                 <div className="ml-2 min-w-0 border-l pl-1">
                     {!dataPaneSearch.trim() ? (
                         <LemonInput
-                            size="small"
+                            size="xsmall"
                             type="search"
                             value={search}
                             onChange={setSearch}

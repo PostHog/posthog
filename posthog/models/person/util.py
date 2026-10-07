@@ -55,6 +55,7 @@ from posthog.personhog_client.proto import (
     ListPersonTombstoneQueueRequest,
     PersonVersionFloor as PersonVersionFloorProto,
     ReadOptions,
+    SetPersonDistinctIdVersionFloorRequest,
     VersionFloorOutcome as VersionFloorOutcomeProto,
 )
 from posthog.settings import TEST
@@ -939,16 +940,6 @@ def _flush_person_producers(timeout: float) -> None:
         producer.flush(max(0.0, deadline - time.monotonic()))
 
 
-def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: int) -> None:
-    create_person_distinct_id(
-        team_id=team_id,
-        distinct_id=distinct_id,
-        person_id=str(uuid),
-        version=version + 100,
-        is_deleted=True,
-    )
-
-
 # -- Version floors --
 
 _T = TypeVar("_T")
@@ -1029,3 +1020,16 @@ def ensure_person_version_floors(team_id: int, floors: Sequence[PersonVersionFlo
         return results
 
     return personhog_call("ensure_person_version_floors", personhog_fn)
+
+
+def set_distinct_id_version_floor(team_id: int, distinct_id: str, min_version: int) -> None:
+    """Raise the Postgres version of the distinct id's row to at least ``min_version``, live or tombstoned.
+
+    The response does not say whether the row is live or tombstoned, so read the row from the primary before
+    publishing it.
+    """
+    request = SetPersonDistinctIdVersionFloorRequest(team_id=team_id, distinct_id=distinct_id, min_version=min_version)
+    personhog_call(
+        "set_person_distinct_id_version_floor",
+        lambda: _get_client().set_person_distinct_id_version_floor(request),
+    )

@@ -48,6 +48,7 @@ _LAZY = {
     "allowed_saved_query_ids": "logic.saved_query_reads",
     "backing_table_ids_by_saved_query": "logic.saved_query_reads",
     "reachable_node_ids": "logic.saved_query_reads",
+    "saved_query_definitions": "logic.saved_query_reads",
     "saved_query_node_ids": "logic.saved_query_reads",
     "upstream_table_refs": "logic.saved_query_reads",
     "MaterializationFailedError": "facade.contracts",
