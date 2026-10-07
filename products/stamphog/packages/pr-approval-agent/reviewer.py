@@ -383,6 +383,14 @@ _INVOCATION_LINES = {
 }
 
 
+def max_turns(classification: dict, gate_context: dict) -> int:
+    """The reviewer's turn budget for this PR."""
+    # Gate denials and trivial PRs don't need deep exploration —
+    # just read the diff and report.
+    quick = gate_context["gate_verdict"] == "DENIED" or classification.get("t1_subclass") == "T1a-trivial"
+    return 5 if quick else 20
+
+
 class Reviewer:
     """LLM reviewer using Agent SDK."""
 
@@ -428,10 +436,6 @@ class Reviewer:
             diff_path = copied_diff_path
         prompt = self._build_review_prompt(pr, classification, gate_context, diff_path)
 
-        # Gate denials and trivial PRs don't need deep exploration —
-        # just read the diff and report.
-        quick = gate_context["gate_verdict"] == "DENIED" or classification.get("t1_subclass") == "T1a-trivial"
-
         options = ClaudeAgentOptions(
             system_prompt=REVIEWER_SYSTEM,
             allowed_tools=["Read", "Grep", "Glob"],
@@ -457,7 +461,7 @@ class Reviewer:
             # ships in the head tree, regardless of CLI defaults.
             mcp_servers={},
             strict_mcp_config=True,
-            max_turns=5 if quick else 20,
+            max_turns=max_turns(classification, gate_context),
             model=REVIEWER_MODEL,
             permission_mode="dontAsk",
             output_format=FACTS_SCHEMA,
@@ -465,23 +469,7 @@ class Reviewer:
             extra_args={"no-session-persistence": None},
         )
 
-        # Shared by both routes. The full set is always on the separate
-        # stamphog_review_completed event. Extras first, so the base props win.
-        # The hosted server stamps runtime and team context through
-        # STAMPHOG_EXTRA_PROPERTIES, and a local run sets no such variable.
-        attribution = {
-            **analytics_extra_properties(),
-            "stamphog_pr_number": pr.number,
-            "stamphog_repo": pr.repo,
-            "stamphog_author": pr.author,
-            "stamphog_tier": classification.get("tier", ""),
-            "stamphog_t1_subclass": classification.get("t1_subclass", ""),
-            "stamphog_breadth": classification.get("breadth", ""),
-            "stamphog_commit_type": classification.get("commit_type") or "",
-            "stamphog_gate_verdict": gate_context.get("gate_verdict", ""),
-            "stamphog_files_changed": len(pr.files),
-            "stamphog_lines_total": pr.lines_total,
-        }
+        attribution = self._attribution(pr, classification, gate_context, engine_channel="stable")
 
         active_query = _apply_gateway_route(resolve_gateway_config(), attribution)
         posthog_kwargs: dict = {}
@@ -494,8 +482,9 @@ class Reviewer:
             trace_name = f"stamphog PR #{pr.number}: {_sanitize_untrusted(pr.title, max_len=100)}"
             posthog_kwargs = {
                 "posthog_distinct_id": pr.author,
-                # Same extras-first merge as `attribution` above, for the traced route.
+                # Same merge order as _attribution, for the traced route.
                 "posthog_properties": {
+                    "stamphog_engine_channel": "stable",
                     **analytics_extra_properties(),
                     "$ai_trace_name": trace_name,
                     "ai_product": "stamphog",
@@ -573,6 +562,29 @@ class Reviewer:
         if result is None:
             raise RuntimeError("Reviewer agent returned no structured output")
         return result
+
+    def _attribution(self, pr: PRData, classification: dict, gate_context: dict, *, engine_channel: str) -> dict:
+        """The analytics properties every gateway call of this review carries.
+
+        The full set is always on the separate stamphog_review_completed event. The hosted server
+        stamps runtime and team context through STAMPHOG_EXTRA_PROPERTIES, and a local run sets no
+        such variable. Extras come after the engine channel, so the server's channel value wins, and
+        before the base properties, so the base properties win.
+        """
+        return {
+            "stamphog_engine_channel": engine_channel,
+            **analytics_extra_properties(),
+            "stamphog_pr_number": pr.number,
+            "stamphog_repo": pr.repo,
+            "stamphog_author": pr.author,
+            "stamphog_tier": classification.get("tier", ""),
+            "stamphog_t1_subclass": classification.get("t1_subclass", ""),
+            "stamphog_breadth": classification.get("breadth", ""),
+            "stamphog_commit_type": classification.get("commit_type") or "",
+            "stamphog_gate_verdict": gate_context.get("gate_verdict", ""),
+            "stamphog_files_changed": len(pr.files),
+            "stamphog_lines_total": pr.lines_total,
+        }
 
     def _log_tool_call(self, block: ToolUseBlock) -> None:
         name = block.name

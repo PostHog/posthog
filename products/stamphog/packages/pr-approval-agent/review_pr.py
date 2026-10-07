@@ -4,6 +4,7 @@
 # dependencies = [
 #     "claude-agent-sdk==0.2.164",
 #     "anthropic==0.80.0",
+#     "openai==3.26.0",
 #     "posthoganalytics==7.20.4",
 #     "pyyaml==6.0.3",
 # ]
@@ -32,7 +33,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
 from gates import (
@@ -73,7 +74,7 @@ from manifest_risk import manifest_script_changes
 from migration_risk import migration_check_pending, safe_migration_files
 from policy import EffectivePolicy, ScopeBudget, _sanitize_untrusted, repo_root, resolve
 from verdict_rule import facts_summary
-from version import STAMPHOG_VERSION
+from version import BETA_VERSION, STAMPHOG_VERSION
 
 if TYPE_CHECKING:
     from reviewer import Reviewer
@@ -182,6 +183,22 @@ class GateResult:
     details: dict = field(default_factory=dict)
 
 
+# Which reviewer judges the PR: "stable" is the Claude reviewer, "beta" the GPT-6 Luna reviewer.
+Engine = Literal["stable", "beta"]
+
+
+def _llm_usage_properties(reviewer_output: dict | None) -> dict[str, object]:
+    """Token usage the reviewer reported, as event properties, or {} when it reported none.
+
+    Only the Luna reviewer reports usage. The Claude reviewer's usage reaches analytics through the
+    gateway's $ai_generation events instead.
+    """
+    usage = (reviewer_output or {}).get("usage")
+    if not isinstance(usage, dict):
+        return {}
+    return {f"stamphog_llm_{name}": value for name, value in usage.items()}
+
+
 def _describe_deny_category(category: str) -> str:
     """Name a denied category, and for an owner-only one, the teams that stamphog approves there."""
     teams = DENY_EXEMPT_AUTHOR_TEAMS.get(category)
@@ -245,6 +262,13 @@ class Pipeline:
         self.gate_results: list[GateResult] = []
         self.reviewer_output: dict | None = None
         self.final_verdict: str = ""
+        self.engine: Engine = "stable"
+        # True for the beta engine's second opinion on a run whose stable verdict is the one posted.
+        # Its event is marked so it never counts as a posted review.
+        self.shadow = False
+        # The version of the engine that produced the verdict. _llm_review sets the beta version
+        # when the beta reviewer runs, so a gate-only verdict keeps the stable version.
+        self.version = STAMPHOG_VERSION
 
     def run(self) -> str:
         """Run the full pipeline, return final verdict string."""
@@ -911,6 +935,16 @@ class Pipeline:
 
         raise AssertionError("review retry loop exhausted without a verdict")
 
+    def _new_reviewer(self, explore_root: Path | None) -> "Reviewer":
+        # Deferred so the gate-only pre-check can import this module where the LLM SDKs are absent.
+        if self.engine == "beta":
+            from luna_reviewer import LunaReviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+            return LunaReviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose, shadow=self.shadow)
+        from reviewer import Reviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+        return Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
+
     def _llm_review(self, gate_verdict: str) -> None:
         print(f"\n{_bold('LLM Review')}")
         # Outside the retry loop: a diff-write hiccup must not masquerade as a
@@ -923,12 +957,12 @@ class Pipeline:
         }
 
         print(_dim("  Calling reviewer..."))
-        # Deferred so the gate-only pre-check can import this module where claude_agent_sdk is absent.
-        from reviewer import Reviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
+        if self.engine == "beta":
+            self.version = BETA_VERSION
 
         try:
             with self._pr_head_worktree() as explore_root:
-                reviewer = Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
+                reviewer = self._new_reviewer(explore_root)
                 reviewer_unavailable = self._run_reviewer_with_retries(reviewer, gate_context, diff_path)
         except WorktreeUnavailableError as exc:
             reviewer_unavailable = True
@@ -985,49 +1019,72 @@ class Pipeline:
         pr = self.pr
         fam = self.familiarity
         prov = self.provenance
+        # Extras come after the engine channel, so the server's channel value wins, and before the
+        # base props, so the base props win on a collision. The hosted server stamps its runtime and
+        # team context through this hook. A local run has no such hook, so a missing prop means a
+        # local runtime.
+        properties: dict[str, object] = {
+            "stamphog_engine_channel": self.engine,
+            **analytics_extra_properties(),
+            "ai_product": "stamphog",
+            "stamphog_version": self.version,
+            "stamphog_commit": _head_commit_sha(),
+            "stamphog_pr_number": pr.number,
+            "stamphog_repo": pr.repo,
+            "stamphog_author": pr.author,
+            "stamphog_pr_title": pr.title,
+            "stamphog_tier": cl.get("tier", ""),
+            "stamphog_t1_subclass": cl.get("t1_subclass", ""),
+            "stamphog_breadth": cl.get("breadth", ""),
+            "stamphog_commit_type": cl.get("commit_type") or "",
+            "stamphog_files_changed": len(pr.files),
+            "stamphog_lines_total": pr.lines_total,
+            "stamphog_pr_reactions_count": len(pr.pr_reactions),
+            "stamphog_title_scrutiny_flags": cl.get("title_scrutiny_flags", []),
+            "stamphog_owner_teams": (cl.get("ownership") or {}).get("teams", []),
+            "stamphog_familiarity_band": fam.band if fam else "",
+            "stamphog_familiarity_blame_overlap_pct": round(fam.blame_overlap_pct, 1) if fam else None,
+            "stamphog_familiarity_prior_prs_in_paths": fam.prior_prs_in_paths if fam else None,
+            "stamphog_familiarity_days_since_last_touch": fam.days_since_last_touch if fam else None,
+            "stamphog_familiarity_source": self.familiarity_source,
+            "stamphog_agent_authored": prov.agent_authored if prov else None,
+            "stamphog_agent_commit_count": prov.agent_commit_count if prov else None,
+            "stamphog_commit_count": prov.commit_count if prov else None,
+            "stamphog_generated_by": list(prov.generated_by) if prov else [],
+            "stamphog_task_ids": list(prov.task_ids) if prov else [],
+            "stamphog_gate_verdict": gate_verdict,
+            "stamphog_llm_verdict": llm_verdict,
+            "stamphog_final_verdict": self.final_verdict,
+            # Empty on a local run: only the hosted runtime knows why the review started.
+            "stamphog_review_trigger": self.review_trigger,
+            "stamphog_llm_reasoning": (self.reviewer_output or {}).get("reasoning", ""),
+            "stamphog_llm_risk": (self.reviewer_output or {}).get("risk", ""),
+            "stamphog_llm_issues": (self.reviewer_output or {}).get("issues", []),
+            "stamphog_llm_facts_summary": facts_summary((self.reviewer_output or {}).get("facts")),
+            **_llm_usage_properties(self.reviewer_output),
+        }
+        if self.shadow:
+            # The server's extra properties describe the posted stable review, so the shadow event
+            # overrides its channel.
+            properties.update({"stamphog_shadow": True, "stamphog_engine_channel": "beta"})
+        posthoganalytics.capture(distinct_id=pr.author, event="stamphog_review_completed", properties=properties)
+
+    def _capture_shadow_failed(self, exc: Exception) -> None:
+        """Record a beta shadow review that crashed. The stable verdict is unaffected."""
+        if not _POSTHOG_AVAILABLE:
+            return
         posthoganalytics.capture(
-            distinct_id=pr.author,
-            event="stamphog_review_completed",
-            # Extras first, so the base props win on a collision. The hosted server stamps its
-            # runtime and team context through this hook. A local run has no such hook, so its
-            # events are unchanged, and a missing prop means a local runtime.
+            distinct_id=self.pr.author,
+            event="stamphog_shadow_failed",
             properties={
                 **analytics_extra_properties(),
                 "ai_product": "stamphog",
-                "stamphog_version": STAMPHOG_VERSION,
-                "stamphog_commit": _head_commit_sha(),
-                "stamphog_pr_number": pr.number,
-                "stamphog_repo": pr.repo,
-                "stamphog_author": pr.author,
-                "stamphog_pr_title": pr.title,
-                "stamphog_tier": cl.get("tier", ""),
-                "stamphog_t1_subclass": cl.get("t1_subclass", ""),
-                "stamphog_breadth": cl.get("breadth", ""),
-                "stamphog_commit_type": cl.get("commit_type") or "",
-                "stamphog_files_changed": len(pr.files),
-                "stamphog_lines_total": pr.lines_total,
-                "stamphog_pr_reactions_count": len(pr.pr_reactions),
-                "stamphog_title_scrutiny_flags": cl.get("title_scrutiny_flags", []),
-                "stamphog_owner_teams": (cl.get("ownership") or {}).get("teams", []),
-                "stamphog_familiarity_band": fam.band if fam else "",
-                "stamphog_familiarity_blame_overlap_pct": round(fam.blame_overlap_pct, 1) if fam else None,
-                "stamphog_familiarity_prior_prs_in_paths": fam.prior_prs_in_paths if fam else None,
-                "stamphog_familiarity_days_since_last_touch": fam.days_since_last_touch if fam else None,
-                "stamphog_familiarity_source": self.familiarity_source,
-                "stamphog_agent_authored": prov.agent_authored if prov else None,
-                "stamphog_agent_commit_count": prov.agent_commit_count if prov else None,
-                "stamphog_commit_count": prov.commit_count if prov else None,
-                "stamphog_generated_by": list(prov.generated_by) if prov else [],
-                "stamphog_task_ids": list(prov.task_ids) if prov else [],
-                "stamphog_gate_verdict": gate_verdict,
-                "stamphog_llm_verdict": llm_verdict,
-                "stamphog_final_verdict": self.final_verdict,
-                # Empty on a local run: only the hosted runtime knows why the review started.
-                "stamphog_review_trigger": self.review_trigger,
-                "stamphog_llm_reasoning": (self.reviewer_output or {}).get("reasoning", ""),
-                "stamphog_llm_risk": (self.reviewer_output or {}).get("risk", ""),
-                "stamphog_llm_issues": (self.reviewer_output or {}).get("issues", []),
-                "stamphog_llm_facts_summary": facts_summary((self.reviewer_output or {}).get("facts")),
+                "stamphog_version": BETA_VERSION,
+                "stamphog_engine_channel": "beta",
+                "stamphog_shadow": True,
+                "stamphog_pr_number": self.pr.number,
+                "stamphog_repo": self.pr.repo,
+                "stamphog_shadow_error_type": type(exc).__name__,
             },
         )
 
@@ -1073,7 +1130,7 @@ class Pipeline:
 
         rows = [f"| {g.gate} | {'✓' if g.passed else '✗'} | {g.message} |" for g in self.gate_results if g]
         rows.append(
-            f"| stamphog {STAMPHOG_VERSION} |  | `.stamphog/policy.yml` @ `{_head_commit_sha()[:7]}`"
+            f"| stamphog {self.version} |  | `.stamphog/policy.yml` @ `{_head_commit_sha()[:7]}`"
             f" · reviewed head `{self.pr.head_sha[:7]}` |"
         )
         details = (
@@ -1087,7 +1144,7 @@ class Pipeline:
 
     def to_dict(self) -> dict:
         return {
-            "stamphog_version": STAMPHOG_VERSION,
+            "stamphog_version": self.version,
             "pr_number": self.pr.number,
             "repo": self.pr.repo,
             "title": self.pr.title,
