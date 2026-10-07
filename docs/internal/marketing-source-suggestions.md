@@ -44,3 +44,9 @@ Enable `destination_url_performance_report` in the Bing Ads source settings and 
 The view groups search distribution metrics by destination URL and currency, with clicks, impressions, spend, and platform-attributed conversions.
 The connector uses `ConversionsQualified` because Microsoft deprecated `Conversions` for this report.
 Keyword reporting continues to use `keyword_performance_report`.
+
+## Google Ads campaign trends
+
+Campaign trend charts accept both `campaign_overview_stats` and the legacy `campaign_stats` schema.
+The current schema takes precedence when both are available.
+Table resolution uses schema metadata when available and otherwise recognizes source and custom table-name prefixes.
