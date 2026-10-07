@@ -3,12 +3,12 @@ import { computeSankeyLayout } from './sankey-data'
 
 const BACKGROUND = 'hsl(235deg 8% 15%)'
 
-function layoutOf(): ReturnType<typeof computeSankeyLayout> {
+function layoutOf(secondLinkValue = 10): ReturnType<typeof computeSankeyLayout> {
     return computeSankeyLayout({
         nodes: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
         links: [
             { source: 'a', target: 'b', value: 10 },
-            { source: 'a', target: 'c', value: 10 },
+            { source: 'a', target: 'c', value: secondLinkValue },
         ],
         plot: { plotLeft: 0, plotTop: 0, plotWidth: 600, plotHeight: 300 },
         nodeWidth: 10,
@@ -58,12 +58,13 @@ function recordingCtx(serialize: Record<string, string>): {
 
 describe('drawSankeyHover', () => {
     it.each([
-        ['serialized by the canvas', { [BACKGROUND]: '#202023' }, 2],
-        ['rejected by the canvas', {}, 1],
+        ['serialized by the canvas', { [BACKGROUND]: '#202023' }, 10, 2],
+        ['rejected by the canvas', {}, 10, 1],
+        ['zero-valued inactive ribbon', { [BACKGROUND]: '#202023' }, 0, 1],
     ])(
-        'never paints inactive ribbons in a background d3-color cannot parse: %s',
-        (_name, serialize, expectedStrokes) => {
-            const layout = layoutOf()
+        'dims an inactive ribbon only when it carries flow and the background parses: %s',
+        (_name, serialize, secondLinkValue, expectedStrokes) => {
+            const layout = layoutOf(secondLinkValue)
             const { ctx, strokes } = recordingCtx(serialize)
             drawSankeyHover(ctx, layout, sankeyActiveFlow(layout, { kind: 'link', index: 0 }), {
                 linkOpacity: 0.4,
