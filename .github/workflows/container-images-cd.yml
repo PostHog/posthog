@@ -464,8 +464,14 @@ jobs:
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
 
+                      # The worker runs the experiment query runner, so a query-layer change must redeploy it too.
                       experimentsRecalculation:
-                        - 'products/experiments/backend/temporal/**'
+                        - 'products/experiments/backend/**'
+                        - 'products/experiments/stats/**'
+                        - 'posthog/hogql*/**'
+                        - '!products/experiments/backend/**/test/**'
+                        - '!products/experiments/stats/**/tests/**'
+                        - '!posthog/hogql*/**/test/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - pyproject.toml
