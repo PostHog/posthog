@@ -1,5 +1,5 @@
 import type { HogFlow } from '../hogflows/types'
-import { describeFieldView, describeSuggestedChanges, groupStepFields } from './suggestionChanges'
+import { SuggestedFieldView, describeFieldView, describeSuggestedChanges, groupStepFields } from './suggestionChanges'
 
 const live = {
     name: 'Onboarding welcome',
@@ -171,20 +171,28 @@ describe('suggestionChanges', () => {
                     modified: JSON.stringify({ events: [{ id: 'signed_up' }, { id: 'invited_user' }] }, null, 2),
                 },
             ],
-            [
-                'email HTML with an inline image, as its size',
-                'config.inputs.email.value.html',
-                `<p>Hi</p><img src="data:image/png;base64,${'A'.repeat(4096)}"><a>Old</a>`,
-                `<p>Hi</p><img src="data:image/png;base64,${'A'.repeat(4096)}"><a>New</a>`,
-                {
-                    kind: 'diff',
-                    language: 'html',
-                    original: '<p>Hi</p>\n<img src="data:image/png;base64,… (3 KB)">\n<a>Old</a>',
-                    modified: '<p>Hi</p>\n<img src="data:image/png;base64,… (3 KB)">\n<a>New</a>',
-                },
-            ],
         ])('shows %s as the right view', (_name, path, before, after, expected) => {
             expect(describeFieldView({ path, label: path, before, after })).toEqual(expected)
         })
+    })
+
+    it.each([
+        ['the same image, so only the text changes', 'A', 'A', false],
+        ['a swapped image of the same size', 'A', 'B', true],
+    ])('shows an inline image as its size and digest: %s', (_name, beforeFill, afterFill, imageLineDiffers) => {
+        const html = (fill: string, cta: string): string =>
+            `<p>Hi</p><img src="data:image/png;base64,${fill.repeat(4096)}"><a>${cta}</a>`
+
+        const view = describeFieldView({
+            path: 'config.inputs.email.value.html',
+            label: 'email › html',
+            before: html(beforeFill, 'Old'),
+            after: html(afterFill, 'New'),
+        })
+
+        const { original, modified } = view as Extract<SuggestedFieldView, { kind: 'diff' }>
+        const imageLine = (text: string): string => text.split('\n')[1]
+        expect(imageLine(original)).toMatch(/^<img src="data:image\/png;base64,… \(3 KB, [0-9a-f]{8}\)">$/)
+        expect(imageLine(original) !== imageLine(modified)).toBe(imageLineDiffers)
     })
 })

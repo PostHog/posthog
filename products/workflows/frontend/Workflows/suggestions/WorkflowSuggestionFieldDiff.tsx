@@ -58,8 +58,10 @@ export function WorkflowSuggestionFieldDiff({
 }): JSX.Element {
     const isDarkModeOn = useBodyIsDark()
     const view = describeFieldView(change)
+    const isTwoSidedDiff = view.kind === 'diff' && view.original !== '' && view.modified !== ''
     // Each diff editor costs real main-thread time, and a workflow can hold several long suggestions,
-    // so an editor mounts only when its card comes near the screen.
+    // so an editor mounts only when its card comes near the screen. The container exists only for a
+    // two-sided diff, so the observer attaches again when a field becomes one.
     const diffRef = useRef<HTMLDivElement>(null)
     const [inView, setInView] = useState(false)
     useEffect(() => {
@@ -78,7 +80,7 @@ export function WorkflowSuggestionFieldDiff({
         )
         observer.observe(element)
         return () => observer.disconnect()
-    }, [inView])
+    }, [inView, isTwoSidedDiff])
 
     const label = (
         <Tooltip title={change.path}>
@@ -109,7 +111,7 @@ export function WorkflowSuggestionFieldDiff({
                 {action && <div className="ml-auto">{action}</div>}
             </div>
             {/* Monaco shows an empty side as a changed blank line, so a one-sided change is a plain block. */}
-            {view.original === '' || view.modified === '' ? (
+            {!isTwoSidedDiff ? (
                 <pre
                     className={`text-xs rounded p-2 mb-0 max-h-80 overflow-auto whitespace-pre-wrap break-words ${
                         view.modified === '' ? 'bg-fill-error-highlight' : 'bg-fill-success-highlight'

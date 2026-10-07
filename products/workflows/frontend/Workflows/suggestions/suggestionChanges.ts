@@ -109,12 +109,22 @@ function splitAdjacentTags(html: string): string {
     return html.replace(/>(?=<)/g, '>\n')
 }
 
+// FNV-1a, enough to tell two payloads apart in a label.
+function shortDigest(text: string): string {
+    let hash = 0x811c9dc5
+    for (let index = 0; index < text.length; index++) {
+        hash = Math.imul(hash ^ text.charCodeAt(index), 0x01000193)
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
 // Inline images can be megabytes of base64 that hide the change and stall the diff. Their bytes
-// say nothing a reader can judge, so the diff shows their size. Compare emails renders them.
+// say nothing a reader can judge, so the diff shows their size, plus a digest so a swapped image
+// still shows as a change. Compare emails renders them.
 function shortenDataUris(html: string): string {
     return html.replace(/data:([\w/+.-]+);base64,[A-Za-z0-9+/=\s]{200,}/g, (match, type: string) => {
         const kilobytes = Math.round((match.length * 3) / 4 / 1024)
-        return `data:${type};base64,… (${kilobytes.toLocaleString()} KB)`
+        return `data:${type};base64,… (${kilobytes.toLocaleString()} KB, ${shortDigest(match)})`
     })
 }
 
