@@ -104460,6 +104460,11 @@ export namespace Schemas {
       expires_in: number;
     }
 
+    export interface TaskRunArtifactPreviewResponse {
+      /** Short-lived URL for the isolated HTML preview */
+      url: string;
+    }
+
     export interface TaskRunArtifactUpload {
       /**
          * File name to associate with the artifact
@@ -124579,6 +124584,13 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    };
+
+    export type TasksRunsArtifactsPreviewRetrieveParams = {
+    /**
+     * Living artifact version
+     */
+    version?: number;
     };
 
     export type TasksRunsSessionLogsRetrieveParams = {

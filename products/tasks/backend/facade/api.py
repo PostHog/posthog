@@ -4729,6 +4729,28 @@ def presign_task_run_artifact_download(
     return url, None
 
 
+def task_run_artifact_entry(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str
+) -> dict[str, Any] | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return next(
+        (
+            entry
+            for entry in run.artifacts or []
+            if entry.get("id") == artifact_id
+            and entry.get("storage_path")
+            and not entry.get("dismissed_at")
+            and (
+                (entry.get("type") == "output" and entry.get("uploaded_by") == "user")
+                or (entry.get("type") in ("output", "artifact") and entry.get("source") == "agent_output")
+            )
+        ),
+        None,
+    )
+
+
 def read_task_run_artifact(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, storage_path: str
 ) -> tuple[bytes | None, dict | None, str | None]:

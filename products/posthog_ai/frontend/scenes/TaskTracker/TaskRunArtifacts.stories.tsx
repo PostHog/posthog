@@ -118,8 +118,10 @@ const SUMMARY_HTML = `<!doctype html>
   <div class="step"><span>Details</span><div class="track"><div class="bar" style="width: 35%"></div></div><span class="value">35%</span></div>
   <div class="step"><span>Trial started</span><div class="track"><div class="bar" style="width: 30%"></div></div><span class="value">30%</span></div>
   <div class="note">The plan picker step drops from 62% to 44% against the week before.</div>
+  <button id="preview-action">Run chart action</button>
   <img src="https://example.com/html-pixel.png" alt="" width="1" height="1" />
 </main>
+<script>document.getElementById('preview-action').addEventListener('click', function () { this.textContent = 'Chart action ran' })</script>
 </body>
 </html>`
 
@@ -397,6 +399,9 @@ function taskMocks(
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/logs`]: () => new HttpResponse(RUN_LOGS),
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/artifacts/artifact-chart/download/`]: () =>
                 new HttpResponse(CHART_SVG, { headers: { 'Content-Type': 'image/svg+xml' } }),
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/artifacts/:artifact_id/preview/`]: {
+                url: `data:text/html;charset=utf-8,${encodeURIComponent(SUMMARY_HTML)}`,
+            },
             '/api/projects/:team_id/task_channels/': [],
             '/api/projects/:team_id/integrations/': { results: [] },
             '/api/environments/:team_id/conversations/': { results: [], next: null },

@@ -1964,6 +1964,10 @@ class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
     expires_in = serializers.IntegerField(help_text="URL expiry in seconds")
 
 
+class TaskRunArtifactPreviewResponseSerializer(serializers.Serializer):
+    url = serializers.URLField(help_text="Short-lived URL for the isolated HTML preview")
+
+
 class TaskRunArtifactsDismissRequestSerializer(serializers.Serializer):
     artifact_ids = serializers.ListField(
         child=serializers.CharField(max_length=128),

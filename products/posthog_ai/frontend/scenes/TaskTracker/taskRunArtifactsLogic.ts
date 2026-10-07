@@ -27,6 +27,7 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import {
     getTasksRunsArtifactsDownloadCreateUrl,
     getTasksRunsArtifactsDownloadRetrieveUrl,
+    tasksRunsArtifactsPreviewRetrieve,
     tasksRunsArtifactsDismissCreate,
     getTasksRunsLivingArtifactsVersionContentUrl,
     tasksRunsLivingArtifactsList,
@@ -72,6 +73,13 @@ export interface ArtifactText {
     artifactId: string
     text: string | null
     error: string | null
+}
+
+export interface ArtifactHtmlPreview {
+    artifactId: string
+    url: string | null
+    error: string | null
+    expiresAt: number
 }
 
 /** The file version an edit started from, and the text it had then. */
@@ -122,6 +130,8 @@ export interface taskRunArtifactsLogicValues {
     editSaving: boolean
     editSession: ArtifactEditSession | null
     files: ArtifactFile[]
+    htmlPreview: ArtifactHtmlPreview | null
+    htmlPreviewLoading: boolean
     isEditing: boolean
     livingArtifacts: TaskRunLivingArtifactResponseApi[]
     livingArtifactsLoading: boolean
@@ -218,6 +228,21 @@ export interface taskRunArtifactsLogicActions {
     ) => {
         chainRuns: TaskRunDetailDTOApi[]
         payload?: string[]
+    }
+    loadHtmlPreview: (artifact: RunArtifact) => RunArtifact
+    loadHtmlPreviewFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadHtmlPreviewSuccess: (
+        htmlPreview: ArtifactHtmlPreview,
+        payload?: RunArtifact
+    ) => {
+        htmlPreview: ArtifactHtmlPreview
+        payload?: RunArtifact
     }
     loadLivingArtifacts: (runId: string) => string
     loadLivingArtifactsFailure: (
@@ -564,6 +589,46 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 },
             },
         ],
+        htmlPreview: [
+            null as ArtifactHtmlPreview | null,
+            {
+                loadHtmlPreview: async (artifact: RunArtifact, breakpoint): Promise<ArtifactHtmlPreview> => {
+                    if (values.currentProjectId === null || !artifact.id) {
+                        return {
+                            artifactId: artifact.id ?? '',
+                            url: null,
+                            error: 'Preview is unavailable.',
+                            expiresAt: 0,
+                        }
+                    }
+                    let preview: ArtifactHtmlPreview
+                    try {
+                        const result = await tasksRunsArtifactsPreviewRetrieve(
+                            String(values.currentProjectId),
+                            props.taskId,
+                            artifact.runId,
+                            artifact.living?.artifactId ?? artifact.id,
+                            artifact.living ? { version: artifact.living.version } : undefined
+                        )
+                        preview = {
+                            artifactId: artifact.id,
+                            url: result.url,
+                            error: null,
+                            expiresAt: Date.now() + 4 * 60 * 1000,
+                        }
+                    } catch {
+                        preview = {
+                            artifactId: artifact.id,
+                            url: null,
+                            error: 'This HTML preview did not load. Try again.',
+                            expiresAt: 0,
+                        }
+                    }
+                    breakpoint()
+                    return preview
+                },
+            },
+        ],
     })),
     reducers({
         activeTab: [
@@ -850,6 +915,12 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             const kind = values.selectedKind
             if (values.activeTab !== 'artifacts' || !artifact || !kind) {
                 return
+            }
+            if (
+                kind === 'html' &&
+                (values.htmlPreview?.artifactId !== artifact.id || (values.htmlPreview?.expiresAt ?? 0) < Date.now())
+            ) {
+                actions.loadHtmlPreview(artifact)
             }
             if (isTextPreview(kind) && !values.selectedText) {
                 actions.loadArtifactText(artifact)

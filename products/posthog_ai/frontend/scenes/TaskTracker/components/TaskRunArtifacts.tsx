@@ -78,7 +78,6 @@ import { SHEET_PARTS } from '~/layout/today/todayMenuParts'
 import { TodaySheetMenu } from '~/layout/today/TodaySheetMenu'
 
 import { isCommentableArtifact, regionAnchorAt, supportsSelectionComments } from '../artifactComments'
-import { withStrictCsp } from '../artifactHtml'
 import { TaskArtifactCommentsLogicProps, taskArtifactCommentsLogic } from '../taskArtifactCommentsLogic'
 import {
     ArtifactFile,
@@ -195,17 +194,13 @@ function IconAction({
     )
 }
 
-/**
- * Agent-written HTML is untrusted. An empty `sandbox` gives the document an opaque origin with scripts,
- * forms, popups and top navigation all off, so it cannot reach the app's cookies, storage or DOM.
- */
-function SandboxedHtmlFrame({ html, name }: { html: string; name: string }): JSX.Element {
+function SandboxedHtmlFrame({ url, name }: { url: string; name: string }): JSX.Element {
     return (
         <iframe
             className="size-full border-0 bg-white"
-            sandbox=""
+            sandbox="allow-scripts"
             referrerPolicy="no-referrer"
-            srcDoc={withStrictCsp(html)}
+            src={url}
             title={`Preview of ${name}`}
         />
     )
@@ -408,11 +403,13 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
         currentProjectId,
         artifactTextLoading,
         todayPhone,
+        htmlPreview,
+        htmlPreviewLoading,
     } = useValues(taskRunArtifactsLogic({ taskId }))
-    const { ensureSelectedText, loadArtifactText } = useActions(taskRunArtifactsLogic({ taskId }))
+    const { ensureSelectedText, loadArtifactText, loadHtmlPreview } = useActions(taskRunArtifactsLogic({ taskId }))
     useEffect(() => {
         ensureSelectedText()
-    }, [selectedArtifact?.id, selectedRun?.id, currentProjectId, ensureSelectedText])
+    }, [selectedArtifact?.id, selectedRun?.id, currentProjectId, mode, ensureSelectedText])
     if (!selectedArtifact || !selectedKind) {
         return null
     }
@@ -458,6 +455,36 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
             </Empty>
         )
     }
+    if (selectedKind === 'html' && mode === 'rendered') {
+        if (!htmlPreview || htmlPreview.artifactId !== selectedArtifact.id || htmlPreviewLoading) {
+            return (
+                <div className="flex h-full items-center justify-center">
+                    <Spinner />
+                </div>
+            )
+        }
+        if (!htmlPreview.url) {
+            return (
+                <Empty className="h-full">
+                    <EmptyHeader>
+                        <EmptyTitle>This HTML preview didn't load</EmptyTitle>
+                        <EmptyDescription>{htmlPreview.error}</EmptyDescription>
+                    </EmptyHeader>
+                    <EmptyContent>
+                        <Button
+                            variant="outline"
+                            loading={htmlPreviewLoading}
+                            onClick={() => loadHtmlPreview(selectedArtifact)}
+                            data-attr="task-artifact-retry-preview"
+                        >
+                            Try again
+                        </Button>
+                    </EmptyContent>
+                </Empty>
+            )
+        }
+        return <SandboxedHtmlFrame key={selectedArtifact.id} url={htmlPreview.url} name={selectedArtifact.name} />
+    }
     if (!selectedText) {
         return selectedKind === 'html' ? (
             <div className="flex h-full items-center justify-center">
@@ -501,9 +528,6 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
     }
     if (mode === 'source') {
         return <SourceView text={selectedText.text} />
-    }
-    if (selectedKind === 'html') {
-        return <SandboxedHtmlFrame html={selectedText.text} name={selectedArtifact.name} />
     }
     if (selectedKind === 'csv') {
         return <CsvPreview text={selectedText.text} />

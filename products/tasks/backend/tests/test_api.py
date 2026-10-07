@@ -8,7 +8,7 @@ from collections.abc import AsyncGenerator, Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, ClassVar, cast
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import time_machine
 from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
@@ -10210,6 +10210,88 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response["Content-Type"], "text/markdown")
         self.assertIn('attachment; filename="plan.md"', response["Content-Disposition"])
         mock_read_bytes.assert_called_once_with(storage_path, missing_ok=True)
+
+    @override_settings(
+        CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
+    )
+    @patch(
+        "posthog.storage.object_storage.read_bytes",
+        return_value=b"<button onclick=\"this.textContent='ready'\">Run</button>",
+    )
+    def test_html_artifact_preview_runs_from_isolated_origin(self, mock_read_bytes):
+        task = self.create_task()
+        artifact_id = uuid.uuid4().hex
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            artifacts=[
+                {
+                    "id": artifact_id,
+                    "name": "interactive.html",
+                    "type": "output",
+                    "source": "agent_output",
+                    "content_type": "text/html",
+                    "storage_path": f"tasks/artifacts/team_{self.team.id}/task_{task.id}/run_{uuid.uuid4().hex}/interactive.html",
+                },
+                {
+                    "id": "private-html",
+                    "name": "private.html",
+                    "type": "attachment",
+                    "content_type": "text/html",
+                    "storage_path": "tasks/artifacts/private.html",
+                },
+            ],
+        )
+        api_path = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/preview/"
+
+        minted = self.client.get(api_path)
+        self.assertEqual(minted.status_code, status.HTTP_200_OK)
+        preview_path = urlsplit(minted.json()["url"]).path
+        preview = self.client.get(preview_path, HTTP_HOST="usercontent.example")
+
+        self.assertEqual(preview.status_code, status.HTTP_200_OK)
+        self.assertEqual(preview.content, mock_read_bytes.return_value)
+        self.assertEqual(preview["Cache-Control"], "no-store")
+        self.assertIn("sandbox allow-scripts", preview["Content-Security-Policy"])
+        self.assertIn("script-src 'unsafe-inline'", preview["Content-Security-Policy"])
+        self.assertNotIn("allow-same-origin", preview["Content-Security-Policy"])
+        self.assertEqual(self.client.get(preview_path).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            self.client.get(api_path.replace(artifact_id, uuid.uuid4().hex)).status_code, status.HTTP_404_NOT_FOUND
+        )
+        self.assertEqual(
+            self.client.get(api_path.replace(artifact_id, "private-html")).status_code, status.HTTP_404_NOT_FOUND
+        )
+
+        with patch("products.tasks.backend.presentation.views.artifact_preview.cache.get", return_value=None):
+            self.assertEqual(
+                self.client.get(preview_path, HTTP_HOST="usercontent.example").status_code, status.HTTP_404_NOT_FOUND
+            )
+
+    @override_settings(
+        CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
+    )
+    def test_html_living_artifact_preview_uses_selected_version(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        artifact = self._create_slack_file_living_artifact(task, run)
+        artifact.name = "interactive.html"
+        versions = artifact.versions
+        versions[1]["content_type"] = "text/html"
+        versions[1]["content"] = "<script>document.body.textContent = 'ready'</script>"
+        artifact.versions = versions
+        artifact.save(update_fields=["name", "versions"])
+
+        api_path = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{artifact.id}/preview/"
+        minted = self.client.get(f"{api_path}?version=2")
+        self.assertEqual(minted.status_code, status.HTTP_200_OK)
+        preview_path = urlsplit(minted.json()["url"]).path
+        preview = self.client.get(preview_path, HTTP_HOST="usercontent.example")
+        self.assertEqual(preview.status_code, status.HTTP_200_OK)
+        self.assertEqual(preview.content, versions[1]["content"].encode())
+        self.assertEqual(self.client.get(f"{api_path}?version=1").status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.get(f"{api_path}?version={'9' * 21}").status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_download_artifact_not_found(self):
         task = self.create_task()

@@ -166,6 +166,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
     TaskRunArtifactPresignResponseSerializer,
+    TaskRunArtifactPreviewResponseSerializer,
     TaskRunArtifactsDismissRequestSerializer,
     TaskRunArtifactsDismissResponseSerializer,
     TaskRunArtifactsFinalizeUploadRequestSerializer,
@@ -224,6 +225,7 @@ from products.tasks.backend.presentation.serializers import (
     WizardCloudRunSerializer,
 )
 from products.tasks.backend.presentation.task_review_serializers import TaskReviewQuerySerializer, TaskReviewSerializer
+from products.tasks.backend.presentation.views.artifact_preview import create_artifact_preview_url, is_html_artifact
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -1919,6 +1921,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "artifacts_presign",
         "artifacts_download",
         "artifacts_download_by_id",
+        "artifacts_preview",
     )
     _VISIBILITY_ONLY_ACTIONS = ("analyze",)
 
@@ -2990,6 +2993,58 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if url is None:
             raise NotFound()
         return HttpResponseRedirect(url)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("artifact_id", OpenApiTypes.STR, OpenApiParameter.PATH, description="Artifact id"),
+            OpenApiParameter(
+                "version",
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                description="Living artifact version",
+                required=False,
+            ),
+        ],
+        responses={
+            200: TaskRunArtifactPreviewResponseSerializer,
+            404: OpenApiResponse(description="HTML artifact not found"),
+            503: OpenApiResponse(description="Artifact preview origin unavailable"),
+        },
+        summary="Open an isolated HTML artifact preview",
+        description="Returns a short-lived URL for one HTML artifact version on the artifact origin.",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"artifacts/(?P<artifact_id>[^/]+)/preview",
+        required_scopes=["task:read"],
+    )
+    def artifacts_preview(self, request, pk=None, artifact_id=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        raw_version = request.query_params.get("version")
+        if raw_version is not None and (
+            len(raw_version) > 20 or not raw_version.isascii() or not raw_version.isdecimal() or int(raw_version) < 1
+        ):
+            raise ValidationError({"version": "Enter a positive version number."})
+        version = int(raw_version) if raw_version is not None else None
+        if version is None:
+            artifact = tasks_facade.task_run_artifact_entry(pk, task_id, self.team_id, artifact_id=artifact_id)
+            if artifact is None or not is_html_artifact(
+                str(artifact.get("name") or ""), str(artifact.get("content_type") or "")
+            ):
+                raise NotFound()
+        else:
+            content, error = tasks_facade.read_task_run_living_artifact_version(
+                pk, task_id, self.team_id, artifact_id=artifact_id, version=version
+            )
+            if error is not None or content is None or not is_html_artifact(content.name, content.content_type):
+                raise NotFound()
+        url = create_artifact_preview_url(
+            team_id=self.team_id, task_id=task_id, run_id=str(pk), artifact_id=artifact_id, version=version
+        )
+        if url is None:
+            return Response({"error": "Artifact preview is unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response(TaskRunArtifactPreviewResponseSerializer({"url": url}).data)
 
     def _preview_unavailable_page(self, outcome: str, task_id: str) -> HttpResponse:
         if outcome == "ended":

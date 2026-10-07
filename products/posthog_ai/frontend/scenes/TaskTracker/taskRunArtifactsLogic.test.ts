@@ -43,6 +43,18 @@ describe('taskRunArtifactsLogic', () => {
             if (url.includes('/artifacts/download/')) {
                 return Promise.resolve(new Response('# Report'))
             }
+            if (url.includes('/artifacts/') && url.includes('/preview/')) {
+                return Promise.resolve(
+                    new Response(
+                        JSON.stringify({
+                            url: 'https://usercontent.example/canvas-artifacts/task-preview/token/index.html',
+                        }),
+                        {
+                            headers: { 'Content-Type': 'application/json' },
+                        }
+                    )
+                )
+            }
             const payload = /\/runs\/(\?.*)?$/.test(url)
                 ? { results: runArtifacts.length ? [{ id: RUN_ID }] : [] }
                 : url.includes('/living_artifacts/')
@@ -129,6 +141,31 @@ describe('taskRunArtifactsLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toMatchValues({ activeTab: 'conversation', selectedFileKey: null })
+    })
+
+    it('requests a runnable preview when an HTML artifact opens', async () => {
+        runArtifacts = [
+            {
+                id: 'html-1',
+                name: 'interactive.html',
+                type: 'output',
+                source: 'agent_output',
+                content_type: 'text/html',
+                storage_path: 'tasks/artifacts/html-1',
+                uploaded_at: '2026-09-28T18:00:00Z',
+            },
+        ]
+        const logic = taskRunArtifactsLogic({ taskId: TASK_ID })
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.setActiveTab('artifacts')).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.ensureSelectedText()).toFinishAllListeners()
+
+        expect(logic.values.htmlPreview?.artifactId).toBe('html-1')
+        expect(logic.values.htmlPreview?.url).toContain('/canvas-artifacts/task-preview/')
+        expect(global.fetch).toHaveBeenCalledWith(
+            expect.stringContaining(`/tasks/${TASK_ID}/runs/${RUN_ID}/artifacts/html-1/preview/`),
+            expect.anything()
+        )
     })
 
     it.each([

@@ -73,6 +73,7 @@ from products.slack_app.backend.views import (
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
+from products.tasks.backend.presentation.views.artifact_preview import task_artifact_preview
 from products.tasks.backend.presentation.views.gateway_generation_requests import gateway_generation_request
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.workflows.backend.presentation.views import hog_flow
@@ -357,6 +358,11 @@ urlpatterns = [
         r"^canvas-artifacts/sandbox/(?P<content_hash>[0-9a-f]{64})/index\.html$",
         canvas_sandbox_document,
         name="canvas-sandbox-document",
+    ),
+    re_path(
+        r"^canvas-artifacts/task-preview/(?P<token>[A-Za-z0-9_-]+)/index\.html$",
+        task_artifact_preview,
+        name="task-artifact-preview",
     ),
     re_path(r"^canvas-artifacts/(?P<token>[^/]+)/(?P<artifact_path>.+)$", canvas_artifact, name="canvas-artifact"),
     # Preserve the host and query when redirecting the legacy signup URL.

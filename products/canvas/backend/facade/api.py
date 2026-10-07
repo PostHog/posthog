@@ -8,6 +8,9 @@ from django.http import Http404, HttpRequest
 
 from products.canvas.backend.actions import canvas_actions_disabled as canvas_actions_disabled
 from products.canvas.backend.artifacts import (
+    ARTIFACT_PERMISSIONS_POLICY as ARTIFACT_PERMISSIONS_POLICY,
+    _artifact_origin,
+    _require_artifact_host,
     canvas_artifact as _canvas_artifact,
     canvas_sandbox_document as _canvas_sandbox_document,
     create_canvas_sandbox_document_url as create_canvas_sandbox_document_url,
@@ -121,3 +124,11 @@ def render_canvas_sandbox_document(*, host: str, content_hash: str) -> CanvasArt
         body=response.content,
         headers=dict(response.items()),
     )
+
+
+def artifact_delivery_origin() -> str:
+    return _artifact_origin()
+
+
+def require_artifact_host(host: str) -> None:
+    _require_artifact_host(host)

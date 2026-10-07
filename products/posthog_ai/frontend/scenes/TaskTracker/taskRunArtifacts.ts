@@ -73,12 +73,16 @@ export function artifactPreviewKind(
     artifact: TaskRunArtifactResponseApi & { living?: LivingVersion }
 ): ArtifactPreviewKind {
     if (artifact.living && artifact.living.text === null) {
-        if (!artifact.living.stored || (artifact.size ?? 0) > LIVING_PREVIEW_MAX_BYTES) {
+        if (!artifact.living.stored) {
             return 'none'
         }
-        // A stored file plays in an `img` or a `video` from its URL. Text needs a read of the body, so it downloads.
         const kind = fileKind(artifact)
-        return kind === 'image' || kind === 'video' ? kind : 'none'
+        if (kind === 'html') {
+            return kind
+        }
+        return (artifact.size ?? 0) <= LIVING_PREVIEW_MAX_BYTES && (kind === 'image' || kind === 'video')
+            ? kind
+            : 'none'
     }
     if (artifact.type === 'reference') {
         return 'reference'
