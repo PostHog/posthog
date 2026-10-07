@@ -112,7 +112,7 @@ describe('EmailDomainScene', () => {
         await flush()
         expect(screen.getByText('Proves you own the domain')).toBeInTheDocument()
         expect(backend.requestsTo('email_update').map((request) => request.body)).toEqual([
-            { kind: 'email', config: expect.objectContaining({ setup_method: 'manual' }) },
+            { config: expect.objectContaining({ setup_method: 'manual' }) },
         ])
         expect(backend.senderConfig(SENDER_ID)?.setup_method).toBe('manual')
 
@@ -290,5 +290,52 @@ describe('EmailDomainScene', () => {
         await flush()
         expect(backend.requestsTo('email_verify')).toHaveLength(2)
         expectStep('Add 8 settings at Cloudflare')
+    })
+    it.each([
+        ['skipped', { status: 'skipped', reason: 'The recipient has no reachable mail servers.' }],
+        ['unknown', undefined],
+        ['failed', { status: 'failed', reason: 'The provider refused the message.' }],
+    ])('does not claim a test email was sent when the send result is %s', async (_, emailSendResult) => {
+        seedSender()
+        backend.verifyDomain(DOMAIN)
+        const mocks = backend.mocks()
+        useMocks({
+            ...mocks,
+            post: {
+                ...mocks.post,
+                '/api/environments/:team_id/hog_flows/:id/invocations/': () => ({
+                    status: 'success',
+                    nextActionId: 'exit_node',
+                    logs: [],
+                    emailSendResult,
+                }),
+            },
+        })
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        click('email-domain-send-test-email')
+        await flush()
+        expect(screen.queryByText('Send another test')).not.toBeInTheDocument()
+        expect(screen.getByText('Send me a test email')).toBeInTheDocument()
+    })
+
+    it('offers another test only after the email provider accepted the message', async () => {
+        seedSender()
+        backend.verifyDomain(DOMAIN)
+        const mocks = backend.mocks()
+        useMocks({
+            ...mocks,
+            post: {
+                ...mocks.post,
+                '/api/environments/:team_id/hog_flows/:id/invocations/': () => ({
+                    status: 'success',
+                    nextActionId: 'exit_node',
+                    emailSendResult: { status: 'accepted' },
+                }),
+            },
+        })
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        click('email-domain-send-test-email')
+        await flush()
+        expect(screen.getByText('Send another test')).toBeInTheDocument()
     })
 })
