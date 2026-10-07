@@ -31,10 +31,6 @@ MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES"
 # pool is a pgbouncer client-connection multiplier: worker replicas x pool size must stay under the
 # pooler's max_client_conn at its minimum replica count. Raise only with that arithmetic redone.
 ASYNCIFY_MAX_WORKERS: int = get_from_env("ASYNCIFY_MAX_WORKERS", 32, type_cast=int)
-# Caps the event loop's default executor, which the worker sizes from its activity slots. A thread
-# of this pool can hold a Django connection for its whole call, so the same pgbouncer arithmetic
-# applies as for ASYNCIFY_MAX_WORKERS. The default covers a worker with the default 50 activity slots.
-TEMPORAL_DEFAULT_EXECUTOR_MAX_WORKERS: int = get_from_env("TEMPORAL_DEFAULT_EXECUTOR_MAX_WORKERS", 256, type_cast=int)
 TEMPORAL_TARGET_MEMORY_USAGE: float | None = get_from_env(
     "TEMPORAL_TARGET_MEMORY_USAGE", None, optional=True, type_cast=float
 )

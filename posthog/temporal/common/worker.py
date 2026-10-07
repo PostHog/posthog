@@ -1,6 +1,5 @@
 import socket
 import typing
-import asyncio
 import datetime as dt
 import itertools
 import collections.abc
@@ -34,7 +33,6 @@ from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.slo_interceptor import SloInterceptor
-from posthog.temporal.common.thread_pools import WorkerThreadPoolSizes, install_default_executor
 from posthog.temporal.common.utils import configure_asyncify_executor, shutdown_asyncify_executor
 from posthog.temporal.data_modeling.metrics import (
     DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS,
@@ -242,7 +240,6 @@ async def create_worker(
     activity_ramp_throttle: dt.timedelta | None = None,
     enable_combined_metrics_server: bool = True,
     enable_open_telemetry_plugin: bool = False,
-    require_nested_thread_capacity: bool = False,
 ) -> ManagedWorker:
     """Connect to Temporal server and return a ManagedWorker containing the Worker and metrics server.
 
@@ -276,28 +273,7 @@ async def create_worker(
         enable_combined_metrics_server: Whether to start the combined metrics server. Defaults to True.
             Set to False to disable the metrics server (useful when it causes GIL contention issues).
         enable_open_telemetry_plugin: Whether to trace execution with OTel spans. Requires initialize_otel.
-        require_nested_thread_capacity: Fail startup if the event loop's default executor cannot cover
-            `max_concurrent_activities`. Set for workers whose activities wait for nested default-executor jobs.
     """
-
-    pool_sizes = WorkerThreadPoolSizes.for_concurrency(
-        max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS,
-        max_asyncify_threads=settings.ASYNCIFY_MAX_WORKERS,
-        max_default_executor_threads=settings.TEMPORAL_DEFAULT_EXECUTOR_MAX_WORKERS,
-        require_nested_capacity=require_nested_thread_capacity,
-    )
-    # Installed before the first connection, so that no startup job creates the CPU-sized pool.
-    install_default_executor(asyncio.get_running_loop(), pool_sizes)
-    logger.info(
-        "Temporal worker thread pools sized",
-        task_queue=task_queue,
-        max_concurrent_activities=pool_sizes.max_concurrent_activities,
-        activity_executor_threads=pool_sizes.activity_threads,
-        asyncify_executor_threads=pool_sizes.asyncify_threads,
-        default_executor_threads=pool_sizes.default_executor_threads,
-        required_default_executor_threads=pool_sizes.required_default_executor_threads,
-        covers_nested_jobs=pool_sizes.covers_nested_jobs,
-    )
 
     metrics_server: CombinedMetricsServer | None = None
 
@@ -455,7 +431,9 @@ async def create_worker(
     ]
 
     # `activity_executor` below only serves sync activity functions, so `@asyncify` coroutines need their own.
-    configure_asyncify_executor(pool_sizes.asyncify_threads)
+    configure_asyncify_executor(
+        min(max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS, settings.ASYNCIFY_MAX_WORKERS)
+    )
 
     if target_memory_usage is not None:
         worker = Worker(
@@ -466,7 +444,7 @@ async def create_worker(
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
             interceptors=supported_interceptors,
-            activity_executor=ThreadPoolExecutor(max_workers=pool_sizes.activity_threads),
+            activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS),
             tuner=WorkerTuner.create_resource_based(
                 target_memory_usage=target_memory_usage,
                 target_cpu_usage=target_cpu_usage or 1.0,
@@ -491,7 +469,7 @@ async def create_worker(
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
             interceptors=supported_interceptors,
-            activity_executor=ThreadPoolExecutor(max_workers=pool_sizes.activity_threads),
+            activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS),
             max_concurrent_activities=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS,
             max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or DEFAULT_MAX_CONCURRENT_TASKS,
             # Worker will flush heartbeats every

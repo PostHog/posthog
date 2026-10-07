@@ -629,19 +629,6 @@ WORKFLOWS_DICT = _workflows
 ACTIVITIES_DICT = _activities
 
 
-# The activities on these queues call `async_to_sync` from a default-executor thread, and the
-# coroutine then waits for a second job on the same executor. A pool below the need of the activity
-# slots can deadlock there, so these workers do not start with one.
-NESTED_THREAD_CAPACITY_TASK_QUEUES = frozenset(
-    {
-        settings.DATA_WAREHOUSE_TASK_QUEUE,
-        settings.DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,
-        settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
-        settings.DATA_MODELING_TASK_QUEUE,
-    }
-)
-
-
 def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:
     """True when this worker runs data-warehouse source syncs and must eagerly load the sources."""
     return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows)
@@ -934,7 +921,6 @@ class Command(BaseCommand):
                     ),
                     enable_combined_metrics_server=not disable_combined_metrics_server,
                     enable_open_telemetry_plugin=enable_otel,
-                    require_nested_thread_capacity=task_queue in NESTED_THREAD_CAPACITY_TASK_QUEUES,
                 )
             )
 
