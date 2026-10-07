@@ -19,7 +19,7 @@ US_API_HOST_TEMPLATE = "https://{subdomain}.api.kandji.io/api/v1"
 EU_API_HOST_TEMPLATE = "https://{subdomain}.api.eu.kandji.io/api/v1"
 
 
-@dataclass
+@dataclass(frozen=True)
 class KandjiEndpointConfig:
     name: str
     path: str
