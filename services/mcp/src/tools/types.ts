@@ -37,6 +37,7 @@ export type State = {
     distinctId: string | undefined
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
+    apiKeyFetchedAt: number | undefined
     clientName: string | undefined
     oauthClientId: string | undefined
     mcpClientName: string | undefined
@@ -44,8 +45,6 @@ export type State = {
     mcpProtocolVersion: string | undefined
     mcpConsumer: string | undefined
     mcpVendorClient: string | undefined
-    skillsLearnedAt: number | undefined
-    skillsNoSkillsAckAt: number | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &
@@ -106,6 +105,7 @@ export type Env = {
     POSTHOG_ANALYTICS_HOST: string | undefined
     /** Override the published product skills archive, primarily for local development. */
     POSTHOG_MCP_SKILLS_URL?: string | undefined
+    POSTHOG_MCP_LOCAL_SKILLS_URL?: string | undefined
 }
 
 export type Context = {
@@ -187,6 +187,7 @@ export type ToolUiMeta = {
 export const POSTHOG_META_KEY = 'com.posthog.mcp' as const
 export const POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY = '__formatted_results_override' as const
 export const POSTHOG_INFORMATIONAL_RESPONSE_KEY = '__informational_response' as const
+export const POSTHOG_TEXT_PROJECTION_KEY = '__text_projection' as const
 
 export type PostHogToolMeta = {
     /**

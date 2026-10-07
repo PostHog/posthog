@@ -4,7 +4,10 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.iterable import (
     IterableSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.iterable.settings import INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.iterable.settings import (
+    INCREMENTAL_FIELDS,
+    ITERABLE_EXPORT_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.iterable.source import IterableSource
 
 
@@ -38,13 +41,18 @@ class TestIterableSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in transient_error for key in non_retryable_errors)
 
-    def test_get_schemas_are_full_refresh(self):
-        # No Iterable list endpoint exposes a verified server-side timestamp filter,
-        # so everything is full refresh (no incremental / append).
+    def test_get_schemas_sync_modes(self):
         for schema in self.source.get_schemas(self.config, self.team_id):
+            # Export rows have no unique id to merge on, so they never offer incremental merge.
             assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == INCREMENTAL_FIELDS[schema.name] == []
+            if schema.name in ITERABLE_EXPORT_ENDPOINTS:
+                assert schema.supports_append is True
+                assert schema.should_sync_default is False
+                assert schema.incremental_fields == INCREMENTAL_FIELDS[schema.name] != []
+            else:
+                assert schema.supports_append is False
+                assert schema.should_sync_default is True
+                assert schema.incremental_fields == []
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

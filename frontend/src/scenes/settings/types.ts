@@ -54,7 +54,11 @@ export type SettingSectionId =
     | 'environment-revenue-analytics'
     | 'environment-secret-api-keys'
     | 'environment-surveys'
+    | 'environment-task-agent-instructions'
     | 'environment-task-agents'
+    | 'environment-ai-subscriptions'
+    | 'environment-ai-usage'
+    | 'environment-ai-cloud-environments'
     | 'environment-tracing'
     | 'environment-web-analytics'
     | 'environment-workflows'
@@ -119,6 +123,7 @@ export type SettingId =
     | 'base-currency'
     | 'bounce-rate-duration'
     | 'bounce-rate-page-view-mode'
+    | 'business-knowledge-github-repos'
     | 'business-knowledge-learn-from-support'
     | 'business-model'
     | 'change-password'
@@ -217,7 +222,6 @@ export type SettingId =
     | 'logs-retention'
     | 'logs-session-id-attribute-keys'
     | 'marketing-settings'
-    | 'mcp-hints'
     | 'mcp-servers-manage'
     | 'members'
     | 'member-notifications'
@@ -235,6 +239,7 @@ export type SettingId =
     | 'organization-id'
     | 'organization-integrations-list'
     | 'organization-ip-anonymization-default'
+    | 'organization-member-notice'
     | 'organization-oauth-apps-list'
     | 'organization-proxy'
     | 'organization-roles'
@@ -288,7 +293,16 @@ export type SettingId =
     | 'snippet-v2'
     | 'surveys-default-appearance'
     | 'surveys-interface'
+    | 'task-agent-my-instructions'
     | 'task-agent-my-preference'
+    | 'ai-subscription-codex'
+    | 'task-agent-project-instructions'
+    | 'ai-usage-spend'
+    | 'ai-cloud-environments'
+    | 'ai-cloud-custom-images'
+    | 'task-comments-slack-dm'
+    | 'task-agent-other-settings'
+    | 'task-agent-new-task-defaults'
     | 'task-agent-project-default'
     | 'theme'
     | 'tracing-distinct-id-attribute-keys'
@@ -335,6 +349,12 @@ export type Setting = {
      * can check if a team should have access to a setting and return false if not
      */
     allowForTeam?: (team: TeamType | TeamPublicType | null) => boolean
+
+    /**
+     * Shows the setting only to organization admins and owners.
+     * Use it for an organization-scoped API, because a project admin can be an ordinary organization member.
+     */
+    organizationAdminOnly?: boolean
 
     /**
      * If true, this setting will be hidden when viewing all settings (no specific section selected),

@@ -9,6 +9,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AttentionPullRequestListApi,
+    AuthorFrictionDetailApi,
+    AuthorFrictionListApi,
     BranchPRMatchApi,
     BrokenTestsResultApi,
     CICardSummaryApi,
@@ -19,6 +22,9 @@ import type {
     DeliveryComparisonApi,
     DeliverySummaryApi,
     DoraOverviewApi,
+    EngineeringAnalyticsAttentionPullRequestsParams,
+    EngineeringAnalyticsAuthorFrictionDetailParams,
+    EngineeringAnalyticsAuthorFrictionParams,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsBrokenTestsParams,
     EngineeringAnalyticsCiCardsParams,
@@ -33,6 +39,7 @@ import type {
     EngineeringAnalyticsPrCostParams,
     EngineeringAnalyticsPrLifecycleParams,
     EngineeringAnalyticsPrRunsParams,
+    EngineeringAnalyticsPullRequestFrictionParams,
     EngineeringAnalyticsPullRequestTimelinesParams,
     EngineeringAnalyticsPullRequestsParams,
     EngineeringAnalyticsQuarantineParams,
@@ -55,6 +62,7 @@ import type {
     MasterFailureGroupApi,
     PRCostSummaryApi,
     PRLifecycleApi,
+    PullRequestFrictionDetailApi,
     PullRequestListApi,
     PullRequestTimelinesApi,
     QuarantineFileApi,
@@ -74,6 +82,105 @@ import type {
     WorkflowRunDetailApi,
     WorkflowRunnerCostApi,
 } from './api.schemas'
+
+export const getEngineeringAnalyticsAttentionPullRequestsUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsAttentionPullRequestsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/attention_pull_requests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/attention_pull_requests/`
+}
+
+/**
+ * Open pull requests that need attention: failing CI, or stuck (open, non-draft, non-bot, older than 7 days), by the same rules as the ci_cards counts. Failing first, then newest, capped; `total` counts every match in the whole open backlog, however old. Cost and billable minutes can lag new CI by up to 5 minutes.
+ */
+export const engineeringAnalyticsAttentionPullRequests = async (
+    projectId: string,
+    params?: EngineeringAnalyticsAttentionPullRequestsParams,
+    options?: RequestInit
+): Promise<AttentionPullRequestListApi> => {
+    return apiMutator<AttentionPullRequestListApi>(getEngineeringAnalyticsAttentionPullRequestsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsAuthorFrictionUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsAuthorFrictionParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/author_friction/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/author_friction/`
+}
+
+/**
+ * Every author's friction over pull requests merged in the last 30 days, most first: red CI they did not cause, re-runs that failed again, CI waits, the wait for the first approval, merge-queue time and kickouts, and rework. The score is a multiple of the typical author and never counts how much or how fast someone ships. Bots are excluded, and authors need at least 3 merged pull requests.
+ */
+export const engineeringAnalyticsAuthorFriction = async (
+    projectId: string,
+    params?: EngineeringAnalyticsAuthorFrictionParams,
+    options?: RequestInit
+): Promise<AuthorFrictionListApi> => {
+    return apiMutator<AuthorFrictionListApi>(getEngineeringAnalyticsAuthorFrictionUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsAuthorFrictionDetailUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsAuthorFrictionDetailParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/author_friction_detail/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/author_friction_detail/`
+}
+
+/**
+ * One author's friction over pull requests merged in the last 30 days, next to the median of each of the author's teams, and the author's pull requests that added the most friction. Bots are excluded.
+ */
+export const engineeringAnalyticsAuthorFrictionDetail = async (
+    projectId: string,
+    params: EngineeringAnalyticsAuthorFrictionDetailParams,
+    options?: RequestInit
+): Promise<AuthorFrictionDetailApi> => {
+    return apiMutator<AuthorFrictionDetailApi>(getEngineeringAnalyticsAuthorFrictionDetailUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getEngineeringAnalyticsAuthorWorkflowCostsUrl = (
     projectId: string,
@@ -571,6 +678,39 @@ export const engineeringAnalyticsPrRuns = async (
     })
 }
 
+export const getEngineeringAnalyticsPullRequestFrictionUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsPullRequestFrictionParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/pull_request_friction/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/pull_request_friction/`
+}
+
+/**
+ * One merged pull request's friction as a multiple of the typical pull request, with the counts behind it: red CI by cause, re-runs that failed again, CI time per push, the wait for the first approval, merge-queue time and kickouts, and rework. Covers pull requests merged in the last 30 days.
+ */
+export const engineeringAnalyticsPullRequestFriction = async (
+    projectId: string,
+    params: EngineeringAnalyticsPullRequestFrictionParams,
+    options?: RequestInit
+): Promise<PullRequestFrictionDetailApi> => {
+    return apiMutator<PullRequestFrictionDetailApi>(getEngineeringAnalyticsPullRequestFrictionUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getEngineeringAnalyticsPullRequestTimelinesUrl = (
     projectId: string,
     params?: EngineeringAnalyticsPullRequestTimelinesParams
@@ -624,7 +764,7 @@ export const getEngineeringAnalyticsPullRequestsUrl = (
 }
 
 /**
- * Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with its head-SHA CI rollup. The list is capped; when more match, `truncated` is true and the ci_cards counts can exceed it. open_to_merge_seconds is coarse: it fuses draft and ready-for-review time; CI counts can lag until late completions settle.
+ * Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with its head-SHA CI rollup. Pass state to list one state only. The list is paged by limit and offset; when more match, `truncated` is true and the ci_cards counts can exceed it. open_to_merge_seconds is coarse: it fuses draft and ready-for-review time; CI counts can lag until late completions settle. Cost and billable minutes can lag new CI by up to 5 minutes.
  */
 export const engineeringAnalyticsPullRequests = async (
     projectId: string,

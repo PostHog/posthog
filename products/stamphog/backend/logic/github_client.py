@@ -23,6 +23,7 @@ import jwt
 import requests
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
@@ -367,6 +368,26 @@ def list_user_accessible_repositories(installation_id: str, user_access_token: s
         if len(repositories) < _PER_PAGE:
             break
     return sorted(set(full_names))
+
+
+@frozen
+class RepoPathEntry:
+    """One path at a ref, as the contents API reports it."""
+
+    # The contents API's own type ("file", "symlink", "dir", "submodule"), or "unreadable" for a
+    # file the API returned without its content.
+    kind: str
+    # The file's text. Empty for anything but a file.
+    text: str
+
+
+@frozen
+class CommitComparison:
+    """The history summary of a two-commit compare."""
+
+    # GitHub's relation of the head to the base: "ahead", "behind", "identical" or "diverged".
+    status: str
+    merge_base_sha: str
 
 
 class StamphogGitHubClient:
@@ -745,6 +766,45 @@ class StamphogGitHubClient:
         finally:
             response.close()
         return b"".join(chunks).decode("utf-8", errors="replace")
+
+    def get_commit_parents(self, repo: str, sha: str) -> list[str]:
+        """The parent shas of a commit, in git's order, so a merge commit lists its first parent first."""
+        path = f"/repos/{repo}/git/commits/{sha}"
+        response = self._request("GET", path, endpoint="/repos/{owner}/{repo}/git/commits/{commit_sha}")
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to fetch commit {sha} in {repo}: {response.text[:300]}", status_code=response.status_code
+            )
+        data = self._json(response, path)
+        parents = data.get("parents") if isinstance(data, dict) else None
+        if not isinstance(parents, list):
+            raise StamphogGitHubError(f"Unexpected commit payload for {sha} in {repo}")
+        return [str(parent.get("sha") or "") for parent in parents if isinstance(parent, dict)]
+
+    def compare_commits(self, repo: str, base_sha: str, head_sha: str) -> CommitComparison:
+        """How ``head_sha`` relates to ``base_sha`` in history, and their merge base.
+
+        The status is GitHub's: ``ahead`` or ``identical`` means that ``base_sha`` is an ancestor of
+        ``head_sha``. The endpoint also returns the changed files, which this method does not read.
+        """
+        path = f"/repos/{repo}/compare/{base_sha}...{head_sha}"
+        # One commit per page, because only the summary fields are read.
+        response = self._request(
+            "GET", path, endpoint="/repos/{owner}/{repo}/compare/{basehead}", params={"per_page": 1}
+        )
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to compare {base_sha}...{head_sha} in {repo}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        data = self._json(response, path)
+        if not isinstance(data, dict):
+            raise StamphogGitHubError(f"Unexpected compare payload for {base_sha}...{head_sha} in {repo}")
+        merge_base = data.get("merge_base_commit")
+        return CommitComparison(
+            status=str(data.get("status") or ""),
+            merge_base_sha=str((merge_base or {}).get("sha") or "") if isinstance(merge_base, dict) else "",
+        )
 
     def get_pr_reviews(self, repo: str, number: int) -> list[dict]:
         """Fetch the PR's top-level reviews, paginating through GitHub's list endpoint.
@@ -1165,6 +1225,41 @@ class StamphogGitHubClient:
                 break
         return sorted(set(full_names))
 
+    def get_file_at_ref(self, repo: str, path: str, ref: str, *, timeout: int = 15) -> RepoPathEntry | None:
+        """``path`` at ``ref`` from the contents API, or ``None`` if it doesn't exist.
+
+        The kind is ``file`` for a regular file, and also for a symlink whose target is a regular file
+        in the repository, in which case the text is the target's, the same text a checkout that
+        follows the link reads. Any other kind comes back with empty text.
+        """
+        # The path comes from the PR, so `?` or `#` in it must not end the URL path.
+        response = self._request(
+            "GET",
+            f"/repos/{repo}/contents/{quote(path, safe='/')}",
+            endpoint="/repos/{owner}/{repo}/contents/{path}",
+            params={"ref": ref},
+            timeout=timeout,
+        )
+        if response.status_code == 404:
+            return None
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to fetch {repo}:{path}@{ref}: {response.text[:200]}", status_code=response.status_code
+            )
+        data = self._json(response, f"/repos/{repo}/contents/{path}")
+        if not isinstance(data, dict):
+            return RepoPathEntry(kind="dir", text="")
+        kind = str(data.get("type") or "unknown")
+        if kind != "file":
+            return RepoPathEntry(kind=kind, text="")
+        # A file over the API's inline limit comes back with encoding "none" and no content.
+        if data.get("encoding") != "base64" or not isinstance(data.get("content"), str):
+            return RepoPathEntry(kind="unreadable", text="")
+        try:
+            return RepoPathEntry(kind=kind, text=base64.b64decode(data["content"]).decode("utf-8"))
+        except (binascii.Error, UnicodeDecodeError) as exc:
+            raise StamphogGitHubError(f"Failed to decode base64 contents for {repo}:{path}") from exc
+
     def get_default_branch_file(self, repo: str, path: str) -> str | None:
         """Fetch a file's text from the repo's DEFAULT branch, or ``None`` if it doesn't exist.
 
@@ -1398,28 +1493,23 @@ class StamphogGitHubClient:
             )
         return self._json(response, path)
 
-    def get_user_team_slugs(self, org: str, login: str) -> list[str]:
-        """Return the sorted GitHub team slugs ``login`` belongs to within ``org`` (GraphQL).
-
-        Best-effort: this feeds digest audience routing, never a hard requirement, so every failure
-        mode (HTTP error, GraphQL ``errors`` — typically the App installation missing the org's
-        "Members: read" permission — or a null organization) logs a warning and returns ``[]`` instead
-        of raising.
-        """
+    def _team_lookup_page(self, org: str, login: str, after: str | None) -> dict | None:
+        """One page of the teams that ``login`` belongs to in ``org``, or None after logging a failure."""
         query = (
-            "query($org: String!, $login: String!) { "
-            "organization(login: $org) { teams(first: 100, userLogins: [$login]) { nodes { slug } } } }"
+            "query($org: String!, $login: String!, $after: String) { "
+            "organization(login: $org) { teams(first: 100, after: $after, userLogins: [$login]) { "
+            "pageInfo { hasNextPage endCursor } nodes { slug } } } }"
         )
         try:
             response = self._request(
                 "POST",
                 "/graphql",
                 endpoint="/graphql",
-                json_body={"query": query, "variables": {"org": org, "login": login}},
+                json_body={"query": query, "variables": {"org": org, "login": login, "after": after}},
             )
         except Exception:
             logger.warning("stamphog_github_team_lookup_request_failed", org=org, login=login, exc_info=True)
-            return []
+            return None
 
         if response.status_code != 200:
             logger.warning(
@@ -1429,13 +1519,13 @@ class StamphogGitHubClient:
                 status_code=response.status_code,
                 body=response.text[:200],
             )
-            return []
+            return None
 
         try:
             data = self._json(response, "/graphql")
         except StamphogGitHubError:
             logger.warning("stamphog_github_team_lookup_non_json_response", org=org, login=login)
-            return []
+            return None
 
         if not isinstance(data, dict) or data.get("errors"):
             logger.warning(
@@ -1444,15 +1534,39 @@ class StamphogGitHubClient:
                 login=login,
                 errors=(data or {}).get("errors") if isinstance(data, dict) else None,
             )
-            return []
+            return None
 
         organization = (data.get("data") or {}).get("organization")
         if not organization:
             logger.warning("stamphog_github_team_lookup_null_organization", org=org, login=login)
-            return []
+            return None
+        return organization.get("teams") or {}
 
-        nodes = (organization.get("teams") or {}).get("nodes") or []
-        return sorted({node["slug"] for node in nodes if isinstance(node, dict) and node.get("slug")})
+    def get_user_team_slugs(self, org: str, login: str) -> list[str]:
+        """Return the sorted GitHub team slugs ``login`` belongs to within ``org`` (GraphQL).
+
+        Every failure mode (HTTP error, GraphQL ``errors`` — typically the App installation missing the
+        org's "Members: read" permission — or a null organization) logs a warning and returns ``[]``
+        instead of raising. The engine reads ``[]`` as "on no team", which is the safe direction: the
+        reviewer treats the author as outside the owning team, and a deny category's
+        ``exempt_author_teams`` exempts nobody, so the owning team's PRs on those paths are refused.
+        The engine treats the list as complete, so every page is read.
+        """
+        slugs: set[str] = set()
+        after: str | None = None
+        for _ in range(_MAX_PAGES):
+            teams = self._team_lookup_page(org, login, after)
+            if teams is None:
+                return []
+            slugs.update(
+                node["slug"] for node in teams.get("nodes") or [] if isinstance(node, dict) and node.get("slug")
+            )
+            page_info = teams.get("pageInfo") or {}
+            if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
+                return sorted(slugs)
+            after = page_info["endCursor"]
+        logger.warning("stamphog_github_team_lookup_page_cap", org=org, login=login, pages=_MAX_PAGES)
+        return sorted(slugs)
 
     def _find_sticky_comment_id(self, repo: str, number: int) -> int | None:
         """Return the id of the App's own sticky comment on the PR, or ``None`` if there isn't one.

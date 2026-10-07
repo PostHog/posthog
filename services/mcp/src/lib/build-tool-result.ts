@@ -1,10 +1,10 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 
-import { getDiscoveryHint } from '@/lib/discovery-hints'
+import { type DiscoveryHint, type DiscoveryHintKind, getDiscoveryHint, isEmptyToolResult } from '@/lib/discovery-hints'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
-import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
+import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY, POSTHOG_TEXT_PROJECTION_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY, type AnalyticsMetadata, type WithAnalytics } from '@/ui-apps/types'
 
 export interface ToolResultMeta {
@@ -24,7 +24,7 @@ export interface BuildToolResultOptions {
     /** Whether formatted-result text should win over structuredContent for this client profile. */
     suppressStructuredContentForFormattedResults?: boolean | undefined
     /**
-     * For inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork): when a compact
+     * For inline-exec UI-app hosts (PostHog Desktop, Claude Code): when a compact
      * formatted table is available, drop top-level `structuredContent` toward the model so
      * it reads the compact table instead of the verbose JSON, and re-home the app payload
      * onto `_meta` for the UI app (see APP_DATA_META_KEY). When there is NO formatted table
@@ -36,6 +36,7 @@ export interface BuildToolResultOptions {
     includeAppData?: boolean | undefined
     /** PostHog distinctId for analytics metadata (only read when a UI resource is present). */
     distinctId?: string | undefined
+    mcpClientName?: string | undefined
     /**
      * When set, the inner tool's `_meta.ui.resourceUri` is placed on the response payload
      * under both the new (`ui.resourceUri`) and legacy (`ui/resourceUri`) keys. Used by the
@@ -79,6 +80,8 @@ export function isToolCallPayload(value: unknown): value is ToolResultPayload {
 interface BuiltResponseText {
     structuredContentOnly: boolean
     footers: string[]
+    discoveryHint: DiscoveryHintKind | undefined
+    resultEmpty: boolean
 }
 
 const builtResponseText = new WeakMap<ToolResultPayload, BuiltResponseText>()
@@ -91,6 +94,14 @@ export function markExecPayload(payload: ToolResultPayload): ToolResultPayload {
         builtResponseText.set(marked, built)
     }
     return marked
+}
+
+export function toolResultAnalyticsProperties(response: ToolResultPayload): Record<string, unknown> {
+    const built = builtResponseText.get(response)
+    return {
+        ...(built?.discoveryHint ? { mcp_discovery_hint: built.discoveryHint } : {}),
+        ...(built?.resultEmpty ? { mcp_result_empty: true } : {}),
+    }
 }
 
 /**
@@ -147,6 +158,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         forceUiDataToMeta,
         includeAppData,
         distinctId,
+        mcpClientName,
         includeUiResponseMeta,
         includeRenderNote,
     } = opts
@@ -178,12 +190,15 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     const effectiveOutputFormat = callerOutputFormat ?? toolMeta?.[POSTHOG_META_KEY]?.outputFormat
     const useJson = effectiveOutputFormat === 'json'
     const callerWantsJson = callerOutputFormat === 'json'
+    const isTextProjection =
+        !isStringResult && (handlerResult as Record<string, unknown> | null)?.[POSTHOG_TEXT_PROJECTION_KEY] === true
 
     let structuredContent: WithAnalytics<typeof rawResult> | typeof rawResult = rawResult
     if (hasUiResource && !isStringResult) {
         const analyticsMetadata: AnalyticsMetadata = {
             distinctId: distinctId ?? '',
             toolName,
+            ...(mcpClientName ? { mcpClientName } : {}),
         }
         structuredContent = {
             ...(rawResult as Record<string, unknown>),
@@ -216,15 +231,16 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
 
     const body = structuredContentOnly
         ? STRUCTURED_CONTENT_ONLY_TEXT
-        : ((includeAppData && useJson ? undefined : formattedResults) ??
+        : ((useJson && (includeAppData || isTextProjection) ? undefined : formattedResults) ??
           (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult)))
 
     const footers: string[] = []
 
+    let discoveryHint: DiscoveryHint | undefined
     if (!isStringResult && !useJson && !structuredContentOnly && !isPrepareConfirmedActionResult(handlerResult)) {
-        const discoveryHint = getDiscoveryHint({ toolName, handlerResult })
+        discoveryHint = getDiscoveryHint({ toolName, handlerResult })
         if (discoveryHint) {
-            footers.push(discoveryHint)
+            footers.push(discoveryHint.text)
         }
     }
 
@@ -237,7 +253,12 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     const payload: ToolResultPayload = {
         content: [{ type: 'text', text }],
     }
-    builtResponseText.set(payload, { structuredContentOnly, footers })
+    builtResponseText.set(payload, {
+        structuredContentOnly,
+        footers,
+        discoveryHint: discoveryHint?.kind,
+        resultEmpty: isEmptyToolResult(handlerResult),
+    })
     if (hasUiResource && !suppressStructuredContent) {
         payload.structuredContent = structuredContent as Record<string, unknown>
     }

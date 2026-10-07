@@ -1,7 +1,10 @@
 import json
+import tempfile
 import threading
+import subprocess
 from collections.abc import Callable
-from typing import cast
+from pathlib import Path
+from typing import TypeVar, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -14,13 +17,15 @@ from parameterized import parameterized
 from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewTrigger
-from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged
+from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged, base_merge_is_clean
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary, _build_selection_prompt
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
-from products.stamphog.backend.logic.familiarity_facts import ReviewHistory, fetch_review_history
+from products.stamphog.backend.logic.familiarity_facts import FamiliarityStatus, ReviewHistory, fetch_review_history
 from products.stamphog.backend.logic.github_client import (
     MAX_COMPARE_DIFF_BYTES,
+    CommitComparison,
+    RepoPathEntry,
     StamphogGitHubClient,
     StamphogGitHubError,
     _build_app_jwt,
@@ -41,6 +46,8 @@ from products.stamphog.backend.temporal import activities as activities_module
 from products.stamphog.backend.temporal.registry import ACTIVITIES
 from products.stamphog.backend.tests import fakes
 from products.stamphog.backend.tests.conftest import _generate_app_private_key
+
+T = TypeVar("T")
 
 # The gate/policy engine lives in packages/pr-approval-agent, and its own suite covers it
 # (test_gates.py, test_policy.py). The server runs it in a child process (the sandbox, or the
@@ -134,7 +141,7 @@ class RefusalSummaryTests(SimpleTestCase):
             summary = summarize_refusal(
                 gateway_root="https://ai-gateway.test",
                 token="phe_test",
-                model="claude-sonnet-5",
+                model="claude-sonnet-5-5",
                 gates=[],
                 pr={},
                 files=[],
@@ -288,15 +295,24 @@ class FamiliarityFactsTests(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("one_blame_fails", {"blame_error": StamphogGitHubError("502")}, True),
-            ("rate_limited", {"blame_error": GitHubRateLimitError("slow down")}, False),
-            ("history_fails", {"history_error": StamphogGitHubError("502")}, False),
+            ("one_blame_fails", {"blame_error": StamphogGitHubError("502")}, True, FamiliarityStatus.PARTIAL_BLAME),
+            ("rate_limited", {"blame_error": GitHubRateLimitError("slow down")}, False, FamiliarityStatus.RATE_LIMITED),
+            ("history_fails", {"history_error": StamphogGitHubError("502")}, False, FamiliarityStatus.HISTORY_FAILED),
+            (
+                "history_rate_limited",
+                {"history_error": GitHubRateLimitError("slow down")},
+                False,
+                FamiliarityStatus.RATE_LIMITED,
+            ),
         ]
     )
-    def test_failures_degrade_one_file_or_drop_all_facts(self, _name: str, errors: dict, facts_kept: bool) -> None:
+    def test_failures_degrade_one_file_or_drop_all_facts(
+        self, _name: str, errors: dict, facts_kept: bool, status: FamiliarityStatus
+    ) -> None:
         history = _fetch_history(_FamiliarityClient(**errors))
 
         assert history.merge_base_sha == "mb"
+        assert history.status == status
         if facts_kept:
             # The engine counts the lines of a file without blame as not owned.
             assert history.familiarity_facts is not None
@@ -314,6 +330,7 @@ class FamiliarityFactsTests(SimpleTestCase):
             client.release.set()
 
         assert history.familiarity_facts is None
+        assert history.status == FamiliarityStatus.HISTORY_TIMED_OUT
 
     def test_a_slow_blame_leaves_only_its_file_out(self) -> None:
         client = _FamiliarityClient()
@@ -328,6 +345,7 @@ class FamiliarityFactsTests(SimpleTestCase):
         assert facts is not None
         assert facts["blame"] == {}
         assert facts["path_history"] == ["c-author"]
+        assert history.status == FamiliarityStatus.PARTIAL_BLAME
 
 
 class ReviewTriggerTests(SimpleTestCase):
@@ -544,25 +562,52 @@ class DigestConfigFetchTests(SimpleTestCase):
 _GH = "products.stamphog.backend.logic.github_client"
 
 
+def _with_scripted_graphql(call: Callable[[StamphogGitHubClient], T], *graphql_responses: fakes.FakeResponse) -> T:
+    # Stub the network boundary (github_request): the access-token mint is answered so the client's
+    # _request machinery runs for real, and /graphql calls consume the scripted responses in order
+    # (the last one repeats, so single-response tests behave as before).
+    remaining = list(graphql_responses)
+
+    def fake_request(method: str, url: str, **kwargs: object) -> fakes.FakeResponse:
+        if url.endswith("/access_tokens"):
+            return fakes.FakeResponse(201, json_data={"token": "t", "expires_at": "2999-01-01T00:00:00Z"})
+        return remaining.pop(0) if len(remaining) > 1 else remaining[0]
+
+    with (
+        override_settings(STAMPHOG_GITHUB_APP_ID="1", STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key()),
+        patch(f"{_GH}.github_request", fake_request),
+        patch(f"{_GH}.remember_observed_core_limit", lambda *a, **k: None),
+        patch(f"{_GH}.raise_if_github_rate_limited", lambda *a, **k: None),
+    ):
+        return call(StamphogGitHubClient("123"))
+
+
+def _teams_page(slugs: list[str], *, has_next: bool) -> fakes.FakeResponse:
+    teams = {"pageInfo": {"hasNextPage": has_next, "endCursor": "c"}, "nodes": [{"slug": s} for s in slugs]}
+    return fakes.FakeResponse(200, json_data={"data": {"organization": {"teams": teams}}})
+
+
+class GetUserTeamSlugsTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("later_page_counts", _teams_page(["team-workflows"], has_next=False), ["team-a", "team-workflows"]),
+            ("failed_later_page_fails_closed", fakes.FakeResponse(502, text="bad gateway"), []),
+        ]
+    )
+    def test_reads_every_page(self, _name: str, second_page: fakes.FakeResponse, expected: list[str]) -> None:
+        slugs = _with_scripted_graphql(
+            lambda client: client.get_user_team_slugs("acme", "alice"),
+            _teams_page(["team-a"], has_next=True),
+            second_page,
+        )
+        assert slugs == expected
+
+
 class GetPrReviewThreadsTests(SimpleTestCase):
     def _fetch(self, *graphql_responses: fakes.FakeResponse) -> list[dict]:
-        # Stub the network boundary (github_request): the access-token mint is answered so the client's
-        # _request machinery runs for real, and /graphql calls consume the scripted responses in order
-        # (the last one repeats, so single-response tests behave as before).
-        remaining = list(graphql_responses)
-
-        def fake_request(method: str, url: str, **kwargs: object) -> fakes.FakeResponse:
-            if url.endswith("/access_tokens"):
-                return fakes.FakeResponse(201, json_data={"token": "t", "expires_at": "2999-01-01T00:00:00Z"})
-            return remaining.pop(0) if len(remaining) > 1 else remaining[0]
-
-        with (
-            override_settings(STAMPHOG_GITHUB_APP_ID="1", STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key()),
-            patch(f"{_GH}.github_request", fake_request),
-            patch(f"{_GH}.remember_observed_core_limit", lambda *a, **k: None),
-            patch(f"{_GH}.raise_if_github_rate_limited", lambda *a, **k: None),
-        ):
-            return StamphogGitHubClient("123").get_pr_review_threads("acme/widgets", 5)
+        return _with_scripted_graphql(
+            lambda client: client.get_pr_review_threads("acme/widgets", 5), *graphql_responses
+        )
 
     def _threads_page(self, nodes: list[dict], *, has_next: bool) -> fakes.FakeResponse:
         payload = {
@@ -1051,3 +1096,141 @@ class ApprovalRetentionTests(SimpleTestCase):
         # Two blanks compare equal. Retention on that evidence would treat an unreadable answer as
         # "nothing changed".
         assert approved_diff_unchanged(approved, current) is False
+
+
+class _LocalGitClient:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        identity = {"GIT_AUTHOR_NAME": "dev", "GIT_AUTHOR_EMAIL": "dev@example.com"}
+        self.env = {**identity, "GIT_COMMITTER_NAME": "dev", "GIT_COMMITTER_EMAIL": "dev@example.com"}
+
+    def git(self, *args: str, stdin: str | None = None, env: dict[str, str] | None = None) -> str:
+        return subprocess.run(
+            ["git", *args],
+            cwd=self.root,
+            input=stdin,
+            env={"PATH": "/usr/bin:/bin:/usr/local/bin", **self.env, **(env or {})},
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+
+    def _is_ancestor(self, ancestor: str, descendant: str) -> bool:
+        return (
+            subprocess.run(["git", "merge-base", "--is-ancestor", ancestor, descendant], cwd=self.root).returncode == 0
+        )
+
+    def get_commit_parents(self, repo: str, sha: str) -> list[str]:
+        return self.git("rev-list", "--parents", "-n", "1", sha).split()[1:]
+
+    def compare_commits(self, repo: str, base_sha: str, head_sha: str) -> CommitComparison:
+        if base_sha == head_sha:
+            status = "identical"
+        elif self._is_ancestor(base_sha, head_sha):
+            status = "ahead"
+        elif self._is_ancestor(head_sha, base_sha):
+            status = "behind"
+        else:
+            status = "diverged"
+        return CommitComparison(status=status, merge_base_sha=self.git("merge-base", base_sha, head_sha).strip())
+
+    def compare_diff(self, repo: str, base_sha: str, head_sha: str) -> str:
+        return self.git("diff", "--no-color", f"{base_sha}...{head_sha}")
+
+    def get_file_at_ref(self, repo: str, path: str, ref: str) -> RepoPathEntry | None:
+        try:
+            return RepoPathEntry(kind="file", text=self.git("show", f"{ref}:{path}"))
+        except subprocess.CalledProcessError:
+            return None
+
+
+def _lines(**edits: str) -> str:
+    lines = [f"line {n}" for n in range(1, 31)]
+    for name, text in edits.items():
+        lines[int(name.removeprefix("line")) - 1] = text
+    return "\n".join(lines) + "\n"
+
+
+class BaseMergeProofTests(SimpleTestCase):
+    # Commits are built with plumbing so each test states its parents exactly, which is what lets a
+    # test hand-craft a merge commit with genuine parents and edited content.
+    def setUp(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.repo = _LocalGitClient(Path(temp_dir.name))
+        self.repo.git("init", "-q")
+        self.base = self._commit({"app.py": _lines()}, [])
+
+    def _commit(self, files: dict[str, str], parents: list[str]) -> str:
+        index = {"GIT_INDEX_FILE": str(self.repo.root / "test-index")}
+        self.repo.git("read-tree", "--empty", env=index)
+        for name, text in files.items():
+            blob = self.repo.git("hash-object", "-w", "--stdin", stdin=text).strip()
+            self.repo.git("update-index", "--add", "--cacheinfo", f"100644,{blob},{name}", env=index)
+        tree = self.repo.git("write-tree", env=index).strip()
+        return self.repo.git("commit-tree", tree, *(arg for sha in parents for arg in ("-p", sha)), "-m", "c").strip()
+
+    def _branches(self, master_edit: dict[str, str]) -> tuple[str, str]:
+        approved = self._commit({"app.py": _lines(line25="pr change")}, [self.base])
+        master = self._commit({"app.py": _lines(**master_edit)}, [self.base])
+        return approved, master
+
+    def _proven(self, approved: str, head: str, base_sha: str) -> bool:
+        return base_merge_is_clean(
+            cast(StamphogGitHubClient, self.repo),
+            "o/r",
+            approved_heads={approved},
+            head_sha=head,
+            base_sha=base_sha,
+        )
+
+    def test_genuine_merge_that_moves_the_pr_hunk_retains(self) -> None:
+        # Master edits the PR's file outside the PR's hunk, so the hunk's context and blob ids change.
+        # The PR's own diff text is no longer byte-identical, but the merge adds nothing of its own.
+        approved, master = self._branches({"line2": "master change"})
+        tree = self.repo.git("merge-tree", "--write-tree", approved, master).splitlines()[0]
+        head = self.repo.git("commit-tree", tree, "-p", approved, "-p", master, "-m", "merge").strip()
+
+        approved_diff = self.repo.compare_diff("o/r", self.base, approved)
+        assert approved_diff_unchanged(approved_diff, self.repo.compare_diff("o/r", master, head)) is False
+        assert self._proven(approved, head, master) is True
+
+    @parameterized.expand(
+        [
+            (
+                "edit_hidden_in_the_merge",
+                {"line2": "master change"},
+                {"app.py": _lines(line2="master change", line25="pr change", line11="unreviewed")},
+            ),
+            (
+                "file_added_in_the_merge",
+                {"line2": "master change"},
+                {"app.py": _lines(line2="master change", line25="pr change"), "new.py": "unreviewed\n"},
+            ),
+            (
+                "conflict_resolved_by_the_author",
+                {"line25": "master change"},
+                {"app.py": _lines(line25="resolved by the author")},
+            ),
+        ]
+    )
+    def test_author_content_inside_the_merge_commit_is_not_retained(
+        self, _name: str, master_edit: dict[str, str], merged_files: dict[str, str]
+    ) -> None:
+        # The merge commit has genuine parents, so only the content check stands between content that
+        # the author wrote and a standing approval.
+        approved, master = self._branches(master_edit)
+        head = self._commit(merged_files, [approved, master])
+
+        assert self._proven(approved, head, master) is False
+
+    @parameterized.expand([("unapproved_first_parent",), ("base_parent_not_on_base_branch",)])
+    def test_merge_with_untrusted_lineage_is_not_retained(self, name: str) -> None:
+        # A base sha that predates the merged parent means that parent is not base-branch content.
+        approved, master = self._branches({"line2": "master change"})
+        head = self._commit({"app.py": _lines(line2="master change", line25="pr change")}, [approved, master])
+
+        if name == "unapproved_first_parent":
+            assert self._proven(self.base, head, master) is False
+        else:
+            assert self._proven(approved, head, self.base) is False

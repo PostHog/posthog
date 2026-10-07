@@ -354,8 +354,16 @@ export interface maxThreadLogicActions {
         errorMessage: string
         variant: 'crash' | 'error'
     } // runStreamLogic
-    pushSandboxHumanMessage: (content: string) => {
+    pushSandboxHumanMessage: (
+        content: string,
+        stagedAttachments?:
+            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
+            | undefined
+    ) => {
         content: string
+        stagedAttachments:
+            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
+            | undefined
     } // runStreamLogic
     resetSandboxStream: () => {
         value: true
@@ -1722,7 +1730,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
             // Sync agentMode from conversation only if user hasn't manually selected a mode after submission
             if (!values.agentModeLockedByUser && conversation?.agent_mode) {
-                actions.syncAgentModeFromConversation(conversation.agent_mode as AgentMode)
+                const conversationAgentMode = conversation.agent_mode as AgentMode
+                // Older conversations can store the retired user interview mode, which has no selector
+                // option. Use the default mode, as ee/hogai/chat_agent/mode_manager.py does. Match the
+                // retired mode exactly, because live modes such as Research also have no MODE_DEFINITIONS entry.
+                actions.syncAgentModeFromConversation(
+                    conversationAgentMode === AgentMode.UserInterview
+                        ? AgentMode.ProductAnalytics
+                        : conversationAgentMode
+                )
             }
             if (conversation?.is_sandbox) {
                 actions.setIsSandboxMode(true)

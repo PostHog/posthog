@@ -2,7 +2,6 @@ import uuid
 import logging
 from typing import Any, cast, get_args
 
-from django.conf import settings
 from django.db.models import Max, Q, QuerySet
 from django.utils import timezone
 
@@ -20,7 +19,9 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
+from posthog.permissions import PostHogFeatureFlagPermission
 
+from products.review_hog.backend.api.settings import has_internal_features
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     ReviewIssueCategory,
@@ -402,8 +403,8 @@ def _fetch_pr_metadata(github: GitHubIntegration, owner: str, repo: str, pr_numb
 def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[str]:
     """Which ACTIVE reports are visibly running: artefact or report activity within the staleness window.
 
-    Artefacts stream in throughout a run (snapshot, chunk set, per-chunk results, verdicts), so the
-    newest artefact is the liveness signal; a crashed run goes quiet and ages out instead of showing
+    Artefacts mark persisted progress, and long review activities refresh the report timestamp while
+    their sandbox runs. Both stop when a worker dies, so a crashed run ages out instead of showing
     a stuck spinner forever.
 
     `finding_outcome` is excluded because it is the one artefact type not written by a turn: the
@@ -544,6 +545,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     # reachable with a personal API key or OAuth token, which is how MCP tools authenticate. Session
     # UI access is unchanged; this only adds token access, gated by review_hog:read / review_hog:write.
     scope_object = "review_hog"
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = "review-hog"
     # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
     queryset = ReviewReport.objects.unscoped()
     serializer_class = ReviewRecentReviewSerializer
@@ -589,9 +592,11 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         probe_limit = limit + 1
         team_id, queryset = self._reports(request, scope=params.validated_data["scope"])
         completed = list(queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:probe_limit])
-        # First-turn runs have no completed turn yet; they only surface while visibly running.
+        # First-turn runs have no completed turn yet; they only surface while visibly running. A crashed
+        # run stays ACTIVE, so rank by report activity: ranked by creation, newer crashed runs fill the
+        # slice and hide an older live run.
         running_first_turn = list(
-            queryset.filter(status=ReviewReport.Status.ACTIVE, last_run_at__isnull=True).order_by("-created_at")[
+            queryset.filter(status=ReviewReport.Status.ACTIVE, last_run_at__isnull=True).order_by("-updated_at")[
                 :probe_limit
             ]
         )
@@ -704,7 +709,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             ),
             403: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
-                description="The ReviewHog UI trigger is not enabled for this project.",
+                description="The review-hog feature flag is off for this project, or Flash was requested in a "
+                "project without internal features (see show_internal_features in the settings response).",
             ),
             409: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
@@ -730,15 +736,15 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @action(methods=["POST"], detail=False, required_scopes=["review_hog:write"])
     def trigger(self, request: Request, **kwargs) -> Response:
         team_id = resolve_effective_team_id(self.team_id)
-        # Dogfood gate: the UI trigger only runs on the designated ReviewHog team for now — reviews are
-        # expensive, so widening beyond it is a deliberate later decision, not a default.
-        if team_id not in settings.REVIEWHOG_TEAM_IDS:
-            return Response(
-                {"error": "PostHog Review can't start reviews from this project yet"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
         serializer = ReviewTriggerRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        run_mode: str = serializer.validated_data["run_mode"]
+        # The scene hides Flash outside the internal project; this also stops API and MCP callers there.
+        if run_mode == RUN_MODE_FLASH and not has_internal_features(team_id):
+            return Response(
+                {"error": "Flash reviews aren't available in this project. Start a regular review instead."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         try:
             pr_info = PRParser().parse_github_pr_url(serializer.validated_data["pr_url"])
         except ValueError:
@@ -790,7 +796,6 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        run_mode: str = serializer.validated_data["run_mode"]
         # The busy-guard (CONTEXT.md): Temporal joins same-id starts on its own, but a review and
         # this PR's resolution run under different workflow ids, so the cross-stage check is
         # explicit — and the answer is a refusal, not a queue.

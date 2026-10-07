@@ -83,7 +83,7 @@ def _prior_finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdi
     return payload
 
 
-_SYSTEM_PROMPT = """You are a senior code reviewer removing duplicate findings from a pull-request review.
+DEDUP_SYSTEM_PROMPT = """You are a senior code reviewer removing duplicate findings from a pull-request review.
 A finding is a duplicate only when it raises the same concrete problem as another finding, a prior
 inline comment, or an earlier review turn's already-ruled-on finding — not merely because it shares a
 file or line. Once findings address the same concrete problem, collapse them aggressively and keep
@@ -152,7 +152,7 @@ async def deduplicate_issues(
             team_id=team_id,
             user_id=user_id,
             prompt=prompt,
-            system_prompt=_SYSTEM_PROMPT,
+            system_prompt=DEDUP_SYSTEM_PROMPT,
             model_to_validate=IssueDeduplication,
             step_name="dedup",
         )
@@ -163,7 +163,7 @@ async def deduplicate_issues(
             repository=repository,
             branch=branch,
             prompt=prompt,
-            system_prompt=_SYSTEM_PROMPT,
+            system_prompt=DEDUP_SYSTEM_PROMPT,
             model_to_validate=IssueDeduplication,
             step_name="dedup",
             workflow_id_prefix=workflow_id_prefix,

@@ -13,6 +13,8 @@ class ReplayObservationMedia(TeamScopedRootMixin, UUIDModel):
     class Kind(models.TextChoices):
         THUMBNAIL = "thumbnail", "Thumbnail"
         CLIP = "clip", "Clip"
+        # One frame per summary chapter, at the chapter's index in `position`.
+        CHAPTER = "chapter", "Chapter"
 
     observation = models.ForeignKey("replay_vision.ReplayObservation", on_delete=models.CASCADE, related_name="media")
     # CASCADE so the expiry sweep's asset delete takes this row with it, leaving no link to a gone object.

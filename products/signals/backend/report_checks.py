@@ -24,14 +24,26 @@ Temporal payload modules import it during process setup.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from products.signals.backend.report_metrics import validate_live_metric_query, validate_metric_id
+from products.signals.backend.report_charts import _unstorable_text
+from products.signals.backend.report_metrics import (
+    MAX_METRIC_UNIT_LENGTH,
+    ReportMetric,
+    ReportMetricKind,
+    ReportMetricValueFormat,
+    validate_live_metric_query,
+    validate_metric_id,
+    validate_metric_number,
+)
 
-CheckOutcome = Literal["passed", "failed", "errored"]
+CheckOutcome = Literal["passed", "failed", "errored", "inconclusive"]
+# Why an `inconclusive` verdict could not settle the claim. Only `awaiting_data` keeps the check open.
+CheckInconclusiveReason = Literal["awaiting_data", "unmeasurable", "needs_manual_verification", "no_fix_to_measure"]
 CheckOperator = Literal["lte", "gte", "between"]
 
 MAX_ACTIVE_CHECKS_PER_REPORT = 5
@@ -64,6 +76,23 @@ DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN = timedelta(days=30)
 # A check whose query keeps failing is misconfigured, not unlucky. Three errored runs retire it so a
 # broken lane stops costing a query per tick.
 MAX_CONSECUTIVE_CHECK_ERRORS = 3
+# How long an `awaiting_data` check waits before each look again. The list is short, because a check
+# on a surface with almost no traffic can wait forever. After the last wait, the next
+# `awaiting_data` verdict ends the check as `inconclusive`.
+AWAITING_DATA_RETRY_WAITS = (timedelta(hours=24), timedelta(hours=72), timedelta(days=7))
+
+
+def check_schedule_expires_at(
+    *,
+    next_run_at: datetime,
+    run_interval_minutes: int | None,
+    runs_remaining: int,
+    start_at: datetime,
+) -> datetime:
+    last_run_at = next_run_at
+    if run_interval_minutes:
+        last_run_at += timedelta(minutes=run_interval_minutes * max(0, runs_remaining - 1))
+    return min(last_run_at + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN, start_at + MAX_CHECK_HORIZON)
 
 
 class CheckThresholdBounds(BaseModel):
@@ -162,6 +191,20 @@ class MetricThresholdConfig(BaseModel):
         default=None,
         description="The value observed when the check was written, recorded on each result for context.",
     )
+    metric_kind: ReportMetricKind | None = Field(
+        default=None, description="How to draw this measurement; copied from a referenced metric."
+    )
+    value_format: ReportMetricValueFormat | None = Field(
+        default=None, description="How to format measured values; copied from a referenced metric."
+    )
+    unit: str | None = Field(default=None, max_length=MAX_METRIC_UNIT_LENGTH, description="Optional value suffix.")
+
+    @field_validator("unit")
+    @classmethod
+    def unit_must_be_storable(cls, value: str | None) -> str | None:
+        if value is not None and (reason := _unstorable_text(value)) is not None:
+            raise ValueError(f"unit must not contain {reason}")
+        return value
 
     @field_validator("baseline_value", mode="before")
     @classmethod
@@ -257,6 +300,16 @@ class AgentCheckConfig(BaseModel):
         return hints
 
 
+def soak_minutes_from_gap(next_run_at: datetime, since: datetime) -> int:
+    """The soak a dated check keeps while its report has not resolved.
+
+    The author left a gap before the first run to allow for deploy and soak time, so that gap is
+    what the check waits out once the report resolves, bounded by what a soak may be.
+    """
+    minutes = round((next_run_at - since).total_seconds() / 60)
+    return max(MIN_CHECK_SOAK_HOURS * 60, min(minutes, MAX_CHECK_SOAK_HOURS * 60))
+
+
 CHECK_CONFIG_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "metric_threshold": MetricThresholdConfig,
     "agent": AgentCheckConfig,
@@ -282,6 +335,32 @@ def parse_check_config(kind: str, config: object) -> BaseModel:
         raise CheckConfigValidationError(str(error)) from error
 
 
+def validate_metric_check_for_write(config: MetricThresholdConfig) -> None:
+    if config.query is None:
+        raise CheckConfigValidationError("The metric query must be resolved before writing a check.")
+    kind = config.metric_kind or "custom"
+    value_format = config.value_format or "number"
+    try:
+        ReportMetric(
+            metric_id=config.metric_id or "check",
+            title="Follow-up measurement",
+            kind=kind,
+            query=config.query,
+            value_format=value_format,
+            unit=config.unit,
+        )
+        if config.baseline_value is not None:
+            validate_metric_number(kind, value_format, config.baseline_value, "baseline")
+        comparison = config.comparison
+        if comparison.bounds is not None:
+            validate_metric_number(kind, value_format, comparison.bounds.lower, "lower bound")
+            validate_metric_number(kind, value_format, comparison.bounds.upper, "upper bound")
+        elif comparison.value is not None:
+            validate_metric_number(kind, value_format, comparison.value, "goal")
+    except ValueError as error:
+        raise CheckConfigValidationError(str(error)) from error
+
+
 class CheckSpec(BaseModel):
     """A check whose clock starts when its report resolves, written before any fix exists.
 
@@ -293,6 +372,10 @@ class CheckSpec(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
+
+    existing_check_id: UUID | None = Field(
+        default=None, description="ID of the existing check being retained or revised. Omit for a new check."
+    )
 
     title: str = Field(
         max_length=MAX_CHECK_TITLE_LENGTH,
@@ -311,7 +394,8 @@ class CheckSpec(BaseModel):
         le=MAX_CHECK_SOAK_HOURS,
         description=(
             "How long after the report is resolved to wait before measuring. The fix has to have "
-            f"been live a while for the result to mean anything. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours."
+            f"been live a while for the result to mean anything. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours "
+            "for a new check; omission preserves an existing check’s wait."
         ),
     )
 

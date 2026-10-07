@@ -116,9 +116,10 @@ flags_hypercache = HyperCache(
 The `_get_feature_flags_for_service` function fetches all flags for a team (including inactive, but excluding deleted and encrypted remote config flags), then returns a cache payload trimmed to the flags worth caching. The Rust service filters out inactive flags at request time via `filtered_out_flag_ids`.
 
 Before anything serializes or reads a flag, `_omit_unsupported_flags` classifies each stored `filters` document with `detect_config_format` (`products/feature_flags/backend/facade/config.py`).
-Only a config version 1 document (no `version`, or a numeric 1) is published.
-A v2 document, an unsupported discriminator, a document that is not a JSON object, or an evaluable v1 document whose release conditions cannot be read is omitted, together with every flag whose dependency conditions reference it, transitively.
+A config version 1 document (no `version`, or a numeric 1) is published, and so is an active config version 2 document that the shared validator (`validate_config`, under the deployed `MAX_FEATURE_FLAG_FILTER_SIZE_BYTES`) admits; that document is published verbatim and carries no cohort or flag references.
+Any other v2 document, an unsupported discriminator, a document that is not a JSON object, or an evaluable v1 document whose release conditions cannot be read is omitted, together with every flag whose dependency conditions reference it, transitively.
 That applies to inactive and archived rows too, so an inactive v2 or non-object row is never blanked into a v1-shaped `{"groups": []}` entry, and a dependent with `flag_evaluates_to: false` on it never matches against a target the matcher never evaluated.
+The Rust reader parses the published v2 document again; a document Python admits but Rust rejects is served as that one flag with `failed: true` and the `flag_data_parsing_error` reason while the team's other flags evaluate.
 The rebuild still succeeds with the remaining flags, the stored rows are not modified, and the omitted ids are logged.
 Unevaluable v1 rows are not read (`_is_unevaluable`), so a disabled row with an unreadable document keeps its established behavior: kept and blanked when referenced, dropped otherwise.
 Cohort references and flag dependencies are then read from the surviving flags' `filters` through `products/feature_flags/backend/facade/references.py`.
@@ -126,7 +127,8 @@ Cohort references and flag dependencies are then read from the surviving flags' 
 Because inactive flags are filtered before the matcher reads `filters`, an inactive flag can never affect a response, so the payload keeps only evaluable flags plus the inactive flags that another flag's dependency conditions reference.
 A referenced entry is load-bearing: the matcher pre-seeds its id as false, so a dependent with `flag_evaluates_to: false` on a disabled flag still matches instead of missing a dependency.
 `_drop_unreferenced_unevaluable_flags` removes the rest, `evaluation_metadata` is computed on the surviving set, and `_blank_inactive_filters` replaces the kept unevaluable flags' `filters` with an empty `{"groups": []}` before the payload is written.
-`build_flags_cache` in `rust/feature-flags/src/flags/cache_builder.rs` writes the same entry and applies the same omission, drop, and blanking rule: `omit_unsupported_flags` classifies the raw documents that `from_pg_keeping_undecodable` loads.
+`build_flags_cache` in `rust/feature-flags/src/flags/cache_builder.rs` writes the same entry and applies the same omission, drop, and blanking rule: `omit_unsupported_flags` classifies the raw documents that `from_pg_keeping_undecodable` loads, keeping an active v2 row whose parse succeeded.
+The service's PostgreSQL fallback runs the same classification, so a Redis miss serves the flag set the cache would have carried.
 Both builders run the same fixture, `rust/feature-flags/tests/fixtures/flags_cache_config_formats.json`.
 One known divergence remains: Rust decodes v1 documents into typed structs, so an evaluable row it cannot decode (a property filter without a `type` key, for example) is omitted there with its dependents, while Python, which only reads the cohort and flag references, still publishes it.
 `verify_team_flags` reports and repairs such a team, attributed to the writer that produced it.
@@ -333,14 +335,16 @@ Operational controls:
 
 ## Prometheus metrics
 
-| Metric                                     | Labels                         | Purpose                         |
-| ------------------------------------------ | ------------------------------ | ------------------------------- |
-| `posthog_hypercache_get_from_cache`        | `result`, `namespace`, `value` | Cache hit/miss tracking         |
-| `posthog_hypercache_sync`                  | `result`, `namespace`, `value` | Cache sync task outcomes        |
-| `posthog_hypercache_sync_duration_seconds` | `result`, `namespace`, `value` | Cache sync timing               |
-| `posthog_remote_config_via_cache`          | `result`                       | Remote config cache performance |
-| `posthog_hypercache_read_repair`           | `result`, `namespace`, `value` | Rust reader repair outcomes     |
-| `flags_flag_definitions_etag_total`        | `result`                       | Rust reader ETag read outcomes  |
+| Metric                                         | Labels                               | Purpose                                  |
+| ---------------------------------------------- | ------------------------------------ | ---------------------------------------- |
+| `posthog_hypercache_get_from_cache`            | `result`, `namespace`, `value`       | Cache hit/miss tracking                  |
+| `posthog_hypercache_sync`                      | `result`, `namespace`, `value`       | Cache sync task outcomes                 |
+| `posthog_hypercache_sync_duration_seconds`     | `result`, `namespace`, `value`       | Cache sync timing                        |
+| `posthog_remote_config_via_cache`              | `result`                             | Remote config cache performance          |
+| `posthog_hypercache_read_repair`               | `result`, `namespace`, `value`       | Rust reader repair outcomes              |
+| `flags_flag_definitions_etag_total`            | `result`                             | Rust reader ETag read outcomes           |
+| `posthog_hypercache_verify_errors_total`       | `cache_type`, `reason`               | Teams the verify sweep could not check   |
+| `posthog_hypercache_verify_fix_failures_total` | `cache_type`, `issue_type`, `reason` | Repairs the verify sweep could not write |
 
 Result labels: `hit_redis`, `hit_s3`, `hit_db`, `missing`, `batch_miss`
 
@@ -353,6 +357,10 @@ ETag result labels: `hit` (client ETag matched, 304), `miss` (client sent a stal
 Read repair result labels: `success`, `skipped` (key already existed, repair deferred to it), `error`
 
 `skipped` also covers replica lag: reads go to the replica and repairs to the primary, so a key written to the primary but not yet replicated reads as cold and its repair is correctly refused.
+
+The verify sweep counts a team it cannot check, and a repair it cannot write, then continues. Both carry a closed `reason` label, so every series is pre-created at import and an alert catches the first occurrence rather than the second. Verify reasons: `dependency_unavailable` (a Redis, S3 or Postgres outage, or a `HyperCacheDependencyUnavailable` from a `load_fn`), `data_error` (an entry the sweep cannot parse, which repeats on the same teams every run), `unknown`. Fix failures add `update_fn_returned_false` for a write path that returned False rather than raising. That covers a genuine refusal, such as a cache whose Redis URL is unset, and also a write error that `update_cache` caught and turned into False. The second case is reported by `update_cache` itself, in its own log line and, when a dependency was unavailable, in `posthog_hypercache_rebuild_skipped`. The label applies only where the sweep falls back to `update_fn`, because the direct write it normally uses raises, and those failures carry the reason of the exception. The exception class name is in the log line as `error_type`. A write the config vetoes is counted as neither a fix nor a failure.
+
+The sweep's other give-ups stay log-only on purpose: a team the grace period skips, and the batch-level fallbacks that degrade a batch to per-team reads. Both slow the sweep rather than leave an entry broken, and a sweep that runs out of time is already counted by `posthog_hypercache_verification_incomplete_runs_total`.
 
 ## Debugging
 
@@ -518,6 +526,15 @@ Do not give the ETag a gate of its own. A stale ETag on one cluster can match a 
 Reads on the dedicated instance go to its `-ro` reader endpoint. `NotFound` is unrecoverable, so `ReadWriteClient` does not consult the primary. A key the writer just wrote reads as absent until it replicates. That window serves a 200 with the full payload instead of a 304.
 
 The flag-definitions self-heal queue follows the write side, not the read side. The Rust endpoint enqueues a rebuild request on the dedicated instance (`State::flags_namespace_redis_client`), and the Celery drain reads the queue from `flag_definitions_hypercache.redis_url` (`products/feature_flags/backend/rebuild_queue.py`). Both resolve from `FLAGS_REDIS_URL`, so the producer and the consumer move together on configuration. They can still split on connection state: a Rust process that cannot reach the dedicated cluster at startup falls back to the shared one and enqueues there for its whole life, while Celery keeps draining the dedicated one. Those teams wait for the hourly verifier. `server.rs` logs that startup failure at error level, and the same failure already sends the flags.json, team-metadata, and remote-config readers to the shared cluster, where Django writes nothing. Django and the Rust fleet deploy independently, so a deploy of one before the other leaves requests on the cluster the other side is not reading. Clean up on the **shared** cluster only, and never on the dedicated one, which holds the live queue once both sides are up. A Rust-first rollout puts the window's requests on the dedicated cluster, where the drain collects them as soon as Django deploys, so they need no cleanup. A Django-first rollout puts them on the shared cluster, where nothing reads them again. Either order also leaves the pre-move queue members and the open circuits on the shared cluster. Run `DEL flag_definitions:rebuild_requests flag_definitions:rebuild_circuit` there after both sides are deployed. The circuit-breaker set is included because only the drain prunes it and the key carries no TTL. The cooldown and failure-streak keys expire on their own.
+
+`FLAG_DEFINITIONS_REBUILD_ON_S3_HIT_ENABLED` defaults to `false`.
+Set it to `true` on the Rust definitions fleet to rebuild entries that S3 serves after a confirmed Redis miss.
+`FLAG_DEFINITIONS_SELF_HEAL_ENABLED` must also be `true`, and the Celery rebuild drain must run.
+The Rust service reads both settings at startup. Restart its pods after a setting change. The service puts S3-hit requests in a lower-priority queue, so cache misses that return 503 drain first. Both queues use `ZADD NX` so repeated polls keep the first enqueue time. The drain skips a queued team if Redis already holds its payload and ETag.
+
+During rollout, watch `flags_flag_definitions_rebuild_requested_total` by `trigger` and `result`.
+Also watch `posthog_flag_definitions_rebuild_queue_depth` and `posthog_flag_definitions_rebuild_oldest_age_seconds`.
+Set the S3-hit variable to `false` and restart the Rust pods to stop new S3-hit requests. Set self-heal to `false` and restart them to stop both triggers. The Celery drain continues to process requests that are already queued after either setting is disabled.
 
 The Rust service only operates when `FLAGS_REDIS_URL` is configured. All cache update functions check this setting and skip operations if not set.
 

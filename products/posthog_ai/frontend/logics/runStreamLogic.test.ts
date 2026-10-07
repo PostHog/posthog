@@ -18,16 +18,23 @@ import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.
 
 import { lookupToolRenderer, toolRegistry } from '../components/tool/toolRegistry'
 import { extractQueryResult } from '../components/tool/widgets/extractors'
+import { turnSuggestionsStateRetrieve } from '../generated/api'
 import { defaultPermissionDecision } from '../policy/toolPolicy'
 import type { AttachedContextItem } from '../types/contextTypes'
+import type { ThreadItem } from '../types/streamTypes'
 import { TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { resolveToolCall } from '../utils/toolResolver'
+import { SUGGESTION_FRAMES } from '../utils/turnSuggestionFixtures'
 import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
 import {
+    appendToRunLog,
+    emptyRunLog,
     extractRunArtifacts,
+    type FoldCheckpoint,
+    foldLogFromCheckpoint,
     foldLogToThread,
     mapHttpStatusToStreamError,
     MAX_CUMULATIVE_RECONNECT_ATTEMPTS,
@@ -45,6 +52,10 @@ import {
     SSE_RECONNECT_MAX_DELAY_MS,
 } from './runStreamLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
+
+jest.mock('../generated/api', () => ({
+    turnSuggestionsStateRetrieve: jest.fn(),
+}))
 
 jest.mock('products/tasks/frontend/generated/api', () => ({
     tasksRunsRetrieve: jest.fn(),
@@ -237,6 +248,7 @@ describe('runStreamLogic', () => {
             .mockReset()
             .mockResolvedValue({ status: 'in_progress' } as TaskRunDetailDTOApi)
         jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+        jest.mocked(turnSuggestionsStateRetrieve).mockReset().mockResolvedValue({ muted: false, resolved_turns: [] })
         projectLogic.mount()
         projectLogic.actions.loadCurrentProjectSuccess({ id: 997 } as any)
         ;(tasksRunsCommandCreate as jest.Mock)
@@ -274,6 +286,48 @@ describe('runStreamLogic', () => {
                 endedAt: 5000,
             })
             expect(result.threadItems.find((item) => item.id === 'missing-start')?.startedAt).toBeUndefined()
+        })
+
+        it('folds the same thread when it resumes from the last completed turn', () => {
+            const frames: [StoredLogEntry, 'live' | 'replay'][] = [
+                [notification('_posthog/run_started', {}), 'replay'],
+                [notification('_posthog/user_message', { content: 'first question' }), 'replay'],
+                [sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'slow', status: 'in_progress' }), 'replay'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'slow', title: 'Reading' }), 'replay'],
+                [sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'first answer' } }), 'replay'],
+                [notification('_client/human_message', { content: 'queued follow-up' }), 'live'],
+                [notification('_posthog/turn_complete', { traceId: 'trace-1' }), 'live'],
+                [notification('_posthog/turn_suggestion', SUGGESTION_FRAMES.scout), 'live'],
+                [notification('_posthog/turn_suggestion_resolved', { turnIndex: 0, outcome: 'accepted' }), 'live'],
+                [notification('_posthog/user_message', { content: 'queued follow-up' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'user_message_chunk', content: { text: 'queued follow-up' } }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'slow', status: 'completed' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'second ' } }), 'live'],
+                [notification('_posthog/console', { level: 'debug', message: 'tick' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'answer' } }), 'live'],
+                [notification('_posthog/turn_complete', { traceId: 'trace-2' }), 'live'],
+                [notification('_client/human_message', { content: 'third question' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'slow', rawOutput: 'late' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'fast', status: 'in_progress' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'third' } }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'slow', status: 'failed' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'fast', status: 'completed' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'third answer' } }), 'live'],
+            ]
+            const options = { isResumeRun: false, taskId: 'task-1' }
+
+            let log = emptyRunLog()
+            let checkpoint: FoldCheckpoint | null = null
+            frames.forEach(([entry, source], index) => {
+                log = appendToRunLog(log, [
+                    { source, entry: { ...entry, timestamp: new Date((index + 1) * 1000).toISOString() } },
+                ])
+                const resumed = foldLogFromCheckpoint(log.entries, options, checkpoint)
+                checkpoint = resumed.checkpoint
+                expect(resumed.folded).toEqual(foldLogToThread(log.entries, options))
+            })
+            expect(checkpoint!.entries.at(-1)?.entry.notification.params).toEqual({ traceId: 'trace-2' })
+            expect(foldLogToThread(log.entries, options).turnSuggestions.outcomes.get(0)).toEqual('accepted')
         })
 
         it.each([
@@ -1141,22 +1195,134 @@ describe('runStreamLogic', () => {
     })
 
     describe('pushHumanMessage', () => {
-        it('appends a human_message item ordered before subsequently ingested assistant frames', async () => {
+        it('appends a timestamped human_message item ordered before subsequently ingested assistant frames', async () => {
             await expectLogic(logic, () => {
                 logic.actions.pushHumanMessage('hello agent')
+                // The agent takes the send up and echoes it, which is what places the message.
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'hello agent' }))
                 logic.actions.ingestAcpFrame(
                     sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Hi!' } })
                 )
             }).toFinishAllListeners()
 
             expect(logic.values.threadItems).toHaveLength(2)
+            // The echo keeps the row the placeholder drew, rather than minting a second id.
             expect(logic.values.threadItems[0]).toEqual({
                 id: 'human-0',
                 type: 'human_message',
                 text: 'hello agent',
                 complete: true,
+                startedAt: expect.any(Number),
             })
             expect(logic.values.threadItems[1].type).toEqual('assistant_message')
+        })
+
+        it('sinks a waiting send that later frames landed on top of', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.pushHumanMessage('first')
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'chatter' } })
+                )
+                logic.actions.pushHumanMessage('second')
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['chatter', 'first', 'second'])
+        })
+
+        it('keeps sends the agent has not taken up yet at the foot of the thread, in send order', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'still here' } })
+                )
+                logic.actions.pushHumanMessage('10')
+                logic.actions.pushHumanMessage('11')
+                // The agent takes up only the first, so the second keeps waiting below its answer.
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: '10' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'agent_message',
+                        messageId: 'm2',
+                        content: { text: 'answer to 10' },
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['still here', '10', 'answer to 10', '11'])
+        })
+
+        it('stops sinking a send the agent never took up once two turns closed over it', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.pushHumanMessage('never echoed')
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'first' } })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm2', content: { text: 'second' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['never echoed', 'first', 'second'])
+        })
+
+        it('still takes up a send that settled when its echo finally arrives', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.pushHumanMessage('late echo')
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'first' } })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'late echo' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm2', content: { text: 'at last' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['first', 'late echo', 'at last'])
+        })
+
+        it('leaves a send typed mid-answer below the text already streaming', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'agent_message',
+                        messageId: 'm1',
+                        content: { text: 'answering the message before' },
+                    })
+                )
+                logic.actions.pushHumanMessage('typed while it worked')
+                // Taken up inside the same turn, so only the draw placed it — the foot-of-thread
+                // sink no longer covers for a message drawn in the wrong spot.
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/user_message', { content: 'typed while it worked' })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['answering the message before', 'typed while it worked'])
         })
     })
 
@@ -1264,6 +1430,261 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toEqual([
                 expect.objectContaining({ text: visible.text }),
             ])
+        })
+
+        describe('attachments the send carried', () => {
+            const SANDBOX_URI = 'file:///tmp/workspace/.posthog/attachments/run-7/art-9/report.csv'
+
+            const foldReplay = (frames: StoredLogEntry[]): ThreadItem[] =>
+                foldLogToThread(
+                    frames.map((entry) => ({ source: 'replay' as const, entry })),
+                    { isResumeRun: false, taskId: 'task-3' }
+                ).threadItems
+
+            it('names a resource link on the message it arrived with', () => {
+                const items = foldReplay([
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Look here' },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: 'file:///tmp/x/report.csv', name: 'report.csv' },
+                    }),
+                ])
+
+                expect(items.filter((item) => item.type === 'human_message')).toEqual([
+                    expect.objectContaining({
+                        text: 'Look here',
+                        attachments: [{ name: 'report.csv' }],
+                    }),
+                ])
+            })
+
+            it('falls back to the file name in the uri when the block is unnamed', () => {
+                const items = foldReplay([
+                    sessionUpdate({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'Look' } }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'image', uri: 'file:///tmp/x/.posthog/attachments/run/art/my%20shot.png' },
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([
+                    { name: 'my shot.png', taskId: 'task-3', runId: 'run', artifactId: 'art' },
+                ])
+            })
+
+            it('keeps two files on one message and does not repeat a name', () => {
+                const items = foldReplay([
+                    notification('_posthog/user_message', {
+                        content: [
+                            { type: 'text', text: 'Compare these' },
+                            { type: 'resource_link', uri: 'file:///a.csv', name: 'a.csv' },
+                            { type: 'resource_link', uri: 'file:///b.csv', name: 'b.csv' },
+                            { type: 'resource_link', uri: 'file:///b.csv', name: 'b.csv' },
+                        ],
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([{ name: 'a.csv' }, { name: 'b.csv' }])
+            })
+
+            // The echo carrying the names is the one the text dedupe drops, so the names must survive it.
+            it('lands on a message the optimistic send already rendered', () => {
+                const frames: StoredLogEntry[] = [
+                    notification('_client/human_message', { content: 'Look here' }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Look here' },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: 'file:///a.csv', name: 'a.csv' },
+                    }),
+                ]
+                const items = foldLogToThread(
+                    frames.map((entry) => ({ source: 'live' as const, entry })),
+                    { isResumeRun: false, taskId: 'task-3' }
+                ).threadItems
+
+                const humanMessages = items.filter((item) => item.type === 'human_message')
+                expect(humanMessages).toHaveLength(1)
+                expect(humanMessages[0].attachments).toEqual([{ name: 'a.csv' }])
+            })
+
+            it('leaves a message with no files without an attachments field', () => {
+                const items = foldReplay([
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Just text' },
+                    }),
+                ])
+
+                expect(items[0].attachments).toBeUndefined()
+            })
+
+            it('recovers the run and artifact from the sandbox attachment path', () => {
+                const items = foldReplay([
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Look here' },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: SANDBOX_URI, name: 'report.csv' },
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([
+                    { name: 'report.csv', taskId: 'task-3', runId: 'run-7', artifactId: 'art-9' },
+                ])
+            })
+
+            it('leaves a path outside the attachments layout without ids', () => {
+                const items = foldReplay([
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Look here' },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: 'file:///tmp/elsewhere/report.csv' },
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([{ name: 'report.csv' }])
+            })
+
+            it('shows the names an optimistic send staged, before any artifact exists', () => {
+                const items = foldReplay([
+                    notification('_client/human_message', {
+                        content: 'Look here',
+                        attachments: [{ name: 'report.csv', previewId: 'preview-1' }],
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([{ name: 'report.csv', previewId: 'preview-1' }])
+            })
+
+            it('keeps a name with a broken percent escape instead of aborting the thread', () => {
+                const items = foldReplay([
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Look here' },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: 'file:///tmp/bad%ZZ.png' },
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([{ name: 'bad%ZZ.png' }])
+            })
+
+            it('leaves a hidden block out, the same as it is left out of the text', () => {
+                const items = foldReplay([
+                    notification('_posthog/user_message', {
+                        content: [
+                            { type: 'text', text: 'Look here' },
+                            {
+                                type: 'resource_link',
+                                uri: 'file:///internal.md',
+                                name: 'internal.md',
+                                _meta: { ui: { hidden: true } },
+                            },
+                        ],
+                    }),
+                ])
+
+                expect(items[0].attachments).toBeUndefined()
+            })
+
+            it('keeps two files that share a name apart, giving each its own artifact', () => {
+                const items = foldReplay([
+                    notification('_client/human_message', {
+                        content: 'Compare these',
+                        attachments: [
+                            { name: 'image.png', previewId: 'preview-1' },
+                            { name: 'image.png', previewId: 'preview-2' },
+                        ],
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: {
+                            type: 'resource_link',
+                            uri: 'file:///w/.posthog/attachments/run-7/art-A/image.png',
+                            name: 'image.png',
+                        },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: {
+                            type: 'resource_link',
+                            uri: 'file:///w/.posthog/attachments/run-7/art-B/image.png',
+                            name: 'image.png',
+                        },
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([
+                    {
+                        name: 'image.png',
+                        previewId: 'preview-1',
+                        taskId: 'task-3',
+                        runId: 'run-7',
+                        artifactId: 'art-A',
+                    },
+                    {
+                        name: 'image.png',
+                        previewId: 'preview-2',
+                        taskId: 'task-3',
+                        runId: 'run-7',
+                        artifactId: 'art-B',
+                    },
+                ])
+            })
+
+            it('lands a file echoed in both wire forms once', () => {
+                const link = {
+                    type: 'resource_link',
+                    uri: 'file:///w/.posthog/attachments/run-7/art-A/report.csv',
+                    name: 'report.csv',
+                }
+                const items = foldReplay([
+                    notification('_posthog/user_message', { content: [{ type: 'text', text: 'Look' }, link] }),
+                    sessionUpdate({ sessionUpdate: 'user_message_chunk', content: link }),
+                ])
+
+                expect(items[0].attachments).toHaveLength(1)
+            })
+
+            it('fills the ids onto that optimistic name rather than adding a second chip', () => {
+                const frames: StoredLogEntry[] = [
+                    notification('_client/human_message', {
+                        content: 'Look here',
+                        attachments: [{ name: 'report.csv', previewId: 'preview-1' }],
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: SANDBOX_URI, name: 'report.csv' },
+                    }),
+                ]
+                const items = foldLogToThread(
+                    frames.map((entry) => ({ source: 'live' as const, entry })),
+                    { isResumeRun: false, taskId: 'task-3' }
+                ).threadItems
+
+                expect(items[0].attachments).toEqual([
+                    {
+                        name: 'report.csv',
+                        previewId: 'preview-1',
+                        taskId: 'task-3',
+                        runId: 'run-7',
+                        artifactId: 'art-9',
+                    },
+                ])
+            })
         })
 
         it('renders a seeded user turn into the thread on bootstrap replay', async () => {
@@ -1375,6 +1796,123 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toHaveLength(1)
         })
 
+        it('renders a send typed while the agent was busy in the turn that answers it', async () => {
+            const answer = (messageId: string, text: string): void => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId, content: { text } })
+                )
+            }
+            await expectLogic(logic, () => {
+                // Two sends typed over an answer to an earlier message; the agent takes them one turn each.
+                logic.actions.pushHumanMessage('first ahead')
+                answer('m1', 'answer to the message before')
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.pushHumanMessage('second ahead')
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'first ahead' }))
+                answer('m2', 'answer to first')
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'second ahead' }))
+                answer('m3', 'answer to second')
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual([
+                'answer to the message before',
+                'first ahead',
+                'answer to first',
+                'second ahead',
+                'answer to second',
+            ])
+        })
+
+        it('takes up the older of two waiting sends that read the same, and leaves the other waiting', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.pushHumanMessage('same words')
+                logic.actions.pushHumanMessage('same words')
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                // One send, echoed in both wire forms — the second form must not take the other send.
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'same words' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'same words' },
+                    })
+                )
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'answer' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['same words', 'answer', 'same words'])
+        })
+
+        it('takes up both sends that read the same when one turn answers them in sequence', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm0', content: { text: 'busy' } })
+                )
+                logic.actions.pushHumanMessage('same words')
+                logic.actions.pushHumanMessage('same words')
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                // Both sends are steered into one turn, each echoed in both wire forms.
+                for (const messageId of ['m1', 'm2']) {
+                    logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'same words' }))
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({
+                            sessionUpdate: 'user_message_chunk',
+                            content: { type: 'text', text: 'same words' },
+                        })
+                    )
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({
+                            sessionUpdate: 'agent_message',
+                            messageId,
+                            content: { text: `answer ${messageId}` },
+                        })
+                    )
+                }
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['busy', 'same words', 'answer m1', 'same words', 'answer m2'])
+        })
+
+        it.each(['posthog', 'chunk', 'both'])(
+            'does not double a send the agent echoes as %s a turn after the composer drew it',
+            async (format) => {
+                const persisted = notification('_posthog/user_message', { content: 'steer me' })
+                const wire = sessionUpdate({
+                    sessionUpdate: 'user_message_chunk',
+                    content: { type: 'text', text: 'steer me' },
+                })
+                await expectLogic(logic, () => {
+                    logic.actions.pushHumanMessage('steer me')
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'busy' } })
+                    )
+                    // A steered or queued send is picked up in the next turn, so its echo lands past here.
+                    logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                    for (const frame of format === 'both'
+                        ? [persisted, wire]
+                        : [format === 'chunk' ? wire : persisted]) {
+                        logic.actions.ingestAcpFrame(frame)
+                    }
+                }).toFinishAllListeners()
+
+                expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toHaveLength(1)
+            }
+        )
+
         it.each([false, true])(
             'displays a pending first message before logs arrive (readOnly=%s)',
             async (readOnly) => {
@@ -1391,6 +1929,7 @@ describe('runStreamLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     artifacts: [],
                     state: {
                         pending_user_message: wrapWithPosthogContext(content, [
@@ -1792,6 +2331,54 @@ describe('runStreamLogic', () => {
     })
 
     describe('chunk folding', () => {
+        it('keeps an answer in one bubble when a send waits between its chunks', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'Hel' } })
+                )
+                // The placeholder sinks below the whole answer before it renders, so it must not end
+                // the buffer and leave the half-written 'Hel' beside the finished text.
+                logic.actions.pushHumanMessage('typed while it wrote')
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'lo' } })
+                )
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Hello' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.map((item) => [item.type, item.text])).toEqual([
+                ['assistant_message', 'Hello'],
+                ['human_message', 'typed while it wrote'],
+            ])
+        })
+
+        it('keeps an answer in one bubble when the send between its chunks is echoed in the same turn', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'agent_message_chunk',
+                        messageId: 'm1',
+                        content: { text: 'part one ' },
+                    })
+                )
+                logic.actions.pushHumanMessage('steer')
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'agent_message_chunk',
+                        messageId: 'm1',
+                        content: { text: 'part two' },
+                    })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'steer' }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.map((item) => [item.type, item.text])).toEqual([
+                ['assistant_message', 'part one part two'],
+                ['human_message', 'steer'],
+            ])
+        })
+
         it('folds distinct chunks of the same message into one growing buffer', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
@@ -2133,6 +2720,7 @@ describe('runStreamLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     artifacts: [],
                     state: { resume_from_run_id: 'run-1' },
                 }
@@ -2221,6 +2809,7 @@ describe('runStreamLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     artifacts: [],
                     state: { resume_from_run_id: 'run-1' },
                     runtime_adapter: null,
@@ -2276,6 +2865,7 @@ describe('runStreamLogic', () => {
                 error_message: 'Failed to start task workflow',
                 output: null,
                 task_summary: null,
+                task_tags: [],
                 artifacts: [],
                 state: { resume_from_run_id: 'run-1' },
                 runtime_adapter: null,
@@ -2615,6 +3205,77 @@ describe('runStreamLogic', () => {
             }
         )
 
+        it('keeps an unconfirmed resume echo that repeats more than one saved message', () => {
+            const saved = ['Retry', 'Retry'].flatMap((content) => [
+                notification('_posthog/user_message', { content }),
+                notification('_posthog/turn_complete', {}),
+            ])
+            const unconfirmed = {
+                entry: notification('_client/human_message', { content: 'Retry' }),
+                source: 'client' as const,
+            }
+
+            const log = reconcileRunLog(saved, [unconfirmed], [], unconfirmed)
+
+            expect(
+                foldLogToThread(log.entries, { isResumeRun: false })
+                    .threadItems.filter((item) => item.type === 'human_message')
+                    .map((item) => item.text)
+            ).toEqual(['Retry', 'Retry', 'Retry'])
+        })
+
+        it('renders a follow-up sent to the previous run once after the successor bootstraps', async () => {
+            const run = {
+                id: 'run-2',
+                task: 'task-1',
+                stage: null,
+                branch: null,
+                status: TaskRunStatus.QUEUED,
+                environment: TaskRunEnvironment.CLOUD,
+                error_message: null,
+                output: null,
+                task_summary: null,
+                task_tags: [],
+                artifacts: [],
+                state: { resume_from_run_id: 'run-1' },
+            } satisfies TaskRunDetailDTOApi
+            const firstTurn = [
+                notification('_posthog/run_started', { runId: 'run-1' }),
+                notification('_posthog/user_message', { content: 'First question' }),
+                notification('_posthog/turn_complete', {}),
+            ]
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue(run)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(firstTurn)
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            // A follow-up typed into the still-running run-1: an optimistic echo, then the server's.
+            const wireEcho = sessionUpdate({
+                sessionUpdate: 'user_message_chunk',
+                content: { type: 'text', text: 'Follow-up' },
+            })
+            logic.actions.pushHumanMessage('Follow-up')
+            await MockStream.latest().emitMessage(wireEcho)
+            await MockStream.latest().emitMessage(notification('_posthog/turn_complete', {}))
+            logic.actions.handleTerminalStatus({ status: 'completed' })
+
+            // run-1 has since persisted the follow-up, and the next send opens run-2 over that chain.
+            jest.mocked(api.tasks.runs.getLogEntries).mockResolvedValue([
+                ...firstTurn,
+                notification('_posthog/user_message', { content: 'Follow-up' }),
+                wireEcho,
+                notification('_posthog/turn_complete', {}),
+                notification('_posthog/run_started', { runId: 'run-2' }),
+                notification('_posthog/user_message', { content: 'Next question' }),
+            ])
+            logic.actions.startOptimisticResume('Next question')
+            await expectLogic(logic, () => logic.actions.attachOptimisticResume('task-1', run)).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'human_message').map((item) => item.text)
+            ).toEqual(['First question', 'Follow-up', 'Next question'])
+        })
+
         it.each(['history', 'retained', 'buffered'])(
             'preserves neutral notifications inside a coalesced range from %s',
             (source) => {
@@ -2686,6 +3347,7 @@ describe('runStreamLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     artifacts: [],
                     state: { resume_from_run_id: 'run-1' },
                 })
@@ -3108,6 +3770,7 @@ describe('runStreamLogic', () => {
                         error_message: null,
                         output: null,
                         task_summary: null,
+                        task_tags: [],
                         artifacts: [],
                         state: { resume_from_run_id: 'run-0' },
                     })
@@ -4002,6 +4665,62 @@ describe('runStreamLogic', () => {
     })
 
     describe('_posthog/progress handling', () => {
+        const undeliveredFollowup = notification('_posthog/progress', {
+            step: 'followup_delivery',
+            status: 'failed',
+            label: "Couldn't deliver your message",
+            group: 'followup-delivery:m1',
+            detail: 'send_followup failed',
+        })
+
+        it('leaves an undelivered send where it was drawn instead of below the turns that follow', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.pushHumanMessage('never arrived')
+                logic.actions.ingestAcpFrame(undeliveredFollowup)
+                logic.actions.pushHumanMessage('arrived')
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'arrived' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm9', content: { text: 'answer' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type !== 'turn_separator')
+                    .map((item) => [item.type, item.text ?? item.errorMessage])
+            ).toEqual([
+                ['human_message', 'never arrived'],
+                ['error', 'send_followup failed'],
+                ['human_message', 'arrived'],
+                ['assistant_message', 'answer'],
+            ])
+        })
+
+        it('gives a retry of an undelivered send its own bubble above the answer', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.pushHumanMessage('try again')
+                logic.actions.ingestAcpFrame(undeliveredFollowup)
+                logic.actions.pushHumanMessage('try again')
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'try again' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm9', content: { text: 'answer' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type !== 'turn_separator')
+                    .map((item) => [item.type, item.text ?? item.errorMessage])
+            ).toEqual([
+                ['human_message', 'try again'],
+                ['error', 'send_followup failed'],
+                ['human_message', 'try again'],
+                ['assistant_message', 'answer'],
+            ])
+        })
+
         it('folds a failed follow-up delivery into the preceding error card', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
@@ -4452,6 +5171,177 @@ describe('runStreamLogic', () => {
                     summary: 'Analysis written to report.md',
                 })
             )
+        })
+    })
+
+    describe('_posthog/turn_suggestion', () => {
+        const suggestionParams = {
+            turnIndex: 0,
+            kind: 'scout',
+            intent: 'metric_state',
+            confidence: 0.9,
+            title: 'Get this in Slack every week',
+            description: 'A scout runs this analysis again every week and posts the results to Slack.',
+            scout: { displayName: 'Weekly signups', description: '', body: '# Weekly signups', cadence: 'weekly' },
+        }
+        const askAndOffer = (): void => {
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'How many signups?' }))
+            logic.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', suggestionParams))
+        }
+
+        it('shows the newest valid offer and drops it on reset', async () => {
+            await expectLogic(logic, () => {
+                askAndOffer()
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/turn_suggestion', { kind: 'notebook', turnIndex: 0 })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.turnSuggestion).toMatchObject({ kind: 'scout', scout: { cadence: 'weekly' } })
+
+            const shown = logic.values.turnSuggestion
+            logic.actions.ingestAcpFrame(
+                notification('session/update', {
+                    update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'More' } },
+                })
+            )
+            expect(logic.values.turnSuggestion).toBe(shown)
+
+            logic.actions.reset()
+            expect(logic.values.turnSuggestion).toBeNull()
+        })
+
+        it('closes the offer when the conversation moves on and ignores frames for a passed turn', async () => {
+            await expectLogic(logic, askAndOffer).toFinishAllListeners()
+            expect(logic.values.turnSuggestion).toMatchObject({ kind: 'scout' })
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'And last month?' }))
+            }).toFinishAllListeners()
+            expect(logic.values.turnSuggestion).toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', suggestionParams))
+            }).toFinishAllListeners()
+            expect(logic.values.turnSuggestion).toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/turn_suggestion', { ...suggestionParams, turnIndex: 1 })
+                )
+            }).toFinishAllListeners()
+            expect(logic.values.turnSuggestion).toMatchObject({ turnIndex: 1 })
+        })
+
+        it.each([
+            { outcome: 'accepted', acceptedHere: true, shown: true, muted: false },
+            { outcome: 'accepted', acceptedHere: false, shown: false, muted: false },
+            { outcome: 'dismissed', acceptedHere: false, shown: false, muted: true },
+        ] as const)(
+            'an $outcome frame (accepted in this tab: $acceptedHere) leaves the card shown: $shown, mutes: $muted',
+            async ({ outcome, acceptedHere, shown, muted }) => {
+                await expectLogic(logic, () => {
+                    askAndOffer()
+                    if (acceptedHere) {
+                        logic.actions.markTurnSuggestionAccepted(0)
+                    }
+                    logic.actions.ingestAcpFrame(
+                        notification('_posthog/turn_suggestion_resolved', { turnIndex: 0, outcome })
+                    )
+                }).toFinishAllListeners()
+
+                expect(logic.values.turnSuggestion !== null).toBe(shown)
+                expect(logic.values.turnSuggestionsMuted).toBe(muted)
+            }
+        )
+
+        it.each([
+            ['the ledger resolved the turn', { muted: false, resolvedTurns: [0] }, null],
+            ['the ledger is muted', { muted: true, resolvedTurns: [] }, null],
+            ['this tab dismissed it before the ledger loaded', null, 'dismissed'],
+            [
+                'this tab dismissed it and the ledger read landed after',
+                { muted: false, resolvedTurns: [] },
+                'dismissed',
+            ],
+        ] as const)('hides the offer when %s', async (_label, ledger, localOutcome) => {
+            await expectLogic(logic, askAndOffer).toFinishAllListeners()
+            if (localOutcome) {
+                logic.actions.recordTurnSuggestionOutcome(0, localOutcome)
+            }
+            if (ledger) {
+                logic.actions.setTurnSuggestionLedger({
+                    taskId: 'task-1',
+                    ...ledger,
+                    resolvedTurns: [...ledger.resolvedTurns],
+                })
+            }
+
+            expect(logic.values.turnSuggestion).toBeNull()
+        })
+
+        it('reads the server ledger once per task when the first offer arrives', async () => {
+            jest.mocked(turnSuggestionsStateRetrieve).mockResolvedValue({ muted: false, resolved_turns: [0] })
+
+            await expectLogic(logic, () => {
+                askAndOffer()
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', suggestionParams))
+            }).toFinishAllListeners()
+
+            expect(turnSuggestionsStateRetrieve).toHaveBeenCalledTimes(1)
+            expect(turnSuggestionsStateRetrieve).toHaveBeenCalledWith('997', { task_id: 'task-1' })
+            expect(logic.values.turnSuggestion).toBeNull()
+        })
+
+        it('rereads the ledger when the tab returns, so a card resolved in another tab closes', async () => {
+            jest.mocked(turnSuggestionsStateRetrieve).mockResolvedValueOnce({ muted: false, resolved_turns: [] })
+            await expectLogic(logic, () => askAndOffer()).toDispatchActions(['setTurnSuggestionLedger'])
+            expect(logic.values.turnSuggestion).toMatchObject({ turnIndex: 0 })
+
+            jest.mocked(turnSuggestionsStateRetrieve).mockResolvedValueOnce({ muted: false, resolved_turns: [0] })
+            await expectLogic(logic, () => {
+                document.dispatchEvent(new Event('visibilitychange'))
+            }).toDispatchActions(['loadTurnSuggestionLedger', 'setTurnSuggestionLedger'])
+
+            expect(logic.values.turnSuggestion).toBeNull()
+        })
+
+        it('ignores an older ledger read that lands after a newer one', async () => {
+            jest.mocked(turnSuggestionsStateRetrieve).mockResolvedValueOnce({ muted: false, resolved_turns: [] })
+            await expectLogic(logic, () => askAndOffer()).toDispatchActions(['setTurnSuggestionLedger'])
+            let finishOlderRead: (state: { muted: boolean; resolved_turns: number[] }) => void = () => {}
+            jest.mocked(turnSuggestionsStateRetrieve)
+                .mockReturnValueOnce(new Promise((resolve) => (finishOlderRead = resolve)))
+                .mockResolvedValueOnce({ muted: false, resolved_turns: [0] })
+
+            await expectLogic(logic, () => {
+                document.dispatchEvent(new Event('visibilitychange'))
+                document.dispatchEvent(new Event('visibilitychange'))
+            }).toDispatchActions(['setTurnSuggestionLedger'])
+            finishOlderRead({ muted: false, resolved_turns: [] })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(turnSuggestionsStateRetrieve).toHaveBeenCalledTimes(3)
+            expect(logic.values.turnSuggestion).toBeNull()
+        })
+
+        it('keeps the offer hidden until the ledger loads, and retries a failed read', async () => {
+            jest.useFakeTimers()
+            try {
+                jest.mocked(turnSuggestionsStateRetrieve).mockRejectedValueOnce(new Error('offline'))
+
+                askAndOffer()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.turnSuggestion).toBeNull()
+
+                await jest.advanceTimersByTimeAsync(1000)
+
+                expect(turnSuggestionsStateRetrieve).toHaveBeenCalledTimes(2)
+                expect(logic.values.turnSuggestion).toMatchObject({ kind: 'scout', turnIndex: 0 })
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 

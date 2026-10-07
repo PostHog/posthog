@@ -1,8 +1,15 @@
+from collections.abc import Iterable
+from typing import Any, cast
+
 import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.monday import MondaySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday import (
+    MONDAY_VERSION_2026_07,
+    MONDAY_VERSION_V2,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.source import MondaySource
 
@@ -64,20 +71,42 @@ class TestMondaySource:
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "mock_return, expected_valid, expected_message, api_version, expected_api_version",
         [
-            (True, True, None),
-            (False, False, "Invalid monday.com API token"),
+            (True, True, None, None, MONDAY_VERSION_2026_07),
+            (True, True, None, MONDAY_VERSION_V2, MONDAY_VERSION_V2),
+            (False, False, "Invalid monday.com API token", None, MONDAY_VERSION_2026_07),
         ],
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.monday.source.validate_monday_credentials"
     )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
+    def test_validate_credentials(
+        self, mock_validate, mock_return, expected_valid, expected_message, api_version, expected_api_version
+    ):
         mock_validate.return_value = mock_return
 
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id, api_version=api_version)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with(self.config.api_token)
+        mock_validate.assert_called_once_with(self.config.api_token, expected_api_version)
+
+    @pytest.mark.parametrize(
+        "pinned_version, expected_header",
+        [
+            (MONDAY_VERSION_V2, "2024-10"),
+            (MONDAY_VERSION_2026_07, "2026-07"),
+            (None, "2026-07"),
+        ],
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday.make_tracked_session")
+    def test_sync_sends_the_source_pin(self, mock_session, pinned_version, expected_header):
+        mock_session.return_value.post.return_value = mock.MagicMock(
+            status_code=200, ok=True, json=mock.MagicMock(return_value={"data": {"users": []}})
+        )
+        inputs = mock.MagicMock(schema_name="users", api_version=pinned_version)
+
+        list(cast(Iterable[Any], self.source.source_for_pipeline(self.config, inputs).items()))
+
+        assert mock_session.call_args.kwargs["headers"]["API-Version"] == expected_header

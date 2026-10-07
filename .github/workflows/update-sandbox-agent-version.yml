@@ -9,6 +9,10 @@ on:
                 description: 'Agent version to pin. Defaults to the npm "latest" dist-tag.'
                 required: false
                 type: string
+            tarball_sha256:
+                description: 'sha256 of the release tarball for that version. The release workflow sets it; leave it empty to install from npm.'
+                required: false
+                type: string
             slack_thread_ts:
                 description: 'Slack thread of the release post to reply in. The release workflow sets it.'
                 required: false
@@ -17,23 +21,34 @@ on:
 permissions:
     contents: read
 
-concurrency:
-    group: update-sandbox-agent-version
-    cancel-in-progress: false
-
 jobs:
     update-sandbox-agent-version:
         runs-on: ubuntu-24.04
         timeout-minutes: 125
+        concurrency:
+            group: update-sandbox-agent-version
+            cancel-in-progress: false
         permissions:
+            actions: read
             contents: read
             packages: read
+        outputs:
+            action: ${{ steps.state.outputs.action }}
+            pr_number: ${{ steps.pr.outputs.number }}
+            latest: ${{ steps.resolve.outputs.latest }}
+            thread_ts: ${{ steps.thread.outputs.ts }}
+            enqueued: ${{ steps.enqueue.outputs.enqueued }}
 
         env:
             DOCKERFILE: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
             BRANCH_PREFIX: chore/bump-sandbox-agent-version-
             SLACK_CHANNEL: 'C0C3FBES5ST'
-            AGENT_PATHS: products/desktop/packages/agent products/desktop/packages/enricher products/desktop/packages/git products/desktop/packages/harness products/desktop/packages/shared
+            # Old locations stay so a tag range that spans the move still lists its commits.
+            AGENT_PATHS: >-
+                packages/agent/packages/agent packages/agent/packages/agent-contracts
+                packages/agent/packages/enricher packages/agent/packages/git packages/agent/packages/harness
+                products/desktop/packages/agent products/desktop/packages/enricher
+                products/desktop/packages/git products/desktop/packages/harness products/desktop/packages/shared
 
         steps:
             - name: Guard - only run on master
@@ -68,6 +83,7 @@ jobs:
               id: resolve
               env:
                   REQUESTED_VERSION: ${{ inputs.version }}
+                  REQUESTED_SHA256: ${{ inputs.tarball_sha256 }}
               run: |
                   latest="$REQUESTED_VERSION"
                   for attempt in 1 2 3; do
@@ -83,6 +99,16 @@ jobs:
                   fi
                   echo "latest=$latest" >> "$GITHUB_OUTPUT"
                   echo "BRANCH=${BRANCH_PREFIX}${latest}" >> "$GITHUB_ENV"
+
+                  sha="$REQUESTED_SHA256"
+                  if [ -n "$sha" ] && ! printf '%s' "$sha" | grep -qE '^[0-9a-f]{64}$'; then
+                    echo "tarball_sha256 input '$sha' is not a sha256 digest" >&2
+                    exit 1
+                  fi
+                  if [ -z "$sha" ]; then
+                    echo "no tarball digest was passed, so the image installs from npm"
+                  fi
+                  echo "tarball_sha256=$sha" >> "$GITHUB_OUTPUT"
 
                   pinned=$(sed -n 's/^ARG AGENT_VERSION=//p' "$DOCKERFILE")
                   if [ -z "$pinned" ]; then
@@ -141,28 +167,15 @@ jobs:
                     echo "declined_by=${declined_by:-}"
                   } >> "$GITHUB_OUTPUT"
 
-            - name: Wait for npm to serve the version
-              if: steps.state.outputs.action == 'bump'
-              env:
-                  LATEST: ${{ steps.resolve.outputs.latest }}
-              run: |
-                  for attempt in $(seq 1 45); do
-                    if [ "$(npm view "@posthog/agent@${LATEST}" version 2>/dev/null)" = "$LATEST" ]; then
-                      echo "npm serves @posthog/agent@${LATEST}"
-                      exit 0
-                    fi
-                    echo "npm does not serve @posthog/agent@${LATEST} yet (attempt $attempt)"
-                    sleep 20
-                  done
-                  echo "npm did not serve @posthog/agent@${LATEST} within 15 minutes" >&2
-                  exit 1
-
             - name: Bump the pin
+              id: bump
               if: steps.state.outputs.action == 'bump'
               env:
                   LATEST: ${{ steps.resolve.outputs.latest }}
+                  TARBALL_SHA256: ${{ steps.resolve.outputs.tarball_sha256 }}
               run: |
                   sed -i "s/^ARG AGENT_VERSION=.*/ARG AGENT_VERSION=${LATEST}/" "$DOCKERFILE"
+                  sed -i "s/^ARG AGENT_TARBALL_SHA256=.*/ARG AGENT_TARBALL_SHA256=\"${TARBALL_SHA256}\"/" "$DOCKERFILE"
                   if git diff --quiet "$DOCKERFILE"; then
                     echo "could not rewrite ARG AGENT_VERSION in $DOCKERFILE" >&2
                     exit 1
@@ -197,18 +210,38 @@ jobs:
                       printf '%s\n' "$commits" | sed -E 's/^([0-9a-f]{40}) (.*)$/- \2 \1/'
                     fi
                     echo
-                    echo "### Dependency changes in the published package"
+                    echo "### Dependency changes"
                     echo
                     deps_ok=true
-                    for v in "$PINNED" "$LATEST"; do
-                      if ! npm view "@posthog/agent@${v}" dependencies --json > "deps-${v}.json" 2>/dev/null; then
+                    read_at_tag() {
+                      local tag="$1"
+                      shift
+                      local path content
+                      for path in "$@"; do
+                        if content=$(gh api "repos/${REPO}/contents/${path}?ref=${tag}" --jq '.content' 2>/dev/null); then
+                          printf '%s' "$content" | base64 -d
+                          return 0
+                        fi
+                      done
+                      return 1
+                    }
+                    for tag in "$from_tag" "$to_tag"; do
+                      catalog=$(read_at_tag "$tag" packages/agent/pnpm-workspace.yaml products/desktop/pnpm-workspace.yaml \
+                        | yq -o=json '{"default": (.catalog // {}), "named": (.catalogs // {})}' 2>/dev/null \
+                        || echo '{"default": {}, "named": {}}')
+                      if ! (set -o pipefail; read_at_tag "$tag" packages/agent/packages/agent/package.json products/desktop/packages/agent/package.json \
+                          | jq -r --argjson catalog "$catalog" '
+                              .dependencies // {} | to_entries[] | .value as $spec
+                              | (if $spec == "catalog:" or $spec == "catalog:default" then ($catalog.default[.key] // $spec)
+                                 elif ($spec | startswith("catalog:")) then ($catalog.named[$spec[8:]][.key] // $spec)
+                                 else $spec end) as $resolved
+                              | "\(.key) \($resolved)"' | sort > "deps-${tag}.txt"); then
                         deps_ok=false
                       fi
-                      jq -r 'to_entries[] | "\(.key) \(.value)"' "deps-${v}.json" 2>/dev/null | sort > "deps-${v}.txt" || deps_ok=false
                     done
                     if [ "$deps_ok" != true ]; then
-                      echo "_Unavailable: npm did not return the dependencies for both versions._"
-                    elif changed=$(diff "deps-${PINNED}.txt" "deps-${LATEST}.txt" | grep -E '^[<>]'); then
+                      echo "_Unavailable: could not read package.json at both tags._"
+                    elif changed=$(diff "deps-${from_tag}.txt" "deps-${to_tag}.txt" | grep -E '^[<>]'); then
                       echo '```diff'
                       printf '%s\n' "$changed" | sed -E 's/^< /- /; s/^> /+ /'
                       echo '```'
@@ -263,18 +296,24 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   LATEST: ${{ steps.resolve.outputs.latest }}
                   PINNED: ${{ steps.resolve.outputs.pinned }}
+                  TARBALL_SHA256: ${{ steps.resolve.outputs.tarball_sha256 }}
               run: |
+                  if [ -n "$TARBALL_SHA256" ]; then
+                    digest_note="\`AGENT_TARBALL_SHA256\` set to the digest of the \`agent-v${LATEST}\` release tarball"
+                  else
+                    digest_note="\`AGENT_TARBALL_SHA256\` cleared, because no release tarball digest was passed for \`agent-v${LATEST}\`, so the image installs from npm"
+                  fi
                   {
                     cat <<BODY
                   ## Problem
 
-                  The sandbox base image pins \`@posthog/agent\` so a published release reaches production sandboxes only through a commit on \`master\`. That pin is at \`${PINNED}\`; npm now serves \`${LATEST}\`.
+                  The sandbox base image pins \`@posthog/agent\` so a published release reaches production sandboxes only through a commit on \`master\`. That pin is at \`${PINNED}\`; the release published \`${LATEST}\`.
 
                   ## Changes
 
-                  - \`Dockerfile.sandbox-base\`: \`AGENT_VERSION\` \`${PINNED}\` to \`${LATEST}\`.
+                  - \`Dockerfile.sandbox-base\`: \`AGENT_VERSION\` \`${PINNED}\` to \`${LATEST}\`; ${digest_note}.
 
-                  The sandbox image workflow builds this image and smokes \`${LATEST}\` on both architectures. This workflow then runs one Claude turn and one Codex turn with that image through the production Go ai-gateway. When both checks pass, the release app approves this PR and adds it to the merge queue. Close it before the queue lands it to keep \`${PINNED}\`. A newer release opens its own PR and closes this one.
+                  The sandbox image workflow waits for \`${LATEST}\` to be published, builds this image and smokes it on both architectures. This workflow then runs one Claude turn and one Codex turn with that image through the production Go ai-gateway. When both checks pass, the release app approves this PR and adds it to the merge queue. Close it before the queue lands it to keep \`${PINNED}\`. A newer release opens its own PR and closes this one.
 
                   BODY
                     cat delta.md
@@ -351,10 +390,10 @@ jobs:
               uses: ./.github/actions/wait-for-check
               with:
                   token: ${{ steps.app-token.outputs.token }}
-                  checkName: Sandbox Base Image Pass
+                  checkName: Sandbox Base Image Smoke
                   ref: ${{ steps.commit.outputs.commit-hash }}
                   timeoutSeconds: '4500'
-                  intervalSeconds: '30'
+                  intervalSeconds: '10'
 
             - name: Stop when the smoke did not pass
               if: steps.state.outputs.action == 'bump' && steps.smoke.outputs.conclusion != 'success'
@@ -363,8 +402,37 @@ jobs:
                   SHA: ${{ steps.commit.outputs.commit-hash }}
                   PR: ${{ steps.pr.outputs.number }}
               run: |
-                  echo "::error::Sandbox Base Image Pass concluded $CONCLUSION on $SHA, so PR #$PR waits for a person"
+                  echo "::error::Sandbox Base Image Smoke concluded $CONCLUSION on $SHA, so PR #$PR waits for a person"
                   exit 1
+
+            - name: Resolve the smoked image
+              id: image
+              if: steps.state.outputs.action == 'bump'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  CHECK_URL: ${{ steps.smoke.outputs.details-url }}
+                  SHA: ${{ steps.commit.outputs.commit-hash }}
+                  PR: ${{ steps.pr.outputs.number }}
+              run: |
+                  job=$(gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${CHECK_URL##*/}")
+                  jq -e '.head_sha == env.SHA and .workflow_name == "Tasks Sandbox Container Image CD"' <<< "$job" >/dev/null
+                  run_id=$(jq -er .run_id <<< "$job")
+                  workflow_run=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$run_id")
+                  jq -e --argjson pr "$PR" '.head_sha == env.SHA and .event == "pull_request" and
+                    .path == ".github/workflows/cd-sandbox-base-image.yml" and
+                    .head_branch == env.BRANCH and .head_repository.full_name == env.GITHUB_REPOSITORY and
+                    (.pull_requests | length == 1 and .[0].number == $pr and .[0].base.ref == "master")' <<< "$workflow_run" >/dev/null
+                  attempt=$(jq -er .run_attempt <<< "$job")
+                  build_attempt=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$run_id/jobs?filter=all&per_page=100" \
+                    --paginate --slurp | jq -er --argjson attempt "$attempt" '[.[].jobs[] |
+                      select(.name == "Build and push Tasks Sandbox container image" and .run_attempt <= $attempt)] |
+                      group_by([.started_at, .completed_at]) | map(min_by(.run_attempt)) |
+                      max_by(.run_attempt).run_attempt // empty')
+                  gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+                    --name "sandbox-base-image-$build_attempt" --dir "$RUNNER_TEMP/sandbox-base-image"
+                  digest=$(jq -er 'select(.head_sha == env.SHA) | .digest | select(test("^sha256:[0-9a-f]{64}$"))' \
+                    "$RUNNER_TEMP/sandbox-base-image/sandbox-base-image.json")
+                  echo "image=ghcr.io/posthog/posthog-sandbox-base@$digest" >> "$GITHUB_OUTPUT"
 
             - name: Smoke the agent on the Go ai-gateway
               id: gateway-smoke
@@ -372,7 +440,8 @@ jobs:
               timeout-minutes: 25
               uses: ./.github/actions/sandbox-agent-gateway-smoke
               with:
-                  image: ghcr.io/posthog/posthog-sandbox-base:${{ steps.commit.outputs.commit-hash }}
+                  image: ${{ steps.image.outputs.image }}
+                  agent-version: ${{ steps.resolve.outputs.latest }}
                   mint-key: ${{ secrets.AGENT_SMOKE_AI_GATEWAY_MINT_KEY }}
                   registry-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -452,6 +521,7 @@ jobs:
                     -f commit_id="$SHA" \
                     -f body="Automated approval: the sandbox image built from this commit passed the agent smoke on both architectures and one Claude and one Codex turn on the Go ai-gateway." >/dev/null
                   gh pr comment "$PR" --body '/trunk merge'
+                  echo "enqueued=true" >> "$GITHUB_OUTPUT"
 
             - name: Describe the outcome for Slack
               id: outcome
@@ -476,7 +546,7 @@ jobs:
                       if [ "$ENQUEUE" = "success" ]; then
                         text=":white_check_mark: The image built from ${pr} passed the smoke on amd64 and arm64 and on the Go ai-gateway. Approved and added to the merge queue."
                       elif [ -n "$SMOKE" ] && [ "$SMOKE" != "success" ]; then
-                        text=":red_circle: Sandbox Base Image Pass concluded \`${SMOKE}\` on ${pr}, so it waits for a person. <${RUN_URL}|View run>"
+                        text=":red_circle: Sandbox Base Image Smoke concluded \`${SMOKE}\` on ${pr}, so it waits for a person. <${RUN_URL}|View run>"
                       elif [ -n "$GATEWAY_SMOKE" ] && [ "$GATEWAY_SMOKE" != "pass" ]; then
                         text=":red_circle: The Go ai-gateway smoke reported \`${GATEWAY_SMOKE}\` on ${pr}, so it waits for a person. <${RUN_URL}|View run>"
                       elif [ -n "$PR_NUMBER" ]; then
@@ -513,3 +583,238 @@ jobs:
                       thread_ts: "${{ steps.thread.outputs.ts }}"
                       unfurl_links: false
                       text: "${{ steps.outcome.outputs.text }}"
+
+    verify_rollout:
+        needs: update-sandbox-agent-version
+        name: Verify the bump reaches the master image
+        if: ${{ !cancelled() && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && needs.update-sandbox-agent-version.outputs.action == 'bump' && needs.update-sandbox-agent-version.outputs.enqueued == 'true' }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 160
+        concurrency:
+            group: update-sandbox-agent-version-verify
+            cancel-in-progress: true
+        permissions:
+            actions: write
+            contents: read
+            packages: read
+            pull-requests: read
+
+        env:
+            IMAGE: ghcr.io/posthog/posthog-sandbox-base:master
+            LABEL_JQ: '[if has("config") then . else .[] end | .config.Labels["com.posthog.sandbox.agent-version"] // empty] | unique | if length == 1 then .[0] else empty end'
+            SLACK_CHANNEL: 'C0C3FBES5ST'
+            GH_REPO: ${{ github.repository }}
+            PR: ${{ needs.update-sandbox-agent-version.outputs.pr_number }}
+            LATEST: ${{ needs.update-sandbox-agent-version.outputs.latest }}
+
+        steps:
+            - name: Wait for the bump to merge
+              id: merge
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  deadline=$(( $(date +%s) + 75 * 60 ))
+                  while :; do
+                    if pr=$(gh pr view "$PR" --json state,mergeCommit); then
+                      state=$(jq -r .state <<< "$pr")
+                      sha=$(jq -r '.mergeCommit.oid // empty' <<< "$pr")
+                      if [ "$state" = MERGED ] && [ -n "$sha" ]; then
+                        echo "PR #$PR merged as $sha"
+                        { echo "state=merged"; echo "sha=$sha"; } >> "$GITHUB_OUTPUT"
+                        exit 0
+                      fi
+                      if [ "$state" = CLOSED ]; then
+                        closer=$(gh api "repos/$GH_REPO/issues/$PR/events" --paginate \
+                          --jq '.[] | select(.event == "closed") | .actor.type' | tail -1 || true)
+                        if [ "$closer" = Bot ]; then
+                          echo "A newer bump closed PR #$PR, so its own run reports the rollout"
+                          echo "state=superseded" >> "$GITHUB_OUTPUT"
+                        else
+                          echo "PR #$PR was closed without merging"
+                          echo "state=declined" >> "$GITHUB_OUTPUT"
+                        fi
+                        exit 0
+                      fi
+                    fi
+                    if [ "$(date +%s)" -ge "$deadline" ]; then
+                      echo "::error::PR #$PR did not merge within 75 minutes"
+                      echo "state=not_merged" >> "$GITHUB_OUTPUT"
+                      exit 0
+                    fi
+                    sleep 60
+                  done
+
+            - name: Login to ghcr.io
+              if: steps.merge.outputs.state == 'merged'
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ github.token }}
+
+            - name: Wait for the master image to carry the version
+              id: master
+              if: steps.merge.outputs.state == 'merged'
+              run: |
+                  read_label() {
+                    for attempt in 1 2 3; do
+                      if image=$(docker buildx imagetools inspect "$IMAGE" --format '{{json .Image}}'); then
+                        jq -r "$LABEL_JQ" <<< "$image"
+                        return 0
+                      fi
+                      sleep $((attempt * 5))
+                    done
+                    return 1
+                  }
+                  deadline=$(( $(date +%s) + 30 * 60 ))
+                  while :; do
+                    label=$(read_label || true)
+                    echo "$IMAGE carries agent version '${label}'"
+                    if [ "$label" = "$LATEST" ]; then
+                      echo "live=true" >> "$GITHUB_OUTPUT"
+                      exit 0
+                    fi
+                    if [ "$(date +%s)" -ge "$deadline" ]; then
+                      echo "::warning::$IMAGE did not carry $LATEST within 30 minutes of the merge"
+                      echo "live=false" >> "$GITHUB_OUTPUT"
+                      exit 0
+                    fi
+                    sleep 60
+                  done
+
+            - name: Rebuild the master image
+              id: repair
+              if: steps.merge.outputs.state == 'merged' && steps.master.outputs.live != 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  read_label() {
+                    for attempt in 1 2 3; do
+                      if image=$(docker buildx imagetools inspect "$IMAGE" --format '{{json .Image}}'); then
+                        jq -r "$LABEL_JQ" <<< "$image"
+                        return 0
+                      fi
+                      sleep $((attempt * 5))
+                    done
+                    return 1
+                  }
+                  dispatched_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+                  if ! gh workflow run cd-sandbox-base-image.yml --ref master; then
+                    echo "::error::Could not dispatch cd-sandbox-base-image.yml on master"
+                    echo "outcome=failed" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+                  run_id=""
+                  rebuilt=false
+                  for attempt in 1 2 3 4 5 6; do
+                    sleep 10
+                    run_id=$(gh run list --workflow cd-sandbox-base-image.yml --event workflow_dispatch --branch master \
+                      --json databaseId,createdAt --limit 5 \
+                      --jq "[.[] | select(.createdAt >= \"$dispatched_at\")] | sort_by(.createdAt) | last | .databaseId // empty" || true)
+                    if [ -n "$run_id" ]; then break; fi
+                  done
+                  if [ -n "$run_id" ]; then
+                    echo "run_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}" >> "$GITHUB_OUTPUT"
+                    if timeout 40m gh run watch "$run_id" --exit-status --interval 30 >/dev/null; then
+                      rebuilt=true
+                    else
+                      echo "::warning::The rebuild run $run_id did not succeed within 40 minutes"
+                    fi
+                  else
+                    echo "::warning::Could not find the dispatched cd-sandbox-base-image.yml run"
+                  fi
+                  deadline=$(( $(date +%s) + 5 * 60 ))
+                  while :; do
+                    label=$(read_label || true)
+                    echo "$IMAGE carries agent version '${label}'"
+                    if [ "$label" = "$LATEST" ]; then
+                      if [ "$rebuilt" = true ]; then
+                        echo "outcome=repaired" >> "$GITHUB_OUTPUT"
+                      else
+                        echo "outcome=live" >> "$GITHUB_OUTPUT"
+                      fi
+                      exit 0
+                    fi
+                    if [ "$(date +%s)" -ge "$deadline" ]; then
+                      echo "::error::$IMAGE still does not carry $LATEST after the rebuild"
+                      echo "outcome=failed" >> "$GITHUB_OUTPUT"
+                      exit 0
+                    fi
+                    sleep 60
+                  done
+
+            - name: Describe the rollout for Slack
+              id: outcome
+              if: ${{ !cancelled() }}
+              env:
+                  MERGE_STATE: ${{ steps.merge.outputs.state }}
+                  MERGE_SHA: ${{ steps.merge.outputs.sha }}
+                  LIVE: ${{ steps.master.outputs.live }}
+                  REPAIR: ${{ steps.repair.outputs.outcome }}
+                  REPAIR_URL: ${{ steps.repair.outputs.run_url }}
+                  THREAD_TS: ${{ needs.update-sandbox-agent-version.outputs.thread_ts }}
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                  REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+              run: |
+                  pr="<${REPO_URL}/pull/${PR}|#${PR}>"
+                  commit="<${REPO_URL}/commit/${MERGE_SHA}|${MERGE_SHA:0:7}>"
+                  if [ "$MERGE_STATE" = superseded ]; then
+                    exit 0
+                  elif [ "$MERGE_STATE" = declined ]; then
+                    outcome=declined
+                    text=":information_source: ${pr} was closed without merging, so the sandbox pin stays where it was."
+                  elif [ "$MERGE_STATE" != merged ]; then
+                    outcome=not_merged
+                    text=":red_circle: ${pr} did not merge within 75 minutes, so \`posthog-sandbox-base:master\` still runs the previous agent. <${RUN_URL}|View run>"
+                  elif [ "$LIVE" = true ] || [ "$REPAIR" = live ]; then
+                    outcome=live
+                    text=":rocket: \`posthog-sandbox-base:master\` now runs @posthog/agent ${LATEST} (merged in ${commit})."
+                  elif [ "$REPAIR" = repaired ]; then
+                    outcome=repaired
+                    text=":rocket: \`posthog-sandbox-base:master\` now runs @posthog/agent ${LATEST} (merged in ${commit}) after a manual rebuild, because the merge run did not build it. <${REPAIR_URL:-$RUN_URL}|View rebuild>"
+                  else
+                    outcome=failed
+                    text=":red_circle: \`posthog-sandbox-base:master\` still does not run @posthog/agent ${LATEST} after ${commit} merged, and a manual rebuild did not fix it. <${RUN_URL}|View run>"
+                  fi
+                  if [ -z "$THREAD_TS" ]; then
+                    text="*@posthog/agent ${LATEST}*: ${text}"
+                  fi
+                  {
+                    echo "outcome=$outcome"
+                    echo "text=$text"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Post the rollout in the release thread
+              if: ${{ !cancelled() && steps.outcome.outputs.text != '' && needs.update-sandbox-agent-version.outputs.thread_ts != '' }}
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      thread_ts: "${{ needs.update-sandbox-agent-version.outputs.thread_ts }}"
+                      unfurl_links: false
+                      text: "${{ steps.outcome.outputs.text }}"
+
+            - name: Post the rollout as a new thread
+              if: ${{ !cancelled() && steps.outcome.outputs.text != '' && needs.update-sandbox-agent-version.outputs.thread_ts == '' }}
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      unfurl_links: false
+                      text: "${{ steps.outcome.outputs.text }}"
+
+            - name: Fail when the version did not reach the master image
+              if: ${{ !cancelled() && contains(fromJSON('["failed", "not_merged"]'), steps.outcome.outputs.outcome) }}
+              env:
+                  OUTCOME: ${{ steps.outcome.outputs.outcome }}
+              run: |
+                  echo "::error::The @posthog/agent $LATEST rollout ended as $OUTCOME"
+                  exit 1

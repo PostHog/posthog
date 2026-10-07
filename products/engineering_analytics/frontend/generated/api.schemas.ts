@@ -7,6 +7,247 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface AuthorApi {
+    /** Login handle of the pull request author. */
+    handle: string
+    /** Human-readable name; equals the handle in v1. */
+    display_name: string
+    /** URL of the author's avatar image. */
+    avatar_url: string
+    /** True if the author is a bot (handle ends in [bot] or is a known bot). */
+    is_bot: boolean
+}
+
+export interface RepoRefApi {
+    /** Code host provider, e.g. 'github'. */
+    provider: string
+    /** Repository owner or organization. */
+    owner: string
+    /** Repository name. */
+    name: string
+}
+
+export interface CIStatusRollupApi {
+    /** Distinct workflows run on the PR's head SHA. */
+    runs: number
+    /** Latest runs that completed with conclusion 'success'. */
+    passing: number
+    /** Latest runs that ended in failure, timeout, startup failure, or staleness. */
+    failing: number
+    /** Latest runs not yet completed (queued or in progress). */
+    pending: number
+    /** Latest runs that completed without a pass-or-fail verdict: cancelled, skipped, neutral, or action required. Together with the three counts above this covers every run, so a PR whose CI was entirely cancelled is not readable as passing. */
+    inconclusive: number
+    /** The workflow names behind `failing`, sorted - names what is failing instead of leaving a bare count. */
+    failing_workflows?: string[]
+}
+
+export interface PushCISampleApi {
+    /** Head commit SHA of this push (CI round). */
+    head_sha: string
+    /** Earliest workflow-run start on this push. */
+    started_at: string
+    /**
+     * Wall-clock CI seconds for this push: earliest run start to latest completed run end. Null while nothing has completed.
+     * @nullable
+     */
+    wall_seconds: number | null
+    /** True when any latest-per-workflow run on this push ended in a decisive failure. */
+    failed: boolean
+    /** True when any latest-per-workflow run on this push hasn't completed yet. */
+    pending: boolean
+}
+
+/**
+ * * `open` - OPEN
+ * * `closed` - CLOSED
+ * * `merged` - MERGED
+ */
+export type EngineeringAnalyticsPRStateEnumApi =
+    (typeof EngineeringAnalyticsPRStateEnumApi)[keyof typeof EngineeringAnalyticsPRStateEnumApi]
+
+export const EngineeringAnalyticsPRStateEnumApi = {
+    Open: 'open',
+    Closed: 'closed',
+    Merged: 'merged',
+} as const
+
+export interface PullRequestListItemApi {
+    /** The pull request author. */
+    author: AuthorApi
+    /** Repository the pull request belongs to. */
+    repo: RepoRefApi
+    /** CI status from the latest workflow runs on the head SHA. */
+    ci: CIStatusRollupApi
+    /** This PR's CI rounds oldest-first, capped to the most recent pushes - one sample per push for the push-history sparkline. `pushes` stays the uncapped count. */
+    push_history: PushCISampleApi[]
+    /** Pull request number within the repository. */
+    number: number
+    /** Pull request title. */
+    title: string
+    /** Derived state: 'open', 'closed', or 'merged'.
+     *
+     * * `open` - OPEN
+     * * `closed` - CLOSED
+     * * `merged` - MERGED */
+    state: EngineeringAnalyticsPRStateEnumApi
+    /** True if the pull request is a draft. */
+    is_draft: boolean
+    /** When the pull request was opened. */
+    created_at: string
+    /**
+     * When the pull request was merged, or null.
+     * @nullable
+     */
+    merged_at: string | null
+    /**
+     * Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.
+     * @nullable
+     */
+    open_to_merge_seconds: number | null
+    /**
+     * True ready-to-merge cycle time in seconds: merged_at minus the last observed ready_for_review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null when unmerged or not observed (the PR's life isn't fully inside the synced issue-event window) - null never means zero.
+     * @nullable
+     */
+    ready_to_merge_seconds: number | null
+    /** GitHub label names on the pull request. */
+    labels: string[]
+    /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
+    pushes: number
+    /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
+    rerun_cycles: number
+    /**
+     * Estimated CI cost in USD summed over this PR's jobs (billable runners only). Null when nothing was costable or the job-level source isn't synced.
+     * @nullable
+     */
+    estimated_cost_usd?: number | null
+    /**
+     * Billable (self-hosted) minutes summed over this PR's jobs. Null when the job source isn't synced.
+     * @nullable
+     */
+    billable_minutes?: number | null
+}
+
+export interface AttentionPullRequestListApi {
+    /** Open pull requests needing attention, failing CI first, then newest, capped at `limit`. */
+    items: PullRequestListItemApi[]
+    /** Number of open pull requests needing attention, including the ones past the cap. */
+    total: number
+    /** Maximum number of pull requests returned in `items`. */
+    limit: number
+}
+
+/**
+ * * `ci` - CI
+ * * `review` - REVIEW
+ * * `queue` - QUEUE
+ * * `rework` - REWORK
+ */
+export type FrictionGroupEnumApi = (typeof FrictionGroupEnumApi)[keyof typeof FrictionGroupEnumApi]
+
+export const FrictionGroupEnumApi = {
+    Ci: 'ci',
+    Review: 'review',
+    Queue: 'queue',
+    Rework: 'rework',
+} as const
+
+export interface FrictionGroupShareApi {
+    /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and kickouts), or rework (own failures and extra pushes).
+     *
+     * * `ci` - CI
+     * * `review` - REVIEW
+     * * `queue` - QUEUE
+     * * `rework` - REWORK */
+    group: FrictionGroupEnumApi
+    /** This group's part of the score, in the same 'x typical' unit. The parts add up. */
+    score: number
+}
+
+export interface AuthorFrictionApi {
+    /** The score split by the kind of friction. */
+    groups: FrictionGroupShareApi[]
+    /** GitHub login. */
+    author: string
+    /** The author's GitHub avatar, or empty when the pull requests carry none. */
+    avatar_url: string
+    /** Friction as a multiple of the typical author: 1.0 is typical, 2.0 is twice as much. Counts only what happened to the author, never how much or how fast they ship. */
+    score: number
+    /** The author's merged pull requests in the window. */
+    pr_count: number
+    /** Position by friction in the repository, 1 is the most. */
+    rank: number
+    /** Low end of the rank band: the 10th percentile rank over resamples of the author's pull requests, and never above rank. */
+    rank_low: number
+    /** High end of the rank band: the 90th percentile rank over the same resamples, and never below rank. */
+    rank_high: number
+    /** The author's GitHub teams. Empty when the membership table isn't synced. */
+    teams?: string[]
+}
+
+export interface TeamFrictionApi {
+    /** GitHub team slug. */
+    github_team: string
+    /** The median friction of the team's scored members, in 'x typical' units. */
+    median_score: number
+    /** Members with enough merged pull requests to score. A team shows only above a floor, so one or two people never read as a team's figure. */
+    scored_author_count: number
+}
+
+export interface AuthorFrictionListApi {
+    /** Authors by friction, most first. */
+    items: AuthorFrictionApi[]
+    /** Teams with at least 3 scored members, by median member friction, most first. */
+    teams: TeamFrictionApi[]
+    /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+    available: boolean
+    /** Pull requests merged in this many days before the view last refreshed. */
+    window_days: number
+    /** Authors with at least 3 merged pull requests, all ranked together. A team list keeps these repository-wide ranks. */
+    ranked_author_count: number
+    /**
+     * The team the list is filtered to, or null for every author.
+     * @nullable
+     */
+    github_team: string | null
+    /** False when the team membership table isn't synced, so a team filter matches nobody. */
+    has_membership_data: boolean
+}
+
+export interface PullRequestFrictionItemApi {
+    /** The pull request's friction split by kind. */
+    groups: FrictionGroupShareApi[]
+    /** Pull request number. */
+    number: number
+    /** Repository owner. */
+    repo_owner: string
+    /** Repository name. */
+    repo_name: string
+    /** Pull request title, empty when the snapshot has none. */
+    title: string
+    /** Friction as a multiple of the typical pull request in the repository. */
+    score: number
+}
+
+export interface AuthorFrictionDetailApi {
+    /** The author's score and rank. Null below 3 merged pull requests in the window. */
+    author: AuthorFrictionApi | null
+    /** The author's teams without the author, each only with at least 2 other scored members. */
+    teams: TeamFrictionApi[]
+    /** The author's pull requests that added the most friction, most first. */
+    pull_requests: PullRequestFrictionItemApi[]
+    /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+    available: boolean
+    /** Pull requests merged in this many days before the view last refreshed. */
+    window_days: number
+    /** Authors ranked in the repository: the denominator of rank. */
+    ranked_author_count: number
+    /** False when the team membership table isn't synced. */
+    has_membership_data: boolean
+    /** The author's merged pull requests in the window. */
+    pr_count: number
+}
+
 export interface WorkflowCostApi {
     /** GitHub Actions workflow name this cost is for. */
     workflow_name: string
@@ -24,6 +265,17 @@ export interface WorkflowCostApi {
     /** Provider-hosted/non-Linux jobs for this workflow, outside the estimate. */
     excluded_jobs: number
 }
+
+/**
+ * * `github_actions` - GitHub Actions
+ * * `depot_ci` - Depot CI
+ */
+export type CIEngineEnumApi = (typeof CIEngineEnumApi)[keyof typeof CIEngineEnumApi]
+
+export const CIEngineEnumApi = {
+    GithubActions: 'github_actions',
+    DepotCi: 'depot_ci',
+} as const
 
 /**
  * * `breaking_master` - BREAKING_MASTER
@@ -45,6 +297,11 @@ export const BrokenTestRowStateEnumApi = {
 } as const
 
 export interface BrokenTestRowApi {
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    latest_ci_engine?: CIEngineEnumApi | null
     /** Stable identity of this distinct failure: the failing test's node id plus a normalized error signature, so the same failure across runs groups into one row. */
     fingerprint: string
     /** The pytest node id from the CI 'FAILED <id>' line: the failing test. */
@@ -137,15 +394,6 @@ export interface CICardSummaryApi {
     failing_ci: number
 }
 
-export interface RepoRefApi {
-    /** Code host provider, e.g. 'github'. */
-    provider: string
-    /** Repository owner or organization. */
-    owner: string
-    /** Repository name. */
-    name: string
-}
-
 export interface CIFailureLogLineApi {
     /**
      * 1-based line number in the full pre-thinning job log, or null for a '... N lines omitted ...' marker. The gap between consecutive values is how many lines were elided.
@@ -157,9 +405,14 @@ export interface CIFailureLogLineApi {
 }
 
 export interface CIJobFailureLogApi {
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    ci_engine?: CIEngineEnumApi | null
     /** The thinned failure-log lines in original order, with omission markers. */
     lines: CIFailureLogLineApi[]
-    /** GitHub Actions job id of the failed job. */
+    /** Integer job id of the failed job; unique only together with ci_engine. */
     job_id: number
     /** Workflow run id the job belongs to. */
     run_id: number
@@ -731,6 +984,11 @@ export interface WorkflowJobAggregateApi {
 }
 
 export interface MasterFailureGroupApi {
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    latest_ci_engine?: CIEngineEnumApi | null
     /** Repository the failures occurred in. */
     repo: RepoRefApi
     /** GitHub Actions workflow name the failing runs belong to. */
@@ -748,7 +1006,12 @@ export interface MasterFailureGroupApi {
 }
 
 export interface RunCostApi {
-    /** GitHub Actions run id this cost is for. */
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    ci_engine?: CIEngineEnumApi | null
+    /** Integer run id this cost is for; unique only together with ci_engine. */
     run_id: number
     /** Re-run attempt number; 1 for the first attempt. */
     run_attempt: number
@@ -795,31 +1058,6 @@ export interface PRCostSummaryApi {
     /** Jobs on provider-hosted (GitHub-hosted, free) or non-Linux runners: outside the estimate. */
     excluded_jobs: number
 }
-
-export interface AuthorApi {
-    /** Login handle of the pull request author. */
-    handle: string
-    /** Human-readable name; equals the handle in v1. */
-    display_name: string
-    /** URL of the author's avatar image. */
-    avatar_url: string
-    /** True if the author is a bot (handle ends in [bot] or is a known bot). */
-    is_bot: boolean
-}
-
-/**
- * * `open` - OPEN
- * * `closed` - CLOSED
- * * `merged` - MERGED
- */
-export type EngineeringAnalyticsPRStateEnumApi =
-    (typeof EngineeringAnalyticsPRStateEnumApi)[keyof typeof EngineeringAnalyticsPRStateEnumApi]
-
-export const EngineeringAnalyticsPRStateEnumApi = {
-    Open: 'open',
-    Closed: 'closed',
-    Merged: 'merged',
-} as const
 
 export interface PullRequestApi {
     /** The pull request author. */
@@ -876,6 +1114,11 @@ export const PRLifecycleEventKindEnumApi = {
 } as const
 
 export interface PRLifecycleEventApi {
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    ci_engine?: CIEngineEnumApi | null
     /** Event kind: opened, ready_for_review, converted_to_draft, ci_started, ci_finished, merged, or closed.
      *
      * * `opened` - OPENED
@@ -927,11 +1170,16 @@ export interface PRLifecycleApi {
 }
 
 export interface WorkflowRunDetailApi {
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    ci_engine?: CIEngineEnumApi | null
     /** Repository the run belongs to. */
     repo: RepoRefApi
-    /** GitHub Actions run id. */
+    /** Integer run id; unique only together with ci_engine. */
     id: number
-    /** GitHub Actions workflow name. */
+    /** CI workflow name. */
     workflow_name: string
     /** Commit SHA the run was triggered on. */
     head_sha: string
@@ -970,6 +1218,66 @@ export interface WorkflowRunDetailApi {
     commit_pr_number: number | null
     /** True when a merge queue pushed this run to gate pr_number, rather than the author pushing it. Count it when measuring CI; drop it when counting what the author did. */
     is_merge_queue: boolean
+    /**
+     * Source-native run id; use with ci_engine for identity.
+     * @nullable
+     */
+    native_run_id?: string | null
+    /**
+     * Source-native workflow run id; use with ci_engine for identity.
+     * @nullable
+     */
+    native_workflow_run_id?: string | null
+}
+
+export interface PullRequestFrictionBreakdownApi {
+    /** The pull request's friction split by kind. */
+    groups: FrictionGroupShareApi[]
+    /** Friction as a multiple of the typical pull request in the repository. */
+    score: number
+    /** Red stretches that a re-run of the same commit turned green. */
+    flake_red_count: number
+    /** Red stretches where the same job failed on the default branch within 12 hours. */
+    master_red_count: number
+    /** Red stretches with no provable cause. */
+    unknown_red_count: number
+    /** Red stretches that a later push fixed. */
+    own_red_count: number
+    /** Re-runs that failed again. */
+    futile_rerun_count: number
+    /** Pushes that triggered CI. */
+    push_count: number
+    /** CI running time of each push, oldest first. */
+    ci_wait_seconds: number[]
+    /**
+     * From ready for review to the first approval. Null when either is not observed.
+     * @nullable
+     */
+    first_approval_wait_seconds: number | null
+    /**
+     * Pushes after the first approval. Null without an approval.
+     * @nullable
+     */
+    pushes_after_approval: number | null
+    /**
+     * Time in the merge queue. Null when the pull request never entered it.
+     * @nullable
+     */
+    queue_seconds: number | null
+    /**
+     * Times the merge queue removed the pull request. Null without queue data.
+     * @nullable
+     */
+    kickout_count: number | null
+}
+
+export interface PullRequestFrictionDetailApi {
+    /** Null when the pull request did not merge in the window, or a bot authored it. */
+    pull_request: PullRequestFrictionBreakdownApi | null
+    /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+    available: boolean
+    /** Pull requests merged in this many days before the view last refreshed. */
+    window_days: number
 }
 
 export interface PRTimelinePushApi {
@@ -1126,97 +1434,10 @@ export interface PullRequestTimelinesApi {
     limit: number
 }
 
-export interface CIStatusRollupApi {
-    /** Distinct workflows run on the PR's head SHA. */
-    runs: number
-    /** Latest runs that completed with conclusion 'success'. */
-    passing: number
-    /** Latest runs that ended in failure, timeout, startup failure, or staleness. */
-    failing: number
-    /** Latest runs not yet completed (queued or in progress). */
-    pending: number
-    /** Latest runs that completed without a pass-or-fail verdict: cancelled, skipped, neutral, or action required. Together with the three counts above this covers every run, so a PR whose CI was entirely cancelled is not readable as passing. */
-    inconclusive: number
-    /** The workflow names behind `failing`, sorted - names what is failing instead of leaving a bare count. */
-    failing_workflows?: string[]
-}
-
-export interface PushCISampleApi {
-    /** Head commit SHA of this push (CI round). */
-    head_sha: string
-    /** Earliest workflow-run start on this push. */
-    started_at: string
-    /**
-     * Wall-clock CI seconds for this push: earliest run start to latest completed run end. Null while nothing has completed.
-     * @nullable
-     */
-    wall_seconds: number | null
-    /** True when any latest-per-workflow run on this push ended in a decisive failure. */
-    failed: boolean
-    /** True when any latest-per-workflow run on this push hasn't completed yet. */
-    pending: boolean
-}
-
-export interface PullRequestListItemApi {
-    /** The pull request author. */
-    author: AuthorApi
-    /** Repository the pull request belongs to. */
-    repo: RepoRefApi
-    /** CI status from the latest workflow runs on the head SHA. */
-    ci: CIStatusRollupApi
-    /** This PR's CI rounds oldest-first, capped to the most recent pushes - one sample per push for the push-history sparkline. `pushes` stays the uncapped count. */
-    push_history: PushCISampleApi[]
-    /** Pull request number within the repository. */
-    number: number
-    /** Pull request title. */
-    title: string
-    /** Derived state: 'open', 'closed', or 'merged'.
-     *
-     * * `open` - OPEN
-     * * `closed` - CLOSED
-     * * `merged` - MERGED */
-    state: EngineeringAnalyticsPRStateEnumApi
-    /** True if the pull request is a draft. */
-    is_draft: boolean
-    /** When the pull request was opened. */
-    created_at: string
-    /**
-     * When the pull request was merged, or null.
-     * @nullable
-     */
-    merged_at: string | null
-    /**
-     * Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.
-     * @nullable
-     */
-    open_to_merge_seconds: number | null
-    /**
-     * True ready-to-merge cycle time in seconds: merged_at minus the last observed ready_for_review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null when unmerged or not observed (the PR's life isn't fully inside the synced issue-event window) - null never means zero.
-     * @nullable
-     */
-    ready_to_merge_seconds: number | null
-    /** GitHub label names on the pull request. */
-    labels: string[]
-    /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
-    pushes: number
-    /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
-    rerun_cycles: number
-    /**
-     * Estimated CI cost in USD summed over this PR's jobs (billable runners only). Null when nothing was costable or the job-level source isn't synced.
-     * @nullable
-     */
-    estimated_cost_usd?: number | null
-    /**
-     * Billable (self-hosted) minutes summed over this PR's jobs. Null when the job source isn't synced.
-     * @nullable
-     */
-    billable_minutes?: number | null
-}
-
 export interface PullRequestListApi {
-    /** Pull requests, newest first, capped at `limit`. */
+    /** This page of pull requests, newest first, capped at `limit`. */
     items: PullRequestListItemApi[]
-    /** True when more pull requests match than the cap; `items` is the newest `limit` rows and the aggregate counts in ci_cards can exceed it. */
+    /** True when more pull requests match after this page; call again with `offset` increased by `limit` to read them. The aggregate counts in ci_cards can exceed `items`. */
     truncated: boolean
     /** Maximum number of pull requests returned in `items`. */
     limit: number
@@ -1707,7 +1928,12 @@ export interface RepoOverviewApi {
 }
 
 export interface WorkflowRunActivityPointApi {
-    /** GitHub Actions run id. */
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    ci_engine?: CIEngineEnumApi | null
+    /** Integer run id; unique only together with ci_engine. */
     run_id: number
     /**
      * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), or null while still in progress.
@@ -1756,6 +1982,11 @@ export interface BranchPRMatchApi {
 }
 
 export interface RunFailureLogsApi {
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    ci_engine?: CIEngineEnumApi | null
     /** Failed CI jobs of this run with their thinned failure logs, grouped by job. */
     jobs: CIJobFailureLogApi[]
     /** Workflow run id the failure logs are for. */
@@ -1964,6 +2195,11 @@ export interface WorkflowHealthBucketApi {
 }
 
 export interface WorkflowHealthItemApi {
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    latest_ci_engine?: CIEngineEnumApi | null
     /** Repository the workflow runs in. */
     repo: RepoRefApi
     /** Run history across the whole window, oldest first, zero-filled, bucketed by granularity. */
@@ -2036,7 +2272,12 @@ export interface WorkflowHealthItemApi {
 }
 
 export interface WorkflowJobApi {
-    /** GitHub Actions job id. */
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    ci_engine?: CIEngineEnumApi | null
+    /** Integer job id; unique only together with ci_engine. */
     id: number
     /** The workflow run id this job belongs to. */
     run_id: number
@@ -2073,6 +2314,26 @@ export interface WorkflowJobApi {
      * @nullable
      */
     estimated_cost_usd: number | null
+    /**
+     * Source-native run id; use with ci_engine for identity.
+     * @nullable
+     */
+    native_run_id?: string | null
+    /**
+     * Source-native workflow run id; use with ci_engine for identity.
+     * @nullable
+     */
+    native_workflow_run_id?: string | null
+    /**
+     * Source-native job id; use with ci_engine for identity.
+     * @nullable
+     */
+    native_job_id?: string | null
+    /**
+     * Source-native attempt id; use with ci_engine for identity.
+     * @nullable
+     */
+    native_attempt_id?: string | null
 }
 
 export interface WorkflowRunnerCostApi {
@@ -2089,6 +2350,47 @@ export interface WorkflowRunnerCostApi {
      * @nullable
      */
     estimated_cost_usd: number | null
+}
+
+export type EngineeringAnalyticsAttentionPullRequestsParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsAuthorFrictionParams = {
+    /**
+     * GitHub team slug: list only the team's members, through the team membership table. Ranks stay repository-wide.
+     */
+    github_team?: string
+    /**
+     * 'owner/name' repository, when the selected source syncs several.
+     */
+    repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsAuthorFrictionDetailParams = {
+    /**
+     * GitHub login of the author to show.
+     */
+    author: string
+    /**
+     * 'owner/name' repository, when the selected source syncs several.
+     */
+    repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
 }
 
 export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
@@ -2404,6 +2706,21 @@ export type EngineeringAnalyticsPrRunsParams = {
     source_id?: string
 }
 
+export type EngineeringAnalyticsPullRequestFrictionParams = {
+    /**
+     * Pull request number to show.
+     */
+    pr_number: number
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
 export type EngineeringAnalyticsPullRequestTimelinesParams = {
     /**
      * GitHub login: scope the read to this author's pull requests. Pass exactly one scope.
@@ -2445,6 +2762,18 @@ export type EngineeringAnalyticsPullRequestsParams = {
      */
     date_from?: string
     /**
+     * Optional exclusive upper bound for merged_at / closed_at: relative or ISO8601. Defaults to now. Set a fixed value when you page, so new merges do not move rows between pages.
+     */
+    date_to?: string
+    /**
+     * Page size, 1 to 1000. Defaults to 1000.
+     */
+    limit?: number
+    /**
+     * Number of rows to skip. Defaults to 0. While `truncated` is true, add `limit` to offset to read the next page.
+     */
+    offset?: number
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string
@@ -2452,7 +2781,20 @@ export type EngineeringAnalyticsPullRequestsParams = {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
+    /**
+     * Optional state filter. 'merged' lists PRs merged in the window, newest merged_at first. 'closed' lists PRs closed without a merge in the window, newest closed_at first. 'open' lists all open PRs whatever their age, newest first. Omit it to get open PRs plus any merged or closed in the window.
+     */
+    state?: EngineeringAnalyticsPullRequestsState
 }
+
+export type EngineeringAnalyticsPullRequestsState =
+    (typeof EngineeringAnalyticsPullRequestsState)[keyof typeof EngineeringAnalyticsPullRequestsState]
+
+export const EngineeringAnalyticsPullRequestsState = {
+    Closed: 'closed',
+    Merged: 'merged',
+    Open: 'open',
+} as const
 
 export type EngineeringAnalyticsQuarantineParams = {
     /**
@@ -2532,6 +2874,10 @@ export type EngineeringAnalyticsResolveBranchParams = {
 
 export type EngineeringAnalyticsRunFailureLogsParams = {
     /**
+     * CI engine. Required when run_id exists in both engines.
+     */
+    ci_engine?: EngineeringAnalyticsRunFailureLogsCiEngine
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string
@@ -2544,6 +2890,14 @@ export type EngineeringAnalyticsRunFailureLogsParams = {
      */
     source_id?: string
 }
+
+export type EngineeringAnalyticsRunFailureLogsCiEngine =
+    (typeof EngineeringAnalyticsRunFailureLogsCiEngine)[keyof typeof EngineeringAnalyticsRunFailureLogsCiEngine]
+
+export const EngineeringAnalyticsRunFailureLogsCiEngine = {
+    DepotCi: 'depot_ci',
+    GithubActions: 'github_actions',
+} as const
 
 export type EngineeringAnalyticsTeamCiActivityParams = {
     /**
@@ -2668,6 +3022,10 @@ export const EngineeringAnalyticsWorkflowHealthRunScope = {
 
 export type EngineeringAnalyticsWorkflowJobsParams = {
     /**
+     * CI engine. Required when run_id exists in both engines.
+     */
+    ci_engine?: EngineeringAnalyticsWorkflowJobsCiEngine
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string
@@ -2685,13 +3043,25 @@ export type EngineeringAnalyticsWorkflowJobsParams = {
     source_id?: string
 }
 
+export type EngineeringAnalyticsWorkflowJobsCiEngine =
+    (typeof EngineeringAnalyticsWorkflowJobsCiEngine)[keyof typeof EngineeringAnalyticsWorkflowJobsCiEngine]
+
+export const EngineeringAnalyticsWorkflowJobsCiEngine = {
+    DepotCi: 'depot_ci',
+    GithubActions: 'github_actions',
+} as const
+
 export type EngineeringAnalyticsWorkflowRunParams = {
+    /**
+     * CI engine. Required when run_id exists in both engines.
+     */
+    ci_engine?: EngineeringAnalyticsWorkflowRunCiEngine
     /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string
     /**
-     * GitHub Actions run id to inspect.
+     * Integer run id to inspect; unique only together with ci_engine.
      */
     run_id: number
     /**
@@ -2699,6 +3069,14 @@ export type EngineeringAnalyticsWorkflowRunParams = {
      */
     source_id?: string
 }
+
+export type EngineeringAnalyticsWorkflowRunCiEngine =
+    (typeof EngineeringAnalyticsWorkflowRunCiEngine)[keyof typeof EngineeringAnalyticsWorkflowRunCiEngine]
+
+export const EngineeringAnalyticsWorkflowRunCiEngine = {
+    DepotCi: 'depot_ci',
+    GithubActions: 'github_actions',
+} as const
 
 export type EngineeringAnalyticsWorkflowRunActivityParams = {
     /**

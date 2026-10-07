@@ -344,6 +344,8 @@ export interface LoopConnectorsApi {
  * * `run_completed` - run_completed
  * * `run_failed` - run_failed
  * * `pr_created` - pr_created
+ * * `pr_merged` - pr_merged
+ * * `pr_closed` - pr_closed
  * * `needs_attention` - needs_attention
  */
 export type EventsEnumApi = (typeof EventsEnumApi)[keyof typeof EventsEnumApi]
@@ -352,6 +354,8 @@ export const EventsEnumApi = {
     RunCompleted: 'run_completed',
     RunFailed: 'run_failed',
     PrCreated: 'pr_created',
+    PrMerged: 'pr_merged',
+    PrClosed: 'pr_closed',
     NeedsAttention: 'needs_attention',
 } as const
 
@@ -363,7 +367,7 @@ export type LoopNotificationChannelApiParams = { [key: string]: unknown }
 export interface LoopNotificationChannelApi {
     /** Whether this channel is active. */
     enabled?: boolean
-    /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention. */
+    /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention. */
     events?: EventsEnumApi[]
     /** Channel-specific parameters, e.g. Slack's `integration_id` and `channel`. */
     params?: LoopNotificationChannelApiParams
@@ -1002,7 +1006,8 @@ export const ActivityKindEnumApi = {
  */
 export interface TaskActivityDTOApi {
     id: string
-    task_id: string
+    /** @nullable */
+    task_id: string | null
     task_title: string
     /** @nullable */
     channel_id: string | null
@@ -1056,8 +1061,11 @@ export interface TaskActivityPageDTOApi {
 }
 
 export interface TaskActivityReadMarkerApi {
-    /** Task whose displayed activity should be marked read. */
-    task_id: string
+    /**
+     * Task whose displayed activity should be marked read. Optional when activity_id is set.
+     * @nullable
+     */
+    task_id?: string | null
     /**
      * Comment activity row to mark read. Omit for collapsed task activity.
      * @nullable
@@ -1332,9 +1340,9 @@ export const SpaceSetupKindEnumApi = {
  * * `week` - Week
  * * `month` - Month
  */
-export type SpaceGoalPeriodEnumApi = (typeof SpaceGoalPeriodEnumApi)[keyof typeof SpaceGoalPeriodEnumApi]
+export type CalendarUnitEnumApi = (typeof CalendarUnitEnumApi)[keyof typeof CalendarUnitEnumApi]
 
-export const SpaceGoalPeriodEnumApi = {
+export const CalendarUnitEnumApi = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
@@ -1365,7 +1373,7 @@ export interface SpaceGoalWriteApi {
      * * `day` - Day
      * * `week` - Week
      * * `month` - Month */
-    period?: SpaceGoalPeriodEnumApi
+    period?: CalendarUnitEnumApi
     /** Whether the target is a floor ('at_least') or a ceiling ('at_most').
      *
      * * `at_least` - At least
@@ -1445,6 +1453,16 @@ export interface SpaceSetupStartedDTOApi {
  */
 export interface ChannelStarWriteApi {
     starred: boolean
+}
+
+/**
+ * The people who own at least one task or canvas in a channel.
+ */
+export interface ChannelContributorsDTOApi {
+    /** The channel these people worked in. */
+    channel: string
+    /** Everyone who owns at least one task or canvas in the channel, most recently active first. Deleted tasks and canvases do not count. */
+    people: TaskUserBasicInfoApi[]
 }
 
 /**
@@ -1830,6 +1848,8 @@ export interface TaskRunDetailDTOApi {
      * @nullable
      */
     task_summary: string | null
+    /** Latest slug tags for this task, including tags inherited from an earlier run. */
+    task_tags: string[]
     state: TaskRunDetailDTOApiState
     readonly artifacts: readonly TaskRunArtifactResponseApi[]
     /** @nullable */
@@ -2017,6 +2037,7 @@ export interface PaginatedTaskListItemListApi {
  * * `task_analysis` - Task Analysis
  * * `workflow` - Workflow
  * * `space_setup` - Space Setup
+ * * `business_knowledge` - Business Knowledge
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
@@ -2044,6 +2065,7 @@ export const TaskOriginProductEnumApi = {
     TaskAnalysis: 'task_analysis',
     Workflow: 'workflow',
     SpaceSetup: 'space_setup',
+    BusinessKnowledge: 'business_knowledge',
 } as const
 
 /**
@@ -2102,7 +2124,8 @@ export interface TaskCreateApi {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
-     * * `space_setup` - Space Setup */
+     * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2329,7 +2352,8 @@ export interface TaskWriteApi {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
-     * * `space_setup` - Space Setup */
+     * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2463,7 +2487,8 @@ export interface PatchedTaskWriteApi {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
-     * * `space_setup` - Space Setup */
+     * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2580,7 +2605,7 @@ export interface TaskArtifactsResponseApi {
 export interface TaskCommentTargetApi {
     /** Stable target id. */
     id: string
-    /** Target type: task, artifact, or canvas. */
+    /** Target type: task, artifact, canvas, preview, or browser. */
     type: string
     /** Display name of the comment target. */
     name: string
@@ -2589,7 +2614,7 @@ export interface TaskCommentTargetApi {
 export interface TaskCommentSummaryApi {
     /** Root comment id. */
     id: string
-    /** Task, artifact, or canvas receiving the comment. */
+    /** Task, artifact, canvas, preview, or in-app browser page receiving the comment. */
     target: TaskCommentTargetApi
     /** Bounded excerpt of the root comment body. */
     content: string
@@ -2694,7 +2719,7 @@ export interface TaskCommentEntryApi {
 export interface TaskCommentDetailApi {
     /** Root comment id. */
     id: string
-    /** Task, artifact, or canvas receiving the comment. */
+    /** Task, artifact, canvas, preview, or in-app browser page receiving the comment. */
     target: TaskCommentTargetApi
     /** Whether the comment is resolved. */
     resolved: boolean
@@ -2743,6 +2768,38 @@ export interface TaskPinResponseApi {
 export interface TaskPresenceBeaconRequestApi {
     /** UUID of the caller's UserPushToken (returned by `/api/users/@me/push_tokens/` on register). */
     device_id: string
+}
+
+export interface TaskReviewFileApi {
+    /** Repository-relative path. */
+    filename: string
+    /** Change type reported by GitHub. */
+    status: string
+    /** Added lines. */
+    additions: number
+    /** Removed lines. */
+    deletions: number
+    /** Unified diff, limited to 20,000 characters per file. */
+    patch: string
+    /** Open GitHub to read the complete or binary change. */
+    truncated: boolean
+}
+
+export interface TaskReviewApi {
+    /** GitHub pull request URL. */
+    url: string
+    /** Pull request title. */
+    title: string
+    /** Pull request state. */
+    state: string
+    /** Combined check result. */
+    ci_status: string
+    /** Head commit used for the check result. */
+    head_sha: string
+    /** Changed files on this page. */
+    files: TaskReviewFileApi[]
+    /** Whether another file page is available. */
+    has_more: boolean
 }
 
 /**
@@ -2892,7 +2949,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
-    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from whoever started the run; Desktop relays it interactively and an API key caller relays it unattended. The token is sent in flight and never stored on PostHog servers. Only PostHog Desktop and API keys can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
      *
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
@@ -3035,7 +3092,7 @@ export interface CodexTaskRunCreateSchemaApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
-    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from whoever started the run; Desktop relays it interactively and an API key caller relays it unattended. The token is sent in flight and never stored on PostHog servers. Only PostHog Desktop and API keys can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
      *
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
@@ -3183,11 +3240,10 @@ export type TaskRunCreateRequestSchemaApi =
 export type TaskRunResponseApiJsonSchema = { [key: string]: unknown } | null
 
 /**
- * Detail response for a task.
+ * The task ``run`` action's response: the refreshed task detail plus the run this call made.
  *
- * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
- * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
- * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+ * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+ * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
  */
 export interface TaskRunResponseApi {
     id: string
@@ -3239,6 +3295,8 @@ export interface TaskRunResponseApi {
     origin_key?: string | null
     /** Error returned when the run could not start. */
     run_error?: string
+    /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
+    run?: TaskRunDetailDTOApi | null
 }
 
 /**
@@ -3503,7 +3561,7 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
-    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from whoever started the run; Desktop relays it interactively and an API key caller relays it unattended. The token is sent in flight and never stored on PostHog servers. Only PostHog Desktop and API keys can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
      *
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
@@ -4365,6 +4423,13 @@ export interface PatchedTaskRunSetSummaryRequestApi {
      * @maxLength 1500
      */
     summary?: string
+    /**
+     * Complete set of slug tags that replaces the prior tags. The agent chooses the tags. Omit the field to keep the current tags. Send an empty list to remove them.
+     * @maxItems 10
+     * @items.maxLength 50
+     * @items.pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$(?!\n)
+     */
+    tags?: string[]
 }
 
 export interface TaskRunStartRequestApi {
@@ -4833,6 +4898,22 @@ export interface TasksResolvedAIRunDefaultsApi {
 }
 
 /**
+ * The requesting user's per-project task defaults, shared by PostHog Desktop and the web app.
+ */
+export interface TasksTaskDefaultsApi {
+    /**
+     * When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it.
+     * @nullable
+     */
+    start_in_plan_mode: boolean | null
+    /**
+     * When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.
+     * @nullable
+     */
+    auto_publish_cloud_runs: boolean | null
+}
+
+/**
  * The requesting user's per-project tasks configuration.
  */
 export interface TasksUserConfigResponseApi {
@@ -4840,6 +4921,31 @@ export interface TasksUserConfigResponseApi {
     ai_run_preferences: TasksAIRunPreferencesApi
     /** The defaults a new run will use when no explicit runtime selection is sent. */
     resolved_ai_run_defaults: TasksResolvedAIRunDefaultsApi
+    /** Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project instructions. Anyone who continues a task you started can see them. Empty when unset. */
+    agent_instructions: string
+    /** Your per-project defaults for new tasks. Unset defaults are false. */
+    task_defaults: TasksTaskDefaultsApi
+}
+
+/**
+ * Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.
+ */
+export interface TasksAgentInstructionsApi {
+    /**
+     * Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.
+     * @maxLength 20000
+     */
+    agent_instructions: string
+}
+
+/**
+ * A partial update of the requesting user's task defaults. Fields left out keep their stored value.
+ */
+export interface TasksTaskDefaultsUpdateApi {
+    /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it. */
+    start_in_plan_mode?: boolean
+    /** When true, a cloud run that changes code always opens a draft pull request. Null when you never set it. */
+    auto_publish_cloud_runs?: boolean
 }
 
 /**
@@ -4866,6 +4972,8 @@ export interface WizardCloudRunDTOApi {
 export interface TasksTeamConfigResponseApi {
     /** Project-wide default AI run triple; all fields null when unset. */
     ai_run_preferences: TasksAIRunPreferencesApi
+    /** Project instructions that PostHog cloud agents read in every eligible Tasks run, including autonomous runs such as scouts and loops. Empty when unset. */
+    agent_instructions: string
 }
 
 /**
@@ -4900,6 +5008,24 @@ export interface ModelCatalogueResponseApi {
 export interface PinnedTaskIdsResponseApi {
     /** Visible task IDs pinned by the requester, newest pin first. */
     task_ids: string[]
+}
+
+export interface TaskPullRequestTitlesRequestApi {
+    /**
+     * Task IDs whose latest run's pull request titles to fetch (max 30).
+     * @maxItems 30
+     */
+    ids: string[]
+}
+
+/**
+ * Pull request titles keyed by normalized GitHub URL. A pull request is missing when GitHub could not return its title.
+ */
+export type TaskPullRequestTitlesApiTitles = { [key: string]: string }
+
+export interface TaskPullRequestTitlesApi {
+    /** Pull request titles keyed by normalized GitHub URL. A pull request is missing when GitHub could not return its title. */
+    titles: TaskPullRequestTitlesApiTitles
 }
 
 /**
@@ -5746,6 +5872,7 @@ export type TasksListParams = {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -5887,6 +6014,7 @@ export const TasksListExcludeOriginProduct = {
     TaskAnalysis: 'task_analysis',
     Workflow: 'workflow',
     SpaceSetup: 'space_setup',
+    BusinessKnowledge: 'business_knowledge',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
@@ -5973,6 +6101,15 @@ export type TasksCommentsRetrieveParams = {
     limit?: number
 }
 
+export type TasksReviewRetrieveParams = {
+    /**
+     * Page of changed files.
+     * @minimum 1
+     * @maximum 100
+     */
+    page?: number
+}
+
 export type TasksRunsListParams = {
     /**
      * Number of results to return per page.
@@ -6029,18 +6166,14 @@ export type TasksRunsStreamTokenRetrieveParams = {
     resync?: boolean
 }
 
-export type TasksThreadMessagesListParams = {
+export type TasksRunsLivingArtifactsVersionContentParams = {
     /**
-     * Number of results to return per page.
+     * Set to true to save the version. A stored file then redirects to a short-lived presigned URL, so a large file never passes through the app. Leave unset for an inline preview.
      */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
+    download?: boolean
 }
 
-export type TasksMeConfigListParams = {
+export type TasksThreadMessagesListParams = {
     /**
      * Number of results to return per page.
      */

@@ -1,10 +1,11 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { MCP_TOOL_CALL_EVENT } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
 
+import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import { DataTableNode, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-export const MCP_ACTIVITY_DATA_COLLECTION_ID = 'mcp-analytics-activity'
+export const MCP_ACTIVITY_DATA_COLLECTION_ID = pageCollectionId('mcp-analytics-activity')
 export const MCP_ACTIVITY_PAGE_SIZE = 100
 export const MCP_ACTIVITY_MAX_ROWS = 1000
 export const MCP_ACTIVITY_INTENT_COLUMN = 'properties.$mcp_intent -- Agent intent'
@@ -13,7 +14,12 @@ export const MCP_ACTIVITY_SESSION_COLUMN = 'properties.$session_id -- Session'
 
 export const MCP_ACTIVITY_COLUMNS = [
     '*',
-    "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) -- Tool",
+    `coalesce(
+        nullIf(toString(properties.$mcp_exec_tool_call_name), ''),
+        if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call',
+           nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL),
+        toString(properties.$mcp_tool_name)
+    ) -- Tool`,
     MCP_ACTIVITY_INTENT_COLUMN,
     MCP_ACTIVITY_ERROR_COLUMN,
     'properties.$mcp_duration_ms -- Duration (ms)',
@@ -68,6 +74,13 @@ export function buildRecentToolCallsQuery(filters: HogQLFilters): DataTableNode 
         showPropertyFilter: false,
         showReload: false,
     }
+}
+
+export function withSharedFilters(
+    query: DataTableNode,
+    filters: Required<Pick<HogQLFilters, 'filterTestAccounts' | 'properties'>>
+): DataTableNode {
+    return query.source.kind === NodeKind.EventsQuery ? { ...query, source: { ...query.source, ...filters } } : query
 }
 
 // Matches both encodings the backend counts as failures (see MCP_ERROR_VALUES in ToolCallFeed).

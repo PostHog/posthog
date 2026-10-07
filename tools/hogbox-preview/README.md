@@ -49,7 +49,15 @@ print(url)  # https://pen-….boxes.hogland.prod-us.posthog.dev/  (stable across
    DB (`--reset-db` if the PR's migrations are incompatible with the baseline).
 5. **Sync HogFunction templates** - start the CDP service and load destination
    templates into the restored database before the preview becomes available.
-6. **Serve + report** — the box is HTTP-exposed; the URL is posted to the PR.
+6. **Sync feature flags** - run `sync_feature_flags` so each flag in the PR's `constants.tsx` that the golden lacks exists and is on.
+7. **Serve + report** — the box is HTTP-exposed; the URL is posted to the PR.
+   A Caddy container (`static-proxy`) takes the exposed port.
+   It serves `/static/*` from `staticfiles/` and sends all other requests to web, so asset requests do not use Django threads.
+   A non-frontend PR copies `staticfiles/` out of the image. A file that is not there falls through to Django.
+8. **Self-telemetry** - the preview sends its own data to its demo project, so its product pages show real data from the preview itself.
+   Analytics: web runs with `SELF_CAPTURE=1`. posthog-js sends to the preview's own origin, the backend sends to `static-proxy`, and Caddy routes capture and flag paths to `capture` and `feature-flags`. `ingestion-general` writes the events to ClickHouse.
+   Logs, traces and metrics: web, the temporal worker and the Node services export OTLP to `otel-collector`. The collector also reads every container's log file. It sends everything to `capture-logs` with the demo project's token, and `ingestion-logs`, `ingestion-traces` and `ingestion-metrics` write it to ClickHouse.
+   The collector skips the telemetry pipeline's own containers, so their logs do not feed back into themselves.
 
 Driven entirely by the **`posthog-hogland` Python SDK** over hogplane's HTTP API
 — **keyless** (GitHub OIDC → hogplane token over the tailnet), no `hogland` CLI
@@ -107,8 +115,9 @@ build.
 
 ## Reporting & lifecycle
 
-- **PR comment** — a sticky comment (`<!-- hogbox-preview-comment -->`) staged
-  building → ready → failed, with the URL, login, and what's running.
+- **PR comment** — a `Hogbox preview` section in the shared `🤖 CI report` comment
+  (`.github/scripts/post-hogbox-preview-section.mjs`), staged
+  building → ready → failed → torn down, with the URL, login, and what's running.
 - **GitHub Deployment** — a `preview-pr-<n>` environment (in_progress → success
   /failure + URL), so the preview shows in the PR's Deployments UI.
 - **Teardown** — on PR close (`pr-closed.yml`) + on the fast path in

@@ -59,7 +59,7 @@ Copy the closest reference domain for the file layout:
 | ------------------------------------ | -------------------------------- |
 | Sync, gated, with rate-limit headers | `posthog/egress/github/`         |
 | Sync, gated, no rate-limit headers   | `posthog/egress/firecrawl/`      |
-| Record-only, secret identity         | `posthog/egress/vapi/`           |
+| Record-only, no gate                 | `posthog/egress/openai_auth/`    |
 | Async (aiohttp)                      | `posthog/egress/harmonic/`       |
 | Vendor SDK                           | `posthog/egress/slack/client.py` |
 

@@ -19,7 +19,6 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
@@ -108,6 +107,7 @@ import {
     nodeKindToFilterProperty,
     supportsBarValueStacking,
     supportsPercentStackView,
+    hasBreakdownFilter,
 } from '~/queries/utils'
 import {
     BaseMathType,
@@ -421,14 +421,14 @@ export interface insightVizDataLogicActions {
     setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => {
         detailedResultsAggregationType: AggregationType
     }
+    setFormulaMode: (enabled: boolean) => {
+        enabled: boolean
+    }
     setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => {
         isIntervalManuallySet: boolean
     }
     setTimedOutQueryId: (id: string | null) => {
         id: string | null
-    }
-    toggleFormulaMode: () => {
-        value: true
     }
     updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => {
         breakdownFilter: BreakdownFilter
@@ -1371,7 +1371,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
-        toggleFormulaMode: true,
+        setFormulaMode: (enabled: boolean) => ({ enabled }),
         removeFormulaNode: (formulas: TrendsFormulaNode[]) => ({ formulas }),
         setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => ({
             detailedResultsAggregationType,
@@ -1399,7 +1399,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isFormulaModeOpenedExplicitly: [
             false,
             {
-                toggleFormulaMode: (state) => !state,
+                setFormulaMode: (_, { enabled }) => enabled,
+                // A blank row left behind still empties the query's formula list, so hold the
+                // mode open or hasFormula closes the editor mid-edit. A filled row needs no flag.
+                removeFormulaNode: (state, { formulas }) =>
+                    formulas.length > 0 && formulas.every((node) => node.formula.trim() === '') ? true : state,
+                // A query that holds a formula keeps the mode open on its own, so drop the flag
+                // there. It would otherwise outlive the removal that set it and hold the editor
+                // open over the next empty field. The reset keys on setQuery, which is what writes
+                // the formula into the query: reset it one action earlier and hasFormula is false
+                // for a render, which closes the editor the user is typing in.
+                setQuery: (state, { query }) =>
+                    isInsightVizNode(query) && (getFormulaNodes(query.source)?.length ?? 0) > 0 ? false : state,
             },
         ],
     }),
@@ -2250,7 +2261,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     (formula && !formulas) ||
                     (formulas && formulas.length === 1) ||
                     (formulaNodes && formulaNodes.length === 1)
-                return (isTrends && hasSingleFormula) || ((series || []).length <= 1 && !breakdownFilter?.breakdown)
+                return (
+                    !hasBreakdownFilter(breakdownFilter) &&
+                    ((isTrends && hasSingleFormula) || (series || []).length <= 1)
+                )
             },
         ],
         isBreakdownSeries: [
@@ -2689,7 +2703,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
 
         zoomDateRange: ({ dateFrom, dateTo }) => {
-            eventUsageLogic.actions.reportInsightDragToZoomed(values.querySource?.kind)
+            posthog.capture('insight drag to zoomed', { query_kind: values.querySource?.kind })
             // Charts emit bucket starts — widen the end to the last selected bucket's end, so
             // e.g. dragging over the "May" bar of a monthly chart zooms to all of May.
             // Sub-day buckets carry a time component; explicitDate stops the backend from
@@ -2716,7 +2730,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 cache.pendingFilterUpdateCancelled = false
                 return
             }
-            eventUsageLogic.actions.reportInsightDateRangeChanged(values.querySource?.kind)
+            posthog.capture('insight date range changed', { query_kind: values.querySource?.kind })
             const updates = {
                 dateRange: {
                     ...values.dateRange,
@@ -2746,13 +2760,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
         updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
             await breakpoint(500) // extra debounce time because of number input
-            eventUsageLogic.actions.reportInsightBreakdownChanged(values.querySource?.kind)
+            posthog.capture('insight breakdown changed', { query_kind: values.querySource?.kind })
             const update: Partial<TrendsQuery> = { breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter } }
             actions.updateQuerySource(update)
         },
         updateCompareFilter: async ({ compareFilter }, breakpoint) => {
             await breakpoint(500) // extra debounce time because of number input
-            eventUsageLogic.actions.reportInsightCompareChanged(values.querySource?.kind)
+            posthog.capture('insight compare changed', { query_kind: values.querySource?.kind })
             const update: Partial<TrendsQuery> = { compareFilter: { ...values.compareFilter, ...compareFilter } }
             actions.updateQuerySource(update)
         },
@@ -2817,26 +2831,24 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         loadDataFailure: () => {
             actions.setTimedOutQueryId(null)
         },
-        toggleFormulaMode: () => {
-            // Only if formula mode is already open should we trigger a query.
-            if (values.hasFormula) {
+        setFormulaMode: ({ enabled }) => {
+            // Turning the mode off has to clear the query's formulas too, because hasFormula reads
+            // them back and would turn the mode straight on again.
+            if (!enabled && values.formulaNodes.length > 0) {
                 actions.updateInsightFilter({ formula: undefined, formulas: undefined, formulaNodes: [] })
             }
         },
         removeFormulaNode: ({ formulas }) => {
             if (formulas.length === 0) {
-                actions.toggleFormulaMode()
+                actions.setFormulaMode(false)
                 return
             }
 
-            const filledFormulas = formulas.filter((v) => v.formula.trim() !== '')
-            if (filledFormulas.length > 0) {
-                actions.updateInsightFilter({
-                    formula: undefined,
-                    formulas: undefined,
-                    formulaNodes: filledFormulas,
-                })
-            }
+            actions.updateInsightFilter({
+                formula: undefined,
+                formulas: undefined,
+                formulaNodes: formulas.filter((v) => v.formula.trim() !== ''),
+            })
         },
     })),
     afterMount(({ actions, values }) => {

@@ -8,11 +8,14 @@ from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.core.cache import cache
 from django.utils import timezone
 
 import pandas as pd
 
+from products.engineering_analytics.backend.logic.sources import DEPOT_JOB_ATTEMPTS_SCHEMA
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    DEPOT_JOB_ATTEMPTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
@@ -20,6 +23,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     GITHUB_SOURCE_PREFIX,
     _pr_row,
     _run_row,
+    create_depot_source,
     create_github_source,
     link_schema,
     seeding_object_storage,
@@ -107,6 +111,7 @@ def _job_row(
     started: str | None = None,
     completed: str | None = None,
     head_branch: str = "main",
+    head_sha: str = "sha60",
 ) -> dict[str, Any]:
     # Default to the same relative anchor the seeded runs use, not a fixed calendar date. GitHub
     # creates a job when its run attempt starts, so a job's created_at tracks its run's start — and
@@ -125,7 +130,7 @@ def _job_row(
         "workflow_name": "CI",
         "status": "completed",
         "conclusion": conclusion,
-        "head_sha": "sha60",
+        "head_sha": head_sha,
         "head_branch": head_branch,
         "labels": labels,
         "runner_name": "runner-1",
@@ -171,6 +176,7 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
 
     def setUp(self) -> None:
         super().setUp()
+        cache.clear()
         self._github_source: ExternalDataSource | None = None
 
     def _create_table(
@@ -209,6 +215,20 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
         # sources (Trunk) pass their endpoint's schema name explicitly.
         link_schema(self.team, source, name=schema_name or base_name.removeprefix("github_"), table=table)
 
+    def _create_depot_table(self, rows: list[dict[str, Any]]) -> None:
+        # A Depot source joins the GitHub source that syncs the same repository.
+        if self._github_source is None:
+            self._github_source = create_github_source(self.team, repository="PostHog/posthog")
+        depot = create_depot_source(self.team, prefix="ci", repository="PostHog/posthog")
+        self._create_table(
+            "depot_job_attempts",
+            DEPOT_JOB_ATTEMPTS_COLUMNS,
+            rows,
+            source=depot,
+            prefix="ci",
+            schema_name=DEPOT_JOB_ATTEMPTS_SCHEMA,
+        )
+
 
 class _EndpointsWarehouseMixin(_WarehouseMixin):
     """End-to-end aggregates over real warehouse tables. Seeds dates relative to
@@ -242,9 +262,17 @@ class _EndpointsWarehouseMixin(_WarehouseMixin):
                 _run_row(2001, "CI", "sha10", "completed", "failure", _ago(1), _ago(1), pr_number=10),
                 _run_row(2002, "CI", "sha11", "completed", "success", _ago(2), _ago(2), pr_number=11),
                 # A second push on PR 10 (new head SHA) that was re-run -> pushes=2, rerun_cycles=1.
-                # A non-CI workflow so the CI workflow-health assertions stay at 2 runs.
+                # A non-CI workflow so the CI workflow-health assertions stay at 2 runs. It starts a
+                # minute before sha10, so a push-history cap of 1 drops this re-run push.
                 _run_row(
-                    2003, "Deploy", "sha10b", "completed", "success", _ago(1), _ago(1), pr_number=10, run_attempt=2
+                    2003,
+                    "Deploy",
+                    "sha10b",
+                    "completed",
+                    "success",
+                    *_ago_offset_with_duration(1, -60, 0),
+                    pr_number=10,
+                    run_attempt=2,
                 ),
                 # PR 10 queued to merge: the gate run is credited to PR 10 (its branch names it) but
                 # its head SHA is a rebase the queue made, so it must not read as a third push.

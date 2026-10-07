@@ -37,7 +37,6 @@ from oauthlib.common import Request as OauthlibRequest
 from oauthlib.oauth2 import InvalidClientIdError, InvalidGrantError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -69,6 +68,7 @@ from posthog.api.oauth.metadata import (
     openid_provider_metadata,
     protected_resource_metadata,
 )
+from posthog.auth import SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.helpers.oauth_pending_connection import (
     PendingOAuthConnection,
@@ -103,7 +103,7 @@ from posthog.utils import absolute_uri, get_instance_region, get_trusted_client_
 from posthog.views import login_required
 
 from products.access_control.backend.facade.api import user_organizations_use_access_controls
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 
@@ -352,7 +352,7 @@ def _gateway_blocklist_block(
         return None
     organization_ids = _scoped_organization_ids(request.user, access_level, scoped_organization_ids, scoped_team_ids)
     try:
-        security_shadow_check(
+        refused = security_access_refused(
             SecuritySubject(
                 email=request.user.email,
                 user_uuid=str(request.user.uuid),
@@ -363,8 +363,9 @@ def _gateway_blocklist_block(
             call_site="oauth_authorize",
         )
     except Exception:
-        logger.exception("security_shadow_check_site_failed", call_site="oauth_authorize")
-    if not wizard_identity_blocked(
+        logger.exception("security_access_check_site_failed", call_site="oauth_authorize")
+        refused = False
+    if not refused and not wizard_identity_blocked(
         distinct_id=str(request.user.distinct_id),
         email=request.user.email,
         surface="oauth_authorize",
@@ -1244,19 +1245,18 @@ class OAuthValidator(OAuth2Validator):
         """Resolve the impersonator (staff user) that should be tagged on a newly-minted token.
 
         Priority:
-        1. `impersonated_by_id` attribute set on the oauthlib request — populated from the
-           `credentials` dict during `/oauth/authorize` POST and GET auto-approval paths.
+        1. An explicit attribute set from server-side credentials during `/oauth/authorize`.
         2. The previous refresh token (token rotation inherits the tag).
-        3. The authorization code grant referenced in the request body (code-exchange flow at
-           `/oauth/token`, where there is no impersonated session to read from).
+        3. The authorization code grant referenced during a code exchange at `/oauth/token`.
 
         Returns the staff user's id, or None if not impersonator-issued.
         """
-        impersonator_id = getattr(request, "impersonated_by_id", None)
-        if impersonator_id:
-            return impersonator_id
+        # oauthlib exposes body and query parameters as missing attributes. Only an
+        # attribute explicitly set by the authorization view can override stored tags.
+        if "impersonated_by_id" in request.__dict__:
+            return request.__dict__["impersonated_by_id"]
 
-        if refresh_token and refresh_token.impersonated_by_id:
+        if refresh_token is not None:
             return refresh_token.impersonated_by_id
 
         # Code-exchange path: look up the grant via the `code` body param (same pattern
@@ -1264,12 +1264,12 @@ class OAuthValidator(OAuth2Validator):
         # three calls per code exchange (`_get_token_expires_in`,
         # `_should_skip_refresh_token`, `_create_access_token`), so the grant lookup is
         # memoized on the oauthlib request.
-        cached = getattr(request, "_posthog_impersonator_id", _IMPERSONATOR_CACHE_UNSET)
+        cached = request.__dict__.get("_posthog_impersonator_id", _IMPERSONATOR_CACHE_UNSET)
         if cached is not _IMPERSONATOR_CACHE_UNSET:
             return cached
 
         resolved: int | None = None
-        if request.decoded_body:
+        if getattr(request, "grant_type", None) == "authorization_code" and request.decoded_body:
             try:
                 code = dict(request.decoded_body).get("code", None)
                 if code:
@@ -1291,9 +1291,11 @@ class OAuthValidator(OAuth2Validator):
         scoped_teams = None
         scoped_organizations = None
 
-        if hasattr(request, "scoped_teams") and hasattr(request, "scoped_organizations"):
-            scoped_teams = request.scoped_teams
-            scoped_organizations = request.scoped_organizations
+        # oauthlib resolves missing attributes from URL parameters, so only explicit
+        # attributes set by the authorization view can supply consent scoping.
+        if "scoped_teams" in request.__dict__ and "scoped_organizations" in request.__dict__:
+            scoped_teams = request.__dict__["scoped_teams"]
+            scoped_organizations = request.__dict__["scoped_organizations"]
         elif access_token:
             scoped_teams = access_token.scoped_teams
             scoped_organizations = access_token.scoped_organizations
@@ -1321,7 +1323,27 @@ class OAuthValidator(OAuth2Validator):
         if scoped_teams is None and scoped_organizations is None:
             raise OAuthToolkitError("Unable to find scoped_teams or scoped_organizations")
 
+        if scoped_teams is not None and (
+            not isinstance(scoped_teams, list) or any(type(team_id) is not int for team_id in scoped_teams)
+        ):
+            raise OAuthToolkitError("Invalid scoped_teams")
+        if scoped_organizations is not None and (
+            not isinstance(scoped_organizations, list)
+            or any(
+                not isinstance(org_id, str) or not self._is_valid_organization_uuid(org_id)
+                for org_id in scoped_organizations
+            )
+        ):
+            raise OAuthToolkitError("Invalid scoped_organizations")
+
         return scoped_teams, scoped_organizations
+
+    @staticmethod
+    def _is_valid_organization_uuid(value: str) -> bool:
+        try:
+            return str(uuid.UUID(value)) == value
+        except ValueError:
+            return False
 
 
 def _pending_connection_for_request(request) -> PendingOAuthConnection | None:
@@ -1633,7 +1655,11 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 # `scope_str` already reflects the read-only downgrade applied above (when
                 # impersonating), so its split form is the effective set we need to match.
                 for token in tokens:
-                    if token.allow_scopes(scope_str.split()):
+                    if token.allow_scopes(scope_str.split()) and (
+                        token.scoped_teams is not None or token.scoped_organizations is not None
+                    ):
+                        credentials["scoped_teams"] = token.scoped_teams
+                        credentials["scoped_organizations"] = token.scoped_organizations
                         # Conservative fallback: check every org the impersonated user belongs to,
                         # not just the existing token's scope. Auto-approval during impersonation
                         # is a near-dead path (those tokens are short-lived, refresh-less, and

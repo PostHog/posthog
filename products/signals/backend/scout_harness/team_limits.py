@@ -10,8 +10,9 @@ path; both sides import from here so the reported caps never drift from what dis
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
-from dataclasses import dataclass
+import hashlib
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from django.conf import settings
@@ -218,6 +219,123 @@ def _parse_enrollment(payload: dict | None) -> Enrollment:
         skip = set()
 
     return Enrollment(wildcard=wildcard, explicit=explicit, skip=skip)
+
+
+# Flag payload block that enrolls a pilot cohort in one scout that PostHog sets up without a person
+# asking. Separate from `guaranteed_team_ids`: a background team gets one config for one skill, not
+# the full catalog seed.
+BACKGROUND_KEY = "background"
+DEFAULT_BACKGROUND_SKILL_NAME = "signals-scout-general"
+# Bounds how many teams get a new background config in one tick, so a large list starts over
+# several ticks instead of in one burst.
+DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK = 5
+
+
+@dataclass(frozen=True)
+class BackgroundBand:
+    """One entry of `background.bands`. `interval_minutes` is `None` when unset, so the block value applies."""
+
+    percent: int
+    interval_minutes: int | None
+
+
+# The activity bands that the nightly job writes to `SignalScoutBackgroundBand`, most active first.
+BACKGROUND_BANDS = (1, 2, 3, 4)
+
+
+@dataclass(frozen=True)
+class BackgroundEnrollment:
+    """Parsed `background` block from the `signals-scout` flag payload.
+
+    `enabled` → the coordinator creates and dispatches background configs. A valid block with
+    `enabled` off still pauses configs whose team left `team_ids`. `interval_minutes` is `None`
+    when unset, so the created row keeps the model default.
+    """
+
+    enabled: bool
+    skill_name: str
+    team_ids: frozenset[int]
+    interval_minutes: int | None
+    max_new_teams_per_tick: int
+    # Only the bands with a valid entry. A missing band samples no project.
+    bands: Mapping[int, BackgroundBand] = field(default_factory=dict)
+
+    def band_interval_minutes(self, band: int | None) -> int | None:
+        entry = self.bands.get(band) if band is not None else None
+        if entry is not None and entry.interval_minutes is not None:
+            return entry.interval_minutes
+        return self.interval_minutes
+
+
+def _positive_int_or_none(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+
+def _parse_background_bands(raw: object) -> dict[int, BackgroundBand]:
+    """Parse `background.bands`. A malformed entry drops out, so that band samples 0 percent.
+
+    A malformed entry never invalidates the block, because the block also carries `team_ids`.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    bands: dict[int, BackgroundBand] = {}
+    for band in BACKGROUND_BANDS:
+        entry = raw.get(str(band))
+        if not isinstance(entry, dict):
+            continue
+        percent = entry.get("percent")
+        if not isinstance(percent, int) or isinstance(percent, bool) or not 0 <= percent <= 100:
+            continue
+        bands[band] = BackgroundBand(
+            percent=percent, interval_minutes=_positive_int_or_none(entry.get("interval_minutes"))
+        )
+    return bands
+
+
+def background_sample_bucket(team_id: int) -> int:
+    """The stable 0-99 bucket of a project. Python's `hash()` is salted per process, so it cannot be used.
+
+    A project is sampled when its bucket is below its band percent, so a higher percent keeps every
+    project that a lower percent sampled.
+    """
+    digest = hashlib.sha256(f"signals-scout-background:{team_id}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") % 100
+
+
+def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
+    """Parse the `background` block, or return `None` when the coordinator must not act on it.
+
+    `None` for a missing payload, a missing block, a block that is not an object, a `skill_name`
+    that is not a non-empty string, or a `team_ids` that is not a list of integer ids. A malformed
+    `team_ids` must not read as an empty list, because an empty list pauses every background
+    config. `enabled` is on only for a literal `true`. An absent or malformed `interval_minutes`,
+    `max_new_teams_per_tick`, or `bands` entry falls back to its default and does not invalidate the block.
+    """
+    if payload is None:
+        return None
+    raw = payload.get(BACKGROUND_KEY)
+    if not isinstance(raw, dict):
+        return None
+
+    skill_name = raw.get("skill_name", DEFAULT_BACKGROUND_SKILL_NAME)
+    if not isinstance(skill_name, str) or not skill_name.strip():
+        return None
+
+    raw_team_ids = raw.get("team_ids", [])
+    if not isinstance(raw_team_ids, list) or not all(
+        isinstance(team_id, int) and not isinstance(team_id, bool) for team_id in raw_team_ids
+    ):
+        return None
+
+    max_new = _positive_int_or_none(raw.get("max_new_teams_per_tick"))
+    return BackgroundEnrollment(
+        enabled=raw.get("enabled") is True,
+        skill_name=skill_name.strip(),
+        team_ids=frozenset(raw_team_ids),
+        interval_minutes=_positive_int_or_none(raw.get("interval_minutes")),
+        max_new_teams_per_tick=max_new if max_new is not None else DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
+        bands=_parse_background_bands(raw.get("bands")),
+    )
 
 
 def _enrolled_team_ids(payload: dict | None) -> set[int]:
@@ -558,6 +676,11 @@ def _resolve_enrolled(canonical_team_id: int, enrollment: Enrollment) -> bool:
     if enrollment.wildcard:
         return True
     return _is_team_enrolled(canonical_team_id, enrollment.explicit)
+
+
+def team_is_enrolled(canonical_team_id: int) -> bool:
+    """Whether a canonical project runs scouts, as the `signals-scout` flag payload says right now."""
+    return _resolve_enrolled(canonical_team_id, _parse_enrollment(_read_flag_payload()))
 
 
 @dataclass(frozen=True)

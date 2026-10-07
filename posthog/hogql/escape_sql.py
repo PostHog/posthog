@@ -48,6 +48,11 @@ def escape_hogql_identifier(identifier: str | int) -> str:
         return str(identifier)
     if "%" in identifier:
         raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
+    return quote_hogql_identifier(identifier)
+
+
+def quote_hogql_identifier(identifier: str) -> str:
+    """Quote an identifier without validating whether it is safe to interpolate into SQL."""
     # HogQL allows dollars in the identifier.
     if re.match(
         r"^[A-Za-z_$][A-Za-z0-9_$]*$", identifier

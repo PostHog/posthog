@@ -9,7 +9,8 @@ from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
-from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput, MonitorVerdict
+from products.replay_vision.backend.temporal.scanners.experiment import ExperimentOutput
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
 from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
 from products.replay_vision.backend.temporal.snapshots import (
@@ -18,22 +19,9 @@ from products.replay_vision.backend.temporal.snapshots import (
 )
 
 AnyScannerOutput = Annotated[
-    ClassifierOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
+    ClassifierOutput | ExperimentOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
     Field(discriminator="scanner_type"),
 ]
-
-
-class VerificationRecord(BaseModel, frozen=True):
-    """Audit of the extra draws taken to verify a monitor `yes` verdict. Absent when no verdict was verified."""
-
-    mode: str
-    # Verdicts in draw order; the first entry is the pass that triggered verification.
-    draws: list[MonitorVerdict]
-    # The verdict verification settled on: the first pass when the second draw agrees, else the dissent.
-    # `served_verdict` is what `model_output` carries: the same value under `enforce`, the first draw under `shadow`.
-    resolved_verdict: MonitorVerdict
-    served_verdict: MonitorVerdict
-    skipped_reason: str | None = None
 
 
 class EmittedSignal(BaseModel, frozen=True):
@@ -58,7 +46,13 @@ class ScannerResult(BaseModel, frozen=True):
     # and can rank a weak finding below a strong one. Empty on non-signal rows and on rows scanned before
     # this shipped; `signal_problem_types` stays because those older rows carry only it.
     signal_summaries: list[EmittedSignal] = Field(default_factory=list)
-    verification: VerificationRecord | None = None
+    # Experiment scanners only. The variant comes from the exposure data, never from the model, so
+    # readouts that group by it cannot disagree with the prompt's framing. Null on rows scanned
+    # before attribution shipped, which readouts count as unattributed.
+    experiment_variant: str | None = None
+    # From the session metadata the scan already fetched, so the variants readout needs no
+    # ClickHouse query per page load.
+    session_duration_s: float | None = None
 
 
 class ApplyScannerInputs(BaseModel, frozen=True):
@@ -71,6 +65,9 @@ class ApplyScannerInputs(BaseModel, frozen=True):
     triggered_by_user_id: int | None = None
     # Set only for backfill-triggered applies; routes observation creation to the backfill's frozen snapshot.
     backfill_id: UUID | None = None
+    # The balanced per-variant rates the dispatching tick sampled at, recorded onto the
+    # observation's snapshot (experiment scanners with balancing on; None otherwise).
+    variant_sampling_rates: dict[str, float] | None = None
 
 
 class CreateObservationInputs(BaseModel, frozen=True):
@@ -81,6 +78,7 @@ class CreateObservationInputs(BaseModel, frozen=True):
     triggered_by_user_id: int | None
     workflow_id: str
     backfill_id: UUID | None = None
+    variant_sampling_rates: dict[str, float] | None = None
 
 
 class CreateObservationOutput(BaseModel, frozen=True):
@@ -175,10 +173,12 @@ class SessionMetadata(BaseModel, frozen=True):
     mouse_activity_count: int | None = None
     start_url: str | None = None
     console_error_count: int | None = None
+    # A native mobile recording or a touch web browser. Gates the gestures guidance; not shown as metadata.
+    touch: bool = False
 
     def as_prompt_dict(self) -> dict[str, Any]:
         """Drop unset (None) fields so the prompt isn't padded with `null`s."""
-        return self.model_dump(mode="json", exclude_none=True)
+        return self.model_dump(mode="json", exclude_none=True, exclude={"touch"})
 
 
 class SessionGroup(BaseModel, frozen=True):
@@ -215,7 +215,7 @@ class NavigationEntry(BaseModel, frozen=True):
     """One page-URL change in the session, precomputed for the prompt's navigation timeline."""
 
     rec_t: int = Field(ge=0)
-    # Interned `window_N` token, matching what the events tool returns. None when the session has no window ids.
+    # Interned `window_N` token, matching what the event lookups return. None when the session has no window ids.
     window: str | None = None
     url: str
     # First entry seen for a window token other than the session's initial one (a tab or window opening).
@@ -235,7 +235,7 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     # Chronological URL-change timeline rendered into the preamble. Defaults keep pre-existing Redis blobs loadable.
     navigation: list[NavigationEntry] = Field(default_factory=list)
     navigation_dropped: int = Field(default=0, ge=0)
-    # True when the session hit the fetch row cap, so the events tool can't see the whole session.
+    # True when the session hit the fetch row cap, so the event lookups can't see the whole session.
     events_truncated: bool = False
     # Customer product context rendered into the preamble; empty for teams without core memory / descriptions.
     product_context: str = ""
@@ -249,6 +249,8 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     identity: SessionIdentity = Field(default_factory=SessionIdentity)
     # Group keys by group type index, for the observation row's group attribution.
     group_keys: dict[int, str] = Field(default_factory=dict)
+    # `$geoip_*` of the recorded session, for the emitted event. Kept off `SessionIdentity` so it never reaches the LLM.
+    session_geoip: dict[str, str] = Field(default_factory=dict)
 
 
 class EnsureSessionAssetInputs(BaseModel, frozen=True):
@@ -279,6 +281,11 @@ class CallScannerProviderInputs(BaseModel, frozen=True):
     mime_type: str
     # When set, replaces the observation row's snapshot (evaluations re-run rated sessions with the suggested prompt).
     snapshot_override: ScannerSnapshot | None = None
+    # Experiment scanners only: scan-time context the workflow resolved before this call, injected
+    # into the scanner's prompt (see `ExperimentScanner`). Both stay None for the other types and
+    # for histories that predate variant attribution.
+    experiment_variant: str | None = None
+    experiment_context: dict[str, Any] | None = None
 
 
 class ScannerCallOutput(BaseModel, frozen=True):
@@ -287,7 +294,6 @@ class ScannerCallOutput(BaseModel, frozen=True):
     model_output: AnyScannerOutput
     # Extracted from the LLM response before `finalize` so per-type output mapping can't drop them.
     signals: list[SignalFinding] = Field(default_factory=list)
-    verification: VerificationRecord | None = None
     # Video seconds the model picked for the thumbnail; None when it skipped the optional pick.
     thumbnail_video_s: int | None = None
     # Signal spans on the video clock, which `signals` no longer carries once they move to session time.
@@ -330,6 +336,27 @@ class MarkObservationSucceededInputs(BaseModel, frozen=True):
     observation_id: UUID
     scanner_result: ScannerResult
     scanner_type: ScannerType
+
+
+class ResolveExperimentVariantInputs(BaseModel, frozen=True):
+    observation_id: UUID
+    team_id: int
+    session_id: str
+
+
+class ResolveExperimentVariantOutput(BaseModel, frozen=True):
+    """What the exposure data says about this session, for an experiment scanner's scan.
+
+    `applicable=False` means the observation's snapshot watches no experiment, so the scan runs
+    like a plain summarizer. An unexposed session never reaches this output: the activity raises
+    `IneligibleSessionError` instead, before any model call.
+    """
+
+    applicable: bool = False
+    experiment_variant: str | None = None
+    session_duration_s: float | None = None
+    # `ExperimentPromptContext` as a plain dict, the shape `experiment_step.jinja` renders.
+    experiment_context: dict[str, Any] | None = None
 
 
 class EmitObservationEventInputs(BaseModel, frozen=True):

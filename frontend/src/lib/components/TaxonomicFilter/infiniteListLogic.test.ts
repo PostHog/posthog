@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { getContext } from 'kea'
 import { expectLogic, partial } from 'kea-test-utils'
@@ -9,11 +9,11 @@ import {
     recentTaxonomicFiltersLogic,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { Mocks } from '~/mocks/utils'
@@ -38,6 +38,10 @@ window.POSTHOG_APP_CONTEXT = {
 const setTabHidden = (hidden: boolean): void => {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
     document.dispatchEvent(new Event('visibilitychange'))
+}
+
+function setFlagEvaluationsMode(mode: FlagEvaluationsModeEnumApi): void {
+    teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
 }
 
 describe('infiniteListLogic', () => {
@@ -1158,15 +1162,11 @@ describe('infiniteListLogic', () => {
     describe('events a picker excludes', () => {
         const HIDDEN_EVENT = '$feature_flag_called'
 
-        afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-        })
-
         // The Pinned and Recent tabs filter against the caller's record rather than the Events
         // group's own list, so the hidden names have to reach that record for a pin saved before
         // the event was hidden to drop.
         it('folds the hidden names into the record the Recent and Pinned tabs read', () => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true })
+            setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
             const listLogic = infiniteListLogic({
                 taxonomicFilterLogicKey: 'hidden-events',
                 listGroupType: TaxonomicFilterGroupType.Events,
@@ -1211,14 +1211,10 @@ describe('infiniteListLogic', () => {
     // that allows uncaptured events must not offer any of those forms as "not seen yet" — that would
     // commit a name no event carries and hide the explanation of the event's absence.
     describe('the "not seen yet" option and hidden events', () => {
-        afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-        })
-
         it.each([['$feature_flag_called'], ['$FEATURE_FLAG_CALLED'], ['Feature flag called']])(
             'does not offer the option when searching %p',
             async (query) => {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true })
+                setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
                 const listLogic = infiniteListLogic({
                     taxonomicFilterLogicKey: `hidden-not-seen-${query}`,
                     listGroupType: TaxonomicFilterGroupType.Events,

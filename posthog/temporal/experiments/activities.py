@@ -7,8 +7,16 @@ from django.db.models import Q
 
 import structlog
 import temporalio.activity
+from pydantic import ValidationError as PydanticValidationError
+from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ExperimentQuery
+from posthog.schema import (
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentQuery,
+    ExperimentRatioMetric,
+    ExperimentRetentionMetric,
+)
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
@@ -22,17 +30,21 @@ from posthog.temporal.experiments.models import (
     ExperimentSavedMetricInput,
     ExperimentSavedMetricResult,
 )
-from posthog.temporal.experiments.utils import DEFAULT_EXPERIMENT_RECALCULATION_HOUR, check_significance_transition
+from posthog.temporal.experiments.utils import check_significance_transition, recalculation_hour_filter
 
 from products.experiments.backend.facade.timeseries import (
     backfill_experiment_timeseries,
     build_metric,
     is_daily_timeseries_metric,
-    merge_saved_metric_breakdowns,
+    is_scheduled_metric,
+    resolve_saved_metric_definition,
     sync_timeseries_recalculation,
 )
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
-from products.experiments.backend.hogql_queries.error_handling import capture_experiment_metric_error_event
+from products.experiments.backend.hogql_queries.error_handling import (
+    capture_experiment_metric_error_event,
+    classify_experiment_query_error,
+)
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method, sanitize_non_finite
@@ -47,25 +59,25 @@ logger = structlog.get_logger(__name__)
 EXPERIMENT_RECALCULATION_MAX_AGE_DAYS = 60
 
 
+def _build_metric_validated(
+    metric_dict: dict[str, Any],
+) -> ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric:
+    """A malformed stored metric dict is a config error, not a transient failure: convert the
+    pydantic construction error to the DRF type classify_experiment_query_error marks permanent."""
+    try:
+        return build_metric(metric_dict)
+    except PydanticValidationError as e:
+        raise ValidationError(str(e)) from e
+
+
 @database_sync_to_async
 def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentRegularMetricInput]:
     close_old_connections()
 
     experiment_metrics: list[ExperimentRegularMetricInput] = []
 
-    # Build time filter - teams with NULL recalculation_time default to hour 2 (02:00 UTC)
-    # The filter traverses Experiment -> Team -> TeamExperimentsConfig via Django's reverse relation
-    if hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
-        time_filter = (
-            Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
-            | Q(team__teamexperimentsconfig__experiment_recalculation_time__isnull=True)
-            | Q(team__teamexperimentsconfig__isnull=True)
-        )
-    else:
-        time_filter = Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
-
     experiments = Experiment.objects.filter(
-        time_filter,
+        recalculation_hour_filter(hour),
         deleted=False,
         status=Experiment.Status.RUNNING,
         start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
@@ -84,6 +96,8 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
                     "Metric has no UUID, skipping",
                     experiment_id=experiment.id,
                 )
+                continue
+            if not is_scheduled_metric(metric):
                 continue
 
             fingerprint = compute_metric_fingerprint(
@@ -171,7 +185,6 @@ def _calculate_experiment_regular_metric_sync(
             success=False,
             error_message=f"Unknown metric type: {metric_type}",
         )
-    metric_obj = build_metric(metric_dict)
 
     if not experiment.start_date:
         return ExperimentRegularMetricResult(
@@ -187,6 +200,9 @@ def _calculate_experiment_regular_metric_sync(
     query_to_utc = experiment_window_end(experiment, now_utc)
 
     try:
+        # Inside the try so a malformed stored metric dict follows the same
+        # failure path as a query error instead of escaping the activity.
+        metric_obj = _build_metric_validated(metric_dict)
         experiment_query = ExperimentQuery(
             experiment_id=experiment_id,
             metric=metric_obj,
@@ -288,6 +304,10 @@ def _calculate_experiment_regular_metric_sync(
         )
 
     except Exception as e:
+        # A broken metric config fails deterministically: return it (not raise) so Temporal
+        # doesn't retry and the worker interceptor doesn't report it to error tracking.
+        is_permanent = classify_experiment_query_error(e) == "validation_error"
+
         ExperimentMetricResultModel.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -303,15 +323,23 @@ def _calculate_experiment_regular_metric_sync(
             },
         )
 
-        logger.exception(
-            "Experiment metric calculation failed",
-            experiment_id=experiment_id,
-            metric_uuid=metric_uuid,
-        )
+        if is_permanent:
+            logger.warning(
+                "Experiment metric calculation failed due to invalid metric configuration",
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                error=str(e),
+            )
+        else:
+            logger.exception(
+                "Experiment metric calculation failed",
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+            )
 
-        # Temporal retries this activity; emit only when retries are exhausted so a transient
+        # Temporal retries this activity; emit only on the terminal attempt so a transient
         # failure that recovers on a later attempt is never counted.
-        if attempt >= TIMESERIES_METRIC_MAX_ATTEMPTS:
+        if is_permanent or attempt >= TIMESERIES_METRIC_MAX_ATTEMPTS:
             capture_experiment_metric_error_event(
                 team=experiment.team,
                 error=e,
@@ -321,6 +349,15 @@ def _calculate_experiment_regular_metric_sync(
                 metric_uuid=metric_uuid,
                 metric_kind=metric_type,
                 user=experiment.created_by,
+            )
+
+        if is_permanent:
+            return ExperimentRegularMetricResult(
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                fingerprint=fingerprint,
+                success=False,
+                error_message=str(e),
             )
 
         raise
@@ -344,17 +381,8 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
 
     experiment_metrics: list[ExperimentSavedMetricInput] = []
 
-    if hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
-        time_filter = (
-            Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
-            | Q(team__teamexperimentsconfig__experiment_recalculation_time__isnull=True)
-            | Q(team__teamexperimentsconfig__isnull=True)
-        )
-    else:
-        time_filter = Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
-
     experiments = Experiment.objects.filter(
-        time_filter,
+        recalculation_hour_filter(hour),
         deleted=False,
         status=Experiment.Status.RUNNING,
         start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
@@ -372,12 +400,14 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
                     saved_metric_id=saved_metric.id,
                 )
                 continue
+            if not is_scheduled_metric(saved_metric.query):
+                continue
 
-            # Fingerprint the effective config (with link-metadata breakdowns), the same dict the calc
+            # Fingerprint the effective definition (with the link overrides), the same dict the calc
             # activity computes and every reader (timeseries sync, chart read) resolves. Hashing the raw
-            # saved query here would file breakdown-configured metrics under a hash no reader looks up.
+            # saved query here would file override-configured metrics under a hash no reader looks up.
             fingerprint = compute_metric_fingerprint(
-                merge_saved_metric_breakdowns(saved_metric.query, exp_to_saved_metric.metadata),
+                resolve_saved_metric_definition(saved_metric.query, exp_to_saved_metric.metadata),
                 experiment.start_date,
                 get_experiment_stats_method(experiment),
                 experiment.exposure_criteria,
@@ -454,12 +484,12 @@ def _calculate_experiment_saved_metric_sync(
         )
 
     # The frontend receives saved metrics with two extra fields injected before
-    # they get posted back to /query: a breakdownFilter wrapper (from the link
-    # metadata, via sharedMetricsToExperimentMetrics in experimentLogic.tsx) and
+    # they get posted back to /query: the link overrides (via resolveSharedMetric
+    # in experiments/utils.ts, which mirrors resolve_saved_metric_definition) and
     # a fingerprint (added by the experiment API serializer). The activity must
     # apply both or the response cache key diverges from /query's.
     query = {
-        **merge_saved_metric_breakdowns(saved_metric.query, saved_metric_metadata),
+        **resolve_saved_metric_definition(saved_metric.query, saved_metric_metadata),
         "fingerprint": fingerprint,
     }
     metric_type = query.get("metric_type")
@@ -471,7 +501,6 @@ def _calculate_experiment_saved_metric_sync(
             success=False,
             error_message=f"Unknown metric type: {metric_type}",
         )
-    metric_obj = build_metric(query)
 
     if not experiment.start_date:
         return ExperimentSavedMetricResult(
@@ -487,6 +516,9 @@ def _calculate_experiment_saved_metric_sync(
     query_to_utc = experiment_window_end(experiment, now_utc)
 
     try:
+        # Inside the try so a malformed stored metric dict follows the same
+        # failure path as a query error instead of escaping the activity.
+        metric_obj = _build_metric_validated(query)
         experiment_query = ExperimentQuery(
             experiment_id=experiment_id,
             metric=metric_obj,
@@ -588,6 +620,10 @@ def _calculate_experiment_saved_metric_sync(
         )
 
     except Exception as e:
+        # A broken metric config fails deterministically: return it (not raise) so Temporal
+        # doesn't retry and the worker interceptor doesn't report it to error tracking.
+        is_permanent = classify_experiment_query_error(e) == "validation_error"
+
         ExperimentMetricResultModel.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -603,15 +639,23 @@ def _calculate_experiment_saved_metric_sync(
             },
         )
 
-        logger.exception(
-            "Experiment saved metric calculation failed",
-            experiment_id=experiment_id,
-            metric_uuid=metric_uuid,
-        )
+        if is_permanent:
+            logger.warning(
+                "Experiment saved metric calculation failed due to invalid metric configuration",
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                error=str(e),
+            )
+        else:
+            logger.exception(
+                "Experiment saved metric calculation failed",
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+            )
 
-        # Temporal retries this activity; emit only when retries are exhausted so a transient
+        # Temporal retries this activity; emit only on the terminal attempt so a transient
         # failure that recovers on a later attempt is never counted.
-        if attempt >= TIMESERIES_METRIC_MAX_ATTEMPTS:
+        if is_permanent or attempt >= TIMESERIES_METRIC_MAX_ATTEMPTS:
             capture_experiment_metric_error_event(
                 team=experiment.team,
                 error=e,
@@ -621,6 +665,15 @@ def _calculate_experiment_saved_metric_sync(
                 metric_uuid=metric_uuid,
                 metric_kind=metric_type,
                 user=experiment.created_by,
+            )
+
+        if is_permanent:
+            return ExperimentSavedMetricResult(
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                fingerprint=fingerprint,
+                success=False,
+                error_message=str(e),
             )
 
         raise

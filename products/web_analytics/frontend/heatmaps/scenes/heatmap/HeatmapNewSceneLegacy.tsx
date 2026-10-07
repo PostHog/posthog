@@ -21,6 +21,7 @@ import { HeatmapAdvancedSettings } from '../../components/HeatmapAdvancedSetting
 import { heatmapsBrowserLogic } from '../../components/heatmapsBrowserLogic'
 import { HeatmapsForbiddenURL } from '../../components/HeatmapsForbiddenURL'
 import { HeatmapsInvalidURL } from '../../components/HeatmapsInvalidURL'
+import { HeatmapsPricingNotice } from '../../components/HeatmapsPricingNotice'
 import { heatmapLogic } from './heatmapLogic'
 
 export function HeatmapNewSceneLegacy(): JSX.Element {
@@ -59,6 +60,7 @@ export function HeatmapNewSceneLegacy(): JSX.Element {
                     key: 'heatmaps',
                 }}
             />
+            <HeatmapsPricingNotice />
             <SceneSection title="Page URL" description="URL to your website">
                 <LemonInputSelect
                     mode="single"

@@ -9,6 +9,8 @@ export type Transport = 'streamable-http' | 'sse'
 export type RequestProperties = {
     userHash: string
     apiToken: string
+    // Assigned after token introspection; never parsed from a caller header or query parameter.
+    suppressAnalytics?: boolean
     sessionId?: string | undefined
     features?: string[] | undefined
     tools?: string[] | undefined
@@ -40,6 +42,7 @@ export type RequestProperties = {
     featureFlagOverrides?: string | undefined
     // Caller-supplied tool denylist. Merged with the server's own excludes (switch tools, etc).
     excludeTools?: string[] | undefined
+    clientIp?: string | undefined
 }
 
 export type ClientInfo = {

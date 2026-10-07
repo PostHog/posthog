@@ -1,7 +1,7 @@
 import re
 import dataclasses
-from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from collections.abc import Callable, Iterator
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlencode, urlparse
 
@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.settings import (
     DYNATRACE_ENDPOINTS,
     ENDPOINT_SCOPES,
+    TAGGED_ENTITY_TYPES,
     DynatraceEndpointConfig,
 )
 
@@ -128,6 +129,20 @@ def _format_from_value(value: Any) -> str:
     return str(value)
 
 
+def _clamped_from_value(value: Any, max_lookback: timedelta) -> str:
+    """Format an incremental cursor, held inside the endpoint's longest supported window.
+
+    Synthetic executions are only served for the last six hours, so a watermark older than that
+    would ask for a timeframe Dynatrace refuses. Relative seeds (``now-6h``) are already inside
+    the window and pass through untouched.
+    """
+    formatted = _format_from_value(value)
+    if not formatted.isdigit():
+        return formatted
+    earliest_ms = int((datetime.now(UTC) - max_lookback).timestamp() * 1000)
+    return str(max(int(formatted), earliest_ms))
+
+
 def _build_url(base_url: str, path: str, params: dict[str, str]) -> str:
     url = f"{base_url}{path}"
     if not params:
@@ -135,29 +150,98 @@ def _build_url(base_url: str, path: str, params: dict[str, str]) -> str:
     return f"{url}?{urlencode(params)}"
 
 
-def _build_request_params(config: DynatraceEndpointConfig) -> dict[str, Any]:
+def _build_request_params(config: DynatraceEndpointConfig, metric_selector: Optional[str]) -> dict[str, Any]:
     """First-page query params for the framework resource.
 
-    Time-filtered endpoints declare ``from`` as a framework incremental param: it's seeded with the
-    endpoint's lookback (so a first sync / full refresh isn't clamped to Dynatrace's narrow default
-    window) and replaced with the stored watermark on incremental runs. Non-incremental endpoints
-    that still carry a ``default_from`` (the entity tables) send it as a static param.
+    Time-filtered endpoints declare their window-start param as a framework incremental param: it's
+    seeded with the endpoint's lookback (so a first sync / full refresh isn't clamped to Dynatrace's
+    narrow default window) and replaced with the stored watermark on incremental runs.
+    Non-incremental endpoints that still carry a ``default_from`` (the entity tables) send it as a
+    static param.
     """
-    params: dict[str, Any] = {"pageSize": str(config.page_size)}
+    params: dict[str, Any] = {}
+    if config.page_size is not None:
+        params["pageSize"] = str(config.page_size)
     if config.entity_selector:
         params["entitySelector"] = config.entity_selector
+    if config.requires_metric_selector and metric_selector:
+        params["metricSelector"] = metric_selector.strip()
     params.update(config.extra_params)
 
+    max_lookback = config.max_lookback
     if config.supports_time_filter and config.incremental_field:
-        params["from"] = {
+        params[config.time_filter_param] = {
             "type": "incremental",
             "cursor_path": config.incremental_field,
             "initial_value": config.default_from,
-            "convert": _format_from_value,
+            "convert": _format_from_value
+            if max_lookback is None
+            else lambda value: _clamped_from_value(value, max_lookback),
         }
     elif config.default_from:
-        params["from"] = config.default_from
+        params[config.time_filter_param] = config.default_from
     return params
+
+
+def _scope_probe_config(endpoint: str) -> DynatraceEndpointConfig:
+    """Endpoint config whose path is probed when checking ``endpoint``'s token scope."""
+    config = DYNATRACE_ENDPOINTS[endpoint]
+    return DYNATRACE_ENDPOINTS[config.scope_probe_endpoint] if config.scope_probe_endpoint else config
+
+
+def _probe_params(config: DynatraceEndpointConfig) -> dict[str, str]:
+    params: dict[str, str] = {}
+    if config.page_size is not None:
+        params["pageSize"] = "1"
+    if config.entity_selector:
+        params["entitySelector"] = config.entity_selector
+    if config.supports_time_filter or config.default_from:
+        params[config.time_filter_param] = "now-1h"
+    return params
+
+
+def _dimension_key(dimension_map: dict[str, Any], dimensions: list[Any]) -> str:
+    """Stable identity of one metric series, used as part of the data point primary key.
+
+    ``dimensions`` is deprecated in favour of ``dimensionMap``, so prefer the map and sort it —
+    Dynatrace makes no ordering promise about either.
+    """
+    if dimension_map:
+        return "|".join(f"{key}={dimension_map[key]}" for key in sorted(dimension_map))
+    return "|".join(str(dimension) for dimension in dimensions)
+
+
+def _flatten_metric_data_points(page: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Expand the metrics query response into one row per data point.
+
+    Each series carries ``timestamps`` and ``values`` as two index-aligned arrays, which is not a
+    shape a warehouse table can be queried on.
+    """
+    rows: list[dict[str, Any]] = []
+    for series_collection in page:
+        metric_id = series_collection.get("metricId")
+        for series in series_collection.get("data") or []:
+            dimension_map = series.get("dimensionMap") or {}
+            dimensions = series.get("dimensions") or []
+            dimension_key = _dimension_key(dimension_map, dimensions)
+            for timestamp, value in zip(series.get("timestamps") or [], series.get("values") or []):
+                rows.append(
+                    {
+                        "metricId": metric_id,
+                        "dimensionKey": dimension_key,
+                        "dimensionMap": dimension_map,
+                        "dimensions": dimensions,
+                        "timestamp": timestamp,
+                        "value": value,
+                    }
+                )
+    return rows
+
+
+# Endpoints whose response rows need reshaping before they can land in a table.
+ROW_MAPPERS: dict[str, Callable[[list[dict[str, Any]]], list[dict[str, Any]]]] = {
+    "metric_data_points": _flatten_metric_data_points,
+}
 
 
 class DynatraceNextPageKeyPaginator(BasePaginator):
@@ -236,13 +320,8 @@ def validate_credentials(
             return False, host_err or HOST_NOT_ALLOWED_ERROR
 
     if schema_name is not None and schema_name in DYNATRACE_ENDPOINTS:
-        config = DYNATRACE_ENDPOINTS[schema_name]
-        probe_params: dict[str, str] = {"pageSize": "1"}
-        if config.entity_selector:
-            probe_params["entitySelector"] = config.entity_selector
-        if config.supports_time_filter or config.default_from:
-            probe_params["from"] = "now-1h"
-        url = _build_url(base_url, config.path, probe_params)
+        config = _scope_probe_config(schema_name)
+        url = _build_url(base_url, config.path, _probe_params(config))
         required_scope = ENDPOINT_SCOPES.get(schema_name)
     else:
         url = _build_url(base_url, PROBE_PATH, {"pageSize": "1", "from": "now-1h"})
@@ -266,12 +345,18 @@ def validate_credentials(
     return False, f"Dynatrace credential validation failed (status {status})."
 
 
-def check_endpoint_permissions(
-    environment_url: str, api_token: str, endpoints: list[str], team_id: int
-) -> dict[str, str | None]:
-    """Per-endpoint scope probe for the schema picker. ``None`` = reachable, else a short reason.
+METRIC_SELECTOR_REQUIRED_ERROR = (
+    "Dynatrace needs to know which metrics to read. Add the metric keys to the 'Metric keys' "
+    "field on the source, then try again."
+)
 
-    Endpoints sharing a scope (the four entity tables) share one probe. Only a real 403 denial is
+
+def check_endpoint_permissions(
+    environment_url: str, api_token: str, endpoints: list[str], team_id: int, metric_selector: Optional[str] = None
+) -> dict[str, str | None]:
+    """Per-endpoint readiness probe for the schema picker. ``None`` = reachable, else a short reason.
+
+    Endpoints sharing a scope (the entity tables) share one probe. Only a real 403 denial is
     reported — throttles, 5xx, and network blips must not mark a table as missing permissions.
     """
     base_url = normalize_environment_url(environment_url)
@@ -287,9 +372,12 @@ def check_endpoint_permissions(
     denial_by_scope: dict[str, str | None] = {}
 
     for endpoint in endpoints:
-        config = DYNATRACE_ENDPOINTS.get(endpoint)
-        if config is None:
+        if endpoint not in DYNATRACE_ENDPOINTS:
             results[endpoint] = None
+            continue
+
+        if DYNATRACE_ENDPOINTS[endpoint].requires_metric_selector and not (metric_selector or "").strip():
+            results[endpoint] = METRIC_SELECTOR_REQUIRED_ERROR
             continue
 
         scope = ENDPOINT_SCOPES.get(endpoint, "")
@@ -297,15 +385,10 @@ def check_endpoint_permissions(
             results[endpoint] = denial_by_scope[scope]
             continue
 
-        probe_params: dict[str, str] = {"pageSize": "1"}
-        if config.entity_selector:
-            probe_params["entitySelector"] = config.entity_selector
-        if config.supports_time_filter or config.default_from:
-            probe_params["from"] = "now-1h"
-
+        config = _scope_probe_config(endpoint)
         try:
             response = session.get(
-                _build_url(base_url, config.path, probe_params),
+                _build_url(base_url, config.path, _probe_params(config)),
                 timeout=10,
             )
         except requests.exceptions.RequestException:
@@ -319,6 +402,66 @@ def check_endpoint_permissions(
     return results
 
 
+def _endpoint_pages(
+    base_url: str,
+    api_token: str,
+    endpoint: str,
+    config: DynatraceEndpointConfig,
+    params: dict[str, Any],
+    team_id: int,
+    job_id: str,
+    db_incremental_field_last_value: Optional[Any],
+    resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
+    initial_paginator_state: Optional[dict[str, Any]] = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Pages of one Dynatrace list endpoint, built on the shared REST framework.
+
+    A fresh config (and so a fresh paginator) per call, which is what lets the tag fan-out walk
+    each entity type without carrying the previous type's cursor into the next request.
+    """
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url,
+            # Non-secret headers only; the token rides the framework api_key auth so it's redacted
+            # from logs and raised error messages.
+            "headers": {"Accept": "application/json"},
+            "auth": {
+                "type": "api_key",
+                "api_key": f"Api-Token {api_token}",
+                "name": "Authorization",
+                "location": "header",
+            },
+            "paginator": DynatraceNextPageKeyPaginator(),
+            # The environment URL is user-supplied: pin every request to its host and refuse any
+            # redirect so the Authorization header can't be bounced off the validated target.
+            "allowed_hosts": [],
+            "allow_redirects": False,
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # Missing key / non-list body yields 0 rows (matches the previous behavior),
+                    # so no data_selector_required here.
+                    "data_selector": config.data_key,
+                },
+            }
+        ],
+    }
+
+    yield from rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=resume_hook,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+
 def dynatrace_source(
     environment_url: str,
     api_token: str,
@@ -328,8 +471,12 @@ def dynatrace_source(
     resumable_source_manager: ResumableSourceManager[DynatraceResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    metric_selector: Optional[str] = None,
 ) -> SourceResponse:
     config = DYNATRACE_ENDPOINTS[endpoint]
+    if config.requires_metric_selector and not (metric_selector or "").strip():
+        raise ValueError(METRIC_SELECTOR_REQUIRED_ERROR)
+    row_mapper = ROW_MAPPERS.get(endpoint)
 
     def items() -> Iterator[list[dict[str, Any]]]:
         # Re-check at run time (not just at source-create) in case the environment URL was edited or
@@ -337,6 +484,27 @@ def dynatrace_source(
         # before a session is built — so an unsafe host never sees a packet. Only enforced on cloud.
         _check_host(environment_url, team_id)
         base_url = normalize_environment_url(environment_url)
+
+        params = _build_request_params(config, metric_selector)
+
+        if config.fans_out_over_entity_types:
+            # /api/v2/tags needs an entitySelector naming a single type and reports no entity back,
+            # so each type is read on its own and stamped onto its rows. The sweep is one
+            # unpaginated request per type, so there is nothing worth checkpointing for resume.
+            for entity_type in TAGGED_ENTITY_TYPES:
+                pages = _endpoint_pages(
+                    base_url,
+                    api_token,
+                    endpoint,
+                    config,
+                    {**params, "entitySelector": f'type("{entity_type}")'},
+                    team_id,
+                    job_id,
+                    db_incremental_field_last_value,
+                )
+                for page in pages:
+                    yield [{**row, "entityType": entity_type} for row in page]
+            return
 
         initial_paginator_state: Optional[dict[str, Any]] = None
         if resumable_source_manager.can_resume():
@@ -350,53 +518,28 @@ def dynatrace_source(
             if state and state.get("next_page_key"):
                 resumable_source_manager.save_state(DynatraceResumeConfig(next_page_key=state["next_page_key"]))
 
-        rest_config: RESTAPIConfig = {
-            "client": {
-                "base_url": base_url,
-                # Non-secret headers only; the token rides the framework api_key auth so it's redacted
-                # from logs and raised error messages.
-                "headers": {"Accept": "application/json"},
-                "auth": {
-                    "type": "api_key",
-                    "api_key": f"Api-Token {api_token}",
-                    "name": "Authorization",
-                    "location": "header",
-                },
-                "paginator": DynatraceNextPageKeyPaginator(),
-                # The environment URL is user-supplied: pin every request to its host and refuse any
-                # redirect so the Authorization header can't be bounced off the validated target.
-                "allowed_hosts": [],
-                "allow_redirects": False,
-            },
-            "resource_defaults": {},
-            "resources": [
-                {
-                    "name": endpoint,
-                    "endpoint": {
-                        "path": config.path,
-                        "params": _build_request_params(config),
-                        # Missing key / non-list body yields 0 rows (matches the previous behavior),
-                        # so no data_selector_required here.
-                        "data_selector": config.data_key,
-                    },
-                }
-            ],
-        }
-
-        resource = rest_api_resource(
-            rest_config,
+        resource = _endpoint_pages(
+            base_url,
+            api_token,
+            endpoint,
+            config,
+            params,
             team_id,
             job_id,
             db_incremental_field_last_value,
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_paginator_state,
         )
-        yield from resource
+        if row_mapper is None:
+            yield from resource
+        else:
+            for page in resource:
+                yield row_mapper(page)
 
     return SourceResponse(
         name=endpoint,
         items=items,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         # Dynatrace documents no reliable ascending sort we can verify for the time-filtered
         # endpoints (audit logs default to newest-first), so incremental endpoints run in desc
         # mode: the watermark is the max seen across the run, persisted only at successful job

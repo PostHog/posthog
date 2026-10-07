@@ -14,6 +14,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ReviewWorkingStateContent,
     TaskRunArtefact,
     ThreadVerdictArtefact,
+    TurnMarkerArtefact,
     ValidationVerdict,
     artefact_type_for,
 )
@@ -195,6 +196,8 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         # The turn's fetched PR inputs, stored by reference so stage activities reload them from the
         # DB instead of crossing the Temporal workflow boundary with the big pr_files payload.
         PR_SNAPSHOT = "pr_snapshot"
+        # One per executed turn: the ReviewHog version and input fingerprint the turn ran with.
+        TURN_MARKER = "turn_marker"
 
     # Log types accumulate (each call is a new row). Findings and verdicts also append, but their
     # identity is `issue_key` — latest row per key wins at read time — so they get dedicated
@@ -308,6 +311,13 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod
+    def add_turn_marker(
+        cls, *, team_id: int, report_id: str, content: TurnMarkerArtefact, attribution: ArtefactAttribution
+    ) -> "ReviewReportArtefact":
+        """Append a `turn_marker` (one per executed turn; the newest row of a retried turn wins)."""
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+    @classmethod
     def add_log(
         cls, *, team_id: int, report_id: str, content: ReviewLogArtefactContent, attribution: ArtefactAttribution
     ) -> "ReviewReportArtefact":
@@ -404,6 +414,8 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     stamphog_review_inbox_prs = models.BooleanField(default=False, db_default=False)
     review_labeled_prs = models.BooleanField(default=True, db_default=True)
     resolve_comments = models.BooleanField(default=True, db_default=True)
+    # Opt-out of the clean-review media in the PR status comment ("Nothing worth raising this time").
+    celebrate_clean_reviews = models.BooleanField(default=True, db_default=True)
     review_authored_prs = models.BooleanField(default=False, db_default=False)
     flash_reasoning_effort = models.CharField(
         max_length=10,

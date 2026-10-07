@@ -13,8 +13,7 @@ from typing import Any, Literal, Optional, TypedDict, Union
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db import connection
-from django.db.models import Count, F, Q, Sum
-from django.db.models.functions import Coalesce
+from django.db.models import Count, Q, Sum
 
 import requests
 import structlog
@@ -50,8 +49,7 @@ from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
-from products.batch_exports.backend.billing import exclude_non_billable_runs
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
+from products.batch_exports.backend.facade import api as batch_exports_api
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -796,13 +794,15 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
     with tags_context(product=Product.GROUP_ANALYTICS, feature=Feature.USAGE_REPORT):
+        use_new = use_new_events_schema(None)
+        group_columns = [f"properties.`$group_{i}`" if use_new else f"$group_{i}" for i in range(5)]
         # nosemgrep: clickhouse-fstring-param-audit - events table comes from the internal schema gate
         return sync_execute(
             f"""
             SELECT team_id, count(1) as count
-            FROM {events_read_table(use_new_events_schema(None))}
+            FROM {events_read_table(use_new)}
             WHERE timestamp >= %(begin)s AND timestamp < %(end)s
-            AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
+            AND ({" OR ".join(f"{column} != ''" for column in group_columns)})
             GROUP BY team_id
             """,
             {"begin": begin, "end": end},
@@ -1763,6 +1763,7 @@ POSTHOG_AI_PRODUCTS = [
     "product_analytics",
     "surveys",
     "replay_vision",
+    "hogql_decide",
 ]
 
 # ai_product values billed as PostHog Desktop credits.
@@ -2130,16 +2131,10 @@ def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: d
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> list:
-    completed_runs = BatchExportRun.objects.filter(
-        finished_at__gte=begin,
-        finished_at__lte=end,
-        status=BatchExportRun.Status.COMPLETED,
-    )
-    return list(
-        exclude_non_billable_runs(completed_runs)
-        .values(team_id=Coalesce(F("batch_export__team_id"), F("batch_export_on_demand__team_id")))
-        .annotate(total=Sum("records_completed"))
-    )
+    return [
+        {"team_id": row.team_id, "total": row.total}
+        for row in batch_exports_api.get_teams_with_billable_rows_exported(begin, end)
+    ]
 
 
 @timed_log()
@@ -2161,8 +2156,9 @@ def get_teams_with_active_external_data_schemas_in_period() -> list:
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_active_batch_exports_in_period() -> list:
-    # get all batch exports that are active or completed at run time
-    return list(BatchExport.objects.filter(paused=False).values("team_id").annotate(total=Count("id")))
+    return [
+        {"team_id": row.team_id, "total": row.total} for row in batch_exports_api.get_teams_with_active_batch_exports()
+    ]
 
 
 @timed_log()
