@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_GROUP_TYPES } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
 
 import { useAvailableFeatures } from '~/mocks/features'
@@ -270,6 +271,7 @@ describe('hogFlowEditorTestLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags(['workflows-testing-v2'], { 'workflows-testing-v2': true })
         useMocks({
             get: { '/api/environments/:team_id/hog_flows/:id/': WORKFLOW_FIXTURE },
             // The editor autosaves, so a test that waits long enough reaches the save handler.
@@ -548,6 +550,219 @@ describe('hogFlowEditorTestLogic', () => {
             // ...but the test run must not use them, so no group columns are queried and groups stay empty
             expect(logic.values.groupTypesForTest.size).toBe(0)
             expect(groupSelectColumns(logic.values.groupTypesForTest)).toEqual([])
+        })
+    })
+
+    describe('run all steps', () => {
+        const RUN_WORKFLOW = {
+            ...WORKFLOW_FIXTURE,
+            actions: [
+                WORKFLOW_FIXTURE.actions[0],
+                {
+                    id: 'email_node',
+                    type: 'function_email',
+                    name: 'Welcome email',
+                    description: '',
+                    created_at: 0,
+                    updated_at: 0,
+                    config: { template_id: 'template-email', inputs: {} },
+                },
+                {
+                    id: 'sms_node',
+                    type: 'function_sms',
+                    name: 'Welcome text',
+                    description: '',
+                    created_at: 0,
+                    updated_at: 0,
+                    config: { template_id: 'template-twilio', inputs: {} },
+                },
+                {
+                    id: 'delay_node',
+                    type: 'delay',
+                    name: 'Wait a day',
+                    description: '',
+                    created_at: 0,
+                    updated_at: 0,
+                    config: { delay_duration: '1d' },
+                },
+                WORKFLOW_FIXTURE.actions[1],
+            ],
+            edges: [
+                { from: 'trigger_node', to: 'email_node', type: 'continue' },
+                { from: 'email_node', to: 'sms_node', type: 'continue' },
+                { from: 'sms_node', to: 'delay_node', type: 'continue' },
+                { from: 'delay_node', to: 'exit_node', type: 'continue' },
+            ],
+        }
+
+        type StepResponse =
+            | {
+                  status: 'success' | 'error'
+                  nextActionId: string | null
+                  variables?: Record<string, string>
+                  logs?: { level: string; message: string; timestamp: string }[]
+              }
+            | 'request fails'
+        const COMPLETE_STEPS = ['trigger_node', 'email_node', 'sms_node', 'delay_node', 'exit_node']
+        const COMPLETE_RUN: Record<string, StepResponse> = {
+            trigger_node: {
+                status: 'success',
+                nextActionId: 'email_node',
+                variables: { plan: 'pro' },
+                logs: [{ level: 'info', message: 'Trigger matched', timestamp: '2026-01-01T00:00:00Z' }],
+            },
+            email_node: { status: 'success', nextActionId: 'sms_node' },
+            sms_node: { status: 'success', nextActionId: 'delay_node' },
+            // The test endpoint parks a delay on its own step, and leaves an exit on its own step.
+            delay_node: { status: 'success', nextActionId: 'delay_node' },
+            exit_node: { status: 'success', nextActionId: 'exit_node' },
+        }
+        let stepResponses: Record<string, StepResponse> = {}
+        let requests: { step: string; mocked: boolean; variables: Record<string, string>; personId?: string }[] = []
+        let holdFirstStep = false
+        let firstStepReceived = (): void => {}
+        let releaseFirstStep = (): void => {}
+
+        beforeEach(() => {
+            requests = []
+            holdFirstStep = false
+            useMocks({
+                get: { '/api/environments/:team_id/hog_flows/:id/': RUN_WORKFLOW },
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
+                        const body = (await request.json()) as {
+                            current_action_id: string
+                            mock_async_functions: boolean
+                            globals: { variables: Record<string, string>; person?: { id: string } }
+                        }
+                        requests.push({
+                            step: body.current_action_id,
+                            mocked: body.mock_async_functions,
+                            variables: body.globals.variables,
+                            personId: body.globals.person?.id,
+                        })
+                        if (holdFirstStep && requests.length === 1) {
+                            firstStepReceived()
+                            await new Promise<void>((resolve) => (releaseFirstStep = resolve))
+                        }
+                        const response = stepResponses[body.current_action_id]
+                        return response === 'request fails'
+                            ? [500, { detail: 'The test service is unavailable' }]
+                            : [200, { logs: [], ...response }]
+                    },
+                },
+            })
+        })
+
+        const mountWithRealRequests = async (responses: Record<string, StepResponse>): Promise<void> => {
+            stepResponses = responses
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+            await expectLogic(workflowLogic({ id: 'test-workflow' })).toDispatchActions(['loadWorkflowSuccess'])
+            logic.actions.setSampleGlobals(JSON.stringify(createExampleEventForTrigger({ type: 'event' }, 1, 'wf')))
+            logic.actions.setTestInvocationValue('mock_async_functions', false)
+        }
+
+        const runToTheEnd = async (responses: Record<string, StepResponse>): Promise<void> => {
+            await mountWithRealRequests(responses)
+            await expectLogic(logic, () => logic.actions.runAllSteps(logic.values.testInvocation)).toDispatchActions([
+                'finishTestRun',
+            ])
+        }
+
+        it('does not invoke steps when enhanced testing is off', async () => {
+            await mountWithRealRequests(COMPLETE_RUN)
+            featureFlagLogic.actions.setFeatureFlags([], {})
+
+            logic.actions.runAllSteps(logic.values.testInvocation)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requests).toEqual([])
+            expect(logic.values.testRunning).toBe(false)
+            expect(logic.values.testRunSteps).toBeNull()
+        })
+
+        it('runs each step to the exit, passing a delay and never sending a real message', async () => {
+            await runToTheEnd(COMPLETE_RUN)
+
+            expect(requests).toMatchObject([
+                { step: 'trigger_node', mocked: false, variables: {} },
+                { step: 'email_node', mocked: true, variables: { plan: 'pro' } },
+                { step: 'sms_node', mocked: true, variables: { plan: 'pro' } },
+                { step: 'delay_node', mocked: false, variables: { plan: 'pro' } },
+                { step: 'exit_node', mocked: false, variables: { plan: 'pro' } },
+            ])
+            expect(logic.values.testRunSteps).toMatchObject([
+                { actionId: 'trigger_node', waitSkipped: false, result: { logs: [{ message: 'Trigger matched' }] } },
+                { actionId: 'email_node', waitSkipped: false },
+                { actionId: 'sms_node', waitSkipped: false },
+                { actionId: 'delay_node', waitSkipped: true },
+                { actionId: 'exit_node', waitSkipped: false },
+            ])
+            expect(logic.values.testRunning).toBe(false)
+            expect(hogFlowEditorLogic({ id: 'test-workflow' }).values.selectedNodeId).toEqual('exit_node')
+        })
+
+        it('runs with the person and request setting of the pane it starts from', async () => {
+            await mountWithRealRequests(COMPLETE_RUN)
+            const emailPaneGlobals = {
+                ...createExampleEventForTrigger({ type: 'event' }, 1, 'wf'),
+                person: { id: 'email-pane-person', name: 'Email pane person', url: '', properties: {} },
+            }
+
+            await expectLogic(logic, () =>
+                logic.actions.runAllSteps({ globals: JSON.stringify(emailPaneGlobals), mock_async_functions: true })
+            ).toDispatchActions(['finishTestRun'])
+
+            expect(requests.map(({ mocked, personId }) => ({ mocked, personId }))).toEqual(
+                COMPLETE_STEPS.map(() => ({ mocked: true, personId: 'email-pane-person' }))
+            )
+        })
+
+        it.each([
+            [
+                'a failing step that aborts the run',
+                // An aborted step stays on its own step, like a parked delay.
+                { status: 'error', nextActionId: 'email_node' } as const,
+                ['trigger_node', 'email_node'],
+            ],
+            [
+                'a failing step set to continue on error',
+                { status: 'error', nextActionId: 'sms_node' } as const,
+                ['trigger_node', 'email_node', 'sms_node', 'delay_node', 'exit_node'],
+            ],
+            ['a request that fails', 'request fails' as const, ['trigger_node', 'email_node']],
+        ])('records %s and goes only as far as a real run would', async (_, emailResponse, expectedSteps) => {
+            await runToTheEnd({ ...COMPLETE_RUN, email_node: emailResponse })
+
+            expect(requests.map((request) => request.step)).toEqual(expectedSteps)
+            expect(logic.values.testRunSteps?.[1]).toMatchObject({
+                actionId: 'email_node',
+                result: { status: 'error' },
+            })
+        })
+
+        it.each([
+            ['Stop', (): void => logic.actions.stopTestRun()],
+            [
+                'picking another step',
+                (): void => hogFlowEditorLogic({ id: 'test-workflow' }).actions.setSelectedNodeId('exit_node'),
+            ],
+            ['leaving the test tab', (): void => hogFlowEditorLogic({ id: 'test-workflow' }).actions.setMode('build')],
+        ])('ends the run on %s, without running any further step', async (_, endRun) => {
+            await mountWithRealRequests(COMPLETE_RUN)
+            const received = new Promise<void>((resolve) => (firstStepReceived = resolve))
+            holdFirstStep = true
+
+            logic.actions.runAllSteps(logic.values.testInvocation)
+            await received
+            expect(hogFlowEditorLogic({ id: 'test-workflow' }).values.selectedNodeId).toEqual('trigger_node')
+            endRun()
+            releaseFirstStep()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requests.map((request) => request.step)).toEqual(['trigger_node'])
+            expect(logic.values).toMatchObject({ testRunning: false, testRunStopped: true, testRunSteps: [] })
         })
     })
 

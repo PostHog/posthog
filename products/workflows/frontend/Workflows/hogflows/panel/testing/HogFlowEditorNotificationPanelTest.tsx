@@ -30,6 +30,7 @@ import { TRIGGER_NODE_ID, workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { hogFlowEditorNotificationTestLogic } from './hogFlowEditorNotificationTestLogic'
 import { reorderGlobalsForEmailAction } from './hogFlowEditorNotificationTestLogic'
+import { HogFlowRunAllStepsButton } from './HogFlowRunAllStepsButton'
 
 export function EmailActionTestContent(): JSX.Element | null {
     const { workflow, selectedNode } = useValues(hogFlowEditorLogic)
@@ -175,6 +176,13 @@ export function EmailActionTestContent(): JSX.Element | null {
                     </>
                 ) : (
                     <>
+                        <div className="flex-1" />
+                        <HogFlowRunAllStepsButton
+                            testInvocation={testInvocation}
+                            hasTestData={!!sampleGlobals}
+                            isTestInvocationSubmitting={isTestInvocationSubmitting}
+                        />
+
                         <LemonButton
                             type="primary"
                             data-attr="test-workflow-panel-new"

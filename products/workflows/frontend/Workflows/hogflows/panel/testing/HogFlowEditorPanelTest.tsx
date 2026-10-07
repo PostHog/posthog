@@ -28,9 +28,12 @@ import { urls } from 'scenes/urls'
 import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { renderWorkflowLogMessage } from '../../../logs/log-utils'
-import { TRIGGER_NODE_ID, workflowLogic } from '../../../workflowLogic'
+import { workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
+import { EmailActionTestContent } from './HogFlowEditorNotificationPanelTest'
 import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
+import { HogFlowRunAllStepsButton } from './HogFlowRunAllStepsButton'
+import { HogFlowTestRunSteps } from './HogFlowTestRunSteps'
 
 export function HogFlowTestPanelNonSelected(): JSX.Element {
     return (
@@ -45,7 +48,7 @@ export function HogFlowTestPanelNonSelected(): JSX.Element {
 export function HogFlowEditorPanelTest(): JSX.Element | null {
     const { workflow, selectedNode } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
-    const { logicProps } = useValues(workflowLogic)
+    const { logicProps, triggerAction } = useValues(workflowLogic)
 
     const {
         sampleGlobals,
@@ -60,6 +63,9 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
         eventPanelOpen,
         eventSelectorOpen,
         lastSearchedEventName,
+        testInvocation,
+        testRunSteps,
+        testRunning,
     } = useValues(hogFlowEditorTestLogic(logicProps))
     const {
         submitTestInvocation,
@@ -69,6 +75,8 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
         setSampleGlobals,
         setEventPanelOpen,
         setEventSelectorOpen,
+        stopTestRun,
+        clearTestRun,
     } = useActions(hogFlowEditorTestLogic(logicProps))
 
     const display = asDisplay(sampleGlobals?.person)
@@ -88,11 +96,15 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
 
                 <p>Step through each action in your workflow and see how it behaves.</p>
 
-                <LemonButton type="primary" onClick={() => setSelectedNodeId(TRIGGER_NODE_ID)}>
+                <LemonButton type="primary" onClick={() => setSelectedNodeId(triggerAction?.id ?? null)}>
                     Start testing
                 </LemonButton>
             </div>
         )
+    }
+
+    if (selectedNode.data?.type === 'function_email' && !testRunSteps) {
+        return <EmailActionTestContent />
     }
 
     return (
@@ -103,10 +115,11 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
             enableFormOnSubmit
             className="flex overflow-hidden flex-col flex-1"
         >
-            <div className="flex gap-2 items-center p-2">
+            <div className="flex flex-wrap gap-2 items-center p-2">
                 <LemonField name="mock_async_functions" className="flex-1">
                     {({ value, onChange }) => (
                         <LemonSwitch
+                            disabledReason={testRunning ? 'Stop the run to change this' : undefined}
                             onChange={(v) => onChange(!v)}
                             checked={!value}
                             data-attr="toggle-workflow-test-panel-new-mocking"
@@ -131,12 +144,27 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                         />
                     )}
                 </LemonField>
-                {testResult ? (
+                {testRunning ? (
                     <>
                         <div className="flex-1" />
                         <LemonButton
                             type="secondary"
-                            onClick={() => setTestResult(null)}
+                            onClick={() => stopTestRun()}
+                            size="small"
+                            data-attr="stop-workflow-test-run"
+                        >
+                            Stop
+                        </LemonButton>
+                    </>
+                ) : testResult || testRunSteps ? (
+                    <>
+                        <div className="flex-1" />
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => {
+                                setTestResult(null)
+                                clearTestRun()
+                            }}
                             loading={isTestInvocationSubmitting}
                             size="small"
                             data-attr="clear-workflow-test-panel-new-result"
@@ -161,6 +189,11 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                     <>
                         <div className="flex-1" />
 
+                        <HogFlowRunAllStepsButton
+                            testInvocation={testInvocation}
+                            hasTestData={!!sampleGlobals}
+                            isTestInvocationSubmitting={isTestInvocationSubmitting}
+                        />
                         <LemonButton
                             type="primary"
                             data-attr="test-workflow-panel-new"
@@ -323,7 +356,9 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                 <LemonDivider className="my-0" />
                 <div className="flex flex-col flex-1 gap-2 p-2">
                     <h3 className="mb-0">Test results</h3>
-                    {!testResult ? (
+                    {testRunSteps ? (
+                        <HogFlowTestRunSteps />
+                    ) : !testResult ? (
                         <div className="text-muted text-sm">No tests run yet</div>
                     ) : (
                         <>

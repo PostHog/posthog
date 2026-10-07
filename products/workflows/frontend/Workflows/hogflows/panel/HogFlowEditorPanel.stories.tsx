@@ -4,6 +4,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 
 import { mswDecorator } from '~/mocks/browser'
 import _hogFunctionTemplatesDestinations from '~/mocks/fixtures/_hogFunctionTemplatesDestinations.json'
@@ -13,6 +14,7 @@ import { NEW_WORKFLOW, WorkflowLogicProps, workflowLogic } from '../../workflowL
 import { hogFlowEditorLogic, HogFlowEditorMode } from '../hogFlowEditorLogic'
 import type { HogFlow, HogFlowAction } from '../types'
 import { HogFlowEditorPanel } from './HogFlowEditorPanel'
+import { TestRunStep, hogFlowEditorTestLogic } from './testing/hogFlowEditorTestLogic'
 
 const LOGIC_PROPS: WorkflowLogicProps = { id: 'storybook-configuration-panel' }
 
@@ -167,7 +169,41 @@ type PanelStoryProps = {
     mode: HogFlowEditorMode
     selectedNodeId: string | null
     layout?: 'floating' | 'panel'
+    testRun?: { steps: TestRunStep[]; stopped: boolean }
 }
+
+const runLog = (message: string): TestRunStep['result']['logs'] => [
+    {
+        level: 'INFO',
+        message,
+        timestamp: dayjs('2026-09-04T12:00:00Z'),
+        rawTimestamp: '2026-09-04T12:00:00Z',
+        instanceId: 'test',
+    },
+]
+
+const FINISHED_TEST_RUN: TestRunStep[] = [
+    {
+        actionId: 'trigger',
+        waitSkipped: false,
+        result: { status: 'success', nextActionId: 'delay', logs: runLog('Trigger matched the test event') },
+    },
+    {
+        actionId: 'delay',
+        waitSkipped: true,
+        result: { status: 'success', nextActionId: 'delay', logs: runLog('Waiting 1 day before the next step') },
+    },
+    {
+        actionId: 'webhook',
+        waitSkipped: false,
+        result: {
+            status: 'error',
+            nextActionId: null,
+            errors: ['The endpoint returned status 500'],
+            logs: runLog('POST https://example.com/hooks/activation returned 500'),
+        },
+    },
+]
 
 const meta: Meta<typeof HogFlowEditorPanel> = {
     title: 'Products/Workflows/Editor/Configuration panel',
@@ -215,11 +251,12 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
 }
 export default meta
 
-function PanelStory({ mode, selectedNodeId, layout = 'floating' }: PanelStoryProps): JSX.Element {
+function PanelStory({ mode, selectedNodeId, layout = 'floating', testRun }: PanelStoryProps): JSX.Element {
     const { originalWorkflow } = useValues(workflowLogic(LOGIC_PROPS))
     const { nodes } = useValues(hogFlowEditorLogic(LOGIC_PROPS))
     const { setWorkflowValues } = useActions(workflowLogic(LOGIC_PROPS))
     const { setMode, setSelectedNodeId } = useActions(hogFlowEditorLogic(LOGIC_PROPS))
+    const { addTestRunStep, stopTestRun } = useActions(hogFlowEditorTestLogic(LOGIC_PROPS))
 
     useEffect(() => {
         if (originalWorkflow) {
@@ -231,8 +268,12 @@ function PanelStory({ mode, selectedNodeId, layout = 'floating' }: PanelStoryPro
     useEffect(() => {
         if (selectedNodeId === null || nodes.some((node) => node.id === selectedNodeId)) {
             setSelectedNodeId(selectedNodeId)
+            testRun?.steps.forEach((step) => addTestRunStep(step))
+            if (testRun?.stopped) {
+                stopTestRun()
+            }
         }
-    }, [nodes, selectedNodeId, setSelectedNodeId])
+    }, [nodes, selectedNodeId, setSelectedNodeId, testRun, addTestRunStep, stopTestRun])
 
     return (
         <ReactFlowProvider>
@@ -287,6 +328,20 @@ Variables.args = { mode: 'variables', selectedNodeId: null }
 
 export const Test: StoryFn<PanelStoryProps> = Template.bind({})
 Test.args = { mode: 'test', selectedNodeId: 'delay' }
+
+export const TestRunFinished: StoryFn<PanelStoryProps> = Template.bind({})
+TestRunFinished.args = {
+    mode: 'test',
+    selectedNodeId: 'webhook',
+    testRun: { steps: FINISHED_TEST_RUN, stopped: false },
+}
+
+export const TestRunStopped: StoryFn<PanelStoryProps> = Template.bind({})
+TestRunStopped.args = {
+    mode: 'test',
+    selectedNodeId: 'webhook',
+    testRun: { steps: FINISHED_TEST_RUN.slice(0, 2), stopped: true },
+}
 
 export const Metrics: StoryFn<PanelStoryProps> = Template.bind({})
 Metrics.args = { mode: 'metrics', selectedNodeId: 'delay' }
