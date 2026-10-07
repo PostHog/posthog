@@ -310,13 +310,16 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
 
     const unitIsSet =
         showUnit && !!trendsFilter?.aggregationAxisFormat && trendsFilter.aggregationAxisFormat !== 'numeric'
+    // A proportion bar shows its legend by default, so only the user's own choice counts as a change.
+    const legendIsChanged =
+        display === ChartDisplayType.ActionsProportionBar ? trendsFilter?.showLegend !== undefined : showLegend
     const displayCount = countTruthy(
         supportsValueOnSeries && showValuesOnSeries,
         isLifecycle && showPercentagesOnSeries,
         showPercentStackView,
         isPie && trendsFilter?.showLabelsOnSeries,
         unitIsSet,
-        (hasLegend || showFunnelLegendConfig) && showLegend,
+        (hasLegend || showFunnelLegendConfig) && legendIsChanged,
         showAnnotationsConfig && (showAnnotations === false || !!annotationsScope),
         isMetric && trendsFilter?.metricShowChange === false,
         isMetric && trendsFilter?.metricColorByDirection,
