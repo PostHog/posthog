@@ -493,7 +493,7 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               continue-on-error: true
               with:
-                  ref: ${{ github.event.pull_request.head.sha || github.event.repository.default_branch }}
+                  ref: ${{ github.event.repository.default_branch }}
 
             - name: Connect to Tailscale (tag:hogland-ci)
               id: tailnet
