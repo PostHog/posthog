@@ -12,6 +12,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
 from products.error_tracking.backend.temporal.change_dispatch.types import ChangeDispatchInputs
@@ -31,7 +32,13 @@ async def create_error_tracking_issue_change_dispatch_schedule(client: Client) -
             id=SCHEDULE_ID,
             task_queue=settings.ERROR_TRACKING_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=SCHEDULE_INTERVAL)]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(
+                    every=SCHEDULE_INTERVAL, offset=deterministic_offset(SCHEDULE_ID, SCHEDULE_INTERVAL)
+                )
+            ]
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=SCHEDULE_CATCHUP_WINDOW),
     )
 
