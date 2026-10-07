@@ -49,7 +49,15 @@ from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
 from posthog.dataclasses import frozen
-from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError, QueryErrorCategory, classify_query_error
+from posthog.errors import (
+    CH_TRANSIENT_ERRORS,
+    ExposedCHQueryError,
+    InternalCHQueryError,
+    QueryErrorCategory,
+    classify_query_error,
+    internal_ch_error_user_message,
+    look_up_clickhouse_error_code_meta,
+)
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
@@ -58,6 +66,7 @@ from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
+from ee.hogai.context.insight.clickhouse_rejections import describe_clickhouse_rejection
 from ee.hogai.context.insight.format import (
     NULL_MARKER,
     TRUNCATED_MARKER,
@@ -472,7 +481,13 @@ class AssistantQueryExecutor:
 
                 # Check for query execution errors before using results
                 if query_status.get("error"):
-                    if error_message := query_status.get("error_message"):
+                    if rejection := describe_clickhouse_rejection(
+                        query_status.get("error_code"), query_status.get("error_message")
+                    ):
+                        raise MaxToolRetryableError(rejection, error_type="validation")
+                    if error_message := query_status.get("error_message") or internal_ch_error_user_message(
+                        query_status.get("error_code")
+                    ):
                         # Async status loses the exception type, so keep retry advice without guessing its category.
                         raise MaxToolRetryableError(error_message, error_type="internal")
                     raise Exception("Query failed")
@@ -524,6 +539,10 @@ class AssistantQueryExecutor:
                 raise MaxToolTransientError(err_message, error_type="rate_limited") from err
             raise MaxToolRetryableError(err_message, error_type=error_type) from err
         except Exception as err:
+            if isinstance(err, InternalCHQueryError) and (
+                rejection := describe_clickhouse_rejection(look_up_clickhouse_error_code_meta(err).name.lower())
+            ):
+                raise MaxToolRetryableError(rejection, error_type="validation") from err
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution. Surface the underlying error
             # text (truncated) so callers can diagnose the failure instead of an opaque message —
