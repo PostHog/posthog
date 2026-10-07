@@ -338,6 +338,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                     changedProperties as AccountNativePropertyPatch,
                     name !== openedValues.name ? name : undefined
                 )
+                accountPropertyUpdatesLogic.actions.accountUpdated(props.projectId, updatedAccount)
                 actions.loadAccountSuccess(updatedAccount)
                 posthog.capture(AccountsEvents.AccountEdited, {
                     name_changed: name !== openedValues.name,
@@ -352,7 +353,11 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             {
                 loadAccountSuccess: (_, { account }) => account,
                 [accountPropertyUpdatesLogic.actionTypes.accountUpdated]: (state, { projectId, account }) =>
-                    projectId === props.projectId && account.id === state?.id ? account : state,
+                    projectId === props.projectId &&
+                    (account.id === (state?.id ?? props.accountId) ||
+                        (!state && !!props.externalId && account.external_id === props.externalId))
+                        ? account
+                        : state,
                 updateTags: (state, { tags }) => (state ? { ...state, tags } : state),
                 updateTagsDone: (state, { account }) => account ?? state,
             },
@@ -476,7 +481,13 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                 actions.loadAccount()
             }
         },
+        [accountPropertyUpdatesLogic.actionTypes.accountUpdated]: ({ projectId, account }) => {
+            if (projectId === props.projectId && account.id === values.account?.id) {
+                cache.accountRevision = (cache.accountRevision ?? 0) + 1
+            }
+        },
         loadAccount: async (_, breakpoint) => {
+            const revision = cache.accountRevision ?? 0
             try {
                 const projectId = props.projectId
                 const identifier = props.externalId ?? props.accountId
@@ -492,19 +503,22 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                     ? await accountsByExternalIdRetrieve(String(projectId), { external_id: identifier })
                     : await accountsRetrieve(String(projectId), identifier)
                 await breakpoint()
-                actions.loadAccountSuccess(account)
+                actions.loadAccountSuccess(
+                    revision === (cache.accountRevision ?? 0) ? account : (values.account ?? account)
+                )
             } catch (error) {
                 if (error instanceof Error && isBreakpoint(error)) {
                     throw error
                 }
                 await breakpoint()
-                actions.loadAccountFailure(error)
+                if (revision !== (cache.accountRevision ?? 0) && values.account) {
+                    actions.loadAccountSuccess(values.account)
+                } else {
+                    actions.loadAccountFailure(error)
+                }
             }
         },
         loadAccountSuccess: ({ account }) => {
-            if (props.projectId) {
-                accountPropertyUpdatesLogic.actions.accountUpdated(props.projectId, account)
-            }
             if (!props.externalId) {
                 return
             }

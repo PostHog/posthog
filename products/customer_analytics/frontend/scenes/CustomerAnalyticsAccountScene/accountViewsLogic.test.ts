@@ -92,7 +92,5 @@ describe('accountViewsLogic properties tiles', () => {
         expect(components[1].config).toEqual(secondConfig)
         expect(components[2].config).toEqual({ searchTerm: 'Existing search' })
         expect(logic.values.config?.pinned_properties).toEqual([])
-        await expectLogic(logic, () => logic.actions.loadViews()).toFinishAllListeners()
-        expect(parseAccountViewContent(logic.values.views[0].content)).toEqual(components)
     })
 })

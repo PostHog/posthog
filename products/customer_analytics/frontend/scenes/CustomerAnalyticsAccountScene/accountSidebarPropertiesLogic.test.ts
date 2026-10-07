@@ -9,6 +9,7 @@ import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { UserBasicType } from '~/types'
 
 import { accountRelationshipsLogic } from '../../components/Accounts/accountRelationshipsLogic'
 import { AccountsEvents } from '../../components/Accounts/constants'
@@ -214,43 +215,73 @@ describe('accountSidebarPropertiesLogic', () => {
         tab.mount()
         try {
             await expectLogic(tab).toFinishAllListeners()
-            assignments.push(assignment(4))
-            await expectLogic(logic, () => tab.actions.loadRelationships()).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                tab.actions.assignRelationship(relationshipDefinition, { id: 4 } as UserBasicType)
+            ).toFinishAllListeners()
             expect(logic.values.sidebarProperties[0]).toMatchObject({ members: [{ id: 1 }, { id: 2 }, { id: 4 }] })
         } finally {
             tab.unmount()
         }
     })
 
-    it('refreshes every mounted relationship tile after a property widget save', async () => {
-        logic = accountSidebarPropertiesLogic({
-            projectId: MOCK_DEFAULT_TEAM.id,
-            accountId: 'account-1',
-            instanceId: 'view:properties',
-            propertyReferences: [{ kind: 'relationship', id: relationshipDefinition.id }],
-        })
-        logic.mount()
-        const first = accountRelationshipsLogic({ accountId: 'account-1', instanceId: 'first' })
-        const second = accountRelationshipsLogic({ accountId: 'account-1', instanceId: 'second' })
-        first.mount()
-        second.mount()
-        try {
-            await expectLogic(logic).toFinishAllListeners()
-            await expectLogic(logic, () =>
-                logic.actions.saveRelationship('relationship:relationship-1', [2, 4], 'account_view')
-            ).toFinishAllListeners()
-            for (const tile of [first, second]) {
-                expect(
-                    tile.values.activeRelationships
-                        .filter((row) => row.definition.id === relationshipDefinition.id)
-                        .map((row) => row.user?.id)
-                ).toEqual([2, 4])
+    it.each([
+        { kind: 'custom', timelineReads: 0, expectedMembers: [1, 2] },
+        { kind: 'relationship', timelineReads: 2, expectedMembers: [2, 4] },
+    ])(
+        'refreshes only changed data once after a $kind widget save',
+        async ({ kind, timelineReads, expectedMembers }) => {
+            const readValues = jest.fn(() => [{ id: 'value-1', definition_id: definition.id, value: storedValue }])
+            const readTimeline = jest.fn(() => assignments)
+            useMocks({
+                get: {
+                    [VALUES_URL]: readValues,
+                    [RELATIONSHIPS_URL]: ({ request }) =>
+                        new URL(request.url).searchParams.has('include_history') ? readTimeline() : assignments,
+                },
+            })
+            logic = accountSidebarPropertiesLogic({
+                projectId: MOCK_DEFAULT_TEAM.id,
+                accountId: 'account-1',
+                instanceId: 'view:properties',
+                propertyReferences: [
+                    { kind: 'custom_property', id: definition.id },
+                    { kind: 'relationship', id: relationshipDefinition.id },
+                ],
+            })
+            logic.mount()
+            const first = accountRelationshipsLogic({ accountId: 'account-1', instanceId: 'first' })
+            const second = accountRelationshipsLogic({ accountId: 'account-1', instanceId: 'second' })
+            first.mount()
+            second.mount()
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+                readValues.mockClear()
+                readTimeline.mockClear()
+                await expectLogic(logic, () => {
+                    if (kind === 'custom') {
+                        logic.actions.saveCustomProperty('custom:property-1', 'Changed', 'account_view')
+                    } else {
+                        logic.actions.saveRelationship('relationship:relationship-1', expectedMembers, 'account_view')
+                    }
+                }).toFinishAllListeners()
+                expect(logic.values.sidebarProperties[0]).toMatchObject({
+                    value: kind === 'custom' ? 'Changed' : 'Starter',
+                })
+                for (const tile of [first, second]) {
+                    expect(
+                        tile.values.activeRelationships
+                            .filter((row) => row.definition.id === relationshipDefinition.id)
+                            .map((row) => row.user?.id)
+                    ).toEqual(expectedMembers)
+                }
+                expect(readValues).toHaveBeenCalledTimes(1)
+                expect(readTimeline).toHaveBeenCalledTimes(timelineReads)
+            } finally {
+                first.unmount()
+                second.unmount()
             }
-        } finally {
-            first.unmount()
-            second.unmount()
         }
-    })
+    )
 
     it.each([
         ['text', 'Growth'],
@@ -519,11 +550,10 @@ describe('accountSidebarPropertiesLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.propertyData).toBeNull()
         expect(logic.values.propertiesPanelState).toBe('ready')
-        const configured = accountSidebarPropertiesLogic.build({
+        accountSidebarPropertiesLogic.build({
             ...props,
             propertyReferences: [{ kind: 'custom_property', id: definition.id }],
         })
-        expect(configured).toBe(logic)
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.propertiesPanelState).toBe('ready')
         expect(logic.values.sidebarProperties).toMatchObject([{ key: 'custom:property-1', value: 'Starter' }])

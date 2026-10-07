@@ -13,7 +13,6 @@ import { initKeaTests } from '~/test/init'
 import { accountsPartialUpdate, accountsRetrieve } from '../../generated/api'
 import type { AccountApi } from '../../generated/api.schemas'
 import { accountPropertiesWidgetLogic } from './accountPropertiesWidgetLogic'
-import { accountPropertyUpdatesLogic } from './accountPropertyUpdatesLogic'
 
 jest.mock('lib/utils/accessControlUtils', () => ({ userHasAccess: jest.fn(() => true) }))
 jest.mock('../../generated/api', () => ({
@@ -186,56 +185,4 @@ describe('accountPropertiesWidgetLogic', () => {
             expect(mockUpdate).not.toHaveBeenCalled()
         }
     )
-
-    it('distinguishes an initial load failure from missing values and recovers on retry', async () => {
-        silenceKeaLoadersErrors()
-        mockRetrieve.mockRejectedValueOnce(new Error('Account unavailable'))
-        const logic = accountPropertiesWidgetLogic({
-            projectId: PROJECT_ID,
-            accountId: ACCOUNT_ID,
-            instanceId: 'first',
-        })
-        logic.mount()
-        mounted.push(logic)
-        await waitFor(() => expect(logic.values.accountLoadFailed).toBe(true))
-        expect(logic.values.account).toBeNull()
-        logic.actions.loadAccount()
-        await waitFor(() => expect(logic.values.account).toEqual(initialAccount))
-        expect(logic.values.accountLoadFailed).toBe(false)
-    })
-
-    it('does not let an earlier account read replace a value saved by another visible editor', async () => {
-        let resolveRead!: (account: AccountApi) => void
-        const read = new Promise<AccountApi>((resolve) => {
-            resolveRead = resolve
-        })
-        mockRetrieve.mockReturnValueOnce(read)
-        const logic = accountPropertiesWidgetLogic({
-            projectId: PROJECT_ID,
-            accountId: ACCOUNT_ID,
-            instanceId: 'first',
-        })
-        logic.mount()
-        mounted.push(logic)
-        await waitFor(() => expect(mockRetrieve).toHaveBeenCalledTimes(1))
-        const saved = {
-            ...initialAccount,
-            properties: { ...initialAccount.properties, website_domain: 'saved.example.com' },
-        }
-        accountPropertyUpdatesLogic.actions.accountUpdated(PROJECT_ID, saved)
-        resolveRead(initialAccount)
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.account?.properties?.website_domain).toBe('saved.example.com')
-    })
-
-    it('does not accept updates for another project or account', async () => {
-        const logic = await mount('first')
-        accountPropertyUpdatesLogic.actions.accountUpdated(PROJECT_ID + 1, { ...account, name: 'Other project' })
-        accountPropertyUpdatesLogic.actions.accountUpdated(PROJECT_ID, {
-            ...account,
-            id: 'other-account',
-            name: 'Other account',
-        })
-        expect(logic.values.account?.name).toBe(initialAccount.name)
-    })
 })

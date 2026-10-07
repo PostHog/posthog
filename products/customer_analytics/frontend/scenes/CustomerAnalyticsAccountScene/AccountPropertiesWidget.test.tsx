@@ -12,10 +12,8 @@ import { initKeaTests } from '~/test/init'
 import type { AccountApi, CustomPropertyDefinitionApi } from '../../generated/api.schemas'
 import { AccountPropertiesWidget } from './AccountPropertiesWidget'
 import type { AccountWidgetPropertyReference } from './accountPropertiesWidgetConfig'
-import { accountPropertiesWidgetLogic } from './accountPropertiesWidgetLogic'
 import { accountPropertyDataLogic } from './accountPropertyDataLogic'
 import { accountSidebarConfigLogic } from './accountSidebarConfigLogic'
-import { accountSidebarPropertiesLogic } from './accountSidebarPropertiesLogic'
 
 jest.mock('lib/utils/accessControlUtils', () => ({
     ...jest.requireActual('lib/utils/accessControlUtils'),
@@ -28,6 +26,10 @@ const ACCOUNT_URL = '/api/projects/:project_id/accounts/:account_id/'
 const DEFINITIONS_URL = '/api/projects/:project_id/custom_property_definitions/'
 const EMPTY_PAGE = { count: 0, results: [] }
 const nativeReferences: AccountWidgetPropertyReference[] = [{ kind: 'account', key: 'billing_id' }]
+const mixedReferences: AccountWidgetPropertyReference[] = [
+    ...nativeReferences,
+    { kind: 'custom_property', id: '22222222-2222-4222-8222-222222222222' },
+]
 const account: AccountApi = {
     id: ACCOUNT_ID,
     name: 'Example account',
@@ -47,8 +49,8 @@ function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void
     return { promise, resolve }
 }
 
-function renderWidget(references = nativeReferences): ReturnType<typeof render> {
-    return render(
+function createWidget(references = nativeReferences): JSX.Element {
+    return (
         <AccountPropertiesWidget
             projectId={PROJECT_ID}
             accountId={ACCOUNT_ID}
@@ -56,6 +58,10 @@ function renderWidget(references = nativeReferences): ReturnType<typeof render> 
             initialConfig={{ properties: references }}
         />
     )
+}
+
+function renderWidget(references = nativeReferences): ReturnType<typeof render> {
+    return render(createWidget(references))
 }
 
 async function waitForNativeAccount(): Promise<void> {
@@ -92,35 +98,88 @@ describe('AccountPropertiesWidget source resolution', () => {
         resumeKeaLoadersErrors()
     })
 
-    it.each(['pending', 'failed'] as const)(
-        'shows loaded native-only values while definitions are %s',
-        async (state) => {
-            const pending = createDeferred<typeof EMPTY_PAGE>()
+    it.each([
+        {
+            selection: 'native-only',
+            references: nativeReferences,
+            source: 'definitions',
+            state: 'pending',
+            expected: 'ready',
+        },
+        {
+            selection: 'native-only',
+            references: nativeReferences,
+            source: 'definitions',
+            state: 'failed',
+            expected: 'ready',
+        },
+        {
+            selection: 'mixed',
+            references: mixedReferences,
+            source: 'definitions',
+            state: 'pending',
+            expected: 'loading',
+        },
+        { selection: 'mixed', references: mixedReferences, source: 'definitions', state: 'failed', expected: 'failed' },
+        {
+            selection: 'native-only',
+            references: nativeReferences,
+            source: 'account',
+            state: 'pending',
+            expected: 'loading',
+        },
+        {
+            selection: 'native-only',
+            references: nativeReferences,
+            source: 'account',
+            state: 'failed',
+            expected: 'failed',
+        },
+    ] as const)(
+        'shows $expected for a $selection widget when $source is $state',
+        async ({ references, source, state, expected }) => {
+            const pending = createDeferred<AccountApi | typeof EMPTY_PAGE>()
             useMocks({
                 get: {
-                    [DEFINITIONS_URL]: () =>
-                        state === 'pending' ? pending.promise : [500, { detail: 'Definitions unavailable' }],
+                    [source === 'account' ? ACCOUNT_URL : DEFINITIONS_URL]: () =>
+                        state === 'pending' ? pending.promise : [500, { detail: 'Source unavailable' }],
                 },
             })
-            const { container } = renderWidget()
+            const { container } = renderWidget(references)
             try {
                 const definitions = accountSidebarConfigLogic({ projectId: PROJECT_ID })
-                await waitFor(() =>
-                    state === 'pending'
-                        ? expect(definitions.values.availableDefinitionsLoading).toBe(true)
-                        : expect(definitions.values.availableDefinitionsLoadFailed).toBe(true)
+                const data = accountPropertyDataLogic({ projectId: PROJECT_ID, accountId: ACCOUNT_ID })
+                await waitFor(() => {
+                    const loading =
+                        source === 'account'
+                            ? data.values.accountLoading
+                            : definitions.values.availableDefinitionsLoading
+                    const failed =
+                        source === 'account'
+                            ? data.values.accountLoadFailed
+                            : definitions.values.availableDefinitionsLoadFailed
+                    expect(state === 'pending' ? loading : failed).toBe(true)
+                })
+                if (source === 'account') {
+                    await waitFor(() => expect(definitions.values.availableDefinitions).not.toBeNull())
+                } else {
+                    await waitForNativeAccount()
+                }
+                if (expected === 'ready') {
+                    expect(await screen.findByText('billing-example')).toBeVisible()
+                } else if (expected === 'failed') {
+                    expect(await screen.findByText('Could not load properties.')).toBeVisible()
+                }
+                expect(!!container.querySelector('[data-attr="account-properties-widget-loading"]')).toBe(
+                    expected === 'loading'
                 )
-                await waitForNativeAccount()
-                expect(await screen.findByText('billing-example')).toBeVisible()
-                expect(
-                    container.querySelector('[data-attr="account-properties-widget-loading"]')
-                ).not.toBeInTheDocument()
-                expect(screen.queryByText('Could not load properties.')).not.toBeInTheDocument()
+                expect(!!screen.queryByText('Could not load properties.')).toBe(expected === 'failed')
+                expect(!!screen.queryByText('billing-example')).toBe(expected === 'ready')
                 expect(
                     screen.queryByText('Could not refresh properties. These values may be out of date.')
                 ).not.toBeInTheDocument()
             } finally {
-                await finishRequests(pending, EMPTY_PAGE)
+                await finishRequests(pending, source === 'account' ? account : EMPTY_PAGE)
             }
         }
     )
@@ -164,7 +223,7 @@ describe('AccountPropertiesWidget source resolution', () => {
         }
     })
 
-    it('shows newly configured values through rerender without remounting instances or changing pins', async () => {
+    it('applies configuration changes without losing custom or native drafts or changing pins', async () => {
         const definition: CustomPropertyDefinitionApi = {
             id: '22222222-2222-4222-8222-222222222222',
             name: 'Plan',
@@ -199,54 +258,22 @@ describe('AccountPropertiesWidget source resolution', () => {
         await act(async () => {
             await expectLogic(definitions).toFinishAllListeners()
         })
-        const native = accountPropertiesWidgetLogic.findMounted({
-            projectId: PROJECT_ID,
-            accountId: ACCOUNT_ID,
-            instanceId: 'first',
-        })
-        const properties = accountSidebarPropertiesLogic.findMounted({
-            projectId: PROJECT_ID,
-            accountId: ACCOUNT_ID,
-            instanceId: 'view:first',
-        })
-        expect(native).not.toBeNull()
-        expect(properties).not.toBeNull()
         expect(
             screen.getByText("No properties selected. Use the tile's Edit action to choose properties.")
         ).toBeVisible()
-        rerender(
-            <AccountPropertiesWidget
-                projectId={PROJECT_ID}
-                accountId={ACCOUNT_ID}
-                instanceId="first"
-                initialConfig={{ properties: [{ kind: 'custom_property', id: definition.id }] }}
-            />
-        )
+        rerender(createWidget([{ kind: 'custom_property', id: definition.id }]))
         expect(await screen.findByText('Starter')).toBeVisible()
-        rerender(
-            <AccountPropertiesWidget
-                projectId={PROJECT_ID}
-                accountId={ACCOUNT_ID}
-                instanceId="first"
-                initialConfig={{ properties: nativeReferences }}
-            />
-        )
+        fireEvent.click(screen.getByLabelText('Edit Plan'))
+        fireEvent.change(screen.getByDisplayValue('Starter'), { target: { value: 'Unsaved plan' } })
+        rerender(createWidget(mixedReferences))
         expect(await screen.findByText('billing-example')).toBeVisible()
+        expect(screen.getByDisplayValue('Unsaved plan')).toBeVisible()
+        fireEvent.click(screen.getByText('Cancel'))
+        fireEvent.click(screen.getByLabelText('Edit Billing ID'))
+        fireEvent.change(screen.getByDisplayValue('billing-example'), { target: { value: 'unsaved-billing' } })
+        rerender(createWidget(nativeReferences))
+        expect(screen.getByDisplayValue('unsaved-billing')).toBeVisible()
         expect(screen.queryByText('Starter')).not.toBeInTheDocument()
-        expect(
-            accountPropertiesWidgetLogic.findMounted({
-                projectId: PROJECT_ID,
-                accountId: ACCOUNT_ID,
-                instanceId: 'first',
-            })
-        ).toBe(native)
-        expect(
-            accountSidebarPropertiesLogic.findMounted({
-                projectId: PROJECT_ID,
-                accountId: ACCOUNT_ID,
-                instanceId: 'view:first',
-            })
-        ).toBe(properties)
         expect(definitions.values.config?.pinned_properties).toEqual([])
     })
 
@@ -265,53 +292,5 @@ describe('AccountPropertiesWidget source resolution', () => {
         expect(
             screen.queryByText('Could not refresh properties. These values may be out of date.')
         ).not.toBeInTheDocument()
-    })
-
-    it.each(['pending', 'failed'] as const)('keeps definition %s gates for a mixed-source widget', async (state) => {
-        const pending = createDeferred<typeof EMPTY_PAGE>()
-        useMocks({
-            get: {
-                [DEFINITIONS_URL]: () =>
-                    state === 'pending' ? pending.promise : [500, { detail: 'Definitions unavailable' }],
-            },
-        })
-        const { container } = renderWidget([
-            ...nativeReferences,
-            { kind: 'custom_property', id: '22222222-2222-4222-8222-222222222222' },
-        ])
-        try {
-            await waitForNativeAccount()
-            if (state === 'pending') {
-                expect(container.querySelector('[data-attr="account-properties-widget-loading"]')).toBeInTheDocument()
-            } else {
-                expect(await screen.findByText('Could not load properties.')).toBeVisible()
-            }
-            expect(screen.queryByText('billing-example')).not.toBeInTheDocument()
-        } finally {
-            await finishRequests(pending, EMPTY_PAGE)
-        }
-    })
-
-    it.each(['pending', 'failed'] as const)('keeps native account %s gates for a native-only widget', async (state) => {
-        const pending = createDeferred<AccountApi>()
-        useMocks({
-            get: {
-                [ACCOUNT_URL]: () => (state === 'pending' ? pending.promise : [500, { detail: 'Account unavailable' }]),
-            },
-        })
-        const { container } = renderWidget()
-        try {
-            await waitFor(() =>
-                expect(accountSidebarConfigLogic({ projectId: PROJECT_ID }).values.availableDefinitions).not.toBeNull()
-            )
-            if (state === 'pending') {
-                expect(container.querySelector('[data-attr="account-properties-widget-loading"]')).toBeInTheDocument()
-            } else {
-                expect(await screen.findByText('Could not load properties.')).toBeVisible()
-            }
-            expect(screen.queryByText('billing-example')).not.toBeInTheDocument()
-        } finally {
-            await finishRequests(pending, account)
-        }
     })
 })

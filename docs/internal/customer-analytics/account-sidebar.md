@@ -90,7 +90,10 @@ Only project admins with account editor access can edit email domains and known 
 Account property saves use the account editor's fresh-read merge and list normalization.
 Local account editor and widget saves run in sequence to keep edits to different fields.
 Saved values refresh visible properties tiles and the sidebar without replacing other editors' drafts.
-Relationship saves also refresh every mounted Relationships tile.
+Account reads do not broadcast changes to other editors.
+A read started before a save cannot replace that saved value.
+Relationship saves refresh every mounted Relationships tile and refresh the shared property data once.
+Custom-property saves do not reload Relationships tiles.
 Each tile keeps separate editor state for the current account.
 A failed save keeps the input for retry.
 Loading failures and refresh failures show retry actions, separate from missing values.

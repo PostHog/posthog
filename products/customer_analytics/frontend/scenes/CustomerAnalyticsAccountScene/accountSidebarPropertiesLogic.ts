@@ -267,7 +267,7 @@ export interface accountSidebarPropertiesLogicMeta {
         resolvedPinnedProperties: (
             sidebarPinnedProperties: ResolvedPinnedAccountProperty[],
             availableDefinitions: AvailableDefinitions | null,
-            configuredPropertyReferences: any
+            configuredPropertyReferences: PinnedAccountPropertyApi[] | null
         ) => ResolvedPinnedAccountProperty[]
         sidebarProperties: (
             resolvedPinnedProperties: ResolvedPinnedAccountProperty[],
@@ -282,14 +282,14 @@ export interface accountSidebarPropertiesLogicMeta {
             availableDefinitions: AvailableDefinitions | null,
             resolvedPinnedProperties: ResolvedPinnedAccountProperty[],
             propertyData: AccountSidebarPropertyData | null,
-            configuredPropertyReferences: any
+            configuredPropertyReferences: PinnedAccountPropertyApi[] | null
         ) => boolean
         propertiesLoadFailed: (
             configLoadFailed: boolean,
             availableDefinitionsLoadFailed: boolean,
             resolvedPinnedProperties: ResolvedPinnedAccountProperty[],
             propertyDataLoadFailed: boolean,
-            configuredPropertyReferences: any
+            configuredPropertyReferences: PinnedAccountPropertyApi[] | null
         ) => boolean
         propertiesPanelState: (
             propertiesAvailable: boolean,
@@ -612,11 +612,13 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                     .filter((row) => row.definition.id === property.definition.id && !row.ended_at)
                     .map(({ id }) => id),
             })
-            const refresh = (): void => {
-                actions.loadPropertyData()
-                accountPropertyUpdatesLogic.actions.relationshipsUpdated(props.projectId, props.accountId)
+            const refreshAccountsList = (): void => {
                 dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })?.actions.loadData('force_async')
                 dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
+            }
+            const refreshRelationships = (): void => {
+                accountPropertyUpdatesLogic.actions.relationshipsUpdated(props.projectId, props.accountId)
+                refreshAccountsList()
             }
             return {
                 setConfiguredPropertyReferences: () => {
@@ -694,7 +696,8 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                             source: payload?.source ?? 'account_sidebar',
                         })
                     }
-                    refresh()
+                    actions.loadPropertyData()
+                    refreshAccountsList()
                 },
                 persistRelationshipSuccess: ({ savedPropertyKey, payload }) => {
                     const property = values.sidebarProperties.find((row) => row.key === savedPropertyKey)
@@ -709,7 +712,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                             source: payload?.source ?? 'account_sidebar',
                         })
                     }
-                    refresh()
+                    refreshRelationships()
                 },
                 persistCustomPropertyFailure: () => {
                     if (props.instanceId?.startsWith('view:')) {
@@ -726,7 +729,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                             property_source: 'relationship',
                         })
                     }
-                    refresh()
+                    refreshRelationships()
                 },
                 [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.loadConfigSuccess]: () =>
                     actions.loadPropertyData(),

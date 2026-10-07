@@ -51,7 +51,6 @@ class TestAccountViewContentValidation(SimpleTestCase):
             ("wrong_shape", {"properties": "website_domain"}),
             ("extra_reference_field", {"properties": [{"kind": "account", "key": "billing_id", "value": "ignored"}]}),
             ("extra_config_field", {"sidebar_pins": []}),
-            ("too_many", {"properties": [{"kind": "account", "key": "billing_id"}] * 51}),
         ]
     )
     def test_rejects_invalid_properties_config(self, _name: str, config: dict) -> None:
@@ -59,6 +58,21 @@ class TestAccountViewContentValidation(SimpleTestCase):
             validate_account_view_content(
                 account_view_content(f'<Properties nodeId="properties-one" config={{{json.dumps(config)}}} />')
             )
+
+    @parameterized.expand([(50, None), (51, "Properties config must contain a list of up to 50 properties.")])
+    def test_properties_selection_limit(self, count: int, expected_error: str | None) -> None:
+        config = {
+            "properties": [
+                {"kind": "custom_property", "id": f"00000000-0000-4000-8000-{index:012x}"} for index in range(count)
+            ]
+        }
+        content = account_view_content(f'<Properties nodeId="properties-one" config={{{json.dumps(config)}}} />')
+        if expected_error is None:
+            assert validate_account_view_content(content) == (content, "Properties")
+        else:
+            with self.assertRaises(InvalidAccountViewContent) as context:
+                validate_account_view_content(content)
+            assert context.exception.errors == [f"Component 1: {expected_error}"]
 
     def test_rejects_span_outside_twelve_columns(self) -> None:
         with self.assertRaises(InvalidAccountViewContent) as context:

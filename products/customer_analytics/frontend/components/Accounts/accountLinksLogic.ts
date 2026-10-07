@@ -178,16 +178,18 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
         saveStarted: true,
         saveFinished: true,
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, cache }) => ({
         account: [
             null as AccountApi | null,
             {
                 loadAccount: async (): Promise<AccountApi | null> => {
+                    const revision = cache.accountRevision ?? 0
                     try {
-                        return await accountsRetrieve(String(values.currentTeamId), props.accountId)
+                        const account = await accountsRetrieve(String(values.currentTeamId), props.accountId)
+                        return revision === (cache.accountRevision ?? 0) ? account : values.account
                     } catch (error) {
                         posthog.captureException(error as Error, { scope: 'accountLinksLogic.loadAccount' })
-                        return null
+                        return revision === (cache.accountRevision ?? 0) ? null : values.account
                     }
                 },
             },
@@ -325,15 +327,11 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         [accountPropertyUpdatesLogic.actionTypes.accountUpdated]: ({ projectId, account }) => {
-            if (projectId === values.currentTeamId && account.id === props.accountId && account !== values.account) {
+            if (projectId === values.currentTeamId && account.id === props.accountId) {
+                cache.accountRevision = (cache.accountRevision ?? 0) + 1
                 actions.loadAccountSuccess(account)
-            }
-        },
-        loadAccountSuccess: ({ account }) => {
-            if (account && values.currentTeamId) {
-                accountPropertyUpdatesLogic.actions.accountUpdated(values.currentTeamId, account)
             }
         },
         openEditor: () => {
@@ -361,6 +359,9 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                         sfdc_id: orNull(form.sfdc_id),
                     } as PatchedAccountApiProperties,
                 })
+                if (values.currentTeamId) {
+                    accountPropertyUpdatesLogic.actions.accountUpdated(values.currentTeamId, updated)
+                }
                 actions.loadAccountSuccess(updated)
                 actions.closeEditor()
                 lemonToast.success('Links updated')

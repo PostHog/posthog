@@ -112,11 +112,20 @@ export const accountPropertyDataLogic: LogicWrapper<accountPropertyDataLogicType
             { loadAccount: () => false, loadAccountSuccess: () => false, loadAccountFailure: () => true },
         ],
     }),
-    listeners(({ actions, props, cache }) => ({
+    listeners(({ actions, props, cache, values }) => ({
         [accountPropertyUpdatesLogic.actionTypes.accountUpdated]: ({ projectId, account }) => {
             if (projectId === props.projectId && account.id === props.accountId) {
                 cache.accountRevision = (cache.accountRevision ?? 0) + 1
                 actions.loadAccountSuccess(account)
+            }
+        },
+        [accountPropertyUpdatesLogic.actionTypes.relationshipsUpdated]: ({ projectId, accountId }) => {
+            if (
+                projectId === props.projectId &&
+                accountId === props.accountId &&
+                (values.propertyData !== null || values.propertyDataLoading || values.propertyDataLoadFailed)
+            ) {
+                actions.loadPropertyData()
             }
         },
     })),
