@@ -13,12 +13,16 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import field
 from datetime import datetime
+from functools import partial
 from typing import Any, Literal, TypeVar
 from uuid import UUID
+
+import grpc
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
 from posthog.kafka_client.routing import flush_all_producers
@@ -36,6 +40,7 @@ from posthog.models.person.util import (
 )
 from posthog.models.team import Team
 from posthog.personhog_client.client import personhog_call, require_personhog_client
+from posthog.personhog_client.interceptor import is_transient_rpc_error
 from posthog.personhog_client.proto import (
     CONSISTENCY_LEVEL_STRONG,
     GetDistinctIdsForPersonsRequest,
@@ -90,11 +95,19 @@ _MAPPING_QUERY_CHUNK_SIZE = 1_000
 # A person with more distinct ids keeps its person repair, and its mappings are reported for a separate plan:
 # one read of every mapping can exceed the gRPC message limit, and their paced writes would run for hours.
 _MAX_REPAIR_DISTINCT_IDS_PER_PERSON = 1_000
+# The waits between re-reads give the replica about 0.5 s to show a raise, far above its usual lag of a few milliseconds.
+_REREAD_BACKOFF_SECONDS = (0.025, 0.05, 0.1, 0.15, 0.175)
+_TRANSIENT_RETRY_BACKOFF_SECONDS = (1.0, 2.0)
+_TRANSIENT_RPC_CODES = frozenset(
+    {grpc.StatusCode.INTERNAL, grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED}
+)
 _FLUSH_TIMEOUT_SECONDS = 5 * 60
 # Confirmed produce results are dropped this often, so a long repair does not hold one per published row.
 _DELIVERY_PRUNE_EVERY = 1_000
 
 _T = TypeVar("_T")
+
+_sleep = time.sleep
 
 
 @frozen
@@ -861,6 +874,42 @@ def _publish_person(team_id: int, person: Person) -> ProduceResult:
     return ClickhouseProducer().produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=row)
 
 
+def _reread_person(team_id: int, person_uuid: str, target_version: int | None) -> Person | None:
+    """Read the person from the replica again while it shows a version below ``target_version``."""
+    found = get_persons_by_uuids(team_id, [person_uuid], distinct_id_limit=0)
+    reread = found[0] if found else None
+    for delay in _REREAD_BACKOFF_SECONDS:
+        if reread is None or target_version is None or int(reread.version or 0) >= target_version:
+            break
+        _sleep(delay)
+        found = get_persons_by_uuids(team_id, [person_uuid], distinct_id_limit=0)
+        reread = found[0] if found else None
+    return reread
+
+
+def _is_transient(exc: BaseException) -> bool:
+    return isinstance(exc, (*CH_TRANSIENT_ERRORS, ClickHouseQueryTimeOut)) or is_transient_rpc_error(
+        exc, codes=_TRANSIENT_RPC_CODES
+    )
+
+
+def _retry_transient(fn: Callable[[], _T], *, what: str, log: Callable[[str], None]) -> _T:
+    """Run ``fn`` again after a transient ClickHouse or personhog error, then re-raise once the retries run out.
+
+    Repeating a step is safe because every repair write is idempotent: a version raise never lowers a
+    version, and ClickHouse keeps one row per version.
+    """
+    for delay in _TRANSIENT_RETRY_BACKOFF_SECONDS:
+        try:
+            return fn()
+        except Exception as exc:
+            if not _is_transient(exc):
+                raise
+            log(f"{what}: {type(exc).__name__}, retrying in {delay:g} s")
+        _sleep(delay)
+    return fn()
+
+
 def _execute_plan(
     plan: _PersonPlan,
     *,
@@ -916,8 +965,7 @@ def _execute_plan(
     # published version, including any ingestion update that landed after the first read.
     reread: Person | None = None
     if plan.kind is not None:
-        found = get_persons_by_uuids(plan.team_id, [plan.person_uuid], distinct_id_limit=0)
-        reread = found[0] if found else None
+        reread = _reread_person(plan.team_id, plan.person_uuid, plan.target_version)
 
     if (plan.kind is not None or owned) and _tombstoned_uuids(plan.team_id, [plan.person_uuid]):
         person_outcome = "skipped_tombstoned" if plan.kind is not None else "skipped_not_divergent"
@@ -1062,14 +1110,24 @@ def repair_persons(
                 log(f"team {team_id}: no longer exists, {len(person_uuids)} persons skipped")
                 continue
             for chunk in _chunks(person_uuids, _REPAIR_CHUNK_SIZE):
-                for plan in _plan_chunk(team_id, chunk):
-                    for action in _execute_plan(
-                        plan,
-                        apply=apply,
-                        include_stale=include_stale,
-                        before_write=pacer.before_write,
-                        published=deliveries.track,
-                    ):
+                plans = _retry_transient(
+                    partial(_plan_chunk, team_id, chunk), what=f"team {team_id}: planning", log=log
+                )
+                for plan in plans:
+                    # Only the attempt that succeeds returns actions, so a retried person is counted once.
+                    actions = _retry_transient(
+                        partial(
+                            _execute_plan,
+                            plan,
+                            apply=apply,
+                            include_stale=include_stale,
+                            before_write=pacer.before_write,
+                            published=deliveries.track,
+                        ),
+                        what=f"team {team_id} person {plan.person_uuid}",
+                        log=log,
+                    )
+                    for action in actions:
                         is_person_row = action.distinct_id is None and action.outcome != "skipped_too_many_distinct_ids"
                         (person_outcomes if is_person_row else mapping_outcomes)[action.outcome] += 1
                         on_action(action)
