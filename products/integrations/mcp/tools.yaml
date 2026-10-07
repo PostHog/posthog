@@ -240,7 +240,9 @@ tools:
             List all third-party integrations configured in the current project. Returns each integration's type (kind),
             display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack,
             github, hubspot, salesforce, and various ad platforms. Sensitive credentials (access tokens, secrets) are
-            never serialized.
+            never serialized. For native email senders, filter kind=email and inspect config.verified: true means
+            verified, false means unverified, and a missing flag means unknown. An empty result means no visible
+            sender; check all pages before concluding none is configured. Other raw configuration is excluded.
         response:
             include:
                 - id
@@ -249,6 +251,7 @@ tools:
                 - errors
                 - created_at
                 - created_by
+                - config.verified
     integrations-users-retrieve:
         operation: integrations_users_retrieve
         enabled: true

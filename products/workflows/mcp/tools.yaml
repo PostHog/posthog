@@ -37,6 +37,33 @@ tools:
             workflows-patch-action-email.
         inject_body:
             origin_product: broadcasts
+    workflows-email-sending-suspension:
+        operation: hog_flows_email_sending_suspension_retrieve
+        enabled: true
+        feature_flag: workflows-email-domain-agent-setup
+        title: Get project email sending suspension
+        description: >
+            Read whether workflow email sending is suspended for the current project, with the suspension time and
+            reason. A false suspension flag only means the project is not suspended; it does not establish sender
+            verification, workflow readiness, reputation, or available quota. Use workflows-email-reputation for
+            sending health and allowance, integrations-list (kind=email) to inspect senders, and workflows-get to
+            inspect a workflow's email_sending_paused_at and email_sending_paused_reason. Missing data or an
+            unavailable tool means unknown. This tool changes nothing.
+    workflows-email-reputation:
+        operation: hog_flows_reputation_retrieve
+        enabled: true
+        feature_flag: workflows-email-domain-agent-setup
+        title: Get workflow email sending reputation
+        description: >
+            Read email sending health for the current project: AWS tenant reputation, project-wide rates over the
+            last 30 days, visible workflows' rates and email pause state, mailbox-provider health, project suspension,
+            and sending allowance when permitted. Project-wide aggregates and allowance may be withheld for callers
+            with only per-workflow access. Null or missing data means unknown, not healthy, zero, or unlimited.
+            Allowance reports tier limits, usage, and whether enforcement is active; it does not reserve capacity or
+            guarantee available quota. Use integrations-list (kind=email) to inspect sender verification and
+            workflows-get for a specific workflow's email_sending_paused_at and email_sending_paused_reason, including
+            workflows absent from these rate rows. An unavailable tool or denied read means unknown. This tool
+            changes nothing.
     workflows-create:
         operation: hog_flows_create
         enabled: true
