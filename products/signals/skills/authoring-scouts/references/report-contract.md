@@ -651,6 +651,9 @@ Make both calls below on the parent project, not on a child environment.
 `skill-create` stores the skill in the active environment, but `scout-config-create` looks for the skill in the parent project.
 From a child environment, registration fails, or it registers a different skill with the same name from the parent project.
 If the active context is a child environment, select the parent project with `switch-project` first.
+Some MCP contexts do not expose `switch-project`, for example a connection with a filtered tool set.
+In such a context, connect to the parent project directly.
+If you cannot, do not use this path from that context.
 Create the skill with `skill-create` and leave `allowed_tools` empty.
 Then register it with `scout-config-create`, and set its schedule, `enabled`, and `emit` on that call.
 Also set `write_scopes` on that call to the scope that writes the product output, for example `["hog_flow_proposal:write"]` for workflow suggestions.

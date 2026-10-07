@@ -48,7 +48,8 @@ posthog:scout-create {"name": "signals-scout-<scope>", "description": "...", "bo
 # New scout with a product-specific output: scout-create always grants the report tools,
 # so create the skill without them and register its config separately, with the write grant
 # its output needs (see report-contract.md). Make both calls on the parent project: from a child
-# environment, select the parent project first.
+# environment, select the parent project first. Where switch-project is not exposed, connect to the parent
+# project directly (see report-contract.md).
 posthog:switch-project {"projectId": <parent project id>}   # only when the active context is a child environment
 posthog:skill-create {"name": "<scope>-scout", "description": "...", "body": "..."}
 posthog:scout-config-create {"skill_name": "<scope>-scout", "run_interval_minutes": 120, "write_scopes": ["<object>:write"]}
