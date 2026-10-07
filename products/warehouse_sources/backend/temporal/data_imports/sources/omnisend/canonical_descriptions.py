@@ -15,6 +15,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://api-docs.omnisend.com/reference/get-contacts",
         "columns": {
             "contactID": "Unique identifier for the contact.",
+            "id": "Unique identifier for the contact.",
             "email": "The contact's email address.",
             "phone": "The contact's phone number.",
             "firstName": "The contact's first name.",
@@ -32,6 +33,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://api-docs.omnisend.com/reference/get-campaigns",
         "columns": {
             "campaignID": "Unique identifier for the campaign.",
+            "id": "Unique identifier for the campaign.",
             "name": "The campaign's name.",
             "subject": "Subject line of the campaign.",
             "fromName": "Sender name shown to recipients.",
@@ -78,6 +80,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://api-docs.omnisend.com/reference/get-products",
         "columns": {
             "productID": "Unique identifier for the product.",
+            "id": "Unique identifier for the product.",
             "title": "The product's title.",
             "description": "Description of the product.",
             "status": "Status of the product (e.g. active, notAvailable).",
