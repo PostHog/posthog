@@ -484,12 +484,14 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                     tables_resyncing += 1
 
         return Response(
-            {
-                "attached": attached,
-                "skipped": skipped,
-                "tables_resyncing": tables_resyncing,
-                "resync_failures": resync_failures,
-            }
+            AddSourcesResponseSerializer(
+                {
+                    "attached": attached,
+                    "skipped": skipped,
+                    "tables_resyncing": tables_resyncing,
+                    "resync_failures": resync_failures,
+                }
+            ).data
         )
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:

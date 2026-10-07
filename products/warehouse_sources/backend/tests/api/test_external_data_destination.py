@@ -483,8 +483,15 @@ class TestAddSources(DestinationAPITestBase):
         self.schema.table = table
         self.schema.save(update_fields=["table"])
 
-        def access_level(_uac: UserAccessControl, obj: object, *args: object, **kwargs: object) -> str:
-            return "viewer" if obj == table else "editor"
+        original = UserAccessControl.get_user_access_level
+
+        def access_level(uac: UserAccessControl, obj: object, *args: object, **kwargs: object) -> str | None:
+            # Only the source and its table are overridden; the team keeps its real project-level access.
+            if obj == table:
+                return "viewer"
+            if obj == self.source:
+                return "editor"
+            return original(uac, obj, *args, **kwargs)  # type: ignore[arg-type]
 
         with patch.object(UserAccessControl, "get_user_access_level", access_level):
             response = self.client.post(self.url, {"source_ids": [str(self.source.id)]}, format="json")
