@@ -1038,7 +1038,20 @@ class TestRepartitionActivity:
         # all-or-nothing. Landing the settings but keeping the swap marker holds the schema's imports
         # forever; clearing the markers without the cooldown re-flags the table on the very next sync;
         # keeping the operator pin re-applies it on a later reset.
-        schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 4, "partition_count_override": 4})
+        schema = _make_schema(
+            team,
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_count_override": 4,
+                "partition_measurement": {
+                    "job_id": "previous-job",
+                    "phase": "post_load",
+                    "budget": 500,
+                    "healthy": True,
+                },
+            },
+        )
         schema.set_repartition_claim({"token": "live-claim", "job_id": "j1", "claimed_at": _days_ago_iso(0)})
         schema.set_repartition_pending(
             {"partition_mode": "md5", "partition_count": 8, "partition_keys": ["id"], "trigger_reason": "t"}
@@ -1064,6 +1077,7 @@ class TestRepartitionActivity:
         assert schema.repartition_swap is None
         assert schema.repartition_pending is None
         assert schema.repartition_rewrite is None
+        assert schema.partition_measurement is None
         assert schema.last_repartition_at is not None
 
     @pytest.mark.parametrize(

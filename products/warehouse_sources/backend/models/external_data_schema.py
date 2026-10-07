@@ -1785,6 +1785,7 @@ def finalize_repartition_scheme(
             "repartition_swap",
             "repartition_pending",
             "repartition_rewrite",
+            "partition_measurement",
         ):
             config.pop(key, None)
         wrote = True
