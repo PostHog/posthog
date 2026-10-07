@@ -289,11 +289,9 @@ class TestReclaimedBytes:
 class TestExecute:
     def test_full_mode_removes_read_only_go_module_cache(self, tmp_path) -> None:
         worktree = tmp_path / "wt"
-        module = worktree / ".flox" / "cache" / "go" / "pkg" / "mod" / "example.com" / "lib@v1.0.0"
+        module = worktree / "mod" / "lib@v1.0.0"
         module.mkdir(parents=True)
-        source = module / "lib.go"
-        source.write_text("package lib\n")
-        source.chmod(0o444)
+        (module / "lib.go").write_text("package lib\n")
         module.chmod(0o555)
         module.parent.chmod(0o555)
 

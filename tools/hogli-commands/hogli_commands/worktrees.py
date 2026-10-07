@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import os
 import re
-import stat
 import time
 import shutil
 import subprocess
@@ -860,15 +859,12 @@ def _execute(worktrees: list[Worktree], mode: str, repo_root: Path) -> tuple[flo
                 removed += 1
             continue
 
-        reason = ""
         if wt.registered:
-            result = subprocess.run(
+            subprocess.run(
                 ["git", "worktree", "remove", "--force", "--", str(wt.path)],
                 cwd=repo_root,
                 capture_output=True,
-                text=True,
             )
-            reason = result.stderr.strip()
             # git cannot delete read-only directories, so `_rmtree` below removes what it leaves
             # behind. Prune the admin entry that can remain in that case.
             need_prune = True
@@ -878,14 +874,12 @@ def _execute(worktrees: list[Worktree], mode: str, repo_root: Path) -> tuple[flo
         except FileNotFoundError:
             pass
         except OSError as err:
-            reason = str(err)
-
-        if wt.path.exists():
-            click.echo(f"  ⚠️  could not fully remove {_display_path(wt.path)}: {reason}")
+            click.echo(f"  ⚠️  could not fully remove {_display_path(wt.path)}: {err}")
             failed += 1
-        else:
-            removed += 1
-            _cleanup_empty_parent(wt.path)
+            continue
+
+        removed += 1
+        _cleanup_empty_parent(wt.path)
 
     if need_prune:
         subprocess.run(["git", "worktree", "prune"], cwd=repo_root, capture_output=True)
@@ -943,7 +937,7 @@ def _rmtree(path: Path) -> None:
         # A parent outside `path` is not part of the tree, so its permissions stay as they are.
         if isinstance(error, PermissionError) and function in (os.unlink, os.rmdir) and parent.is_relative_to(path):
             try:
-                parent.chmod(parent.stat().st_mode | stat.S_IRWXU)
+                parent.chmod(0o700)
                 function(failed)
                 return
             except OSError:
