@@ -21,6 +21,12 @@ from posthog.temporal.common.errors import NonReportableError
 #   onto the same generic PermissionError (s3fs/errors.py::translate_boto_error), so this message - not
 #   a permission denial - is the only way to tell the two apart. The worker's own clock resyncs and the
 #   identical request succeeds moments later.
+# - "AWS Error UNKNOWN" paired with "No response body" is pyarrow's S3FileSystem (the AWS SDK for
+#   C++) surfacing a 5xx response it can't classify: AWS returns a bare 503/500 with no parseable XML
+#   error body, so the SDK can't tell it apart from a permanent code like AccessDenied and reports
+#   UNKNOWN instead. The underlying status is always a server-side blip, never a client error - S3
+#   always includes a body for 4xx responses - so it clears on retry the same way the named 5xx codes
+#   above do.
 # A retry (of the same idempotent operation) clears these, so they shouldn't be treated the same as a
 # bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
@@ -30,6 +36,7 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "Please reduce your request rate",
     "We encountered an internal error. Please try again.",
     "The difference between the request time and the current time is too large.",
+    "AWS Error UNKNOWN",
 )
 
 
