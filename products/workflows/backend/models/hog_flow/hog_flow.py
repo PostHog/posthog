@@ -76,8 +76,8 @@ BILLABLE_ACTION_TYPES: Final[set[str]] = {
 
 # Action types that send a message to a person. A workflow containing at least one of these is a
 # "messaging" workflow; everything else is an "automation". Keep in sync with the frontend's
-# WorkflowTypeTag (products/workflows/frontend/Workflows/WorkflowsTable.tsx), which renders the
-# same split, and the list API's `type` filter, which queries on it.
+# MESSAGING_ACTION_TYPES (products/workflows/frontend/Workflows/workflowTypeFilters.ts), which the list's
+# type tag and the template type filter use, and the list API's `type` filter, which queries on it.
 MESSAGING_ACTION_TYPES: Final[list[str]] = [
     "function_email",
     "function_sms",
