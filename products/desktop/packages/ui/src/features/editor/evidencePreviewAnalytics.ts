@@ -8,16 +8,21 @@ import {
 import type { EvidenceLinkTarget } from "../../utils/evidenceLinks";
 import { type EvidenceCardData, fetchEvidencePreview } from "./evidencePreview";
 
-// Optional resolution: the quick-ask panel binds no ANALYTICS_TRACKER, and
-// tracking must no-op there, not throw.
+// Optional resolution: where no ANALYTICS_TRACKER is bound, tracking must
+// no-op, not throw.
 function tracker(): AnalyticsTracker | null {
   return resolveServiceOptional<AnalyticsTracker>(ANALYTICS_TRACKER);
 }
 
-export function trackEvidencePreviewShown(kind: string, cached: boolean): void {
+export function trackEvidencePreviewShown(
+  kind: string,
+  cached: boolean,
+  referenceSource: "link" | "tag",
+): void {
   tracker()?.track(ANALYTICS_EVENTS.EVIDENCE_PREVIEW_SHOWN, {
     kind,
     cache: cached ? "hit" : "miss",
+    reference_source: referenceSource,
   });
 }
 

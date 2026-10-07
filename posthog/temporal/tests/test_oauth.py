@@ -21,6 +21,7 @@ from posthog.temporal.oauth import (
     MCP_WRITE_SCOPES,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     RESEARCH_WITHHELD_SCOPES,
+    SCOUT_GRANTABLE_INTERNAL_SCOPES,
     SCOUT_GRANTABLE_WRITE_SCOPES,
     SCOUT_INTERNAL_SCOPES,
     SCOUT_SCOPE_PRESETS,
@@ -52,6 +53,10 @@ class TestResolveScopes(SimpleTestCase):
 
     def test_read_only_is_default(self) -> None:
         assert resolve_scopes() == resolve_scopes("read_only")
+
+    def test_scout_judge_has_no_live_project_or_shared_internal_scopes(self) -> None:
+        assert resolve_scopes("signals_scout_judge") == ["scout_experiment_internal:read"]
+        assert resolve_scopes("signals_scout_judge", include_internal_scopes=False) == []
 
     def test_full_preset(self) -> None:
         result = resolve_scopes("full")
@@ -295,9 +300,9 @@ class TestResolveScopes(SimpleTestCase):
         assert resolve_scopes(decoded) == resolve_scopes(posture)
 
     def test_grantable_write_scopes_are_mcp_write_scopes(self) -> None:
-        # A typo or an internal scope in the allowlist would offer a person a switch that grants
-        # nothing, because the MCP server gates its tools on scopes it advertises.
-        assert SCOUT_GRANTABLE_WRITE_SCOPES <= set(MCP_WRITE_SCOPES)
+        # A typo would offer a person a switch that grants nothing. An internal scope is allowed only
+        # where it is listed as deliberately grantable, since those are minted server-side.
+        assert SCOUT_GRANTABLE_WRITE_SCOPES <= set(MCP_WRITE_SCOPES) | SCOUT_GRANTABLE_INTERNAL_SCOPES
 
     def test_custom_scopes(self) -> None:
         custom = ["feature_flag:read", "feature_flag:write"]
@@ -415,6 +420,18 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "PostHog AI app not found"):
             create_oauth_access_token_for_user(user, team.id, application="posthog_ai")
+
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_withheld_scopes_are_dropped_after_internal_scopes_are_added(self) -> None:
+        self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
+        user, team = self._create_user_and_team()
+
+        token = create_oauth_access_token_for_user(user, team.id, withhold_scopes=["llm_gateway:read"])
+
+        scopes = set(OAuthAccessToken.objects.get(token=token).scope.split())
+        assert "llm_gateway:read" not in scopes
+        assert "internal_run:read" in scopes
+        assert "task:write" in scopes
 
     @override_settings(CLOUD_DEPLOYMENT="DEV")
     def test_built_in_agent_scope_is_added_without_narrowing_scopes(self) -> None:

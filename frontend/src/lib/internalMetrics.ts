@@ -1,13 +1,11 @@
 import posthog from 'posthog-js'
 
-export interface TimeToSeeDataPayload {
+interface TimeToSeeDataFields {
     team_id?: number | null
-    type: 'dashboard_load' | 'insight_load' | 'properties_timeline_load' | 'property_values_load' | 'properties_load'
-    context: 'dashboard' | 'insight' | 'actors_modal' | 'filters'
     time_to_see_data_ms: number
     primary_interaction_id: string
     query_id?: string
-    status?: 'failure' | 'success' | 'cancelled'
+    status?: 'failure' | 'success' | 'cancelled' | 'hidden' | 'no_load'
     api_response_bytes?: number
     api_url?: string
     insight?: string
@@ -19,6 +17,34 @@ export interface TimeToSeeDataPayload {
     // Signifies whether the action was user-initiated or a secondary effect
     is_primary_interaction?: boolean
 }
+
+export interface PageLoadTimeToSeeData extends TimeToSeeDataFields {
+    type: 'page_load'
+    context: string
+    scene: string | null
+    time_since_mount_ms: number
+    failed_tile_count?: number
+    last_tile_id?: string | null
+    last_tile_kind?: string | null
+    last_tile_status?: string | null
+    tiles_still_loading?: number
+    tiles_succeeded?: number
+    tiles_requeried_while_loading?: number
+    tiles_mounted?: number
+    first_tile_ms?: number | null
+    kind_ready_ms?: Record<string, number>
+    visible_ms?: number
+    was_hidden?: boolean
+    visit_id?: string | null
+    cancel_reason?: 'navigated_away' | 'left_app' | 'refreshed'
+}
+
+export type TimeToSeeDataPayload =
+    | (TimeToSeeDataFields & {
+          type: 'dashboard_load' | 'insight_load'
+          context: 'dashboard' | 'insight'
+      })
+    | PageLoadTimeToSeeData
 
 export function currentSessionId(): string | undefined {
     const sessionDetails = posthog.sessionManager?.checkAndGetSessionAndWindowId?.(true)

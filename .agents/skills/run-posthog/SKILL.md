@@ -79,7 +79,7 @@ The full browser-MCP recipe:
    const r = await fetch('/api/setup_test/organization_with_team/', {
      method: 'POST',
      headers: { 'Content-Type': 'application/json' },
-     body: JSON.stringify({ data: { skip_onboarding: true } }),
+     body: JSON.stringify({ skip_onboarding: true, use_current_time: true }),
    })
    const { result } = await r.json()
    // result: { user_email, team_id, personal_api_key, organization_id, ... }
@@ -112,7 +112,7 @@ The frontend uses kea-router. The mapping rule:
 | Edited path                              | Scene URL (under `/project/{team_id}/`)                 |
 | ---------------------------------------- | ------------------------------------------------------- |
 | `frontend/src/scenes/<name>/**`          | usually `/<name>` (e.g. `insights/` → `/insights`)      |
-| `frontend/src/scenes/activity/**`        | `/activity/explore` (and other `ActivityTab`s)          |
+| `frontend/src/scenes/activity/**`        | `/activity/events` (and other `ActivityTab`s)           |
 | `frontend/src/scenes/data-management/**` | `/data-management/<sub>`                                |
 | `frontend/src/scenes/settings/**`        | `/settings/<section>`                                   |
 | `frontend/src/scenes/authentication/**`  | `/login`, `/signup`, `/preflight` (un-scoped)           |

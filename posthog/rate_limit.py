@@ -389,20 +389,6 @@ class LeakedKeyReportThrottle(IPThrottle):
     rate = "10/minute"
 
 
-class VapiWebhookIPThrottle(IPThrottle):
-    """Per-IP cap on the public Vapi webhook endpoint, run by the ingress throttle lane.
-
-    Vapi calls us a small handful of times per interview (status-update + end-of-call-report),
-    but its egress is shared across all of our tenants, so the bucket has to be generous enough
-    that a noisy concurrent interview hour doesn't bleed onto a normal one. 1200/min is well
-    above legitimate aggregate volume while still stopping a persistent attacker from driving
-    HMAC-verification CPU or structured-log volume from a single IP.
-    """
-
-    scope = "user_interviews_vapi_webhook_ip"
-    rate = "1200/minute"
-
-
 class SignupEmailPrecheckThrottle(IPThrottle):
     """
     Rate limit signup email precheck requests by IP.
@@ -458,6 +444,17 @@ class PostHogAIAccessRequestUserThrottle(UserRateThrottle):
 class PostHogAIAccessRequestIPThrottle(IPThrottle):
     scope = "posthog_ai_access_request_ip"
     rate = "1/day"
+
+
+class CodexConnectUserThrottle(UserRateThrottle):
+    scope = "codex_connect_user"
+    rate = "10/hour"
+
+
+# Each internal feedback post lands in a shared Slack channel, so cap it per user.
+class InternalFeedbackUserThrottle(UserRateThrottle):
+    scope = "internal_feedback_user"
+    rate = "60/hour"
 
 
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
@@ -796,6 +793,21 @@ class ReplayVisionSearchSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "300/hour"
 
 
+# Creating an export renders it, and an API-created export holds a web worker while the render
+# runs. The default Burst/Sustained throttles bucket per personal API key and skip session traffic,
+# so a script with several keys, or a burst from the UI, is not capped per project. A person
+# exports one asset per click, so these rates leave room for normal use and scripts while capping
+# a bulk script that starts hundreds of exports at once.
+class ExportCreateBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "export_create_burst"
+    rate = "60/minute"
+
+
+class ExportCreateSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "export_create_sustained"
+    rate = "600/hour"
+
+
 class _AIThrottleBase(UserRateThrottle):
     action_name: str
 
@@ -1095,6 +1107,15 @@ class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     # This protects against accidental loops or scripted abuse while allowing normal usage.
     scope = "llm_prompt_publish_burst"
     rate = "30/minute"
+
+
+class LLMPromptFetchRateThrottle(PersonalApiKeyRateThrottle):
+    # SDK fleets poll prompt fetches on a fixed interval, so the shared sustained budget
+    # (4800/hour) rejects steady polling that the burst budget allows. A per-minute-only
+    # bucket keeps prompt fetches out of the general API budget, mirroring the dedicated
+    # feature_flag_remote_config throttle.
+    scope = "llm_prompt_fetch"
+    rate = "600/minute"
 
 
 class EventValuesBurstThrottle(PersonalApiKeyRateThrottle):
@@ -1759,28 +1780,6 @@ class AlertLLMSimulationDailyThrottle(_AlertLLMSimulationThrottle):
     rate = "200/day"
 
 
-class UserInterviewInviteThrottle(PersonalApiKeyOrUserRateThrottle):
-    # Cap how often a team can fire the user-interview send_invites action.
-    #
-    # The content (subject + intro) and the recipient list are both
-    # user-controlled, so without a limit a member could use the action as a
-    # PostHog-branded spam relay by rotating the topic's interviewee_emails and
-    # re-sending. Idempotency only stops re-sending to the *same*
-    # SharingConfiguration, not sending to fresh addresses.
-    #
-    # Keyed per team (not per personal API key, not per topic) so neither
-    # rotating topics nor minting extra API keys bypasses the limit. Extends
-    # PersonalApiKeyOrUserRateThrottle so every authenticated caller is covered
-    # (PATs, OAuth bearer tokens, and session-cookie UI users alike).
-    scope = "user_interview_invite"
-    rate = "10/minute"
-
-    def get_cache_key(self, request, view):
-        team_id = self.safely_get_team_id_from_view(view)
-        if team_id:
-            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
-
-
 class _OrganizationInviteRateThrottleBase(PersonalApiKeyOrUserRateThrottle):
     # Cap how many organization invites a single organization can create in a
     # given window. A malicious member can otherwise use the invite flow to
@@ -1932,6 +1931,21 @@ class ComposeTicketBurstThrottle(UserRateThrottle):
 
 class ComposeTicketSustainedThrottle(UserRateThrottle):
     scope = "compose_ticket_sustained"
+    rate = "60/hour"
+
+
+class TicketNoteBurstThrottle(UserRateThrottle):
+    """
+    Private notes get their own bucket, so an agent writing notes cannot use up the compose
+    budget that the same user needs for customer replies.
+    """
+
+    scope = "ticket_note_burst"
+    rate = "10/minute"
+
+
+class TicketNoteSustainedThrottle(UserRateThrottle):
+    scope = "ticket_note_sustained"
     rate = "60/hour"
 
 

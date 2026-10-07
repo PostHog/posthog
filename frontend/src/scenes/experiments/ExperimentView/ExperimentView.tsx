@@ -12,6 +12,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
 import { ExperimentMetaBar } from 'products/experiments/frontend/components/ExperimentMetaBar'
+import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
 import { LegacyExperimentView } from 'products/experiments/frontend/legacy'
 import { ExperimentMetricModal } from 'products/experiments/frontend/modals/ExperimentMetricModal/ExperimentMetricModal'
 import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
@@ -52,6 +53,11 @@ const MetricsTab = (): JSX.Element => {
     const hasMetrics = orderedPrimaryMetricsWithResults.length > 0 || orderedSecondaryMetricsWithResults.length > 0
     const showRecalculationStatus = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION] && hasMetrics
 
+    // The condition under which EmptyMetricsPanel renders its "No metrics defined" warning below.
+    const { reportActedOn: reportNoMetricActedOn } = useHealthFindingReporting(
+        !hasMetrics && isExperimentLaunched ? { code: 'no_metric' } : null
+    )
+
     return (
         <>
             <ResultsNotificationBanner />
@@ -68,7 +74,12 @@ const MetricsTab = (): JSX.Element => {
 
             {/* Modern metrics view */}
             {!hasMetrics ? (
-                <EmptyMetricsPanel isLaunched={isExperimentLaunched} />
+                <EmptyMetricsPanel
+                    isLaunched={isExperimentLaunched}
+                    onAddMetric={(metricType) =>
+                        reportNoMetricActedOn(metricType === 'primary' ? 'add_primary_metric' : 'add_secondary_metric')
+                    }
+                />
             ) : (
                 <>
                     <Metrics isSecondary={false} />
@@ -173,6 +184,8 @@ export function ExperimentView(): JSX.Element {
                         // Fall back to the default tab if the active one is conditionally hidden
                         activeKey={tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : DEFAULT_EXPERIMENT_TAB}
                         onChange={(key) => setActiveTabKey(key)}
+                        // Override sceneInset's -mt-4 pull-up so the tabs keep 32px from whatever sits above them
+                        className="mt-4"
                         sceneInset
                         // Keep the tab bar full-width, but cap the content under each tab for readability
                         tabs={tabs.map((tab) =>

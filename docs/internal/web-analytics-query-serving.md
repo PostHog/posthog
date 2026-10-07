@@ -66,6 +66,45 @@ request
 A miss costs one live-path serve; the background warm makes the next identical request a bucket hit.
 The dashboard "enqueues precompute" as a side effect; it never waits on it.
 
+## Marketing search performance
+
+`MarketingAnalyticsSearchQuery` reads synced ad-platform tables through HogQL and the query result cache, independently of the web-event serving tiers above.
+Google Ads requires the `keyword` and `keyword_stats` tables for keywords, and `landing_page_stats` for landing pages; Bing Ads supports keywords through `keyword_performance_report`.
+Google Search Console uses `search_analytics_by_query` or `search_analytics_by_page` for aggregate views, with `search_analytics_by_query_page` as a fallback and for exact query-to-page and page-to-query details.
+The query only selects one GSC table per source, so syncing both aggregate and detailed tables does not multiply metrics.
+The integration and channel filters keep paid and organic rows separate.
+GSC does not report spend or conversions; these values remain null.
+Organic position is weighted by impressions in each period, while CTR uses summed clicks divided by summed impressions.
+Traffic shows position instead of cost for organic-only selections; mixed selections can add position with the Show position checkbox.
+Comparison colors show increases in impressions as positive and increases in cost, CPC, CPA or position as negative.
+Query and page breakdowns can omit low-volume queries and differ from property totals.
+The Search performance section sits below the campaign table in Ad performance, behind `marketing-analytics-organic-keywords` in both dashboards.
+It shares the integration, date and comparison filters with the campaign table.
+The integration filter and Add source menu list Google Search Console separately under Organic search.
+Empty filtered results offer Clear filters; unfiltered views suggest connecting missing Google Ads or Google Search Console sources.
+Connected sources show separate setup messages for disabled tables, tables awaiting a first successful sync, failed or paused syncs, and stale data.
+Search performance excludes a table when its last successful sync is older than twice its configured sync interval.
+The source list includes each table's sync frequency so this check uses the table's schedule.
+An unrecognized sync interval is returned as null, which keeps the source list available and skips the cadence check for that table.
+GSC prefers the dedicated query or page table, then falls back to a ready query-and-page table with a notice that totals can differ.
+If neither table is ready, the source is excluded instead of displaying zero traffic and misleading period comparisons.
+Query and page details use the same readiness checks.
+New Google Ads connections preselect `keyword`, `keyword_stats`, and `landing_page_stats`; Bing Ads preselects `keyword_performance_report`.
+New GSC connections preselect the web query, page, and query-and-page tables; non-web search types remain opt-in.
+These defaults do not change the saved table selection of an existing source.
+Source discovery loads every page of connected integrations before applying the filter.
+The date and comparison controls select the current and comparison periods.
+Organic query and page details retain the selected integration sources.
+Paid keyword and page details use the available GSC sources to find organic results for the same text or URL.
+Cached results are partitioned by warehouse table, view, and source permissions.
+Metrics group targeted keywords by platform, match type and account currency; spend is never added across currencies.
+Conversions retain the ad platform's attribution, while CTR, CPC and CPA use the summed metrics in each period.
+Comparison includes keywords present in either period and applies the top-100 limit after matching the periods.
+The query type tag is `marketing_analytics_search_query`.
+
+Source connection links use `returnLabel=Marketing analytics`, including search setup suggestions and details.
+The `warehouse source connect completed` event records this label after the creation API succeeds, so connections started here can be attributed to Marketing analytics.
+
 ## Per-runner dispatch
 
 ### WebOverviewQuery (`web_overview.py`)
@@ -142,10 +181,15 @@ Four writers keep buckets warm; user reads only ever consume.
 
 | System                                                               | Trigger tag                        | When                  | What it does                                                                                                                                                                              |
 | -------------------------------------------------------------------- | ---------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Eager baseline warmer (Dagster, `eager_web_analytics_precompute.py`) | `webAnalyticsEagerBaselineWarming` | Hourly at :05         | Pre-warms the fixed dashboard matrix (overview, goals, vitals, one stats query per breakdown) over a trailing 28d window for flag-enrolled teams (cap 200, 45-min cycle budget)           |
-| Hourly demand warmer (Dagster, `cache_warming.py`)                   | `webAnalyticsQueryWarming`         | Hourly                | Selects hot shapes from query_log (kind `Web%`, ≥2 hits in 2 days; raw-path shapes keep a ≥10 bar), expands sub-30d ranges to −30d, replays via an 8-worker pool with the opt-in injected |
+| Eager baseline warmer (Dagster, `eager_web_analytics_precompute.py`) | `webAnalyticsEagerBaselineWarming` | Hourly at :53         | Pre-warms the fixed dashboard matrix (overview, goals, vitals, one stats query per breakdown) over a trailing 28d window for flag-enrolled teams (cap 200, 45-min cycle budget)           |
+| Hourly demand warmer (Dagster, `cache_warming.py`)                   | `webAnalyticsQueryWarming`         | Hourly at :03         | Selects hot shapes from query_log (kind `Web%`, ≥2 hits in 2 days; raw-path shapes keep a ≥10 bar), expands sub-30d ranges to −30d, replays via an 8-worker pool with the opt-in injected |
 | Warm-behind on miss                                                  | (background warming request)       | On any user-read miss | Debounced rebuild of exactly the shape that missed; self-heals first-hit misses in ~30–60s                                                                                                |
 | Stale revalidation                                                   | `webAnalyticsStaleRevalidation`    | On stale-grace serves | Refreshes expired buckets after serving the stale copy                                                                                                                                    |
+
+The demand warmer delays each team's first eligible work by a stable offset within ten minutes of its shard starting.
+Manual runs have no release delay.
+Worker capacity can delay a team beyond its release time; the offset is not a completion deadline.
+The eager and demand jobs can still overlap if either pass runs long.
 
 ## Flags and team allowlists
 
@@ -179,3 +223,73 @@ A `*_lazy_query` taking seconds is a bucket-read problem (rare).
 A fast-path or full-join tag on an enrolled team means the lazy gate rejected the query (filters, avg-time-on-page, >90d range, opt-out) or the buckets weren't fresh — in which case a background warm is already in flight and the next identical request should hit.
 
 Conversion goal property filters accept event, person, session and cohort filters. Unsupported filter types fail query validation. `includeTrafficMetrics` also retains session counts for page breakdowns with bounce rate or average time on page, including the join-free strategies.
+
+## Identifying a failed marketing query
+
+Marketing Analytics query errors show a query ID when the request has one.
+Use that ID to find the failed request in the query log.
+Search performance uses the same error banner, including in query and landing-page details.
+The error's query ID takes precedence over the current request ID; a previous successful response is not a source for the error ID.
+Errors outside the query path, such as configuration failures, may have no query ID.
+
+## Campaign breakdown columns
+
+Marketing analytics saves campaign column selection, sorting, and pinned columns in browser storage for each project.
+A fresh visit restores those preferences without saving query results or draft conversion goals.
+Explicit column options in a shared URL take precedence over saved preferences, including links to Ad performance.
+Changing tabs or dashboard filters preserves those column options in the URL.
+Reset to defaults clears the custom selection, sorting, and pins for later visits.
+
+### Conversion recordings
+
+See [Marketing analytics conversion recordings](../../products/marketing_analytics/conversion-recordings.md) for row selection, session attribution, and replay behavior.
+
+## Marketing metric chart
+
+The standalone metric chart receives prepared series, ISO date labels, a selected breakdown key, and callbacks.
+The query-owning caller switches between total and breakdown data and supplies error content, including the failed query ID and retry action.
+Chart clicks select the nearest line and return the raw breakdown identity so selections can match table rows even when display labels differ.
+An empty string is a selectable breakdown key; `null` clears selection.
+Percentage series contain fractions: a value of `0.42` displays as `42.0%` in the axis and tooltip.
+The chart keeps existing data visible while refreshing and replaces it with the supplied error if the refresh fails.
+Storybook covers loading, refreshing, empty results, errors, and a 520 px scene.
+The component does not activate the five-section dashboard or change its queries.
+
+## Marketing analytics suggestion
+
+The Sources table can show a dismissible Marketing analytics suggestion behind `web-analytics-marketing-cross-sell`.
+The gate precedes the query and connection loaders, so disabled users incur no additional requests.
+The Channel and all existing UTM table views (source, medium, campaign, content, term, and combined source/medium/campaign) share the dashboard's Channels data node, including its date range, filters, test-account exclusion, comparison and query cache.
+Channel therefore adds no analytics request; a direct visit to a UTM table may load Channels once through the normal optimized query runner.
+The suggestion requires a recognized paid channel with visitors in the current period.
+Organic source names and comparison-only traffic do not qualify.
+This is positive evidence from the returned top channels, not an exhaustive census: paid traffic below the table limit or under an arbitrary custom channel name may not trigger the suggestion.
+
+Connection metadata loads only after that evidence exists, without mounting the Marketing analytics dashboard or running its report queries.
+An enabled native ad integration or an existing external source mapping leads to Marketing analytics; otherwise the link opens source setup when that interface is enabled, or the existing dashboard onboarding flow.
+Sync health remains the destination's responsibility, so a failed integration does not prompt a duplicate connection.
+These table views share the same copy: Connect ad sources for projects without a connection, or Analyze in Marketing analytics for connected projects.
+Loading and failed metadata requests leave the suggestion hidden.
+The destination keeps the date range; Web analytics property filters are not forwarded because Marketing analytics uses a different filter schema.
+An explicit open end date clears any end date saved during a previous Marketing analytics visit.
+Dismissal persists per project in the browser.
+
+### Cross-sell attribution
+
+`web analytics marketing cross sell clicked` records `cross_sell_id`, `cross_sell_clicked_at` (Unix milliseconds), `team_id`, the table breakdown, and whether ad sources were already connected.
+`web analytics marketing cross sell source created` records the same attribution plus `source_id` and `source_type`, only after the source creation API succeeds.
+The model is the first Advertising source created after the latest click within 24 hours, in the same browser tab, project and identified user.
+Session storage preserves the click across a same-tab OAuth redirect and reload; a successful connection consumes it.
+A failed connection retains it for retry. Non-ad connections and flag-off users do not read or consume it.
+Storage restrictions, switching devices or tabs, and later connections can leave conversions unattributed.
+These events use the existing analytics SDK and add no eligibility queries.
+
+Join the attributed `source_id` to source sync usage and the project's billing customer to estimate its share of billed Data warehouse revenue.
+Use billable usage and actual invoice amounts, including free allowances and adjustments; a created source or a click is not revenue.
+Deduplicate source IDs before allocating revenue and keep acquisition (`has_connected_sources = false`) separate from expansion.
+This is click attribution, not proof of incremental revenue. Measure incrementality with a randomized holdout at the billing-customer level so projects from one customer do not appear in both groups.
+
+## Campaign breakdown display
+
+Campaign breakdown results have a maximum height of 36rem and scroll within the table area.
+The search, grouping, and column controls remain above the scroll area.

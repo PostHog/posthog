@@ -101,10 +101,13 @@ def test_property_schemas_are_not_incremental(name):
 def test_get_schemas_default_on_tables(config):
     schemas = GoogleSearchConsoleSource().get_schemas(config, team_id=1)
     by_default_on = {s.name for s in schemas if s.should_sync_default}
-    # Search analytics tables are opt-in apart from the most useful one; the property metadata
-    # tables are one cheap request each per sync, so they stay on. Picking an extra search type
-    # must never switch one on, since each table costs a full history backfill.
-    assert by_default_on == {"search_analytics_by_query_page", *PROPERTY_SCHEMAS.keys()}
+    # Extra search types stay opt-in because each table needs its own full history backfill.
+    assert by_default_on == {
+        "search_analytics_by_query",
+        "search_analytics_by_page",
+        "search_analytics_by_query_page",
+        *PROPERTY_SCHEMAS.keys(),
+    }
 
 
 @pytest.mark.parametrize(
@@ -271,6 +274,26 @@ def test_get_oauth_accounts_reports_why_the_property_list_failed(body, expected_
         GoogleSearchConsoleSource().get_oauth_accounts(integration_id=1, team_id=1)
 
     assert expected_substring in str(raised.value)
+
+
+def test_get_oauth_accounts_names_a_next_step_when_the_account_owns_no_property():
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+        IntegrationAccountListingError,
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+            return_value=[],
+        ),
+        pytest.raises(IntegrationAccountListingError) as raised,
+    ):
+        GoogleSearchConsoleSource().get_oauth_accounts(integration_id=1, team_id=1)
+
+    assert "can't read any Search Console property" in str(raised.value)
 
 
 def test_validate_credentials_missing_integration_returns_reconnect_message():

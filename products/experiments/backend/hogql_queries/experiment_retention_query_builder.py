@@ -1,7 +1,5 @@
 from typing import TYPE_CHECKING, Optional
 
-from django.utils import timezone
-
 from posthog.schema import (
     ActionsNode,
     EventsNode,
@@ -22,6 +20,8 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     data_warehouse_node_to_filter,
     event_or_action_to_filter,
 )
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
+from products.experiments.backend.hogql_queries.experiment_query_context import MaturityGate
 
 if TYPE_CHECKING:
     from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder
@@ -31,23 +31,30 @@ class RetentionQueryBuilder:
     """
     Builds retention-metric queries.
 
-    Retention reuses the shared exposure and conversion-window helpers already
-    extracted from the experiment query builder, but has its own maturity
-    semantics anchored on the start_event. To keep the move behavior-preserving,
-    this class holds a reference to the owning ``ExperimentQueryBuilder`` and
-    reaches through it for shared state (the metric, team, date range, entity
-    key, breakdown injector) and the cross-cluster exposure and
-    conversion-window helpers.
+    Retention shares the exposure and conversion-window helpers with the other
+    metric types, but anchors maturity on the start_event. The class holds a
+    reference to the owning ``ExperimentQueryBuilder`` and reads shared state
+    (metric, team, date range, entity key, breakdown injector) and helpers
+    through it.
     """
 
-    def __init__(self, builder: "ExperimentQueryBuilder"):
+    def __init__(
+        self,
+        builder: "ExperimentQueryBuilder",
+        exposure: ExposureQueryBuilder,
+        *,
+        maturity: MaturityGate | None = None,
+        metric_events_job_ids: list[str] | None = None,
+    ):
         self._b = builder
+        self._exposure = exposure
+        self._maturity = maturity
+        self._metric_events_job_ids = metric_events_job_ids
 
     def get_retention_maturity_seconds(self) -> int:
         """
-        Returns the maturity window in seconds for retention metrics.
-        Equals retention_window_end converted to seconds; conversion_window does
-        not contribute because retention maturity is anchored on start_event.
+        Retention maturity is anchored on start_event, so conversion_window does
+        not contribute. Only retention_window_end counts.
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
         return conversion_window_to_seconds(
@@ -60,8 +67,8 @@ class RetentionQueryBuilder:
         How far past the experiment end date the metric-events scan must extend.
         A completion event can land up to retention_window_end after a start event
         that itself lands up to conversion_window after the last exposure, so the
-        extension is the sum — unlike funnel/mean, where the conversion window alone
-        bounds it.
+        extension is the sum of both. For funnel and mean metrics, the conversion
+        window alone bounds it.
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
         return self._b._get_conversion_window_seconds() + conversion_window_to_seconds(
@@ -73,7 +80,7 @@ class RetentionQueryBuilder:
         """
         Returns the SELECT query that the lazy computation system wraps in an
         INSERT INTO experiment_metric_events_preaggregated. This is the write
-        path — it stores one row per event matching the start predicate or the
+        path. It stores one row per event matching the start predicate or the
         completion predicate, flagged via the steps array (steps[1] = matched
         start_event, steps[2] = matched completion_event; an event can match
         both). Start anchoring (FIRST_SEEN/LAST_SEEN), the per-user retention
@@ -84,13 +91,10 @@ class RetentionQueryBuilder:
         by the lazy computation system for each daily bucket. The experiment date
         bounds must stay named placeholders (the caller declares experiment_date_to
         a sentinel) rather than reusing the direct-scan predicates, which bake the
-        resolved dates into the AST — a running experiment's moving window end
-        would then change the job hash and defeat cache reuse. The window extension
-        stays a placeholder too, but as a hashed constant: it derives from
+        resolved dates into the AST. The window end of a running experiment moves,
+        so baked dates would change the job hash and defeat cache reuse. The window
+        extension stays a placeholder too, but as a hashed constant: it derives from
         retention_window_end, so changing the window must invalidate jobs.
-
-        Returns:
-            Tuple of (query_string, placeholders_dict)
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
         start_event = self._b.metric.start_event
@@ -136,21 +140,12 @@ class RetentionQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
-        if not self._b.only_count_matured_users:
+        if self._maturity is None:
             return ast.Constant(value=True)
-
-        maturity_seconds = self.get_retention_maturity_seconds()
-        if maturity_seconds == 0:
-            return ast.Constant(value=True)
-
-        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
-        return parse_expr(
-            "exposures.first_exposure_time + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
-            placeholders={
-                "maturity_seconds": ast.Constant(value=maturity_seconds),
-                "now": ast.Constant(value=now),
-            },
+        condition = self._maturity.condition(
+            parse_expr("exposures.first_exposure_time"), self.get_retention_maturity_seconds()
         )
+        return condition if condition is not None else ast.Constant(value=True)
 
     def build_retention_maturity_having_clause(self) -> Optional[ast.Expr]:
         """
@@ -163,29 +158,12 @@ class RetentionQueryBuilder:
         """
         if not isinstance(self._b.metric, ExperimentRetentionMetric):
             return None
-        if not self._b.only_count_matured_users:
+        if self._maturity is None:
             return None
-
-        maturity_seconds = self.get_retention_maturity_seconds()
-        if maturity_seconds == 0:
-            return None
-
-        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
-        start_timestamp_expr = self.build_start_event_timestamp_expr()
-
-        return parse_expr(
-            "{start_ts} + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
-            placeholders={
-                "start_ts": start_timestamp_expr,
-                "maturity_seconds": ast.Constant(value=maturity_seconds),
-                "now": ast.Constant(value=now),
-            },
-        )
+        return self._maturity.condition(self.build_start_event_timestamp_expr(), self.get_retention_maturity_seconds())
 
     def build_retention_query(self) -> ast.SelectQuery:
         """
-        Builds query for retention metrics.
-
         Retention measures the proportion of users who performed a "completion event"
         within a specified time window after performing a "start event".
 
@@ -198,12 +176,10 @@ class RetentionQueryBuilder:
         have a random denominator (count of users who started). This makes retention a
         ratio of two random variables, requiring delta method variance.
 
-        Returns 7 fields for RatioStatistic:
+        Returns 7 fields for RatioStatistic, which both the frequentist and the
+        Bayesian analysis use:
         - Standard: num_users, total_sum, total_sum_of_squares
         - Ratio-specific: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
-
-        The collected statistics are processed using RatioStatistic (not ProportionStatistic)
-        for both frequentist and Bayesian analysis.
 
         Structure:
         - exposures: all exposures with variant assignment
@@ -221,13 +197,13 @@ class RetentionQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
-        if self._b.metric_events_preaggregation_job_ids:
+        if self._metric_events_job_ids:
             # Read start/completion events from the precomputed table instead of scanning
             # events; the event predicates were applied at build time and survive as the
             # steps flags (steps[1] = matched start_event, steps[2] = matched completion_event).
-            # Time bounds must mirror the direct-scan predicates exactly — jobs can cover
-            # broader ranges than the experiment for cache reusability — so start events are
-            # bounded by the exposure window + conversion window and completions additionally
+            # Time bounds must mirror the direct-scan predicates exactly, because jobs can
+            # cover broader ranges than the experiment for cache reuse. Start events are
+            # bounded by the exposure window + conversion window, and completions additionally
             # by retention_window_end. Everything downstream (start anchoring, window
             # arithmetic, maturity, same-event exclusion) is read-time and stays unchanged.
             # No dedup of replayed build rows is needed: min/max/argMin/argMax and the
@@ -294,7 +270,6 @@ class RetentionQueryBuilder:
                 GROUP BY exposures.entity_id
             )"""
 
-        # Build the CTEs
         common_ctes = (
             f"""
             exposures AS (
@@ -337,7 +312,7 @@ class RetentionQueryBuilder:
         )
 
         placeholders = {
-            "exposure_select_query": self._b._get_exposure_query(),
+            "exposure_select_query": self._exposure.select_query(),
             "entity_key": parse_expr(self._b.entity_key),
             "completion_event_predicate": self.build_completion_event_predicate(),
             "retention_window_start_interval": self.build_retention_window_interval(
@@ -361,8 +336,8 @@ class RetentionQueryBuilder:
             placeholders["start_event_predicate"] = self.build_start_event_predicate()
             placeholders["start_after_exposure_predicate"] = self.build_start_after_exposure_predicate()
 
-        if self._b.metric_events_preaggregation_job_ids:
-            placeholders["metric_events_job_ids"] = ast.Constant(value=self._b.metric_events_preaggregation_job_ids)
+        if self._metric_events_job_ids:
+            placeholders["metric_events_job_ids"] = ast.Constant(value=self._metric_events_job_ids)
             placeholders["metric_events_team_id"] = ast.Constant(value=self._b.team.id)
             placeholders["metric_events_date_from"] = self._b.date_range_query.date_from_as_hogql()
             placeholders["metric_events_date_to"] = self._b.date_range_query.date_to_as_hogql()
@@ -412,18 +387,12 @@ class RetentionQueryBuilder:
                 else:
                     start_events_cte.expr.having = ast.And(exprs=[start_events_cte.expr.having, retention_maturity])
 
-        # Inject breakdown columns if breakdown filter is present
         if self._b.breakdown_injector:
             self._b.breakdown_injector.inject_retention_breakdown_columns(query)
 
         return query
 
     def build_start_event_timestamp_expr(self) -> ast.Expr:
-        """
-        Returns expression to get start event timestamp based on start_handling.
-        FIRST_SEEN: Use the first occurrence of start event
-        LAST_SEEN: Use the last occurrence of start event
-        """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
         if self._b.metric.start_handling == StartHandling.FIRST_SEEN:
@@ -446,18 +415,12 @@ class RetentionQueryBuilder:
 
     def get_retention_window_truncation_expr(self, timestamp_expr: ast.Expr) -> ast.Expr:
         """
-        Returns truncated timestamp expression for retention window comparisons.
-
-        For DAY: returns toStartOfDay(timestamp)
-        For HOUR: returns toStartOfHour(timestamp)
-        For other units: returns timestamp unchanged
-
-        This ensures [7,7] day window means "any time on day 7" rather than
-        "exactly 7*24 hours after start event to the second".
+        Truncates DAY and HOUR windows to the start of the interval, so a [7, 7]
+        day window means "any time on day 7" rather than exactly 7*24 hours after
+        the start event. Other units compare exact timestamps.
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
-        # Only truncate DAY and HOUR units for intuitive behavior
         unit_to_interval_name = {
             FunnelConversionWindowTimeUnit.DAY: "day",
             FunnelConversionWindowTimeUnit.HOUR: "hour",
@@ -470,9 +433,6 @@ class RetentionQueryBuilder:
         return get_start_of_interval_hogql(interval=interval_name, team=self._b.team, source=timestamp_expr)
 
     def build_retention_window_interval(self, window_value: int) -> ast.Expr:
-        """
-        Converts retention window value to ClickHouse interval expression.
-        """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
         unit_map = {
@@ -490,9 +450,6 @@ class RetentionQueryBuilder:
         )
 
     def build_start_event_predicate(self) -> ast.Expr:
-        """
-        Builds the predicate for filtering start events.
-        """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
         start_event = self._b.metric.start_event
@@ -521,9 +478,6 @@ class RetentionQueryBuilder:
         )
 
     def build_completion_event_predicate(self) -> ast.Expr:
-        """
-        Builds the predicate for filtering completion events.
-        """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
         if isinstance(self._b.metric.completion_event, ExperimentDataWarehouseNode):
@@ -531,8 +485,8 @@ class RetentionQueryBuilder:
         else:
             event_filter = event_or_action_to_filter(self._b.team, self._b.metric.completion_event)
 
-        # Completion events can occur within the retention window after the start event
-        # The retention window end could extend beyond the experiment end date
+        # A start event can land up to conversion_window after date_to, and its
+        # completion up to retention_window_end after that, so the scan extends by both.
         conversion_window_seconds = self._b._get_conversion_window_seconds()
         retention_window_end_seconds = conversion_window_to_seconds(
             self._b.metric.retention_window_end,
@@ -555,9 +509,8 @@ class RetentionQueryBuilder:
 
     def build_start_after_exposure_predicate(self) -> ast.Expr:
         """
-        Builds the predicate for filtering start events to only those after exposure.
-        Applied inside the start_events CTE (pre-aggregation) so that min/max only
-        considers events after the user's first exposure.
+        Applied inside the start_events CTE, before aggregation, so that min/max
+        only considers start events after the user's first exposure.
         """
         conversion_window_seconds = self._b._get_conversion_window_seconds()
         if conversion_window_seconds > 0:
@@ -575,15 +528,13 @@ class RetentionQueryBuilder:
 
     def build_completion_retention_window_predicate(self) -> ast.Expr:
         """
-        Builds the predicate for the join condition ensuring completion events
-        are within a reasonable timeframe relative to start events.
+        Coarse join condition that limits which completion events join to each
+        start event. It is only a performance filter, because entity_metrics
+        applies the exact retention window.
 
-        This is a performance optimization - we'll do the exact retention window
-        calculation in the entity_metrics CTE.
-
-        For DAY/HOUR units that use timestamp truncation, we add a buffer to account
-        for the truncation window. This ensures that same-period retention (e.g., [0,0])
-        captures all events within that period, not just events at the exact same second.
+        DAY and HOUR windows compare truncated timestamps, so the bound adds one
+        unit of buffer. Without it, a same-period window such as [0, 0] would miss
+        completions later in the same day or hour.
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
@@ -592,17 +543,12 @@ class RetentionQueryBuilder:
             self._b.metric.retention_window_unit,
         )
 
-        # For DAY/HOUR units, add a buffer to account for truncation
-        # This ensures same-period retention windows work correctly
         truncation_buffer = 0
         if self._b.metric.retention_window_unit == FunnelConversionWindowTimeUnit.DAY:
-            # For DAY units, allow completions within the same day (24 hours)
             truncation_buffer = 86400  # 1 day in seconds
         elif self._b.metric.retention_window_unit == FunnelConversionWindowTimeUnit.HOUR:
-            # For HOUR units, allow completions within the same hour
             truncation_buffer = 3600  # 1 hour in seconds
 
-        # Add buffer to retention window end
         buffered_window_end_seconds = retention_window_end_seconds + truncation_buffer
 
         return parse_expr(

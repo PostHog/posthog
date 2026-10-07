@@ -1,15 +1,14 @@
 //! Multipart upload for large data files.
 //!
-//! `RecordBatchWriter::flush()` uploads each finished Parquet file through
-//! `ObjectStore::put` -- a single PUT (~`target_file_size` bytes, 100 MB by default).
+//! The partition writer (`crate::writer`, like delta-rs's `RecordBatchWriter`)
+//! uploads each finished Parquet file through `ObjectStore::put` -- a single PUT (~`target_file_size` bytes, 100 MB by default).
 //! On real S3 that serialises the whole file on one connection and re-uploads
 //! everything on a connection reset; measured under injected per-request latency it
 //! cost deltalite ~4x more wall-clock than MERGE. delta-rs's own DataFusion writer
 //! uses ~5 MB multipart parts for the same reason.
 //!
-//! The writer offers no hook to change this, but the store it writes through does:
-//! `RecordBatchWriter::for_table` takes `table.object_store()`, which comes from the
-//! table's `LogStore`. [`MultipartPutStore`] wraps an object store so that plain
+//! The writer uploads through `table.object_store()`, which comes from the table's
+//! `LogStore`. [`MultipartPutStore`] wraps an object store so that plain
 //! overwrite `put`s above a size threshold become multipart uploads, and
 //! [`MultipartLogStore`] wraps a log store to hand that store to the writer.
 //!
@@ -221,7 +220,7 @@ impl ObjectStore for MultipartPutStore {
 }
 
 /// A [`LogStore`] wrapper whose `object_store()` returns a [`MultipartPutStore`] over
-/// the inner store, so data files written by `RecordBatchWriter` (and read by the
+/// the inner store, so data files written by the partition writer (and read by the
 /// probe/rewrite) go through the multipart-aware store while commit-entry writes stay
 /// on the inner log store's own path.
 pub struct MultipartLogStore {

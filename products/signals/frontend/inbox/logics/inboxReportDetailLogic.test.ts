@@ -7,10 +7,12 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { ReportTaskPurpose } from '../components/detail/artefactTypes'
 import { INBOX_EVENTS } from '../inboxAnalytics'
-import { SignalReport } from '../types'
+import { inboxSceneLogic } from '../inboxSceneLogic'
+import { EnrichedReviewer, SignalReport } from '../types'
 import { ReportTaskEntry, implementationSlotClaim, inboxReportDetailLogic } from './inboxReportDetailLogic'
 
 const REPORT = { id: 'report-1', status: 'ready', title: 'Checkout errors spiked' } as unknown as SignalReport
@@ -24,6 +26,135 @@ const linkedTask = (purpose: ReportTaskPurpose, status: TaskRunStatus | null, pr
     }) as unknown as ReportTaskEntry
 
 describe('inboxReportDetailLogic', () => {
+    describe('check approval', () => {
+        const openCheck = {
+            id: 'check-1',
+            status: 'pending',
+            approved_at: null,
+            next_run_at: '2026-10-13T00:00:00Z',
+        } as SignalReportCheckApi
+        let logic: ReturnType<typeof inboxReportDetailLogic.build>
+
+        beforeEach(async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
+                    '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                    '/api/projects/:team_id/signals/reports/:id/checks/': { results: [openCheck] },
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                },
+                post: {
+                    '/api/projects/:team_id/signals/reports/:id/checks/:check_id/approve/': {
+                        ...openCheck,
+                        approved_at: '2026-09-30T00:00:00Z',
+                    },
+                },
+            })
+            initKeaTests()
+            logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('updates only the approved row and clears its loading state', async () => {
+            logic.actions.approveReportCheck(openCheck.id)
+            expect(logic.values.approvingCheckIds).toContain(openCheck.id)
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.approvingCheckIds).toEqual([])
+            expect(logic.values.reportChecks?.[0].approved_at).toBe('2026-09-30T00:00:00Z')
+            expect(logic.values.reportChecks?.[0].next_run_at).toBe(openCheck.next_run_at)
+        })
+    })
+
+    describe('reviewer updates', () => {
+        const reviewer: EnrichedReviewer = {
+            github_login: 'example-reviewer',
+            github_name: 'Example Reviewer',
+            relevant_commits: [],
+            user: null,
+        }
+        const artefact = {
+            id: 'reviewers-1',
+            type: 'suggested_reviewers',
+            content: [reviewer],
+            created_at: '2026-01-01T00:00:00Z',
+        }
+        let logic: ReturnType<typeof inboxReportDetailLogic.build>
+
+        beforeEach(async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [artefact] },
+                    '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                },
+                put: {
+                    '/api/projects/:team_id/signals/reports/:id/reviewers/': { ...artefact, content: [] },
+                },
+            })
+            initKeaTests()
+            logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        it('keeps a removed reviewer hidden until the refreshed list arrives', async () => {
+            let releaseRefresh: () => void = () => {}
+            const heldRefresh = new Promise<void>((resolve) => {
+                releaseRefresh = resolve
+            })
+            let refreshStarted = false
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': async () => {
+                        refreshStarted = true
+                        await heldRefresh
+                        return { results: [{ ...artefact, content: [] }] }
+                    },
+                },
+            })
+
+            expect(logic.values.displayReviewers).toEqual([reviewer])
+            logic.actions.updateReviewers([], [])
+            expect(logic.values.displayReviewers).toEqual([])
+
+            try {
+                await waitFor(() => expect(refreshStarted).toBe(true))
+                expect(logic.values.displayReviewers).toEqual([])
+                expect(logic.values.isUpdatingReviewers).toBe(true)
+            } finally {
+                releaseRefresh()
+                await expectLogic(logic).toFinishAllListeners()
+            }
+
+            expect(logic.values.displayReviewers).toEqual([])
+            expect(logic.values.isUpdatingReviewers).toBe(false)
+        })
+
+        it('restores the reviewer and allows another edit when saving fails', async () => {
+            useMocks({
+                put: {
+                    '/api/projects/:team_id/signals/reports/:id/reviewers/': [500, { detail: 'Save failed' }],
+                },
+            })
+
+            logic.actions.updateReviewers([], [])
+            expect(logic.values.displayReviewers).toEqual([])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.displayReviewers).toEqual([reviewer])
+            expect(logic.values.isUpdatingReviewers).toBe(false)
+        })
+    })
+
     describe('implementationSlotClaim', () => {
         // The claim has to match `_implementation_slot_claim` server-side, or the Create PR action
         // greys out on a report the server would accept. The `completed` rows are the ones that
@@ -494,6 +625,88 @@ describe('inboxReportDetailLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(artefactRequests).toBe(beforeKickoff + 1)
+        })
+
+        it.each([REPORT.id, 'another-report'])(
+            'reloads checks and only the selected report %s when a task settles',
+            async (selectedReportId) => {
+                await expectLogic(logic).toFinishAllListeners()
+                const reloadReport = jest.fn()
+                const sceneSpy = jest.spyOn(inboxSceneLogic, 'findMounted').mockReturnValue({
+                    values: { selectedReportId },
+                    actions: { loadSelectedReport: reloadReport },
+                } as unknown as ReturnType<typeof inboxSceneLogic.build>)
+                const replacement = {
+                    id: 'revised-check',
+                    status: 'pending',
+                    approved_at: null,
+                } as SignalReportCheckApi
+                let checkRequests = 0
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/signals/reports/:id/checks/': () => {
+                            checkRequests++
+                            return [200, { results: [replacement] }]
+                        },
+                    },
+                })
+                logic.actions.loadReportTasksSuccess([linkedTask('other', TaskRunStatus.IN_PROGRESS)])
+                await expectLogic(logic).toFinishAllListeners()
+                expect(checkRequests).toBe(0)
+                logic.actions.loadReportTasksSuccess([linkedTask('other', TaskRunStatus.COMPLETED)])
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.shouldPollReportTasks).toBe(false)
+                expect(logic.values.reportChecks).toEqual([replacement])
+                expect(checkRequests).toBe(1)
+                expect(reloadReport).toHaveBeenCalledTimes(selectedReportId === REPORT.id ? 1 : 0)
+                if (selectedReportId === REPORT.id) {
+                    expect(reloadReport).toHaveBeenCalledWith({ id: REPORT.id })
+                }
+                logic.actions.loadReportTasksSuccess([linkedTask('other', TaskRunStatus.COMPLETED)])
+                await expectLogic(logic).toFinishAllListeners()
+                expect(checkRequests).toBe(1)
+                expect(reloadReport).toHaveBeenCalledTimes(selectedReportId === REPORT.id ? 1 : 0)
+                sceneSpy.mockRestore()
+            }
+        )
+
+        it('keeps a newer check mutation when an earlier list request returns', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const old = {
+                id: 'check-1',
+                status: 'active',
+                approved_at: null,
+                updated_at: '2026-09-29T00:00:00Z',
+            } as SignalReportCheckApi
+            const approved = { ...old, approved_at: '2026-09-30T00:00:00Z', updated_at: '2026-09-30T00:00:00Z' }
+            let releaseResponse!: () => void
+            const responseReady = new Promise<void>((resolve) => {
+                releaseResponse = resolve
+            })
+            let requestStarted!: () => void
+            const requested = new Promise<void>((resolve) => {
+                requestStarted = resolve
+            })
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/signals/reports/:id/checks/:check_id/approve/': [200, approved],
+                },
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/checks/': async () => {
+                        requestStarted()
+                        await responseReady
+                        return [200, { results: [old] }]
+                    },
+                },
+            })
+            logic.actions.loadReportChecksSuccess([old])
+            logic.actions.loadReportChecks()
+            await requested
+            await logic.asyncActions.approveReportCheck(old.id)
+            releaseResponse()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.reportChecksError).toBeNull()
+            expect(logic.values.reportChecks).toEqual([approved])
         })
     })
 })

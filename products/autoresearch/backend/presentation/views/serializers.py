@@ -47,6 +47,10 @@ AGENT_DESCRIPTION_MAX_LENGTH = 2000
 OBJECT_JSON_MAX_BYTES = 64 * 1024
 MODEL_SPEC_MAX_BYTES = 4 * 1024
 OUTPUT_PERSON_PROPERTY_MAX_LENGTH = 255
+MAX_TOP_FEATURES = api.MAX_TOP_FEATURES
+FEATURE_DIRECTION_CHOICES = api.FEATURE_DIRECTION_CHOICES
+FEATURE_NAME_MAX_LENGTH = 200
+EXPLANATION_TEXT_MAX_LENGTH = 500
 
 # The target event is interpolated into the sandboxed training agent's prompt brief, so reject
 # characters that could break out of it (control chars incl. newlines, backticks, template braces)
@@ -80,9 +84,13 @@ def validate_event_target(target_event: str, *, error_key: str) -> None:
     _validate_target_event_value(target_event, error_key=error_key)
 
 
-def _require_action_scope(request: Request | None) -> None:
+def has_action_scope(request: Request | None) -> bool:
     scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
-    if scopes is not None and not any(scope in scopes for scope in _ACTION_READ_SCOPES):
+    return scopes is None or any(scope in scopes for scope in _ACTION_READ_SCOPES)
+
+
+def require_action_scope(request: Request | None) -> None:
+    if not has_action_scope(request):
         raise serializers.ValidationError({"target_definition": "An action target needs the action:read scope."})
 
 
@@ -124,7 +132,7 @@ def resolve_target(
             raise serializers.ValidationError(
                 {"target_definition": "Action target requires a positive integer 'action_id'."}
             )
-        _require_action_scope(request)
+        require_action_scope(request)
         try:
             action_name, action_id = api.resolve_action_target(team.project_id, action_id)
         except (api.PipelineNotFound, api.InvalidTarget) as exc:
@@ -343,18 +351,61 @@ class ModelRecipeField(serializers.JSONField):
     pass
 
 
-@extend_schema_field(
-    {
-        "type": "object",
-        "description": (
-            "Global feature importance bundle: top features by gain, directionality "
-            "(positive/negative impact on predicted probability), stability across runs, "
-            "and leakage warning annotations."
-        ),
-    }
-)
-class ModelExplanationField(ObjectJSONField):
-    pass
+class FeatureImportanceSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=FEATURE_NAME_MAX_LENGTH,
+        help_text="Feature column name, as returned by the feature SQL.",
+    )
+    importance = serializers.FloatField(
+        min_value=0,
+        help_text="Non-negative importance, for example the mean holdout AUC drop when the feature is shuffled.",
+    )
+    direction = serializers.ChoiceField(
+        choices=FEATURE_DIRECTION_CHOICES,
+        help_text="'positive' if a higher value raises the predicted probability, 'negative' if it lowers it.",
+    )
+
+    def validate_importance(self, value: float) -> float:
+        if not math.isfinite(value):
+            raise serializers.ValidationError("Must be a finite number.")
+        return value
+
+
+class ModelExplanationField(serializers.Serializer):
+    """Global feature importances for the model card."""
+
+    top_features = serializers.ListField(
+        child=FeatureImportanceSerializer(),
+        max_length=MAX_TOP_FEATURES,
+        required=False,
+        default=list,
+        help_text=f"At most {MAX_TOP_FEATURES} features, strongest first.",
+    )
+    method = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=EXPLANATION_TEXT_MAX_LENGTH,
+        help_text="Short description of how the importances were computed, e.g. 'permutation importance on holdout'.",
+    )
+    note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=EXPLANATION_TEXT_MAX_LENGTH,
+        help_text="Optional caveat shown under the chart.",
+    )
+
+    def to_internal_value(self, data: Any) -> Any:
+        # DRF drops unknown keys, so an older list key would otherwise store an empty explanation and return 200.
+        if isinstance(data, dict) and "top_features" not in data:
+            legacy_key = next((key for key in ("features", "feature_importances") if key in data), None)
+            if legacy_key is not None:
+                raise serializers.ValidationError(
+                    {"top_features": [f"Send the features as 'top_features', not '{legacy_key}'."]}
+                )
+        return super().to_internal_value(data)
+
+    def validate_top_features(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return sorted((dict(f) for f in value), key=lambda f: f["importance"], reverse=True)
 
 
 @extend_schema_field(
@@ -650,14 +701,7 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
 
     # Fields a trained model was fit against. Once any model exists they are frozen: scoring keeps
     # loading the trained artifact, so changing them would silently answer a different question.
-    MODEL_DEFINING_FIELDS = (
-        "target_event",
-        "target_definition",
-        "horizon_days",
-        "training_lookback_days",
-        "training_population",
-        "inference_population",
-    )
+    MODEL_DEFINING_FIELDS = api.MODEL_DEFINING_FIELDS
 
     @property
     def _pipeline_id(self) -> Any:
@@ -837,6 +881,13 @@ class AutoresearchModelSerializer(DataclassSerializer):
     )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
+    in_shadow_set = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True if this model is in the pipeline's shadow set: the champion, the previous champion, "
+            "and up to 3 recent fitted challengers with distinct recipes."
+        ),
+    )
 
     class Meta:
         dataclass = Model
@@ -860,6 +911,7 @@ class AutoresearchModelSerializer(DataclassSerializer):
             "archived_at",
             "created_at",
             "updated_at",
+            "in_shadow_set",
         ]
 
 
@@ -895,6 +947,12 @@ class TrainingRunSummarySerializer(serializers.Serializer):
     )
     distillation = serializers.CharField(
         allow_blank=True, help_text="Agent's 1–2 sentence distillation of what this run learned. Empty if not provided."
+    )
+    report_notebook_short_id = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        help_text="Short id of the report notebook the agent built for this run. Empty if there is none.",
     )
 
 
@@ -1122,6 +1180,104 @@ class TrainingRunHistorySerializer(serializers.Serializer):
     )
 
 
+class OnlinePerformanceQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=api.ONLINE_PERFORMANCE_DATES_DEFAULT,
+        min_value=1,
+        max_value=api.ONLINE_PERFORMANCE_DATES_MAX,
+        help_text=(
+            f"Maximum number of validated prediction dates to return, newest first "
+            f"(default {api.ONLINE_PERFORMANCE_DATES_DEFAULT}, at most {api.ONLINE_PERFORMANCE_DATES_MAX}). "
+            "Each date returns one row per model that emitted predictions on it."
+        ),
+    )
+
+
+class CalibrationBinSerializer(serializers.Serializer):
+    n = serializers.IntegerField(help_text="Number of scored users in this bin.")
+    mean_p_y = serializers.FloatField(help_text="Mean predicted probability of the users in this bin.")
+    positive_rate = serializers.FloatField(
+        help_text="Fraction of the users in this bin who did the target event within the horizon."
+    )
+
+
+class OnlinePerformanceRowSerializer(serializers.Serializer):
+    validation_run_id = serializers.UUIDField(help_text="UUID of the validation run that recorded these metrics.")
+    prediction_date = serializers.DateField(help_text="Date the predictions were made for (UTC).")
+    horizon_days = serializers.IntegerField(help_text="Prediction horizon, in days, the predictions were made under.")
+    weekday = serializers.IntegerField(
+        help_text="ISO weekday of the prediction date: 1 is Monday and 7 is Sunday. Use it to find weekday effects."
+    )
+    model_id = serializers.UUIDField(help_text="UUID of the model that emitted the predictions.")
+    emitted_role = serializers.CharField(
+        help_text="Role the model had when it emitted the predictions: 'champion' or 'challenger'."
+    )
+    current_role = serializers.CharField(
+        help_text=(
+            "Role the model has now: 'champion', 'challenger', 'archived', or 'deleted'. "
+            "A former champion that a promotion archived keeps its rows."
+        )
+    )
+    n_scored = serializers.IntegerField(help_text="Number of users the model scored on this date.")
+    n_positive = serializers.IntegerField(help_text="Number of scored users who did the target event in the horizon.")
+    base_rate = serializers.FloatField(
+        help_text="Fraction of scored users who did the target event (n_positive / n_scored)."
+    )
+    mean_p_y = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Mean predicted probability. Compare it with base_rate: a higher value means the model "
+            "over-predicts. Null for dates validated before this metric existed."
+        ),
+    )
+    realized_auc = serializers.FloatField(
+        allow_null=True, help_text="Realized ROC AUC against actual outcomes. Null when the date has one class only."
+    )
+    realized_auc_ci_low = serializers.FloatField(
+        allow_null=True,
+        help_text="Lower bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.",
+    )
+    realized_auc_ci_high = serializers.FloatField(
+        allow_null=True,
+        help_text="Upper bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.",
+    )
+    brier_score = serializers.FloatField(allow_null=True, help_text="Brier score. Lower is better.")
+    calibration_error = serializers.FloatField(
+        allow_null=True, help_text="Expected calibration error over 10 equal-width bins. Lower is better."
+    )
+    lift_at_10 = serializers.FloatField(
+        allow_null=True, help_text="Positives in the top 10% by score, relative to a random 10%."
+    )
+    lift_at_20 = serializers.FloatField(
+        allow_null=True, help_text="Positives in the top 20% by score, relative to a random 20%."
+    )
+    calibration_bins = CalibrationBinSerializer(
+        many=True,
+        allow_null=True,
+        help_text=(
+            "Calibration table with up to 10 bins cut at score quantiles, lowest scores first. "
+            "Users with equal scores share a bin, so heavy ties give fewer bins. "
+            "Null for dates validated before this metric existed."
+        ),
+    )
+    warning = serializers.CharField(
+        allow_null=True,
+        help_text="'single_class_no_auc' when every scored user had the same outcome, otherwise null.",
+    )
+    validated_at = serializers.DateTimeField(allow_null=True, help_text="When the validation run completed.")
+
+
+class OnlinePerformanceSerializer(serializers.Serializer):
+    rows = OnlinePerformanceRowSerializer(
+        many=True,
+        help_text=(
+            "One row per model per validated prediction date, newest date first. "
+            "Empty until a prediction horizon has elapsed and online validation has run."
+        ),
+    )
+
+
 @extend_schema_serializer(component_name="AutoresearchRun")
 class AutoresearchRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique UUID of this run.")
@@ -1145,7 +1301,13 @@ class AutoresearchRunSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Number of users scored in this inference run.",
     )
-    metrics = MetricsBundleField(help_text="Run metrics: rows scored, score distribution summary, validation AUC, etc.")
+    metrics = MetricsBundleField(
+        help_text=(
+            "Run metrics: score distribution summary, validation AUC, etc. An inference run records "
+            "'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run "
+            "scored a rolling part of the population: users never scored first, then users whose last score was oldest."
+        )
+    )
     error = serializers.CharField(required=False, allow_blank=True, help_text="Error message if the run failed.")
     started_at = serializers.DateTimeField(required=False, allow_null=True, help_text="Timestamp when the run started.")
     completed_at = serializers.DateTimeField(
@@ -1177,8 +1339,11 @@ class ValidationWarningSerializer(serializers.Serializer):
     # A CharField on purpose: a ChoiceField named `code` collides with another product's `code` enum in drf-spectacular.
     code = serializers.CharField(
         help_text=(
-            "Machine-readable warning code. 'population_too_large' and 'horizon_exceeds_lookback' mean a "
-            "training run would fail: fix the definition before creating. 'low_volume', 'low_positives' and "
+            "Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity "
+            "'error', mean a run would fail: fix the definition before creating. 'population_too_large' with "
+            "severity 'info' means training uses a sample of the population, or each scoring run scores a rolling "
+            "part of it: users never scored first, then users whose last score was oldest. 'low_volume', "
+            "'low_positives' and "
             "'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). "
             "'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are "
             "severity 'warning'."
@@ -1241,7 +1406,7 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
     can_proceed = serializers.BooleanField(
         help_text=(
             "False when any warning has severity 'error'. Creation does not enforce it, but a definition with "
-            "'population_too_large' or 'horizon_exceeds_lookback' cannot train."
+            "an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train."
         )
     )
     requires_acknowledgement = serializers.BooleanField(
@@ -1273,6 +1438,15 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
             "Why validation did not run, or null when it did. A query error in the definition itself "
             "is passed through; any other failure is a generic message and the detail is logged."
         ),
+    )
+
+
+class StartTrainingRequestSerializer(serializers.Serializer):
+    iteration_budget = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=500,
+        help_text="Override the pipeline iteration budget for this training run.",
     )
 
 
@@ -1417,6 +1591,15 @@ class CompleteTrainingRunSerializer(serializers.Serializer):
             "dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters."
         ),
     )
+    report_notebook_short_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Short id of the report notebook you built for this run. Stored in the run summary only if the "
+            "notebook exists in this project; an unknown id is dropped and does not fail the completion."
+        ),
+    )
 
 
 # ── Feature materialization serializers ─────────────────────────────────────
@@ -1456,6 +1639,20 @@ class MaterializeFeaturesResponseSerializer(serializers.Serializer):
     feature_cols = serializers.ListField(
         child=serializers.CharField(),
         help_text="The numeric feature column names (excludes distinct_id, __label, __fold).",
+    )
+    elapsed_s = serializers.FloatField(
+        help_text=(
+            "Seconds the server spent on the queries that materialized the matrix. Scoring runs features_sql "
+            "over the whole inference population on every cadence, so a slow query here is slow there too."
+        )
+    )
+    rows_read = serializers.IntegerField(help_text="Rows ClickHouse read to materialize the matrix.")
+    hints = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Advice on the cost of features_sql. A hint does not block the materialization or the upload, "
+            "but a champion whose features.sql cannot score today's population in time is not promoted."
+        ),
     )
 
 
@@ -1642,10 +1839,7 @@ class PopulationSpecField(serializers.JSONField):
 class ResolveTemplateRequestSerializer(serializers.Serializer):
     template_key = serializers.ChoiceField(
         choices=TEMPLATE_KEY_CHOICES,
-        help_text=(
-            "Template to resolve. Use autoresearch-templates-list to see all available templates "
-            "with descriptions. Required."
-        ),
+        help_text="Template to resolve. The templates endpoint lists each one with its description. Required.",
     )
     target_event = serializers.CharField(
         required=False,

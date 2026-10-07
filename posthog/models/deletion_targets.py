@@ -115,12 +115,22 @@ class DeletionTarget:
     # accepts_property_rewrite=True implies this must stay True too, since the rewrite assumes the
     # column holds real data; __post_init__ below enforces that pairing.
     stores_person_properties: bool = True
+    # Whether the person-overrides squash rewrites person_id here. A merge moves a distinct_id to
+    # another person, and a later deletion names only the survivor, so a table the squash skips
+    # keeps its rows on the absorbed person and no sweep ever matches them (#93035).
+    # Opt-in rather than assumed, because the rewrite is an ALTER UPDATE and ClickHouse refuses one
+    # on a sort key column. Leaving it False is a decision that a merge may strand rows here until
+    # the TTL passes; test_deletion_coverage.py makes you record that decision.
+    accepts_person_id_rewrite: bool = False
     # Read uuids from this table when queueing a deferred deletion. False where the rows duplicate
     # another target's uuids, which would queue each one twice.
     queue_uuid_candidates: bool = True
     # The event names this table can hold, None meaning unconstrained. Lets a request naming other
     # events skip this table without querying it.
     stored_events: frozenset[str] | None = None
+    # Deletes and person_id rewrites on this table write patch parts instead of mutations; see
+    # MutationRunner.patch_parts.
+    uses_patch_parts: bool = False
 
     def __post_init__(self) -> None:
         if self.accepts_property_rewrite and not self.stores_person_properties:
@@ -171,6 +181,7 @@ EVENTS = DeletionTarget(
     read_table="events",
     hogql_schema=HogQLSchema.LEGACY,
     accepts_property_rewrite=True,
+    accepts_person_id_rewrite=True,
 )
 
 EVENTS_JSON = DeletionTarget(
@@ -180,8 +191,11 @@ EVENTS_JSON = DeletionTarget(
     cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
     node_role=NodeRole.EVENTS,
     hogql_schema=HogQLSchema.NATIVE_JSON,
+    accepts_property_rewrite=True,
+    accepts_person_id_rewrite=True,
     # Dual-written from the same events, so its uuids are the legacy table's.
     queue_uuid_candidates=False,
+    uses_patch_parts=True,
 )
 
 # Flag-evaluation telemetry carries the same person_id and group payload as events, so team and
@@ -195,11 +209,27 @@ FLAG_EVALUATIONS = DeletionTarget(
     read_table=FLAG_EVALUATIONS_TABLE,
     optional=True,
     stores_person_properties=False,
+    accepts_person_id_rewrite=True,
     stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),
 )
 
 EVENTS_TARGETS: tuple[DeletionTarget, ...] = (EVENTS, EVENTS_JSON)
 PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALUATIONS)
+
+# The targets deletes_job sweeps and deletion requests verify by default. Leaving a target out
+# keeps it registered while its rows stay in place; see COVERAGE_DOC.
+DEFAULT_DELETION_TARGETS: tuple[DeletionTarget, ...] = PERSONAL_DATA_TARGETS
+
+# Every table squash_person_overrides rewrites person_id on. Derived from the capability rather than
+# listed by hand, so registering a target and forgetting the squash is not expressible.
+SQUASH_TARGETS: tuple[DeletionTarget, ...] = tuple(
+    target for target in PERSONAL_DATA_TARGETS if target.accepts_person_id_rewrite
+)
+
+# Targets that carry person_id and are deliberately left out of the squash. An entry is not free:
+# it accepts that a merge strands rows on the absorbed person until the TTL drops them, because the
+# squash deletes the overrides that recorded the mapping right after applying them.
+PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset()
 
 # Storage tables that carry person properties and are reclaimed by their TTL alone. Each entry is a
 # decision that erasure may lag by the retention window, not an oversight.
@@ -207,7 +237,7 @@ PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALU
 # sharded_events_recent is a transient mirror of the last few days of events, on a 7-day TTL keyed
 # on inserted_at. Seven days is a short enough window to accept as the erasure bound, and a sweep
 # would race the TTL for little benefit.
-TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE(), "person_property_mutation_log_data"})
+TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE()})
 
 
 _TABLE_EXISTS_SQL = "SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s"

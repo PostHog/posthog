@@ -3,63 +3,17 @@ import { Spinner } from '@posthog/quill-primitives'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import type { WizardRunApi } from '../generated/api.schemas'
-import { wizardRunFailureStage, wizardWorkspaceLabel } from '../wizardRunDisplay'
+import type { WizardRunApi, WizardRunTaskApi } from '../generated/api.schemas'
+import type { WizardRunProgressState } from '../wizardRunDisplay'
+import {
+    wizardRunFailureStage,
+    wizardRunProgressState,
+    wizardRunStagePosition,
+    wizardWorkspaceLabel,
+} from '../wizardRunDisplay'
 import { wizardRunErrorDetails } from './wizardRunErrorCatalog'
 
-type ProgressState = 'complete' | 'active' | 'pending' | 'failed'
-
-function stagePosition(run: WizardRunApi): number {
-    if (run.status === 'completed') {
-        return 4
-    }
-    if (run.status === 'created') {
-        return 0
-    }
-
-    const stage = run.status === 'failed' ? wizardRunFailureStage(run) : run.stage
-
-    switch (stage) {
-        case 'dispatching':
-        case 'provisioning':
-            return 0
-        case 'preparing_workspace':
-            return 1
-        case 'executing_wizard':
-            return 2
-        case 'creating_artifacts':
-            return 3
-        default:
-            return run.status === 'running' ? 2 : 0
-    }
-}
-
-function progressState(run: WizardRunApi, step: number): ProgressState {
-    if (run.status === 'cancelled') {
-        // A terminal transition clears the stage, so how far a canceled run got is unknown.
-        return step === 0 ? 'complete' : 'pending'
-    }
-
-    const position = stagePosition(run)
-
-    if (run.status === 'failed') {
-        if (wizardRunFailureStage(run) === null) {
-            return step === 0 ? 'complete' : 'pending'
-        }
-        if (position === step) {
-            return 'failed'
-        }
-    }
-    if (position > step) {
-        return 'complete'
-    }
-    if (position === step && run.status !== 'completed') {
-        return 'active'
-    }
-    return 'pending'
-}
-
-function ProgressIcon({ state }: { state: ProgressState }): JSX.Element {
+function ProgressIcon({ state }: { state: WizardRunProgressState }): JSX.Element {
     if (state === 'complete') {
         return <IconCheckCircle className="text-success" />
     }
@@ -109,7 +63,13 @@ function RunLevelOutcome({ run }: { run: WizardRunApi }): JSX.Element | null {
     )
 }
 
-export function WizardRunProgress({ run }: { run: WizardRunApi }): JSX.Element {
+export function WizardRunProgress({
+    run,
+    tasks = [],
+}: {
+    run: WizardRunApi
+    tasks?: readonly WizardRunTaskApi[]
+}): JSX.Element {
     const runError = wizardRunErrorDetails(run.error_code, run.error_message)
     const failedAtStep = run.status === 'failed' && wizardRunFailureStage(run)
     const steps = [
@@ -133,7 +93,7 @@ export function WizardRunProgress({ run }: { run: WizardRunApi }): JSX.Element {
             detail:
                 run.status === 'completed'
                     ? 'Changes and artifacts are ready'
-                    : stagePosition(run) === 3
+                    : wizardRunStagePosition(run) === 3
                       ? 'Saving changes and artifacts'
                       : 'Starts after the program finishes',
         },
@@ -142,7 +102,7 @@ export function WizardRunProgress({ run }: { run: WizardRunApi }): JSX.Element {
     return (
         <div className="space-y-0">
             {steps.map((step, index) => {
-                const state = progressState(run, index)
+                const state = wizardRunProgressState(run, index)
                 return (
                     <div key={step.title} className="relative flex gap-3 pb-5 last:pb-0">
                         {index < steps.length - 1 && (
@@ -154,6 +114,27 @@ export function WizardRunProgress({ run }: { run: WizardRunApi }): JSX.Element {
                         <div className="min-w-0">
                             <div className="font-semibold">{step.title}</div>
                             <div className="text-xs text-muted">{step.detail}</div>
+                            {index === 2 && run.status === 'running' && tasks.length > 0 && (
+                                <ul className="mt-2 space-y-1 text-xs">
+                                    {tasks.map((task) => (
+                                        <li key={task.name} className="flex items-center gap-2">
+                                            <ProgressIcon
+                                                state={
+                                                    task.status === 'completed'
+                                                        ? 'complete'
+                                                        : task.status === 'running'
+                                                          ? 'active'
+                                                          : task.status === 'failed'
+                                                            ? 'failed'
+                                                            : 'pending'
+                                                }
+                                            />
+                                            <span className="break-words">{task.name}</span>
+                                            <span className="sr-only">({task.status})</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
                             {state === 'failed' && (
                                 <div className="mt-1 space-y-1 text-xs">
                                     <div className="flex items-center gap-1 text-danger">

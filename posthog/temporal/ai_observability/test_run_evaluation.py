@@ -1,28 +1,39 @@
 import json
 import uuid
-from datetime import UTC, datetime
-from typing import Any
+import dataclasses
+from datetime import UTC, datetime, timedelta
+from ipaddress import IPv4Address, IPv6Address, ip_address
+from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
+import httpx
+import openai
 import posthoganalytics
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
+from google.genai import errors as genai_errors
 from parameterized import parameterized
 from pydantic import ValidationError as PydanticValidationError
 from temporalio import activity
 from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import ApplicationError, CancelledError
-from temporalio.testing import WorkflowEnvironment
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.api.capture import CaptureInternalError
-from posthog.models import Organization, Team
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
+from posthog.temporal.common.errors import NonReportableError
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContentFilteredError,
     ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
@@ -31,6 +42,7 @@ from products.ai_observability.backend.llm.errors import (
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
+    UnsupportedModelError,
 )
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
@@ -44,8 +56,25 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from .evaluation_llm_judge import JUDGE_EVENT_MAX_CHARS, TransientJudgeError, _execute_llm_judge_activity
-from .evaluation_workflow_activities import LocalEvaluationOutcome, backfill_verdict_timestamp
+from .evaluation_event_io import GENERATION_NOT_FOUND_RETRY_DELAY, hydrate_event_reference
+from .evaluation_llm_judge import (
+    JUDGE_EVENT_MAX_CHARS,
+    NumericWithNAEvalResult,
+    TransientJudgeError,
+    _build_errored_trace_result,
+    _build_output_limit_skip_result,
+    _execute_llm_judge_activity,
+    call_llm_judge,
+    get_output_type_config,
+)
+from .evaluation_types import build_skipped_evaluation_result
+from .evaluation_workflow_activities import (
+    LocalEvaluationOutcome,
+    backfill_verdict_timestamp,
+    build_evaluation_event_properties,
+    capture_evaluation_run_usage,
+    emit_internal_telemetry_activity,
+)
 from .run_evaluation import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
@@ -69,12 +98,788 @@ from .run_evaluation import (
     run_local_evaluation_activity,
     send_evaluation_disabled_email_activity,
 )
+from .run_trace_evaluation import EmitTraceEvaluationEventInputs, emit_trace_evaluation_event_activity
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("skipped", [False, True])
+@pytest.mark.parametrize(
+    "target,evaluation_type,result",
+    [
+        (target, evaluation_type, result)
+        for target in ["generation", "trace", "session"]
+        for evaluation_type in ["hog", "llm_judge"]
+        for result in [
+            {"result_type": "boolean", "verdict": True},
+            {"result_type": "numeric", "score": 123.45},
+            {"result_type": "categorical", "categories": ["private_key"]},
+        ]
+    ]
+    + [
+        ("generation", "sentiment", {"result_type": "sentiment", "sentiment_score": 0.9, "sentiment_label": "positive"})
+    ],
+)
+async def test_execution_telemetry_covers_output_types(
+    target: str, evaluation_type: str, result: EvaluationActivityResult, skipped: bool
+) -> None:
+    evaluation = {"id": "test-evaluation", "name": "Example evaluation", "evaluation_type": evaluation_type}
+    result = {**result, "skipped": skipped, "reasoning": "Private content"}
+    model_usage = {
+        "model": "example-model",
+        "provider": "example-provider",
+        "input_tokens": 42,
+        "output_tokens": 8,
+        "total_tokens": 50,
+    }
+    if skipped:
+        if evaluation_type == "sentiment":
+            result = {"result_type": "sentiment", "reasoning": "No user messages", "skipped": True}
+        else:
+            result = build_skipped_evaluation_result(
+                output_type=result["result_type"], allows_na=False, reasoning="Private content", skip_reason="example"
+            )
+    elif evaluation_type == "llm_judge":
+        result.update(
+            {
+                "model": "example-model",
+                "provider": "example-provider",
+                "input_tokens": 42,
+                "output_tokens": 8,
+                "total_tokens": 50,
+            }
+        )
+    module = "posthog.temporal.ai_observability.evaluation_workflow_activities"
+    with (
+        override_settings(SITE_URL="https://example.com"),
+        patch(f"{module}.Team.objects.filter") as teams,
+        patch("posthog.tasks.usage_report.get_ph_client") as capture,
+        patch(f"{module}.capture_ai_internal_for_team"),
+        patch("posthog.temporal.ai_observability.run_trace_evaluation.capture_ai_internal_for_team"),
+    ):
+        teams.return_value.values_list.return_value.get.return_value = "test-org"
+        if target == "generation":
+            await emit_evaluation_event_activity(
+                EmitEvaluationEventInputs(
+                    evaluation=evaluation,
+                    event_data=create_mock_event_data(1),
+                    result=result,
+                    start_time=datetime(2026, 9, 1, tzinfo=UTC),
+                )
+            )
+        else:
+            await emit_trace_evaluation_event_activity(
+                EmitTraceEvaluationEventInputs(
+                    evaluation=evaluation,
+                    team_id=1,
+                    trace_id="example-trace",
+                    distinct_id="example-user",
+                    session_id=None,
+                    result=result,
+                    start_time=datetime(2026, 9, 1, tzinfo=UTC),
+                    target=target,
+                    ai_session_id="example-session",
+                )
+            )
+        if not skipped and (target != "generation" or evaluation_type == "llm_judge"):
+            capture.assert_not_called()
+            await emit_internal_telemetry_activity(
+                EmitInternalTelemetryInputs(evaluation=evaluation, team_id=1, result=result)
+            )
+
+    capture.assert_called_once_with(sync_mode=True, disabled=True)
+    capture.return_value.flush.assert_called_once_with()
+    capture.return_value.capture.assert_called_once_with(
+        distinct_id="org-test-org",
+        event="llm analytics evaluation executed",
+        properties={
+            "evaluation_id": "test-evaluation",
+            "team_id": 1,
+            **(model_usage if evaluation_type == "llm_judge" and not skipped else {}),
+            **({"verdict": result["verdict"]} if "verdict" in result and not skipped else {}),
+            "result_type": result["result_type"],
+            "status": "skipped" if skipped else "completed",
+        },
+        groups={"organization": "test-org", "instance": "https://example.com"},
+    )
+
+
+@pytest.mark.parametrize("model_called", [False, True])
+def test_skipped_usage_only_includes_actual_model_metadata(model_called: bool) -> None:
+    result = (
+        _build_output_limit_skip_result(
+            False, is_byok=False, key_id=None, provider="example-provider", model="example-model"
+        )
+        if model_called
+        else _build_errored_trace_result(False)
+    )
+    module = "posthog.temporal.ai_observability.evaluation_workflow_activities"
+    with patch(f"{module}.Team.objects.filter"), patch("posthog.tasks.usage_report.get_ph_client") as capture:
+        capture_evaluation_run_usage({"id": "test-evaluation", "evaluation_type": "llm_judge"}, result, team_id=1)
+
+    assert capture.return_value.capture.call_args.kwargs["properties"] == {
+        "evaluation_id": "test-evaluation",
+        "team_id": 1,
+        "result_type": "boolean",
+        "status": "skipped",
+        **({"model": "example-model", "provider": "example-provider"} if model_called else {}),
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", ["telemetry", "generation", "trace", "session"])
+@pytest.mark.parametrize("failure", ["lookup", "capture"])
+async def test_usage_failure_preserves_activity_behavior(target: str, failure: str) -> None:
+    module = "posthog.temporal.ai_observability.evaluation_workflow_activities"
+    with (
+        patch(f"{module}.Team.objects.filter") as teams,
+        patch("posthog.tasks.usage_report.get_ph_client") as capture,
+        patch(f"{module}.capture_ai_internal_for_team") as generation_capture,
+        patch("posthog.temporal.ai_observability.run_trace_evaluation.capture_ai_internal_for_team") as trace_capture,
+    ):
+        failing_call = teams if failure == "lookup" else capture.return_value.capture
+        failing_call.side_effect = RuntimeError("telemetry unavailable")
+        evaluation = {"id": "test-evaluation", "name": "Example evaluation", "evaluation_type": "hog"}
+        result: EvaluationActivityResult = {"result_type": "numeric", "skipped": True, "reasoning": "Example"}
+        if target == "telemetry":
+            with pytest.raises(RuntimeError, match="telemetry unavailable"):
+                await emit_internal_telemetry_activity(
+                    EmitInternalTelemetryInputs(evaluation=evaluation, team_id=1, result=result)
+                )
+        elif target == "generation":
+            await emit_evaluation_event_activity(
+                EmitEvaluationEventInputs(
+                    evaluation=evaluation,
+                    event_data=create_mock_event_data(1),
+                    result=result,
+                    start_time=datetime(2026, 9, 1, tzinfo=UTC),
+                )
+            )
+            generation_capture.assert_called_once()
+        else:
+            await emit_trace_evaluation_event_activity(
+                EmitTraceEvaluationEventInputs(
+                    evaluation=evaluation,
+                    team_id=1,
+                    trace_id="example-trace",
+                    distinct_id="example-user",
+                    session_id=None,
+                    result=result,
+                    start_time=datetime(2026, 9, 1, tzinfo=UTC),
+                    target=target,
+                    ai_session_id="example-session",
+                )
+            )
+            trace_capture.assert_called_once()
+
+
+def test_execution_telemetry_does_not_add_destination_region() -> None:
+    events: list[dict[str, Any]] = []
+
+    def record_event(event: dict[str, Any]) -> dict[str, Any]:
+        events.append(event)
+        return event
+
+    client = posthoganalytics.Client("example-key", send=False, before_send=record_event)
+    try:
+        with (
+            override_settings(CLOUD_DEPLOYMENT="EU"),
+            patch("posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.filter"),
+            patch("posthog.tasks.usage_report.get_ph_client", return_value=client),
+        ):
+            capture_evaluation_run_usage(
+                {"id": "test-evaluation"}, {"result_type": "numeric", "score": 1, "reasoning": "Example"}, team_id=1
+            )
+        assert len(events) == 1
+        assert "region" not in events[0]["properties"]
+    finally:
+        client.shutdown()
 
 
 def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
     """A mocked EvaluationConfig whose active key resolves via DefaultModelSpec (usable, right provider)."""
     key = MagicMock(provider=provider, state=LLMProviderKey.State.OK)
     return MagicMock(active_provider_key=key)
+
+
+@pytest.mark.parametrize(
+    "connection_config,base_url,model,usage",
+    [
+        (
+            {"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
+            "https://decisions.example.com/v1",
+            "example-judge-v1",
+            {"input_tokens": 120, "output_tokens": 10},
+        ),
+        (
+            {"api_key": "", "base_url": "https://decisions.example.com/v1"},
+            "https://decisions.example.com/v1",
+            "custom-model",
+            {"input_tokens": 120},
+        ),
+        (
+            {"api_key": "example-token", "base_url": "https://ai-gateway.us.posthog.com/v1"},
+            "https://ai-gateway.us.posthog.com/v1",
+            "example-judge-v1",
+            {},
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "probability,applicability,allows_na,verdict",
+    [(0.49, 1.0, False, False), (0.5, 1.0, False, True), (0.9, 0.1, True, None), (0.0, 0.9, True, False)],
+)
+def test_system_one_judge_emits_boolean_probability_without_reasoning(
+    probability: float,
+    applicability: float,
+    allows_na: bool,
+    verdict: bool | None,
+    connection_config: dict[str, str],
+    base_url: str,
+    model: str,
+    usage: dict[str, int],
+) -> None:
+    key = MagicMock(provider="system_one", encrypted_config=connection_config)
+    resolved = MagicMock(provider="system_one", model=model, provider_key=key, is_byok=True)
+    response_body = {
+        "model": "endpoint-controlled-model",
+        "answers": {
+            "verdict": {"type": "noul", "noul": probability},
+            "applicable": {"type": "noul", "noul": applicability},
+        },
+        "usage": usage,
+    }
+    response = httpx.Response(200, stream=httpx.ByteStream(json.dumps(response_body).encode()))
+    evaluation = {
+        "id": "test-evaluation",
+        "name": "Politeness",
+        "team_id": 1,
+        "evaluation_config": {"prompt": "Is the response polite?"},
+    }
+    with (
+        override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
+        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
+        patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=True),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as request,
+    ):
+        teams.return_value.get.return_value = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
+        spec.return_value.resolve.return_value = resolved
+        result = call_llm_judge(
+            evaluation=evaluation,
+            system_prompt="Unused generation instructions",
+            user_prompt="Hello!",
+            allows_na=allows_na,
+        )
+
+    assert str(request.call_args.args[0].url) == f"{base_url}/systemone"
+    assert request.call_args.args[0].headers.get("Authorization") == (
+        f"Bearer {connection_config['api_key']}" if connection_config["api_key"] else None
+    )
+    assert json.loads(request.call_args.args[0].content)["model"] == model
+    assert result["verdict"] is verdict
+    assert result["reasoning"] == ""
+    assert result.get("probability") == (probability if verdict is not None else None)
+    assert result["model"] == model
+    assert result["total_tokens"] == sum(usage.values())
+    if allows_na:
+        assert result["applicable"] is (applicability >= 0.5)
+    properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 1, 1, tzinfo=UTC))
+    assert properties["$ai_input_tokens"] == usage.get("input_tokens")
+    assert properties["$ai_output_tokens"] == usage.get("output_tokens")
+    assert properties.get("$ai_evaluation_probability") == (probability if verdict is not None else None)
+    assert properties["$ai_model"] == model
+    assert properties["$ai_evaluation_key_type"] == "byok"
+
+
+@pytest.mark.parametrize(
+    "selection_mode,probabilities,allows_na,applicable,expected",
+    [
+        ("single", [0.8, 0.2], False, True, ["resolved"]),
+        ("single", [0.8, 0.2], True, False, None),
+        ("multiple", [0.5, 0.9], False, True, ["resolved", "applicable"]),
+        ("multiple", [0.49, 0.9], True, True, ["applicable"]),
+        ("multiple", [0.1, 0.2], True, True, []),
+        ("multiple", [0.9, 0.9], True, False, None),
+    ],
+)
+def test_system_one_categorical_results_use_category_keys_without_boolean_probability(
+    selection_mode: str,
+    probabilities: list[float],
+    allows_na: bool,
+    applicable: bool,
+    expected: list[str] | None,
+) -> None:
+    options = [{"key": "resolved", "label": "Resolved issue"}, {"key": "applicable", "label": "Relevant reply"}]
+    evaluation = {
+        "id": "test-evaluation",
+        "name": "Response categories",
+        "team_id": 1,
+        "evaluation_type": "llm_judge",
+        "evaluation_config": {"prompt": "Classify the response."},
+        "output_type": "categorical",
+        "output_config": {"options": options, "selection_mode": selection_mode, "allows_na": allows_na},
+    }
+    answers: dict[str, dict[str, str | float | dict[str, float]]] = (
+        {"category": {"choice": "resolved", "confidence": 0.8, "probabilities": {"resolved": 0.8, "applicable": 0.2}}}
+        if selection_mode == "single"
+        else {f"category_{index}": {"noul": probability} for index, probability in enumerate(probabilities)}
+    )
+    if allows_na:
+        answers["applicable"] = {"noul": 0.9 if applicable else 0.1}
+    key = MagicMock(
+        provider="system_one",
+        encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
+    )
+    with (
+        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
+        ),
+        patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="system_one", model="custom-model", provider_key=key, is_byok=True
+        )
+        request.return_value = httpx.Response(
+            200, stream=httpx.ByteStream(json.dumps({"model": "custom-model", "answers": answers}).encode())
+        )
+        result = call_llm_judge(evaluation=evaluation, system_prompt="", user_prompt="Hello!", allows_na=allows_na)
+
+    sent = json.loads(request.call_args.args[0].content)
+    assert sent["state"] == "Hello!"
+    if selection_mode == "single":
+        assert sent["questions"]["category"]["criteria"] == {option["key"]: option["label"] for option in options}
+    else:
+        assert sent["questions"]["category_0"]["criteria"]["true"] == "Matches category: Resolved issue"
+    assert result["result_type"] == "categorical"
+    assert result.get("categories") == expected
+    assert "probability" not in result
+    assert "verdict" not in result
+    assert result["input_tokens"] is None
+    assert result["reasoning"] == ""
+    properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 1, 1, tzinfo=UTC))
+    assert properties.get("$ai_evaluation_categorical_result") == expected
+    assert properties["$ai_evaluation_applicable"] is applicable
+    assert "$ai_evaluation_probability" not in properties
+
+
+@pytest.mark.parametrize(
+    "minimum,maximum,index,allows_na,applicable,expected",
+    [
+        (0, 10, 0, False, True, 0),
+        (0, 10, 9, False, True, 10),
+        (1, 10, 6, False, True, 7),
+        (1, 100, 3, False, True, 34),
+        (1, 100, 7, False, True, 78),
+        (0, 1.9, 9, False, True, 1.9),
+        (3.7, 10, 0, False, True, 3.7),
+        (0, 10, 6.75, True, True, 7.5),
+        (-2, 4, 2.25, False, True, -0.5),
+        (0.1, 0.2, 4.5, False, True, 0.15),
+        (1_000_000, 1_000_001, 4.5, False, True, 1_000_000.5),
+        (-1e308, 1e308, 4.5, False, True, 0),
+        (0, 10, 6.75, True, False, None),
+    ],
+)
+def test_system_one_numeric_scores_use_configured_bounds(
+    minimum: float, maximum: float, index: float, allows_na: bool, applicable: bool, expected: float | None
+) -> None:
+    prompt = "Score how well the response answers the question."
+    evaluation = {
+        "id": "test-evaluation",
+        "name": "Answer quality",
+        "team_id": 1,
+        "evaluation_type": "llm_judge",
+        "evaluation_config": {"prompt": prompt},
+        "output_type": "numeric",
+        "output_config": {"min": minimum, "max": maximum, "step": 1, "allows_na": allows_na},
+    }
+    answers: dict[str, object] = {
+        "score": {"type": "score", "score": index, "confidence": 0.1, "probabilities": {str(i): 0.1 for i in range(10)}}
+    }
+    if allows_na:
+        answers["applicable"] = {"noul": 0.9 if applicable else 0.1}
+    key = MagicMock(
+        provider="system_one", encrypted_config={"api_key": "", "base_url": "https://decisions.example.com/v1"}
+    )
+    with (
+        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
+        ),
+        patch(
+            "httpx.AsyncHTTPTransport.handle_async_request",
+            return_value=httpx.Response(
+                200, stream=httpx.ByteStream(json.dumps({"model": "custom-model", "answers": answers}).encode())
+            ),
+        ) as request,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="system_one", model="custom-model", provider_key=key, is_byok=True
+        )
+        result = call_llm_judge(evaluation=evaluation, system_prompt="", user_prompt="Hello!", allows_na=allows_na)
+
+    sent = json.loads(request.call_args.args[0].content)
+    assert sent["state"] == "Hello!"
+    question = sent["questions"]["score"]
+    assert question["type"] == "score"
+    assert len(question["criteria"]) == 10
+    assert len(set(question["criteria"])) == 10
+    assert question["criteria"][0] == f"The score according to the evaluation criteria is {float(minimum)!r}."
+    assert question["criteria"][-1] == f"The score according to the evaluation criteria is {float(maximum)!r}."
+    assert prompt in question["instructions"]
+    assert "Suggested score increment: 1.0" in question["instructions"]
+    assert result["result_type"] == "numeric"
+    assert result.get("score") == (pytest.approx(expected) if expected is not None else None)
+    if index == int(index) and expected is not None:
+        assert result["score"] == expected
+        assert (
+            question["criteria"][int(index)]
+            == f"The score according to the evaluation criteria is {float(expected)!r}."
+        )
+    assert result["reasoning"] == ""
+    assert "probability" not in result
+    properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 1, 1, tzinfo=UTC))
+    assert properties.get("$ai_evaluation_numeric_result") == (
+        pytest.approx(expected) if expected is not None else None
+    )
+    assert properties.get("$ai_evaluation_applicable", True) is applicable
+    assert "$ai_evaluation_probability" not in properties
+
+
+@pytest.mark.parametrize("output_config", [{}, {"min": 0}, {"max": 10}, {"min": 1, "max": 1}])
+def test_system_one_numeric_requires_a_score_range(output_config: dict[str, float]) -> None:
+    with (
+        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
+        ),
+        patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="system_one",
+            provider_key=MagicMock(encrypted_config={"base_url": "https://decisions.example.com/v1", "api_key": ""}),
+        )
+        result = call_llm_judge(
+            evaluation={
+                "team_id": 1,
+                "output_type": "numeric",
+                "output_config": output_config,
+                "evaluation_config": {"prompt": "Score quality."},
+            },
+            system_prompt="",
+            user_prompt="Hello!",
+            allows_na=False,
+        )
+    assert result["skipped"] is True
+    request.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "base_url,flag",
+    [
+        ("https://decisions.example.com/v1", False),
+        ("https://ai-gateway.us.posthog.com/v1", False),
+        ("https://api.typesafe.ai/v1", True),
+    ],
+)
+def test_system_one_restricted_connection_does_not_send_evaluation_data(base_url: str, flag: bool) -> None:
+    with (
+        override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
+        patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=flag),
+        patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
+    ):
+        teams.return_value.get.return_value = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="system_one",
+            model="custom-model",
+            provider_key=MagicMock(
+                provider="system_one", encrypted_config={"base_url": base_url, "api_key": "example-token"}
+            ),
+            is_byok=True,
+        )
+        result = call_llm_judge(
+            evaluation={"team_id": 1, "evaluation_config": {"prompt": "Is this a greeting?"}},
+            system_prompt="",
+            user_prompt="Hello!",
+            allows_na=False,
+        )
+    assert result["skipped"] is True
+    request.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "provider,status,encoding,expected_skip_reason",
+    [
+        ("system_one", 301, "identity", "endpoint_blocked"),
+        ("system_one", 400, "identity", "request_rejected"),
+        ("system_one", 422, "identity", "request_rejected"),
+        ("system_one", 200, "gzip", "request_rejected"),
+        ("openai_compatible", 200, "gzip", "request_rejected"),
+    ],
+)
+def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
+    provider: str, status: int, encoding: str, expected_skip_reason: str
+) -> None:
+    key = MagicMock(
+        provider=provider,
+        encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
+    )
+    response = httpx.Response(
+        status, stream=httpx.ByteStream(b"Invalid request"), headers={"Content-Encoding": encoding}
+    )
+    with (
+        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
+        ),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider=provider, model="example-judge-v1", provider_key=key, is_byok=True
+        )
+        result = call_llm_judge(
+            evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+            system_prompt="",
+            user_prompt="Hello!",
+            allows_na=False,
+        )
+    assert result["skip_reason"] == expected_skip_reason
+    if status == 301:
+        assert result["terminal_user_error"] is True
+        assert result["provider_key_state"] == "error"
+    else:
+        assert result["skipped"] is True
+        assert "terminal_user_error" not in result
+        assert "provider_key_state" not in result
+    assert "model" not in result
+    assert "provider" not in result
+
+    if encoding == "gzip":
+        assert "uncompressed responses no larger than 1 MiB" in result["reasoning"]
+
+
+def _call_openai_compatible_judge(resolved_ips: set[IPv4Address | IPv6Address]) -> EvaluationActivityResult:
+    key = MagicMock(
+        provider="openai_compatible",
+        encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
+    )
+    with (
+        patch("posthog.security.url_validation.resolve_host_ips", return_value=resolved_ips),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="openai_compatible", model="example-judge-v1", provider_key=key, is_byok=True
+        )
+        return call_llm_judge(
+            evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+            system_prompt="",
+            user_prompt="Hello!",
+            allows_na=False,
+        )
+
+
+def test_endpoint_on_a_disallowed_address_is_a_terminal_user_error() -> None:
+    result = _call_openai_compatible_judge({ip_address("10.0.0.1")})
+
+    assert result["skip_reason"] == "endpoint_blocked"
+    assert result["terminal_user_error"] is True
+    assert result["provider_key_state"] == "error"
+    assert "Base URL must be a public https:// URL" in result["reasoning"]
+
+
+@pytest.mark.parametrize("attempt", [1, 2])
+def test_endpoint_host_that_does_not_resolve_is_retried(attempt: int) -> None:
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, attempt=attempt)
+
+    with pytest.raises(TransientJudgeError):
+        env.run(_call_openai_compatible_judge, set())
+
+
+def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> None:
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, attempt=3)
+
+    result = env.run(_call_openai_compatible_judge, set())
+
+    assert result["skip_reason"] == "host_unresolved"
+    assert "Could not resolve the base URL host" in result["reasoning"]
+    assert "terminal_user_error" not in result
+    assert "provider_key_state" not in result
+
+
+@pytest.mark.parametrize(
+    "provider, success_payload",
+    [
+        (
+            "system_one",
+            {
+                "model": "example-judge-v1",
+                "answers": {"verdict": {"type": "noul", "noul": 0.9}},
+                "usage": {"input_tokens": 12, "output_tokens": 0},
+            },
+        ),
+        (
+            "openai_compatible",
+            {
+                "id": "fixture",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "example-judge-v1",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {
+                            "role": "assistant",
+                            "content": json.dumps({"verdict": True, "reasoning": "Polite greeting"}),
+                        },
+                    }
+                ],
+            },
+        ),
+    ],
+)
+def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
+    provider: str, success_payload: dict[str, Any]
+) -> None:
+    key = MagicMock(
+        provider=provider,
+        encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
+    )
+    with (
+        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
+        ),
+        patch(
+            "httpx.AsyncHTTPTransport.handle_async_request",
+            side_effect=[
+                httpx.Response(429, headers={"Retry-After": "15"}, stream=httpx.ByteStream(b"")),
+                httpx.Response(
+                    200,
+                    headers={"Content-Type": "application/json"},
+                    stream=httpx.ByteStream(json.dumps(success_payload).encode()),
+                ),
+            ],
+        ) as transport,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider=provider, model="example-judge-v1", provider_key=key, is_byok=True
+        )
+        with pytest.raises(ApplicationError) as error:
+            call_llm_judge(
+                evaluation={"team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+                system_prompt="",
+                user_prompt="Hello!",
+                allows_na=False,
+            )
+        assert not error.value.non_retryable
+        assert error.value.next_retry_delay == timedelta(seconds=15)
+        assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
+        assert transport.call_count == 1
+
+        result = call_llm_judge(
+            evaluation={"team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+            system_prompt="",
+            user_prompt="Hello!",
+            allows_na=False,
+        )
+    assert result["verdict"] is True
+    assert "terminal_user_error" not in result
+    assert "provider_key_state" not in result
+    assert transport.call_count == 2
+
+
+def _openai_status_error(status: int, message: str) -> openai.APIStatusError:
+    response = httpx.Response(status, request=httpx.Request("POST", "https://llm.example.com/v1/chat/completions"))
+    return openai.APIStatusError(f"Error code: {status}", response=response, body={"error": {"message": message}})
+
+
+@pytest.mark.parametrize(
+    "provider, raised_exception, expected_status, expected_detail",
+    [
+        pytest.param(
+            "openai_compatible",
+            _openai_status_error(400, "Example field is not supported."),
+            400,
+            "Example field is not supported.",
+            id="openai_sdk_400",
+        ),
+        pytest.param(
+            "openai",
+            _openai_status_error(412, "Example precondition failed."),
+            412,
+            "Example precondition failed.",
+            id="openai_sdk_412",
+        ),
+        pytest.param(
+            "gemini",
+            genai_errors.ClientError(400, {"error": {"code": 400, "message": "Example argument is invalid."}}),
+            400,
+            "Example argument is invalid.",
+            id="genai_400",
+        ),
+        pytest.param(
+            "openai_compatible",
+            _openai_status_error(400, "x" * (MAX_STATUS_REASON_DETAIL_LENGTH * 2)),
+            400,
+            "x" * (MAX_STATUS_REASON_DETAIL_LENGTH - 3) + "...",
+            id="long_message_is_truncated",
+        ),
+    ],
+)
+def test_unmapped_provider_rejection_skips_the_run_with_the_provider_message(
+    provider: str, raised_exception: Exception, expected_status: int, expected_detail: str
+) -> None:
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider=provider, model="example-judge-v1", provider_key=MagicMock(id="example-key"), is_byok=True
+        )
+        client.return_value.complete.side_effect = raised_exception
+        result = call_llm_judge(
+            evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+            system_prompt="",
+            user_prompt="Hello!",
+            allows_na=False,
+        )
+    assert result["skipped"] is True
+    assert result["skip_reason"] == "request_rejected"
+    assert f"status {expected_status}" in result["reasoning"]
+    assert result["reasoning"].endswith(f"Provider message: {expected_detail}")
+    assert result["key_id"] == "example-key"
+    assert "terminal_user_error" not in result
+    assert "provider_key_state" not in result
+
+
+def test_unmapped_provider_rejection_on_a_posthog_key_still_raises() -> None:
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="openai", model="example-judge-v1", provider_key=None, is_byok=False
+        )
+        client.return_value.complete.side_effect = _openai_status_error(400, "Example field is not supported.")
+        with pytest.raises(openai.APIStatusError):
+            call_llm_judge(
+                evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+                system_prompt="",
+                user_prompt="Hello!",
+                allows_na=False,
+            )
 
 
 def test_status_reason_detail_for_terminal_user_error_only_keeps_truncated_hog_errors():
@@ -458,6 +1263,38 @@ class TestRunEvaluationWorkflow:
         assert "model" not in result
         mock_client.complete.assert_called_once()
 
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_skips_on_content_filter(self, setup_data, active_key_config):
+        team = setup_data["team"]
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+            },
+        )
+
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
+            mock_client_class.return_value.complete.side_effect = ContentFilteredError(
+                "Could not parse response content as the request was rejected by the content filter"
+            )
+
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "content_filtered"
+        assert result.get("terminal_user_error") is not True
+        assert result["model"]
+
     @pytest.mark.parametrize(
         "output_config,expected_verdict,expected_applicable",
         [
@@ -465,19 +1302,22 @@ class TestRunEvaluationWorkflow:
             pytest.param({"allows_na": True}, None, False, id="with_na"),
         ],
     )
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric", "categorical"])
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_skips_on_output_limit(
-        self, output_config, expected_verdict, expected_applicable, setup_data, active_key_config
+        self, output_config, expected_verdict, expected_applicable, output_type, setup_data, active_key_config
     ):
         team = setup_data["team"]
         evaluation_obj = setup_data["evaluation"]
+        if output_type == "categorical":
+            output_config = {**output_config, "options": [{"key": "resolved", "label": "Resolved"}]}
 
         evaluation = {
             "id": str(evaluation_obj.id),
             "name": "Test Evaluation",
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Is this response factually accurate?"},
-            "output_type": "boolean",
+            "output_type": output_type,
             "output_config": output_config,
             "team_id": team.id,
         }
@@ -500,13 +1340,40 @@ class TestRunEvaluationWorkflow:
 
         assert result["skipped"] is True
         assert result["skip_reason"] == "output_limit_exceeded"
-        assert result["verdict"] is expected_verdict
+        assert result["result_type"] == output_type
+        if output_type == "boolean":
+            assert result["verdict"] is expected_verdict
+        else:
+            assert "verdict" not in result
         assert result.get("applicable") is expected_applicable
         assert result.get("terminal_user_error") is not True
         # The model ran and the call was billed, so attribution stays on the result.
         assert result["model"]
         assert result["provider"]
         mock_client.complete.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_numeric_telemetry_omits_customer_score(self, setup_data: dict[str, Any]) -> None:
+        evaluation = {"id": str(setup_data["evaluation"].id), "name": "Quality", "evaluation_type": "hog"}
+        result: EvaluationActivityResult = {
+            "result_type": "numeric",
+            "score": 123.45,
+            "reasoning": "Customer content",
+            "allows_na": False,
+        }
+        with patch("posthog.tasks.usage_report.get_ph_client") as capture:
+            await emit_internal_telemetry_activity(
+                EmitInternalTelemetryInputs(evaluation=evaluation, team_id=setup_data["team"].id, result=result)
+            )
+
+        capture.return_value.capture.assert_called_once()
+        properties = capture.return_value.capture.call_args.kwargs["properties"]
+        assert properties["result_type"] == "numeric"
+        assert "score" not in properties
+        assert "reasoning" not in properties
+        event_properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 7, 1, tzinfo=UTC))
+        assert event_properties["$ai_evaluation_numeric_result"] == 123.45
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -954,6 +1821,31 @@ class TestRunEvaluationWorkflow:
                 )
 
         assert mock_fetch.call_count == 1
+
+    @pytest.mark.parametrize("live", [pytest.param(True, id="live"), pytest.param(False, id="backfill")])
+    @pytest.mark.parametrize(
+        "attempt,retryable",
+        [
+            pytest.param(1, True, id="first attempt"),
+            pytest.param(2, True, id="second attempt"),
+            pytest.param(3, False, id="last attempt"),
+        ],
+    )
+    def test_a_missing_generation_gets_two_retries_before_it_fails_the_run(
+        self, attempt: int, retryable: bool, live: bool
+    ):
+        reference = {**THIN_REFERENCE, "awaiting_ingestion": True} if live else dict(THIN_REFERENCE)
+        env = ActivityEnvironment()
+        env.info = dataclasses.replace(env.info, attempt=attempt)
+        with patch(HYDRATE_FETCH, return_value=None):
+            with pytest.raises(ApplicationError) as raised:
+                env.run(hydrate_event_reference, reference)
+
+        assert raised.value.type == "generation_not_found"
+        assert raised.value.non_retryable is not retryable
+        assert isinstance(raised.value, NonReportableError) is retryable
+        expected_delay = GENERATION_NOT_FOUND_RETRY_DELAY if retryable and live else None
+        assert raised.value.next_retry_delay == expected_delay
 
     def test_parse_inputs(self):
         """Test that parse_inputs correctly parses workflow inputs"""
@@ -1622,7 +2514,8 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_disable_evaluation_activity(self, setup_data):
+    @pytest.mark.parametrize("initial_status,expected_disabled", [("active", True), ("paused", False)])
+    async def test_disable_evaluation_activity(self, setup_data, initial_status: str, expected_disabled: bool) -> None:
         from posthog.models.activity_logging.activity_log import ActivityLog
 
         evaluation = setup_data["evaluation"]
@@ -1631,17 +2524,21 @@ class TestRunEvaluationWorkflow:
         directory = await sync_to_async(
             lambda: EvaluationDirectory.objects.for_team(team.id).create(team=team, name="Quality")
         )()
-        await sync_to_async(lambda: Evaluation.objects.filter(id=evaluation.id).update(directory=directory))()
+        await sync_to_async(
+            lambda: Evaluation.objects.filter(id=evaluation.id).update(
+                directory=directory, status=initial_status, enabled=expected_disabled
+            )
+        )()
         await sync_to_async(evaluation.refresh_from_db)()
 
-        assert evaluation.enabled
+        assert evaluation.enabled is expected_disabled
 
         disabled = await disable_evaluation_activity(
             str(evaluation.id), team.id, "hog_error", "Must return boolean, got int: 42"
         )
 
         await sync_to_async(evaluation.refresh_from_db)()
-        assert disabled is True
+        assert disabled is expected_disabled
         assert not evaluation.enabled
         assert evaluation.status == "error"
         assert evaluation.status_reason == "hog_error"
@@ -1654,7 +2551,7 @@ class TestRunEvaluationWorkflow:
         detail = logs[0].detail
         assert detail is not None
         fields = {c["field"]: c for c in detail["changes"]}
-        assert fields["status"]["before"] == "active"
+        assert fields["status"]["before"] == initial_status
         assert fields["status"]["after"] == "error"
         assert fields["status_reason"]["after"] == "hog_error"
         assert fields["status_reason_detail"]["after"] == "Must return boolean, got int: 42"
@@ -1716,15 +2613,16 @@ class TestRunEvaluationWorkflow:
             pytest.param({"allows_na": True}, None, False, id="allows_na_true"),
         ],
     )
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
     def test_execute_llm_judge_activity_parse_error_skips_item(
-        self, output_config, expected_verdict, expected_applicable
+        self, output_config, expected_verdict, expected_applicable, output_type
     ):
         evaluation = {
             "id": "eval-123",
             "name": "Test Evaluation",
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Is this response factually accurate?"},
-            "output_type": "boolean",
+            "output_type": output_type,
             "output_config": output_config,
             "team_id": 1,
         }
@@ -1756,19 +2654,24 @@ class TestRunEvaluationWorkflow:
         mock_increment_errors.assert_called_once_with("parse_error", provider="openai")
         assert result["skipped"] is True
         assert result["skip_reason"] == "unparsable_response"
-        assert result["verdict"] is expected_verdict
+        assert result["result_type"] == output_type
+        if output_type == "numeric":
+            assert "verdict" not in result
+        else:
+            assert result["verdict"] is expected_verdict
         assert result.get("applicable") is expected_applicable
         # The exception drops the provider's counts, but the call still happened on a known model.
         assert result["provider"] == "openai"
         assert result["input_tokens"] == 0
 
-    def test_execute_llm_judge_activity_empty_structured_response_skips_item(self):
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
+    def test_execute_llm_judge_activity_empty_structured_response_skips_item(self, output_type):
         evaluation = {
             "id": "eval-123",
             "name": "Test Evaluation",
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Is this response factually accurate?"},
-            "output_type": "boolean",
+            "output_type": output_type,
             "output_config": {},
             "team_id": 1,
         }
@@ -1799,6 +2702,9 @@ class TestRunEvaluationWorkflow:
             result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
         mock_increment_errors.assert_called_once_with("empty_structured_response", provider="openai")
+        assert result["result_type"] == output_type
+        if output_type == "numeric":
+            assert "verdict" not in result
         assert result["skipped"] is True
         assert result["skip_reason"] == "unparsable_response"
         assert result["provider"] == "openai"
@@ -1880,6 +2786,12 @@ class TestRunEvaluationWorkflow:
             pytest.param(ProviderConnectionError("connection reset"), TransientJudgeError, id="connection_error"),
             pytest.param(CancelledError("Cancelled"), CancelledError, id="cancellation"),
             pytest.param(RuntimeError("boom"), RuntimeError, id="unhandled_error"),
+            pytest.param(
+                _openai_status_error(503, "Example upstream outage."), openai.APIStatusError, id="provider_5xx"
+            ),
+            pytest.param(
+                _openai_status_error(408, "Example request timeout."), openai.APIStatusError, id="provider_timeout"
+            ),
         ],
     )
     @pytest.mark.django_db(transaction=True)
@@ -1993,6 +2905,13 @@ class TestRunEvaluationWorkflow:
                 "model_not_found",
                 None,
                 id="model_not_found",
+            ),
+            pytest.param(
+                UnsupportedModelError("gpt-5.4"),
+                "model_not_supported",
+                "model_not_supported",
+                None,
+                id="model_not_supported",
             ),
         ],
     )
@@ -2276,15 +3195,21 @@ class TestExecuteHogEvalActivity:
         assert "Global variable not found" in result["reasoning"]
 
     @pytest.mark.asyncio
-    async def test_hog_eval_length_null_returns_skipped(self):
+    @pytest.mark.parametrize(
+        "source",
+        ["return length(null) > 0", "return properties.missing <= 1.0"],
+        ids=["length-of-null", "ordering-against-null"],
+    )
+    async def test_hog_eval_null_comparisons_evaluate_to_false(self, source):
+        # A missing value is no match, not a runtime error, so the eval completes with a verdict.
         from posthog.cdp.validation import compile_hog
 
-        bytecode = compile_hog("return length(null) > 0", "destination")
+        bytecode = compile_hog(source, "destination")
         evaluation = {
             "id": "eval-id",
             "name": "Hog Eval",
             "evaluation_type": "hog",
-            "evaluation_config": {"source": "return length(null) > 0", "bytecode": bytecode},
+            "evaluation_config": {"source": source, "bytecode": bytecode},
             "output_type": "boolean",
             "output_config": {},
             "team_id": 1,
@@ -2292,39 +3217,9 @@ class TestExecuteHogEvalActivity:
 
         result = await execute_hog_eval_activity(evaluation, create_mock_event_data(1))
 
-        assert result["skipped"] is True
-        assert result["skip_reason"] == "hog_error"
-        assert result["terminal_user_error"] is True
-        assert result["status_reason"] == "hog_error"
         assert result["verdict"] is False
-        assert "Runtime error: Can not call length on null" in result["reasoning"]
-        assert "TypeError" not in result["reasoning"]
-        assert "NoneType" not in result["reasoning"]
-
-    @pytest.mark.asyncio
-    async def test_hog_eval_comparison_type_error_returns_skipped(self):
-        from posthog.cdp.validation import compile_hog
-
-        bytecode = compile_hog("return properties.missing <= 1.0", "destination")
-        evaluation = {
-            "id": "eval-id",
-            "name": "Hog Eval",
-            "evaluation_type": "hog",
-            "evaluation_config": {"source": "return properties.missing <= 1.0", "bytecode": bytecode},
-            "output_type": "boolean",
-            "output_config": {},
-            "team_id": 1,
-        }
-
-        result = await execute_hog_eval_activity(evaluation, create_mock_event_data(1))
-
-        assert result["skipped"] is True
-        assert result["skip_reason"] == "hog_error"
-        assert result["terminal_user_error"] is True
-        assert result["status_reason"] == "hog_error"
-        assert result["verdict"] is False
-        assert "Runtime error: '<=' not supported between instances of 'NoneType' and 'float'" in result["reasoning"]
-        assert "Unexpected error during evaluation" not in result["reasoning"]
+        assert not result.get("skipped")
+        assert "Runtime error" not in (result.get("reasoning") or "")
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -2545,6 +3440,178 @@ class TestExecuteSentimentEvalActivity:
 
 
 class TestEvalResultModels:
+    @pytest.mark.parametrize(
+        "categories,allows_na",
+        [(["resolved"], True), ([], True), (None, True), (["unknown"], True), ([], False), (["unknown"], False)],
+    )
+    def test_categorical_judge_emits_only_valid_labels(self, categories: list[str] | None, allows_na: bool) -> None:
+        config = {
+            "options": [{"key": "resolved", "label": "Resolved"}],
+            "selection_mode": "multiple",
+            "allows_na": allows_na,
+        }
+        evaluation = {
+            "id": "categorical-eval",
+            "name": "Resolution",
+            "team_id": 1,
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Classify the response"},
+            "output_type": "categorical",
+            "output_config": config,
+        }
+        schema = get_output_type_config(allows_na, output_type="categorical", output_config=config).response_format
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as model_spec,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client,
+        ):
+            model_spec.return_value.resolve.return_value = MagicMock(
+                provider="openai", model="gpt-4o-mini", provider_key=None, is_byok=False
+            )
+            client.return_value.complete.return_value = MagicMock(
+                parsed=schema.model_validate({"reasoning": "Resolution", "categories": categories}),
+                usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
+            )
+            result = _execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
+            )
+        assert result["result_type"] == "categorical"
+        assert "verdict" not in result
+        properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 7, 1, tzinfo=UTC))
+        assert "$ai_evaluation_result" not in properties
+        if categories == ["unknown"]:
+            assert result["skipped"] is True
+            assert "terminal_user_error" not in result
+            assert "$ai_evaluation_categorical_result" not in properties
+            assert properties["$ai_evaluation_applicable"] is False
+        elif categories is None:
+            assert result["applicable"] is False
+            assert "$ai_evaluation_categorical_result" not in properties
+            assert properties["$ai_evaluation_applicable"] is False
+        else:
+            assert result["categories"] == categories
+            assert result.get("applicable", True) is True
+            assert properties["$ai_evaluation_applicable"] is True
+            assert properties["$ai_evaluation_categorical_result"] == categories
+
+    @pytest.mark.parametrize("score", [0, 0.25, 1, None, -0.1, 1.1])
+    def test_numeric_judge_validates_bounds_before_returning(self, score: float | None) -> None:
+        evaluation = {
+            "id": "numeric-eval",
+            "name": "Quality",
+            "team_id": 1,
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Rate quality"},
+            "output_type": "numeric",
+            "output_config": {"min": 0, "max": 1, "allows_na": True},
+        }
+        schema = get_output_type_config(True, output_type="numeric").response_format
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as model_spec,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as increment_errors,
+        ):
+            model_spec.return_value.resolve.return_value = MagicMock(
+                provider="openai",
+                model="gpt-4o-mini",
+                provider_key=None,
+                is_byok=False,
+            )
+            client.return_value.complete.return_value = MagicMock(
+                parsed=schema.model_validate({"reasoning": "Quality", "score": score}),
+                usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
+            )
+            inputs = ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
+            result = _execute_llm_judge_activity(inputs)
+            increment_errors.assert_not_called()
+        assert result["result_type"] == "numeric"
+        assert "verdict" not in result
+        if score is not None and not 0 <= score <= 1:
+            assert result["skipped"] is True
+            assert result["skip_reason"] == "score_out_of_bounds"
+            assert "terminal_user_error" not in result
+            assert "score" not in result
+            properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 7, 1, tzinfo=UTC))
+            assert properties["$ai_evaluation_skipped"] is True
+            assert properties["$ai_evaluation_skip_reason"] == "score_out_of_bounds"
+            assert properties["$ai_evaluation_reasoning"].startswith("Quality\n\n")
+            assert "$ai_evaluation_numeric_result" not in properties
+            assert properties["$ai_input_tokens"] == 100
+            assert properties["$ai_output_tokens"] == 20
+            assert properties["$ai_model"] == "gpt-4o-mini"
+            assert properties["$ai_provider"] == "openai"
+            return
+        assert result["applicable"] is (score is not None)
+        if score is None:
+            assert "score" not in result
+            assert "score_min" not in result
+        else:
+            assert result["score"] == score
+            assert result["score_min"] == 0
+            assert result["score_max"] == 1
+
+    @pytest.mark.parametrize("allows_na", [False, True])
+    @pytest.mark.parametrize("value", [True, "0.5", float("nan"), float("inf")])
+    def test_numeric_schema_rejects_invalid_scores(self, value: object, allows_na: bool) -> None:
+        schema = get_output_type_config(allows_na, output_type="numeric").response_format
+        with pytest.raises(ValueError):
+            schema.model_validate({"reasoning": "Quality", "score": value})
+
+    @pytest.mark.parametrize("score", [0, 0.5, None])
+    def test_numeric_na_is_derived_from_score(self, score: float | None) -> None:
+        schema = get_output_type_config(True, output_type="numeric").response_format
+        result = schema.model_validate({"reasoning": "Quality", "score": score})
+        assert isinstance(result, NumericWithNAEvalResult)
+        assert result.model_dump() == {"reasoning": "Quality", "score": score}
+        assert result.applicable is (score is not None)
+        with pytest.raises(ValueError):
+            schema.model_validate({"reasoning": "Quality"})
+
+    @pytest.mark.parametrize(
+        "extra,expected",
+        [
+            (
+                {"score": 0, "score_min": 0, "score_max": 1},
+                {
+                    "$ai_evaluation_numeric_result": 0,
+                    "$ai_evaluation_numeric_result_min": 0,
+                    "$ai_evaluation_numeric_result_max": 1,
+                },
+            ),
+            ({"applicable": False}, {}),
+            ({"skipped": True, "skip_reason": "trace_not_found"}, {}),
+        ],
+    )
+    def test_numeric_event_properties(self, extra: dict[str, Any], expected: dict[str, Any]) -> None:
+        result = cast(
+            EvaluationActivityResult,
+            {
+                "result_type": "numeric",
+                "reasoning": "Quality",
+                "allows_na": True,
+                **extra,
+            },
+        )
+        properties = build_evaluation_event_properties(
+            {"id": "eval", "name": "Quality", "evaluation_type": "hog"},
+            result,
+            datetime(2026, 7, 1, tzinfo=UTC),
+        )
+        assert properties["$ai_evaluation_result_type"] == "numeric"
+        assert "$ai_evaluation_result" not in properties
+        assert "$ai_score" not in properties
+        assert "$ai_score_min" not in properties
+        assert "$ai_score_max" not in properties
+        assert {
+            key: value
+            for key, value in properties.items()
+            if key
+            in (
+                "$ai_evaluation_numeric_result",
+                "$ai_evaluation_numeric_result_min",
+                "$ai_evaluation_numeric_result_max",
+            )
+        } == expected
+
     def test_boolean_eval_result(self):
         """Test BooleanEvalResult model"""
         result = BooleanEvalResult(reasoning="Test reasoning", verdict=True)
@@ -2724,29 +3791,81 @@ class TestExecuteHogEvalActivityAllowsNA:
 class TestSendEvaluationDisabledEmailActivity:
     @pytest.fixture
     def setup_data(self, db):
-        from posthog.models import Organization, Team, User
-
         organization = Organization.objects.create(name="Test Org")
-        User.objects.create_and_join(organization=organization, email="test@example.com", password="password")
+        user = User.objects.create_and_join(organization=organization, email="test@example.com", password="password")
         team = Team.objects.create(organization=organization, name="Test Team")
-        return {"team": team, "organization": organization}
+        evaluation = Evaluation.objects.create(
+            team=team,
+            name="My Eval",
+            created_by=user,
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+        )
+        return {"team": team, "organization": organization, "evaluation": evaluation}
 
-    @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    async def test_sends_email_with_evaluation_disabled_template(self, setup_data):
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "notification_enabled,project_access,evaluation_access,object_access,should_receive",
+        [
+            pytest.param(None, None, None, None, True, id="enabled-by-default"),
+            pytest.param(True, None, "viewer", None, True, id="viewer-opted-in"),
+            pytest.param(False, None, "viewer", None, False, id="viewer-opted-out"),
+            pytest.param(None, "none", "viewer", None, False, id="no-project-access"),
+            pytest.param(None, None, "none", None, False, id="no-evaluation-access"),
+            pytest.param(None, None, "viewer", "none", False, id="evaluation-object-denied"),
+            pytest.param(None, None, "none", "viewer", True, id="evaluation-object-granted"),
+        ],
+    )
+    def test_sends_email_with_evaluation_disabled_template(
+        self,
+        setup_data,
+        notification_enabled: bool | None,
+        project_access: str | None,
+        evaluation_access: str | None,
+        object_access: str | None,
+        should_receive: bool,
+    ) -> None:
         team = setup_data["team"]
+        organization = setup_data["organization"]
+        evaluation = setup_data["evaluation"]
+        organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        organization.save()
+        member = User.objects.create_and_join(organization, "member@example.com", "password")
+        membership = OrganizationMembership.objects.get(organization=organization, user=member)
+        if notification_enabled is not None:
+            member.partial_notification_settings = {"ai_evaluation_disabled": notification_enabled}
+            member.save(update_fields=["partial_notification_settings"])
+        for resource, resource_id, access_level in [
+            ("project", str(team.id), project_access),
+            ("evaluation", None, evaluation_access),
+            ("evaluation", str(evaluation.id), object_access),
+        ]:
+            if access_level is not None:
+                AccessControl.objects.create(
+                    team=team,
+                    resource=resource,
+                    resource_id=resource_id,
+                    access_level=access_level,
+                    organization_member=membership,
+                )
 
         with (
             patch("posthog.email.is_email_available", return_value=True),
             patch("posthog.email.EmailMessage") as mock_email_class,
         ):
             mock_message = MagicMock()
+            mock_message.to = []
+            mock_message.add_user_recipient.side_effect = lambda user: mock_message.to.append(user.email)
             mock_email_class.return_value = mock_message
 
-            await send_evaluation_disabled_email_activity(
+            async_to_sync(send_evaluation_disabled_email_activity)(
                 SendEvaluationDisabledEmailInputs(
                     team_id=team.id,
-                    evaluation_id="eval-123",
+                    evaluation_id=str(evaluation.id),
                     evaluation_name="My Eval",
                     status_reason="provider_key_required",
                     human_readable_reason="Add a provider API key to run this evaluation.",
@@ -2763,21 +3882,80 @@ class TestSendEvaluationDisabledEmailActivity:
             assert "provider_key_required" in call_kwargs["campaign_key"]
             # It also includes the disable timestamp so a later same-reason disable sends a fresh email.
             assert "1782388800000000" in call_kwargs["campaign_key"]
+            expected_recipients = {"test@example.com", "member@example.com"} if should_receive else {"test@example.com"}
+            assert set(mock_message.to) == expected_recipients
             mock_message.send.assert_called_once()
 
-    @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    async def test_skips_when_email_not_available(self, setup_data):
+    @pytest.mark.django_db
+    def test_does_not_email_a_member_who_turned_the_notification_off(self, setup_data) -> None:
+        team = setup_data["team"]
+        user = setup_data["organization"].members.get()
+        user.partial_notification_settings = {"ai_evaluation_disabled": False}
+        user.save(update_fields=["partial_notification_settings"])
+
+        with (
+            patch("posthog.email.is_email_available", return_value=True),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            mock_message = MagicMock()
+            mock_message.to = []
+            mock_email_class.return_value = mock_message
+
+            async_to_sync(send_evaluation_disabled_email_activity)(
+                SendEvaluationDisabledEmailInputs(
+                    team_id=team.id,
+                    evaluation_id=str(setup_data["evaluation"].id),
+                    evaluation_name="My Eval",
+                    status_reason="provider_key_required",
+                    human_readable_reason="reason",
+                )
+            )
+
+            mock_message.add_user_recipient.assert_not_called()
+            mock_message.send.assert_not_called()
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("unavailable_reason", ["deleted", "missing", "different-team"])
+    def test_skips_unavailable_evaluation(self, setup_data, unavailable_reason: str) -> None:
+        evaluation = setup_data["evaluation"]
+        evaluation_id = str(evaluation.id)
+        if unavailable_reason == "deleted":
+            evaluation.deleted = True
+            evaluation.save(update_fields=["deleted"])
+        elif unavailable_reason == "missing":
+            evaluation_id = str(uuid.uuid4())
+        else:
+            evaluation.team = Team.objects.create(organization=setup_data["organization"], name="Other project")
+            evaluation.save(update_fields=["team"])
+
+        with (
+            patch("posthog.email.is_email_available", return_value=True),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            async_to_sync(send_evaluation_disabled_email_activity)(
+                SendEvaluationDisabledEmailInputs(
+                    team_id=setup_data["team"].id,
+                    evaluation_id=evaluation_id,
+                    evaluation_name="My Eval",
+                    status_reason="provider_key_required",
+                    human_readable_reason="reason",
+                )
+            )
+
+            mock_email_class.assert_not_called()
+
+    @pytest.mark.django_db
+    def test_skips_when_email_not_available(self, setup_data) -> None:
         team = setup_data["team"]
 
         with (
             patch("posthog.email.is_email_available", return_value=False),
             patch("posthog.email.EmailMessage") as mock_email_class,
         ):
-            await send_evaluation_disabled_email_activity(
+            async_to_sync(send_evaluation_disabled_email_activity)(
                 SendEvaluationDisabledEmailInputs(
                     team_id=team.id,
-                    evaluation_id="eval-123",
+                    evaluation_id=str(setup_data["evaluation"].id),
                     evaluation_name="My Eval",
                     status_reason="provider_key_required",
                     human_readable_reason="reason",

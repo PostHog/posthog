@@ -38,7 +38,14 @@ class TestInstanaSource:
         ]
         assert schemas["events"].description is not None
 
-        for name in set(ENDPOINTS) - {"events"}:
+        metrics_tables = {"application_metrics", "service_metrics", "endpoint_metrics"}
+        for name in metrics_tables:
+            assert schemas[name].supports_incremental is True
+            assert schemas[name].supports_append is False
+            assert [f["field"] for f in schemas[name].incremental_fields] == ["timestamp"]
+            assert schemas[name].description is not None
+
+        for name in set(ENDPOINTS) - {"events"} - metrics_tables:
             assert schemas[name].supports_incremental is False
             assert schemas[name].supports_append is False
             assert schemas[name].incremental_fields == []

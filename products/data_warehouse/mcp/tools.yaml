@@ -308,7 +308,6 @@ tools:
             Delete a data warehouse saved query (view) by ID. This is a soft delete — the view is marked as deleted and
             will no longer appear in lists or be queryable in HogQL. Any materialization schedule is also removed.
             Cannot delete views that have downstream dependencies or views from managed viewsets.
-        soft_delete: true
     view-get:
         operation: warehouse_saved_queries_retrieve
         enabled: true
@@ -454,7 +453,7 @@ tools:
         operation: warehouse_column_annotations_create
         enabled: true
         scopes:
-            - external_data_source:write
+            - warehouse_table:write
         annotations:
             readOnly: false
             destructive: false
@@ -474,7 +473,7 @@ tools:
         operation: warehouse_column_annotations_list
         enabled: true
         scopes:
-            - external_data_source:read
+            - warehouse_table:read
         annotations:
             readOnly: true
             destructive: false
@@ -490,7 +489,7 @@ tools:
         operation: warehouse_column_annotations_partial_update
         enabled: true
         scopes:
-            - external_data_source:write
+            - warehouse_table:write
         annotations:
             readOnly: false
             destructive: false

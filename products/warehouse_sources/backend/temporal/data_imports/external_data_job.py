@@ -1,6 +1,8 @@
 import re
 import json
+import uuid
 import typing
+import asyncio
 import datetime as dt
 import dataclasses
 
@@ -12,7 +14,7 @@ from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity, exceptions, workflow
 from temporalio.client import Client
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.common import RetryPolicy, SearchAttributes, WorkflowIDReusePolicy
 from temporalio.exceptions import TimeoutType, WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
@@ -64,6 +66,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     DUPLICATE_PRIMARY_KEYS_ERROR,
     MISSING_PRIMARY_KEYS_ERROR,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
+    release_v3_pipeline_lock,
+)
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
     PostImportWorkflow,
     PostImportWorkflowInputs,
@@ -86,6 +91,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     TEMPORARY_HOST_RESOLUTION_PREFIX,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UNKNOWN_RESOURCE_PREFIX
+from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -132,6 +138,11 @@ LOGGER = get_logger(__name__)
 # expensive retry-exhaustion paths fast.
 MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION
 MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
+# A rewrite that stops for a worker shutdown resumes on its next attempt, and each stop uses one
+# attempt. When the attempts end, the sync merges on the old layout, and that merge can remove source
+# files the rewrite already copied, which discards its progress. A long rewrite on a fleet that
+# deploys often therefore needs the same room as a resumable import.
+MAX_REPARTITION_ACTIVITY_ATTEMPTS = MAX_RESUMABLE_SOURCE_RETRIES
 
 MISSING_INTEGRATION_MESSAGE = (
     "The connected account for this source is no longer available — it may have been disconnected. "
@@ -440,6 +451,7 @@ class UpdateExternalDataJobStatusInputs:
     # Run id stamped on the job row by the create-job activity, so finalization can resolve this
     # run's own job when job_id never made it back. Optional for mixed-version workers mid-rollout.
     workflow_run_id: str | None = None
+    release_lock_token: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -458,6 +470,19 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
+    await _update_job_status(inputs, logger)
+
+    # After the status write, as the separate release activity ran, and only when it returned:
+    # a status write that raises leaves the lock to its holder, as before. The release itself
+    # never raises (see release_v3_pipeline_lock), matching the swallowed failure of that activity.
+    if inputs.release_lock_token:
+        released = await asyncio.to_thread(
+            release_v3_pipeline_lock, inputs.team_id, inputs.schema_id, inputs.release_lock_token
+        )
+        logger.info("Released V3 pipeline lock after finalization", released=released)
+
+
+async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: FilteringBoundLogger) -> None:
     rows_tracked = await get_rows(inputs.team_id, inputs.schema_id)
     if rows_tracked > 0 and inputs.status == ExternalDataJob.Status.COMPLETED:
         # `rows_tracked` is decremented by rows actually written, but incremented by
@@ -686,6 +711,7 @@ class CreateSourceTemplateInputs:
 
 
 @activity.defn
+@with_internal_db_retries
 def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
     create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
 
@@ -740,6 +766,13 @@ def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
     trigger_schedule_buffer_one(temporal, schedule_id)
 
 
+def _started_by_own_schedule(search_attributes: SearchAttributes, schema_id: uuid.UUID | None) -> bool:
+    # Temporal sets this on every run a schedule starts, manual triggers included. It comes from the start
+    # event, so replay reads the same value.
+    scheduled_by = search_attributes.get("TemporalScheduledById") or []
+    return any(str(value) == str(schema_id) for value in scheduled_by)
+
+
 # TODO: update retry policies
 #
 # DETERMINISM: adding, removing, or reordering activities / child-workflow starts in `run` breaks
@@ -773,40 +806,45 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         consumer_manages_job_status = False
         skip_post_import_activities = False
         workflow_starts_post_import = False
-        is_v3 = False
+        is_v3 = True
         lock_token = None
 
-        # Check pipeline version (FF evaluated once here, propagated everywhere)
-        try:
-            version_result = await workflow.execute_activity(
-                check_pipeline_version_activity,
-                CheckPipelineVersionActivityInputs(
-                    team_id=inputs.team_id,
-                    source_id=inputs.external_data_source_id,
-                    schema_id=inputs.external_data_schema_id,
-                ),
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            is_v3 = version_result.is_v3
-        except Exception:
-            # Guessing the version is not safe: a buffered CDC schema consumed on v2 records no
-            # load position, so the buffer re-merges in full and nothing is ever deleted. Skip
-            # the run and let the schedule fire again, matching the lock-not-acquired path.
-            # patched() keeps in-flight pre-patch executions replaying their recorded fall-through.
-            if workflow.patched("data-imports-skip-run-on-version-check-failure-v1"):
-                workflow.logger.error(
-                    "Failed to check pipeline version, skipping run",
+        # Every run is V3. A history recorded before this patch scheduled the version check as
+        # its first command, so the else branch keeps that command sequence for replay.
+        # TODO: swap to workflow.deprecate_patch and delete the else branch once no pre-patch
+        # executions remain.
+        if not workflow.patched("data-imports-v3-only-2026-10"):
+            is_v3 = False
+            try:
+                version_result = await workflow.execute_activity(
+                    check_pipeline_version_activity,
+                    CheckPipelineVersionActivityInputs(
+                        team_id=inputs.team_id,
+                        source_id=inputs.external_data_source_id,
+                        schema_id=inputs.external_data_schema_id,
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                is_v3 = version_result.is_v3
+            except Exception:
+                # Guessing the version is not safe: a buffered CDC schema consumed on v2 records no
+                # load position, so the buffer re-merges in full and nothing is ever deleted. Skip
+                # the run and let the schedule fire again, matching the lock-not-acquired path.
+                # patched() keeps in-flight pre-patch executions replaying their recorded fall-through.
+                if workflow.patched("data-imports-skip-run-on-version-check-failure-v1"):
+                    workflow.logger.error(
+                        "Failed to check pipeline version, skipping run",
+                        extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )
+                    get_version_check_skipped_metric().add(1)
+                    return
+                workflow.logger.warning(
+                    "Failed to check pipeline version, defaulting to V2",
                     extra={"schema_id": str(inputs.external_data_schema_id)},
                 )
-                get_version_check_skipped_metric().add(1)
-                return
-            workflow.logger.warning(
-                "Failed to check pipeline version, defaulting to V2",
-                extra={"schema_id": str(inputs.external_data_schema_id)},
-            )
 
-        # Only acquire lock for V3 pipelines (V2 never enters this block)
+        # Only a pre-patch replay that recorded a V2 version check skips the lock.
         if is_v3:
             lock_result = None
             try:
@@ -843,6 +881,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source_id=inputs.external_data_source_id,
                 billable=inputs.billable,
                 is_v3=is_v3,
+                started_by_schedule=_started_by_own_schedule(
+                    workflow.info().search_attributes, inputs.external_data_schema_id
+                ),
             )
 
             create_job_result = await workflow.execute_activity(
@@ -862,6 +903,11 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 statistics_needed = False
                 person_property_sync_enabled = False
                 fast_return_eligible = False
+                scheduled_full_refresh = False
+                repartition_needed = True
+                billing_limit_checked = False
+                hit_billing_limit = False
+                source_templates_needed = True
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -873,19 +919,27 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 statistics_needed = create_job_result.statistics_needed
                 person_property_sync_enabled = create_job_result.person_property_sync_enabled
                 fast_return_eligible = create_job_result.fast_return_eligible
+                scheduled_full_refresh = create_job_result.scheduled_full_refresh
+                repartition_needed = create_job_result.repartition_needed
+                billing_limit_checked = create_job_result.billing_limit_checked
+                hit_billing_limit = create_job_result.hit_billing_limit
+                source_templates_needed = create_job_result.source_templates_needed
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
-            # Check billing limits
-            hit_billing_limit = await workflow.execute_activity(
-                check_billing_limits_activity,
-                CheckBillingLimitsActivityInputs(job_id=job_id, team_id=inputs.team_id),
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=3,
-                ),
-            )
+            # The job-creation activity answers the billing question in the same round trip. The
+            # separate check stays for a payload that predates that answer: a history that recorded
+            # it must replay it.
+            if not billing_limit_checked:
+                hit_billing_limit = await workflow.execute_activity(
+                    check_billing_limits_activity,
+                    CheckBillingLimitsActivityInputs(job_id=job_id, team_id=inputs.team_id),
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=RetryPolicy(
+                        initial_interval=dt.timedelta(seconds=10),
+                        maximum_interval=dt.timedelta(seconds=60),
+                        maximum_attempts=3,
+                    ),
+                )
 
             if hit_billing_limit:
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
@@ -893,8 +947,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             # Pre-extraction, in-place repartition of any table flagged on a prior run. Runs here — sole
             # writer, lock held, before the merge — so the subsequent merge uses the memory-safe layout.
-            # A no-op unless a repartition is pending; never fails the sync (errors are swallowed).
-            if job_id is not None:
+            # Never fails the sync (errors are swallowed). Skipped when the job-creation activity saw nothing
+            # queued and no on-disk measurement due, so the common sync pays no activity round trip. A
+            # scheduled full refresh deletes the table before extraction, so rewriting it first is wasted work.
+            if job_id is not None and not scheduled_full_refresh and repartition_needed:
                 try:
                     await workflow.execute_activity(
                         maybe_repartition_table_activity,
@@ -906,13 +962,24 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         ),
                         start_to_close_timeout=dt.timedelta(hours=6),
                         heartbeat_timeout=dt.timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        retry_policy=RetryPolicy(maximum_attempts=MAX_REPARTITION_ACTIVITY_ATTEMPTS),
                     )
                 except Exception:
                     workflow.logger.warning(
                         "Repartition activity failed; continuing with sync on existing layout",
                         extra={"schema_id": str(inputs.external_data_schema_id)},
                     )
+            elif job_id is not None:
+                # Logged so the Syncs UI/log stream still shows the repartition check ran for the
+                # common no-op case — the activity's own start/finish logs only fire when it's called.
+                workflow.logger.info(
+                    "Repartition scheduling skipped",
+                    extra={
+                        "schema_id": str(inputs.external_data_schema_id),
+                        "repartition_needed": repartition_needed,
+                        "scheduled_full_refresh": scheduled_full_refresh,
+                    },
+                )
 
             job_inputs = ImportDataActivityInputs(
                 team_id=inputs.team_id,
@@ -921,12 +988,20 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source_id=inputs.external_data_source_id,
                 reset_pipeline=inputs.reset_pipeline,
                 fast_return_eligible=fast_return_eligible,
+                scheduled_full_refresh=scheduled_full_refresh,
             )
 
             is_resumable_source = False
             if source_type is not None:
                 source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
-                is_resumable_source = isinstance(source, ResumableSource)
+                # The class can resume, and its mechanism covers a run of this shape. Both halves
+                # matter: a class whose resume is narrower than itself would otherwise hand the
+                # resumable allowance to every one of its runs, including the ones that restart from
+                # row 0 on each of those extra attempts.
+                is_resumable_source = isinstance(source, ResumableSource) and source.resume_covers_run(
+                    incremental_or_append=incremental_or_append,
+                    schema_name=schema_name,
+                )
 
             max_resumable_attempts = MAX_RESUMABLE_SOURCE_RETRIES
             max_incremental_attempts = MAX_INCREMENTAL_SOURCE_RETRIES
@@ -1132,13 +1207,13 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         extra={"schema_id": str(inputs.external_data_schema_id)},
                     )
 
-            # Create source templates
-            await workflow.execute_activity(
-                create_source_templates,
-                CreateSourceTemplateInputs(team_id=inputs.team_id, run_id=job_id),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
+            if source_templates_needed:
+                await workflow.execute_activity(
+                    create_source_templates,
+                    CreateSourceTemplateInputs(team_id=inputs.team_id, run_id=job_id),
+                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
 
             if not post_import_in_workflow:
                 await workflow.execute_activity(
@@ -1247,6 +1322,18 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             get_data_import_finished_metric(source_type=source_type, status=update_inputs.status.lower()).add(1)
 
+            # This run still owns the v3 lock when no batch reached the loader (extraction failed
+            # before producing batches, or a zero-batch run); the loader releases it otherwise.
+            # The finalizer below always runs in that case, so it can release the lock after the
+            # status write instead of a separate activity. patched() keeps in-flight pre-patch
+            # executions replaying the separate release they recorded.
+            workflow_releases_lock = is_v3 and bool(lock_token) and not consumer_manages_job_status
+            finalizer_releases_lock = workflow_releases_lock and workflow.patched(
+                "data-imports-finalizer-releases-v3-lock-2026-09"
+            )
+            if finalizer_releases_lock:
+                update_inputs.release_lock_token = lock_token
+
             if not skip_status_update:
                 await workflow.execute_activity(
                     update_external_data_job_model,
@@ -1260,12 +1347,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     ),
                 )
 
-            # Release the V3 pipeline lock when the consumer is NOT managing job
-            # status (extraction failed before producing batches, or non-V3).
-            # When consumer_manages_job_status is True, the consumer releases.
-            # Runs before the post-import start so a raise there (cancellation)
-            # can't leave the lock held.
-            if is_v3 and lock_token and not consumer_manages_job_status:
+            # Pre-patch replay path of the release above. Runs before the post-import start so a
+            # raise there (cancellation) can't leave the lock held.
+            if workflow_releases_lock and not finalizer_releases_lock and lock_token is not None:
                 try:
                     await workflow.execute_activity(
                         release_v3_pipeline_lock_activity,

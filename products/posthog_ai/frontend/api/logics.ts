@@ -66,6 +66,7 @@ export type { ToolStreamSubscription } from '../logics/toolStreamEventsLogic'
 export { useToolStreamListener } from '../hooks/useToolStream'
 export type { UseToolStreamListenerOptions } from '../hooks/useToolStream'
 export { resolveToolCall } from '../utils/toolResolver'
+export { getToolOutputRecord } from '../utils/getToolOutputRecord'
 
 // --- Foreground stream registry + MCP tool apply-back (headless) ---
 // `foregroundStreamLogic` marks the single stream rendered in the side panel the user is watching; a
@@ -87,4 +88,6 @@ export type { RunnerPanelLogicProps, ActiveCreation } from '../logics/runnerPane
 // A one-shot store that lets a host seed a not-yet-mounted composer with an initial prompt (optionally
 // auto-submitting it); the paired `taskTrackerSceneLogic` consumes it on mount or when it arrives.
 export { composerSeedLogic } from '../logics/composerSeedLogic'
+export { composerAttachmentsLogic } from '../logics/composerAttachmentsLogic'
+export { ATTACHMENT_MAX_SIZE_BYTES } from '../utils/attachments'
 export type { ComposerSeed, ComposerSeedLogicProps } from '../logics/composerSeedLogic'

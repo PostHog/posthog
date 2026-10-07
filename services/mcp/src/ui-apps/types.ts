@@ -49,12 +49,6 @@ export type WithAnalytics<T> = T & {
 }
 
 /**
- * Extract the data type from a tool result, excluding analytics metadata.
- * Useful when you want to work with just the payload data without analytics.
- */
-export type ExtractData<T> = Omit<T, '_analytics'>
-
-/**
  * Type guard to check if a value has analytics metadata.
  */
 export function hasAnalytics<T>(value: T): value is T & { _analytics: AnalyticsMetadata } {

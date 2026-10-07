@@ -1,8 +1,9 @@
 import json
+from datetime import timedelta
 from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.db import IntegrityError, connection, transaction
 from django.test import SimpleTestCase
@@ -11,13 +12,19 @@ from django.utils import timezone
 from drf_spectacular.plumbing import get_override
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.ai_observability.backend.api.evaluations import ModelConfigurationSerializer, _TargetConfigField
+from products.ai_observability.backend.api.evaluations import (
+    EvaluationSerializer,
+    ModelConfigurationSerializer,
+    TestHogRequestSerializer as HogRequestSerializer,
+    _TargetConfigField,
+)
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_configs import validate_target_config
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
@@ -54,7 +61,124 @@ def _setup_team():
     return team
 
 
+class TestNumericEvaluationSerializer(SimpleTestCase):
+    @parameterized.expand([("min", 0), ("passing_rule", {"operator": "gte", "threshold": 7})])
+    def test_boolean_patch_rejects_numeric_settings(self, key: str, value: object) -> None:
+        evaluation = Evaluation(
+            evaluation_type="hog", evaluation_config={"source": "return true;"}, output_type="boolean", output_config={}
+        )
+        serializer = EvaluationSerializer(instance=evaluation, data={"output_config": {key: value}}, partial=True)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(key, str(serializer.errors))
+
+    def test_preview_validates_numeric_config(self):
+        serializer = HogRequestSerializer(
+            data={"source": "return 0;", "output_type": "numeric", "output_config": {"min": 0, "allows_na": True}}
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["output_type"], "numeric")
+        self.assertTrue(serializer.validated_data["allows_na"])
+
+    def test_preview_validates_categorical_config(self):
+        output_config = {
+            "options": [{"key": "resolved", "label": "Resolved"}],
+            "selection_mode": "multiple",
+            "allows_na": True,
+        }
+        serializer = HogRequestSerializer(
+            data={"source": "return [];", "output_type": "categorical", "output_config": output_config}
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["output_config"], output_config)
+
+    @parameterized.expand([({"min": 10, "max": 0},), ([],), ("invalid",), (1,), (True,), (None,)])
+    def test_preview_rejects_invalid_numeric_config(self, output_config: object) -> None:
+        serializer = HogRequestSerializer(
+            data={"source": "return 0;", "output_type": "numeric", "output_config": output_config}
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("output_config", serializer.errors)
+
+    def test_patch_can_clear_rule_without_clearing_bounds(self):
+        evaluation = Evaluation(
+            evaluation_type="hog",
+            evaluation_config={"source": "return 0;"},
+            output_type="numeric",
+            output_config={"min": 0, "max": 10, "passing_rule": {"operator": "gte", "threshold": 7}},
+        )
+        serializer = EvaluationSerializer(instance=evaluation, partial=True)
+        data = serializer.validate({"output_config": {"passing_rule": None}})
+        self.assertEqual(data["output_config"], {"min": 0, "max": 10, "allows_na": False})
+
+    def test_existing_boolean_cannot_change_to_numeric(self):
+        evaluation = Evaluation(
+            evaluation_type="hog", evaluation_config={"source": "return true;"}, output_type="boolean", output_config={}
+        )
+        serializer = EvaluationSerializer(instance=evaluation, partial=True)
+        with self.assertRaises(ValidationError):
+            serializer.validate({"output_type": "numeric"})
+
+
 class TestModelConfigurationSerializer(SimpleTestCase):
+    @parameterized.expand([("boolean", {}), ("categorical", {}), ("numeric", {"min": 0, "max": 10})])
+    def test_system_one_supports_evaluation_output_types(
+        self, output_type: str, output_config: dict[str, float]
+    ) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Score quality"},
+            output_type=output_type,
+            output_config=output_config,
+        )
+        serializer = EvaluationSerializer(instance=evaluation, partial=True)
+        data = {"model_configuration": {"provider": "system_one", "model": "custom-model"}}
+        with patch.object(serializer, "_validate_chat_model"):
+            self.assertEqual(serializer.validate(data), data)
+
+    @parameterized.expand([({},), ({"min": 0},), ({"max": 10},), ({"min": 1, "max": 1},)])
+    def test_system_one_requires_numeric_bounds_on_model_change(self, output_config: dict[str, float]) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Score quality"},
+            output_type="numeric",
+            output_config=output_config,
+        )
+        serializer = EvaluationSerializer(instance=evaluation, partial=True)
+        with (
+            patch.object(serializer, "_validate_chat_model"),
+            self.assertRaisesMessage(ValidationError, "minimum score below the maximum"),
+        ):
+            serializer.validate({"model_configuration": {"provider": "system_one", "model": "custom-model"}})
+
+    @parameterized.expand([("system_one", False), ("openai", True)])
+    def test_clearing_numeric_bounds_depends_on_provider(self, provider: str, valid: bool) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Score quality"},
+            output_type="numeric",
+            output_config={"min": 0, "max": 10},
+            model_configuration=LLMModelConfiguration(provider=provider, model="custom-model"),
+        )
+        serializer = EvaluationSerializer(instance=evaluation, data={"output_config": {"max": None}}, partial=True)
+        self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+        if valid:
+            self.assertEqual(serializer.validated_data["output_config"]["min"], 0)
+        else:
+            self.assertIn("output_config", serializer.errors)
+
+    @parameterized.expand(
+        [
+            ("missing_key", "example-judge-v1", None, False),
+            ("custom_model", "other-model", str(uuid4()), True),
+            ("configured", "example-judge-v1", str(uuid4()), True),
+        ]
+    )
+    def test_system_one_requires_explicit_key(self, _name: str, model: str, key_id: str | None, valid: bool) -> None:
+        serializer = ModelConfigurationSerializer(
+            data={"provider": "system_one", "model": model, "provider_key_id": key_id}
+        )
+        self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+
     @parameterized.expand(
         [
             ("missing_provider", {"model": "gpt-5-mini"}, "provider"),
@@ -95,6 +219,136 @@ class TestTargetConfigFieldSchema(SimpleTestCase):
 
 
 class TestEvaluationConfigsApi(APIBaseTest):
+    @parameterized.expand(
+        [("numeric", {"min": 0, "max": 10}), ("categorical", {"options": [{"key": "resolved", "label": "Resolved"}]})]
+    )
+    @patch("products.ai_observability.backend.api.evaluations.posthog_feature_flag_enabled", return_value=False)
+    def test_creation_requires_feature_flag(
+        self, output_type: str, output_config: dict, _mock_numeric_flag: Mock
+    ) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Gated score",
+                "evaluation_type": "hog",
+                "evaluation_config": {"source": "return 0;"},
+                "output_type": output_type,
+                "output_config": output_config,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(f"{output_type.capitalize()} evaluations are not enabled", str(response.data))
+
+    @parameterized.expand(
+        [("numeric", {"min": 0, "max": 10}), ("categorical", {"options": [{"key": "resolved", "label": "Resolved"}]})]
+    )
+    @patch("products.ai_observability.backend.api.evaluations.posthog_feature_flag_enabled", return_value=False)
+    def test_existing_evaluation_remains_editable_when_flag_is_off(
+        self, output_type: str, output_config: dict, _mock_numeric_flag: Mock
+    ) -> None:
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Existing score",
+            evaluation_type="hog",
+            evaluation_config={"source": "return 0;"},
+            output_type=output_type,
+            output_config=output_config,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
+            {"name": "Renamed score"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        evaluation.refresh_from_db()
+        self.assertEqual(evaluation.name, "Renamed score")
+
+    @parameterized.expand(
+        [
+            (output_type, enabled, frequency)
+            for output_type in ("numeric", "categorical")
+            for enabled, frequency in [(True, "scheduled"), (False, "scheduled"), (True, "every_n")]
+        ]
+    )
+    @patch("products.ai_observability.backend.api.evaluations.posthog_feature_flag_enabled", return_value=True)
+    def test_passing_rule_controls_report_creation_and_scheduling(
+        self, output_type: str, enabled: bool, frequency: str, _mock_numeric_flag: Mock
+    ) -> None:
+        output_config = (
+            {"min": 0, "max": 10}
+            if output_type == "numeric"
+            else {"options": [{"key": "resolved", "label": "Resolved"}]}
+        )
+        rule = {"operator": "gte", "threshold": 7} if output_type == "numeric" else {"categories": ["resolved"]}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Response score",
+                "evaluation_type": "hog",
+                "evaluation_config": {"source": "return 0;"},
+                "output_type": output_type,
+                "output_config": output_config,
+                "enabled": enabled,
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        evaluation = Evaluation.objects.get(id=response.json()["id"])
+        self.assertFalse(EvaluationReport.objects.filter(evaluation=evaluation).exists())
+        url = f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/"
+        response = self.client.patch(url, {"output_config": {"passing_rule": rule}})
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertTrue(output_config.items() <= response.json()["output_config"].items())
+        report = EvaluationReport.objects.get(evaluation=evaluation)
+        self.assertEqual(EvaluationReport.objects.deliverable().filter(id=report.id).exists(), enabled)
+        if not enabled:
+            response = self.client.patch(url, {"enabled": True})
+            self.assertEqual(response.status_code, 200, response.json())
+        self.assertTrue(EvaluationReport.objects.deliverable().filter(id=report.id).exists())
+        response = self.client.patch(url, {"output_config": {"passing_rule": None}})
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertFalse(EvaluationReport.objects.reportable().filter(id=report.id).exists())
+        old_delivery = timezone.now() - timedelta(days=90)
+        EvaluationReport.objects.filter(id=report.id).update(
+            frequency=frequency,
+            rrule="FREQ=DAILY",
+            starts_at=old_delivery,
+            last_delivered_at=old_delivery,
+            next_delivery_date=old_delivery + timedelta(days=1),
+        )
+        resumed_at = timezone.now()
+        response = self.client.patch(url, {"output_config": {"passing_rule": rule}})
+        self.assertEqual(response.status_code, 200, response.json())
+        report.refresh_from_db()
+        self.assertIsNone(report.last_delivered_at)
+        if frequency == "scheduled":
+            assert report.next_delivery_date is not None
+            self.assertGreater(report.next_delivery_date, resumed_at)
+            self.assertEqual(report.starts_at, old_delivery)
+        else:
+            assert report.starts_at is not None
+            self.assertGreaterEqual(report.starts_at, resumed_at)
+            self.assertIsNone(report.next_delivery_date)
+        response = self.client.patch(url, {"output_type": "boolean"})
+        self.assertEqual(response.status_code, 400)
+
+    @parameterized.expand([({"name": "Renamed"},), ({"enabled": False},), ({"deleted": True},)])
+    def test_edit_does_not_create_report_for_existing_evaluation(self, patch: dict) -> None:
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Existing evaluation",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true;"},
+            output_type="boolean",
+            enabled=True,
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/evaluations/{evaluation.id}/", patch)
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertFalse(EvaluationReport.objects.filter(evaluation=evaluation).exists())
+
     def _create_configured_llm_judge(self) -> tuple[Evaluation, LLMModelConfiguration]:
         model_configuration = LLMModelConfiguration.objects.create(
             team=self.team, provider="openai", model="gpt-5-mini"
@@ -115,16 +369,18 @@ class TestEvaluationConfigsApi(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/evaluations/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_can_create_evaluation_config(self):
+    @parameterized.expand([("openai", "gpt-5-mini"), ("system_one", "example-judge-v1")])
+    def test_can_create_evaluation_config(self, provider: str, model: str) -> None:
         key = LLMProviderKey.objects.create(
             team=self.team,
-            provider="openai",
+            provider=provider,
             name="Active Key",
             state=LLMProviderKey.State.OK,
             encrypted_config={"api_key": "sk-test"},
             created_by=self.user,
         )
-        EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
+        if provider == "openai":
+            EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
             {
@@ -132,7 +388,9 @@ class TestEvaluationConfigsApi(APIBaseTest):
                 "description": "Test Description",
                 "enabled": True,
                 "evaluation_type": "llm_judge",
-                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
+                "model_configuration": {"provider": provider, "model": model, "provider_key_id": str(key.id)}
+                if provider == "system_one"
+                else _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "Test prompt"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -615,6 +873,29 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["attr"], "model_configuration")
+
+    @parameterized.expand([("decision_model", "typesafe/jev-1.13", 400), ("chat_model", "openai/gpt-4o", 201)])
+    def test_llm_judge_creation_rejects_openrouter_non_chat_model(self, _name, model, expected_status):
+        with patch(
+            "products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids",
+            return_value=frozenset({"typesafe/jev-1.13"}),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/evaluations/",
+                {
+                    "name": "OpenRouter judge",
+                    "enabled": False,
+                    "evaluation_type": "llm_judge",
+                    "evaluation_config": {"prompt": "Test"},
+                    "output_type": "boolean",
+                    "model_configuration": {"provider": "openrouter", "model": model},
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == 400:
+            self.assertEqual(response.data["attr"], "model_configuration")
 
     @parameterized.expand([("omitted", False), ("null", True)])
     def test_llm_judge_creation_requires_model_configuration(self, _name, include_null_configuration):
@@ -1187,6 +1468,53 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(len(response.data["conditions"][0]["properties"]), 1)
         self.assertEqual(response.data["conditions"][0]["properties"][0]["key"], "$ai_model_name")
 
+    @parameterized.expand(
+        [
+            ("select_query", "(select 1)"),
+            ("global_the_runtime_does_not_have", "$virt_is_bot"),
+        ]
+    )
+    def test_condition_that_fails_to_compile_is_rejected(self, _name, hogql_key):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Broken filter",
+                "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
+                "evaluation_config": {"prompt": "Evaluate this"},
+                "output_type": "boolean",
+                "output_config": {},
+                "conditions": [
+                    {"id": "cond-1", "rollout_percentage": 100, "properties": []},
+                    {"id": "cond-2", "rollout_percentage": 100, "properties": [{"type": "hogql", "key": hogql_key}]},
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("Condition set 2", str(response.data))
+        self.assertFalse(Evaluation.objects.filter(team=self.team, name="Broken filter").exists())
+
+    def test_patch_that_adds_a_condition_that_fails_to_compile_is_rejected(self):
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Working filter",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
+            {"conditions": [{"id": "cond-1", "properties": [{"type": "hogql", "key": "(select 1)"}]}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        evaluation.refresh_from_db()
+        self.assertEqual(evaluation.conditions[0]["properties"], [])
+
     def test_unknown_condition_keys_are_dropped_and_rollout_percentage_defaults_to_100(self):
         # Regression: callers (notably MCP) previously sent `sampling_rate` instead of
         # `rollout_percentage` and the unstructured JSONField silently persisted it. The
@@ -1268,6 +1596,38 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
 
 class TestTestHogEndpoint(APIBaseTest):
+    @parameterized.expand(
+        [
+            (None, 0, 0),
+            ({"operator": "gte", "threshold": 0}, 1, 0),
+            ({"operator": "gte", "threshold": 1}, 0, 1),
+            ({"operator": "lte", "threshold": 1}, 1, 0),
+        ]
+    )
+    @patch("products.ai_observability.backend.api.evaluations.report_user_action")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
+    def test_numeric_preview_does_not_coerce_score_to_boolean(
+        self, rule: dict[str, str | int] | None, passed: int, failed: int, mock_query: Mock, mock_report: Mock
+    ) -> None:
+        mock_query.return_value = self._mock_hogql_response()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {
+                "source": "return 0;",
+                "output_type": "numeric",
+                "output_config": {"min": 0, "passing_rule": rule},
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.json())
+        result = response.json()["results"][0]
+        self.assertEqual(result["score"], 0)
+        self.assertIsNone(result["result"])
+        self.assertIsNone(result["error"])
+        counts = mock_report.call_args.args[2]
+        self.assertEqual(counts["pass_count"], passed)
+        self.assertEqual(counts["fail_count"], failed)
+        self.assertEqual(counts["na_count"], 0)
+
     EVENT_TIMESTAMP = "2026-07-20T12:34:56Z"
 
     def _mock_hogql_response(self, count=1):
@@ -1341,10 +1701,11 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Compilation error", response.json()["error"])
 
-    def test_test_hog_empty_source_rejected(self):
+    @parameterized.expand([({"source": ""},), ({"source": "return 0;", "output_config": []},)])
+    def test_test_hog_invalid_request_rejected(self, payload: dict) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/test_hog/",
-            {"source": ""},
+            payload,
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -1657,9 +2018,9 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
     that put it there is resolved — otherwise the next workflow run just re-disables it for the
     same reason. Matters for agent callers who can't see a red banner."""
 
-    def _create_errored_eval(self, status_reason, model="gpt-5-mini", provider_key=None):
+    def _create_errored_eval(self, status_reason, model="gpt-5-mini", provider_key=None, provider="openai"):
         mc = LLMModelConfiguration.objects.create(
-            team=self.team, provider="openai", model=model, provider_key=provider_key
+            team=self.team, provider=provider, model=model, provider_key=provider_key
         )
         eval_obj = Evaluation.objects.create(
             team=self.team,
@@ -1776,6 +2137,34 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         eval_obj.refresh_from_db()
         self.assertTrue(eval_obj.enabled)
         self.assertIsNone(eval_obj.status_reason)
+
+    def test_rejects_re_enable_when_model_still_not_supported(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openrouter",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-or-test"},
+            created_by=self.user,
+        )
+        eval_obj = self._create_errored_eval(
+            status_reason="model_not_supported", model="typesafe/jev-1.13", provider_key=key, provider="openrouter"
+        )
+
+        with patch(
+            "products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids",
+            return_value=frozenset({"typesafe/jev-1.13"}),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+                {"enabled": True},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["attr"], "model_configuration")
+        eval_obj.refresh_from_db()
+        self.assertFalse(eval_obj.enabled)
 
     def test_allows_re_enable_when_model_not_found_with_new_model(self):
         key = LLMProviderKey.objects.create(

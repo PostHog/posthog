@@ -52,8 +52,6 @@ billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.
 billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.api.visible_events_for_alert facade-accepts(alert) 1
 billing_alerts.BillingAlertEvent products.billing_alerts.backend.facade.api.BillingAlertDispatchResult.__init__ facade-accepts(event) 1
 billing_alerts.BillingAlertEvent products.billing_alerts.backend.facade.api.visible_events_for_alert facade-returns 1
-canvas.Canvas products.canvas.backend.facade.api.seed_home_canvas facade-accepts(canvas) 1
-canvas.Canvas products.tasks.backend.logic.services.loop_runs get_model 1
 cohorts.Cohort experiments.Experiment.exposure_cohort reverse-accessor(experiment_set) 1
 context_layer.ContextLayerConfig products.context_layer.backend.facade.api.enable_context_layer facade-returns 1
 context_layer.ContextLayerConfig products.context_layer.backend.facade.api.get_config facade-returns 1
@@ -422,13 +420,6 @@ posthog.Team slack_app.SlackThreadTaskMapping.team reverse-accessor(slack_thread
 posthog.Team surveys.Survey.team reverse-accessor(surveys) 1
 posthog.Team surveys.SurveyResponseArchive.team reverse-accessor(survey_response_archives) 1
 posthog.Team warehouse_sources.ExternalDataSchema.team reverse-accessor(externaldataschema_set) 1
-posthog.Team workflows.HogFlow.team reverse-accessor(hogflow_set) 1
-posthog.Team workflows.HogFlowBatchJob.team reverse-accessor(hogflowbatchjob_set) 1
-posthog.Team workflows.HogFlowRevision.team reverse-accessor(hogflowrevision_set) 1
-posthog.Team workflows.HogFlowSchedule.team reverse-accessor(hogflowschedule_set) 1
-posthog.Team workflows.HogFlowTemplate.team reverse-accessor(hogflowtemplate_set) 1
-posthog.Team workflows.TeamWorkflowsConfig.team reverse-accessor(teamworkflowsconfig) 1
-posthog.Team workflows.WorkflowProposal.team reverse-accessor(workflowproposal_set) 1
 posthog.User access_control.AccessControl.created_by reverse-accessor(accesscontrol_set) 1
 posthog.User access_control.OrganizationResourceAccess.created_by reverse-accessor(organizationresourceaccess_set) 1
 posthog.User access_control.Role.created_by reverse-accessor(roles) 1
@@ -532,11 +523,6 @@ posthog.User warehouse_sources.ExternalDataSource.created_by reverse-accessor(ex
 posthog.User warehouse_sources.PendingSourceCredential.created_by reverse-accessor(pendingsourcecredential_set) 1
 posthog.User warehouse_sources.WarehouseColumnAnnotation.created_by reverse-accessor(warehousecolumnannotation_set) 1
 posthog.User web_analytics.WebAnalyticsFilterPreset.last_modified_by reverse-accessor(modified_web_analytics_filter_presets) 1
-posthog.User workflows.HogFlow.created_by reverse-accessor(hogflow_set) 1
-posthog.User workflows.HogFlowBatchJob.created_by reverse-accessor(hogflowbatchjob_set) 1
-posthog.User workflows.HogFlowRevision.created_by reverse-accessor(hogflowrevision_set) 1
-posthog.User workflows.HogFlowTemplate.created_by reverse-accessor(hogflowtemplate_set) 1
-posthog.User workflows.WorkflowProposal.resolved_by reverse-accessor(resolved_workflow_proposals) 1
 product_analytics.Insight alerts.AlertConfiguration.insight reverse-accessor(alertconfiguration_set) 1
 product_analytics.Insight dashboards.Dashboard.insights reverse-accessor(dashboards) 1
 product_analytics.Insight dashboards.DashboardTile.insight reverse-accessor(dashboard_tiles) 1
@@ -652,7 +638,6 @@ product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_i
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_materialization_suggestion drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_openapi_spec drives(TrendsQuery) 4
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_variable_materialization drives(TrendsQuery) 1
-product_analytics:backend/hogql_queries/ products.experiments.backend.test.test_presentation_api drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.feature_flags.backend.api.test.test_feature_flag drives(TrendsQuery) 6
 product_analytics:backend/hogql_queries/ products.posthog_ai.scripts.hogql_example.test.test_hogql_example drives(TrendsQuery) 3
 product_analytics:backend/hogql_queries/ products.signals.backend.test.test_scout_report_api drives(TrendsQuery) 1
@@ -979,11 +964,9 @@ web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_insig
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_materialization_suggestion drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_openapi_spec drives(TrendsQuery) 4
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_variable_materialization drives(TrendsQuery) 1
-web_analytics:backend/hogql_queries/ products.experiments.backend.test.test_presentation_api drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.feature_flags.backend.api.test.test_feature_flag drives(TrendsQuery) 6
 web_analytics:backend/hogql_queries/ products.posthog_ai.scripts.hogql_example.test.test_hogql_example drives(TrendsQuery) 3
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.hogql_queries.trends.test.test_trends_data_warehouse_query drives(TrendsQuery) 23
-web_analytics:backend/hogql_queries/ products.product_analytics.backend.hogql_queries.trends.test.test_trends_query_builder drives(TrendsQuery) 7
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.hogql_queries.trends.test.test_trends_query_runner drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight drives(TrendsQuery) 21
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight_metadata drives(TrendsQuery) 5

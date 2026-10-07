@@ -1,3 +1,5 @@
+import sys
+import subprocess
 from datetime import timedelta
 from typing import Any
 
@@ -5,6 +7,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.apps import apps
+from django.conf import settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -29,6 +32,17 @@ from products.signals.backend.scout_harness.inactivity import (
 from products.skills.backend.models.skills import LLMSkill
 
 SKILL = "signals-scout-quiet"
+
+
+def test_scout_tasks_import_without_preloaded_harness_tools() -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", "import django; django.setup(); import products.signals.backend.tasks"],
+        cwd=settings.BASE_DIR,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 class TestScoutInactivitySweep(BaseTest):
@@ -404,10 +418,18 @@ class TestScoutInactivitySweep(BaseTest):
 
         assert sweep_inactive_scouts(now=self.now).warned == []
 
-    def test_a_scout_that_has_barely_run_is_left_alone(self) -> None:
+    @parameterized.expand([("ordinary", False), ("private_trials", True)])
+    def test_a_scout_that_has_barely_run_is_left_alone(self, _name: str, has_trials: bool) -> None:
         # Sparse runs (a monthly cron, or a team that spent its budget elsewhere) say nothing about
         # what the scout would have found.
         self._runs(MIN_RUNS_IN_WINDOW - 1, age=INACTIVITY_WINDOW / 2)
+        if has_trials:
+            self._runs(
+                MIN_RUNS_IN_WINDOW,
+                age=INACTIVITY_WINDOW / 2,
+                metadata={"scout_trial": {"version": 1}},
+                edited_report_ids=[str(self._report().id)],
+            )
 
         assert sweep_inactive_scouts(now=self.now).warned == []
 

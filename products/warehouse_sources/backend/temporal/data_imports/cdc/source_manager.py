@@ -12,16 +12,18 @@ be in memory when the generator resumes.
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Mapping
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import psycopg
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+from botocore.exceptions import ClientError
 from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
@@ -38,9 +40,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     companion_resource_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
+    BUFFER_FILE_RETENTION,
     BufferFileSpan,
     get_buffer_prefix,
     parse_buffer_file_name,
+    purge_buffer_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import COMPANION_JOB_IDS_KEY
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import (
@@ -54,7 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     drop_superseded_rows,
     has_engine_seq,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import snapshot_in_buffer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     normalize_column_name,
     safe_parse_datetime,
@@ -64,9 +68,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
     CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BatchQueue,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.batching import (
     DEFAULT_BATCH_BYTE_LIMIT,
     DEFAULT_BATCH_ROW_LIMIT,
@@ -74,6 +75,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bat
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import OutputLane, SourceInputs
+from products.warehouse_sources_queue.backend.sdk import BatchQueue
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -89,8 +91,8 @@ CDCWriteMode = Literal["incremental_merge", "scd2_append"]
 CONSOLIDATED_WRITE_MODE: Final = "incremental_merge"
 COMPANION_WRITE_MODE: Final = SCD2_APPEND_MODE
 
-# The tables each mode's change stream feeds, as the write mode the loader uses for each — in the
-# order the legacy extraction path writes them. A mode absent here is one this module cannot write.
+# The tables each mode's change stream feeds, as the write mode the loader uses for each, in the order
+# a run writes them. A mode absent here is one this module cannot write.
 _LANE_WRITE_MODES: dict[str, tuple[CDCWriteMode, ...]] = {
     CONSOLIDATED_TABLE_MODE: (CONSOLIDATED_WRITE_MODE,),
     CDC_ONLY_TABLE_MODE: (COMPANION_WRITE_MODE,),
@@ -106,17 +108,8 @@ class CDCLane:
     write_mode: CDCWriteMode
 
 
-# In `sync_type_config`. Set by the flip command on each schema it moves to the buffer and never
-# cleared, so a later flip can tell the `_ph_cdc_seq` the buffered lane wrote from a column the
-# source owns.
-BUFFERED_BEFORE_KEY = "cdc_buffered_before"
-
-
 def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
-    """Schema-side conditions for buffered ingress: streaming, seeded, and in a table mode with lanes.
-
-    The source's `ingest_mode` is the other half.
-    """
+    """Whether this schema's scheduled sync consumes the buffer: streaming, seeded, and in a table mode with lanes."""
     return bool(
         schema.is_cdc
         and schema.cdc_mode == "streaming"
@@ -125,15 +118,42 @@ def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
     )
 
 
-def consumes_buffer(schema: ExternalDataSchema, *, ingest_mode: str) -> bool:
-    """Whether this schema's changes are delivered through the buffer."""
-    return ingest_mode == "buffered" and serves_buffered_lane(schema)
+def captures_to_buffer(schema: ExternalDataSchema) -> bool:
+    """Whether capture writes this schema's changes to the buffer.
+
+    Wider than `serves_buffered_lane`: a table in a mode the buffer serves is captured whatever its
+    state, and a snapshotting table's changes wait there until its snapshot completes.
+    """
+    return bool(schema.is_cdc and schema.cdc_table_mode in _LANE_WRITE_MODES)
+
+
+def snapshot_can_start_in_buffer(schema: ExternalDataSchema) -> bool:
+    """Schema-side condition for routing a snapshotting table the buffer does not carry yet to it."""
+    return bool(
+        schema.is_cdc
+        and schema.cdc_mode == "snapshot"
+        and schema.cdc_table_mode in _LANE_WRITE_MODES
+        and not snapshot_in_buffer(schema)
+    )
+
+
+def purge_buffer_before_handover(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
+    """Before a snapshot hands over to streaming, drop the buffer files it must not replay.
+
+    When the buffer carried the snapshot, it holds an unbroken run of changes, and replaying all of
+    them over the snapshot converges, so nothing goes. Otherwise capture never started the snapshot
+    in the buffer, so every file in it predates a gap: an old file replayed there would bring back
+    rows. Strict, because a surviving stale file corrupts the table.
+    """
+    if snapshot_in_buffer(schema):
+        return
+    purge_buffer_prefix(schema.team_id, str(schema.id), logger, strict=True)
 
 
 def served_lanes(schema: ExternalDataSchema) -> list[CDCLane]:
     """The tables this schema's change stream feeds.
 
-    One entry per Delta table the mode writes, in the order the legacy extraction path writes them.
+    One entry per Delta table the mode writes, in the order a run writes them.
     An unrecognized mode returns nothing, which reads as "not a lane the buffer serves".
     """
     return [
@@ -155,9 +175,21 @@ _CONSUMED_MTIME_MARGIN = dt.timedelta(minutes=5)
 
 # When a run listed the buffer, kept on that run's own job. Proof only once the job completes.
 BUFFER_LISTED_AT_KEY = "cdc_buffer_listed_at"
+# File name to ETag of the files at the highest position that listing saw, kept beside it.
+BUFFER_LISTED_TAIL_KEY = "cdc_buffer_listed_tail"
 
 
-def read_completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | None:
+@frozen
+class ListingProof:
+    """A buffer listing by a run that went on to complete every table it writes."""
+
+    listed_at: dt.datetime
+    # File name to ETag of the files at the highest position the listing saw. A file still carrying
+    # that ETag holds exactly what the run read.
+    tail: Mapping[str, str]
+
+
+def read_completed_listing_proof(schema: ExternalDataSchema) -> ListingProof | None:
     """When the buffer was last listed by a run that went on to complete every table it writes.
 
     Completion is what proves consumption: it means the generator drained every listed file and
@@ -198,13 +230,60 @@ def read_completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | No
         if stamped.tzinfo is None:
             continue
         if _companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []):
-            return stamped
+            tail = (snapshot or {}).get(BUFFER_LISTED_TAIL_KEY)
+            return ListingProof(listed_at=stamped, tail=tail if isinstance(tail, dict) else {})
     return None
 
 
-async def completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | None:
+async def completed_listing_proof(schema: ExternalDataSchema) -> ListingProof | None:
     """`read_completed_listing_proof`, off the event loop."""
     return await database_sync_to_async_pool(db_read_with_retry)(lambda: read_completed_listing_proof(schema))
+
+
+def buffer_may_have_expired_unread(schema: ExternalDataSchema, now: dt.datetime) -> bool:
+    """Whether this table may have lost buffered changes it never read.
+
+    The bucket deletes a buffer file BUFFER_FILE_RETENTION after writing it, so what counts is the last
+    run since then that drained the buffer or re-seeded the table with a snapshot. A stand-down, such as
+    the wait for in-flight batches, completes its job without reading the buffer, so neither a completed
+    job nor `last_synced_at`, which every completion moves, proves the table read its changes.
+
+    A run counts only once every table it writes finished, the bar `read_completed_listing_proof` sets:
+    a `both` run whose companion job never completed landed the buffer's changes on one of its two
+    tables, and the other still owes them.
+    """
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    if schema.last_synced_at is None:
+        return False
+    cutoff = now - BUFFER_FILE_RETENTION
+    # Every completion moves it, so nothing has drained since the cutoff either.
+    if schema.last_synced_at < cutoff:
+        return True
+    # Bounded by `created_at` and on the index, as the proof read is. Past the search depth the table
+    # reads as expired: runs that recent with a companion still owing rows are worth re-seeding over.
+    reads = (
+        ExternalDataJob.objects.filter(
+            team_id=schema.team_id,
+            pipeline_id=schema.source_id,
+            schema_id=schema.id,
+            status=ExternalDataJob.Status.COMPLETED,
+            created_at__gte=cutoff,
+        )
+        .filter(
+            Q(schema_snapshot__has_key=BUFFER_LISTED_AT_KEY) | Q(schema_snapshot__sync_type_config__cdc_mode="snapshot")
+        )
+        .order_by("-created_at")
+        .values_list("schema_snapshot", flat=True)[:_PROOF_SEARCH_DEPTH]
+    )
+    return not any(_companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []) for snapshot in reads)
+
+
+async def buffer_expired_unread(schema: ExternalDataSchema) -> bool:
+    """`buffer_may_have_expired_unread`, off the event loop."""
+    return await database_sync_to_async_pool(db_read_with_retry)(
+        lambda: buffer_may_have_expired_unread(schema, timezone.now())
+    )
 
 
 def clear_listing(job_id: str, team_id: int) -> None:
@@ -227,7 +306,7 @@ def clear_listing(job_id: str, team_id: int) -> None:
         stamped = dict(job.schema_snapshot or {}) if job is not None else {}
         if job is None or not stamped.get(BUFFER_LISTED_AT_KEY):
             return
-        snapshot = {k: v for k, v in stamped.items() if k != BUFFER_LISTED_AT_KEY}
+        snapshot = {k: v for k, v in stamped.items() if k not in (BUFFER_LISTED_AT_KEY, BUFFER_LISTED_TAIL_KEY)}
         ExternalDataJob.objects.filter(id=job.id).update(schema_snapshot=snapshot)
 
 
@@ -257,7 +336,6 @@ def _history_transform(replay: ReplayFilter, key_columns: list[str]) -> Callable
 
     Derived here rather than in the loader so the staged parquet is complete on its own: a loader
     on the previous release has no SCD2 step, and would append these rows with no validity at all.
-    The legacy extraction path stamps them at the same point for the same reason.
 
     Replay runs first because `valid_to` points at the next event for the same key. Rows this lane
     already wrote carry their own, and the writer closes them against what arrives next, so
@@ -328,25 +406,19 @@ def scheduled_sync_consumes_buffer(schema: ExternalDataSchema) -> bool:
     Doubles as the pipeline-version override: buffered consumption must run the v3 pipeline,
     because only the v3 loader stamps the position each row landed at, which is what the next
     run reads back from the table, and only it resolves versions and deletes. The team's general
-    rollout flag cannot make that call (it can neither see individual sources nor be trusted to
-    stay wide after a flip), so the version check consults this predicate before the flag.
+    rollout flag cannot see individual schemas, so the version check consults this predicate
+    before the flag.
     """
-    return consumes_buffer(schema, ingest_mode=parse_ingest_mode(schema.source.job_inputs))
+    return serves_buffered_lane(schema)
 
 
 def has_batches_in_flight(schema: ExternalDataSchema) -> bool:
     """Whether any delivery for this schema is still working through the queue.
 
-    Two kinds, and the consumer must stand down for both.
-
-    Legacy deliveries carry no position column, so nothing orders them against buffered writes — a
-    consumer merge racing them lets an older legacy row land after a newer buffered one.
-
-    A previous attempt of THIS job is the other kind, and it is why the check has to cover buffered
-    batches too. It sees an attempt only once that attempt has staged a batch: one timed out by
-    its heartbeat but still alive inside the listing can stage after this check passed. The busy
-    gate keeps the two loads apart, but the history lane then holds both copies. Legacy has the
-    same window; fencing batches by attempt in the producer is the follow-up.
+    A previous attempt of THIS job is what the consumer stands down for. The check sees an attempt
+    only once that attempt has staged a batch: one timed out by its heartbeat but still alive inside
+    the listing can stage after this check passed. The busy gate keeps the two loads apart, but the
+    history lane then holds both copies; fencing batches by attempt in the producer is the follow-up.
 
     The v3 pipeline lock keeps two scheduled runs apart — it is held from the start of
     the workflow until the loader completes the job — but a retried activity runs under the lock its
@@ -362,9 +434,11 @@ def has_batches_in_flight(schema: ExternalDataSchema) -> bool:
     Runs holding a failed batch are excluded by the query, matching the loader's claim gate — their
     remaining batches can never be claimed, so they cannot write anything to collide with.
     """
-    if schema.sync_type_config.get("cdc_deferred_runs"):
-        return True
+    return has_queued_batches(schema)
 
+
+def has_queued_batches(schema: ExternalDataSchema) -> bool:
+    """Whether any batch of this schema is still waiting or loading in the queue."""
     conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
     try:
         age = BatchQueue.get_oldest_non_terminal_batch_age_seconds(
@@ -389,6 +463,26 @@ class _BufferFile:
     span: BufferFileSpan
     key: str
     modified: dt.datetime | None
+    etag: str | None
+
+    @property
+    def name(self) -> str:
+        return self.key.rsplit("/", 1)[-1]
+
+
+# Past this many files at one position the tail is not recorded, and those files go by the mtime
+# rule a run later. A transaction split across that many files is rare, and the tail is stored on
+# every job that lists it.
+_MAX_TAIL_FILES = 100
+
+
+def _listing_tail(files: list[_BufferFile]) -> dict[str, str]:
+    """Name to ETag of the files at the highest position listed, which the next run's floor sits on."""
+    if not files:
+        return {}
+    top = max(file.span.end_seq for file in files)
+    tail = {file.name: file.etag for file in files if file.span.end_seq == top and file.etag}
+    return tail if len(tail) <= _MAX_TAIL_FILES else {}
 
 
 class ReplayFilter:
@@ -578,14 +672,14 @@ class CDCSourceManager:
         logger: FilteringBoundLogger,
         *,
         deletion_floor: int | None = None,
-        proof_time: dt.datetime | None = None,
+        proof: ListingProof | None = None,
     ) -> None:
         self._inputs = inputs
         self._logger = logger
         self._deletion_floor = deletion_floor
-        self._proof_time = proof_time
+        self._proof = proof
 
-    def _is_consumed(self, end_seq: int, modified: dt.datetime | None) -> bool:
+    def _is_consumed(self, file: _BufferFile) -> bool:
         """Whether every table this schema feeds already holds this file's rows.
 
         Strictly below the floor is position-proof: the lowest-placed lane holds a commit above it,
@@ -594,18 +688,58 @@ class CDCSourceManager:
         AT the floor, position alone cannot tell a consumed file from the unread tail of a
         transaction split across files — they all carry one commit position. A file that already
         existed when a run listed the buffer, and that run then COMPLETED, was read and written by
-        it. The margin absorbs clock skew between S3 and our own clock.
+        it. The listing's ETag proves that at once. Without one, the file's mtime has to predate the
+        listing by a margin that absorbs clock skew between S3 and our own clock, which a file written
+        just before a frequent run's listing does not meet until a later run.
         """
         floor = self._deletion_floor
+        end_seq = file.span.end_seq
         if floor is None or end_seq > floor:
             return False
         if end_seq < floor:
             return True
-        if modified is None or modified.tzinfo is None or self._proof_time is None:
+        proof = self._proof
+        if proof is None:
             return False
-        return modified < self._proof_time - _CONSUMED_MTIME_MARGIN
+        if file.name in proof.tail:
+            # A different ETag means capture rewrote the file after that listing, so the run never read it.
+            return file.etag is not None and proof.tail[file.name] == file.etag
+        modified = file.modified
+        if modified is None or modified.tzinfo is None:
+            return False
+        return modified < proof.listed_at - _CONSUMED_MTIME_MARGIN
 
-    async def stamp_listing(self, listed_at: dt.datetime) -> None:
+    async def _delete_unless_replaced(self, s3: Any, file: _BufferFile) -> bool:
+        """Delete a consumed file unless capture replaced it after the listing. Returns whether it went.
+
+        Below the floor any content is settled, because a capture retry only re-emits changes every lane
+        already holds. At the floor the proof covers the listed bytes, and a retry can replace them with
+        unread rows of the same transaction while this run reads earlier files. So the delete is
+        conditioned on the listed ETag, and a file that no longer matches is kept and read.
+        S3 and SeaweedFS list every object with its ETag, so a listing without one keeps the file.
+        """
+        if self._deletion_floor is None or file.span.end_seq < self._deletion_floor:
+            await s3._rm(file.key)
+            return True
+        if file.etag is None:
+            return False
+        bucket, key, _ = s3.split_path(file.key)
+        s3.invalidate_cache(file.key)
+        client = await s3.get_s3(bucket)
+        try:
+            await client.delete_object(Bucket=bucket, Key=key, IfMatch=f'"{file.etag}"')
+        except ClientError as error:
+            # 409 means a write to the same key was in flight, so the file is read like any other replacement.
+            if error.response.get("Error", {}).get("Code") in (
+                "PreconditionFailed",
+                "ConditionalRequestConflict",
+                "NoSuchKey",
+            ):
+                return False
+            raise
+        return True
+
+    async def stamp_listing(self, listed_at: dt.datetime, tail: Mapping[str, str]) -> None:
         """Record on this run's own job that it listed the buffer, before any file is read.
 
         Kept on the job rather than beside the schema's settings: it describes one run, and it is
@@ -623,6 +757,7 @@ class CDCSourceManager:
                 )
                 snapshot = dict(job.schema_snapshot or {})
                 snapshot[BUFFER_LISTED_AT_KEY] = listed_at.isoformat()
+                snapshot[BUFFER_LISTED_TAIL_KEY] = dict(tail)
                 ExternalDataJob.objects.filter(id=job.id).update(schema_snapshot=snapshot)
 
         await database_sync_to_async_pool(db_read_with_retry)(_stamp)
@@ -656,8 +791,14 @@ class CDCSourceManager:
             if parsed is None:
                 continue
             modified = entry.get("LastModified")
+            etag = entry.get("ETag")
             files.append(
-                _BufferFile(span=parsed, key=key, modified=modified if isinstance(modified, dt.datetime) else None)
+                _BufferFile(
+                    span=parsed,
+                    key=key,
+                    modified=modified if isinstance(modified, dt.datetime) else None,
+                    etag=etag.strip('"') if isinstance(etag, str) and etag else None,
+                )
             )
 
         files.sort(key=lambda f: (f.span.start_seq, f.span.end_seq, f.span.file_index))
@@ -681,14 +822,14 @@ class CDCSourceManager:
         """
         listed_at = dt.datetime.now(tz=dt.UTC)
         files = await self._list_buffer_files()
-        await self.stamp_listing(listed_at)
+        tail = _listing_tail(files)
+        await self.stamp_listing(listed_at, tail)
         batch: TableBatcher[str] = TableBatcher(row_limit=batch_row_limit, byte_limit=batch_byte_limit)
 
         async with aget_s3_client() as s3:
             for file in files:
                 # The only place a buffer file is deleted — see `_is_consumed` for the proof.
-                if self._is_consumed(file.span.end_seq, file.modified):
-                    await s3._rm(file.key)
+                if self._is_consumed(file) and await self._delete_unless_replaced(s3, file):
                     continue
 
                 try:
@@ -699,6 +840,10 @@ class CDCSourceManager:
                     # A concurrent run, or a retry of this activity, can have deleted the file
                     # between the listing and this open — the listing is a snapshot, not a lease.
                     await self._logger.adebug("cdc_buffer_file_already_consumed", key=file.key)
+                    # This run never read the file, and a capture retry can write the same bytes
+                    # under the same name, so its ETag must not prove the rewrite read.
+                    if tail.pop(file.name, None) is not None:
+                        await self.stamp_listing(listed_at, tail)
                     continue
 
                 if table.num_rows == 0:

@@ -194,7 +194,9 @@ class SignupSerializer(serializers.Serializer):
         if not settings.DEMO:
             if not self.is_social_signup:
                 reject_plus_addressed_email(value)
-                if EmailValidationHelper.user_exists_with_stripped_alias(value):
+                if EmailValidationHelper.user_exists_with_stripped_alias(
+                    value
+                ) or EmailValidationHelper.user_exists_with_gmail_canonical(value):
                     raise serializers.ValidationError(
                         "There is already an account with this email address.", code="unique"
                     )
@@ -419,7 +421,9 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
             # Mirror SignupSerializer.validate_email. Without this the form clears the email step,
             # the user fills in the rest, and only then hits the rejection on submit.
             reject_plus_addressed_email(email)
-            email_exists = EmailValidationHelper.user_exists_with_stripped_alias(email)
+            email_exists = EmailValidationHelper.user_exists_with_stripped_alias(
+                email
+            ) or EmailValidationHelper.user_exists_with_gmail_canonical(email)
         if email_exists:
             return response.Response(
                 {
@@ -864,7 +868,7 @@ def lookup_invite_for_saml(email: str, saml_relay_state: str) -> Optional[Organi
     if config is None:
         return None
     return (
-        OrganizationInvite.objects.filter(target_email=email, organization_id=config.organization_id)
+        OrganizationInvite.objects.filter(target_email__iexact=email, organization_id=config.organization_id)
         .order_by("-created_at")
         .first()
     )
@@ -942,7 +946,7 @@ def process_social_domain_jit_provisioning_signup(
             if not user:
                 try:
                     invite: OrganizationInvite = OrganizationInvite.objects.get(
-                        target_email=email, organization=domain_instance.organization
+                        target_email__iexact=email, organization=domain_instance.organization
                     )
                     invite.validate(user=None, email=email)
                     # Capture before invite.use() deletes the invite row.

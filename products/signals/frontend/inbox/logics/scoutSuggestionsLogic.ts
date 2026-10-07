@@ -19,6 +19,7 @@ import {
 import type { ScoutSuggestionItemApi, ScoutSuggestionSetApi } from 'products/signals/frontend/generated/api.schemas'
 import { llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 
+import type { SignalScoutConfigApi } from '../../generated/api.schemas'
 import {
     captureScoutSuggestionClicked,
     captureScoutSuggestionCreated,
@@ -26,13 +27,14 @@ import {
     captureScoutSuggestionsChatOpened,
     captureScoutSuggestionsRefreshed,
     captureScoutSuggestionsShown,
+    captureScoutSuggestionsStripClicked,
     ScoutSuggestionKind,
     ScoutSuggestionSurface,
 } from '../inboxAnalytics'
 import type { ScoutChatType, ScoutSuggestionClickVia, ScoutSuggestionsRefreshSource } from '../inboxAnalytics'
 import type { ExistingScoutForSuggestion } from '../utils/scoutSuggestions'
 import { scoutFleetLogic } from './scoutFleetLogic'
-import type { SignalScoutConfig } from './scoutFleetLogic'
+import type { ScoutChatRequest, SignalScoutConfig } from './scoutFleetLogic'
 
 /** How often the list is re-read while a refresh scan runs. The scan takes minutes, not seconds. */
 const REFRESH_POLL_INTERVAL_MS = 15_000
@@ -111,9 +113,11 @@ export interface scoutSuggestionsLogicActions {
     startScoutChatTask: (
         chatType: ScoutChatType,
         taskLabel: string,
-        suggestionId?: string | undefined
+        suggestionId?: string | undefined,
+        request?: ScoutChatRequest | undefined
     ) => {
         chatType: ScoutChatType
+        request: ScoutChatRequest | undefined
         suggestionId: string | undefined
         taskLabel: string
     } // scoutFleetLogic
@@ -216,8 +220,10 @@ export interface scoutSuggestionsLogicActions {
     }
     suggestionCreated: (
         item: ScoutSuggestionItemApi,
-        surface: ScoutSuggestionSurface
+        surface: ScoutSuggestionSurface,
+        config: SignalScoutConfig
     ) => {
+        config: SignalScoutConfigApi
         item: ScoutSuggestionItemApi
         surface: ScoutSuggestionSurface
     }
@@ -229,7 +235,7 @@ export interface scoutSuggestionsLogicMeta {
         suggestions: (
             suggestionSet: ScoutSuggestionSetApi | null,
             hiddenSuggestionIds: string[],
-            scoutConfigs: import('products/signals/frontend/generated/api.schemas').SignalScoutConfigApi[] | null
+            scoutConfigs: SignalScoutConfigApi[] | null
         ) => ScoutSuggestionItemApi[]
         batchStatus: (suggestionSet: ScoutSuggestionSetApi | null) => string
         batchAgeHours: (suggestionSet: ScoutSuggestionSetApi | null) => number | null
@@ -307,7 +313,15 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         ) => ({ item, surface, via }),
         closeCreateFromSuggestion: true,
         askForSuggestions: true,
-        suggestionCreated: (item: ScoutSuggestionItemApi, surface: ScoutSuggestionSurface) => ({ item, surface }),
+        suggestionCreated: (
+            item: ScoutSuggestionItemApi,
+            surface: ScoutSuggestionSurface,
+            config: SignalScoutConfig
+        ) => ({
+            item,
+            surface,
+            config,
+        }),
         requestRefresh: (source: ScoutSuggestionsRefreshSource) => ({ source }),
         refreshRequestRefused: true,
         refreshFinished: true,
@@ -517,6 +531,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 await signalsScoutSuggestionsDismiss(String(teamId), item.id)
                 // Reported once the server holds it, so a failed dismissal is not counted as one.
                 captureScoutSuggestionDismissed({
+                    suggestionId: item.id,
                     kind: suggestionKind(item),
                     skillName: item.skill_name,
                     surface,
@@ -534,6 +549,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         },
         refineSuggestionWithAi: async ({ item, surface }) => {
             captureScoutSuggestionClicked({
+                suggestionId: item.id,
                 kind: suggestionKind(item),
                 skillName: item.skill_name,
                 target: 'refine_with_ai',
@@ -560,6 +576,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         },
         openCreateFromSuggestion: async ({ item, surface, via }) => {
             captureScoutSuggestionClicked({
+                suggestionId: item.id,
                 kind: suggestionKind(item),
                 skillName: item.skill_name,
                 target: item.kind === 'canonical' ? 'turn_on' : 'create',
@@ -598,17 +615,35 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 actions.suggestionActionFinished(item.id)
             }
         },
-        suggestionCreated: ({ item, surface }) => {
+        suggestionCreated: ({ item, surface, config }) => {
             // Both one-click paths land here — turning a canonical scout on, and a custom draft
             // coming back from the create modal. A refinement chat only opens on the draft, so it
             // is a click, not a creation.
             captureScoutSuggestionCreated({
+                suggestionId: item.id,
+                configId: config.id,
                 kind: suggestionKind(item),
-                skillName: item.skill_name,
+                skillName: config.skill_name,
                 via: 'api',
                 surface,
             })
             actions.loadSuggestions()
+        },
+        // Only the strip's own buttons dispatch these. A remembered state comes back through
+        // persistence, which dispatches no action, so a reload reports nothing.
+        setCollapsed: ({ collapsed }) => {
+            captureScoutSuggestionsStripClicked({
+                target: collapsed ? 'collapse' : 'expand',
+                count: values.suggestions.length,
+                status: values.batchStatus,
+            })
+        },
+        hideStrip: () => {
+            captureScoutSuggestionsStripClicked({
+                target: 'close',
+                count: values.suggestions.length,
+                status: values.batchStatus,
+            })
         },
         reportSuggestionsShown: ({ surface }) => {
             captureScoutSuggestionsShown({

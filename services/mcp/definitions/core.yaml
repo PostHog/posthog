@@ -64,6 +64,18 @@ tools:
     dashboards-sharing-refresh-create:
         operation: dashboards_sharing_refresh_create
         enabled: false
+    data-deletion-requests-create:
+        operation: data_deletion_requests_create
+        enabled: false
+    data-deletion-requests-list:
+        operation: data_deletion_requests_list
+        enabled: false
+    data-deletion-requests-preview-create:
+        operation: data_deletion_requests_preview_create
+        enabled: false
+    data-deletion-requests-retrieve:
+        operation: data_deletion_requests_retrieve
+        enabled: false
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
         enabled: false
@@ -75,7 +87,25 @@ tools:
         enabled: false
     domains-list:
         operation: domains_list
-        enabled: false
+        enabled: true
+        scopes:
+            - organization:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List organization authentication domains
+        description: >
+            List authentication domains in the active organization with their IDs and verification status. Use a domain
+            ID from this result in `organization_domain_ids` to link it to an identity provider configuration. Only
+            verified domains are used for authentication routing.
+        response:
+            include:
+                - id
+                - domain
+                - is_verified
+                - verified_at
     domains-partial-update:
         operation: domains_partial_update
         enabled: false
@@ -90,6 +120,12 @@ tools:
         enabled: false
     domains-verify-create:
         operation: domains_verify_create
+        enabled: false
+    emoji-search-suggest-retrieve:
+        operation: emoji_search_suggest_retrieve
+        enabled: false
+    events-values-retrieve:
+        operation: events_values_retrieve
         enabled: false
     exports-content-retrieve:
         operation: exports_content_retrieve
@@ -139,6 +175,9 @@ tools:
     file-system-retrieve:
         operation: file_system_retrieve
         enabled: false
+    file-system-shortcut-bulk-update-create:
+        operation: file_system_shortcut_bulk_update_create
+        enabled: false
     file-system-shortcut-create:
         operation: file_system_shortcut_create
         enabled: false
@@ -174,25 +213,116 @@ tools:
         enabled: false
     identity-provider-configs-create:
         operation: identity_provider_configs_create
-        enabled: false
+        enabled: true
+        scopes:
+            - organization:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create an identity provider configuration
+        description: >
+            Create an organization identity provider configuration for SAML, OIDC, SCIM, or XAA (ID-JAG). Set
+            `config_scope` to `saml`, `oidc`, `scim`, or `xaa`. Use `domain_scope: selected` with
+            `organization_domain_ids` to link specific organization domains, or `domain_scope: all` to cover all
+            verified organization domains. SAML uses `saml_entity_id`, `saml_acs_url`, and `saml_x509_cert`; OIDC uses
+            `oidc_issuer_url`, `oidc_client_id`, and `oidc_client_secret`; SCIM can be enabled with `scim_enabled`; XAA
+            uses `id_jag_issuer_url` with optional JWKS and allowed-client settings. The create call requires explicit
+            user confirmation before execution.
+        confirmed_action:
+            message: >
+                Create an identity provider configuration using the supplied protocol, settings, and domain coverage.
+                Review those values and reply 'confirm' to proceed.
+            action_label: create identity provider configuration
     identity-provider-configs-destroy:
         operation: identity_provider_configs_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - organization:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete an identity provider configuration
+        description: >
+            Permanently delete an identity provider configuration by its ID. This removes its SAML, OIDC, SCIM, or XAA
+            settings and its linked organization domains. The delete call requires explicit user confirmation.
+        confirmed_action:
+            message: >
+                Permanently delete identity provider configuration {id}, including its linked domains and authentication
+                settings. Reply 'confirm' to proceed.
+            action_label: delete identity provider configuration
     identity-provider-configs-list:
         operation: identity_provider_configs_list
-        enabled: false
+        enabled: true
+        scopes:
+            - organization:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List identity provider configurations
+        description: >
+            List identity provider configurations in the active organization. Configurations can use SAML, OIDC, SCIM,
+            or XAA (ID-JAG). Results include the protocol settings, SCIM URL, configuration status, and linked domain
+            IDs. A saved OIDC client secret and an existing SCIM bearer token are never returned.
     identity-provider-configs-partial-update:
         operation: identity_provider_configs_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - organization:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update an identity provider configuration
+        description: >
+            Update selected fields on an identity provider configuration by ID. Use this to change SAML, OIDC, SCIM, or
+            XAA (ID-JAG) settings, link selected domains with `organization_domain_ids`, or set `domain_scope: all` to
+            cover all verified organization domains. For selected domains, `organization_domain_ids` replaces the
+            current links. Omit `oidc_client_secret` to keep the saved secret. The update call requires explicit user
+            confirmation.
+        confirmed_action:
+            message: >
+                Update identity provider configuration {id}. Review the requested settings and domain coverage, then
+                reply 'confirm' to proceed.
+            action_label: update identity provider configuration
     identity-provider-configs-retrieve:
         operation: identity_provider_configs_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - organization:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get an identity provider configuration
+        description: >
+            Get an identity provider configuration by ID. Returns its protocol settings, SCIM URL, configuration status,
+            and linked domain IDs. A saved OIDC client secret and an existing SCIM bearer token are never returned.
     identity-provider-configs-scim-logs-retrieve:
         operation: identity_provider_configs_scim_logs_retrieve
         enabled: false
     identity-provider-configs-scim-token-create:
         operation: identity_provider_configs_scim_token_create
-        enabled: false
+        enabled: true
+        scopes:
+            - organization:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Regenerate an identity provider SCIM token
+        description: >
+            Regenerate the SCIM bearer token for an identity provider configuration. The new token is returned once;
+            existing SCIM clients stop working until configured with the new token. This call requires explicit user
+            confirmation.
+        confirmed_action:
+            message: >
+                Regenerate the SCIM bearer token for identity provider configuration {id}. Existing SCIM clients will
+                stop working until updated. Reply 'confirm' to proceed.
+            action_label: regenerate SCIM bearer token
     identity-provider-configs-update:
         operation: identity_provider_configs_update
         enabled: false
@@ -521,6 +651,12 @@ tools:
     session-recordings-sharing-refresh-create:
         operation: session_recordings_sharing_refresh_create
         enabled: false
+    taxonomic-search-intent-classify-create:
+        operation: taxonomic_search_intent_classify_create
+        enabled: false
+    taxonomic-search-intent-match-events-create:
+        operation: taxonomic_search_intent_match_events_create
+        enabled: false
     uploaded-media-create:
         operation: uploaded_media_create
         enabled: false
@@ -640,6 +776,15 @@ tools:
         enabled: false
     users-hedgehog-config-retrieve:
         operation: users_hedgehog_config_retrieve
+        enabled: false
+    users-integrations-codex-create:
+        operation: users_integrations_codex_create
+        enabled: false
+    users-integrations-codex-destroy:
+        operation: users_integrations_codex_destroy
+        enabled: false
+    users-integrations-codex-retrieve:
+        operation: users_integrations_codex_retrieve
         enabled: false
     users-integrations-github-branches-retrieve:
         operation: users_integrations_github_branches_retrieve

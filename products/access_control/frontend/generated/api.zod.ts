@@ -10,11 +10,327 @@
 import * as zod from 'zod'
 
 /**
+ * Set or clear the rule everyone in the project gets for a scope, unless a member or role rule of their own applies. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule. Returns the stored rule, or 204 with no body when the rule is cleared.
+ */
+export const OrganizationsProjectsAccessControlDefaultRulesUpdateBody = /* @__PURE__ */ zod
+    .object({
+        resource: zod
+            .enum([
+                'account',
+                'action',
+                'activity_log',
+                'ai_observability_clusters',
+                'business_knowledge',
+                'customer_analytics',
+                'customer_journey',
+                'customer_task',
+                'dashboard',
+                'dashboard_template',
+                'data_catalog',
+                'data_deletion',
+                'dataset',
+                'early_access_feature',
+                'endpoint',
+                'error_tracking',
+                'evaluation',
+                'experiment',
+                'experiment_holdout',
+                'experiment_saved_metric',
+                'export',
+                'external_data_source',
+                'feature_flag',
+                'heatmap',
+                'hog_flow',
+                'insight',
+                'llm_analytics',
+                'llm_playground',
+                'llm_prompt',
+                'llm_provider_key',
+                'llm_skill',
+                'logs',
+                'marketing_analytics',
+                'mcp_analytics',
+                'metrics',
+                'notebook',
+                'project',
+                'property_definition',
+                'replay_scanner',
+                'revenue_analytics',
+                'session_recording',
+                'session_recording_playlist',
+                'sharing_configuration',
+                'stamphog',
+                'survey',
+                'tagger',
+                'ticket',
+                'toolbar',
+                'tracing',
+                'vision_alert',
+                'warehouse_objects',
+                'warehouse_table',
+                'warehouse_view',
+                'web_analytics',
+            ])
+            .describe(
+                '\* `account` - account\n\* `action` - action\n\* `activity_log` - activity_log\n\* `ai_observability_clusters` - ai_observability_clusters\n\* `business_knowledge` - business_knowledge\n\* `customer_analytics` - customer_analytics\n\* `customer_journey` - customer_journey\n\* `customer_task` - customer_task\n\* `dashboard` - dashboard\n\* `dashboard_template` - dashboard_template\n\* `data_catalog` - data_catalog\n\* `data_deletion` - data_deletion\n\* `dataset` - dataset\n\* `early_access_feature` - early_access_feature\n\* `endpoint` - endpoint\n\* `error_tracking` - error_tracking\n\* `evaluation` - evaluation\n\* `experiment` - experiment\n\* `experiment_holdout` - experiment_holdout\n\* `experiment_saved_metric` - experiment_saved_metric\n\* `export` - export\n\* `external_data_source` - external_data_source\n\* `feature_flag` - feature_flag\n\* `heatmap` - heatmap\n\* `hog_flow` - hog_flow\n\* `insight` - insight\n\* `llm_analytics` - llm_analytics\n\* `llm_playground` - llm_playground\n\* `llm_prompt` - llm_prompt\n\* `llm_provider_key` - llm_provider_key\n\* `llm_skill` - llm_skill\n\* `logs` - logs\n\* `marketing_analytics` - marketing_analytics\n\* `mcp_analytics` - mcp_analytics\n\* `metrics` - metrics\n\* `notebook` - notebook\n\* `project` - project\n\* `property_definition` - property_definition\n\* `replay_scanner` - replay_scanner\n\* `revenue_analytics` - revenue_analytics\n\* `session_recording` - session_recording\n\* `session_recording_playlist` - session_recording_playlist\n\* `sharing_configuration` - sharing_configuration\n\* `stamphog` - stamphog\n\* `survey` - survey\n\* `tagger` - tagger\n\* `ticket` - ticket\n\* `toolbar` - toolbar\n\* `tracing` - tracing\n\* `vision_alert` - vision_alert\n\* `warehouse_objects` - warehouse_objects\n\* `warehouse_table` - warehouse_table\n\* `warehouse_view` - warehouse_view\n\* `web_analytics` - web_analytics'
+            )
+            .describe(
+                'The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.\n\n\* `account` - account\n\* `action` - action\n\* `activity_log` - activity_log\n\* `ai_observability_clusters` - ai_observability_clusters\n\* `business_knowledge` - business_knowledge\n\* `customer_analytics` - customer_analytics\n\* `customer_journey` - customer_journey\n\* `customer_task` - customer_task\n\* `dashboard` - dashboard\n\* `dashboard_template` - dashboard_template\n\* `data_catalog` - data_catalog\n\* `data_deletion` - data_deletion\n\* `dataset` - dataset\n\* `early_access_feature` - early_access_feature\n\* `endpoint` - endpoint\n\* `error_tracking` - error_tracking\n\* `evaluation` - evaluation\n\* `experiment` - experiment\n\* `experiment_holdout` - experiment_holdout\n\* `experiment_saved_metric` - experiment_saved_metric\n\* `export` - export\n\* `external_data_source` - external_data_source\n\* `feature_flag` - feature_flag\n\* `heatmap` - heatmap\n\* `hog_flow` - hog_flow\n\* `insight` - insight\n\* `llm_analytics` - llm_analytics\n\* `llm_playground` - llm_playground\n\* `llm_prompt` - llm_prompt\n\* `llm_provider_key` - llm_provider_key\n\* `llm_skill` - llm_skill\n\* `logs` - logs\n\* `marketing_analytics` - marketing_analytics\n\* `mcp_analytics` - mcp_analytics\n\* `metrics` - metrics\n\* `notebook` - notebook\n\* `project` - project\n\* `property_definition` - property_definition\n\* `replay_scanner` - replay_scanner\n\* `revenue_analytics` - revenue_analytics\n\* `session_recording` - session_recording\n\* `session_recording_playlist` - session_recording_playlist\n\* `sharing_configuration` - sharing_configuration\n\* `stamphog` - stamphog\n\* `survey` - survey\n\* `tagger` - tagger\n\* `ticket` - ticket\n\* `toolbar` - toolbar\n\* `tracing` - tracing\n\* `vision_alert` - vision_alert\n\* `warehouse_objects` - warehouse_objects\n\* `warehouse_table` - warehouse_table\n\* `warehouse_view` - warehouse_view\n\* `web_analytics` - web_analytics'
+            ),
+        resource_id: zod
+            .string()
+            .nullish()
+            .describe(
+                "The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type."
+            ),
+        access_level: zod
+            .string()
+            .nullable()
+            .describe(
+                'The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.'
+            ),
+    })
+    .describe(
+        'The scope and level of one rule write. On its own it is the default rule, for everyone in the\nproject without a member or role rule of their own. The subclasses add the subject.'
+    )
+
+/**
+ * Set or clear one member's rule for a scope. A member rule applies to that person only and takes precedence over their role rules and the default. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule. Returns the stored rule, or 204 with no body when the rule is cleared.
+ */
+export const OrganizationsProjectsAccessControlMemberRulesUpdateBody = /* @__PURE__ */ zod
+    .object({
+        resource: zod
+            .enum([
+                'account',
+                'action',
+                'activity_log',
+                'ai_observability_clusters',
+                'business_knowledge',
+                'customer_analytics',
+                'customer_journey',
+                'customer_task',
+                'dashboard',
+                'dashboard_template',
+                'data_catalog',
+                'data_deletion',
+                'dataset',
+                'early_access_feature',
+                'endpoint',
+                'error_tracking',
+                'evaluation',
+                'experiment',
+                'experiment_holdout',
+                'experiment_saved_metric',
+                'export',
+                'external_data_source',
+                'feature_flag',
+                'heatmap',
+                'hog_flow',
+                'insight',
+                'llm_analytics',
+                'llm_playground',
+                'llm_prompt',
+                'llm_provider_key',
+                'llm_skill',
+                'logs',
+                'marketing_analytics',
+                'mcp_analytics',
+                'metrics',
+                'notebook',
+                'project',
+                'property_definition',
+                'replay_scanner',
+                'revenue_analytics',
+                'session_recording',
+                'session_recording_playlist',
+                'sharing_configuration',
+                'stamphog',
+                'survey',
+                'tagger',
+                'ticket',
+                'toolbar',
+                'tracing',
+                'vision_alert',
+                'warehouse_objects',
+                'warehouse_table',
+                'warehouse_view',
+                'web_analytics',
+            ])
+            .describe(
+                '\* `account` - account\n\* `action` - action\n\* `activity_log` - activity_log\n\* `ai_observability_clusters` - ai_observability_clusters\n\* `business_knowledge` - business_knowledge\n\* `customer_analytics` - customer_analytics\n\* `customer_journey` - customer_journey\n\* `customer_task` - customer_task\n\* `dashboard` - dashboard\n\* `dashboard_template` - dashboard_template\n\* `data_catalog` - data_catalog\n\* `data_deletion` - data_deletion\n\* `dataset` - dataset\n\* `early_access_feature` - early_access_feature\n\* `endpoint` - endpoint\n\* `error_tracking` - error_tracking\n\* `evaluation` - evaluation\n\* `experiment` - experiment\n\* `experiment_holdout` - experiment_holdout\n\* `experiment_saved_metric` - experiment_saved_metric\n\* `export` - export\n\* `external_data_source` - external_data_source\n\* `feature_flag` - feature_flag\n\* `heatmap` - heatmap\n\* `hog_flow` - hog_flow\n\* `insight` - insight\n\* `llm_analytics` - llm_analytics\n\* `llm_playground` - llm_playground\n\* `llm_prompt` - llm_prompt\n\* `llm_provider_key` - llm_provider_key\n\* `llm_skill` - llm_skill\n\* `logs` - logs\n\* `marketing_analytics` - marketing_analytics\n\* `mcp_analytics` - mcp_analytics\n\* `metrics` - metrics\n\* `notebook` - notebook\n\* `project` - project\n\* `property_definition` - property_definition\n\* `replay_scanner` - replay_scanner\n\* `revenue_analytics` - revenue_analytics\n\* `session_recording` - session_recording\n\* `session_recording_playlist` - session_recording_playlist\n\* `sharing_configuration` - sharing_configuration\n\* `stamphog` - stamphog\n\* `survey` - survey\n\* `tagger` - tagger\n\* `ticket` - ticket\n\* `toolbar` - toolbar\n\* `tracing` - tracing\n\* `vision_alert` - vision_alert\n\* `warehouse_objects` - warehouse_objects\n\* `warehouse_table` - warehouse_table\n\* `warehouse_view` - warehouse_view\n\* `web_analytics` - web_analytics'
+            )
+            .describe(
+                'The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.\n\n\* `account` - account\n\* `action` - action\n\* `activity_log` - activity_log\n\* `ai_observability_clusters` - ai_observability_clusters\n\* `business_knowledge` - business_knowledge\n\* `customer_analytics` - customer_analytics\n\* `customer_journey` - customer_journey\n\* `customer_task` - customer_task\n\* `dashboard` - dashboard\n\* `dashboard_template` - dashboard_template\n\* `data_catalog` - data_catalog\n\* `data_deletion` - data_deletion\n\* `dataset` - dataset\n\* `early_access_feature` - early_access_feature\n\* `endpoint` - endpoint\n\* `error_tracking` - error_tracking\n\* `evaluation` - evaluation\n\* `experiment` - experiment\n\* `experiment_holdout` - experiment_holdout\n\* `experiment_saved_metric` - experiment_saved_metric\n\* `export` - export\n\* `external_data_source` - external_data_source\n\* `feature_flag` - feature_flag\n\* `heatmap` - heatmap\n\* `hog_flow` - hog_flow\n\* `insight` - insight\n\* `llm_analytics` - llm_analytics\n\* `llm_playground` - llm_playground\n\* `llm_prompt` - llm_prompt\n\* `llm_provider_key` - llm_provider_key\n\* `llm_skill` - llm_skill\n\* `logs` - logs\n\* `marketing_analytics` - marketing_analytics\n\* `mcp_analytics` - mcp_analytics\n\* `metrics` - metrics\n\* `notebook` - notebook\n\* `project` - project\n\* `property_definition` - property_definition\n\* `replay_scanner` - replay_scanner\n\* `revenue_analytics` - revenue_analytics\n\* `session_recording` - session_recording\n\* `session_recording_playlist` - session_recording_playlist\n\* `sharing_configuration` - sharing_configuration\n\* `stamphog` - stamphog\n\* `survey` - survey\n\* `tagger` - tagger\n\* `ticket` - ticket\n\* `toolbar` - toolbar\n\* `tracing` - tracing\n\* `vision_alert` - vision_alert\n\* `warehouse_objects` - warehouse_objects\n\* `warehouse_table` - warehouse_table\n\* `warehouse_view` - warehouse_view\n\* `web_analytics` - web_analytics'
+            ),
+        resource_id: zod
+            .string()
+            .nullish()
+            .describe(
+                "The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type."
+            ),
+        access_level: zod
+            .string()
+            .nullable()
+            .describe(
+                'The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.'
+            ),
+        member_id: zod
+            .uuid()
+            .describe('The organization membership id, as `organization_membership_id` in the members endpoint.'),
+    })
+    .describe('A rule for one organization member.')
+
+/**
+ * Set or clear one role's rule for a scope. A role rule applies to every member of the role and takes precedence over the default. Requires the role-based access feature. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule. Returns the stored rule, or 204 with no body when the rule is cleared.
+ */
+export const OrganizationsProjectsAccessControlRoleRulesUpdateBody = /* @__PURE__ */ zod
+    .object({
+        resource: zod
+            .enum([
+                'account',
+                'action',
+                'activity_log',
+                'ai_observability_clusters',
+                'business_knowledge',
+                'customer_analytics',
+                'customer_journey',
+                'customer_task',
+                'dashboard',
+                'dashboard_template',
+                'data_catalog',
+                'data_deletion',
+                'dataset',
+                'early_access_feature',
+                'endpoint',
+                'error_tracking',
+                'evaluation',
+                'experiment',
+                'experiment_holdout',
+                'experiment_saved_metric',
+                'export',
+                'external_data_source',
+                'feature_flag',
+                'heatmap',
+                'hog_flow',
+                'insight',
+                'llm_analytics',
+                'llm_playground',
+                'llm_prompt',
+                'llm_provider_key',
+                'llm_skill',
+                'logs',
+                'marketing_analytics',
+                'mcp_analytics',
+                'metrics',
+                'notebook',
+                'project',
+                'property_definition',
+                'replay_scanner',
+                'revenue_analytics',
+                'session_recording',
+                'session_recording_playlist',
+                'sharing_configuration',
+                'stamphog',
+                'survey',
+                'tagger',
+                'ticket',
+                'toolbar',
+                'tracing',
+                'vision_alert',
+                'warehouse_objects',
+                'warehouse_table',
+                'warehouse_view',
+                'web_analytics',
+            ])
+            .describe(
+                '\* `account` - account\n\* `action` - action\n\* `activity_log` - activity_log\n\* `ai_observability_clusters` - ai_observability_clusters\n\* `business_knowledge` - business_knowledge\n\* `customer_analytics` - customer_analytics\n\* `customer_journey` - customer_journey\n\* `customer_task` - customer_task\n\* `dashboard` - dashboard\n\* `dashboard_template` - dashboard_template\n\* `data_catalog` - data_catalog\n\* `data_deletion` - data_deletion\n\* `dataset` - dataset\n\* `early_access_feature` - early_access_feature\n\* `endpoint` - endpoint\n\* `error_tracking` - error_tracking\n\* `evaluation` - evaluation\n\* `experiment` - experiment\n\* `experiment_holdout` - experiment_holdout\n\* `experiment_saved_metric` - experiment_saved_metric\n\* `export` - export\n\* `external_data_source` - external_data_source\n\* `feature_flag` - feature_flag\n\* `heatmap` - heatmap\n\* `hog_flow` - hog_flow\n\* `insight` - insight\n\* `llm_analytics` - llm_analytics\n\* `llm_playground` - llm_playground\n\* `llm_prompt` - llm_prompt\n\* `llm_provider_key` - llm_provider_key\n\* `llm_skill` - llm_skill\n\* `logs` - logs\n\* `marketing_analytics` - marketing_analytics\n\* `mcp_analytics` - mcp_analytics\n\* `metrics` - metrics\n\* `notebook` - notebook\n\* `project` - project\n\* `property_definition` - property_definition\n\* `replay_scanner` - replay_scanner\n\* `revenue_analytics` - revenue_analytics\n\* `session_recording` - session_recording\n\* `session_recording_playlist` - session_recording_playlist\n\* `sharing_configuration` - sharing_configuration\n\* `stamphog` - stamphog\n\* `survey` - survey\n\* `tagger` - tagger\n\* `ticket` - ticket\n\* `toolbar` - toolbar\n\* `tracing` - tracing\n\* `vision_alert` - vision_alert\n\* `warehouse_objects` - warehouse_objects\n\* `warehouse_table` - warehouse_table\n\* `warehouse_view` - warehouse_view\n\* `web_analytics` - web_analytics'
+            )
+            .describe(
+                'The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.\n\n\* `account` - account\n\* `action` - action\n\* `activity_log` - activity_log\n\* `ai_observability_clusters` - ai_observability_clusters\n\* `business_knowledge` - business_knowledge\n\* `customer_analytics` - customer_analytics\n\* `customer_journey` - customer_journey\n\* `customer_task` - customer_task\n\* `dashboard` - dashboard\n\* `dashboard_template` - dashboard_template\n\* `data_catalog` - data_catalog\n\* `data_deletion` - data_deletion\n\* `dataset` - dataset\n\* `early_access_feature` - early_access_feature\n\* `endpoint` - endpoint\n\* `error_tracking` - error_tracking\n\* `evaluation` - evaluation\n\* `experiment` - experiment\n\* `experiment_holdout` - experiment_holdout\n\* `experiment_saved_metric` - experiment_saved_metric\n\* `export` - export\n\* `external_data_source` - external_data_source\n\* `feature_flag` - feature_flag\n\* `heatmap` - heatmap\n\* `hog_flow` - hog_flow\n\* `insight` - insight\n\* `llm_analytics` - llm_analytics\n\* `llm_playground` - llm_playground\n\* `llm_prompt` - llm_prompt\n\* `llm_provider_key` - llm_provider_key\n\* `llm_skill` - llm_skill\n\* `logs` - logs\n\* `marketing_analytics` - marketing_analytics\n\* `mcp_analytics` - mcp_analytics\n\* `metrics` - metrics\n\* `notebook` - notebook\n\* `project` - project\n\* `property_definition` - property_definition\n\* `replay_scanner` - replay_scanner\n\* `revenue_analytics` - revenue_analytics\n\* `session_recording` - session_recording\n\* `session_recording_playlist` - session_recording_playlist\n\* `sharing_configuration` - sharing_configuration\n\* `stamphog` - stamphog\n\* `survey` - survey\n\* `tagger` - tagger\n\* `ticket` - ticket\n\* `toolbar` - toolbar\n\* `tracing` - tracing\n\* `vision_alert` - vision_alert\n\* `warehouse_objects` - warehouse_objects\n\* `warehouse_table` - warehouse_table\n\* `warehouse_view` - warehouse_view\n\* `web_analytics` - web_analytics'
+            ),
+        resource_id: zod
+            .string()
+            .nullish()
+            .describe(
+                "The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type."
+            ),
+        access_level: zod
+            .string()
+            .nullable()
+            .describe(
+                'The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.'
+            ),
+        role_id: zod.uuid().describe('The role id, as `role_id` in the roles endpoint.'),
+    })
+    .describe('A rule for every member of one role.')
+
+/**
  * Create or update a property access control rule.
  */
 export const PropertyAccessControlsCreateBody = /* @__PURE__ */ zod
     .object({
-        property_definition_id: zod.string().describe('The property definition ID this rule applies to.'),
+        property_definition_id: zod
+            .string()
+            .optional()
+            .describe('The existing property definition ID. Provide this or ai_property.'),
+        ai_property: zod
+            .enum([
+                '$ai_trace_id',
+                '$ai_session_id',
+                '$ai_parent_id',
+                '$ai_span_id',
+                '$ai_span_type',
+                '$ai_generation_id',
+                '$ai_experiment_id',
+                '$ai_span_name',
+                '$ai_trace_name',
+                '$ai_prompt_name',
+                '$ai_model',
+                '$ai_provider',
+                '$ai_framework',
+                '$ai_total_tokens',
+                '$ai_input_tokens',
+                '$ai_output_tokens',
+                '$ai_text_input_tokens',
+                '$ai_text_output_tokens',
+                '$ai_image_input_tokens',
+                '$ai_image_output_tokens',
+                '$ai_audio_input_tokens',
+                '$ai_audio_output_tokens',
+                '$ai_video_input_tokens',
+                '$ai_video_output_tokens',
+                '$ai_reasoning_tokens',
+                '$ai_cache_read_input_tokens',
+                '$ai_cache_creation_input_tokens',
+                '$ai_web_search_count',
+                '$ai_input_cost_usd',
+                '$ai_output_cost_usd',
+                '$ai_total_cost_usd',
+                '$ai_request_cost_usd',
+                '$ai_web_search_cost_usd',
+                '$ai_audio_cost_usd',
+                '$ai_image_cost_usd',
+                '$ai_video_cost_usd',
+                '$ai_latency',
+                '$ai_time_to_first_token',
+                '$ai_is_error',
+                '$ai_error',
+                '$ai_error_type',
+                '$ai_error_normalized',
+                '$ai_input',
+                '$ai_output',
+                '$ai_output_choices',
+                '$ai_input_state',
+                '$ai_output_state',
+                '$ai_tools',
+            ])
+            .describe(
+                '\* `$ai_trace_id` - $ai_trace_id\n\* `$ai_session_id` - $ai_session_id\n\* `$ai_parent_id` - $ai_parent_id\n\* `$ai_span_id` - $ai_span_id\n\* `$ai_span_type` - $ai_span_type\n\* `$ai_generation_id` - $ai_generation_id\n\* `$ai_experiment_id` - $ai_experiment_id\n\* `$ai_span_name` - $ai_span_name\n\* `$ai_trace_name` - $ai_trace_name\n\* `$ai_prompt_name` - $ai_prompt_name\n\* `$ai_model` - $ai_model\n\* `$ai_provider` - $ai_provider\n\* `$ai_framework` - $ai_framework\n\* `$ai_total_tokens` - $ai_total_tokens\n\* `$ai_input_tokens` - $ai_input_tokens\n\* `$ai_output_tokens` - $ai_output_tokens\n\* `$ai_text_input_tokens` - $ai_text_input_tokens\n\* `$ai_text_output_tokens` - $ai_text_output_tokens\n\* `$ai_image_input_tokens` - $ai_image_input_tokens\n\* `$ai_image_output_tokens` - $ai_image_output_tokens\n\* `$ai_audio_input_tokens` - $ai_audio_input_tokens\n\* `$ai_audio_output_tokens` - $ai_audio_output_tokens\n\* `$ai_video_input_tokens` - $ai_video_input_tokens\n\* `$ai_video_output_tokens` - $ai_video_output_tokens\n\* `$ai_reasoning_tokens` - $ai_reasoning_tokens\n\* `$ai_cache_read_input_tokens` - $ai_cache_read_input_tokens\n\* `$ai_cache_creation_input_tokens` - $ai_cache_creation_input_tokens\n\* `$ai_web_search_count` - $ai_web_search_count\n\* `$ai_input_cost_usd` - $ai_input_cost_usd\n\* `$ai_output_cost_usd` - $ai_output_cost_usd\n\* `$ai_total_cost_usd` - $ai_total_cost_usd\n\* `$ai_request_cost_usd` - $ai_request_cost_usd\n\* `$ai_web_search_cost_usd` - $ai_web_search_cost_usd\n\* `$ai_audio_cost_usd` - $ai_audio_cost_usd\n\* `$ai_image_cost_usd` - $ai_image_cost_usd\n\* `$ai_video_cost_usd` - $ai_video_cost_usd\n\* `$ai_latency` - $ai_latency\n\* `$ai_time_to_first_token` - $ai_time_to_first_token\n\* `$ai_is_error` - $ai_is_error\n\* `$ai_error` - $ai_error\n\* `$ai_error_type` - $ai_error_type\n\* `$ai_error_normalized` - $ai_error_normalized\n\* `$ai_input` - $ai_input\n\* `$ai_output` - $ai_output\n\* `$ai_output_choices` - $ai_output_choices\n\* `$ai_input_state` - $ai_input_state\n\* `$ai_output_state` - $ai_output_state\n\* `$ai_tools` - $ai_tools'
+            )
+            .optional()
+            .describe(
+                'A built-in AI event property. Creates its definition if missing. Provide this or property_definition_id.\n\n\* `$ai_trace_id` - $ai_trace_id\n\* `$ai_session_id` - $ai_session_id\n\* `$ai_parent_id` - $ai_parent_id\n\* `$ai_span_id` - $ai_span_id\n\* `$ai_span_type` - $ai_span_type\n\* `$ai_generation_id` - $ai_generation_id\n\* `$ai_experiment_id` - $ai_experiment_id\n\* `$ai_span_name` - $ai_span_name\n\* `$ai_trace_name` - $ai_trace_name\n\* `$ai_prompt_name` - $ai_prompt_name\n\* `$ai_model` - $ai_model\n\* `$ai_provider` - $ai_provider\n\* `$ai_framework` - $ai_framework\n\* `$ai_total_tokens` - $ai_total_tokens\n\* `$ai_input_tokens` - $ai_input_tokens\n\* `$ai_output_tokens` - $ai_output_tokens\n\* `$ai_text_input_tokens` - $ai_text_input_tokens\n\* `$ai_text_output_tokens` - $ai_text_output_tokens\n\* `$ai_image_input_tokens` - $ai_image_input_tokens\n\* `$ai_image_output_tokens` - $ai_image_output_tokens\n\* `$ai_audio_input_tokens` - $ai_audio_input_tokens\n\* `$ai_audio_output_tokens` - $ai_audio_output_tokens\n\* `$ai_video_input_tokens` - $ai_video_input_tokens\n\* `$ai_video_output_tokens` - $ai_video_output_tokens\n\* `$ai_reasoning_tokens` - $ai_reasoning_tokens\n\* `$ai_cache_read_input_tokens` - $ai_cache_read_input_tokens\n\* `$ai_cache_creation_input_tokens` - $ai_cache_creation_input_tokens\n\* `$ai_web_search_count` - $ai_web_search_count\n\* `$ai_input_cost_usd` - $ai_input_cost_usd\n\* `$ai_output_cost_usd` - $ai_output_cost_usd\n\* `$ai_total_cost_usd` - $ai_total_cost_usd\n\* `$ai_request_cost_usd` - $ai_request_cost_usd\n\* `$ai_web_search_cost_usd` - $ai_web_search_cost_usd\n\* `$ai_audio_cost_usd` - $ai_audio_cost_usd\n\* `$ai_image_cost_usd` - $ai_image_cost_usd\n\* `$ai_video_cost_usd` - $ai_video_cost_usd\n\* `$ai_latency` - $ai_latency\n\* `$ai_time_to_first_token` - $ai_time_to_first_token\n\* `$ai_is_error` - $ai_is_error\n\* `$ai_error` - $ai_error\n\* `$ai_error_type` - $ai_error_type\n\* `$ai_error_normalized` - $ai_error_normalized\n\* `$ai_input` - $ai_input\n\* `$ai_output` - $ai_output\n\* `$ai_output_choices` - $ai_output_choices\n\* `$ai_input_state` - $ai_input_state\n\* `$ai_output_state` - $ai_output_state\n\* `$ai_tools` - $ai_tools'
+            ),
         access_level: zod
             .enum(['read_write', 'read', 'none'])
             .describe('\* `read_write` - read_write\n\* `read` - read\n\* `none` - none')

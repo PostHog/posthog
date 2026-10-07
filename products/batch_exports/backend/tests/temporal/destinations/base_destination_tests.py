@@ -25,7 +25,6 @@ from posthog.models.integration import Integration
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import BATCH_EXPORT_WORKFLOW_TYPES as LOGGER_BATCH_EXPORT_WORKFLOW_TYPES
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 
 from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.service import (
@@ -42,6 +41,11 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import inse
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
+from products.batch_exports.backend.tests.temporal.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_runs,
+)
 from products.batch_exports.backend.tests.temporal.utils.records import (
     get_record_batch_from_queue,
     remove_duplicates_from_records,
@@ -65,7 +69,7 @@ class BaseDestinationTest(ABC):
     @property
     @abstractmethod
     def destination_type(self) -> str:
-        """Return the destination type name (e.g., 'Databricks', 'S3', 'BigQuery')."""
+        """Return the destination type name (e.g., 'Databricks', 'AwsS3', 'BigQuery')."""
         pass
 
     @property

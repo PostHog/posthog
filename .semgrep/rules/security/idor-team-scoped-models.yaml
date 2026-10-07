@@ -61,6 +61,7 @@ rules:
                               |AccountRelationshipControl
                               |AccountRelationshipDefinition
                               |AccountTrackRuleRun
+                              |AccountView
                               |Action
                               |AEOCitationCheck
                               |AEOPrompt
@@ -115,6 +116,7 @@ rules:
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
                               |Comment
+                              |ContentAutopilotOpportunity
                               |ContentAutopilotProposal
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
@@ -134,8 +136,8 @@ rules:
                               |CustomPropertySyncRun
                               |CustomPropertyValue
                               |DAG
+                              |DailyBriefing
                               |Dashboard
-                              |DashboardSavedView
                               |DashboardTemplate
                               |DashboardWidget
                               |DataColorTheme
@@ -236,6 +238,7 @@ rules:
                               |HealthIssue
                               |HogFlow
                               |HogFlowBatchJob
+                              |HogFlowOptimization
                               |HogFlowRevision
                               |HogFlowSchedule
                               |HogFlowTemplate
@@ -252,6 +255,8 @@ rules:
                               |KnowledgeGapSuggestion
                               |KnowledgeLearningRun
                               |KnowledgeSource
+                              |PlaygroundChat
+                              |PlaygroundTurn
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
@@ -304,6 +309,11 @@ rules:
                               |NotebookNodeRun
                               |NotebookRun
                               |ObjectMediaPreview
+                              |OfflineEvaluationResult
+                              |OfflineEvaluationResultPayload
+                              |OfflineExperiment
+                              |OfflineExperimentItem
+                              |OfflineExperimentItemPayload
                               |ParserRecipe
                               |PendingSourceCredential
                               |PluginConfig
@@ -312,8 +322,13 @@ rules:
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
                               |PullRequestAudience
+                              |QuarantineLiftRequest
                               |QuarantinedIdentifier
                               |QueryTabState
+                              |QueueJob
+                              |RevokedTeamSecretToken
+                              |QueueSchedulerDecision
+                              |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
@@ -323,7 +338,7 @@ rules:
                               |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
-                              |ReplayScannerPromptSuggestion
+                              |ReplayVisionLearnedRuleset
                               |Repo
                               |RepoRoutingRule
                               |ReviewReport
@@ -364,6 +379,7 @@ rules:
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
                               |SignalScoutSuggestionSet
+                              |SignalScoutBackgroundBand
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -376,6 +392,7 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
+                              |PlatformAlertThread
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -412,6 +429,7 @@ rules:
                               |ReviewQueueItem
                               |TraceReview
                               |TraceReviewScore
+                              |TracesRetentionRule
                               |TracingView
                               |UploadedMedia
                               |UserInterview
@@ -493,6 +511,7 @@ rules:
                         |AccountRelationshipControl
                         |AccountRelationshipDefinition
                         |AccountTrackRuleRun
+                        |AccountView
                         |Action
                         |AgentApplication
                         |AgentArtifact
@@ -545,6 +564,7 @@ rules:
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
                         |Comment
+                        |ContentAutopilotOpportunity
                         |ContentAutopilotProposal
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
@@ -564,8 +584,8 @@ rules:
                         |CustomPropertySyncRun
                         |CustomPropertyValue
                         |DAG
+                        |DailyBriefing
                         |Dashboard
-                        |DashboardSavedView
                         |DashboardTemplate
                         |DashboardWidget
                         |DataColorTheme
@@ -663,6 +683,7 @@ rules:
                         |HealthIssue
                         |HogFlow
                         |HogFlowBatchJob
+                        |HogFlowOptimization
                         |HogFlowRevision
                         |HogFlowSchedule
                         |HogFlowTemplate
@@ -679,6 +700,8 @@ rules:
                         |KnowledgeGapSuggestion
                         |KnowledgeLearningRun
                         |KnowledgeSource
+                        |PlaygroundChat
+                        |PlaygroundTurn
                         |Link
                         |LiveDebuggerBreakpoint
                         |Loop
@@ -724,6 +747,11 @@ rules:
                         |NotebookNodeRun
                         |NotebookRun
                         |ObjectMediaPreview
+                        |OfflineEvaluationResult
+                        |OfflineEvaluationResultPayload
+                        |OfflineExperiment
+                        |OfflineExperimentItem
+                        |OfflineExperimentItemPayload
                         |ParserRecipe
                         |PendingSourceCredential
                         |PluginConfig
@@ -732,8 +760,13 @@ rules:
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
                         |PullRequestAudience
+                        |QuarantineLiftRequest
                         |QuarantinedIdentifier
                         |QueryTabState
+                        |QueueJob
+                        |RevokedTeamSecretToken
+                        |QueueSchedulerDecision
+                        |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
@@ -743,7 +776,7 @@ rules:
                         |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
-                        |ReplayScannerPromptSuggestion
+                        |ReplayVisionLearnedRuleset
                         |Repo
                         |RepoRoutingRule
                         |ReviewReport
@@ -784,6 +817,7 @@ rules:
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
                         |SignalScoutSuggestionSet
+                        |SignalScoutBackgroundBand
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -796,6 +830,7 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
+                        |PlatformAlertThread
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
@@ -831,6 +866,7 @@ rules:
                         |ReviewQueueItem
                         |TraceReview
                         |TraceReviewScore
+                        |TracesRetentionRule
                         |TracingView
                         |UploadedMedia
                         |UserInterview
@@ -943,6 +979,8 @@ rules:
                               |BillingAlertEvent
                               |CIMDVerificationToken
                               |ContextLayerConfig
+                              |CrossProjectDashboard
+                              |CrossProjectDashboardTile
                               |DesktopBetaTermsAcceptance
                               |IdentityProviderConfig
                               |LegalDocument
@@ -951,6 +989,7 @@ rules:
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
+                              |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
                               |Plugin
@@ -1019,6 +1058,8 @@ rules:
                         |BillingAlertEvent
                         |CIMDVerificationToken
                         |ContextLayerConfig
+                        |CrossProjectDashboard
+                        |CrossProjectDashboardTile
                         |DesktopBetaTermsAcceptance
                         |IdentityProviderConfig
                         |LegalDocument
@@ -1027,6 +1068,7 @@ rules:
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
+                        |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite
                         |Plugin

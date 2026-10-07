@@ -3,7 +3,8 @@ use uuid::Uuid;
 
 use crate::storage::error::StorageResult;
 use crate::storage::types::{
-    DeletePersonsMode, DeletePersonsOutcome, Person, SplitResult, TombstonedDeleteOutcome,
+    DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, SplitResult, TombstonedDeleteOutcome,
+    TombstonedPerson,
 };
 
 /// Person lookup operations by ID, UUID, and distinct ID
@@ -53,13 +54,11 @@ pub trait PersonLookup: Send + Sync {
 
     // Deletes
 
-    /// `Hard` removes the rows, tombstoned ones included. `Tombstone` keeps
-    /// them and reports the versions written for the ClickHouse tombstones.
+    /// Tombstones the persons and reports the versions written for the ClickHouse tombstones.
     async fn delete_persons(
         &self,
         team_id: i64,
         uuids: &[Uuid],
-        mode: DeletePersonsMode,
     ) -> StorageResult<DeletePersonsOutcome>;
 
     /// Delete persons that are still tombstoned, at most `max_rows` dependent rows per call:
@@ -72,6 +71,25 @@ pub trait PersonLookup: Send + Sync {
         uuids: &[Uuid],
         max_rows: i64,
     ) -> StorageResult<TombstonedDeleteOutcome>;
+
+    async fn get_person_tombstones(
+        &self,
+        team_id: i64,
+        uuids: &[Uuid],
+    ) -> StorageResult<Vec<TombstonedPerson>>;
+
+    async fn ack_person_tombstones(
+        &self,
+        team_id: i64,
+        acked: &[(Uuid, i64)],
+    ) -> StorageResult<i64>;
+
+    async fn list_person_tombstone_queue(
+        &self,
+        after: (i64, Uuid),
+        team_id: Option<i64>,
+        limit: i64,
+    ) -> StorageResult<Vec<PersonTombstoneQueueEntry>>;
 
     /// Delete up to `batch_size` persons for a team. Selects person IDs with
     /// FOR UPDATE SKIP LOCKED, then splits them into fixed-size chunks and

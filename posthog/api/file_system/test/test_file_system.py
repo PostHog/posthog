@@ -5,7 +5,7 @@ from typing import Any, TypedDict, cast
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import connection
@@ -24,10 +24,12 @@ from posthog.api.file_system.file_system import (
     MAX_PATH_SEGMENTS,
     FileSystemSerializer,
     UndoDeleteItemSerializer,
+    get_file_system_insight_type,
 )
 from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -37,7 +39,6 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
@@ -67,6 +68,99 @@ class TestFileSystemAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["count"], 0)
         self.assertEqual(response_data["results"], [])
+
+    @parameterized.expand([(False,), (True,)])
+    def test_list_content_types_without_object_contents(self, include_content_type: bool) -> None:
+        markdown = Notebook.objects.create(
+            team=self.team,
+            short_id="markdown",
+            content={
+                "type": "doc",
+                "content": [{"type": "ph-markdown-notebook", "attrs": {"markdown": "# Example"}}],
+            },
+        )
+        legacy = Notebook.objects.create(
+            team=self.team, short_id="legacy", content={"type": "doc", "content": [{"type": "paragraph"}]}
+        )
+        sql = Insight.objects.create(
+            team=self.team,
+            short_id="sqlquery",
+            query={"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
+        )
+        standard = Insight.objects.create(team=self.team, short_id="standard")
+        sibling_team = Team.objects.create(project=self.project, organization=self.organization)
+        Notebook.objects.create(team=sibling_team, short_id=markdown.short_id, content=legacy.content)
+        Insight.objects.create(team=sibling_team, short_id=sql.short_id)
+        for name, entry_type, ref in (
+            ("Other notebook", "notebook", markdown.short_id),
+            ("Other insight", "insight", sql.short_id),
+        ):
+            FileSystem.objects.create(team=sibling_team, path=f"Reports/{name}", depth=2, type=entry_type, ref=ref)
+        other_team = Team.objects.create(organization=self.organization)
+        Notebook.objects.create(team=other_team, short_id="foreign", content=markdown.content)
+        entries = [
+            ("Markdown", "notebook", markdown.short_id, "text/markdown"),
+            ("Legacy", "notebook", legacy.short_id, "application/json"),
+            ("SQL", "insight", sql.short_id, "application/sql"),
+            ("Standard", "insight", standard.short_id, "application/json"),
+            ("Missing", "notebook", "foreign", "application/json"),
+        ]
+        for name, entry_type, ref, _ in entries:
+            FileSystem.objects.create(
+                team=self.team, path=f"Reports/{name}", depth=2, type=entry_type, ref=ref, meta={"label": "example"}
+            )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/",
+            {"parent": "Reports", "depth": "2", "include_content_type": str(include_content_type).lower()},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = {item["path"]: item for item in response.json()["results"]}
+        self.assertEqual(
+            set(results),
+            {f"Reports/{name}" for name, _, _, _ in entries} | {"Reports/Other notebook", "Reports/Other insight"},
+        )
+        for name, entry_type, _, content_type in entries:
+            expected_meta = {"label": "example"}
+            if entry_type == "insight":
+                expected_meta["insight_type"] = "hog" if name == "SQL" else "trends"
+            if include_content_type:
+                expected_meta["content_type"] = content_type
+            self.assertEqual(results[f"Reports/{name}"]["meta"], expected_meta)
+            self.assertNotIn("content", results[f"Reports/{name}"])
+            self.assertNotIn("query", results[f"Reports/{name}"])
+        for name in ("Other notebook", "Other insight"):
+            self.assertEqual(
+                results[f"Reports/{name}"]["meta"],
+                {
+                    **({"insight_type": "trends"} if name == "Other insight" else {}),
+                    **({"content_type": "application/json"} if include_content_type else {}),
+                },
+            )
+        if include_content_type:
+            markdown.content = legacy.content
+            markdown.save()
+            refreshed = self.client.get(
+                f"/api/projects/{self.team.id}/file_system/",
+                {"ref": str(markdown.short_id), "include_content_type": "true"},
+            )
+            self.assertEqual(refreshed.json()["results"][0]["meta"]["content_type"], "application/json")
+
+    def test_list_insight_type_tracks_query_changes(self) -> None:
+        insight = Insight.objects.create(team=self.team, saved=True, name="Report")
+        queries = [
+            {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
+            {"kind": "InsightVizNode", "source": {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery"}}},
+            None,
+        ]
+        for query, expected_type in zip(queries, ["hog", "hog", "paths"]):
+            Insight.objects.filter(team=self.team, pk=insight.pk).update(query=query, filters={"insight": "JOURNEYS"})
+            response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"type": "insight"})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["results"][0]["meta"]["insight_type"], expected_type)
+
+    def test_list_rejects_invalid_content_type_parameter(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"include_content_type": "invalid"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_file(self):
         """
@@ -197,6 +291,80 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertFalse(FileSystem.objects.filter(pk=folder_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
+
+    def _create_retired_row_in_folder(self) -> tuple[FileSystem, FileSystem]:
+        folder = FileSystem.objects.create(team=self.team, path="Unfiled/Links", type="folder", created_by=self.user)
+        retired = FileSystem.objects.create(
+            team=self.team,
+            path="Unfiled/Links/abc123",
+            type="link",
+            ref="0190a1b2-0000-7000-8000-000000000001",
+            href="/link/abc123",
+            created_by=self.user,
+        )
+        return folder, retired
+
+    @parameterized.expand(
+        [
+            ("file", False, ""),
+            ("parent_folder", True, ""),
+            ("parent_folder_without_cascading", True, "?recursive=false"),
+        ]
+    )
+    def test_delete_row_of_retired_type(self, _name: str, delete_parent: bool, query: str) -> None:
+        folder, retired = self._create_retired_row_in_folder()
+
+        target = folder if delete_parent else retired
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{target.pk}/{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        self.assertFalse(FileSystem.objects.filter(pk=retired.pk).exists())
+        self.assertEqual(FileSystem.objects.filter(pk=folder.pk).exists(), not delete_parent)
+
+    def test_rows_of_retired_type_are_hidden_from_the_tree(self) -> None:
+        folder, retired = self._create_retired_row_in_folder()
+        base = f"/api/projects/{self.team.id}/file_system"
+
+        listed = self.client.get(f"{base}/?parent=Unfiled/Links").json()
+        searched = self.client.get(f"{base}/?search=abc123").json()
+        counted = self.client.post(f"{base}/{folder.pk}/count/").json()
+        retrieved = self.client.get(f"{base}/{retired.pk}/")
+
+        self.assertEqual([listed["results"], searched["results"], counted["count"]], [[], [], 0])
+        self.assertEqual(retrieved.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_recents_skip_views_of_retired_types(self) -> None:
+        _folder, retired = self._create_retired_row_in_folder()
+        dashboard = Dashboard.objects.create(team=self.team, name="Viewed earlier", created_by=self.user)
+        entry = FileSystem.objects.create(
+            team=self.team, path="Viewed earlier", type="dashboard", ref=str(dashboard.id), created_by=self.user
+        )
+        base = f"/api/projects/{self.team.id}/file_system"
+        self.client.post(
+            f"{base}/log_view/", {"type": "dashboard", "ref": entry.ref, "viewed_at": "2026-09-01T00:00:00Z"}
+        )
+        self.client.post(f"{base}/log_view/", {"type": "link", "ref": retired.ref, "viewed_at": "2026-09-02T00:00:00Z"})
+
+        recents = self.client.get(f"{base}/?order_by=-last_viewed_at&limit=1").json()
+
+        self.assertEqual([item["id"] for item in recents["results"]], [str(entry.id)])
+
+    def test_log_view_list_skips_views_of_retired_types(self) -> None:
+        _folder, retired = self._create_retired_row_in_folder()
+        dashboard = Dashboard.objects.create(team=self.team, name="Viewed earlier", created_by=self.user)
+        entry = FileSystem.objects.create(
+            team=self.team, path="Viewed earlier", type="dashboard", ref=str(dashboard.id), created_by=self.user
+        )
+        base = f"/api/projects/{self.team.id}/file_system"
+        self.client.post(
+            f"{base}/log_view/", {"type": "dashboard", "ref": entry.ref, "viewed_at": "2026-09-01T00:00:00Z"}
+        )
+        self.client.post(f"{base}/log_view/", {"type": "link", "ref": retired.ref, "viewed_at": "2026-09-02T00:00:00Z"})
+
+        response = self.client.get(f"{base}/log_view/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual([item["ref"] for item in response.json()], [entry.ref])
 
     @parameterized.expand([("empty", False), ("child_added_before_delete", True)])
     def test_delete_empty_folder_without_cascading(self, _name: str, add_child: bool) -> None:
@@ -618,7 +786,14 @@ class TestFileSystemAPI(APIBaseTest):
             self.assertEqual(folder.depth, depth_index)
             self.assertEqual(folder.type, "folder")
 
-    def test_move_files_and_folders(self):
+    @parameterized.expand(
+        [
+            ("short_path", "NewFolder"),
+            ("over_previous_shortcut_limit", "x" * 101),
+            ("maximum_nested_path", "x" * (MAX_PATH_LENGTH - len("/Notes"))),
+        ]
+    )
+    def test_move_files_and_folders(self, _name: str, new_path: str) -> None:
         """
         Moving a folder should update all child paths correctly.
         """
@@ -631,22 +806,69 @@ class TestFileSystemAPI(APIBaseTest):
             team=self.team, path="OldFolder/File2", type="feature_flag", created_by=self.user
         )
 
+        FileSystem.objects.create(team=self.team, path="OldFolder/Notes", type="folder", created_by=self.user)
+        other_user = User.objects.create_user(email="starred@example.com", first_name="Sam", password="test")
+        shortcuts = [
+            FileSystemShortcut.objects.create(team=self.team, user=user, path=label, type="folder", ref=ref)
+            for user in [self.user, other_user]
+            for label, ref in [("OldFolder", "OldFolder"), ("Notes", "OldFolder/Notes")]
+        ]
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        custom_shortcut = FileSystemShortcut.objects.create(
+            team=self.team, user=self.user, path="Pinned work", type="folder", ref="OldFolder"
+        )
+        sibling_folder = FileSystem.objects.create(
+            team=sibling_team, path="OldFolder", type="folder", created_by=self.user
+        )
+        FileSystem.objects.create(team=sibling_team, path="OldFolder/Notes", type="folder", created_by=self.user)
+        shortcuts.append(
+            FileSystemShortcut.objects.create(
+                team=sibling_team, user=self.user, path="Notes", type="folder", ref="OldFolder/Notes"
+            )
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        untouched = [
+            FileSystemShortcut.objects.create(
+                team=team, user=self.user, path=ref, type="folder", ref=ref, surface=surface
+            )
+            for team, ref, surface in [
+                (self.team, "OldFolderSuffix", None),
+                (self.team, "OldFolder", "desktop"),
+                (other_team, "OldFolder", None),
+                (sibling_team, "OldFolder", None),
+            ]
+        ]
+
         # Move the folder
         response = self.client.post(
             f"/api/projects/{self.team.id}/file_system/{folder.pk}/move",
-            {"new_path": "NewFolder"},
+            {"new_path": new_path},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
         # Check that the folder and files have been moved
         folder.refresh_from_db()
-        self.assertEqual(folder.path, "NewFolder")
+        self.assertEqual(folder.path, new_path)
+        sibling_folder.refresh_from_db()
+        self.assertEqual(sibling_folder.path, "OldFolder")
 
         file1.refresh_from_db()
-        self.assertEqual(file1.path, "NewFolder/File1")
+        self.assertEqual(file1.path, f"{new_path}/File1")
 
         file2.refresh_from_db()
-        self.assertEqual(file2.path, "NewFolder/File2")
+        self.assertEqual(file2.path, f"{new_path}/File2")
+
+        for shortcut in shortcuts:
+            shortcut.refresh_from_db()
+            self.assertEqual(shortcut.ref, f"{new_path}/Notes" if shortcut.path == "Notes" else new_path)
+            self.assertIn(shortcut.path, [new_path, "Notes"])
+        for shortcut in untouched:
+            old_ref = shortcut.ref
+            shortcut.refresh_from_db()
+            self.assertEqual(shortcut.ref, old_ref)
+        custom_shortcut.refresh_from_db()
+        self.assertEqual(custom_shortcut.ref, new_path)
+        self.assertEqual(custom_shortcut.path, "Pinned work")
 
     def test_count_of_files(self):
         """
@@ -1505,6 +1727,44 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
         self.assertEqual(delete_response.status_code, status.HTTP_404_NOT_FOUND, delete_response.content)
 
+    @parameterized.expand([("notebook", "text/markdown"), ("insight", "application/sql")])
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_content_type_requires_access_to_the_backing_object(
+        self, entry_type: str, content_type: str, mock_flag: MagicMock
+    ) -> None:
+        obj: Notebook | Insight
+        if entry_type == "notebook":
+            obj = Notebook.objects.create(
+                team=self.team,
+                created_by=self.other_user,
+                content={"type": "doc", "content": [{"type": "ph-markdown-notebook", "attrs": {"markdown": "# Note"}}]},
+            )
+        else:
+            obj = Insight.objects.create(
+                team=self.team,
+                created_by=self.other_user,
+                query={"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
+            )
+        self._create_access_control(resource=entry_type, resource_id=str(obj.pk), access_level="none")
+        entry = FileSystem.objects.create(
+            team=self.team, path="Docs/Shortcut", depth=2, type=entry_type, ref=obj.short_id, created_by=self.user
+        )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/", {"path": entry.path, "include_content_type": "true"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"][0]["meta"]["content_type"], "application/json")
+        if entry_type == "insight":
+            self.assertIsNone(response.json()["results"][0]["meta"]["insight_type"])
+
+        self._grant_to_user(entry_type, str(obj.pk), "viewer")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/", {"path": entry.path, "include_content_type": "true"}
+        )
+        self.assertEqual(response.json()["results"][0]["meta"]["content_type"], content_type)
+        if entry_type == "insight":
+            self.assertEqual(response.json()["results"][0]["meta"]["insight_type"], "hog")
+
     def test_undo_delete_refuses_an_object_that_is_not_deleted(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -1706,6 +1966,39 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertEqual(delete_response.status_code, status.HTTP_404_NOT_FOUND, delete_response.content)
         dashboard.refresh_from_db()
         self.assertFalse(dashboard.deleted)
+
+    @parameterized.expand(
+        [
+            ("retired_row_without_cascading", "link", "?recursive=false", False),
+            ("retired_row_with_cascading", "link", "", False),
+            ("live_row_with_cascading", "dashboard", "", True),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_folder_delete_with_a_row_in_a_denied_environment(
+        self, _name: str, child_type: str, query: str, expect_repaired_folder: bool, mock_flag: MagicMock
+    ):
+        team2 = self._create_sibling_team()
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        self._create_access_control(
+            resource="project",
+            resource_id=str(team2.id),
+            access_level="none",
+            organization_member=membership,
+            team=team2,
+        )
+        folder = FileSystem.objects.create(team=self.team, path="Shared", type="folder", created_by=self.user)
+        denied_child = FileSystem.objects.create(
+            team=team2, path="Shared/abc123", type=child_type, ref="0190a1b2-0000-7000-8000-000000000002"
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder.pk}/{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        self.assertTrue(FileSystem.objects.filter(pk=denied_child.pk).exists())
+        self.assertEqual(
+            FileSystem.objects.filter(team=team2, path="Shared", type="folder").exists(), expect_repaired_folder
+        )
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_list_queries_do_not_scale_with_environment_count(self, mock_flag):
@@ -2138,12 +2431,6 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
                 "extra_restore_fields": ["enabled"],
             },
             {
-                "file_type": "link",
-                "scope": "Link",
-                "factory": self._prepare_link_case,
-                "supports_restore": False,
-            },
-            {
                 "file_type": "early_access_feature",
                 "scope": "EarlyAccessFeature",
                 "factory": self._prepare_early_access_feature_case,
@@ -2360,22 +2647,6 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
             "path": fs_entry.path,
         }
 
-    def _prepare_link_case(self):
-        link = Link.objects.create(
-            team=self.team,
-            redirect_url="https://example.com",
-            short_link_domain="hog.gg",
-            short_code="abc123",
-            created_by=self.user,
-        )
-        fs_entry = self._ensure_file_system_entry(file_type="link", ref=str(link.id), fallback_name=str(link.id))
-        return {
-            "fs_entry": fs_entry,
-            "item_id": str(link.id),
-            "ref": str(link.id),
-            "path": fs_entry.path,
-        }
-
     def _prepare_early_access_feature_case(self):
         feature = EarlyAccessFeature.objects.create(
             team=self.team,
@@ -2470,3 +2741,25 @@ class TestFileSystemInputValidationAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([row["path"] for row in response.json()["results"]], ["!"])
+
+
+class TestFileSystemInsightType(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("TrendsQuery", None, "trends"),
+            ("FunnelsQuery", None, "funnels"),
+            ("RetentionQuery", None, "retention"),
+            ("PathsQuery", None, "paths"),
+            ("PathsV2Query", None, "paths"),
+            ("LifecycleQuery", None, "lifecycle"),
+            ("StickinessQuery", None, "stickiness"),
+            ("HogQLQuery", None, "hog"),
+            ("HogQuery", None, "hog"),
+            (None, "RETENTION", "retention"),
+            (None, "JOURNEYS", "paths"),
+            (None, None, "trends"),
+            ("HogQLQuery", "TRENDS", "hog"),
+        ]
+    )
+    def test_insight_type(self, query_kind: str | None, legacy_type: str | None, expected: str) -> None:
+        self.assertEqual(get_file_system_insight_type(query_kind, legacy_type), expected)

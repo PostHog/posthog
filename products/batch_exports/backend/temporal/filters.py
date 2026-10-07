@@ -20,7 +20,7 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import Team
 
-from products.batch_exports.backend.service import SUPPORTED_FILTER_TYPES
+from products.batch_exports.backend.filters import SUPPORTED_FILTER_TYPES
 
 
 class UpdatePropertiesToPersonProperties(TraversingVisitor):
@@ -45,7 +45,7 @@ class InvalidFilterError(Exception):
 
 
 def compose_filters_clause(
-    filters: list[dict[str, str | list[str] | None]],
+    filters: list[dict[str, str | bool | list[str] | None]],
     team_id: int,
     values: dict[str, str] | None = None,
 ) -> tuple[str, dict[str, str]]:
@@ -115,7 +115,7 @@ def compose_filters_clause(
                 # Reachable only if SUPPORTED_FILTER_TYPES gains a type without a handler here.
                 raise TypeError(f"Unhandled filter type: '{filter_type}'")
 
-    and_expr = ast.And(exprs=exprs)
+    and_expr: ast.Expr = ast.And(exprs=exprs)
     # This query only supports events at the moment.
     # TODO: Extend for other models that also wish to implement property filtering.
     select_query = ast.SelectQuery(

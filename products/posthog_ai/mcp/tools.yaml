@@ -134,3 +134,12 @@ tools:
     mcp-tools-create:
         operation: mcp_tools_create
         enabled: false
+    terminal-ai-create:
+        operation: terminal_ai_create
+        enabled: false
+    turn-suggestions-resolve-create:
+        operation: turn_suggestions_resolve_create
+        enabled: false
+    turn-suggestions-state-retrieve:
+        operation: turn_suggestions_state_retrieve
+        enabled: false

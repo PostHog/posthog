@@ -293,7 +293,7 @@ class TestHoneybadger:
         routes = {
             f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 7}], "links": {}},
             f"{HONEYBADGER_BASE_URL}/projects/7/sites?limit=25": {
-                "results": [{"id": "site-uuid", "name": "Main site"}],
+                "results": [{"id": "site-uuid", "project_id": 999, "name": "Main site"}],
                 "links": {},
             },
         }
@@ -450,6 +450,143 @@ class TestHoneybadger:
         # The stale fault's page URL must not seed another fault's pagination.
         assert "https://app.honeybadger.io/stale" not in session.calls
         assert batches == [[{"project_id": 1, "id": "uuid-1", "fault_id": 10}]]
+
+    def test_affected_users_fan_out_injects_fault_columns_and_bounds_faults(self) -> None:
+        faults_url = f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25&occurred_after={WATERMARK_TS}"
+        routes = {
+            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}], "links": {}},
+            faults_url: {
+                "results": [
+                    {"id": 10, "last_notice_at": "2023-11-15T00:00:00Z"},
+                    {"id": 11, "last_notice_at": "2023-11-16T00:00:00Z"},
+                ],
+                "links": {},
+            },
+            # Bare arrays with no paging, and the endpoint takes no time filter.
+            f"{HONEYBADGER_BASE_URL}/projects/1/faults/10/affected_users": [
+                {
+                    "project_id": 999,
+                    "fault_id": 999,
+                    "fault_last_notice_at": "2020-01-01T00:00:00Z",
+                    "user": "bob@example.com",
+                    "count": 4,
+                }
+            ],
+            f"{HONEYBADGER_BASE_URL}/projects/1/faults/11/affected_users": [],
+        }
+
+        batches, _, manager = _run(
+            routes,
+            "affected_users",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=WATERMARK,
+            incremental_field="fault_last_notice_at",
+        )
+
+        assert batches == [
+            [
+                {
+                    "project_id": 1,
+                    "fault_id": 10,
+                    "fault_last_notice_at": "2023-11-15T00:00:00Z",
+                    "user": "bob@example.com",
+                    "count": 4,
+                }
+            ]
+        ]
+        manager.save_state.assert_called_once_with(HoneybadgerResumeConfig(project_id=1, fault_id=11))
+
+    @pytest.mark.parametrize("endpoint", ["outages", "uptime_checks"])
+    def test_site_children_fan_out_over_sites(self, endpoint: str) -> None:
+        child_url = f"{HONEYBADGER_BASE_URL}/projects/1/sites/site-a/{endpoint}?limit=25&created_after={WATERMARK_TS}"
+        next_url = f"{HONEYBADGER_BASE_URL}/projects/1/sites/site-a/{endpoint}?limit=25&page=2"
+        routes = {
+            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}], "links": {}},
+            # The sites list has no time filter, so it is not bounded by the child watermark.
+            f"{HONEYBADGER_BASE_URL}/projects/1/sites?limit=25": {"results": [{"id": "site-a"}], "links": {}},
+            child_url: {"results": [{"created_at": "2023-11-15T00:00:00Z"}], "links": {"next": next_url}},
+            next_url: {"results": [{"created_at": "2023-11-14T23:00:00Z"}], "links": {}},
+        }
+
+        batches, _, manager = _run(
+            routes,
+            endpoint,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=WATERMARK,
+            incremental_field="created_at",
+        )
+
+        assert batches == [
+            [{"project_id": 1, "site_id": "site-a", "created_at": "2023-11-15T00:00:00Z"}],
+            [{"project_id": 1, "site_id": "site-a", "created_at": "2023-11-14T23:00:00Z"}],
+        ]
+        manager.save_state.assert_called_once_with(
+            HoneybadgerResumeConfig(next_url=next_url, project_id=1, site_id="site-a")
+        )
+
+    def test_alarm_history_reads_triggers_and_resumes_from_alarm_bookmark(self) -> None:
+        next_url = f"{HONEYBADGER_BASE_URL}/projects/1/alarms/alarm-b/history?limit=25&page=2"
+        routes = {
+            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}], "links": {}},
+            f"{HONEYBADGER_BASE_URL}/projects/1/alarms?limit=25": {
+                "results": [{"id": "alarm-a"}, {"id": "alarm-b"}],
+                "links": {},
+            },
+            # History pages wrap their rows in `triggers`, not `results`.
+            f"{HONEYBADGER_BASE_URL}/projects/1/alarms/alarm-b/history?limit=25": {
+                "triggers": [{"id": "trigger-2", "state": "alarm"}],
+                "links": {"next": next_url},
+            },
+            next_url: {"triggers": [{"id": "trigger-1", "state": "ok"}], "links": {}},
+        }
+
+        batches, session, manager = _run(
+            routes, "alarm_history", manager=_make_manager(HoneybadgerResumeConfig(project_id=1, alarm_id="alarm-b"))
+        )
+
+        assert f"{HONEYBADGER_BASE_URL}/projects/1/alarms/alarm-a/history?limit=25" not in session.calls
+        assert batches == [
+            [{"project_id": 1, "alarm_id": "alarm-b", "id": "trigger-2", "state": "alarm"}],
+            [{"project_id": 1, "alarm_id": "alarm-b", "id": "trigger-1", "state": "ok"}],
+        ]
+        manager.save_state.assert_called_once_with(
+            HoneybadgerResumeConfig(next_url=next_url, project_id=1, alarm_id="alarm-b")
+        )
+
+    def test_outages_resume_from_site_bookmark(self) -> None:
+        resume_url = f"{HONEYBADGER_BASE_URL}/projects/1/sites/site-b/outages?limit=25&page=3"
+        routes = {
+            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}], "links": {}},
+            f"{HONEYBADGER_BASE_URL}/projects/1/sites?limit=25": {
+                "results": [{"id": "site-a"}, {"id": "site-b"}],
+                "links": {},
+            },
+            resume_url: {"results": [{"created_at": "2023-11-15T00:00:00Z"}], "links": {}},
+        }
+
+        batches, session, _ = _run(
+            routes,
+            "outages",
+            manager=_make_manager(HoneybadgerResumeConfig(next_url=resume_url, project_id=1, site_id="site-b")),
+        )
+
+        assert f"{HONEYBADGER_BASE_URL}/projects/1/sites/site-a/outages?limit=25" not in session.calls
+        assert batches == [[{"project_id": 1, "site_id": "site-b", "created_at": "2023-11-15T00:00:00Z"}]]
+
+    def test_occurrences_maps_time_series_pairs_to_rows(self) -> None:
+        routes = {
+            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}], "links": {}},
+            f"{HONEYBADGER_BASE_URL}/projects/1/occurrences?period=month": [[1510963200, 3], [1511049600, 0]],
+        }
+
+        batches, _, _ = _run(routes, "occurrences")
+
+        assert batches == [
+            [
+                {"project_id": 1, "bucket_start": datetime(2017, 11, 18, tzinfo=UTC), "count": 3},
+                {"project_id": 1, "bucket_start": datetime(2017, 11, 19, tzinfo=UTC), "count": 0},
+            ]
+        ]
 
     def test_mid_fault_checkpoint_saved_after_yield(self) -> None:
         next_url = f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25&page=2"

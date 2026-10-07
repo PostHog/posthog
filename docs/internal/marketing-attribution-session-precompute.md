@@ -1,23 +1,55 @@
-# Attribution session precompute
+# Attribution session resolution
 
-The sessions-precomputation flag enables the attribution table and paths reader. Cold, ineligible, or failed job lookups fall back to live queries. Sessions that started before the one-day reachback or exceed the three-day writer scan budget read their dimensions live, while other sessions use the cache. These exceptions do not disable the cache for the entire query.
+The `marketing-analytics-live-session-resolution` flag enables shared live session resolution for attribution tables and paths.
+Eligible queries read current events and raw sessions without a Marketing session precompute job.
+The sessions-precomputation reader is retired.
+Marketing attribution no longer reads `web_sessions_dimensional_preaggregated` or queues session-cache refreshes.
+The independent writer, Dagster job and schedule definitions, table, and schema remain in place.
 
-The writer excludes sessions longer than its scan budget. The reader also replaces dimensions of cached sessions that later grow beyond that budget, including growth after the report end. It first selects conservative candidates from raw timestamp rows, then checks their exact start/end after aggregation. This avoids holding aggregate state for ordinary sessions. It filters candidate IDs before merging entry properties and joins both dimension sources to current pageview identities. Session IDs and dimensions remain inside ClickHouse, so the SQL size does not grow with the exception count. Both raw-session reads retain the timestamp bounds used by live attribution. Sessions whose ID timestamp is more than three days before the extended attribution read window remain outside both lookups. Their source events remain stored. Expanding this coverage requires changing and validating live and cached attribution together.
+## Query behavior
 
-The writer query change invalidates existing job hashes. Deploy both writer and reader before warming the new jobs; keep the reader flag off until the controlled rollout validates coverage and query cost.
+A materialized CTE selects pageview session IDs and current person IDs once per query.
+The raw-session lookup filters to those IDs before merging entry properties and classifying channels.
+Reach and credit share the resolved session rows and conversion aggregation within the query.
+Table and paths reports execute separate queries.
 
-`MARKETING_SESSIONS_PRECOMPUTE_WINDOW_DAYS` covers display days. The proposed warmer adds the team's attribution lookback and one reachback day: default 90 + 90 + 1 = 181 trailing days, previously 90. This approximately doubles initial daily chunks and retained job coverage; actual scan/storage cost depends on session volume and duration. The allowlist and environment values are unchanged. Evaluate this cost before rollout. Query overrides beyond the total warmed span remain ineligible.
+Clickable conversion metrics use the same spacing, typography, and comparison backgrounds as other Marketing analytics table cells.
+The cell accepts an optional click handler and uses a native button for keyboard activation.
 
-With the existing serve-stale flag, readers may use jobs expired within six hours and enqueue debounced revalidation. Only that task runs reader-initiated inserts; it takes no stale grace. Scheduled writers also require fresh jobs. Classifier expression changes and the explicit dictionary version change the shared job hash, requiring fresh materialization.
+Touchpoints and conversions resolve identity through `events.person_id`, so merges, splits, and delayed identity mappings follow the legacy live query without rebuilding session jobs.
+Late-arriving events and session updates do not depend on a stored dimension snapshot.
+Missing precompute coverage at a calendar boundary cannot switch this route back to the legacy query.
+The report's date range and project timezone remain unchanged.
 
-The reader caches session dimensions, then joins them to current pageview identities by `session_id_v7`. It resolves both touchpoints and conversions through `events.person_id`, so person merges, splits, and delayed identity mappings follow the same behavior as live attribution without rebuilding session jobs. The stored `person_id` is not used for attribution.
+Eligible queries use 16 ClickHouse threads and aggregation in storage order where the grouping keys permit it.
+The spill threshold and timeout stay unchanged.
+These settings limit partial aggregation states and temporary spill files; they do not guarantee that every query will be faster.
 
-Materialized CTEs share the pageview identity scan between reach and credit, and share the conversion aggregation with the timestamp bounds. Event scans remain necessary for identity and conversions; cached dimensions avoid merging entry properties and classifying channels for ordinary sessions. A narrow timestamp scan and selective dimension lookup handle exceptional sessions. This uses the existing `web_sessions_dimensional_preaggregated` schema and does not require a migration.
+## Eligibility and fallback
 
-Queries that override the session table version or v2 join mode fall back to live attribution when they differ from the writer. AUTO and v2 share the same session semantics. Custom channel rules can use cached dimensions when they match the writer's project rules, including rules that depend on the full entry URL. The writer classifies the channel before storing it and includes the rules in the job hash, so rule changes require fresh jobs. Queries with different rules, or disabled project-timezone conversion, use the live path. Identity and execution-only modifiers do not invalidate cached dimensions.
+The shared route retains its existing eligibility checks.
+It falls back to legacy live attribution for non-integer timezone offsets, ambiguous date boundaries, property access rules, test-account filters, incompatible session modifiers, or ranges beyond its configured limit.
+Conversion goals that depend on session fields or deferred action expressions also use legacy attribution, preserving its wider session-ID lookup window.
+Custom channel rules can use shared resolution when they match the project's rules.
+AUTO and v2 have the same session semantics.
 
-Live and cached pageview scans include the full final second of the selected date range, matching conversion filters. This also applies to explicit fractional date bounds and pageview conversion goals.
-Attribution filters compare the event timestamp directly with the date bounds, using microsecond precision for the end of the range.
-This avoids copying timestamp casts into session filters and preserves the shared raw-session timestamp definition.
-If either date boundary falls within a repeated local hour at a daylight saving transition, the reader uses live attribution because conversion filters parse dates without a UTC offset.
-Ranges that cross a transition can still use cached dimensions when both boundaries are unambiguous.
+Raw-session lookups retain the legacy path's session-ID timestamp bounds, including its three-day buffer.
+This does not extend coverage for older session IDs or guarantee that independently replicated events and sessions arrive together.
+Pageview scans include the full final second of the selected range, matching conversion filters, including explicit fractional bounds.
+
+`MARKETING_SESSIONS_PRECOMPUTE_WINDOW_DAYS` retains its existing name and default of `90` for configuration compatibility.
+It limits the display history eligible for shared live resolution and still configures the independent writer's coverage.
+The lower limit starts at project-local midnight that many calendar days before the end date, then subtracts the project's attribution lookback in UTC.
+Query lookback overrides that extend before that limit remain ineligible.
+
+## Rollout and rollback
+
+The flag remains independent of other Marketing precomputation flags.
+Attribution result cache keys distinguish its enabled and disabled states.
+The query telemetry property `live_session_resolution_used` identifies the shared route.
+Disabling the flag uses legacy live attribution.
+Cost and conversion precomputation remain unchanged.
+
+Validate result parity and query cost before extending the rollout.
+A session backfill, session writer schedule, and session-cache TTL changes are not required.
+See [Session precompute writer](marketing-sessions-precompute.md) for the independent writer's deployment configuration.
