@@ -26,11 +26,18 @@ from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_
 from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, ReportLink, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.models import ArtefactAttribution, SignalActorKind, SignalReport, SignalReportArtefact
+from products.signals.backend.models import (
+    ArtefactAttribution,
+    SignalActorKind,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
+)
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
+from products.signals.backend.report_check_research import check_versions
 from products.signals.backend.report_content_gates import team_report_metrics_enabled
 from products.signals.backend.report_generation.ownership_reviewers import suggest_repository_owners
 from products.signals.backend.report_generation.research import (
@@ -53,7 +60,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
     capture_suggested_reviewers_unresolved,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
+from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
 from products.signals.backend.supersession import research_implementation_context
 from products.signals.backend.temporal.agentic import (
@@ -103,10 +110,22 @@ class RunAgenticReportOutput:
     # Resolved impact-metric payload, with the same replay-safe replace/clear/preserve semantics as
     # charts. The transition activity writes it with the matching title and summary.
     metrics: list[dict[str, Any]] | None = None
+    revise_measurement_plan_metric_ids: list[str] | None = None
+    retire_measurement_plan_metric_ids: list[str] | None = None
+    previous_measurement_plan_ids: dict[str, str] | None = None
     # Check specs the verification turn authored, written as rows by the transition activity that
     # writes the metrics they reference — a check naming a metric the report never got is dropped
     # there rather than stored pointing at nothing. `None` predates the field and writes none.
     checks: list[dict[str, Any]] | None = None
+    checks_snapshot: dict[str, str] | None = None
+
+    # Old activity results wrote an empty list when no checks were authored. The transition may
+    # reconcile existing rows only when this marker came from a new verification turn.
+    reconcile_checks: bool = False
+    checks_summary: str | None = None
+    # The plan of dependent pull requests, as `ReportLayer` dicts. The ready transition turns each
+    # one into a child report. `None` predates the field and creates none.
+    layers: list[dict[str, Any]] | None = None
     # The research sandbox task the check rows are attributed to, so the report's log names what
     # decided the fix was worth re-measuring. `None` for saved fixtures and pre-existing outputs.
     research_task_id: str | None = None
@@ -132,6 +151,14 @@ def _parse_artefact_content(
             f"report {report_id}: {artefact.type} artefact {artefact.id} is incompatible with the "
             f"current {model_cls.__name__} schema"
         ) from error
+
+
+def _load_check_snapshot(team_id: int, report_id: str) -> dict[str, str]:
+    return check_versions(
+        SignalReportCheck.objects.for_team(team_id).filter(
+            report_id=report_id, status__in=SignalReportCheck.OPEN_STATUSES
+        )
+    )
 
 
 async def _load_previous_research(team_id: int, report_id: str) -> ReportResearchOutput | None:
@@ -226,6 +253,34 @@ def _parse_stored_metrics(raw: object, report_id: str) -> list[ReportMetric]:
         except ValidationError:
             logger.warning("skipping unparseable stored metric", report_id=report_id)
     return parsed
+
+
+def _load_previous_checks(team_id: int, report_id: str) -> list[dict]:
+    checks = SignalReportCheck.objects.for_team(team_id).filter(
+        report_id=report_id, status__in=SignalReportCheck.OPEN_STATUSES
+    )
+    return [
+        {
+            "id": str(check.id),
+            "title": check.title,
+            "rationale": check.rationale,
+            "kind": check.kind,
+            "config": {
+                key: value
+                for key, value in check.config.items()
+                if (key != "query" or not check.config.get("metric_id"))
+                and (key != "baseline_value" or check.config.get("query") is not None)
+            },
+            "stored_query": check.config.get("query")
+            if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
+            else None,
+            "soak_hours": max(1, round((check.soak_minutes or 60) / 60)),
+            "run_interval_minutes": check.run_interval_minutes,
+            "runs_remaining": check.runs_remaining,
+            "approved": check.approved_at is not None,
+        }
+        for check in checks
+    ]
 
 
 async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[str | None, str | None]:
@@ -639,7 +694,11 @@ def _resolve_report_charts_payload(
 
 
 def _resolve_report_metrics_payload(
-    metrics: list[ReportMetric], metrics_enabled: bool, *, report_id: str, team_id: int
+    metrics: list[ReportMetric],
+    metrics_enabled: bool,
+    *,
+    report_id: str,
+    team_id: int,
 ) -> list[dict[str, Any]] | None:
     """Resolve authored metrics using their own rollout and replace/clear/preserve semantics."""
     if not metrics_enabled:
@@ -656,7 +715,7 @@ def _resolve_report_metrics_payload(
             metric_count=len(metrics),
         )
         return []
-    return [metric.model_dump(mode="json") for metric in metrics]
+    return [metric.model_dump(mode="json", exclude=set(REPORT_METRIC_GOAL_FIELDS)) for metric in metrics]
 
 
 async def _persist_agentic_report_artefacts(
@@ -836,9 +895,11 @@ def _capture_research_steering_attached(*, team_id: int, report_id: str, steerin
     the team's steering is readable against the share that carried none, and against how those
     reports were judged afterwards (join `signal_report_completed` on `report_id`).
 
-    `dismissal_notes_attached` is the one that answers whether a reviewer's "stop flagging this"
-    reaches the stage that decides whether to flag it again. `pipeline_notes_attached` answers
-    whether anyone addresses notes to this stage at all.
+    Only the notes addressed to this stage are pasted in, so `pipeline_notes_attached` answers
+    whether anyone addresses notes to this stage at all, and `dismissal_notes_attached` stays near 0.
+    `nudge_rendered` says whether the run was told to search the notes by entity, which is how a
+    reviewer's "stop flagging this" reaches the stage that decides whether to flag it again. Count
+    the run's `scout-notes-list` calls to see whether it followed the nudge.
 
     Delivery is at-least-once, because an activity retry re-fires an identical payload, so read
     report state as the latest event per `report_id` rather than by counting raw events.
@@ -857,6 +918,7 @@ def _capture_research_steering_attached(*, team_id: int, report_id: str, steerin
                 "pipeline_notes_attached": steering.pipeline_notes_attached,
                 "scratchpad_available": steering.scratchpad_available,
                 "memory_protocol": steering.memory_protocol,
+                "nudge_rendered": steering.nudge_rendered,
             },
             groups=groups(team.organization, team),
         )
@@ -909,7 +971,13 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 input.team_id
             )
             # 2. Load previous research if this is a re-promoted report
+            checks_snapshot = await database_sync_to_async(_load_check_snapshot, thread_sensitive=False)(
+                input.team_id, input.report_id
+            )
             previous_research = await _load_previous_research(input.team_id, input.report_id)
+            previous_checks = await database_sync_to_async(_load_previous_checks, thread_sensitive=False)(
+                input.team_id, input.report_id
+            )
             # 2b. Load the resolved report this one recurred from, if any, as extra research context
             resolved_report_title, resolved_report_summary = await _load_resolved_report_context(
                 input.team_id, input.report_id
@@ -937,6 +1005,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 context,
                 previous_report_id=input.report_id if previous_research else None,
                 previous_report_research=previous_research,
+                previous_checks=previous_checks,
                 implementation_context=implementation_context,
                 signal_report_id=input.report_id,
                 has_business_knowledge=has_bk,
@@ -962,7 +1031,10 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
         # not-actionable reset or a failed run, which don't write the new prose).
         charts_payload = _resolve_report_charts_payload(result.charts, report_id=input.report_id, team_id=input.team_id)
         metrics_payload = _resolve_report_metrics_payload(
-            result.metrics, metrics_enabled, report_id=input.report_id, team_id=input.team_id
+            result.metrics,
+            metrics_enabled,
+            report_id=input.report_id,
+            team_id=input.team_id,
         )
         logger.info(
             "signals agentic report completed",
@@ -981,7 +1053,13 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             repository=repository,
             charts=charts_payload,
             metrics=metrics_payload,
-            checks=[check.model_dump(mode="json") for check in result.checks],
+            checks=[check.model_dump(mode="json", exclude_none=True, exclude_unset=True) for check in result.checks]
+            if result.checks is not None
+            else None,
+            reconcile_checks=result.checks is not None,
+            checks_summary=result.checks_summary,
+            checks_snapshot=checks_snapshot,
+            layers=[layer.model_dump(mode="json") for layer in result.layers],
             research_task_id=result.research_task_id,
             charts_enabled=True,
         )

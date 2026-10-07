@@ -97,12 +97,21 @@ class TestFormatValue:
 
 
 class TestBuildRequestPlan:
-    def test_full_refresh_endpoint_uses_unsorted_get(self) -> None:
+    @parameterized.expand(
+        [
+            ("projects", "/project"),
+            ("booking_categories", "/categories"),
+            ("cost_categories", "/costCategories"),
+            ("project_tags", "/project-tag"),
+            ("unassigned_work", "/unassigned-work"),
+        ]
+    )
+    def test_full_refresh_endpoint_uses_unsorted_get(self, endpoint: str, expected_path: str) -> None:
         # No `sort` on full-refresh GET: an unsupported sort field would 400 the whole sync.
         method, path, body, sort_field = _build_request_plan(
-            HUBPLANNER_ENDPOINTS["projects"], should_use_incremental_field=False, db_incremental_field_last_value=None
+            HUBPLANNER_ENDPOINTS[endpoint], should_use_incremental_field=False, db_incremental_field_last_value=None
         )
-        assert (method, path, body, sort_field) == ("GET", "/project", None, None)
+        assert (method, path, body, sort_field) == ("GET", expected_path, None, None)
 
     def test_incremental_endpoint_without_incremental_selected_uses_get(self) -> None:
         # A user syncing bookings via full refresh should hit the plain GET list, not search.
@@ -304,10 +313,11 @@ class TestSourceResponse:
         assert response.partition_keys == ["createdDate"]
         assert response.sort_mode == "asc"
 
+    @parameterized.expand([("vacations",), ("project_tags",), ("unassigned_work",)])
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_endpoint_without_partition_key_has_no_partitioning(self, MockSession) -> None:
-        # Vacations carry no creation timestamp, so they aren't partitioned.
-        response = hubplanner_source("k", "vacations", team_id=1, job_id="j", resumable_source_manager=_make_manager())
+    def test_endpoint_without_partition_key_has_no_partitioning(self, endpoint: str, MockSession) -> None:
+        # These endpoints carry no creation timestamp, so they aren't partitioned.
+        response = hubplanner_source("k", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
         assert response.partition_mode is None
         assert response.partition_keys is None
 

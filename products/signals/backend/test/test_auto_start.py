@@ -18,7 +18,7 @@ from posthog.models.scoping import team_scope
 from posthog.temporal.oauth import grants_scratchpad_write
 
 from products.signals.backend.agent_runtime import AgentRuntime
-from products.signals.backend.artefact_schemas import PullRequestLink, ReportLink
+from products.signals.backend.artefact_schemas import PullRequestLink, ReportLink, TaskRunArtefact
 from products.signals.backend.auto_start import (
     NO_SUPERSEDE,
     ImplementationReportContent,
@@ -789,6 +789,11 @@ def test_autostart_description_opens_the_pr_before_the_simplify_pass():
     assert open_pr < simplify
     assert fork_push < simplify
     assert "skip this polish pass" in description
+    # The PR must follow the repository's own checks, and a run must not claim checks it never ran.
+    repo_checks = description.index("Find out how the repository runs its tests, lint and typecheck")
+    assert repo_checks < open_pr
+    assert "name the checks you skipped and why in the PR description" in description
+    assert "stop and say so in your summary rather than reverting it" in description
 
 
 @pytest.mark.parametrize(
@@ -925,6 +930,7 @@ def _link(team_id: int, source: SignalReport, target: SignalReport, kind: Report
         ("duplicate_of_resolved", "duplicate_of"),
         ("duplicate_of_with_pr", "duplicate_of"),
         ("duplicate_chain_with_pr_midway", "duplicate_of"),
+        ("later_duplicate_of_with_pr", "duplicate_of"),
         ("depends_on_without_pr", "blocked_by_dependency"),
         ("depends_on_with_open_pr", None),
         ("incoming_part_of", "plan_parent"),
@@ -994,11 +1000,35 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason, link_be
             _attach_open_pr(midway, 23)
             _link(team.id, midway, root, ReportLinkKind.DUPLICATE_OF)
             _link(team.id, report, midway, ReportLinkKind.DUPLICATE_OF)
+        elif link == "later_duplicate_of_with_pr":
+            # The oldest claim holds no work, so only the later claim shows the fix is in flight.
+            oldest = _report()
+            later = _report()
+            _attach_open_pr(later, 24)
+            _link(team.id, report, oldest, ReportLinkKind.DUPLICATE_OF)
+            _link(team.id, report, later, ReportLinkKind.DUPLICATE_OF)
+            SignalReportArtefact.objects.filter(
+                team_id=team.id, report_id=report.id, content__contains=str(oldest.id)
+            ).update(created_at=timezone.now() - timedelta(minutes=5))
         elif link == "depends_on_without_pr":
             _link(team.id, report, _report(), ReportLinkKind.DEPENDS_ON)
         elif link == "depends_on_with_open_pr":
             dependency = _report()
             _attach_open_pr(dependency, 22)
+            dependency_task = Task.objects.create(
+                team_id=team.id, title="dependency", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+            )
+            SignalReportArtefact.add_log(
+                team_id=team.id,
+                report_id=str(dependency.id),
+                content=TaskRunArtefact(
+                    product="signals",
+                    type="implementation",
+                    task_id=str(dependency_task.id),
+                    automation_branch="posthog-self-driving/dependency-abc123",
+                ),
+                attribution=ArtefactAttribution.from_task(str(dependency_task.id)),
+            )
             _link(team.id, report, dependency, ReportLinkKind.DEPENDS_ON)
         elif link == "incoming_part_of":
             _link(team.id, _report(), report, ReportLinkKind.PART_OF)
@@ -1056,6 +1086,12 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason, link_be
         assert mock_create.call_count == 1
         assert skips == []
         assert skipped_events == []
+        if link == "depends_on_with_open_pr" and not link_before_lock:
+            # The stacked run starts on the dependency's head branch and keeps it as the PR base.
+            created = mock_create.call_args.kwargs
+            assert created["branch"] == "posthog-self-driving/dependency-abc123"
+            assert created["stack_base_branch"] == "posthog-self-driving/dependency-abc123"
+            assert "with `posthog-self-driving/dependency-abc123` as its base" in created["description"]
     else:
         assert outcome.status == "blocked"
         assert mock_create.call_count == 0
@@ -1300,6 +1336,77 @@ async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
         await maybe_autostart_from_report_artefacts(team_id=team.id, report_id=str(report.id))
 
     assert mock_autostart.call_args.kwargs["repository_autostart_eligible"] is autostart_eligible
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("run_origin", "config_after", "expect_autostart"),
+    [
+        ("background", "background", False),
+        ("background", "taken_over", False),
+        ("background", "deleted", False),
+        ("team", "team", True),
+    ],
+)
+async def test_background_scout_reports_never_reach_autostart(run_origin, config_after, expect_autostart):
+    def _setup() -> tuple[Team, SignalReport]:
+        organization = Organization.objects.create(name="background-org")
+        team = Team.objects.create(organization=organization, name="background-team")
+        report = SignalReport.objects.create(
+            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+        )
+        for artefact_type, content in (
+            (
+                SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+                {
+                    "explanation": "Clear fix in the affected module.",
+                    "actionability": ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+                    "already_addressed": False,
+                },
+            ),
+            (
+                SignalReportArtefact.ArtefactType.REPO_SELECTION,
+                {"repository": "owner/repo", "reason": "Linked repository.", "autostart_eligible": True},
+            ),
+            (
+                SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                {"explanation": "Affects many sessions.", "priority": Priority.P2.value},
+            ),
+        ):
+            SignalReportArtefact.objects.create(
+                team=team, report=report, type=artefact_type, content=json.dumps(content)
+            )
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        scout_task = Task.objects.create(team=team, title="scout", description="d")
+        with team_scope(team.id):
+            config = SignalScoutConfig.objects.create(team=team, skill_name=SCOUT_SKILL, managed_by=run_origin)
+            SignalScoutRun.objects.create(
+                team=team,
+                task_run=TaskRun.objects.create(team=team, task=scout_task),
+                scout_config=config,
+                skill_name=SCOUT_SKILL,
+                skill_version=1,
+                emitted_report_ids=[str(report.id)],
+                metadata={"managed_by": run_origin} if run_origin == "background" else {},
+            )
+            if config_after == "taken_over":
+                config.managed_by = SignalScoutConfig.ManagedBy.TEAM
+                config.enabled = False
+                config.save()
+            elif config_after == "deleted":
+                config.delete()
+        return team, report
+
+    team, report = await sync_to_async(_setup)()
+
+    with patch("products.signals.backend.auto_start.maybe_autostart_implementation_task") as mock_autostart:
+        outcome = await maybe_autostart_from_report_artefacts(team_id=team.id, report_id=str(report.id))
+
+    assert mock_autostart.called is expect_autostart
+    if not expect_autostart:
+        assert outcome.status == "blocked"
 
 
 @pytest.mark.asyncio

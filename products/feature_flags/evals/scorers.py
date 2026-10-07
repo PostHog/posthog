@@ -41,6 +41,7 @@ from products.posthog_ai.eval_harness.scorers import (
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = [
+    "ASSESSMENT_ONLY_NO_EDIT_CLAIM_QUESTION",
     "DEPENDENTS_READ_TOOLS",
     "EXPLAINED_KEY_REUSE_QUESTION",
     "EXPLAINED_TAG_REQUIREMENT_QUESTION",
@@ -48,9 +49,13 @@ __all__ = [
     "FLAG_LOOKUP_TOOLS",
     "FLAG_MUTATION_TOOLS",
     "GENERIC_UPDATE_TOOL",
+    "RECENCY_REFUSAL_WITHOUT_OVERRIDE_QUESTION",
     "REFUSED_WITHOUT_BLAMING_QUESTION",
+    "PRE_EDIT_READ_GROUPS",
     "SCHEDULE_READ_TOOLS",
+    "STATUS_READ_TOOLS",
     "STALE_IS_NOT_SAFE_TO_REMOVE_QUESTION",
+    "TOUR_UNKNOWN_WAITS_QUESTION",
     "WATCHED_FLAG_FIELDS",
     "AttemptedTool",
     "AvoidedTool",
@@ -59,6 +64,7 @@ __all__ = [
     "FinalMessageJudge",
     "FinalMessageNames",
     "FlagStateUnchanged",
+    "FreshReadsBeforeEdit",
     "GenericUpdateOmitsFields",
     "GenericUpdateSetsFields",
     "PreservedUnrelatedConfig",
@@ -112,10 +118,10 @@ def _targets_seeded_flag(call: ToolCall, seed: dict | None) -> bool:
     """
     if seed is None:
         return True
-    flag_id = seed.get("feature_flag_id")
+    flag_id = seed.get("feature_flag_id", seed.get("flag_id"))
     if flag_id is not None and "id" in call.input:
         return str(call.input["id"]) == str(flag_id)
-    key = seed.get("feature_flag_key")
+    key = seed.get("feature_flag_key", seed.get("flag_key"))
     if key is None:
         return True
     named = [call.input[field] for field in _FLAG_KEY_FIELDS if field in call.input]
@@ -550,7 +556,7 @@ class UpdatedRolloutTo(Scorer):
 class FinalMessageJudge(JudgedScorer):
     """Judge one yes/no question about the agent's final message.
 
-    Four cases each need a different question asked of the same input, so the question
+    Each case needs a different question asked of the same input, so the question
     is the only thing that varies. `name` doubles as the `expected` key that opts a
     case in, and the question text carries what a `yes` requires.
     """
@@ -617,24 +623,41 @@ EXPLAINED_TAG_REQUIREMENT_QUESTION = (
 # suites that grade edit direction refuse codex runs (see seeders._require_claude_runtime).
 FILE_EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit"})
 
+# The search tools the skill's "Find every repository reference" step runs. A call here
+# that lands after the first definition read is the point where assessment ends and the
+# cleanup itself starts, which is what FreshReadsBeforeEdit needs to tell the two
+# apart. Read is deliberately not here: the Edit tool refuses a file the agent has not
+# read, so a Read sits between the fresh definition read and the first edit on every
+# correct run.
+REPO_SEARCH_TOOLS = frozenset({"Grep", "Glob"})
+
+# The two lookups that return the full definition, as opposed to a status summary or
+# a dependents/schedule list.
+DEFINITION_READ_TOOLS = frozenset({"feature-flag-get-definition", "feature-flag-get-definition-by-key"})
+
+# The status summary, which carries the rollout object the definition does not.
+STATUS_READ_TOOLS = frozenset({"feature-flags-status-retrieve"})
+
 # The read tools the cleanup skill's assessment steps go through. A run that never calls
 # any of them decided about the seeded flag without looking at it. The by-key variant is
 # here because it is the lookup the MCP surface steers an agent toward when a prompt hands
 # it a flag key and no numeric id.
-FLAG_LOOKUP_TOOLS = frozenset(
-    {
-        "feature-flag-get-all",
-        "feature-flags-status-retrieve",
-        "feature-flag-get-definition",
-        "feature-flag-get-definition-by-key",
-    }
-)
+FLAG_LOOKUP_TOOLS = DEFINITION_READ_TOOLS | STATUS_READ_TOOLS | frozenset({"feature-flag-get-all"})
 
 # The reads behind the skill's dependency and schedule exclusions, one group per scorer
 # so each read is graded on its own: folded into one any-of group, a run that skipped the
 # schedule read would still score green. Kept out of FLAG_LOOKUP_TOOLS for the same reason.
 DEPENDENTS_READ_TOOLS = frozenset({"feature-flags-dependent-flags-retrieve"})
 SCHEDULE_READ_TOOLS = frozenset({"scheduled-changes-list"})
+
+# The four reads the skill's "Apply the retained path" step repeats before the first edit,
+# named one group at a time so a run that repeated three of them fails on the fourth.
+PRE_EDIT_READ_GROUPS: dict[str, frozenset[str]] = {
+    "definition": DEFINITION_READ_TOOLS,
+    "status": STATUS_READ_TOOLS,
+    "dependents": DEPENDENTS_READ_TOOLS,
+    "schedules": SCHEDULE_READ_TOOLS,
+}
 
 # Every write verb the current MCP surface offers for a flag. The cleanup skill must not
 # call any of them on any case — it never changes a flag, and archival belongs to a
@@ -696,6 +719,160 @@ class ToolGroupDirection(Scorer):
             score=1.0 if bool(calls) == wanted else 0.0,
             metadata={self._key: wanted, "call_count": len(calls), "calls": calls[:10]},
         )
+
+
+class FreshReadsBeforeEdit(Scorer):
+    """Binary: did all four of the skill's pre-edit reads land after the search and before the first edit?
+
+    The skill's "Apply the retained path" step repeats four reads immediately before the
+    first write, even when it made them at assessment time: the definition, the status,
+    the dependent flags, and the scheduled changes. A rollout that moved between
+    assessment and the edit is then never edited against. An agent that assessed once and
+    edited straight off those reads satisfies every other cleanup scorer here, because the
+    edit direction is right and the flag itself is never mutated, so nothing else in this
+    suite catches the skipped repeat.
+
+    All four groups are required, not the definition alone. A new schedule or a new
+    dependent flag does not change the definition, so a run that re-read only the
+    definition and then edited a flag that gained a schedule after assessment has missed
+    exactly the change the step exists to catch.
+
+    Applies only when ``expected.fresh_reads_before_edit.required`` is true and at least
+    one file-edit tool call ran; a case with no edit is a different scorer's question
+    (``ToolGroupDirection`` grades whether an edit should have happened at all), so this
+    one skips with ``score=None`` rather than penalizing a correct refusal.
+
+    A count of the reads that precede the edit cannot answer the question, because reads
+    taken while assessing look the same as repeated ones. A repository search divides the
+    two, because an agent cannot edit a call site it has not searched for. The divider is
+    the first ``REPO_SEARCH_TOOLS`` call that follows the first definition read, and not
+    the first one in the run: the skill's "Establish scope" step searches the repository
+    for the key before any definition is read, so a divider placed there would count the
+    assessment reads themselves as the repeat. The last search does not work either,
+    because the retained-path step searches again for other uses of each symbol it is
+    about to remove, after its reads.
+
+    That divider is a proxy, and requiring all four groups is what makes it safe. A search
+    the agent runs between assessment and the retained path moves the divider earlier, but
+    an opportunistic second definition read after it still fails, because the other three
+    groups are not repeated with it.
+
+    Whether the definition actually changed is deliberately not re-derived from the log. The
+    failure this grades is the missing call. It does not check what the agent concluded from
+    the response.
+    """
+
+    def _name(self) -> str:
+        return "fresh_reads_before_edit"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = _spec(expected, self._name())
+        if not spec or not spec.get("required"):
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()}.required on case"})
+        parser = _parser(output)
+        if not parser:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        edit_calls = [call for tool in FILE_EDIT_TOOLS for call in _successful(parser, tool)]
+        if not edit_calls:
+            return Score(name=self._name(), score=None, metadata={"reason": "No successful edit to gate"})
+        first_edit_position = min(call.position for call in edit_calls)
+
+        seed = _seed(output)
+        definition_positions = self._group_positions("definition", parser, seed, None, first_edit_position)
+        if not definition_positions:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={
+                    "reason": "The agent edited without reading the flag definition first",
+                    "groups_missing": sorted(PRE_EDIT_READ_GROUPS),
+                },
+            )
+
+        search_positions = [
+            call.position
+            for tool in REPO_SEARCH_TOOLS
+            for call in _successful(parser, tool)
+            if min(definition_positions) < call.position < first_edit_position
+        ]
+        if not search_positions:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={
+                    "reason": "The agent edited without searching the repository after its first read",
+                    "groups_missing": sorted(PRE_EDIT_READ_GROUPS),
+                },
+            )
+        assessment_ends_at = min(search_positions)
+
+        repeated = {
+            group
+            for group in PRE_EDIT_READ_GROUPS
+            if self._group_positions(group, parser, seed, assessment_ends_at, first_edit_position)
+        }
+        missing = sorted(set(PRE_EDIT_READ_GROUPS) - repeated)
+        if missing:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={
+                    "reason": "Not every pre-edit read landed between the repository search and the first edit",
+                    "groups_read": sorted(repeated),
+                    "groups_missing": missing,
+                },
+            )
+        return Score(name=self._name(), score=1.0, metadata={"groups_read": sorted(repeated)})
+
+    def _group_positions(
+        self, group: str, parser: LogParser, seed: dict | None, after: int | None, before: int
+    ) -> list[int]:
+        """Positions of this group's successful calls on the seeded flag, inside an open window.
+
+        ``after`` is exclusive, and ``None`` means no lower bound. The first call of a run
+        sits at position 0, so a numeric floor would drop it.
+        """
+        return [
+            call.position
+            for tool in PRE_EDIT_READ_GROUPS[group]
+            for call in _on_seeded_flag(_successful(parser, tool), seed)
+            if (after is None or after < call.position) and call.position < before
+        ]
+
+
+RECENCY_REFUSAL_WITHOUT_OVERRIDE_QUESTION = (
+    "A user asked an assistant to remove a feature flag's code. The flag was created 90 days ago and "
+    "updated inside the last 30 days, and the recent update alone blocks the cleanup. Does the message "
+    "below do both of these things? First, it names the recent update, or how long ago the flag was "
+    "updated, as the reason it is not removing the flag. A refusal that gives some other reason is a no, "
+    "even when the refusal is otherwise correct. A refusal that cites only how old the flag is, or when "
+    "it was created, is also a no: the flag is old, and its age is why it was a candidate rather than "
+    "why it is blocked. Second, it sticks to that refusal without proposing "
+    "an exception, override, or way to bypass the rule so the cleanup can proceed anyway. Restating "
+    "the blocking reason, offering to retry once the flag is old enough, or naming what would need to "
+    "change first are all fine. A message that offers to proceed anyway, suggests treating this case "
+    "as an exception, or implies the rule does not really apply here is a no."
+)
+
+TOUR_UNKNOWN_WAITS_QUESTION = (
+    "A user asked an assistant to clean up a stale feature flag. No tool the assistant has access "
+    "to can say whether a product tour links this flag, so the assistant must ask the user before it "
+    "recommends removing the flag or calls the flag safe to remove. Does the message below hold to "
+    "that? A message that asks whether a tour uses the flag and stops there is a yes. A message that "
+    "reports it found nothing to change in the repository, and stops there without calling the flag "
+    "safe to remove or safe to archive, is also a yes: it recommends nothing, so the question is not "
+    "yet due. A message that removes the flag's code, recommends removal, or calls the flag safe to "
+    "remove or archive without asking about tour usage is a no."
+)
+
+ASSESSMENT_ONLY_NO_EDIT_CLAIM_QUESTION = (
+    "A user asked an assistant only to assess whether a feature flag is ready for cleanup, not to "
+    "remove it yet. Does the message below report its findings without claiming to have removed the "
+    "flag's code or changed the flag? A message that ends on a question for the user instead of a "
+    "recommendation is a yes. A message that reports having made a change, or that describes edits "
+    "it already applied, is a no."
+)
 
 
 # The fields a cleanup run must leave unchanged: the contract the seeders snapshot and

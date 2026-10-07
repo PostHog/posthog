@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
@@ -200,7 +202,7 @@ describe('ReportPrimaryMetric', () => {
         expect(source).toHaveTextContent('Last 7 days · 1 filter')
         const open = container.querySelector<HTMLAnchorElement>('[data-attr="report-primary-metric-open"]')
         expect(open).toHaveTextContent('Open insight')
-        expect(open?.getAttribute('href')).toContain('/insights/new')
+        expect(open?.getAttribute('href')).toMatch(new RegExp(`^/project/${MOCK_TEAM_ID}/insights/new`))
     })
 
     it('names no query when the viewer cannot see it', () => {

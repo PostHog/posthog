@@ -68,6 +68,7 @@ export enum PluginServerMode {
     ingestion_traces = 'ingestion-traces',
     cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
     ingestion_api = 'ingestion-api',
+    push_api = 'push-api',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -138,6 +139,8 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_PING_IDLE_CONNECTION: boolean
     PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: number
     PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: number
+    PERSONHOG_INITIAL_STREAM_WINDOW_BYTES: number
+    PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES: number
 
     // Usage ingestion gRPC. One team list per deployment, because each reporting site is its
     // own service: '' reports nothing, '*' every team, '1,2' those teams. No percentage: it
@@ -354,6 +357,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_PING_IDLE_CONNECTION: true,
         PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: 15 * 60 * 1000,
         PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: 5_000,
+        PERSONHOG_INITIAL_STREAM_WINDOW_BYTES: 0,
+        PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES: 0,
 
         // Usage ingestion gRPC
         USAGE_INGESTION_ADDR: isDevEnv() ? 'localhost:7143' : '',

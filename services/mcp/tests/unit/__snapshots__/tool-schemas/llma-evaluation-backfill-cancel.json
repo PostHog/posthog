@@ -1,0 +1,14 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "evaluation_id": {
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this evaluation backfill.",
+            "type": "string"
+        }
+    },
+    "required": ["evaluation_id", "id"],
+    "type": "object"
+}

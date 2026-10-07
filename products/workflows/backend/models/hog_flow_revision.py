@@ -17,14 +17,14 @@ class HogFlowRevision(TeamScopedRootMixin, UUIDTModel):
 
     # db_constraint=False on team/created_by: a real FK constraint to a hot table (posthog_team,
     # posthog_user) takes a parent-table lock on creation; enforcement stays app-level.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     hog_flow = models.ForeignKey("workflows.HogFlow", on_delete=models.CASCADE, related_name="revisions")
     version = models.IntegerField(help_text="Workflow version this snapshot was published as.")
     content = models.JSONField(
         help_text="Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version."
     )
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     created_at = models.DateTimeField(auto_now_add=True)
 

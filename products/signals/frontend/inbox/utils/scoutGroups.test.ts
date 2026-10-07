@@ -22,6 +22,7 @@ function makeConfig(overrides: Partial<SignalScoutConfig> = {}): SignalScoutConf
         enabled: true,
         status: 'active',
         pause_reason: null,
+        managed_by: 'team',
         emit: true,
         run_interval_minutes: 60,
         run_cron_schedule: null,

@@ -1,6 +1,7 @@
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
@@ -13,8 +14,11 @@ from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.models import Team
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TABLE
 from posthog.redis import get_client, redis
 
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 if TYPE_CHECKING:
@@ -56,20 +60,17 @@ SDK_LIBRARIES = [
 # locally. It's not included in CI because of tricky patching freeze time in thread issues.
 
 
-# Remote config requests are tracked for telemetry only; billing consumes the decide and
+# Remote config requests are tracked for telemetry only; billing consumes just the decide and
 # local evaluation events (see usage_report.py), so the remote config event never bills.
-# Local evaluation 304s get their own counter because they bill at the decide rate.
 _REQUEST_BUCKET_PREFIXES = {
     FlagRequestType.DECIDE: "decide_requests",
     FlagRequestType.LOCAL_EVALUATION: "local_evaluation_requests",
-    FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED: "local_evaluation_not_modified_requests",
     FlagRequestType.REMOTE_CONFIG: "remote_config_requests",
 }
 
 USAGE_EVENT_NAMES = {
     FlagRequestType.DECIDE: "decide usage",
     FlagRequestType.LOCAL_EVALUATION: "local evaluation usage",
-    FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED: "local evaluation not modified usage",
     FlagRequestType.REMOTE_CONFIG: "remote config usage",
 }
 
@@ -221,7 +222,11 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
 
         with client.lock(f"{REDIS_LOCK_TOKEN}:{team_id}", timeout=60, blocking=False):
             billing_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
-            for request_type in USAGE_EVENT_NAMES:
+            for request_type in (
+                FlagRequestType.DECIDE,
+                FlagRequestType.LOCAL_EVALUATION,
+                FlagRequestType.REMOTE_CONFIG,
+            ):
                 _capture_team_usage_for_request_type(ph_client, client, team_id, team_uuid, request_type, billing_token)
 
     except redis.exceptions.LockError:
@@ -300,21 +305,29 @@ def _flag_key_filter_sql() -> str:
     return "JSONExtractString(properties, '$feature_flag') = %(flag_key)s"
 
 
-def _build_cross_project_evals_query() -> str:
+def _build_cross_project_evals_query(from_flag_evaluations: bool) -> str:
+    if from_flag_evaluations:
+        # flag_evaluations stores only $feature_flag_called rows, so it needs no event filter.
+        table, prewhere, flag_key_filter = FLAG_EVALUATIONS_TABLE, "", "flag_key = %(flag_key)s"
+    else:
+        table, prewhere, flag_key_filter = "events", "PREWHERE event = '$feature_flag_called'", _flag_key_filter_sql()
     return f"""
 SELECT team_id, count() AS evaluations
-FROM events
-PREWHERE event = '$feature_flag_called'
-WHERE {_flag_key_filter_sql()}
+FROM {table}
+{prewhere}
+WHERE {flag_key_filter}
   AND team_id IN %(team_ids)s
   AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY team_id
 """
 
 
-def get_evaluations_7d_by_team(flag_key: str, team_ids: list[int]) -> dict[int, int] | None:
+def get_evaluations_7d_by_team(
+    flag_key: str, team_ids: list[int], *, from_flag_evaluations: bool
+) -> dict[int, int] | None:
     """Return per-team 7-day counts of `$feature_flag_called` events for flag_key.
 
+    Reads flag_evaluations when `from_flag_evaluations` is set, and events otherwise.
     Returns a dict mapping team_id -> count (all requested team ids are present;
     teams with no events map to 0). Returns `None` when ClickHouse fails so the
     caller can render an unavailable state instead of a misleading zero.
@@ -324,7 +337,10 @@ def get_evaluations_7d_by_team(flag_key: str, team_ids: list[int]) -> dict[int, 
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY, name="get_evaluations_7d_by_team")
     try:
-        rows = sync_execute(_build_cross_project_evals_query(), {"flag_key": flag_key, "team_ids": tuple(team_ids)})
+        rows = sync_execute(
+            _build_cross_project_evals_query(from_flag_evaluations),
+            {"flag_key": flag_key, "team_ids": tuple(team_ids)},
+        )
     except Exception as error:
         capture_exception(error)
         return None
@@ -335,21 +351,27 @@ def get_evaluations_7d_by_team(flag_key: str, team_ids: list[int]) -> dict[int, 
     return counts
 
 
-def get_cached_evaluations_7d_by_team(flag_key: str, team_ids: list[int]) -> dict[int, int] | None:
+def get_cached_evaluations_7d_by_team(
+    flag_key: str, team_ids: list[int], organization_id: UUID
+) -> dict[int, int] | None:
     """Cached variant of get_evaluations_7d_by_team with a 5-minute TTL.
 
+    Every team in `team_ids` must belong to the organization `organization_id`.
     Failure results (None) are not cached, so recovery is immediate once
     ClickHouse is reachable again.
     """
     if not team_ids:
         return {}
 
-    cache_key = f"flag_analytics:evals_7d:{flag_key}:" + ",".join(str(t) for t in sorted(team_ids))
+    from_flag_evaluations = get_flag_evaluations_read_mode(organization_id) != FlagEvaluationsMode.EVENTS
+    # The key names the source table, so a mode change cannot serve a count read from the other table.
+    source = FLAG_EVALUATIONS_TABLE if from_flag_evaluations else "events"
+    cache_key = f"flag_analytics:evals_7d:{source}:{flag_key}:" + ",".join(str(t) for t in sorted(team_ids))
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
 
-    result = get_evaluations_7d_by_team(flag_key, team_ids)
+    result = get_evaluations_7d_by_team(flag_key, team_ids, from_flag_evaluations=from_flag_evaluations)
     if result is not None:
         cache.set(cache_key, result, timeout=CROSS_PROJECT_EVALS_CACHE_TTL)
     return result

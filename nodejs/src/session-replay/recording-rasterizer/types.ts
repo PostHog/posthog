@@ -7,6 +7,8 @@ export interface RasterizeRecordingInput {
     // recording-api (the rasterizer cannot mint its own). Optional only during migration, before the
     // minting side has shipped.
     recording_api_token?: string
+    // Renders this `[windowId, event]` JSONL object instead of fetching blocks from recording-api.
+    source_s3_uri?: string
     max_virtual_time?: number // max virtual-time seconds before stopping capture (default: unlimited)
     playback_speed?: number // 1-360, defaults to 4
     start_offset_s?: number // seconds from session start to begin playback
@@ -43,6 +45,25 @@ export interface ExtractThumbnailInput {
 export interface ExtractThumbnailOutput {
     s3_uri: string
     file_size_bytes: number
+}
+
+export interface ExtractThumbnailsInput {
+    /** The rendered analysis MP4 to cut the frames from. */
+    source_s3_uri: string
+    /** Each frame's seconds into the analysis video, and the object name it uploads under. A frame that is not
+     * `required` is left out of the output when it cannot be cut, instead of failing the batch. */
+    frames: { video_time_s: number; id: string; required?: boolean }[]
+    /** Pixels of burned-in metadata footer to crop off the bottom before scaling. */
+    footer_crop_px?: number
+    /** Output width; height follows the source aspect ratio. Defaults to 1280. */
+    width?: number
+    s3_bucket: string
+    s3_key_prefix: string
+}
+
+export interface ExtractThumbnailsOutput {
+    /** One entry per frame the video has, in input order. */
+    frames: { id: string; s3_uri: string; file_size_bytes: number }[]
 }
 
 /**

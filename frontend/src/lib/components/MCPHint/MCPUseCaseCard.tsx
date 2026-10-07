@@ -7,8 +7,8 @@ import { CodeSnippet } from 'lib/components/CodeSnippet/CodeSnippet'
 import { cn } from 'lib/utils/css-classes'
 
 import { AgentBadgeRotator } from './AgentBadgeRotator'
+import { MCPHintActions } from './MCPHintActions'
 import { mcpHintLogic } from './mcpHintLogic'
-import { MCPInstallCommand } from './MCPInstallCommand'
 import { getSurfacePrompts, type SurfaceKey } from './prompts'
 
 const FIRST_SEEN_KEY_PREFIX = 'mcp-use-case-card-first-seen:'
@@ -43,7 +43,7 @@ export function MCPUseCaseCard({
     forceDisplay?: boolean
 }): JSX.Element | null {
     const { effectiveOptOut, userRole, topEvents } = useValues(mcpHintLogic)
-    const { loadTopEvents } = useActions(mcpHintLogic)
+    const { loadTopEvents, reportUseCaseCardShown } = useActions(mcpHintLogic)
     const [expired] = useState(() => (expiresAfterMs ? getExpiryState(surfaceKey, expiresAfterMs).expired : false))
     const triedLoadingEvents = useRef(false)
 
@@ -57,6 +57,12 @@ export function MCPUseCaseCard({
             loadTopEvents()
         }
     }, [willRender, surfaceKey, topEvents.length, loadTopEvents])
+
+    useEffect(() => {
+        if (willRender) {
+            reportUseCaseCardShown(surfaceKey)
+        }
+    }, [willRender, surfaceKey, reportUseCaseCardShown])
 
     if (!willRender) {
         return null
@@ -90,7 +96,7 @@ export function MCPUseCaseCard({
                 </ul>
             )}
             <div className="pt-1">
-                <MCPInstallCommand size="sm" />
+                <MCPHintActions surfaceKey={surfaceKey} example={examples[0]} placement="card" />
             </div>
         </div>
     )

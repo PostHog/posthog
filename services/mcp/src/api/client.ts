@@ -187,6 +187,8 @@ export interface ApiConfig {
     taskId?: string | undefined
     /** One tool call's stated intent, forwarded as `x-posthog-intent`. Set it through `withIntent`. */
     intent?: string | undefined
+    /** Called only for a trusted PostHog API response marked as private. */
+    onPrivateResponse?: (() => void) | undefined
     clientIp?: string | undefined
     clientIpSigningKeys?: string[] | undefined
 }
@@ -228,6 +230,13 @@ export class ApiClient {
         const scoped = Object.create(Object.getPrototypeOf(this) as object) as this
         Object.assign(scoped, this)
         scoped.config = { ...this.config, intent }
+        return scoped
+    }
+
+    withAnalyticsSuppression(onPrivateResponse: () => void): this {
+        const scoped = Object.create(Object.getPrototypeOf(this) as object) as this
+        Object.assign(scoped, this)
+        scoped.config = { ...this.config, onPrivateResponse }
         return scoped
     }
 
@@ -291,13 +300,17 @@ export class ApiClient {
         if (options?.body) {
             defaultHeaders['Content-Type'] = 'application/json'
         }
-        return fetch(url, {
+        const response = await fetch(url, {
             ...options,
             headers: {
                 ...defaultHeaders,
                 ...options?.headers,
             },
         })
+        if (response.headers.get('X-PostHog-Suppress-Analytics') === 'true') {
+            this.config.onPrivateResponse?.()
+        }
+        return response
     }
 
     /**

@@ -70,6 +70,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, wrap_clickhouse_query_error
+from posthog.event_usage import EventSource
 from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
@@ -107,6 +108,7 @@ from posthog.query_cache.failures import (
     KIND_POLICIES,
     QUERY_FAILURE_CACHING_FLAG,
     QueryFailureCache,
+    WarmingQueryFailureCache,
 )
 from posthog.query_cache.single_flight import QUERY_SINGLE_FLIGHT_FLAG, FlightWait, QuerySingleFlight, SharedFailure
 from posthog.query_cache.storage import entry_redis_key
@@ -674,6 +676,19 @@ class TestQueryRunner(BaseTest):
         runner = get_query_runner(query=query, team=self.team)
 
         self.assertEqual(runner.query, expected_source_query)
+
+    def test_bi_worksheet_state_does_not_change_executed_query_or_cache(self) -> None:
+        source = {"kind": "HogQLQuery", "query": "SELECT 1"}
+        first = get_query_runner(
+            query={"kind": "BIVisualizationNode", "source": source, "config": {"chartType": "ActionsBar"}},
+            team=self.team,
+        )
+        second = get_query_runner(
+            query={"kind": "BIVisualizationNode", "source": source, "config": {"chartType": "ActionsLineGraph"}},
+            team=self.team,
+        )
+        self.assertEqual(first.query, HogQLQuery(query="SELECT 1"))
+        self.assertEqual(first.get_cache_key(), second.get_cache_key())
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_payload(self):
@@ -2568,7 +2583,8 @@ class TestQueryFailureCaching(BaseTest):
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
                 assert QueryFailureCache(runner.get_cache_key()).get_open() is None
 
-    def test_extended_budget_run_ignores_interactive_breaker(self):
+    @parameterized.expand([(None,), (EventSource.CACHE_WARMING,)])
+    def test_extended_budget_run_ignores_interactive_breaker(self, source: EventSource | None) -> None:
         # The async worker executes with CALCULATE_BLOCKING_ALWAYS under a 10x execution budget,
         # so a breaker opened by interactive timeouts must not stop it.
         runner_class = setup_test_query_runner_class()
@@ -2579,9 +2595,99 @@ class TestQueryFailureCaching(BaseTest):
         assert failure_cache.get_open() is not None
 
         with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
-            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            response = runner.run(
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props={"source": source} if source is not None else None,
+            )
         assert response.is_cached is False
         assert failure_cache.get_open() is None  # the success closed the breaker
+
+    def _warm(
+        self,
+        runner: QueryRunner,
+        execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+    ) -> TheTestCachedBasicQueryResponse:
+        return cast(
+            TheTestCachedBasicQueryResponse,
+            runner.run(execution_mode=execution_mode, analytics_props={"source": EventSource.CACHE_WARMING}),
+        )
+
+    @parameterized.expand([("fresh_cache", True), ("cache_miss", False)])
+    def test_warming_backoff_preserves_cached_results_and_foreground_recovery(
+        self, _name: str, has_fresh_cache: bool
+    ) -> None:
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team, limit_context=LimitContext.QUERY_ASYNC)
+        failure_cache = WarmingQueryFailureCache(runner.get_cache_key())
+        with (
+            time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen,
+            mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag),
+        ):
+            if has_fresh_cache:
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            for _ in range(3):
+                failure_cache.record_failure("timeout", "timed out", budget=BUDGET_EXTENDED)
+            frozen.shift(BASE_BACKOFF if has_fresh_cache else timedelta(hours=1))
+            assert failure_cache.get_open() is not None
+            with mock.patch.object(runner_class, "_calculate", autospec=True) as calculate:
+                if has_fresh_cache:
+                    assert self._warm(runner).is_cached is True
+                else:
+                    with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
+                        self._warm(runner)
+                    assert getattr(ctx.exception, "served_from_query_failure_cache", False)
+            calculate.assert_not_called()
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert response.is_cached is False
+            assert failure_cache.get_open() is None
+            assert self._warm(runner).is_cached is True
+
+    @parameterized.expand(
+        [
+            ("ordinary_cooldown", None, (1, 2, 3, 4, 5, 6, 7, 8, 8, 9, 9, 9, 10)),
+            ("warming_cooldown", EventSource.CACHE_WARMING, (1, 2, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5)),
+        ]
+    )
+    def test_hourly_ten_minute_timeouts_without_user_views_back_off_and_recover(
+        self, _name: str, source: EventSource | None, executions_by_hour: tuple[int, ...]
+    ) -> None:
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team, limit_context=LimitContext.QUERY_ASYNC)
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        with (
+            time_machine.travel(start, tick=False) as frozen,
+            mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag),
+        ):
+
+            def time_out_after_ten_minutes(_runner: QueryRunner) -> None:
+                frozen.shift(timedelta(minutes=10))
+                raise ClickHouseQueryTimeOut()
+
+            with mock.patch.object(
+                runner_class, "_calculate", autospec=True, side_effect=time_out_after_ten_minutes
+            ) as calculate:
+                for hour, expected_executions in enumerate(executions_by_hour):
+                    with self.subTest(hour=hour, expected_executions=expected_executions):
+                        frozen.move_to(start + timedelta(hours=hour))
+                        previous_executions = calculate.call_count
+                        with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
+                            runner.run(
+                                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                                analytics_props={"source": source} if source is not None else None,
+                            )
+                        assert calculate.call_count == expected_executions
+                        assert bool(getattr(ctx.exception, "served_from_query_failure_cache", False)) is (
+                            expected_executions == previous_executions
+                        )
+            frozen.move_to(start + timedelta(hours=17))
+            assert self._warm(runner).is_cached is False
+            assert WarmingQueryFailureCache(runner.get_cache_key()).get_open() is None
+            with (
+                mock.patch.object(runner_class, "_calculate", autospec=True, side_effect=ClickHouseQueryTimeOut()),
+                self.assertRaises(ClickHouseQueryTimeOut),
+            ):
+                self._warm(runner, ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert WarmingQueryFailureCache(runner.get_cache_key()).get_open() is None
 
     def test_extended_budget_run_blocked_by_extended_breaker(self):
         runner_class = setup_test_query_runner_class()
@@ -2596,15 +2702,22 @@ class TestQueryFailureCaching(BaseTest):
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert getattr(ctx.exception, "served_from_query_failure_cache", False)
 
-    def test_no_behavior_change_when_flag_disabled(self):
+    @parameterized.expand([(None,), (EventSource.CACHE_WARMING,)])
+    def test_no_behavior_change_when_flag_disabled(self, source: EventSource | None) -> None:
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        failure_cache = QueryFailureCache(runner.get_cache_key())
+        for _ in range(KIND_POLICIES["timeout"].open_threshold):
+            failure_cache.record_failure("timeout", "timed out", budget=BUDGET_EXTENDED)
         with mock.patch.object(
             runner_class, "_calculate", autospec=True, side_effect=ClickHouseQueryTimeOut()
         ) as mock_calculate:
             for _ in range(KIND_POLICIES["timeout"].open_threshold + 2):
                 with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
-                    runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+                    runner.run(
+                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                        analytics_props={"source": source} if source is not None else None,
+                    )
                 assert not getattr(ctx.exception, "served_from_query_failure_cache", False)
             assert mock_calculate.call_count == KIND_POLICIES["timeout"].open_threshold + 2
 

@@ -1917,9 +1917,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             }
             // A shared link is authoritative: apply what it carries and reset the rest to defaults.
             // Guarded so plain navigation onto the roster does not re-dispatch an unchanged state.
+            // The URL holds the trimmed search, so compare trimmed text. Otherwise the debounced
+            // write of "checkout " hydrates the box back to "checkout" while the user still types.
             const parsed = parseRosterFilterSearchParams(searchParams)
             if (
-                parsed.scoutSearch === values.scoutSearch &&
+                parsed.scoutSearch.trim() === values.scoutSearch.trim() &&
                 parsed.scoutEnabledFilter === values.scoutEnabledFilter &&
                 sameTags(parsed.selectedScoutTags, values.selectedScoutTags) &&
                 parsed.selectedScoutOwner === values.selectedScoutOwner

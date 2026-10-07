@@ -728,20 +728,6 @@
   
   '''
 # ---
-# name: test_create_kafka_table_with_different_kafka_host[kafka_person_property_mutation_log]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS kafka_person_property_mutation_log
-  (
-      team_id Int64,
-      uuid UUID,
-      properties String
-  )
-  ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_person_property_mutation_log', kafka_format = 'JSONEachRow')
-  SETTINGS kafka_skip_broken_messages = 100
-  
-  '''
-# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_plugin_log_entries]
   '''
   
@@ -1445,6 +1431,20 @@
   
   '''
 # ---
+# name: test_create_table_query[distributed_person_group_membership_config]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS distributed_person_group_membership_config
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      enabled UInt8,
+      version UInt64
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'person_group_membership_config', sipHash64(team_id))
+  
+  '''
+# ---
 # name: test_create_table_query[distributed_posthog_document_embeddings]
   '''
   
@@ -1767,8 +1767,10 @@
   (
       uuid UUID,
       event String,
-      properties JSON(max_dynamic_paths = 0, `$agent_application_id` String, `$agent_revision_id` String, `$agent_session_id` String, `$agent_turn` String, `$ai_audio_cost_usd` String, `$ai_audio_input_tokens` String, `$ai_audio_output_tokens` String, `$ai_batch_run_id` String, `$ai_cache_creation_input_tokens` String, `$ai_cache_read_input_tokens` String, `$ai_error` String, `$ai_error_normalized` String, `$ai_error_type` String, `$ai_evaluation_allows_na` String, `$ai_evaluation_applicable` String, `$ai_evaluation_id` String, `$ai_evaluation_name` String, `$ai_evaluation_reasoning` String, `$ai_evaluation_result` String, `$ai_evaluation_result_type` String, `$ai_evaluation_runtime` String, `$ai_evaluation_skipped` String, `$ai_evaluation_start_time` String, `$ai_evaluation_type` String, `$ai_experiment_id` String, `$ai_framework` String, `$ai_generation_id` String, `$ai_http_status` String, `$ai_image_cost_usd` String, `$ai_image_input_tokens` String, `$ai_image_output_tokens` String, `$ai_input_cost_usd` String, `$ai_input_tokens` String, `$ai_is_error` String, `$ai_latency` String, `$ai_model` String, `$ai_output_cost_usd` String, `$ai_output_tokens` String, `$ai_parent_id` String, `$ai_prompt_name` String, `$ai_provider` String, `$ai_reasoning_tokens` String, `$ai_request_cost_usd` String, `$ai_session_id` String, `$ai_span_name` String, `$ai_span_type` String, `$ai_span_id` String, `$ai_sentiment_label` String, `$ai_sentiment_message_count` String, `$ai_sentiment_score` String, `$ai_target_event_id` String, `$ai_text_input_tokens` String, `$ai_text_output_tokens` String, `$ai_time_to_first_token` String, `$ai_total_cost_usd` String, `$ai_total_tokens` String, `$ai_tools_called` String, `$ai_trace_id` String, `$ai_trace_name` String, `$ai_video_cost_usd` String, `$ai_video_input_tokens` String, `$ai_video_output_tokens` String, `$ai_web_search_cost_usd` String, `$ai_web_search_count` String, `$ai_origin` String, `$anon_distinct_id` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$autocapture_disabled_server_side` LowCardinality(String), `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$configured_session_timeout_ms` String, `$current_url` String, `$dead_clicks_enabled_server_side` LowCardinality(String), `$device` String, `$device_id` String, `$device_model` String, `$device_manufacturer` String, `$device_name` String, `$device_type` LowCardinality(String), `$el_text` String, `$event_type` String, `$exception_capture_enabled_server_side` LowCardinality(String), `$exception_fingerprint` String, `$exception_functions` Array(String), `$exception_handled` String, `$exception_is_synthetic` String, `$exception_issue_id` String, `$exception_level` String, `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_message` String, `$exception_proposed_fingerprint` String, `$exception_sources` Array(String), `$exception_type` String, `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_accuracy_radius` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_latitude` String, `$geoip_longitude` String, `$geoip_postal_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$geoip_subdivision_1_code` String, `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$groups.organization` String, `$groups.project` String, `$groups.instance` String, `$host` String, `$initial_pathname` String, `$initial_referrer` String, `$initial_referring_domain` String, `$client_session_initial_pathname` String, `$client_session_initial_referring_host` String, `$client_session_initial_utm_campaign` String, `$client_session_initial_utm_content` String, `$client_session_initial_utm_medium` String, `$client_session_initial_utm_source` String, `$client_session_initial_utm_term` String, `$initial_search_engine` String, `$initialization_time` String, `$ip` String, `$is_identified` String, `$lib` String, `$lib_version` LowCardinality(String), `$lib_version__minor` String, `$mcp_client_name` String, `$mcp_client_user_agent` String, `$mcp_duration_ms` String, `$mcp_error_message` String, `$mcp_exec_tool_call_description` String, `$mcp_exec_tool_call_name` String, `$mcp_intent` String, `$mcp_intent_source` String, `$mcp_is_error` String, `$mcp_listed_tool_names` Array(String), `$mcp_oauth_client_name` String, `$mcp_organization_id` String, `$mcp_project_id` String, `$mcp_session_id` String, `$mcp_source` String, `$mcp_tool_category` String, `$mcp_tool_description` String, `$mcp_tool_name` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pageview_id` String, `$pathname` String, `$prev_pageview_max_content_percentage` String, `$prev_pageview_max_scroll_percentage` String, `$prev_pageview_pathname` String, `$process_person_profile` String, `$recording_status` String, `$referrer` String, `$referring_domain` String, `$replay_minimum_duration` String, `$replay_sample_rate` String, `$raw_user_agent` LowCardinality(String), `$search_engine` String, `$screen_height` LowCardinality(String), `$screen_name` String, `$screen_width` LowCardinality(String), `$session_id` String, `$session_entry_host` String, `$session_entry_pathname` String, `$session_entry_referrer` String, `$session_entry_referring_domain` String, `$session_entry_search_engine` String, `$session_entry_url` String, `$session_entry_utm_campaign` String, `$session_entry_utm_content` String, `$session_entry_utm_medium` String, `$session_entry_utm_source` String, `$session_entry_utm_term` String, `$session_recording_event_trigger_activated_session` String, `$session_recording_start_reason` String, `$session_recording_url_trigger_status` String, `$survey_id` String, `$survey_completed` String, `$survey_iteration` String, `$survey_iteration_start_date` String, `$survey_name` String, `$survey_partially_completed` String, `$survey_response` String, `$survey_response_1` String, `$survey_submission_id` String, `$time` String, `$timezone` LowCardinality(String), `$timezone_offset` LowCardinality(String), `$user_id` String, `$viewport_height` String, `$viewport_width` String, `$web_vitals_CLS_value` String, `$web_vitals_FCP_value` String, `$web_vitals_INP_value` String, `$web_vitals_LCP_value` String, `$web_vitals_enabled_server_side` LowCardinality(String), `$window_id` String, action String, action_name String, address String, apiErrorMessage String, apiName String, app_name String, app_version String, arguments String, audio_duration String, authentication_method String, auto_chapters String, auto_highlights String, category String, chain String, channel String, client_id String, client_name String, commit_sha String, community_id String, conceptName String, content_length String, content_safety String, context String, contributionError String, created_at String, created_by String, created_by_system String, currentScreen String, current_member_guid String, customer_email String, deal_id String, device_type String, disable_institution_search String, disfluencies String, distinct_id String, dual_channel String, duration String, email String, email_domain String, _kx String, dclid String, epik String, entity_detection String, env String, environment String, event String, event_count_in_month String, event_count_in_period String, events_projected_amount String, fbclid String, filter_profanity String, filters_count String, function String, gad_source String, gbraid String, gclid String, gclsrc String, gross String, group_id String, historical_migration String, iab_categories String, id String, index String, initial_dclid String, initial_fbclid String, initial_gclsrc String, initial__kx String, initial_epik String, initial_gad_source String, initial_gbraid String, initial_gclid String, initial_irclid String, initial_igshid String, initial_li_fat_id String, initial_mc_cid String, initial_msclkid String, initial_qclid String, initial_rdt_cid String, initial_sccid String, initial_utm_campaign String, initial_utm_content String, initial_utm_medium String, initial_utm_source String, initial_utm_term String, initial_step String, initial_ttclid String, initial_twclid String, initial_wbraid String, initiator String, insight String, institution_name String, inviteCode String, is_demo_project String, is_first_component_load String, is_first_event_for_user String, is_initial_aggregation String, is_oauth String, is_organization_first_user String, is_test_user String, item_count String, job_type String, key String, kind String, language_detection String, machine_id String, message String, method String, mode String, most_recent_app_os String, msclkid String, mc_cid String, igshid String, irclid String, li_fat_id String, qclid String, rdt_cid String, sccid String, ttclid String, twclid String, name String, nativeBuildVersion String, numberOfSecrets String, orderId String, orderType String, organization String, organization_id String, organization_name String, organizations String, origin String, osName String, owner_type String, page String, payment_status String, phone String, platform String, product String, product_analytics_projected_amount String, product_key String, progress String, protocol String, query String, ramp String, realm String, `record-id` String, recording_count_in_period String, recordings_projected_amount String, redact_pii String, referrer String, referrer_id String, region String, revenue String, screen_name String, sdk String, search_term String, sentiment_analysis String, session_replay_projected_amount String, sku String, source String, speaker_labels String, statusCode String, status_message String, store_url String, stripe_amount_paid String, subdomain String, subscriptionStatus String, summarization String, surface_tag String, survey_responses_count_in_period String, symbol String, tag String, target String, team String, testSessionId String, thread_id String, ticketId String, title String, token String, total_event_actions_count String, total_usd String, type String, url String, url_promotion_id String, usd String, user_agent String, user_email_domain String, user_platform String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, valid_ach_accounts String, wbraid String, wlo_enabled String, workplace_billing_plan String, workspace String, workspaceId String),
+      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
       temporary_properties JSON(max_dynamic_paths = 32),
+      properties_null_keys Array(LowCardinality(String)),
+      temporary_properties_null_keys Array(LowCardinality(String)),
       timestamp DateTime64(6, 'UTC'),
       team_id Int64,
       distinct_id String,
@@ -1777,7 +1779,8 @@
       _offset UInt64,
       elements_chain String,
       person_id UUID,
-      person_properties JSON(max_dynamic_paths = 0, `$app_version` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$browser` LowCardinality(String), `$browser_language` String, `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$current_url` String, `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$initial_current_url` String, `$initial_app_build` String, `$initial_app_name` String, `$initial_app_namespace` String, `$initial_app_version` String, `$initial_browser` LowCardinality(String), `$initial_browser_language` String, `$initial_browser_language_prefix` String, `$initial_browser_type` String, `$initial_browser_version` LowCardinality(String), `$initial_device` String, `$initial_device_id` String, `$initial_device_manufacturer` String, `$initial_device_model` String, `$initial_device_name` String, `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` String, `$initial_geoip_continent_code` String, `$initial_geoip_continent_name` String, `$initial_geoip_country_code` String, `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_postal_code` String, `$initial_geoip_subdivision_1_code` String, `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_subdivision_2_code` String, `$initial_geoip_subdivision_2_name` String, `$initial_geoip_time_zone` LowCardinality(String), `$initial_fbclid` String, `$initial_gad_source` String, `$initial_gbraid` String, `$initial_gclid` String, `$initial_gclsrc` String, `$initial_dclid` String, `$initial_msclkid` String, `$initial_twclid` String, `$initial_li_fat_id` String, `$initial_mc_cid` String, `$initial_igshid` String, `$initial_ttclid` String, `$initial_rdt_cid` String, `$initial_epik` String, `$initial_qclid` String, `$initial_sccid` String, `$initial_irclid` String, `$initial__kx` String, `$initial_pathname` String, `$initial_os` LowCardinality(String), `$initial_os_name` String, `$initial_os_version` LowCardinality(String), `$initial_raw_user_agent` LowCardinality(String), `$initial_referrer` String, `$initial_referring_domain` String, `$initial_screen_height` LowCardinality(String), `$initial_screen_width` LowCardinality(String), `$initial_search_engine` String, `$initial_utm_campaign` String, `$initial_utm_content` String, `$initial_utm_medium` String, `$initial_utm_source` String, `$initial_utm_term` String, `$initial_viewport_height` String, `$initial_viewport_width` String, `$initial_wbraid` String, `$os_name` String, `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$raw_user_agent` LowCardinality(String), `$referrer` String, `$screen_height` LowCardinality(String), `$screen_width` LowCardinality(String), `$search_engine` String, `$viewport_height` String, `$viewport_width` String, `$referring_domain` String, `$email` String, `$last_seen_survey_date` String, `$organization_id` String, `$product_tour_last_seen_date` String, `$survey_last_seen_date` String, `Email Domain` String, companyName String, customer String, email String, first_name String, hubspot_score String, id String, icp_role String, is_email_verified String, is_signed_up String, last_name String, name String, organization_id String, organization_member_count String, role String, role_at_organization String, serverMarketing String, serverMasterclass String, user_email_domain String, username String, utm_source String, utm_medium String, utm_campaign String, utm_content String, utm_term String, gclid String, gad_source String, gclsrc String, dclid String, gbraid String, wbraid String, fbclid String, msclkid String, twclid String, li_fat_id String, mc_cid String, igshid String, ttclid String, rdt_cid String, epik String, qclid String, sccid String, irclid String, _kx String, val_region String),
+      person_properties JSON(max_dynamic_paths = 256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String)),
+      person_properties_null_keys Array(LowCardinality(String)),
       group0_properties String,
       group1_properties String,
       group2_properties String,
@@ -1797,15 +1800,6 @@
       captured_at DateTime64(6, 'UTC') DEFAULT now(),
       _partition UInt64
   
-  
-      , $group_0 String ALIAS ifNull(properties.`$group_0`, '')
-      , $group_1 String ALIAS ifNull(properties.`$group_1`, '')
-      , $group_2 String ALIAS ifNull(properties.`$group_2`, '')
-      , $group_3 String ALIAS ifNull(properties.`$group_3`, '')
-      , $group_4 String ALIAS ifNull(properties.`$group_4`, '')
-      , $window_id String ALIAS ifNull(properties.`$window_id`, '')
-      , $session_id String ALIAS ifNull(properties.`$session_id`, '')
-      , $session_id_uuid Nullable(UInt128) ALIAS toUInt128(toUUIDOrNull(properties.`$session_id`))
   
       , elements_chain_href String
       , elements_chain_texts Array(String)
@@ -1883,8 +1877,10 @@
   SELECT
   uuid,
   event,
-  ifNull(accurateCastOrNull(if(isValidJSON(source.properties) AND startsWith(trimLeft(source.properties), '{'), JSONCleanPostHogEventProperties(source.properties), concat('{"$unparseable_properties":', toJSONString(source.properties), '}')), 'JSON(max_dynamic_paths = 0, `$agent_application_id` String, `$agent_revision_id` String, `$agent_session_id` String, `$agent_turn` String, `$ai_audio_cost_usd` String, `$ai_audio_input_tokens` String, `$ai_audio_output_tokens` String, `$ai_batch_run_id` String, `$ai_cache_creation_input_tokens` String, `$ai_cache_read_input_tokens` String, `$ai_error` String, `$ai_error_normalized` String, `$ai_error_type` String, `$ai_evaluation_allows_na` String, `$ai_evaluation_applicable` String, `$ai_evaluation_id` String, `$ai_evaluation_name` String, `$ai_evaluation_reasoning` String, `$ai_evaluation_result` String, `$ai_evaluation_result_type` String, `$ai_evaluation_runtime` String, `$ai_evaluation_skipped` String, `$ai_evaluation_start_time` String, `$ai_evaluation_type` String, `$ai_experiment_id` String, `$ai_framework` String, `$ai_generation_id` String, `$ai_http_status` String, `$ai_image_cost_usd` String, `$ai_image_input_tokens` String, `$ai_image_output_tokens` String, `$ai_input_cost_usd` String, `$ai_input_tokens` String, `$ai_is_error` String, `$ai_latency` String, `$ai_model` String, `$ai_output_cost_usd` String, `$ai_output_tokens` String, `$ai_parent_id` String, `$ai_prompt_name` String, `$ai_provider` String, `$ai_reasoning_tokens` String, `$ai_request_cost_usd` String, `$ai_session_id` String, `$ai_span_name` String, `$ai_span_type` String, `$ai_span_id` String, `$ai_sentiment_label` String, `$ai_sentiment_message_count` String, `$ai_sentiment_score` String, `$ai_target_event_id` String, `$ai_text_input_tokens` String, `$ai_text_output_tokens` String, `$ai_time_to_first_token` String, `$ai_total_cost_usd` String, `$ai_total_tokens` String, `$ai_tools_called` String, `$ai_trace_id` String, `$ai_trace_name` String, `$ai_video_cost_usd` String, `$ai_video_input_tokens` String, `$ai_video_output_tokens` String, `$ai_web_search_cost_usd` String, `$ai_web_search_count` String, `$ai_origin` String, `$anon_distinct_id` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$autocapture_disabled_server_side` LowCardinality(String), `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$configured_session_timeout_ms` String, `$current_url` String, `$dead_clicks_enabled_server_side` LowCardinality(String), `$device` String, `$device_id` String, `$device_model` String, `$device_manufacturer` String, `$device_name` String, `$device_type` LowCardinality(String), `$el_text` String, `$event_type` String, `$exception_capture_enabled_server_side` LowCardinality(String), `$exception_fingerprint` String, `$exception_functions` Array(String), `$exception_handled` String, `$exception_is_synthetic` String, `$exception_issue_id` String, `$exception_level` String, `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_message` String, `$exception_proposed_fingerprint` String, `$exception_sources` Array(String), `$exception_type` String, `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_accuracy_radius` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_latitude` String, `$geoip_longitude` String, `$geoip_postal_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$geoip_subdivision_1_code` String, `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$groups.organization` String, `$groups.project` String, `$groups.instance` String, `$host` String, `$initial_pathname` String, `$initial_referrer` String, `$initial_referring_domain` String, `$client_session_initial_pathname` String, `$client_session_initial_referring_host` String, `$client_session_initial_utm_campaign` String, `$client_session_initial_utm_content` String, `$client_session_initial_utm_medium` String, `$client_session_initial_utm_source` String, `$client_session_initial_utm_term` String, `$initial_search_engine` String, `$initialization_time` String, `$ip` String, `$is_identified` String, `$lib` String, `$lib_version` LowCardinality(String), `$lib_version__minor` String, `$mcp_client_name` String, `$mcp_client_user_agent` String, `$mcp_duration_ms` String, `$mcp_error_message` String, `$mcp_exec_tool_call_description` String, `$mcp_exec_tool_call_name` String, `$mcp_intent` String, `$mcp_intent_source` String, `$mcp_is_error` String, `$mcp_listed_tool_names` Array(String), `$mcp_oauth_client_name` String, `$mcp_organization_id` String, `$mcp_project_id` String, `$mcp_session_id` String, `$mcp_source` String, `$mcp_tool_category` String, `$mcp_tool_description` String, `$mcp_tool_name` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pageview_id` String, `$pathname` String, `$prev_pageview_max_content_percentage` String, `$prev_pageview_max_scroll_percentage` String, `$prev_pageview_pathname` String, `$process_person_profile` String, `$recording_status` String, `$referrer` String, `$referring_domain` String, `$replay_minimum_duration` String, `$replay_sample_rate` String, `$raw_user_agent` LowCardinality(String), `$search_engine` String, `$screen_height` LowCardinality(String), `$screen_name` String, `$screen_width` LowCardinality(String), `$session_id` String, `$session_entry_host` String, `$session_entry_pathname` String, `$session_entry_referrer` String, `$session_entry_referring_domain` String, `$session_entry_search_engine` String, `$session_entry_url` String, `$session_entry_utm_campaign` String, `$session_entry_utm_content` String, `$session_entry_utm_medium` String, `$session_entry_utm_source` String, `$session_entry_utm_term` String, `$session_recording_event_trigger_activated_session` String, `$session_recording_start_reason` String, `$session_recording_url_trigger_status` String, `$survey_id` String, `$survey_completed` String, `$survey_iteration` String, `$survey_iteration_start_date` String, `$survey_name` String, `$survey_partially_completed` String, `$survey_response` String, `$survey_response_1` String, `$survey_submission_id` String, `$time` String, `$timezone` LowCardinality(String), `$timezone_offset` LowCardinality(String), `$user_id` String, `$viewport_height` String, `$viewport_width` String, `$web_vitals_CLS_value` String, `$web_vitals_FCP_value` String, `$web_vitals_INP_value` String, `$web_vitals_LCP_value` String, `$web_vitals_enabled_server_side` LowCardinality(String), `$window_id` String, action String, action_name String, address String, apiErrorMessage String, apiName String, app_name String, app_version String, arguments String, audio_duration String, authentication_method String, auto_chapters String, auto_highlights String, category String, chain String, channel String, client_id String, client_name String, commit_sha String, community_id String, conceptName String, content_length String, content_safety String, context String, contributionError String, created_at String, created_by String, created_by_system String, currentScreen String, current_member_guid String, customer_email String, deal_id String, device_type String, disable_institution_search String, disfluencies String, distinct_id String, dual_channel String, duration String, email String, email_domain String, _kx String, dclid String, epik String, entity_detection String, env String, environment String, event String, event_count_in_month String, event_count_in_period String, events_projected_amount String, fbclid String, filter_profanity String, filters_count String, function String, gad_source String, gbraid String, gclid String, gclsrc String, gross String, group_id String, historical_migration String, iab_categories String, id String, index String, initial_dclid String, initial_fbclid String, initial_gclsrc String, initial__kx String, initial_epik String, initial_gad_source String, initial_gbraid String, initial_gclid String, initial_irclid String, initial_igshid String, initial_li_fat_id String, initial_mc_cid String, initial_msclkid String, initial_qclid String, initial_rdt_cid String, initial_sccid String, initial_utm_campaign String, initial_utm_content String, initial_utm_medium String, initial_utm_source String, initial_utm_term String, initial_step String, initial_ttclid String, initial_twclid String, initial_wbraid String, initiator String, insight String, institution_name String, inviteCode String, is_demo_project String, is_first_component_load String, is_first_event_for_user String, is_initial_aggregation String, is_oauth String, is_organization_first_user String, is_test_user String, item_count String, job_type String, key String, kind String, language_detection String, machine_id String, message String, method String, mode String, most_recent_app_os String, msclkid String, mc_cid String, igshid String, irclid String, li_fat_id String, qclid String, rdt_cid String, sccid String, ttclid String, twclid String, name String, nativeBuildVersion String, numberOfSecrets String, orderId String, orderType String, organization String, organization_id String, organization_name String, organizations String, origin String, osName String, owner_type String, page String, payment_status String, phone String, platform String, product String, product_analytics_projected_amount String, product_key String, progress String, protocol String, query String, ramp String, realm String, `record-id` String, recording_count_in_period String, recordings_projected_amount String, redact_pii String, referrer String, referrer_id String, region String, revenue String, screen_name String, sdk String, search_term String, sentiment_analysis String, session_replay_projected_amount String, sku String, source String, speaker_labels String, statusCode String, status_message String, store_url String, stripe_amount_paid String, subdomain String, subscriptionStatus String, summarization String, surface_tag String, survey_responses_count_in_period String, symbol String, tag String, target String, team String, testSessionId String, thread_id String, ticketId String, title String, token String, total_event_actions_count String, total_usd String, type String, url String, url_promotion_id String, usd String, user_agent String, user_email_domain String, user_platform String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, valid_ach_accounts String, wbraid String, wlo_enabled String, workplace_billing_plan String, workspace String, workspaceId String)'), CAST(concat('{"$unparseable_properties":', toJSONString(source.properties), '}'), 'JSON(max_dynamic_paths = 0, `$agent_application_id` String, `$agent_revision_id` String, `$agent_session_id` String, `$agent_turn` String, `$ai_audio_cost_usd` String, `$ai_audio_input_tokens` String, `$ai_audio_output_tokens` String, `$ai_batch_run_id` String, `$ai_cache_creation_input_tokens` String, `$ai_cache_read_input_tokens` String, `$ai_error` String, `$ai_error_normalized` String, `$ai_error_type` String, `$ai_evaluation_allows_na` String, `$ai_evaluation_applicable` String, `$ai_evaluation_id` String, `$ai_evaluation_name` String, `$ai_evaluation_reasoning` String, `$ai_evaluation_result` String, `$ai_evaluation_result_type` String, `$ai_evaluation_runtime` String, `$ai_evaluation_skipped` String, `$ai_evaluation_start_time` String, `$ai_evaluation_type` String, `$ai_experiment_id` String, `$ai_framework` String, `$ai_generation_id` String, `$ai_http_status` String, `$ai_image_cost_usd` String, `$ai_image_input_tokens` String, `$ai_image_output_tokens` String, `$ai_input_cost_usd` String, `$ai_input_tokens` String, `$ai_is_error` String, `$ai_latency` String, `$ai_model` String, `$ai_output_cost_usd` String, `$ai_output_tokens` String, `$ai_parent_id` String, `$ai_prompt_name` String, `$ai_provider` String, `$ai_reasoning_tokens` String, `$ai_request_cost_usd` String, `$ai_session_id` String, `$ai_span_name` String, `$ai_span_type` String, `$ai_span_id` String, `$ai_sentiment_label` String, `$ai_sentiment_message_count` String, `$ai_sentiment_score` String, `$ai_target_event_id` String, `$ai_text_input_tokens` String, `$ai_text_output_tokens` String, `$ai_time_to_first_token` String, `$ai_total_cost_usd` String, `$ai_total_tokens` String, `$ai_tools_called` String, `$ai_trace_id` String, `$ai_trace_name` String, `$ai_video_cost_usd` String, `$ai_video_input_tokens` String, `$ai_video_output_tokens` String, `$ai_web_search_cost_usd` String, `$ai_web_search_count` String, `$ai_origin` String, `$anon_distinct_id` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$autocapture_disabled_server_side` LowCardinality(String), `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$configured_session_timeout_ms` String, `$current_url` String, `$dead_clicks_enabled_server_side` LowCardinality(String), `$device` String, `$device_id` String, `$device_model` String, `$device_manufacturer` String, `$device_name` String, `$device_type` LowCardinality(String), `$el_text` String, `$event_type` String, `$exception_capture_enabled_server_side` LowCardinality(String), `$exception_fingerprint` String, `$exception_functions` Array(String), `$exception_handled` String, `$exception_is_synthetic` String, `$exception_issue_id` String, `$exception_level` String, `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_message` String, `$exception_proposed_fingerprint` String, `$exception_sources` Array(String), `$exception_type` String, `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_accuracy_radius` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_latitude` String, `$geoip_longitude` String, `$geoip_postal_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$geoip_subdivision_1_code` String, `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$groups.organization` String, `$groups.project` String, `$groups.instance` String, `$host` String, `$initial_pathname` String, `$initial_referrer` String, `$initial_referring_domain` String, `$client_session_initial_pathname` String, `$client_session_initial_referring_host` String, `$client_session_initial_utm_campaign` String, `$client_session_initial_utm_content` String, `$client_session_initial_utm_medium` String, `$client_session_initial_utm_source` String, `$client_session_initial_utm_term` String, `$initial_search_engine` String, `$initialization_time` String, `$ip` String, `$is_identified` String, `$lib` String, `$lib_version` LowCardinality(String), `$lib_version__minor` String, `$mcp_client_name` String, `$mcp_client_user_agent` String, `$mcp_duration_ms` String, `$mcp_error_message` String, `$mcp_exec_tool_call_description` String, `$mcp_exec_tool_call_name` String, `$mcp_intent` String, `$mcp_intent_source` String, `$mcp_is_error` String, `$mcp_listed_tool_names` Array(String), `$mcp_oauth_client_name` String, `$mcp_organization_id` String, `$mcp_project_id` String, `$mcp_session_id` String, `$mcp_source` String, `$mcp_tool_category` String, `$mcp_tool_description` String, `$mcp_tool_name` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pageview_id` String, `$pathname` String, `$prev_pageview_max_content_percentage` String, `$prev_pageview_max_scroll_percentage` String, `$prev_pageview_pathname` String, `$process_person_profile` String, `$recording_status` String, `$referrer` String, `$referring_domain` String, `$replay_minimum_duration` String, `$replay_sample_rate` String, `$raw_user_agent` LowCardinality(String), `$search_engine` String, `$screen_height` LowCardinality(String), `$screen_name` String, `$screen_width` LowCardinality(String), `$session_id` String, `$session_entry_host` String, `$session_entry_pathname` String, `$session_entry_referrer` String, `$session_entry_referring_domain` String, `$session_entry_search_engine` String, `$session_entry_url` String, `$session_entry_utm_campaign` String, `$session_entry_utm_content` String, `$session_entry_utm_medium` String, `$session_entry_utm_source` String, `$session_entry_utm_term` String, `$session_recording_event_trigger_activated_session` String, `$session_recording_start_reason` String, `$session_recording_url_trigger_status` String, `$survey_id` String, `$survey_completed` String, `$survey_iteration` String, `$survey_iteration_start_date` String, `$survey_name` String, `$survey_partially_completed` String, `$survey_response` String, `$survey_response_1` String, `$survey_submission_id` String, `$time` String, `$timezone` LowCardinality(String), `$timezone_offset` LowCardinality(String), `$user_id` String, `$viewport_height` String, `$viewport_width` String, `$web_vitals_CLS_value` String, `$web_vitals_FCP_value` String, `$web_vitals_INP_value` String, `$web_vitals_LCP_value` String, `$web_vitals_enabled_server_side` LowCardinality(String), `$window_id` String, action String, action_name String, address String, apiErrorMessage String, apiName String, app_name String, app_version String, arguments String, audio_duration String, authentication_method String, auto_chapters String, auto_highlights String, category String, chain String, channel String, client_id String, client_name String, commit_sha String, community_id String, conceptName String, content_length String, content_safety String, context String, contributionError String, created_at String, created_by String, created_by_system String, currentScreen String, current_member_guid String, customer_email String, deal_id String, device_type String, disable_institution_search String, disfluencies String, distinct_id String, dual_channel String, duration String, email String, email_domain String, _kx String, dclid String, epik String, entity_detection String, env String, environment String, event String, event_count_in_month String, event_count_in_period String, events_projected_amount String, fbclid String, filter_profanity String, filters_count String, function String, gad_source String, gbraid String, gclid String, gclsrc String, gross String, group_id String, historical_migration String, iab_categories String, id String, index String, initial_dclid String, initial_fbclid String, initial_gclsrc String, initial__kx String, initial_epik String, initial_gad_source String, initial_gbraid String, initial_gclid String, initial_irclid String, initial_igshid String, initial_li_fat_id String, initial_mc_cid String, initial_msclkid String, initial_qclid String, initial_rdt_cid String, initial_sccid String, initial_utm_campaign String, initial_utm_content String, initial_utm_medium String, initial_utm_source String, initial_utm_term String, initial_step String, initial_ttclid String, initial_twclid String, initial_wbraid String, initiator String, insight String, institution_name String, inviteCode String, is_demo_project String, is_first_component_load String, is_first_event_for_user String, is_initial_aggregation String, is_oauth String, is_organization_first_user String, is_test_user String, item_count String, job_type String, key String, kind String, language_detection String, machine_id String, message String, method String, mode String, most_recent_app_os String, msclkid String, mc_cid String, igshid String, irclid String, li_fat_id String, qclid String, rdt_cid String, sccid String, ttclid String, twclid String, name String, nativeBuildVersion String, numberOfSecrets String, orderId String, orderType String, organization String, organization_id String, organization_name String, organizations String, origin String, osName String, owner_type String, page String, payment_status String, phone String, platform String, product String, product_analytics_projected_amount String, product_key String, progress String, protocol String, query String, ramp String, realm String, `record-id` String, recording_count_in_period String, recordings_projected_amount String, redact_pii String, referrer String, referrer_id String, region String, revenue String, screen_name String, sdk String, search_term String, sentiment_analysis String, session_replay_projected_amount String, sku String, source String, speaker_labels String, statusCode String, status_message String, store_url String, stripe_amount_paid String, subdomain String, subscriptionStatus String, summarization String, surface_tag String, survey_responses_count_in_period String, symbol String, tag String, target String, team String, testSessionId String, thread_id String, ticketId String, title String, token String, total_event_actions_count String, total_usd String, type String, url String, url_promotion_id String, usd String, user_agent String, user_email_domain String, user_platform String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, valid_ach_accounts String, wbraid String, wlo_enabled String, workplace_billing_plan String, workspace String, workspaceId String)')) AS properties,
-  JSONCleanPostHogTemporaryProperties(if(isValidJSON(source.properties) AND startsWith(trimLeft(source.properties), '{'), source.properties, '{}')) AS temporary_properties,
+  ifNull(accurateCastOrNull(cleaned.properties, 'JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)'), CAST(concat('{"$unparseable_properties":', toJSONString(source.properties), '}'), 'JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)')) AS properties,
+  ifNull(accurateCastOrNull(cleaned.temporary_properties, 'JSON(max_dynamic_paths = 32)'), CAST('{}', 'JSON(max_dynamic_paths = 32)')) AS temporary_properties,
+  cleaned.properties_null_keys AS properties_null_keys,
+  cleaned.temporary_properties_null_keys AS temporary_properties_null_keys,
   now64() AS inserted_at,
   timestamp,
   team_id,
@@ -1892,7 +1888,8 @@
   elements_chain,
   created_at,
   person_id,
-  ifNull(accurateCastOrNull(if(isValidJSON(source.person_properties) AND startsWith(trimLeft(source.person_properties), '{'), JSONCleanPostHogPersonProperties(source.person_properties), concat('{"$unparseable_properties":', toJSONString(source.person_properties), '}')), 'JSON(max_dynamic_paths = 0, `$app_version` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$browser` LowCardinality(String), `$browser_language` String, `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$current_url` String, `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$initial_current_url` String, `$initial_app_build` String, `$initial_app_name` String, `$initial_app_namespace` String, `$initial_app_version` String, `$initial_browser` LowCardinality(String), `$initial_browser_language` String, `$initial_browser_language_prefix` String, `$initial_browser_type` String, `$initial_browser_version` LowCardinality(String), `$initial_device` String, `$initial_device_id` String, `$initial_device_manufacturer` String, `$initial_device_model` String, `$initial_device_name` String, `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` String, `$initial_geoip_continent_code` String, `$initial_geoip_continent_name` String, `$initial_geoip_country_code` String, `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_postal_code` String, `$initial_geoip_subdivision_1_code` String, `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_subdivision_2_code` String, `$initial_geoip_subdivision_2_name` String, `$initial_geoip_time_zone` LowCardinality(String), `$initial_fbclid` String, `$initial_gad_source` String, `$initial_gbraid` String, `$initial_gclid` String, `$initial_gclsrc` String, `$initial_dclid` String, `$initial_msclkid` String, `$initial_twclid` String, `$initial_li_fat_id` String, `$initial_mc_cid` String, `$initial_igshid` String, `$initial_ttclid` String, `$initial_rdt_cid` String, `$initial_epik` String, `$initial_qclid` String, `$initial_sccid` String, `$initial_irclid` String, `$initial__kx` String, `$initial_pathname` String, `$initial_os` LowCardinality(String), `$initial_os_name` String, `$initial_os_version` LowCardinality(String), `$initial_raw_user_agent` LowCardinality(String), `$initial_referrer` String, `$initial_referring_domain` String, `$initial_screen_height` LowCardinality(String), `$initial_screen_width` LowCardinality(String), `$initial_search_engine` String, `$initial_utm_campaign` String, `$initial_utm_content` String, `$initial_utm_medium` String, `$initial_utm_source` String, `$initial_utm_term` String, `$initial_viewport_height` String, `$initial_viewport_width` String, `$initial_wbraid` String, `$os_name` String, `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$raw_user_agent` LowCardinality(String), `$referrer` String, `$screen_height` LowCardinality(String), `$screen_width` LowCardinality(String), `$search_engine` String, `$viewport_height` String, `$viewport_width` String, `$referring_domain` String, `$email` String, `$last_seen_survey_date` String, `$organization_id` String, `$product_tour_last_seen_date` String, `$survey_last_seen_date` String, `Email Domain` String, companyName String, customer String, email String, first_name String, hubspot_score String, id String, icp_role String, is_email_verified String, is_signed_up String, last_name String, name String, organization_id String, organization_member_count String, role String, role_at_organization String, serverMarketing String, serverMasterclass String, user_email_domain String, username String, utm_source String, utm_medium String, utm_campaign String, utm_content String, utm_term String, gclid String, gad_source String, gclsrc String, dclid String, gbraid String, wbraid String, fbclid String, msclkid String, twclid String, li_fat_id String, mc_cid String, igshid String, ttclid String, rdt_cid String, epik String, qclid String, sccid String, irclid String, _kx String, val_region String)'), CAST(concat('{"$unparseable_properties":', toJSONString(source.person_properties), '}'), 'JSON(max_dynamic_paths = 0, `$app_version` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$browser` LowCardinality(String), `$browser_language` String, `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$current_url` String, `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$initial_current_url` String, `$initial_app_build` String, `$initial_app_name` String, `$initial_app_namespace` String, `$initial_app_version` String, `$initial_browser` LowCardinality(String), `$initial_browser_language` String, `$initial_browser_language_prefix` String, `$initial_browser_type` String, `$initial_browser_version` LowCardinality(String), `$initial_device` String, `$initial_device_id` String, `$initial_device_manufacturer` String, `$initial_device_model` String, `$initial_device_name` String, `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` String, `$initial_geoip_continent_code` String, `$initial_geoip_continent_name` String, `$initial_geoip_country_code` String, `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_postal_code` String, `$initial_geoip_subdivision_1_code` String, `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_subdivision_2_code` String, `$initial_geoip_subdivision_2_name` String, `$initial_geoip_time_zone` LowCardinality(String), `$initial_fbclid` String, `$initial_gad_source` String, `$initial_gbraid` String, `$initial_gclid` String, `$initial_gclsrc` String, `$initial_dclid` String, `$initial_msclkid` String, `$initial_twclid` String, `$initial_li_fat_id` String, `$initial_mc_cid` String, `$initial_igshid` String, `$initial_ttclid` String, `$initial_rdt_cid` String, `$initial_epik` String, `$initial_qclid` String, `$initial_sccid` String, `$initial_irclid` String, `$initial__kx` String, `$initial_pathname` String, `$initial_os` LowCardinality(String), `$initial_os_name` String, `$initial_os_version` LowCardinality(String), `$initial_raw_user_agent` LowCardinality(String), `$initial_referrer` String, `$initial_referring_domain` String, `$initial_screen_height` LowCardinality(String), `$initial_screen_width` LowCardinality(String), `$initial_search_engine` String, `$initial_utm_campaign` String, `$initial_utm_content` String, `$initial_utm_medium` String, `$initial_utm_source` String, `$initial_utm_term` String, `$initial_viewport_height` String, `$initial_viewport_width` String, `$initial_wbraid` String, `$os_name` String, `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$raw_user_agent` LowCardinality(String), `$referrer` String, `$screen_height` LowCardinality(String), `$screen_width` LowCardinality(String), `$search_engine` String, `$viewport_height` String, `$viewport_width` String, `$referring_domain` String, `$email` String, `$last_seen_survey_date` String, `$organization_id` String, `$product_tour_last_seen_date` String, `$survey_last_seen_date` String, `Email Domain` String, companyName String, customer String, email String, first_name String, hubspot_score String, id String, icp_role String, is_email_verified String, is_signed_up String, last_name String, name String, organization_id String, organization_member_count String, role String, role_at_organization String, serverMarketing String, serverMasterclass String, user_email_domain String, username String, utm_source String, utm_medium String, utm_campaign String, utm_content String, utm_term String, gclid String, gad_source String, gclsrc String, dclid String, gbraid String, wbraid String, fbclid String, msclkid String, twclid String, li_fat_id String, mc_cid String, igshid String, ttclid String, rdt_cid String, epik String, qclid String, sccid String, irclid String, _kx String, val_region String)')) AS person_properties,
+  ifNull(accurateCastOrNull(cleaned.person_properties, 'JSON(max_dynamic_paths = 256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String))'), CAST(concat('{"$unparseable_properties":', toJSONString(source.person_properties), '}'), 'JSON(max_dynamic_paths = 256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String))')) AS person_properties,
+  cleaned.person_properties_null_keys AS person_properties_null_keys,
   person_created_at,
   group0_properties,
   group1_properties,
@@ -1910,15 +1907,26 @@
   _timestamp,
   _offset,
   _partition,
+  consumer_breadcrumbs
+  FROM
+  (
+  SELECT
+  *,
+  _timestamp,
+  _offset,
+  _partition,
   arrayMap(
       i -> _headers.value[i],
       arrayFilter(
           i -> _headers.name[i] = 'kafka-consumer-breadcrumbs',
           arrayEnumerate(_headers.name)
       )
-  ) as consumer_breadcrumbs
-  FROM posthog_test.kafka_events_json_native_json AS source
+  ) AS consumer_breadcrumbs,
+  JSONCleanPostHogEvent(properties, person_properties) AS cleaned
+  FROM posthog_test.kafka_events_json_native_json
+  ) AS source
   )
+  SETTINGS input_format_try_infer_dates = 0, input_format_try_infer_datetimes = 0, json_type_escape_dots_in_keys = 1, type_json_skip_duplicated_paths = 1
   
   '''
 # ---
@@ -2115,10 +2123,13 @@
       distinct_id,
       created_at,
       person_id,
-      -- Fall back to the Kafka message timestamp, which is stable across replays
-      -- (inserted_at checkpoints the sync_feature_flag_last_called task, and an
-      -- epoch-stamped row would stay invisible to it forever).
-      if(inserted_at = toDateTime64('1970-01-01 00:00:00', 6, 'UTC'), _timestamp, inserted_at) AS inserted_at,
+      -- inserted_at is the time this view processes the row, as in the native-JSON
+      -- events MV. The sync_feature_flag_last_called checkpoint and the deletion
+      -- sweeps need a row that ClickHouse consumes after their cutoff to fall after
+      -- it. The Kafka message time is earlier by the consumer lag. The Distributed
+      -- forward and the replication happen after this stamp, so those readers still
+      -- need a buffer.
+      now64() AS inserted_at,
       _timestamp,
       _offset,
       _partition
@@ -2401,7 +2412,7 @@
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.ingestion_warnings_v2', '{replica}-{shard}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, type, timestamp)
-  TTL toDateTime(timestamp) + INTERVAL 90 DAY
+  
   
   '''
 # ---
@@ -3168,20 +3179,6 @@
           -- created_at,
           version
       FROM `posthog_test`.`person_overrides`
-  
-  '''
-# ---
-# name: test_create_table_query[kafka_person_property_mutation_log]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS kafka_person_property_mutation_log
-  (
-      team_id Int64,
-      uuid UUID,
-      properties String
-  )
-  ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_person_property_mutation_log', kafka_format = 'JSONEachRow')
-  SETTINGS kafka_skip_broken_messages = 100
   
   '''
 # ---
@@ -4767,345 +4764,6 @@
   
   '''
 # ---
-# name: test_create_table_query[metrics2_input]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS posthog_test.metrics2_input
-  (
-      `uuid` String,
-      `team_id` Int32,
-      `metric_name` LowCardinality(String),
-      `series_fingerprint` UInt64,
-      `resource_fingerprint` UInt64,
-      `timestamp` DateTime64(6),
-      `observed_timestamp` DateTime64(6),
-      `original_expiry_timestamp` DateTime64(6),
-      `service_name` LowCardinality(String),
-      `metric_type` LowCardinality(String),
-      `value` Float64,
-      `count` UInt64,
-      `histogram_bounds` Array(Float64),
-      `histogram_counts` Array(UInt64),
-      `trace_id` String,
-      `span_id` String,
-      `trace_flags` Int32,
-      `has_labels` Bool,
-      `unit` LowCardinality(String),
-      `aggregation_temporality` LowCardinality(String),
-      `is_monotonic` Bool,
-      `instrumentation_scope` String,
-      `resource_attributes` Map(LowCardinality(String), String),
-      `attributes` Map(LowCardinality(String), String),
-      `_partition` UInt32,
-      `_topic` String,
-      `_offset` UInt64
-  )
-  ENGINE = Null
-  
-  '''
-# ---
-# name: test_create_table_query[metrics2_input_to_metric_attributes3]
-  '''
-  
-  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_metric_attributes3 TO posthog_test.metric_attributes3
-  (
-      `team_id` Int32,
-      `metric_name` LowCardinality(String),
-      `time_bucket` DateTime64(0),
-      `original_expiry_time_bucket` DateTime64(0),
-      `service_name` LowCardinality(String),
-      `attribute_key` LowCardinality(String),
-      `attribute_value` String,
-      `attribute_type` LowCardinality(String),
-      `attribute_count` SimpleAggregateFunction(sum, UInt64)
-  )
-  AS SELECT
-      team_id,
-      metric_name,
-      time_bucket,
-      original_expiry_time_bucket,
-      service_name,
-      attribute_key,
-      attribute_value,
-      attribute_type,
-      attribute_count
-  FROM
-  (
-      SELECT
-          team_id AS team_id,
-          metric_name AS metric_name,
-          toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-          toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-          service_name AS service_name,
-          mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
-          arrayJoin(filtered_attributes) AS attribute,
-          'metric' AS attribute_type,
-          attribute.1 AS attribute_key,
-          attribute.2 AS attribute_value,
-          sumSimpleState(1) AS attribute_count
-      FROM posthog_test.metrics2_input
-      WHERE has_labels
-      GROUP BY
-          team_id,
-          metric_name,
-          time_bucket,
-          original_expiry_time_bucket,
-          service_name,
-          filtered_attributes
-  )
-  
-  '''
-# ---
-# name: test_create_table_query[metrics2_input_to_metric_attributes]
-  '''
-  
-  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_metric_attributes TO posthog_test.metric_attributes2
-  (
-      `team_id` Int32,
-      `time_bucket` DateTime64(0),
-      `original_expiry_time_bucket` DateTime64(0),
-      `service_name` LowCardinality(String),
-      `attribute_key` LowCardinality(String),
-      `attribute_value` String,
-      `attribute_type` LowCardinality(String),
-      `attribute_count` SimpleAggregateFunction(sum, UInt64)
-  )
-  AS SELECT
-      team_id,
-      time_bucket,
-      original_expiry_time_bucket,
-      service_name,
-      attribute_key,
-      attribute_value,
-      attribute_type,
-      attribute_count
-  FROM
-  (
-      SELECT
-          team_id AS team_id,
-          toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-          toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-          service_name AS service_name,
-          mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
-          arrayJoin(filtered_attributes) AS attribute,
-          'metric' AS attribute_type,
-          attribute.1 AS attribute_key,
-          attribute.2 AS attribute_value,
-          sumSimpleState(1) AS attribute_count
-      FROM posthog_test.metrics2_input
-      WHERE has_labels
-      GROUP BY
-          team_id,
-          time_bucket,
-          original_expiry_time_bucket,
-          service_name,
-          filtered_attributes
-  )
-  
-  '''
-# ---
-# name: test_create_table_query[metrics2_input_to_metric_names3]
-  '''
-  
-  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_metric_names3 TO posthog_test.metric_names3
-  (
-      `team_id` Int32,
-      `metric_name` LowCardinality(String),
-      `time_bucket` DateTime64(0),
-      `original_expiry_time_bucket` DateTime64(0),
-      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6))
-  )
-  AS SELECT
-      team_id,
-      metric_name,
-      toStartOfHour(timestamp) AS time_bucket,
-      toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
-      maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
-  FROM posthog_test.metrics2_input AS input
-  WHERE has_labels
-  GROUP BY team_id, time_bucket, metric_name, original_expiry_time_bucket
-  
-  '''
-# ---
-# name: test_create_table_query[metrics2_input_to_metric_series3]
-  '''
-  
-  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_metric_series3 TO posthog_test.metric_series3
-  AS SELECT
-      team_id,
-      metric_name,
-      series_fingerprint,
-      metric_type,
-      unit,
-      aggregation_temporality,
-      is_monotonic,
-      service_name,
-      instrumentation_scope,
-      resource_attributes,
-      attributes,
-      timestamp AS last_seen,
-      original_expiry_timestamp
-  FROM posthog_test.metrics2_input
-  WHERE has_labels
-  
-  '''
-# ---
-# name: test_create_table_query[metrics2_input_to_metric_series]
-  '''
-  
-  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_metric_series TO posthog_test.metric_series2
-  AS SELECT
-      team_id,
-      metric_name,
-      series_fingerprint,
-      metric_type,
-      unit,
-      aggregation_temporality,
-      is_monotonic,
-      service_name,
-      instrumentation_scope,
-      resource_attributes,
-      attributes,
-      timestamp AS last_seen,
-      original_expiry_timestamp
-  FROM posthog_test.metrics2_input
-  WHERE has_labels
-  
-  '''
-# ---
-# name: test_create_table_query[metrics2_input_to_metrics]
-  '''
-  
-  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_metrics TO posthog_test.metrics2
-  AS SELECT
-      team_id,
-      metric_name,
-      series_fingerprint,
-      resource_fingerprint,
-      timestamp,
-      observed_timestamp,
-      original_expiry_timestamp,
-      service_name,
-      metric_type,
-      value,
-      count,
-      histogram_bounds,
-      histogram_counts,
-      trace_id,
-      span_id,
-      trace_flags,
-      has_labels,
-      unit,
-      aggregation_temporality,
-      is_monotonic,
-      instrumentation_scope,
-      _partition,
-      _topic,
-      _offset
-  FROM posthog_test.metrics2_input
-  
-  '''
-# ---
-# name: test_create_table_query[metrics2_input_to_resource_attributes3]
-  '''
-  
-  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_resource_attributes3 TO posthog_test.metric_attributes3
-  (
-      `team_id` Int32,
-      `metric_name` LowCardinality(String),
-      `time_bucket` DateTime64(0),
-      `original_expiry_time_bucket` DateTime64(0),
-      `service_name` LowCardinality(String),
-      `attribute_key` LowCardinality(String),
-      `attribute_value` String,
-      `attribute_type` LowCardinality(String),
-      `attribute_count` SimpleAggregateFunction(sum, UInt64)
-  )
-  AS SELECT
-      team_id,
-      metric_name,
-      time_bucket,
-      original_expiry_time_bucket,
-      service_name,
-      attribute_key,
-      attribute_value,
-      attribute_type,
-      attribute_count
-  FROM
-  (
-      SELECT
-          team_id AS team_id,
-          metric_name AS metric_name,
-          toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-          toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-          service_name AS service_name,
-          resource_attributes AS filtered_attributes,
-          arrayJoin(filtered_attributes) AS attribute,
-          'resource' AS attribute_type,
-          attribute.1 AS attribute_key,
-          attribute.2 AS attribute_value,
-          sumSimpleState(1) AS attribute_count
-      FROM posthog_test.metrics2_input
-      WHERE has_labels
-      GROUP BY
-          team_id,
-          metric_name,
-          time_bucket,
-          original_expiry_time_bucket,
-          service_name,
-          filtered_attributes
-  )
-  
-  '''
-# ---
-# name: test_create_table_query[metrics2_input_to_resource_attributes]
-  '''
-  
-  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_resource_attributes TO posthog_test.metric_attributes2
-  (
-      `team_id` Int32,
-      `time_bucket` DateTime64(0),
-      `original_expiry_time_bucket` DateTime64(0),
-      `service_name` LowCardinality(String),
-      `attribute_key` LowCardinality(String),
-      `attribute_value` String,
-      `attribute_type` LowCardinality(String),
-      `attribute_count` SimpleAggregateFunction(sum, UInt64)
-  )
-  AS SELECT
-      team_id,
-      time_bucket,
-      original_expiry_time_bucket,
-      service_name,
-      attribute_key,
-      attribute_value,
-      attribute_type,
-      attribute_count
-  FROM
-  (
-      SELECT
-          team_id AS team_id,
-          toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-          toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-          service_name AS service_name,
-          resource_attributes AS filtered_attributes,
-          arrayJoin(filtered_attributes) AS attribute,
-          'resource' AS attribute_type,
-          attribute.1 AS attribute_key,
-          attribute.2 AS attribute_value,
-          sumSimpleState(1) AS attribute_count
-      FROM posthog_test.metrics2_input
-      WHERE has_labels
-      GROUP BY
-          team_id,
-          time_bucket,
-          original_expiry_time_bucket,
-          service_name,
-          filtered_attributes
-  )
-  
-  '''
-# ---
 # name: test_create_table_query[metrics4_attributes]
   '''
   
@@ -5123,7 +4781,8 @@
       INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
-      INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
+      INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
+      INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_attributes', '{replica}-{shard}')
   PARTITION BY toDate(original_expiry_time_bucket)
@@ -5233,17 +4892,19 @@
       `metric_name` LowCardinality(String),
       `time_bucket` DateTime64(0),
       `original_expiry_time_bucket` DateTime64(0),
-      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6))
+      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6)),
+      `service_name` LowCardinality(String)
   )
   AS SELECT
       team_id,
       metric_name,
       toStartOfHour(timestamp) AS time_bucket,
       toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
-      maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
+      maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp,
+      service_name
   FROM posthog_test.metrics4_input AS input
   WHERE has_labels
-  GROUP BY team_id, time_bucket, metric_name, original_expiry_time_bucket
+  GROUP BY team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name
   
   '''
 # ---
@@ -5369,11 +5030,12 @@
       `metric_name` LowCardinality(String),
       `time_bucket` DateTime64(0),
       `original_expiry_time_bucket` DateTime64(0),
-      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6))
+      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6)),
+      `service_name` LowCardinality(String)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_names', '{replica}-{shard}')
   PARTITION BY toDate(original_expiry_time_bucket)
-  ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket)
+  ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name)
   TTL original_expiry_timestamp
   SETTINGS index_granularity = 8192
   
@@ -5450,7 +5112,18 @@
       INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
-      INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1
+      INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
+      PROJECTION services_by_hour
+      (
+          SELECT
+              team_id,
+              time_bucket,
+              service_name,
+              uniqExact(metric_name),
+              uniq(series_fingerprint),
+              max(timestamp)
+          GROUP BY team_id, time_bucket, service_name
+      )
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_series', '{replica}-{shard}', timestamp)
   PARTITION BY toStartOfWeek(original_expiry_timestamp)
@@ -5458,7 +5131,8 @@
   TTL original_expiry_timestamp
   SETTINGS
       index_granularity = 1024,
-      ttl_only_drop_parts = 1
+      ttl_only_drop_parts = 1,
+      deduplicate_merge_projection_mode = 'rebuild'
   
   '''
 # ---
@@ -5779,6 +5453,38 @@
   
   '''
 # ---
+# name: test_create_table_query[person_group_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_group_membership
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      group_key String,
+      distinct_id String,
+      first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key))
+  
+  '''
+# ---
+# name: test_create_table_query[person_group_membership_config]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_group_membership_config
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      enabled UInt8,
+      version UInt64
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_group_membership_config', '{replica}-{shard}', version)
+  ORDER BY team_id
+  SETTINGS index_granularity = 8192
+  
+  '''
+# ---
 # name: test_create_table_query[person_mv]
   '''
   
@@ -5883,57 +5589,6 @@
   
   '''
 # ---
-# name: test_create_table_query[person_property_mutation_log]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS person_property_mutation_log
-  (
-      team_id Int64,
-      event_uuid UUID,
-      properties String,
-      ingested_at DateTime('UTC')
-  )
-  ENGINE = Distributed('aux', 'posthog_test', 'person_property_mutation_log_data')
-  
-  '''
-# ---
-# name: test_create_table_query[person_property_mutation_log_data]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS person_property_mutation_log_data
-  (
-      team_id Int64,
-      event_uuid UUID,
-      properties String,
-      ingested_at DateTime('UTC')
-  )
-  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_property_mutation_log_data', '{replica}-{shard}', ingested_at)
-  PARTITION BY toDate(ingested_at)
-  ORDER BY (team_id, event_uuid)
-  TTL ingested_at + INTERVAL 30 DAY
-  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
-  
-  '''
-# ---
-# name: test_create_table_query[person_property_mutation_log_mv]
-  '''
-  
-  CREATE MATERIALIZED VIEW IF NOT EXISTS person_property_mutation_log_mv
-  TO person_property_mutation_log
-  AS SELECT
-      team_id,
-      uuid AS event_uuid,
-      concat('{', arrayStringConcat(arrayMap(
-          property -> concat(toJSONString(property.1), ':', property.2),
-          arrayFilter(property -> property.1 IN ('$set', '$set_once', '$unset'),
-              JSONExtractKeysAndValuesRaw(source.properties))
-      ), ','), '}') AS properties,
-      toDateTime(_timestamp, 'UTC') AS ingested_at
-  FROM kafka_person_property_mutation_log AS source
-  WHERE JSONHas(source.properties, '$set') OR JSONHas(source.properties, '$set_once') OR JSONHas(source.properties, '$unset')
-  
-  '''
-# ---
 # name: test_create_table_query[person_static_cohort]
   '''
   
@@ -5972,6 +5627,37 @@
       ORDER BY (team_id, domain, id)
       SETTINGS index_granularity=512
       
+  '''
+# ---
+# name: test_create_table_query[platform_alert_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS platform_alert_events
+  (
+      team_id Int64,
+      configuration_id UUID,
+      alert_id UUID,
+      grouping_key String,
+      evaluation_key String,
+      kind LowCardinality(String),
+      alert_name String,
+      previous_state LowCardinality(String),
+      state LowCardinality(String),
+      episode_started_at Nullable(DateTime64(6, 'UTC')),
+      value Nullable(Float64),
+      labels Map(String, String),
+      condition_snapshot String,
+      source_config_snapshot String,
+      query_duration_ms Nullable(UInt32),
+      error_message String,
+      consecutive_failures UInt32,
+      muted_notification LowCardinality(String),
+      occurred_at DateTime64(6, 'UTC'),
+      source_kind LowCardinality(String),
+      expires_at Date DEFAULT today() + toIntervalDay(90)
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'sharded_platform_alert_events', cityHash64(team_id))
+  
   '''
 # ---
 # name: test_create_table_query[plugin_log_entries]
@@ -6458,7 +6144,11 @@
       lc_dagster__run_id String ALIAS log_comment.`dagster.run_id`::String,
       lc_dagster__owner String ALIAS log_comment.`dagster.tags.owner`::String,
   
-      lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
+      lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
+  
+      lc_plan_fingerprint String ALIAS ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), ''),
+      lc_estimated_rows Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0),
+      lc_estimated_bytes Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)
   ) ENGINE = Distributed('ops', 'posthog_test', 'sharded_query_log_archive') 
   '''
 # ---
@@ -7958,8 +7648,10 @@
   (
       uuid UUID,
       event String,
-      properties JSON(max_dynamic_paths = 0, `$agent_application_id` String, `$agent_revision_id` String, `$agent_session_id` String, `$agent_turn` String, `$ai_audio_cost_usd` String, `$ai_audio_input_tokens` String, `$ai_audio_output_tokens` String, `$ai_batch_run_id` String, `$ai_cache_creation_input_tokens` String, `$ai_cache_read_input_tokens` String, `$ai_error` String, `$ai_error_normalized` String, `$ai_error_type` String, `$ai_evaluation_allows_na` String, `$ai_evaluation_applicable` String, `$ai_evaluation_id` String, `$ai_evaluation_name` String, `$ai_evaluation_reasoning` String, `$ai_evaluation_result` String, `$ai_evaluation_result_type` String, `$ai_evaluation_runtime` String, `$ai_evaluation_skipped` String, `$ai_evaluation_start_time` String, `$ai_evaluation_type` String, `$ai_experiment_id` String, `$ai_framework` String, `$ai_generation_id` String, `$ai_http_status` String, `$ai_image_cost_usd` String, `$ai_image_input_tokens` String, `$ai_image_output_tokens` String, `$ai_input_cost_usd` String, `$ai_input_tokens` String, `$ai_is_error` String, `$ai_latency` String, `$ai_model` String, `$ai_output_cost_usd` String, `$ai_output_tokens` String, `$ai_parent_id` String, `$ai_prompt_name` String, `$ai_provider` String, `$ai_reasoning_tokens` String, `$ai_request_cost_usd` String, `$ai_session_id` String, `$ai_span_name` String, `$ai_span_type` String, `$ai_span_id` String, `$ai_sentiment_label` String, `$ai_sentiment_message_count` String, `$ai_sentiment_score` String, `$ai_target_event_id` String, `$ai_text_input_tokens` String, `$ai_text_output_tokens` String, `$ai_time_to_first_token` String, `$ai_total_cost_usd` String, `$ai_total_tokens` String, `$ai_tools_called` String, `$ai_trace_id` String, `$ai_trace_name` String, `$ai_video_cost_usd` String, `$ai_video_input_tokens` String, `$ai_video_output_tokens` String, `$ai_web_search_cost_usd` String, `$ai_web_search_count` String, `$ai_origin` String, `$anon_distinct_id` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$autocapture_disabled_server_side` LowCardinality(String), `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$configured_session_timeout_ms` String, `$current_url` String, `$dead_clicks_enabled_server_side` LowCardinality(String), `$device` String, `$device_id` String, `$device_model` String, `$device_manufacturer` String, `$device_name` String, `$device_type` LowCardinality(String), `$el_text` String, `$event_type` String, `$exception_capture_enabled_server_side` LowCardinality(String), `$exception_fingerprint` String, `$exception_functions` Array(String), `$exception_handled` String, `$exception_is_synthetic` String, `$exception_issue_id` String, `$exception_level` String, `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_message` String, `$exception_proposed_fingerprint` String, `$exception_sources` Array(String), `$exception_type` String, `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_accuracy_radius` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_latitude` String, `$geoip_longitude` String, `$geoip_postal_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$geoip_subdivision_1_code` String, `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$groups.organization` String, `$groups.project` String, `$groups.instance` String, `$host` String, `$initial_pathname` String, `$initial_referrer` String, `$initial_referring_domain` String, `$client_session_initial_pathname` String, `$client_session_initial_referring_host` String, `$client_session_initial_utm_campaign` String, `$client_session_initial_utm_content` String, `$client_session_initial_utm_medium` String, `$client_session_initial_utm_source` String, `$client_session_initial_utm_term` String, `$initial_search_engine` String, `$initialization_time` String, `$ip` String, `$is_identified` String, `$lib` String, `$lib_version` LowCardinality(String), `$lib_version__minor` String, `$mcp_client_name` String, `$mcp_client_user_agent` String, `$mcp_duration_ms` String, `$mcp_error_message` String, `$mcp_exec_tool_call_description` String, `$mcp_exec_tool_call_name` String, `$mcp_intent` String, `$mcp_intent_source` String, `$mcp_is_error` String, `$mcp_listed_tool_names` Array(String), `$mcp_oauth_client_name` String, `$mcp_organization_id` String, `$mcp_project_id` String, `$mcp_session_id` String, `$mcp_source` String, `$mcp_tool_category` String, `$mcp_tool_description` String, `$mcp_tool_name` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pageview_id` String, `$pathname` String, `$prev_pageview_max_content_percentage` String, `$prev_pageview_max_scroll_percentage` String, `$prev_pageview_pathname` String, `$process_person_profile` String, `$recording_status` String, `$referrer` String, `$referring_domain` String, `$replay_minimum_duration` String, `$replay_sample_rate` String, `$raw_user_agent` LowCardinality(String), `$search_engine` String, `$screen_height` LowCardinality(String), `$screen_name` String, `$screen_width` LowCardinality(String), `$session_id` String, `$session_entry_host` String, `$session_entry_pathname` String, `$session_entry_referrer` String, `$session_entry_referring_domain` String, `$session_entry_search_engine` String, `$session_entry_url` String, `$session_entry_utm_campaign` String, `$session_entry_utm_content` String, `$session_entry_utm_medium` String, `$session_entry_utm_source` String, `$session_entry_utm_term` String, `$session_recording_event_trigger_activated_session` String, `$session_recording_start_reason` String, `$session_recording_url_trigger_status` String, `$survey_id` String, `$survey_completed` String, `$survey_iteration` String, `$survey_iteration_start_date` String, `$survey_name` String, `$survey_partially_completed` String, `$survey_response` String, `$survey_response_1` String, `$survey_submission_id` String, `$time` String, `$timezone` LowCardinality(String), `$timezone_offset` LowCardinality(String), `$user_id` String, `$viewport_height` String, `$viewport_width` String, `$web_vitals_CLS_value` String, `$web_vitals_FCP_value` String, `$web_vitals_INP_value` String, `$web_vitals_LCP_value` String, `$web_vitals_enabled_server_side` LowCardinality(String), `$window_id` String, action String, action_name String, address String, apiErrorMessage String, apiName String, app_name String, app_version String, arguments String, audio_duration String, authentication_method String, auto_chapters String, auto_highlights String, category String, chain String, channel String, client_id String, client_name String, commit_sha String, community_id String, conceptName String, content_length String, content_safety String, context String, contributionError String, created_at String, created_by String, created_by_system String, currentScreen String, current_member_guid String, customer_email String, deal_id String, device_type String, disable_institution_search String, disfluencies String, distinct_id String, dual_channel String, duration String, email String, email_domain String, _kx String, dclid String, epik String, entity_detection String, env String, environment String, event String, event_count_in_month String, event_count_in_period String, events_projected_amount String, fbclid String, filter_profanity String, filters_count String, function String, gad_source String, gbraid String, gclid String, gclsrc String, gross String, group_id String, historical_migration String, iab_categories String, id String, index String, initial_dclid String, initial_fbclid String, initial_gclsrc String, initial__kx String, initial_epik String, initial_gad_source String, initial_gbraid String, initial_gclid String, initial_irclid String, initial_igshid String, initial_li_fat_id String, initial_mc_cid String, initial_msclkid String, initial_qclid String, initial_rdt_cid String, initial_sccid String, initial_utm_campaign String, initial_utm_content String, initial_utm_medium String, initial_utm_source String, initial_utm_term String, initial_step String, initial_ttclid String, initial_twclid String, initial_wbraid String, initiator String, insight String, institution_name String, inviteCode String, is_demo_project String, is_first_component_load String, is_first_event_for_user String, is_initial_aggregation String, is_oauth String, is_organization_first_user String, is_test_user String, item_count String, job_type String, key String, kind String, language_detection String, machine_id String, message String, method String, mode String, most_recent_app_os String, msclkid String, mc_cid String, igshid String, irclid String, li_fat_id String, qclid String, rdt_cid String, sccid String, ttclid String, twclid String, name String, nativeBuildVersion String, numberOfSecrets String, orderId String, orderType String, organization String, organization_id String, organization_name String, organizations String, origin String, osName String, owner_type String, page String, payment_status String, phone String, platform String, product String, product_analytics_projected_amount String, product_key String, progress String, protocol String, query String, ramp String, realm String, `record-id` String, recording_count_in_period String, recordings_projected_amount String, redact_pii String, referrer String, referrer_id String, region String, revenue String, screen_name String, sdk String, search_term String, sentiment_analysis String, session_replay_projected_amount String, sku String, source String, speaker_labels String, statusCode String, status_message String, store_url String, stripe_amount_paid String, subdomain String, subscriptionStatus String, summarization String, surface_tag String, survey_responses_count_in_period String, symbol String, tag String, target String, team String, testSessionId String, thread_id String, ticketId String, title String, token String, total_event_actions_count String, total_usd String, type String, url String, url_promotion_id String, usd String, user_agent String, user_email_domain String, user_platform String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, valid_ach_accounts String, wbraid String, wlo_enabled String, workplace_billing_plan String, workspace String, workspaceId String),
+      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
       temporary_properties JSON(max_dynamic_paths = 32) TTL toDateTime(inserted_at) + INTERVAL 60 DAY,
+      properties_null_keys Array(LowCardinality(String)),
+      temporary_properties_null_keys Array(LowCardinality(String)) TTL toDateTime(inserted_at) + INTERVAL 60 DAY,
       timestamp DateTime64(6, 'UTC') CODEC(GCD, Default),
       team_id Int64,
       distinct_id String,
@@ -7968,7 +7660,8 @@
       _offset UInt64 CODEC(T64, Default),
       elements_chain String,
       person_id UUID,
-      person_properties JSON(max_dynamic_paths = 0, `$app_version` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$browser` LowCardinality(String), `$browser_language` String, `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$current_url` String, `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$initial_current_url` String, `$initial_app_build` String, `$initial_app_name` String, `$initial_app_namespace` String, `$initial_app_version` String, `$initial_browser` LowCardinality(String), `$initial_browser_language` String, `$initial_browser_language_prefix` String, `$initial_browser_type` String, `$initial_browser_version` LowCardinality(String), `$initial_device` String, `$initial_device_id` String, `$initial_device_manufacturer` String, `$initial_device_model` String, `$initial_device_name` String, `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` String, `$initial_geoip_continent_code` String, `$initial_geoip_continent_name` String, `$initial_geoip_country_code` String, `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_postal_code` String, `$initial_geoip_subdivision_1_code` String, `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_subdivision_2_code` String, `$initial_geoip_subdivision_2_name` String, `$initial_geoip_time_zone` LowCardinality(String), `$initial_fbclid` String, `$initial_gad_source` String, `$initial_gbraid` String, `$initial_gclid` String, `$initial_gclsrc` String, `$initial_dclid` String, `$initial_msclkid` String, `$initial_twclid` String, `$initial_li_fat_id` String, `$initial_mc_cid` String, `$initial_igshid` String, `$initial_ttclid` String, `$initial_rdt_cid` String, `$initial_epik` String, `$initial_qclid` String, `$initial_sccid` String, `$initial_irclid` String, `$initial__kx` String, `$initial_pathname` String, `$initial_os` LowCardinality(String), `$initial_os_name` String, `$initial_os_version` LowCardinality(String), `$initial_raw_user_agent` LowCardinality(String), `$initial_referrer` String, `$initial_referring_domain` String, `$initial_screen_height` LowCardinality(String), `$initial_screen_width` LowCardinality(String), `$initial_search_engine` String, `$initial_utm_campaign` String, `$initial_utm_content` String, `$initial_utm_medium` String, `$initial_utm_source` String, `$initial_utm_term` String, `$initial_viewport_height` String, `$initial_viewport_width` String, `$initial_wbraid` String, `$os_name` String, `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$raw_user_agent` LowCardinality(String), `$referrer` String, `$screen_height` LowCardinality(String), `$screen_width` LowCardinality(String), `$search_engine` String, `$viewport_height` String, `$viewport_width` String, `$referring_domain` String, `$email` String, `$last_seen_survey_date` String, `$organization_id` String, `$product_tour_last_seen_date` String, `$survey_last_seen_date` String, `Email Domain` String, companyName String, customer String, email String, first_name String, hubspot_score String, id String, icp_role String, is_email_verified String, is_signed_up String, last_name String, name String, organization_id String, organization_member_count String, role String, role_at_organization String, serverMarketing String, serverMasterclass String, user_email_domain String, username String, utm_source String, utm_medium String, utm_campaign String, utm_content String, utm_term String, gclid String, gad_source String, gclsrc String, dclid String, gbraid String, wbraid String, fbclid String, msclkid String, twclid String, li_fat_id String, mc_cid String, igshid String, ttclid String, rdt_cid String, epik String, qclid String, sccid String, irclid String, _kx String, val_region String),
+      person_properties JSON(max_dynamic_paths = 256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String)),
+      person_properties_null_keys Array(LowCardinality(String)),
       group0_properties String,
       group1_properties String,
       group2_properties String,
@@ -8407,6 +8100,61 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_person_group_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_person_group_membership
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      group_key String,
+      distinct_id String,
+      first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      INDEX idx_distinct_id distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_person_group_membership', '{replica}')
+  ORDER BY (team_id, group_type_index, group_key, distinct_id)
+  SETTINGS index_granularity = 8192, min_rows_for_wide_part = 0, min_bytes_for_wide_part = 0
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_platform_alert_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_platform_alert_events
+  (
+      team_id Int64,
+      configuration_id UUID,
+      alert_id UUID,
+      grouping_key String,
+      evaluation_key String,
+      kind LowCardinality(String),
+      alert_name String,
+      previous_state LowCardinality(String),
+      state LowCardinality(String),
+      episode_started_at Nullable(DateTime64(6, 'UTC')),
+      value Nullable(Float64),
+      labels Map(String, String),
+      condition_snapshot String,
+      source_config_snapshot String,
+      query_duration_ms Nullable(UInt32),
+      error_message String,
+      consecutive_failures UInt32,
+      muted_notification LowCardinality(String),
+      occurred_at DateTime64(6, 'UTC'),
+      source_kind LowCardinality(String),
+      expires_at Date DEFAULT today() + toIntervalDay(90)
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.platform_alert_events', '{replica}-{shard}')
+  ORDER BY (team_id, configuration_id, alert_id, occurred_at, evaluation_key)
+  PRIMARY KEY (team_id, configuration_id, alert_id, occurred_at)
+  PARTITION BY toYYYYMM(occurred_at)
+  TTL expires_at
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_posthog_document_embeddings_buffer]
   '''
   
@@ -8723,7 +8471,11 @@
       lc_dagster__run_id String ALIAS log_comment.`dagster.run_id`::String,
       lc_dagster__owner String ALIAS log_comment.`dagster.tags.owner`::String,
   
-      lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
+      lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
+  
+      lc_plan_fingerprint String ALIAS ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), ''),
+      lc_estimated_rows Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0),
+      lc_estimated_bytes Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.sharded_query_log_archive', '{replica}-{shard}')
   PARTITION BY toYYYYMM(event_date)
   ORDER BY (team_id, event_date, event_time, query_id)
@@ -9197,6 +8949,76 @@
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (pipeline, lane, metric, timestamp, key)
   
+  SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_warehouse_object_reads_daily]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_warehouse_object_reads_daily
+  (
+      team_id Int64,
+      day Date,
+      read_kind Enum8('read' = 1, 'refresh' = 2),
+      subject_kind Enum8('saved_query' = 1, 'table' = 2),
+      subject_id String,
+      workflow_id String,
+      lc_kind LowCardinality(String),
+      lc_product LowCardinality(String),
+      lc_feature LowCardinality(String),
+      lc_access_method LowCardinality(String),
+      source LowCardinality(String),
+      scene LowCardinality(String),
+      has_user_id Bool,
+      read_alone Bool,
+      requests AggregateFunction(uniq, String),
+      users AggregateFunction(uniq, Int64),
+      read_count SimpleAggregateFunction(sum, UInt64),
+      duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+      read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+      duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      max_event_time SimpleAggregateFunction(max, DateTime)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.warehouse_object_reads_daily', '{replica}-{shard}')
+  PARTITION BY toYYYYMMDD(day)
+  ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, read_alone)
+  TTL day + INTERVAL 60 DAY
+  SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_warehouse_object_reads_daily_staging]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_warehouse_object_reads_daily_staging
+  (
+      team_id Int64,
+      day Date,
+      read_kind Enum8('read' = 1, 'refresh' = 2),
+      subject_kind Enum8('saved_query' = 1, 'table' = 2),
+      subject_id String,
+      workflow_id String,
+      lc_kind LowCardinality(String),
+      lc_product LowCardinality(String),
+      lc_feature LowCardinality(String),
+      lc_access_method LowCardinality(String),
+      source LowCardinality(String),
+      scene LowCardinality(String),
+      has_user_id Bool,
+      read_alone Bool,
+      requests AggregateFunction(uniq, String),
+      users AggregateFunction(uniq, Int64),
+      read_count SimpleAggregateFunction(sum, UInt64),
+      duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+      read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+      duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      max_event_time SimpleAggregateFunction(max, DateTime)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.sharded_warehouse_object_reads_daily_staging', '{replica}-{shard}')
+  PARTITION BY toYYYYMMDD(day)
+  ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, read_alone)
+  TTL day + INTERVAL 60 DAY
   SETTINGS ttl_only_drop_parts = 1
   
   '''
@@ -9753,18 +9575,6 @@
               is_root_span
       ),
   
-      PROJECTION projection_index_span_id
-      (
-          SELECT _part_offset
-          ORDER BY span_id
-      ),
-  
-      PROJECTION projection_index_trace_id
-      (
-          SELECT _part_offset
-          ORDER BY trace_id
-      ),
-  
       PROJECTION projection_index_team_span_id
       (
           SELECT team_id, _part_offset
@@ -9815,6 +9625,37 @@
   ORDER BY (_topic, _partition)
   SETTINGS
       index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query[warehouse_object_reads_daily]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS warehouse_object_reads_daily
+  (
+      team_id Int64,
+      day Date,
+      read_kind Enum8('read' = 1, 'refresh' = 2),
+      subject_kind Enum8('saved_query' = 1, 'table' = 2),
+      subject_id String,
+      workflow_id String,
+      lc_kind LowCardinality(String),
+      lc_product LowCardinality(String),
+      lc_feature LowCardinality(String),
+      lc_access_method LowCardinality(String),
+      source LowCardinality(String),
+      scene LowCardinality(String),
+      has_user_id Bool,
+      read_alone Bool,
+      requests AggregateFunction(uniq, String),
+      users AggregateFunction(uniq, Int64),
+      read_count SimpleAggregateFunction(sum, UInt64),
+      duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+      read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+      duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      max_event_time SimpleAggregateFunction(max, DateTime)
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_warehouse_object_reads_daily')
   
   '''
 # ---
@@ -10492,8 +10333,10 @@
   (
       uuid UUID,
       event String,
-      properties JSON(max_dynamic_paths = 0, `$agent_application_id` String, `$agent_revision_id` String, `$agent_session_id` String, `$agent_turn` String, `$ai_audio_cost_usd` String, `$ai_audio_input_tokens` String, `$ai_audio_output_tokens` String, `$ai_batch_run_id` String, `$ai_cache_creation_input_tokens` String, `$ai_cache_read_input_tokens` String, `$ai_error` String, `$ai_error_normalized` String, `$ai_error_type` String, `$ai_evaluation_allows_na` String, `$ai_evaluation_applicable` String, `$ai_evaluation_id` String, `$ai_evaluation_name` String, `$ai_evaluation_reasoning` String, `$ai_evaluation_result` String, `$ai_evaluation_result_type` String, `$ai_evaluation_runtime` String, `$ai_evaluation_skipped` String, `$ai_evaluation_start_time` String, `$ai_evaluation_type` String, `$ai_experiment_id` String, `$ai_framework` String, `$ai_generation_id` String, `$ai_http_status` String, `$ai_image_cost_usd` String, `$ai_image_input_tokens` String, `$ai_image_output_tokens` String, `$ai_input_cost_usd` String, `$ai_input_tokens` String, `$ai_is_error` String, `$ai_latency` String, `$ai_model` String, `$ai_output_cost_usd` String, `$ai_output_tokens` String, `$ai_parent_id` String, `$ai_prompt_name` String, `$ai_provider` String, `$ai_reasoning_tokens` String, `$ai_request_cost_usd` String, `$ai_session_id` String, `$ai_span_name` String, `$ai_span_type` String, `$ai_span_id` String, `$ai_sentiment_label` String, `$ai_sentiment_message_count` String, `$ai_sentiment_score` String, `$ai_target_event_id` String, `$ai_text_input_tokens` String, `$ai_text_output_tokens` String, `$ai_time_to_first_token` String, `$ai_total_cost_usd` String, `$ai_total_tokens` String, `$ai_tools_called` String, `$ai_trace_id` String, `$ai_trace_name` String, `$ai_video_cost_usd` String, `$ai_video_input_tokens` String, `$ai_video_output_tokens` String, `$ai_web_search_cost_usd` String, `$ai_web_search_count` String, `$ai_origin` String, `$anon_distinct_id` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$autocapture_disabled_server_side` LowCardinality(String), `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$configured_session_timeout_ms` String, `$current_url` String, `$dead_clicks_enabled_server_side` LowCardinality(String), `$device` String, `$device_id` String, `$device_model` String, `$device_manufacturer` String, `$device_name` String, `$device_type` LowCardinality(String), `$el_text` String, `$event_type` String, `$exception_capture_enabled_server_side` LowCardinality(String), `$exception_fingerprint` String, `$exception_functions` Array(String), `$exception_handled` String, `$exception_is_synthetic` String, `$exception_issue_id` String, `$exception_level` String, `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_message` String, `$exception_proposed_fingerprint` String, `$exception_sources` Array(String), `$exception_type` String, `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_accuracy_radius` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_latitude` String, `$geoip_longitude` String, `$geoip_postal_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$geoip_subdivision_1_code` String, `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$groups.organization` String, `$groups.project` String, `$groups.instance` String, `$host` String, `$initial_pathname` String, `$initial_referrer` String, `$initial_referring_domain` String, `$client_session_initial_pathname` String, `$client_session_initial_referring_host` String, `$client_session_initial_utm_campaign` String, `$client_session_initial_utm_content` String, `$client_session_initial_utm_medium` String, `$client_session_initial_utm_source` String, `$client_session_initial_utm_term` String, `$initial_search_engine` String, `$initialization_time` String, `$ip` String, `$is_identified` String, `$lib` String, `$lib_version` LowCardinality(String), `$lib_version__minor` String, `$mcp_client_name` String, `$mcp_client_user_agent` String, `$mcp_duration_ms` String, `$mcp_error_message` String, `$mcp_exec_tool_call_description` String, `$mcp_exec_tool_call_name` String, `$mcp_intent` String, `$mcp_intent_source` String, `$mcp_is_error` String, `$mcp_listed_tool_names` Array(String), `$mcp_oauth_client_name` String, `$mcp_organization_id` String, `$mcp_project_id` String, `$mcp_session_id` String, `$mcp_source` String, `$mcp_tool_category` String, `$mcp_tool_description` String, `$mcp_tool_name` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pageview_id` String, `$pathname` String, `$prev_pageview_max_content_percentage` String, `$prev_pageview_max_scroll_percentage` String, `$prev_pageview_pathname` String, `$process_person_profile` String, `$recording_status` String, `$referrer` String, `$referring_domain` String, `$replay_minimum_duration` String, `$replay_sample_rate` String, `$raw_user_agent` LowCardinality(String), `$search_engine` String, `$screen_height` LowCardinality(String), `$screen_name` String, `$screen_width` LowCardinality(String), `$session_id` String, `$session_entry_host` String, `$session_entry_pathname` String, `$session_entry_referrer` String, `$session_entry_referring_domain` String, `$session_entry_search_engine` String, `$session_entry_url` String, `$session_entry_utm_campaign` String, `$session_entry_utm_content` String, `$session_entry_utm_medium` String, `$session_entry_utm_source` String, `$session_entry_utm_term` String, `$session_recording_event_trigger_activated_session` String, `$session_recording_start_reason` String, `$session_recording_url_trigger_status` String, `$survey_id` String, `$survey_completed` String, `$survey_iteration` String, `$survey_iteration_start_date` String, `$survey_name` String, `$survey_partially_completed` String, `$survey_response` String, `$survey_response_1` String, `$survey_submission_id` String, `$time` String, `$timezone` LowCardinality(String), `$timezone_offset` LowCardinality(String), `$user_id` String, `$viewport_height` String, `$viewport_width` String, `$web_vitals_CLS_value` String, `$web_vitals_FCP_value` String, `$web_vitals_INP_value` String, `$web_vitals_LCP_value` String, `$web_vitals_enabled_server_side` LowCardinality(String), `$window_id` String, action String, action_name String, address String, apiErrorMessage String, apiName String, app_name String, app_version String, arguments String, audio_duration String, authentication_method String, auto_chapters String, auto_highlights String, category String, chain String, channel String, client_id String, client_name String, commit_sha String, community_id String, conceptName String, content_length String, content_safety String, context String, contributionError String, created_at String, created_by String, created_by_system String, currentScreen String, current_member_guid String, customer_email String, deal_id String, device_type String, disable_institution_search String, disfluencies String, distinct_id String, dual_channel String, duration String, email String, email_domain String, _kx String, dclid String, epik String, entity_detection String, env String, environment String, event String, event_count_in_month String, event_count_in_period String, events_projected_amount String, fbclid String, filter_profanity String, filters_count String, function String, gad_source String, gbraid String, gclid String, gclsrc String, gross String, group_id String, historical_migration String, iab_categories String, id String, index String, initial_dclid String, initial_fbclid String, initial_gclsrc String, initial__kx String, initial_epik String, initial_gad_source String, initial_gbraid String, initial_gclid String, initial_irclid String, initial_igshid String, initial_li_fat_id String, initial_mc_cid String, initial_msclkid String, initial_qclid String, initial_rdt_cid String, initial_sccid String, initial_utm_campaign String, initial_utm_content String, initial_utm_medium String, initial_utm_source String, initial_utm_term String, initial_step String, initial_ttclid String, initial_twclid String, initial_wbraid String, initiator String, insight String, institution_name String, inviteCode String, is_demo_project String, is_first_component_load String, is_first_event_for_user String, is_initial_aggregation String, is_oauth String, is_organization_first_user String, is_test_user String, item_count String, job_type String, key String, kind String, language_detection String, machine_id String, message String, method String, mode String, most_recent_app_os String, msclkid String, mc_cid String, igshid String, irclid String, li_fat_id String, qclid String, rdt_cid String, sccid String, ttclid String, twclid String, name String, nativeBuildVersion String, numberOfSecrets String, orderId String, orderType String, organization String, organization_id String, organization_name String, organizations String, origin String, osName String, owner_type String, page String, payment_status String, phone String, platform String, product String, product_analytics_projected_amount String, product_key String, progress String, protocol String, query String, ramp String, realm String, `record-id` String, recording_count_in_period String, recordings_projected_amount String, redact_pii String, referrer String, referrer_id String, region String, revenue String, screen_name String, sdk String, search_term String, sentiment_analysis String, session_replay_projected_amount String, sku String, source String, speaker_labels String, statusCode String, status_message String, store_url String, stripe_amount_paid String, subdomain String, subscriptionStatus String, summarization String, surface_tag String, survey_responses_count_in_period String, symbol String, tag String, target String, team String, testSessionId String, thread_id String, ticketId String, title String, token String, total_event_actions_count String, total_usd String, type String, url String, url_promotion_id String, usd String, user_agent String, user_email_domain String, user_platform String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, valid_ach_accounts String, wbraid String, wlo_enabled String, workplace_billing_plan String, workspace String, workspaceId String),
+      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
       temporary_properties JSON(max_dynamic_paths = 32),
+      properties_null_keys Array(LowCardinality(String)),
+      temporary_properties_null_keys Array(LowCardinality(String)),
       timestamp DateTime64(6, 'UTC'),
       team_id Int64,
       distinct_id String,
@@ -10502,7 +10345,8 @@
       _offset UInt64,
       elements_chain String,
       person_id UUID,
-      person_properties JSON(max_dynamic_paths = 0, `$app_version` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$browser` LowCardinality(String), `$browser_language` String, `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$current_url` String, `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$initial_current_url` String, `$initial_app_build` String, `$initial_app_name` String, `$initial_app_namespace` String, `$initial_app_version` String, `$initial_browser` LowCardinality(String), `$initial_browser_language` String, `$initial_browser_language_prefix` String, `$initial_browser_type` String, `$initial_browser_version` LowCardinality(String), `$initial_device` String, `$initial_device_id` String, `$initial_device_manufacturer` String, `$initial_device_model` String, `$initial_device_name` String, `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` String, `$initial_geoip_continent_code` String, `$initial_geoip_continent_name` String, `$initial_geoip_country_code` String, `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_postal_code` String, `$initial_geoip_subdivision_1_code` String, `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_subdivision_2_code` String, `$initial_geoip_subdivision_2_name` String, `$initial_geoip_time_zone` LowCardinality(String), `$initial_fbclid` String, `$initial_gad_source` String, `$initial_gbraid` String, `$initial_gclid` String, `$initial_gclsrc` String, `$initial_dclid` String, `$initial_msclkid` String, `$initial_twclid` String, `$initial_li_fat_id` String, `$initial_mc_cid` String, `$initial_igshid` String, `$initial_ttclid` String, `$initial_rdt_cid` String, `$initial_epik` String, `$initial_qclid` String, `$initial_sccid` String, `$initial_irclid` String, `$initial__kx` String, `$initial_pathname` String, `$initial_os` LowCardinality(String), `$initial_os_name` String, `$initial_os_version` LowCardinality(String), `$initial_raw_user_agent` LowCardinality(String), `$initial_referrer` String, `$initial_referring_domain` String, `$initial_screen_height` LowCardinality(String), `$initial_screen_width` LowCardinality(String), `$initial_search_engine` String, `$initial_utm_campaign` String, `$initial_utm_content` String, `$initial_utm_medium` String, `$initial_utm_source` String, `$initial_utm_term` String, `$initial_viewport_height` String, `$initial_viewport_width` String, `$initial_wbraid` String, `$os_name` String, `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$raw_user_agent` LowCardinality(String), `$referrer` String, `$screen_height` LowCardinality(String), `$screen_width` LowCardinality(String), `$search_engine` String, `$viewport_height` String, `$viewport_width` String, `$referring_domain` String, `$email` String, `$last_seen_survey_date` String, `$organization_id` String, `$product_tour_last_seen_date` String, `$survey_last_seen_date` String, `Email Domain` String, companyName String, customer String, email String, first_name String, hubspot_score String, id String, icp_role String, is_email_verified String, is_signed_up String, last_name String, name String, organization_id String, organization_member_count String, role String, role_at_organization String, serverMarketing String, serverMasterclass String, user_email_domain String, username String, utm_source String, utm_medium String, utm_campaign String, utm_content String, utm_term String, gclid String, gad_source String, gclsrc String, dclid String, gbraid String, wbraid String, fbclid String, msclkid String, twclid String, li_fat_id String, mc_cid String, igshid String, ttclid String, rdt_cid String, epik String, qclid String, sccid String, irclid String, _kx String, val_region String),
+      person_properties JSON(max_dynamic_paths = 256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String)),
+      person_properties_null_keys Array(LowCardinality(String)),
       group0_properties String,
       group1_properties String,
       group2_properties String,
@@ -10717,7 +10561,8 @@
       `metric_name` LowCardinality(String),
       `time_bucket` DateTime64(0),
       `original_expiry_time_bucket` DateTime64(0),
-      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6))
+      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6)),
+      `service_name` LowCardinality(String)
   )
   ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metrics4_names')
   
@@ -10841,6 +10686,22 @@
   
       
   ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'person_distinct_id_overrides')
+  
+  '''
+# ---
+# name: test_create_table_query[writable_person_group_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_person_group_membership
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      group_key String,
+      distinct_id String,
+      first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key))
   
   '''
 # ---
@@ -11785,7 +11646,7 @@
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.ingestion_warnings_v2', '{replica}-{shard}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, type, timestamp)
-  TTL toDateTime(timestamp) + INTERVAL 90 DAY
+  
   
   '''
 # ---
@@ -12601,43 +12462,6 @@
   
   '''
 # ---
-# name: test_create_table_query_replicated_and_storage[metrics2_input]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS posthog_test.metrics2_input
-  (
-      `uuid` String,
-      `team_id` Int32,
-      `metric_name` LowCardinality(String),
-      `series_fingerprint` UInt64,
-      `resource_fingerprint` UInt64,
-      `timestamp` DateTime64(6),
-      `observed_timestamp` DateTime64(6),
-      `original_expiry_timestamp` DateTime64(6),
-      `service_name` LowCardinality(String),
-      `metric_type` LowCardinality(String),
-      `value` Float64,
-      `count` UInt64,
-      `histogram_bounds` Array(Float64),
-      `histogram_counts` Array(UInt64),
-      `trace_id` String,
-      `span_id` String,
-      `trace_flags` Int32,
-      `has_labels` Bool,
-      `unit` LowCardinality(String),
-      `aggregation_temporality` LowCardinality(String),
-      `is_monotonic` Bool,
-      `instrumentation_scope` String,
-      `resource_attributes` Map(LowCardinality(String), String),
-      `attributes` Map(LowCardinality(String), String),
-      `_partition` UInt32,
-      `_topic` String,
-      `_offset` UInt64
-  )
-  ENGINE = Null
-  
-  '''
-# ---
 # name: test_create_table_query_replicated_and_storage[metrics4_attributes]
   '''
   
@@ -12655,7 +12479,8 @@
       INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
-      INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
+      INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
+      INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_attributes', '{replica}-{shard}')
   PARTITION BY toDate(original_expiry_time_bucket)
@@ -12713,11 +12538,12 @@
       `metric_name` LowCardinality(String),
       `time_bucket` DateTime64(0),
       `original_expiry_time_bucket` DateTime64(0),
-      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6))
+      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6)),
+      `service_name` LowCardinality(String)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_names', '{replica}-{shard}')
   PARTITION BY toDate(original_expiry_time_bucket)
-  ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket)
+  ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name)
   TTL original_expiry_timestamp
   SETTINGS index_granularity = 8192
   
@@ -12794,7 +12620,18 @@
       INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
-      INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1
+      INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
+      PROJECTION services_by_hour
+      (
+          SELECT
+              team_id,
+              time_bucket,
+              service_name,
+              uniqExact(metric_name),
+              uniq(series_fingerprint),
+              max(timestamp)
+          GROUP BY team_id, time_bucket, service_name
+      )
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_series', '{replica}-{shard}', timestamp)
   PARTITION BY toStartOfWeek(original_expiry_timestamp)
@@ -12802,7 +12639,8 @@
   TTL original_expiry_timestamp
   SETTINGS
       index_granularity = 1024,
-      ttl_only_drop_parts = 1
+      ttl_only_drop_parts = 1,
+      deduplicate_merge_projection_mode = 'rebuild'
   
   '''
 # ---
@@ -12939,6 +12777,22 @@
       
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[person_group_membership_config]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_group_membership_config
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      enabled UInt8,
+      version UInt64
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_group_membership_config', '{replica}-{shard}', version)
+  ORDER BY team_id
+  SETTINGS index_granularity = 8192
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[person_overrides]
   '''
   
@@ -13000,24 +12854,6 @@
       -- the newest known mapping for it in the table. Query side we will need to
       -- ensure that we are always querying the latest version of the mapping.
       ORDER BY (team_id, old_person_id)
-  
-  '''
-# ---
-# name: test_create_table_query_replicated_and_storage[person_property_mutation_log_data]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS person_property_mutation_log_data
-  (
-      team_id Int64,
-      event_uuid UUID,
-      properties String,
-      ingested_at DateTime('UTC')
-  )
-  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_property_mutation_log_data', '{replica}-{shard}', ingested_at)
-  PARTITION BY toDate(ingested_at)
-  ORDER BY (team_id, event_uuid)
-  TTL ingested_at + INTERVAL 30 DAY
-  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
   
   '''
 # ---
@@ -13628,8 +13464,10 @@
   (
       uuid UUID,
       event String,
-      properties JSON(max_dynamic_paths = 0, `$agent_application_id` String, `$agent_revision_id` String, `$agent_session_id` String, `$agent_turn` String, `$ai_audio_cost_usd` String, `$ai_audio_input_tokens` String, `$ai_audio_output_tokens` String, `$ai_batch_run_id` String, `$ai_cache_creation_input_tokens` String, `$ai_cache_read_input_tokens` String, `$ai_error` String, `$ai_error_normalized` String, `$ai_error_type` String, `$ai_evaluation_allows_na` String, `$ai_evaluation_applicable` String, `$ai_evaluation_id` String, `$ai_evaluation_name` String, `$ai_evaluation_reasoning` String, `$ai_evaluation_result` String, `$ai_evaluation_result_type` String, `$ai_evaluation_runtime` String, `$ai_evaluation_skipped` String, `$ai_evaluation_start_time` String, `$ai_evaluation_type` String, `$ai_experiment_id` String, `$ai_framework` String, `$ai_generation_id` String, `$ai_http_status` String, `$ai_image_cost_usd` String, `$ai_image_input_tokens` String, `$ai_image_output_tokens` String, `$ai_input_cost_usd` String, `$ai_input_tokens` String, `$ai_is_error` String, `$ai_latency` String, `$ai_model` String, `$ai_output_cost_usd` String, `$ai_output_tokens` String, `$ai_parent_id` String, `$ai_prompt_name` String, `$ai_provider` String, `$ai_reasoning_tokens` String, `$ai_request_cost_usd` String, `$ai_session_id` String, `$ai_span_name` String, `$ai_span_type` String, `$ai_span_id` String, `$ai_sentiment_label` String, `$ai_sentiment_message_count` String, `$ai_sentiment_score` String, `$ai_target_event_id` String, `$ai_text_input_tokens` String, `$ai_text_output_tokens` String, `$ai_time_to_first_token` String, `$ai_total_cost_usd` String, `$ai_total_tokens` String, `$ai_tools_called` String, `$ai_trace_id` String, `$ai_trace_name` String, `$ai_video_cost_usd` String, `$ai_video_input_tokens` String, `$ai_video_output_tokens` String, `$ai_web_search_cost_usd` String, `$ai_web_search_count` String, `$ai_origin` String, `$anon_distinct_id` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$autocapture_disabled_server_side` LowCardinality(String), `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$configured_session_timeout_ms` String, `$current_url` String, `$dead_clicks_enabled_server_side` LowCardinality(String), `$device` String, `$device_id` String, `$device_model` String, `$device_manufacturer` String, `$device_name` String, `$device_type` LowCardinality(String), `$el_text` String, `$event_type` String, `$exception_capture_enabled_server_side` LowCardinality(String), `$exception_fingerprint` String, `$exception_functions` Array(String), `$exception_handled` String, `$exception_is_synthetic` String, `$exception_issue_id` String, `$exception_level` String, `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_message` String, `$exception_proposed_fingerprint` String, `$exception_sources` Array(String), `$exception_type` String, `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_accuracy_radius` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_latitude` String, `$geoip_longitude` String, `$geoip_postal_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$geoip_subdivision_1_code` String, `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$groups.organization` String, `$groups.project` String, `$groups.instance` String, `$host` String, `$initial_pathname` String, `$initial_referrer` String, `$initial_referring_domain` String, `$client_session_initial_pathname` String, `$client_session_initial_referring_host` String, `$client_session_initial_utm_campaign` String, `$client_session_initial_utm_content` String, `$client_session_initial_utm_medium` String, `$client_session_initial_utm_source` String, `$client_session_initial_utm_term` String, `$initial_search_engine` String, `$initialization_time` String, `$ip` String, `$is_identified` String, `$lib` String, `$lib_version` LowCardinality(String), `$lib_version__minor` String, `$mcp_client_name` String, `$mcp_client_user_agent` String, `$mcp_duration_ms` String, `$mcp_error_message` String, `$mcp_exec_tool_call_description` String, `$mcp_exec_tool_call_name` String, `$mcp_intent` String, `$mcp_intent_source` String, `$mcp_is_error` String, `$mcp_listed_tool_names` Array(String), `$mcp_oauth_client_name` String, `$mcp_organization_id` String, `$mcp_project_id` String, `$mcp_session_id` String, `$mcp_source` String, `$mcp_tool_category` String, `$mcp_tool_description` String, `$mcp_tool_name` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pageview_id` String, `$pathname` String, `$prev_pageview_max_content_percentage` String, `$prev_pageview_max_scroll_percentage` String, `$prev_pageview_pathname` String, `$process_person_profile` String, `$recording_status` String, `$referrer` String, `$referring_domain` String, `$replay_minimum_duration` String, `$replay_sample_rate` String, `$raw_user_agent` LowCardinality(String), `$search_engine` String, `$screen_height` LowCardinality(String), `$screen_name` String, `$screen_width` LowCardinality(String), `$session_id` String, `$session_entry_host` String, `$session_entry_pathname` String, `$session_entry_referrer` String, `$session_entry_referring_domain` String, `$session_entry_search_engine` String, `$session_entry_url` String, `$session_entry_utm_campaign` String, `$session_entry_utm_content` String, `$session_entry_utm_medium` String, `$session_entry_utm_source` String, `$session_entry_utm_term` String, `$session_recording_event_trigger_activated_session` String, `$session_recording_start_reason` String, `$session_recording_url_trigger_status` String, `$survey_id` String, `$survey_completed` String, `$survey_iteration` String, `$survey_iteration_start_date` String, `$survey_name` String, `$survey_partially_completed` String, `$survey_response` String, `$survey_response_1` String, `$survey_submission_id` String, `$time` String, `$timezone` LowCardinality(String), `$timezone_offset` LowCardinality(String), `$user_id` String, `$viewport_height` String, `$viewport_width` String, `$web_vitals_CLS_value` String, `$web_vitals_FCP_value` String, `$web_vitals_INP_value` String, `$web_vitals_LCP_value` String, `$web_vitals_enabled_server_side` LowCardinality(String), `$window_id` String, action String, action_name String, address String, apiErrorMessage String, apiName String, app_name String, app_version String, arguments String, audio_duration String, authentication_method String, auto_chapters String, auto_highlights String, category String, chain String, channel String, client_id String, client_name String, commit_sha String, community_id String, conceptName String, content_length String, content_safety String, context String, contributionError String, created_at String, created_by String, created_by_system String, currentScreen String, current_member_guid String, customer_email String, deal_id String, device_type String, disable_institution_search String, disfluencies String, distinct_id String, dual_channel String, duration String, email String, email_domain String, _kx String, dclid String, epik String, entity_detection String, env String, environment String, event String, event_count_in_month String, event_count_in_period String, events_projected_amount String, fbclid String, filter_profanity String, filters_count String, function String, gad_source String, gbraid String, gclid String, gclsrc String, gross String, group_id String, historical_migration String, iab_categories String, id String, index String, initial_dclid String, initial_fbclid String, initial_gclsrc String, initial__kx String, initial_epik String, initial_gad_source String, initial_gbraid String, initial_gclid String, initial_irclid String, initial_igshid String, initial_li_fat_id String, initial_mc_cid String, initial_msclkid String, initial_qclid String, initial_rdt_cid String, initial_sccid String, initial_utm_campaign String, initial_utm_content String, initial_utm_medium String, initial_utm_source String, initial_utm_term String, initial_step String, initial_ttclid String, initial_twclid String, initial_wbraid String, initiator String, insight String, institution_name String, inviteCode String, is_demo_project String, is_first_component_load String, is_first_event_for_user String, is_initial_aggregation String, is_oauth String, is_organization_first_user String, is_test_user String, item_count String, job_type String, key String, kind String, language_detection String, machine_id String, message String, method String, mode String, most_recent_app_os String, msclkid String, mc_cid String, igshid String, irclid String, li_fat_id String, qclid String, rdt_cid String, sccid String, ttclid String, twclid String, name String, nativeBuildVersion String, numberOfSecrets String, orderId String, orderType String, organization String, organization_id String, organization_name String, organizations String, origin String, osName String, owner_type String, page String, payment_status String, phone String, platform String, product String, product_analytics_projected_amount String, product_key String, progress String, protocol String, query String, ramp String, realm String, `record-id` String, recording_count_in_period String, recordings_projected_amount String, redact_pii String, referrer String, referrer_id String, region String, revenue String, screen_name String, sdk String, search_term String, sentiment_analysis String, session_replay_projected_amount String, sku String, source String, speaker_labels String, statusCode String, status_message String, store_url String, stripe_amount_paid String, subdomain String, subscriptionStatus String, summarization String, surface_tag String, survey_responses_count_in_period String, symbol String, tag String, target String, team String, testSessionId String, thread_id String, ticketId String, title String, token String, total_event_actions_count String, total_usd String, type String, url String, url_promotion_id String, usd String, user_agent String, user_email_domain String, user_platform String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, valid_ach_accounts String, wbraid String, wlo_enabled String, workplace_billing_plan String, workspace String, workspaceId String),
+      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
       temporary_properties JSON(max_dynamic_paths = 32) TTL toDateTime(inserted_at) + INTERVAL 60 DAY,
+      properties_null_keys Array(LowCardinality(String)),
+      temporary_properties_null_keys Array(LowCardinality(String)) TTL toDateTime(inserted_at) + INTERVAL 60 DAY,
       timestamp DateTime64(6, 'UTC') CODEC(GCD, Default),
       team_id Int64,
       distinct_id String,
@@ -13638,7 +13476,8 @@
       _offset UInt64 CODEC(T64, Default),
       elements_chain String,
       person_id UUID,
-      person_properties JSON(max_dynamic_paths = 0, `$app_version` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$browser` LowCardinality(String), `$browser_language` String, `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$current_url` String, `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$initial_current_url` String, `$initial_app_build` String, `$initial_app_name` String, `$initial_app_namespace` String, `$initial_app_version` String, `$initial_browser` LowCardinality(String), `$initial_browser_language` String, `$initial_browser_language_prefix` String, `$initial_browser_type` String, `$initial_browser_version` LowCardinality(String), `$initial_device` String, `$initial_device_id` String, `$initial_device_manufacturer` String, `$initial_device_model` String, `$initial_device_name` String, `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` String, `$initial_geoip_continent_code` String, `$initial_geoip_continent_name` String, `$initial_geoip_country_code` String, `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_postal_code` String, `$initial_geoip_subdivision_1_code` String, `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_subdivision_2_code` String, `$initial_geoip_subdivision_2_name` String, `$initial_geoip_time_zone` LowCardinality(String), `$initial_fbclid` String, `$initial_gad_source` String, `$initial_gbraid` String, `$initial_gclid` String, `$initial_gclsrc` String, `$initial_dclid` String, `$initial_msclkid` String, `$initial_twclid` String, `$initial_li_fat_id` String, `$initial_mc_cid` String, `$initial_igshid` String, `$initial_ttclid` String, `$initial_rdt_cid` String, `$initial_epik` String, `$initial_qclid` String, `$initial_sccid` String, `$initial_irclid` String, `$initial__kx` String, `$initial_pathname` String, `$initial_os` LowCardinality(String), `$initial_os_name` String, `$initial_os_version` LowCardinality(String), `$initial_raw_user_agent` LowCardinality(String), `$initial_referrer` String, `$initial_referring_domain` String, `$initial_screen_height` LowCardinality(String), `$initial_screen_width` LowCardinality(String), `$initial_search_engine` String, `$initial_utm_campaign` String, `$initial_utm_content` String, `$initial_utm_medium` String, `$initial_utm_source` String, `$initial_utm_term` String, `$initial_viewport_height` String, `$initial_viewport_width` String, `$initial_wbraid` String, `$os_name` String, `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$raw_user_agent` LowCardinality(String), `$referrer` String, `$screen_height` LowCardinality(String), `$screen_width` LowCardinality(String), `$search_engine` String, `$viewport_height` String, `$viewport_width` String, `$referring_domain` String, `$email` String, `$last_seen_survey_date` String, `$organization_id` String, `$product_tour_last_seen_date` String, `$survey_last_seen_date` String, `Email Domain` String, companyName String, customer String, email String, first_name String, hubspot_score String, id String, icp_role String, is_email_verified String, is_signed_up String, last_name String, name String, organization_id String, organization_member_count String, role String, role_at_organization String, serverMarketing String, serverMasterclass String, user_email_domain String, username String, utm_source String, utm_medium String, utm_campaign String, utm_content String, utm_term String, gclid String, gad_source String, gclsrc String, dclid String, gbraid String, wbraid String, fbclid String, msclkid String, twclid String, li_fat_id String, mc_cid String, igshid String, ttclid String, rdt_cid String, epik String, qclid String, sccid String, irclid String, _kx String, val_region String),
+      person_properties JSON(max_dynamic_paths = 256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String)),
+      person_properties_null_keys Array(LowCardinality(String)),
       group0_properties String,
       group1_properties String,
       group2_properties String,
@@ -14077,6 +13916,61 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[sharded_person_group_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_person_group_membership
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      group_key String,
+      distinct_id String,
+      first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      INDEX idx_distinct_id distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_person_group_membership', '{replica}')
+  ORDER BY (team_id, group_type_index, group_key, distinct_id)
+  SETTINGS index_granularity = 8192, min_rows_for_wide_part = 0, min_bytes_for_wide_part = 0
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_platform_alert_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_platform_alert_events
+  (
+      team_id Int64,
+      configuration_id UUID,
+      alert_id UUID,
+      grouping_key String,
+      evaluation_key String,
+      kind LowCardinality(String),
+      alert_name String,
+      previous_state LowCardinality(String),
+      state LowCardinality(String),
+      episode_started_at Nullable(DateTime64(6, 'UTC')),
+      value Nullable(Float64),
+      labels Map(String, String),
+      condition_snapshot String,
+      source_config_snapshot String,
+      query_duration_ms Nullable(UInt32),
+      error_message String,
+      consecutive_failures UInt32,
+      muted_notification LowCardinality(String),
+      occurred_at DateTime64(6, 'UTC'),
+      source_kind LowCardinality(String),
+      expires_at Date DEFAULT today() + toIntervalDay(90)
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.platform_alert_events', '{replica}-{shard}')
+  ORDER BY (team_id, configuration_id, alert_id, occurred_at, evaluation_key)
+  PRIMARY KEY (team_id, configuration_id, alert_id, occurred_at)
+  PARTITION BY toYYYYMM(occurred_at)
+  TTL expires_at
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[sharded_posthog_document_embeddings_buffer]
   '''
   
@@ -14393,7 +14287,11 @@
       lc_dagster__run_id String ALIAS log_comment.`dagster.run_id`::String,
       lc_dagster__owner String ALIAS log_comment.`dagster.tags.owner`::String,
   
-      lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
+      lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
+  
+      lc_plan_fingerprint String ALIAS ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), ''),
+      lc_estimated_rows Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0),
+      lc_estimated_bytes Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.sharded_query_log_archive', '{replica}-{shard}')
   PARTITION BY toYYYYMM(event_date)
   ORDER BY (team_id, event_date, event_time, query_id)
@@ -14867,6 +14765,76 @@
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (pipeline, lane, metric, timestamp, key)
   
+  SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_warehouse_object_reads_daily]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_warehouse_object_reads_daily
+  (
+      team_id Int64,
+      day Date,
+      read_kind Enum8('read' = 1, 'refresh' = 2),
+      subject_kind Enum8('saved_query' = 1, 'table' = 2),
+      subject_id String,
+      workflow_id String,
+      lc_kind LowCardinality(String),
+      lc_product LowCardinality(String),
+      lc_feature LowCardinality(String),
+      lc_access_method LowCardinality(String),
+      source LowCardinality(String),
+      scene LowCardinality(String),
+      has_user_id Bool,
+      read_alone Bool,
+      requests AggregateFunction(uniq, String),
+      users AggregateFunction(uniq, Int64),
+      read_count SimpleAggregateFunction(sum, UInt64),
+      duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+      read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+      duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      max_event_time SimpleAggregateFunction(max, DateTime)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.warehouse_object_reads_daily', '{replica}-{shard}')
+  PARTITION BY toYYYYMMDD(day)
+  ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, read_alone)
+  TTL day + INTERVAL 60 DAY
+  SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_warehouse_object_reads_daily_staging]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_warehouse_object_reads_daily_staging
+  (
+      team_id Int64,
+      day Date,
+      read_kind Enum8('read' = 1, 'refresh' = 2),
+      subject_kind Enum8('saved_query' = 1, 'table' = 2),
+      subject_id String,
+      workflow_id String,
+      lc_kind LowCardinality(String),
+      lc_product LowCardinality(String),
+      lc_feature LowCardinality(String),
+      lc_access_method LowCardinality(String),
+      source LowCardinality(String),
+      scene LowCardinality(String),
+      has_user_id Bool,
+      read_alone Bool,
+      requests AggregateFunction(uniq, String),
+      users AggregateFunction(uniq, Int64),
+      read_count SimpleAggregateFunction(sum, UInt64),
+      duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+      read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+      duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      max_event_time SimpleAggregateFunction(max, DateTime)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.sharded_warehouse_object_reads_daily_staging', '{replica}-{shard}')
+  PARTITION BY toYYYYMMDD(day)
+  ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, read_alone)
+  TTL day + INTERVAL 60 DAY
   SETTINGS ttl_only_drop_parts = 1
   
   '''
@@ -15377,18 +15345,6 @@
               service_name,
               resource_fingerprint,
               is_root_span
-      ),
-  
-      PROJECTION projection_index_span_id
-      (
-          SELECT _part_offset
-          ORDER BY span_id
-      ),
-  
-      PROJECTION projection_index_trace_id
-      (
-          SELECT _part_offset
-          ORDER BY trace_id
       ),
   
       PROJECTION projection_index_team_span_id

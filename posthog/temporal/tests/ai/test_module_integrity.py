@@ -91,6 +91,7 @@ class TestSignalsProductModuleIntegrity:
     def test_workflows_remain_unchanged(self):
         """Ensure all expected signals product workflows are present."""
         expected_workflows = [
+            "GenerateScoutRubricsWorkflow",
             "BackfillErrorTrackingWorkflow",
             "TeamSignalGroupingWorkflow",
             "TeamSignalGroupingV2Workflow",
@@ -102,12 +103,13 @@ class TestSignalsProductModuleIntegrity:
             "SignalReportDeletionWorkflow",
             "EmitEvalSignalWorkflow",
             "RunSignalsScoutWorkflow",
+            "RunScoutTrialEvaluationWorkflow",
+            "RunScoutTrialComparisonWorkflow",
             "SignalsScoutCoordinatorWorkflow",
             "RunScoutSuggestionsWorkflow",
             "ScoutSuggestionsCoordinatorWorkflow",
             "CustomSignalAgentWorkflow",
             "SignalReportInboxNotificationWorkflow",
-            "InboxRankingScoringWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in SIGNALS_PRODUCT_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -122,6 +124,8 @@ class TestSignalsProductModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected signals product activities are present."""
         expected_activities = [
+            "generate_scout_rubrics_activity",
+            "fail_scout_rubrics_activity",
             "dispatch_inbox_slack_notifications_activity",
             "get_inbox_notification_state_activity",
             "send_report_github_comments_activity",
@@ -173,7 +177,13 @@ class TestSignalsProductModuleIntegrity:
             "stamp_dispatched_signals_scout_runs_activity",
             "run_due_signal_report_checks_activity",
             "run_signals_scout_activity",
-            "score_inbox_reports_activity",
+            "load_scout_trial_evaluation_activity",
+            "dispatch_scout_trial_comparison_activity",
+            "fail_scout_trial_comparison_activity",
+            "prepare_scout_trial_comparison_evaluation_activity",
+            "finish_scout_trial_comparison_activity",
+            "judge_scout_trial_run_activity",
+            "finish_scout_trial_evaluation_activity",
             "resume_signals_scout_workflow_step",
             "plan_scout_suggestion_runs_activity",
             "run_scout_suggestions_activity",
@@ -192,11 +202,12 @@ class TestSignalsProductModuleIntegrity:
 
     def test_every_scout_coordinator_activity_is_registered(self):
         """A name list cannot catch an activity nobody added, and the worker rejects an unknown one."""
-        from products.signals.backend.temporal.agentic import scout_coordinator
+        from products.signals.backend.temporal.agentic import scout_coordinator, scout_trial_evaluation
 
         defined = {
             name
-            for name, value in vars(scout_coordinator).items()
+            for module in (scout_coordinator, scout_trial_evaluation)
+            for name, value in vars(module).items()
             if callable(value) and getattr(value, "__temporal_activity_definition", None) is not None
         }
         missing = defined - {a.__name__ for a in SIGNALS_PRODUCT_ACTIVITIES}

@@ -3,10 +3,10 @@ from typing import Any
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel
 
 
-class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
+class WorkflowProposal(TeamScopedRootMixin, UUIDModel):
     """A change to a workflow that an agent proposes and a human resolves.
 
     Approving one stages its content into the workflow's `draft` — the same move as restoring a
@@ -42,7 +42,7 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
 
     # db_constraint=False on team/resolved_by: a real FK constraint to a hot table
     # (posthog_team, posthog_user) takes a parent-table lock on creation; enforcement stays app-level.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     hog_flow = models.ForeignKey("workflows.HogFlow", on_delete=models.CASCADE, related_name="proposals")
 
     title = models.CharField(max_length=200, help_text="Short summary of the proposed change.")
@@ -96,7 +96,7 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
         null=True,
         blank=True,
         db_constraint=False,
-        related_name="resolved_workflow_proposals",
+        related_name="+",
     )
     applied_version = models.IntegerField(
         null=True, blank=True, help_text="Workflow version the approved change went live as."

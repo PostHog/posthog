@@ -125,6 +125,13 @@ class TestBuildInitialParams:
                 {},
             ),
             (
+                "conversation_tags_has_no_pagination_params",
+                "conversation_tags",
+                False,
+                None,
+                {},
+            ),
+            (
                 "tickets_incremental_updated_sweeps_recent_desc",
                 "tickets",
                 True,

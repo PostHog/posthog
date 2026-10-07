@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PostgresProducer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
+from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 
 
 def _default_kwargs(**kwargs: Any) -> dict[str, Any]:
@@ -78,7 +79,7 @@ class TestPostgresProducerConnectRetry:
             ) as mock_connect,
             patch(self._SLEEP_TARGET),
         ):
-            with pytest.raises(psycopg.OperationalError):
+            with pytest.raises(PostHogInternalDatabaseError):
                 PostgresProducer(**_default_kwargs())
 
         assert mock_connect.call_count == 3
@@ -221,6 +222,32 @@ class TestPostgresProducerSupersede:
 
         mock_supersede.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "queue_error,expected_type",
+        [
+            (
+                psycopg.errors.ProtocolViolation(
+                    "server login has been failing, cached error: connect failed (server_login_retry)"
+                ),
+                PostHogInternalDatabaseError,
+            ),
+            (psycopg.errors.UndefinedTable("relation does not exist"), psycopg.errors.UndefinedTable),
+        ],
+    )
+    def test_transient_queue_db_errors_are_raised_as_internal_database_errors(
+        self, queue_error: psycopg.Error, expected_type: type[Exception]
+    ) -> None:
+        producer = _make_producer(is_resume=False)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.BatchQueue.supersede_other_runs",
+            side_effect=queue_error,
+        ):
+            with pytest.raises(expected_type) as exc_info:
+                producer.send_batch_notification(_make_batch_result(batch_index=0))
+
+        assert type(exc_info.value) is expected_type
+
 
 class TestPostgresProducerProperties:
     def test_sync_type_property(self) -> None:
@@ -235,3 +262,83 @@ class TestPostgresProducerProperties:
 
         producer.is_first_ever_sync = False
         assert producer.is_first_ever_sync is False
+
+
+def _inserted_rows(producer: PostgresProducer) -> list[tuple[int, bool]]:
+    return [
+        (call.args[1]["batch_index"], call.args[1]["is_final_batch"])
+        for call in _mock_conn(producer).execute.call_args_list
+        if "INSERT INTO" in call.args[0]
+    ]
+
+
+class TestPostgresProducerHeldBatch:
+    # A run whose last data row is not its own final marker makes the loader read that parquet
+    # file twice: once to write it, once to finish the run.
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.BatchQueue.supersede_other_runs",
+        return_value=0,
+    )
+    def test_the_last_data_row_carries_the_final_flag(self, _supersede: MagicMock) -> None:
+        producer = _make_producer()
+        batches = [_make_batch_result(batch_index=i) for i in range(3)]
+
+        for index, batch in enumerate(batches):
+            producer.hold_batch(batch, cumulative_row_count=100 * (index + 1))
+            assert _inserted_rows(producer) == [(i, False) for i in range(index)]
+        producer.send_final_batch(batches[-1], total_batches=3, total_rows=300, data_folder="s3://d", schema_path=None)
+
+        assert _inserted_rows(producer) == [(0, False), (1, False), (2, True)]
+        final_params = _mock_conn(producer).execute.call_args_list[-1].args[1]
+        assert (final_params["total_batches"], final_params["total_rows"], final_params["cumulative_row_count"]) == (
+            3,
+            300,
+            300,
+        )
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.BatchQueue.supersede_other_runs",
+        return_value=0,
+    )
+    def test_a_single_batch_run_inserts_exactly_one_row(self, _supersede: MagicMock) -> None:
+        producer = _make_producer()
+        batch = _make_batch_result(batch_index=0)
+
+        producer.hold_batch(batch, cumulative_row_count=100)
+        producer.send_final_batch(batch, total_batches=1, total_rows=100, data_folder="s3://d", schema_path="s3://s")
+
+        assert _inserted_rows(producer) == [(0, True)]
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.BatchQueue.supersede_other_runs",
+        return_value=0,
+    )
+    def test_a_released_row_leaves_the_final_marker_as_a_second_row(self, _supersede: MagicMock) -> None:
+        # A resumable source releases the held row before it commits a cursor. The run still needs a
+        # final marker, and the loader still accepts the last batch repeated with the flag set.
+        producer = _make_producer()
+        batch = _make_batch_result(batch_index=0)
+
+        producer.hold_batch(batch, cumulative_row_count=100)
+        assert producer.release_held_batch() is True
+        assert producer.release_held_batch() is False
+        producer.send_final_batch(batch, total_batches=1, total_rows=100, data_folder="s3://d", schema_path=None)
+
+        assert _inserted_rows(producer) == [(0, False), (0, True)]
+
+    def test_superseding_fires_when_batch_zero_is_staged_not_when_it_is_inserted(self) -> None:
+        # Holding the row back must not delay retiring the previous attempt's stalled batches, or
+        # they stay claimable for one extra batch of extraction time.
+        producer = _make_producer(is_resume=False)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.BatchQueue.supersede_other_runs",
+            return_value=0,
+        ) as mock_supersede:
+            producer.hold_batch(_make_batch_result(batch_index=0), cumulative_row_count=100)
+
+        mock_supersede.assert_called_once_with(
+            producer._conn, job_id="job-1", current_run_uuid="run-1", spare_runs_with_progress=False
+        )
+        assert _inserted_rows(producer) == []

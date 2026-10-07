@@ -11,9 +11,11 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.helicone import (
     HeliconeResumeConfig,
+    _eval_scores_rows,
     _extract_data,
     _format_timestamp,
     _prompts_rows,
+    _properties_rows,
     _requests_rows,
     _sessions_rows,
     _users_rows,
@@ -21,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.h
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.settings import (
+    EVAL_SCORES_ENDPOINT,
     PROMPTS_ENDPOINT,
+    PROPERTIES_ENDPOINT,
     REQUESTS_ENDPOINT,
     SESSIONS_ENDPOINT,
     USERS_ENDPOINT,
@@ -299,6 +303,37 @@ class TestPromptsRows:
         assert manager.save_state.call_args_list[0].args[0].offset == 4
 
 
+class TestPropertiesRows:
+    def test_posts_empty_body_and_yields_property_rows(self) -> None:
+        session = _session_returning(
+            [_response(json_body={"data": [{"property": "environment"}, {"property": "feature"}], "error": None})]
+        )
+
+        batches = list(_properties_rows(session, "https://api.helicone.ai", {}, mock.MagicMock()))
+
+        assert batches == [[{"property": "environment"}, {"property": "feature"}]]
+        assert session.post.call_args.args[0] == "https://api.helicone.ai/v1/property/query"
+        assert session.post.call_args.kwargs["json"] == {}
+
+
+class TestEvalScoresRows:
+    def test_gets_and_wraps_score_names_into_rows(self) -> None:
+        session = mock.MagicMock(spec=requests.Session)
+        session.get.return_value = _response(json_body={"data": ["accuracy", "helpfulness"], "error": None})
+
+        batches = list(_eval_scores_rows(session, "https://api.helicone.ai", {}, mock.MagicMock()))
+
+        assert batches == [[{"score": "accuracy"}, {"score": "helpfulness"}]]
+        assert session.get.call_args.args[0] == "https://api.helicone.ai/v1/evals/scores"
+        session.post.assert_not_called()
+
+    def test_empty_result_yields_nothing(self) -> None:
+        session = mock.MagicMock(spec=requests.Session)
+        session.get.return_value = _response(json_body={"data": [], "error": None})
+
+        assert list(_eval_scores_rows(session, "https://api.helicone.ai", {}, mock.MagicMock())) == []
+
+
 class TestHeliconeSourceResponse:
     def test_requests_response_metadata(self) -> None:
         response = helicone_source(
@@ -321,6 +356,8 @@ class TestHeliconeSourceResponse:
             (SESSIONS_ENDPOINT, ["session_id"]),
             (USERS_ENDPOINT, ["user_id"]),
             (PROMPTS_ENDPOINT, ["id"]),
+            (PROPERTIES_ENDPOINT, ["property"]),
+            (EVAL_SCORES_ENDPOINT, ["score"]),
         ]
     )
     def test_full_refresh_response_metadata(self, endpoint: str, expected_primary_keys: list[str]) -> None:

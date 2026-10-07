@@ -684,6 +684,12 @@ export type ProjectBackwardCompatApiProductIntentsItem = {
     updated_at?: string
 }
 
+/**
+ * Settings for Conversations. Must be a JSON object or null.
+ * @nullable
+ */
+export type ProjectBackwardCompatApiConversationsSettings = { [key: string]: unknown } | null
+
 export type ProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
 
 /**
@@ -864,6 +870,14 @@ export const AvailableSetupTaskIdsEnumApi = {
     UsePosthogCode: 'use_posthog_code',
     UsePosthogMcp: 'use_posthog_mcp',
     UsePosthogInSlack: 'use_posthog_in_slack',
+} as const
+
+export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
+
+export const FlagEvaluationsModeEnumApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
 } as const
 
 /**
@@ -1806,6 +1820,28 @@ export interface TeamMarketingAnalyticsConfigApi {
     campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferencesApi
 }
 
+/**
+ * * `custom_property` - Custom property
+ * * `relationship` - Relationship
+ */
+export type AccountPropertyPinKindEnumApi =
+    (typeof AccountPropertyPinKindEnumApi)[keyof typeof AccountPropertyPinKindEnumApi]
+
+export const AccountPropertyPinKindEnumApi = {
+    CustomProperty: 'custom_property',
+    Relationship: 'relationship',
+} as const
+
+export interface TeamCustomerAnalyticsPinnedAccountPropertyApi {
+    /** Definition type for this default pinned account property.
+     *
+     * * `custom_property` - Custom property
+     * * `relationship` - Relationship */
+    kind: AccountPropertyPinKindEnumApi
+    /** Project-scoped custom property or relationship definition UUID. */
+    id: string
+}
+
 export interface TeamCustomerAnalyticsConfigApi {
     /** Event used as the activity signal (DAU/WAU/MAU). */
     activity_event?: unknown
@@ -1822,6 +1858,8 @@ export interface TeamCustomerAnalyticsConfigApi {
      * @nullable
      */
     account_group_type_index?: number | null
+    /** Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default. */
+    default_pinned_properties?: TeamCustomerAnalyticsPinnedAccountPropertyApi[]
 }
 
 /**
@@ -2671,7 +2709,11 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     conversations_enabled?: boolean | null
-    conversations_settings?: unknown
+    /**
+     * Settings for Conversations. Must be a JSON object or null.
+     * @nullable
+     */
+    conversations_settings?: ProjectBackwardCompatApiConversationsSettings
     logs_settings?: unknown
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
@@ -2694,6 +2736,8 @@ export interface ProjectBackwardCompatApi {
      */
     readonly user_access_level: string | null
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
+    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+    readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
@@ -2744,6 +2788,12 @@ export type PatchedProjectBackwardCompatApiProductIntentsItem = {
     onboarding_completed_at?: string | null
     updated_at?: string
 }
+
+/**
+ * Settings for Conversations. Must be a JSON object or null.
+ * @nullable
+ */
+export type PatchedProjectBackwardCompatApiConversationsSettings = { [key: string]: unknown } | null
 
 export type PatchedProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
 
@@ -3538,7 +3588,11 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     conversations_enabled?: boolean | null
-    conversations_settings?: unknown
+    /**
+     * Settings for Conversations. Must be a JSON object or null.
+     * @nullable
+     */
+    conversations_settings?: PatchedProjectBackwardCompatApiConversationsSettings
     logs_settings?: unknown
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
@@ -3561,6 +3615,8 @@ export interface PatchedProjectBackwardCompatApi {
      */
     readonly user_access_level?: string | null
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
+    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+    readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
@@ -3881,6 +3937,20 @@ export interface EmojiSearchResponseApi {
     suggestions: EmojiSuggestionApi[]
 }
 
+export interface EventPropertyValueApi {
+    /** A value of the property, always as a string. Booleans come back as 'true' or 'false', and objects and lists as JSON. */
+    name: string
+    /** How many times the value occurs, when the lookup counts values. */
+    count?: number
+}
+
+export interface EventPropertyValuesResponseApi {
+    /** Values of the property that match the request. */
+    results: EventPropertyValueApi[]
+    /** True when these results come from a stale cache and a refresh runs in the background. */
+    refreshing: boolean
+}
+
 /**
  * * `image/png` - image/png
  * * `application/pdf` - application/pdf
@@ -3930,6 +4000,7 @@ export interface ExportedAssetApi {
      * * `application/x-ndjson` - application/x-ndjson */
     readonly export_format: ExportedAssetExportFormatEnumApi
     readonly created_at: string
+    /** Whether the export finished and its content is ready to download. Create can return before the export finishes; poll the asset until has_content is true or exception is set. */
     readonly has_content: boolean
     export_context?: unknown
     readonly filename: string
@@ -3999,6 +4070,7 @@ export interface ExportedAssetCreateApi {
      * * `application/json` - application/json */
     export_format: ExportedAssetCreateExportFormatEnumApi
     readonly created_at: string
+    /** Whether the export finished and its content is ready to download. Create can return before the export finishes; poll the asset until has_content is true or exception is set. */
     readonly has_content: boolean
     export_context?: unknown
     readonly filename: string
@@ -4166,6 +4238,40 @@ export interface PatchedFileSystemShortcutApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface FileSystemShortcutBulkItemApi {
+    /** Display path of the shortcut in the sidebar. */
+    path: string
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+     * @maxLength 4000
+     * @nullable
+     */
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+}
+
+export interface FileSystemShortcutBulkUpdateApi {
+    /**
+     * Shortcuts to create, appended to the end of the current order in the given sequence. An item identical to a shortcut the user already has is skipped.
+     * @maxItems 500
+     */
+    add?: FileSystemShortcutBulkItemApi[]
+    /**
+     * IDs of the current user's shortcuts to delete.
+     * @maxItems 500
+     */
+    remove_ids?: string[]
 }
 
 export interface FileSystemShortcutReorderApi {
@@ -4516,7 +4622,7 @@ export interface UploadedMediaUploadStartedApi {
 
 export interface LeakedKeyReportApi {
     /**
-     * The leaked PostHog personal API key, project secret API key, or OAuth access/refresh token to revoke.
+     * The leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access/refresh token to revoke.
      * @maxLength 200
      */
     token: string
@@ -4525,6 +4631,7 @@ export interface LeakedKeyReportApi {
 /**
  * * `personal_api_key` - personal_api_key
  * * `project_secret_api_key` - project_secret_api_key
+ * * `team_secret_token` - team_secret_token
  * * `oauth_access_token` - oauth_access_token
  * * `oauth_refresh_token` - oauth_refresh_token
  */
@@ -4534,17 +4641,19 @@ export type LeakedKeyReportResponseTypeEnumApi =
 export const LeakedKeyReportResponseTypeEnumApi = {
     PersonalApiKey: 'personal_api_key',
     ProjectSecretApiKey: 'project_secret_api_key',
+    TeamSecretToken: 'team_secret_token',
     OauthAccessToken: 'oauth_access_token',
     OauthRefreshToken: 'oauth_refresh_token',
 } as const
 
 export interface LeakedKeyReportResponseApi {
-    /** Whether a matching PostHog key or token was found and revoked. */
+    /** Whether a matching PostHog key or token was found. It was revoked, or, for team_secret_token, its project admins were told to rotate it. */
     found: boolean
-    /** The type of key that was found and revoked, or null if no match was found.
+    /** The type of key that was found and revoked, or null if no match was found. team_secret_token means the string is a legacy feature flags secure API key: its migrated project secret API key row was removed, but the legacy key itself cannot be auto-rotated, so project admins are emailed to rotate it.
      *
      * * `personal_api_key` - personal_api_key
      * * `project_secret_api_key` - project_secret_api_key
+     * * `team_secret_token` - team_secret_token
      * * `oauth_access_token` - oauth_access_token
      * * `oauth_refresh_token` - oauth_refresh_token */
     type: LeakedKeyReportResponseTypeEnumApi | null
@@ -4615,6 +4724,29 @@ export const OrganizationPluginsAccessLevelEnumApi = {
     Number9: 9,
 } as const
 
+export interface OrganizationMemberNoticeActionApi {
+    /**
+     * Text on the button shown next to the notice.
+     * @maxLength 40
+     */
+    label: string
+    /**
+     * Link the button opens in a new tab. Must use http or https.
+     * @maxLength 2000
+     */
+    url: string
+}
+
+export interface OrganizationMemberNoticeApi {
+    /**
+     * HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.
+     * @maxLength 1000
+     */
+    message: string
+    /** Optional link button shown on the right of the banner. */
+    action?: OrganizationMemberNoticeActionApi | null
+}
+
 export type OrganizationApiTeamsItem = { [key: string]: unknown }
 
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
@@ -4665,6 +4797,8 @@ export interface OrganizationApi {
      * @nullable
      */
     read_only_mcp_access?: boolean | null
+    /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
+    member_notice?: OrganizationMemberNoticeApi | null
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
@@ -4891,7 +5025,7 @@ export interface UserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
     ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at: string | null
@@ -5007,7 +5141,7 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
     ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
@@ -5202,6 +5336,11 @@ export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
+    /**
+     * The offset to pass to get the next page, or null when this page is the last one.
+     * @nullable
+     */
+    next_offset: number | null
     /** Total number of repositories matching the search query, across all pages. */
     total: number
 }
@@ -5679,6 +5818,33 @@ export type EmojiSearchSuggestRetrieveParams = {
     query: string
 }
 
+export type EventsValuesRetrieveParams = {
+    /**
+     * Only read values from events with these names. Repeat to pass several. Required with a personal API key. Projects that read values from the precomputed property values table ignore this filter.
+     */
+    event_name?: string[]
+    format?: EventsValuesRetrieveFormat
+    /**
+     * Read 'key' as an events table column, not a property.
+     */
+    is_column?: boolean
+    /**
+     * The property to list values for.
+     */
+    key: string
+    /**
+     * Only return values that contain this text, ignoring case.
+     */
+    value?: string
+}
+
+export type EventsValuesRetrieveFormat = (typeof EventsValuesRetrieveFormat)[keyof typeof EventsValuesRetrieveFormat]
+
+export const EventsValuesRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -5924,6 +6090,10 @@ export type UsersIntegrationsGithubBranchesRetrieveParams = {
 }
 
 export type UsersIntegrationsGithubReposRetrieveParams = {
+    /**
+     * When true, return only id, name, and full_name for each repository. Use it to list large rosters in fewer, smaller pages.
+     */
+    compact?: boolean
     /**
      * Maximum number of repositories to return per request (max 500).
      * @minimum 1

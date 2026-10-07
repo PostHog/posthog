@@ -13,12 +13,17 @@ It is the only honest number in the product. A holdout AUC of 0.93 says the mode
 
   Per matured prediction date, per model that emitted predictions, it computes:
   - **realized AUC** — ranking quality against actual outcomes (needs both classes; a single-class date records `single_class_no_auc` instead)
+  - **AUC interval** (`realized_auc_ci_low` / `realized_auc_ci_high`, `_auc_confidence_interval`) — a 95% Hanley-McNeil interval, so a date with few positives shows as uncertain; omitted with the AUC
+  - **mean predicted probability** (`mean_p_y`) — compare it with `base_rate` to see over- or under-prediction
   - **Brier score** — squared error of the probabilities
-  - **expected calibration error** (`_expected_calibration_error`, 10 bins) — whether "0.8" really means 80%
+  - **expected calibration error** (`_expected_calibration_error`, 10 equal-width bins) — whether "0.8" really means 80%; kept unchanged so old and new dates compare
+  - **calibration bins** (`_quantile_calibration_bins`) — up to 10 bins cut at score quantiles, each with `n`, `mean_p_y` and `positive_rate`; equal scores share a bin. Equal-width bins put nearly every person in the first bin for a rare target, so read these instead
   - **lift@k** (`_lift_at_k`) — how much better than random the top slice is; ties at the boundary score are split fractionally so the number does not depend on row order
+  - **weekday** — the ISO weekday of the prediction date
 
-  Every model that emitted predictions on the date is scored, whatever its role now. Inference emits the champion only today; when challenger shadow scoring ships, their realized numbers land here without a change, which is what makes challenger promotion decidable on evidence rather than on holdout alone.
+  Every model that emitted predictions on the date is scored, whatever its role now. Inference shadow-scores every model in the shadow set on the champion's people, and each records its own inference run, so their realized numbers land here. That is what makes challenger promotion decidable on evidence rather than on holdout alone. A shadow model's events carry the emitted role `shadow`.
   Results land on `AutoresearchModel.realized_score` / `.calibration_error` / `.metrics["realized"]` via `_update_model_realized_metrics()`, and each validated date records an `AutoresearchRun` whose `metrics["per_model"]` keeps the emitted role next to the current one.
+  The model row keeps only the newest date. The history is on the runs: `latest_validation_runs()` in `history.py` reads them, for `online_performance()` in `../facade/api.py` (the pipeline's `online_performance` action and the `autoresearch-online-performance-retrieve` MCP tool) reads the newest completed run per (date, horizon) and returns one row per model per date, so an archived former champion keeps its evidence after a promotion. The training brief reads the same history (`../training/realized_context.py`).
 
 ## Mental model
 
@@ -40,7 +45,7 @@ Candidate dates come from Postgres, not from a scan of the events table: the inf
 
 `find_pending_validation_dates()` is what keeps this idempotent. A group is done once a `COMPLETED` validation run holds the same per-model counts as the group's inference runs, so the workflow can run daily without recomputing history, and a later rescore or a new model on the date makes the group pending again and replaces its evidence. A `FAILED` run does not count, so its group is retried. A `RUNNING` validation claim, and a `RUNNING` inference run, hold the group only while younger than `STALE_RUN_AFTER`, so a worker killed mid-run cannot block it forever. Models scored on one date under different horizons are separate groups with their own outcome windows. Maturity waits `OUTCOME_INGESTION_GRACE` past the window end so the last outcome events have reached ClickHouse.
 
-Both ClickHouse queries are bounded by what the inference runs say was emitted. The prediction fetch must return exactly `rows_scored` persons per model; fewer means ingestion has not caught up with a backfill, more means events the run did not emit, and either fails the date so it is retried instead of completing with wrong numbers. The realized-label scan is restricted to the predicted persons, and its window is the UTC one scoring bound the run to (`[D 00:00, D + horizon 00:00)`). Before the group is marked complete, its inference runs are read again inside the transaction: a run that finished or started while the queries ran fails the group, and a run that slips in after that check changes the counts and makes the group pending again on the next pass. The model rows are locked for the write, so two validators on different dates cannot race the newest-date guard.
+Every ClickHouse query is bounded by what the inference runs say was emitted. The prediction fetch runs one query per model, because HogQL returns at most 50,000 rows whatever the LIMIT, and the champion and its shadow models together can emit more. Each query must return exactly `rows_scored` persons for its model; fewer means ingestion has not caught up with a backfill, more means events the run did not emit, and either fails the date so it is retried instead of completing with wrong numbers. The realized-label scan is restricted to the predicted persons, and its window is the UTC one scoring bound the run to (`[D 00:00, D + horizon 00:00)`). Before the group is marked complete, its inference runs are read again inside the transaction: a run that finished or started while the queries ran fails the group, and a run that slips in after that check changes the counts and makes the group pending again on the next pass. The model rows are locked for the write, so two validators on different dates cannot race the newest-date guard.
 
 All the heavy work — the HogQL queries and the sklearn metrics — happens inside a single Temporal activity. Nothing large crosses a workflow boundary, which is deliberate: activity payloads are capped, and prediction sets are big.
 
@@ -52,7 +57,7 @@ All the heavy work — the HogQL queries and the sklearn metrics — happens ins
 - **Backdated events are refused by scoring when the team sets `drop_events_older_than_seconds`**, so no inference run is recorded and validation has nothing to look for.
 - **A deleted model takes its evidence with it.** Its inference runs lose their model and drop out of the candidates, and its prediction events are not fetched. A model deleted mid-validation is recorded in the run's `per_model` as `deleted` and skipped for the model update, and its absence does not reopen the group.
 - **A completed date is never revisited.** An outcome event that reaches ClickHouse more than `OUTCOME_INGESTION_GRACE` after the window closed (an offline SDK buffer flushed days late) reads as a negative in the stored metrics.
-- **Only the AUC needs both classes.** An all-negative day still records Brier, calibration error, and lift, which is where calibration matters for a rare target.
+- **Only the AUC and its interval need both classes.** An all-negative day still records Brier, calibration error, calibration bins, and lift, which is where calibration matters for a rare target.
 
 ## Where the rest of the system meets this package
 

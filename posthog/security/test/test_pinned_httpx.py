@@ -1,7 +1,9 @@
 import os
 import ssl
 import socket
+import asyncio
 import ipaddress
+from collections.abc import AsyncIterator
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -28,6 +30,119 @@ def _capturing_transport(seen: list[httpx.Request]) -> httpx.MockTransport:
 
 def _without_environment_proxies() -> dict[str, str]:
     return {key: "" for key in os.environ if key.lower().endswith("_proxy")}
+
+
+class TestBoundedPinnedClient:
+    @pytest.mark.parametrize("status", [200, 302, 500])
+    @pytest.mark.parametrize("advertised_length", [None, "100"])
+    def test_rejects_oversized_bodies_and_closes_the_connection(
+        self, status: int, advertised_length: str | None
+    ) -> None:
+        received: list[bytes] = []
+
+        class Body(httpx.AsyncByteStream):
+            closed = False
+
+            async def __aiter__(self) -> AsyncIterator[bytes]:
+                while True:
+                    received.append(b"data")
+                    yield b"data"
+
+            async def aclose(self) -> None:
+                self.closed = True
+
+        body = Body()
+        headers = {"Content-Length": advertised_length} if advertised_length is not None else {}
+        response = httpx.Response(status, stream=body, headers=headers)
+        with (
+            patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
+            pinned_client(
+                "https://example.com", {PUBLIC_IP}, total_timeout=10, max_response_bytes=4, trust_env=False
+            ) as client,
+            pytest.raises(httpx.DecodingError, match="size limit"),
+        ):
+            client.get("https://example.com")
+        assert received == ([] if advertised_length is not None else [b"data", b"data"])
+        assert body.closed
+
+    def test_refuses_compression_before_decoding(self) -> None:
+        response = httpx.Response(200, headers={"Content-Encoding": "gzip"}, stream=httpx.ByteStream(b"compressed"))
+        with (
+            patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as send,
+            pinned_client("https://example.com", {PUBLIC_IP}, total_timeout=10, trust_env=False) as client,
+            pytest.raises(httpx.DecodingError, match="uncompressed"),
+        ):
+            client.get("https://example.com")
+        assert send.call_args.args[0].headers["Accept-Encoding"] == "identity"
+        assert response.is_closed
+
+    @pytest.mark.parametrize("phase", ["headers", "body", "buffered_body"])
+    def test_total_deadline_cancels_slow_headers_and_dripping_body(self, phase: str) -> None:
+        clock = [0.0]
+        stream = httpcore.AsyncMockStream([])
+        reads = 0
+
+        async def read(max_bytes: int, timeout: float | None = None) -> bytes:
+            nonlocal reads
+            reads += 1
+            clock[0] += 1
+            if phase != "buffered_body":
+                await asyncio.sleep(0)
+            if phase == "headers":
+                return b"HTTP/1.1 200 OK\r\nX-Slow: " if reads == 1 else b"x"
+            return b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n" if reads == 1 else b"1\r\nx\r\n"
+
+        with (
+            patch("asyncio.BaseEventLoop.time", side_effect=lambda: clock[0]),
+            patch("httpcore.AnyIOBackend.connect_tcp", return_value=stream),
+            patch.object(stream, "read", side_effect=read),
+            patch.object(stream, "aclose", wraps=stream.aclose) as close,
+            pinned_client("https://example.com", {PUBLIC_IP}, total_timeout=10, trust_env=False) as client,
+            pytest.raises(httpx.ReadTimeout, match="total request deadline"),
+        ):
+            client.get("https://example.com")
+        close.assert_awaited()
+
+    @pytest.mark.parametrize("proxy", [None, "http://proxy.example.com:8080"])
+    def test_streams_incrementally_with_pinning_and_trusted_proxy_routing(self, proxy: str | None) -> None:
+        sent: list[tuple[str, str, object]] = []
+        consumed: list[bytes] = []
+
+        class Body(httpx.AsyncByteStream):
+            closed = False
+
+            async def __aiter__(self) -> AsyncIterator[bytes]:
+                for chunk in (b"first", b"second"):
+                    consumed.append(chunk)
+                    yield chunk
+
+            async def aclose(self) -> None:
+                self.closed = True
+
+        body = Body()
+
+        async def respond(request: httpx.Request) -> httpx.Response:
+            sent.append((str(request.url), request.headers["Host"], request.extensions.get("sni_hostname")))
+            return httpx.Response(200, stream=body)
+
+        with (
+            override_settings(SSRF_TRUSTED_PROXY_URLS=[proxy] if proxy else []),
+            patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=respond),
+            pinned_client("https://example.com", {PUBLIC_IP}, total_timeout=10, trust_env=False, proxy=proxy) as client,
+        ):
+            with client.stream("GET", "https://example.com") as response:
+                assert consumed == []
+                assert next(response.iter_bytes()) == b"first"
+                assert consumed == [b"first"]
+                assert response.url == httpx.URL("https://example.com")
+            assert body.closed
+        assert sent == [
+            (
+                "https://example.com" if proxy else f"https://{PUBLIC_IP}",
+                "example.com",
+                None if proxy else "example.com",
+            )
+        ]
 
 
 class TestPinnedTransport:
@@ -134,17 +249,20 @@ class TestPinnedTransport:
 class TestPinnedClientRouting:
     @override_settings(SSRF_TRUSTED_PROXY_URLS=[])
     @pytest.mark.parametrize("proxy_variable", ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"])
-    def test_refuses_untrusted_proxy_before_sending_credentials(self, proxy_variable: str) -> None:
+    @pytest.mark.parametrize("bounded", [False, True])
+    def test_refuses_untrusted_proxy_before_sending_credentials(self, proxy_variable: str, bounded: bool) -> None:
         scheme = "http" if proxy_variable == "HTTP_PROXY" else "https"
         url = f"{scheme}://example.com/"
         with (
             patch.dict(os.environ, {**_without_environment_proxies(), proxy_variable: "http://egress.example:3128"}),
             patch.object(httpx.HTTPTransport, "handle_request", return_value=httpx.Response(200)) as send,
-            pinned_client(url, {PUBLIC_IP}) as client,
+            patch.object(httpx.AsyncHTTPTransport, "handle_async_request") as async_send,
+            pinned_client(url, {PUBLIC_IP}, total_timeout=10 if bounded else None) as client,
         ):
             with pytest.raises(SSRFBlockedError, match="proxy"):
                 client.get(url, headers={"Authorization": "Bearer fake-test-token"})
             send.assert_not_called()
+            async_send.assert_not_called()
 
     @override_settings(SSRF_TRUSTED_PROXY_URLS=["http://egress.example:3128"])
     @pytest.mark.parametrize(
@@ -220,15 +338,18 @@ class TestPinnedClientRouting:
     @override_settings(SSRF_TRUSTED_PROXY_URLS=["http://egress.example:3128"])
     @pytest.mark.parametrize("proxied", [False, True])
     @pytest.mark.parametrize("certificate_rejected", [False, True])
+    @pytest.mark.parametrize("bounded", [False, True])
     def test_tls_keeps_original_hostname_and_certificate_verification(
-        self, proxied: bool, certificate_rejected: bool
+        self, proxied: bool, certificate_rejected: bool, bounded: bool
     ) -> None:
         responses = [b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"]
         if proxied:
             responses.insert(0, b"HTTP/1.1 200 Connection Established\r\n\r\n")
-        stream = httpcore.MockStream(responses)
+        stream = httpcore.AsyncMockStream(responses) if bounded else httpcore.MockStream(responses)
 
-        def start_tls(ssl_context: ssl.SSLContext, server_hostname: str, timeout: float) -> httpcore.NetworkStream:
+        def start_tls(
+            ssl_context: ssl.SSLContext, server_hostname: str, timeout: float
+        ) -> httpcore.NetworkStream | httpcore.AsyncNetworkStream:
             assert ssl_context.verify_mode == ssl.CERT_REQUIRED
             assert ssl_context.check_hostname
             assert server_hostname == "example.com"
@@ -239,16 +360,20 @@ class TestPinnedClientRouting:
         environment = {"HTTPS_PROXY": "http://egress.example:3128"} if proxied else {}
         with (
             patch.dict(os.environ, {**_without_environment_proxies(), **environment}),
-            patch("httpcore.SyncBackend.connect_tcp", return_value=stream) as connect,
+            patch(
+                "httpcore.AnyIOBackend.connect_tcp" if bounded else "httpcore.SyncBackend.connect_tcp",
+                return_value=stream,
+            ) as connect,
             patch.object(stream, "start_tls", side_effect=start_tls) as tls,
-            pinned_client("https://example.com/", {PUBLIC_IP}) as client,
+            pinned_client("https://example.com/", {PUBLIC_IP}, total_timeout=10 if bounded else None) as client,
         ):
             if certificate_rejected:
                 with pytest.raises(httpx.ConnectError, match="CERTIFICATE_VERIFY_FAILED"):
                     client.get("https://example.com/")
             else:
                 assert client.get("https://example.com/").status_code == 200
-            assert connect.call_args.kwargs["host"] == ("egress.example" if proxied else str(PUBLIC_IP))
+            host = connect.call_args.args[0] if bounded else connect.call_args.kwargs["host"]
+            assert host == ("egress.example" if proxied else str(PUBLIC_IP))
             tls.assert_called_once()
 
     @override_settings(FORCE_URL_VALIDATION=True)

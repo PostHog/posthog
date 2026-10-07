@@ -3,9 +3,8 @@ Contract types for batch_exports.
 
 Stable, framework-free dataclasses defining what this product hands to the rest of the
 codebase. No Django or DRF imports, and enums are flattened to their ``str`` value, so a
-consumer never needs a model class to read a batch export. The ``StrEnum`` classes name
-those values for a consumer that writes them. They copy the model's ``TextChoices``, and
-``tests/test_facade.py`` fails when the two copies differ.
+consumer never needs a model class to read a batch export. A consumer that writes one of
+those values imports the enum from ``facade/enums.py``.
 
 The fields are the ones consumers read today and nothing more. An encrypted model field
 never crosses whole, because reading one decrypts it; ``BatchExportDetail`` documents the
@@ -22,7 +21,6 @@ from dataclasses import (
     dataclass as stdlib_dataclass,
     field,
 )
-from enum import StrEnum
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -31,53 +29,8 @@ from pydantic.dataclasses import dataclass
 BATCH_EXPORT_MODEL_LABEL = "batch_exports.BatchExport"
 
 
-class DestinationType(StrEnum):
-    AWS_S3 = "AwsS3"
-    S3_COMPATIBLE = "S3Compatible"
-    SNOWFLAKE = "Snowflake"
-    POSTGRES = "Postgres"
-    REDSHIFT = "Redshift"
-    BIGQUERY = "BigQuery"
-    DATABRICKS = "Databricks"
-    AZURE_BLOB = "AzureBlob"
-    WORKFLOWS = "Workflows"
-    HTTP = "HTTP"
-    NOOP = "NoOp"
-    FILE_DOWNLOAD = "FileDownload"
-
-
-class BatchExportModel(StrEnum):
-    """The data model an export reads, for scheduled and on-demand exports alike."""
-
-    EVENTS = "events"
-    PERSONS = "persons"
-    SESSIONS = "sessions"
-    HOGQL = "hogql"
-
-
-class BatchExportRunStatus(StrEnum):
-    CANCELLED = "Cancelled"
-    COMPLETED = "Completed"
-    CONTINUED_AS_NEW = "ContinuedAsNew"
-    FAILED = "Failed"
-    FAILED_RETRYABLE = "FailedRetryable"
-    FAILED_BILLING = "FailedBilling"
-    TERMINATED = "Terminated"
-    TIMEDOUT = "TimedOut"
-    RUNNING = "Running"
-    STARTING = "Starting"
-
-
-class BatchExportBackfillStatus(StrEnum):
-    CANCELLED = "Cancelled"
-    COMPLETED = "Completed"
-    CONTINUED_AS_NEW = "ContinuedAsNew"
-    FAILED = "Failed"
-    FAILED_RETRYABLE = "FailedRetryable"
-    TERMINATED = "Terminated"
-    TIMEDOUT = "TimedOut"
-    RUNNING = "Running"
-    STARTING = "Starting"
+class InvalidBatchExportFilters(ValueError):
+    """Raised when event filters are not a list of filters a batch export can apply."""
 
 
 @dataclass(frozen=True)
