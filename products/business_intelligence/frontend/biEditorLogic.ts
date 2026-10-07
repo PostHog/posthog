@@ -109,6 +109,24 @@ function blankField(source: BIDataSource, fieldId: string): BIField {
     }
 }
 
+function addValueToConfig(config: BIConfig, value: BIValue): BIConfig {
+    const preserveCount =
+        !config.values.length &&
+        (config.resultFilters?.some((filter) => filter.measureIndex === 0) || config.topN?.measureIndex === 0)
+    const values: BIValue[] =
+        preserveCount && config.source
+            ? [
+                  {
+                      field: blankField(config.source, 'bi-default-count'),
+                      aggregation: 'custom',
+                      customExpression: 'count(*)',
+                      label: 'Count',
+                  },
+              ]
+            : config.values
+    return { ...config, values: [...values, value] }
+}
+
 function addFieldToConfig(config: BIConfig, field: BIField, shelf: BIShelf): BIConfig {
     if (!isBIFieldCompatible(config.source, field)) {
         return config
@@ -125,11 +143,7 @@ function addFieldToConfig(config: BIConfig, field: BIField, shelf: BIShelf): BIC
             }
             return { ...sourceConfig, source, [shelf]: [...sourceConfig[shelf], field] }
         case 'values':
-            return {
-                ...sourceConfig,
-                source,
-                values: [...sourceConfig.values, { field, aggregation: defaultAggregationForField(field) }],
-            }
+            return addValueToConfig(sourceConfig, { field, aggregation: defaultAggregationForField(field) })
         case 'filters':
             if (
                 sourceConfig.filters.some(
@@ -733,13 +747,12 @@ export const biEditorLogic = kea<biEditorLogicType>([
                         customExpression: draft.expression.trim(),
                         label: draft.name.trim(),
                     }
-                    return {
-                        ...config,
-                        values:
-                            draft.index === null
-                                ? [...config.values, value]
-                                : config.values.map((current, index) => (index === draft.index ? value : current)),
-                    }
+                    return draft.index === null
+                        ? addValueToConfig(config, value)
+                        : {
+                              ...config,
+                              values: config.values.map((current, index) => (index === draft.index ? value : current)),
+                          }
                 },
                 addFieldToShelf: (config, { field, shelf }) => addFieldToConfig(config, field, shelf),
                 setFilterGroup: (config, { scope, group }) => ({
