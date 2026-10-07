@@ -22,6 +22,7 @@ from django.utils import timezone
 
 import jwt
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from oauth2_provider.utils import jwk_from_pem
 from parameterized import parameterized
 from rest_framework import status
@@ -47,6 +48,11 @@ from posthog.settings.utils import generate_rsa_private_key_pem
 
 # rsa operations are expensive, keep this at the module-level to avoid slow tests
 _IDP_PRIVATE_KEY_PEM = generate_rsa_private_key_pem()
+_IDP_EC_PRIVATE_KEY_PEM = (
+    ec.generate_private_key(ec.SECP256R1())
+    .private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+    .decode()
+)
 _AS_PRIVATE_KEY_PEM = generate_rsa_private_key_pem()
 
 _IDP_ISSUER = "https://idp.example.com"
@@ -76,7 +82,9 @@ def _make_id_jag(
     exp_seconds: int = 300,
     typ_header: str = ID_JAG_TOKEN_TYPE,
     extra_claims: dict[str, Any] | None = None,
+    omit_claims: tuple[str, ...] = (),
     signing_pem: str | None = None,
+    algorithm: str = "RS256",
 ) -> str:
     """Forge a synthetic IdP-issued ID-JAG for the test suite."""
 
@@ -95,11 +103,13 @@ def _make_id_jag(
     }
     if extra_claims:
         payload.update(extra_claims)
+    for claim in omit_claims:
+        payload.pop(claim)
     return jwt.encode(
         payload,
         signing_pem or _IDP_PRIVATE_KEY_PEM,
-        algorithm="RS256",
-        headers={"typ": typ_header, "alg": "RS256"},
+        algorithm=algorithm,
+        headers={"typ": typ_header, "alg": algorithm},
     )
 
 
@@ -138,10 +148,10 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         # Stub the JWKS fetch so PyJWKClient resolves to our test public key
         # without hitting the network. `get_signing_key_from_jwt` is the only
         # surface area we use.
-        signing_key = MagicMock()
-        signing_key.key = _public_key_for(_IDP_PRIVATE_KEY_PEM)
+        self.idp_signing_key = MagicMock()
+        self.idp_signing_key.key = _public_key_for(_IDP_PRIVATE_KEY_PEM)
         mock_jwks_client = MagicMock()
-        mock_jwks_client.get_signing_key_from_jwt.return_value = signing_key
+        mock_jwks_client.get_signing_key_from_jwt.return_value = self.idp_signing_key
 
         self._jwks_patch = patch("posthog.api.id_jag._get_jwks_client", return_value=mock_jwks_client)
         self._jwks_patch.start()
@@ -150,8 +160,16 @@ class TestIdJagTokenEndpoint(APIBaseTest):
     def _post_token(self, body: dict[str, Any]) -> Any:
         return self.client.post("/oauth/token", data=body, content_type="application/json")
 
-    def test_issues_access_token_for_valid_id_jag(self) -> None:
-        assertion = _make_id_jag()
+    @parameterized.expand(
+        [
+            ("RS256", _IDP_PRIVATE_KEY_PEM),
+            ("PS256", _IDP_PRIVATE_KEY_PEM),
+            ("ES256", _IDP_EC_PRIVATE_KEY_PEM),
+        ]
+    )
+    def test_issues_access_token_for_valid_id_jag(self, idp_algorithm: str, idp_signing_pem: str) -> None:
+        self.idp_signing_key.key = _public_key_for(idp_signing_pem)
+        assertion = _make_id_jag(signing_pem=idp_signing_pem, algorithm=idp_algorithm)
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
 
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
@@ -540,25 +558,28 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(resp.json()["error"], "invalid_grant")
 
-    def test_rejects_missing_required_claims(self) -> None:
-        assertion = jwt.encode(
-            {
-                "iss": _IDP_ISSUER,
-                "sub": "user@example.com",
-                "aud": _AUTH_SERVER_URL,
-                # client_id intentionally missing
-                "resource": _RESOURCE_URL,
-                "scope": "feature_flag:read",
-                "iat": int(time.time()),
-                "exp": int(time.time()) + 300,
-            },
-            _IDP_PRIVATE_KEY_PEM,
-            algorithm="RS256",
-            headers={"typ": ID_JAG_TOKEN_TYPE},
-        )
+    @parameterized.expand([("client_id",), ("jti",)])
+    def test_rejects_missing_required_claims(self, missing_claim: str) -> None:
+        assertion = _make_id_jag(omit_claims=(missing_claim,))
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(resp.json()["error"], "invalid_grant")
+        self.assertIn(missing_claim, resp.json()["error_description"])
+
+    @parameterized.expand(
+        [
+            ("at_cap", {}, 600, status.HTTP_200_OK),
+            ("over_cap", {}, 601, status.HTTP_400_BAD_REQUEST),
+            ("numeric_string_exp", {"exp": str(int(time.time()) + 300)}, 300, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    @override_settings(ID_JAG_MAX_ASSERTION_LIFETIME_SECONDS=600)
+    def test_assertion_lifetime_is_capped(
+        self, _name: str, extra_claims: dict[str, Any], exp_seconds: int, expected_status: int
+    ) -> None:
+        assertion = _make_id_jag(exp_seconds=exp_seconds, extra_claims=extra_claims)
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, expected_status, resp.json())
 
     def test_rejects_request_client_id_mismatch(self) -> None:
         assertion = _make_id_jag(client_id="client_abc-at-posthog")

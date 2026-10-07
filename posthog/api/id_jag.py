@@ -43,6 +43,10 @@ JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 # draft-ietf-oauth-identity-assertion-authz-grant §7.2 — advertised in metadata for ID-JAG discovery.
 ID_JAG_GRANT_PROFILE = "urn:ietf:params:oauth:grant-profile:id-jag"
 
+# Asymmetric signatures only. An HMAC family would let anyone who can read the IdP's public
+# JWKS sign with it as a shared secret, and "none" carries no signature at all.
+ID_JAG_ALLOWED_ALGORITHMS = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"]
+
 
 GENERIC_ID_JAG_REJECTION = "ID-JAG could not be verified"
 
@@ -322,11 +326,11 @@ def _verify_and_extract_id_jag_token(assertion: str) -> _VerifiedIdJag:
             jwt.decode(
                 assertion,
                 signing_key.key,
-                algorithms=["RS256", "RS384", "RS512"],
+                algorithms=ID_JAG_ALLOWED_ALGORITHMS,
                 audience=allowed_audiences,
                 leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                 options={
-                    "require": ["iss", "sub", "aud", "exp", "iat", "client_id"],
+                    "require": ["iss", "sub", "aud", "exp", "iat", "client_id", "jti"],
                     "verify_signature": True,
                     "verify_exp": True,
                     "verify_nbf": True,
@@ -382,19 +386,24 @@ def _verify_and_extract_id_jag_token(assertion: str) -> _VerifiedIdJag:
     if idp_config.id_jag_allowed_clients and client_id not in idp_config.id_jag_allowed_clients:
         raise InvalidClientError(f"client_id {client_id!r} is not allowed for this domain")
 
+    expires_at = claims.get("exp")
+    issued_at = claims.get("iat")
+    # PyJWT validates timestamps after int() coercion but returns the original claim values,
+    # so a numeric-string exp or iat would make the arithmetic below raise a TypeError.
+    if not isinstance(expires_at, (int, float)) or not isinstance(issued_at, (int, float)):
+        raise InvalidGrantError("ID-JAG exp and iat must be numeric")
+    # The cap bounds how long a captured ID-JAG stays usable, and how long its jti stays in the cache.
+    if expires_at - issued_at > settings.ID_JAG_MAX_ASSERTION_LIFETIME_SECONDS:
+        raise InvalidGrantError(f"ID-JAG lifetime exceeds {settings.ID_JAG_MAX_ASSERTION_LIFETIME_SECONDS} seconds")
+
     # prevent replayed tokens from being used again
-    jti = claims.get("jti")
-    if jti:
-        cache_key = f"id_jag:jti:{expected_issuer}:{jti}"
-        exp = int(claims.get("exp") or 0)
-        now = int(datetime.now(tz=UTC).timestamp())
-        ttl = max(1, exp - now + settings.ID_JAG_CLOCK_SKEW_SECONDS)
-        # `cache.add` is SETNX semantics: returns True only if the key was
-        # newly created. A False return means we've already seen this jti.
-        if not cache.add(cache_key, "1", ttl):
-            raise InvalidGrantError("ID-JAG assertion has already been used (jti replay)")
-    else:
-        logger.info("id_jag_assertion_missing_jti", issuer=expected_issuer)
+    cache_key = f"id_jag:jti:{expected_issuer}:{claims['jti']}"
+    now = int(datetime.now(tz=UTC).timestamp())
+    ttl = max(1, int(expires_at) - now + settings.ID_JAG_CLOCK_SKEW_SECONDS)
+    # `cache.add` is SETNX semantics: returns True only if the key was
+    # newly created. A False return means we've already seen this jti.
+    if not cache.add(cache_key, "1", ttl):
+        raise InvalidGrantError("ID-JAG assertion has already been used (jti replay)")
 
     # Some IdPs let a user set an arbitrary `email` with `email_verified: false`
     if claims.get("email") is not None and claims.get("email_verified") is False:
