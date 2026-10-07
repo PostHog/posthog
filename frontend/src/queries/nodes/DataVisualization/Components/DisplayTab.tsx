@@ -28,7 +28,7 @@ import { ChartDisplayType } from '~/types'
 
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 import { displayLogic } from '../displayLogic'
-import { buildPieSlices, partOfWholeChartData, showsLegendByDefault } from './Charts/sqlPieGraphAdapter'
+import { buildPieSlices, partOfWholeChartData, showsLegendByDefault, showsPieTotal } from './Charts/sqlPieGraphAdapter'
 import { SQL_METRIC_SUMMARY_DEFAULT } from './Charts/useSqlMetricModel'
 import { seriesBreakdownLogic } from './seriesBreakdownLogic'
 
@@ -337,13 +337,7 @@ export const DisplayTab = (): JSX.Element => {
                                         <LemonSwitch
                                             className="flex-1 w-full"
                                             label={isDonutChart ? 'Show total in center' : 'Show total below chart'}
-                                            // Matches the renderer's precedence in `SqlPieGraph.tsx`, including the
-                                            // legacy top-level `showPieTotal` toggle saved before `pie.showTotal`.
-                                            checked={
-                                                chartSettings.pie?.showTotal ??
-                                                chartSettings.showPieTotal ??
-                                                (chartSettings.pie?.sliceContent ?? 'values') === 'values'
-                                            }
+                                            checked={showsPieTotal(chartSettings, isProportionBar)}
                                             onChange={(value) => {
                                                 updateChartSettings({ pie: { showTotal: value } })
                                             }}

@@ -21,7 +21,13 @@ import { DonutCenterLabel } from 'products/product_analytics/frontend/insights/t
 
 import { SqlChartProps } from './SqlChart'
 import { formatSqlSeriesValue } from './sqlLineGraphAdapter'
-import { buildPieSeries, buildPieSlices, formatPieSliceCount, showsLegendByDefault } from './sqlPieGraphAdapter'
+import {
+    buildPieSeries,
+    buildPieSlices,
+    formatPieSliceCount,
+    showsLegendByDefault,
+    showsPieTotal,
+} from './sqlPieGraphAdapter'
 
 const handleChartError = makeChartErrorHandler('sql-pie-chart')
 
@@ -61,12 +67,7 @@ export const SqlPieGraph = ({
     // Unset means an existing chart from before the labels option — keep showing values. New pies
     // are stamped with 'labels' when the type is picked (see dataVisualizationLogic).
     const sliceContent = chartSettings.pie?.sliceContent ?? 'values'
-    // The total is a sum-of-values readout, so default it on only when slices show values.
-    // `showPieTotal` is the legacy top-level toggle — honor it for charts saved before `pie`.
-    // A proportion bar has no "show on slices" control, so `sliceContent` is a leftover from a
-    // prior pie/donut selection, not a setting of its own — default its total on regardless.
-    const showPieTotal =
-        chartSettings.pie?.showTotal ?? chartSettings.showPieTotal ?? (isProportionBar || sliceContent === 'values')
+    const showPieTotal = showsPieTotal(chartSettings, isProportionBar)
     // The proportion bar has no "show values as" control: its legend and tooltip show both.
     const asPercent = !isProportionBar && (chartSettings.pie?.valueDisplay ?? 'absolute') === 'percentage'
 

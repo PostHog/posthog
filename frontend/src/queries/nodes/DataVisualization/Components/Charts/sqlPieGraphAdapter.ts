@@ -2,6 +2,8 @@ import { type Series } from '@posthog/quill-charts'
 
 import { getSeriesColor } from 'lib/colors'
 
+import { ChartSettings } from '~/queries/schema/schema-general'
+
 import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries, BreakdownSeriesData } from '../seriesBreakdownLogic'
 import { formatSqlSeriesValue } from './sqlLineGraphAdapter'
@@ -110,6 +112,19 @@ export const MAX_DEFAULT_PROPORTION_LEGEND_PARTS = 20
  *  from, so its legend carries the shares and shows while the part count stays small. */
 export const showsLegendByDefault = (isProportionBar: boolean, partCount: number): boolean =>
     isProportionBar && partCount <= MAX_DEFAULT_PROPORTION_LEGEND_PARTS
+
+/** Whether the total shows. The total is a sum-of-values readout, so it defaults on only when
+ *  slices show values. `showPieTotal` is the legacy top-level toggle, honored for charts saved
+ *  before `pie`. A proportion bar has no "show on slices" control, so a `sliceContent` left over
+ *  from a prior pie or donut does not turn its total off. The renderer and the Display tab switch
+ *  both read this, so they agree. */
+export const showsPieTotal = (
+    chartSettings: Pick<ChartSettings, 'pie' | 'showPieTotal'>,
+    isProportionBar: boolean
+): boolean =>
+    chartSettings.pie?.showTotal ??
+    chartSettings.showPieTotal ??
+    (isProportionBar || (chartSettings.pie?.sliceContent ?? 'values') === 'values')
 
 export const formatPieSliceCount = (
     value: number,

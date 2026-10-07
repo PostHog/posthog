@@ -60,6 +60,7 @@ import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/Pi
 import { SqlBoxPlot } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot'
 import { isSqlChartVisualizationType, SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
 import { SqlMetricCard } from '~/queries/nodes/DataVisualization/Components/Charts/SqlMetricCard'
+import { partOfWholeChartData } from '~/queries/nodes/DataVisualization/Components/Charts/sqlPieGraphAdapter'
 import { SqlScatterGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
@@ -1086,14 +1087,13 @@ function InternalDataTableVisualization(
             </BindLogic>
         )
     } else if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
-        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
+        const pieData = partOfWholeChartData(seriesBreakdownData, xData, yData)
 
         component = (
             <PieChart
                 className="p-2"
-                xData={_xData}
-                yData={_yData}
+                xData={pieData.xData}
+                yData={pieData.yData}
                 visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
