@@ -11,11 +11,55 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { Shortcut } from './Shortcut'
 import { keyBinds } from './shortcuts'
+import { useShortcut } from './useShortcut'
+
+function TestSidebarShortcut({ onToggle }: { onToggle: () => void }): JSX.Element {
+    useShortcut({
+        name: 'TestSidebarShortcut',
+        keybind: [keyBinds.toggleLeftNav, keyBinds.toggleLeftNavFallback],
+        intent: 'Toggle sidebar',
+        interaction: 'function',
+        callback: onToggle,
+        ignoreInEditable: true,
+    })
+
+    return (
+        <>
+            <input aria-label="Shortcut input" />
+            <div role="textbox" aria-label="Rich text editor" contentEditable />
+        </>
+    )
+}
 
 describe('Shortcut', () => {
     // RTL auto-cleanup is not enabled in this repo, so `screen` leaks between tests without this.
     afterEach(() => {
         cleanup()
+    })
+
+    test.each([
+        { key: 'b', ctrlKey: true, target: 'body', toggles: true },
+        { key: '[', ctrlKey: false, target: 'body', toggles: true },
+        { key: 'b', ctrlKey: true, target: 'input', toggles: false },
+        { key: 'b', ctrlKey: true, target: 'editor', toggles: false },
+    ])('sidebar shortcut with $key on $target toggles=$toggles', ({ key, ctrlKey, target, toggles }) => {
+        const onToggle = jest.fn()
+        render(<TestSidebarShortcut onToggle={onToggle} />)
+
+        const element =
+            target === 'input'
+                ? screen.getByLabelText('Shortcut input')
+                : target === 'editor'
+                  ? screen.getByLabelText('Rich text editor')
+                  : document.body
+        if (target === 'editor') {
+            Object.defineProperty(element, 'isContentEditable', { value: true })
+        }
+        const event = new KeyboardEvent('keydown', { key, ctrlKey, bubbles: true, cancelable: true })
+        fireEvent(element, event)
+
+        expect(onToggle).toHaveBeenCalledTimes(toggles ? 1 : 0)
+        expect(event.defaultPrevented).toBe(toggles)
     })
 
     test.each([
