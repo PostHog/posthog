@@ -769,6 +769,10 @@ export function ActionFilterRow({
                                 ? seriesTable.name
                                 : undefined
                         }
+                        // Without static values, a flag calls filter looks up its values in events instead.
+                        staticValueOptions={
+                            isDataWarehouseFilter && node.table_name === FLAG_EVALUATIONS_TABLE ? () => [] : undefined
+                        }
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}
