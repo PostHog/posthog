@@ -1,4 +1,5 @@
 import re
+import dataclasses
 from typing import Any, cast
 from urllib.parse import urlparse
 
@@ -11,11 +12,20 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
+from posthog.models.integration import Integration
 
 from products.messaging.backend.api.branded_starter_flag import require_branded_starter
+from products.messaging.backend.api.github_brand import (
+    GITHUB_BUSY,
+    GitHubBrandErrorSerializer,
+    GitHubBrandRequestSerializer,
+    GitHubBrandSerializer,
+)
 from products.messaging.backend.models import EmailBrand
+from products.messaging.backend.services.github_brand import GitHubBusy, RepositoryUnreadable, detect_repository_brand
 
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -78,7 +88,7 @@ class EmailBrandSerializer(serializers.ModelSerializer):
 class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "hog_flow"
     scope_object_read_actions = ["current"]
-    scope_object_write_actions = ["update_current"]
+    scope_object_write_actions = ["update_current", "detect_from_github"]
     # The brand styles every email in the project, so access to one workflow must not reach it.
     requires_resource_level_access = True
     queryset = EmailBrand.objects.unscoped()
@@ -123,6 +133,39 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             serializer.is_valid(raise_exception=True)
             serializer.save()
         return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=GitHubBrandRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=GitHubBrandSerializer),
+            400: OpenApiResponse(
+                response=GitHubBrandErrorSerializer,
+                description="Invalid input, or a repository the GitHub App cannot read.",
+            ),
+            429: OpenApiResponse(response=GitHubBrandErrorSerializer, description=GITHUB_BUSY),
+        },
+        summary="Detect the Email brand from a GitHub repository",
+        description="Reads the repository's name, primary color and raster logo, and stores the logo. "
+        "Does not save the Email brand.",
+    )
+    @action(detail=False, methods=["POST"])
+    def detect_from_github(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        integration = self._github_integration(request.validated_data["integration_id"])
+        try:
+            brand = detect_repository_brand(
+                self.team, cast(User, request.user), integration, request.validated_data["repository"]
+            )
+        except RepositoryUnreadable as error:
+            raise exceptions.ValidationError({"repository": "The GitHub App cannot read this repository."}) from error
+        except GitHubBusy as error:
+            raise exceptions.Throttled(detail=GITHUB_BUSY) from error
+        return Response(GitHubBrandSerializer(dataclasses.asdict(brand)).data)
+
+    def _github_integration(self, integration_id: int) -> Integration:
+        integration = Integration.objects.filter(team_id=self.team.id, kind="github", id=integration_id).first()
+        if integration is None:
+            raise exceptions.ValidationError({"integration_id": "Choose a GitHub integration in this environment."})
+        return integration
 
     def _project_brands(self) -> QuerySet[EmailBrand]:
         return EmailBrand.objects.for_team(self._project_team_id(), canonical=True)

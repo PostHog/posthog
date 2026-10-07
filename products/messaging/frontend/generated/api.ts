@@ -16,6 +16,8 @@ import type {
     DetectedBrandApi,
     EmailBrandApi,
     GenerateLinkRequestApi,
+    GitHubBrandApi,
+    GitHubBrandRequestApi,
     MessageCategoryApi,
     MessagePreferencesApi,
     MessageSuppressionApi,
@@ -87,6 +89,27 @@ export const emailBrandCurrentPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedEmailBrandApi),
+    })
+}
+
+export const getEmailBrandDetectFromGithubCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/detect_from_github/`
+}
+
+/**
+ * Reads the repository's name, primary color and raster logo, and stores the logo. Does not save the Email brand.
+ * @summary Detect the Email brand from a GitHub repository
+ */
+export const emailBrandDetectFromGithubCreate = async (
+    projectId: string,
+    gitHubBrandRequestApi: GitHubBrandRequestApi,
+    options?: RequestInit
+): Promise<GitHubBrandApi> => {
+    return apiMutator<GitHubBrandApi>(getEmailBrandDetectFromGithubCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(gitHubBrandRequestApi),
     })
 }
 

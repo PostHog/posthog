@@ -51848,6 +51848,53 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface GitHubBrand {
+      /** Repository the brand was detected from, formatted as owner/repo. */
+      repository: string;
+      /**
+         * Detected brand name, or null if none was found.
+         * @nullable
+         */
+      name: string | null;
+      /**
+         * Detected primary color as #rrggbb, or null if none was found.
+         * @nullable
+         */
+      primary_color: string | null;
+      /**
+         * Public URL of the stored raster logo, or null if none was found.
+         * @nullable
+         */
+      logo_url: string | null;
+    }
+
+    export interface GitHubBrandError {
+      /** Error category. */
+      type: string;
+      /** Machine-readable error code. */
+      code: string;
+      /** Human-readable error description. */
+      detail: string;
+      /**
+         * Invalid field, when applicable.
+         * @nullable
+         */
+      attr?: string | null;
+    }
+
+    export interface GitHubBrandRequest {
+      /**
+         * GitHub integration in this environment that can read the repository.
+         * @minimum 1
+         */
+      integration_id: number;
+      /**
+         * Repository to read, formatted as owner/repo.
+         * @maxLength 140
+         */
+      repository: string;
+    }
+
     /**
      * * `pending` - Pending
      * * `approved` - Approved

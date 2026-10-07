@@ -41,6 +41,24 @@ export const EmailBrandCurrentPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Reads the repository's name, primary color and raster logo, and stores the logo. Does not save the Email brand.
+ * @summary Detect the Email brand from a GitHub repository
+ */
+
+export const emailBrandDetectFromGithubCreateBodyRepositoryMax = 140
+
+export const EmailBrandDetectFromGithubCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod
+        .number()
+        .min(1)
+        .describe('GitHub integration in this environment that can read the repository.'),
+    repository: zod
+        .string()
+        .max(emailBrandDetectFromGithubCreateBodyRepositoryMax)
+        .describe('Repository to read, formatted as owner\/repo.'),
+})
+
 export const messagingCategoriesCreateBodyKeyMax = 64
 
 export const messagingCategoriesCreateBodyNameMax = 128

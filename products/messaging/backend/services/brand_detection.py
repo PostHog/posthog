@@ -1,17 +1,13 @@
 import time
 import uuid
-import hashlib
 import ipaddress
 import dataclasses
 from collections.abc import Iterable
-from io import BytesIO
 from urllib.parse import urlparse
 
-from django.conf import settings
 from django.core.cache import cache
 
 import structlog
-from PIL import Image
 
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
@@ -20,14 +16,9 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.models.uploaded_media import (
-    MEDIA_PURPOSE_EMAIL,
-    ObjectStorageUnavailable,
-    UploadedMedia,
-    sniff_image_content_type,
-)
 from posthog.security.url_validation import validate_url_and_pin_ips
 
+from products.messaging.backend.services.email_logo import email_logo_content_type, store_email_logo
 from products.messaging.backend.services.website_brand import (
     BrandSignals,
     LogoCandidate,
@@ -36,12 +27,7 @@ from products.messaging.backend.services.website_brand import (
     read_brand_signals,
     read_manifest_signals,
 )
-from products.messaging.backend.services.website_fetch import (
-    ByteLimit,
-    FetchedResource,
-    WebsiteFetchError,
-    fetch_public_resource,
-)
+from products.messaging.backend.services.website_fetch import ByteLimit, WebsiteFetchError, fetch_public_resource
 
 logger = structlog.get_logger(__name__)
 
@@ -54,8 +40,6 @@ _PAGE_HEAD_LIMIT = ByteLimit(max_bytes=1024 * 1024, keep_prefix=True)
 _MANIFEST_LIMIT = ByteLimit(max_bytes=256 * 1024)
 _LOGO_LIMIT = ByteLimit(max_bytes=4 * 1024 * 1024 - 1)
 _MAX_LOGO_ATTEMPTS = 3
-_MIN_LOGO_SIDE_PX = 128
-_EMAIL_LOGO_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
 _HTML_TYPES = frozenset({"text/html", "application/xhtml+xml", ""})
 _PREVIEW_HOST_SUFFIXES = (
     ".vercel.app",
@@ -240,48 +224,10 @@ def _hosted_logo_url(candidates: tuple[LogoCandidate, ...], team: Team, user: Us
             image = fetch_public_resource(candidate.url, accept="image/*", limit=_LOGO_LIMIT, deadline=deadline)
         except WebsiteFetchError:
             continue
-        content_type = _email_logo_type(image)
+        content_type = email_logo_content_type(image.body)
         if content_type is not None:
-            return _store_logo(image.body, content_type, team, user)
+            return store_email_logo(image.body, content_type, team, user)
     return None
-
-
-def _email_logo_type(image: FetchedResource) -> str | None:
-    content_type = sniff_image_content_type(image.body)
-    if content_type not in _EMAIL_LOGO_EXTENSIONS:
-        return None
-    with Image.open(BytesIO(image.body)) as decoded:
-        return content_type if max(decoded.size) >= _MIN_LOGO_SIDE_PX else None
-
-
-def _store_logo(body: bytes, content_type: str, team: Team, user: User) -> str | None:
-    if not settings.OBJECT_STORAGE_ENABLED:
-        return None
-    file_name = f"website-logo-{hashlib.sha256(body).hexdigest()[:16]}.{_EMAIL_LOGO_EXTENSIONS[content_type]}"
-    stored = UploadedMedia.objects.filter(
-        team=team, purpose=MEDIA_PURPOSE_EMAIL, file_name=file_name, pending=False, media_location__isnull=False
-    ).first()
-    if stored is None:
-        stored = _save_logo(body, content_type, file_name, team, user)
-    return stored.get_absolute_url() if stored else None
-
-
-def _save_logo(body: bytes, content_type: str, file_name: str, team: Team, user: User) -> UploadedMedia | None:
-    try:
-        media = UploadedMedia.save_content(
-            team=team,
-            created_by=user,
-            file_name=file_name,
-            content_type=content_type,
-            content=body,
-            purpose=MEDIA_PURPOSE_EMAIL,
-        )
-    except ObjectStorageUnavailable:
-        return None
-    if media is not None:
-        media.size_bytes = len(body)
-        media.save(update_fields=["size_bytes"])
-    return media
 
 
 def _is_ip_literal(host: str) -> bool:

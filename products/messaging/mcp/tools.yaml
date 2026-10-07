@@ -15,6 +15,9 @@ tools:
     email-brand-current-retrieve:
         operation: email_brand_current_retrieve
         enabled: false
+    email-brand-detect-from-github-create:
+        operation: email_brand_detect_from_github_create
+        enabled: false
     messaging-categories-create:
         operation: messaging_categories_create
         enabled: false
