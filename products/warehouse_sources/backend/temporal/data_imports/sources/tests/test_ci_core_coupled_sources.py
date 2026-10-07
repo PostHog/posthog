@@ -16,10 +16,9 @@ from pathlib import Path
 # every facade re-export a Core/CorePOE file actually consumes back to its source vendor and
 # fails if that vendor is missing from the turbo.json contract-check inputs.
 #
-# Limitation: `SourceRegistry.get_source(<type>)` is a dynamic lookup — the vendor it resolves
-# to at runtime isn't visible statically, so this guard can't cover it. Core's real coupling is
-# the concrete `PostgresSource`/`MySQLSource`/... symbols, which it CAN see; the direct-SQL
-# adapters import those explicitly alongside SourceRegistry.
+# Limitation: SourceRegistry lookups resolve vendors dynamically, so this guard cannot cover
+# dependencies on their config fields. Dependent tests can be skipped on PRs and narrowed
+# merge-queue runs; the hourly full master run is the backstop for those dependencies.
 #
 # Generated configs are watched per module, because watching the package re-runs the Django
 # suite for every source. The second test holds that list to what the watched files refer to.
