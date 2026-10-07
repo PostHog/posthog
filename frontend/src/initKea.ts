@@ -18,6 +18,7 @@ import {
     stripTrailingSlash,
     stripTrailingSlashFromUrl,
 } from 'lib/utils/kea-router'
+import { keaStorage } from 'lib/utils/keaStorage'
 import { identifierToHuman } from 'lib/utils/strings'
 
 /*
@@ -158,7 +159,7 @@ export function initKea({
     const plugins = [
         ...(beforePlugins || []),
         disposablesPlugin,
-        localStoragePlugin(),
+        localStoragePlugin({ storageEngine: keaStorage.engine }),
         windowValuesPlugin({ window: window }),
         routerPlugin({
             history: routerHistory,
