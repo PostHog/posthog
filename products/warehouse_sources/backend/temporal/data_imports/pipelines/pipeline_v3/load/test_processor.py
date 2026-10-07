@@ -1832,5 +1832,5 @@ class TestTableHandleReuse:
             assert "table_refresh_ms" in written[1] and "table_open_ms" not in written[1]
             assert {"parquet_read_ms", "partition_ms", "schema_evolve_ms", "write_ms"} <= written[1].keys()
             rows = DeltaTable(tmp).to_pyarrow_table()
-            assert sorted(rows.column("id").to_pylist()) == [0, 1, 4, 5, 6, 6, 7, 8, 100]
+            assert rows.sort_by("id").column("id").to_pylist() == [0, 1, 4, 5, 6, 6, 7, 8, 100]
             assert rows.schema.names == ["id", "name", "added"]
