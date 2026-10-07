@@ -106,9 +106,6 @@ tools:
                 - products.*.addons.*.trial
                 - products.*.addons.*.inclusion_only
                 - products.*.addons.*.legacy_product
-    billing-payer-detach-create:
-        operation: billing_payer_detach_create
-        enabled: false
     billing-product-get:
         operation: billing_products_retrieve
         enabled: true
