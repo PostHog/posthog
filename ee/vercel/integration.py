@@ -18,6 +18,7 @@ from rest_framework import exceptions
 from two_factor.utils import default_device
 
 from posthog.api.signup import SIGNUP_BLOCKED_DETAIL, signup_refused
+from posthog.auth import ACCOUNT_BLOCKED_LOGIN_URL, account_refused
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_signed_up
@@ -64,6 +65,10 @@ class RequiresExistingUserLogin(Exception):
         self.installation_id = installation_id
         self.prefill_email = prefill_email
         super().__init__(f"User {email} must login first")
+
+
+class SSOLoginRefused(Exception):
+    pass
 
 
 @dataclass
@@ -919,6 +924,8 @@ class VercelIntegration:
     @staticmethod
     def _authenticate_and_login_user(request, claims: VercelUserClaims, resource_id: str | None) -> User:
         user = VercelIntegration._find_sso_user(claims)
+        if account_refused(request, user, call_site="vercel_sso", impersonated=False):
+            raise SSOLoginRefused()
         if user.is_email_verified is not True and VercelIntegration._claims_prove_email(claims, user.email):
             # Vercel verified the mailbox before issuing the claim, so this login proves it.
             user.is_email_verified = True
@@ -1106,6 +1113,8 @@ class VercelIntegration:
                 integration="vercel",
             )
             return login_url
+        except SSOLoginRefused:
+            return ACCOUNT_BLOCKED_LOGIN_URL
         except Exception as e:
             logger.exception("Vercel SSO authentication failed", error=str(e), integration="vercel")
             capture_exception(e)

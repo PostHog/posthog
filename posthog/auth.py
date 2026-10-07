@@ -6,7 +6,7 @@ import functools
 from abc import abstractmethod
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypedDict, Union
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from django.apps import apps
 from django.conf import settings
@@ -112,6 +112,9 @@ ACCOUNT_BLOCKED_DETAIL = (
     "We couldn't sign you in. If you think this is a mistake, contact support "
     f"and quote the code {SECURITY_REFUSAL_CODE}."
 )
+# The login page explains a refusal from this error code, so a passwordless login that refuses
+# an account redirects here.
+ACCOUNT_BLOCKED_LOGIN_URL = f"{settings.LOGIN_URL}?{urlencode({'error_code': SECURITY_REFUSAL_CODE})}"
 
 
 def account_refused(request: Union[HttpRequest, Request], user: User, *, call_site: str, impersonated: bool) -> bool:

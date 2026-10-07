@@ -256,6 +256,14 @@ class TestAgenticLogin(ProvisioningTestBase):
         res = self.client.get("/api/users/@me/")
         assert res.status_code == 401
 
+    def test_blocked_account_lands_on_login_without_a_session(self):
+        token = self._create_deep_link_token()
+        with patch("ee.api.agentic_provisioning.views.deep_links.account_refused", return_value=True):
+            res = self.client.get(f"/agentic/login?token={token}")
+        assert res.status_code == 302
+        assert res["Location"] == "/login?error_code=access_blocked"
+        assert self.client.get("/api/users/@me/").status_code == 401
+
     def test_path_token_redirects_to_path(self):
         token = "test_path_token"
         target = f"/project/{self.team.id}/replay/abc123-DEF"
