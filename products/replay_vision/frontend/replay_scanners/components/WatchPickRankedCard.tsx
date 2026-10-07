@@ -1,19 +1,18 @@
 import { useActions } from 'kea'
 
-import { IconPlayFilled } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
-import { ScannerTypeBadge, scannerTypeIcon } from '../../components/ScannerTypeBadge'
+import { scannerTypeIcon } from '../../components/ScannerTypeBadge'
 import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type { WatchFeedItemApi } from '../../generated/api.schemas'
 import { SCANNER_TYPE_TAG_TYPE } from '../types'
 import { type WatchPickSurface, watchPicksLogic } from '../watchPicksLogic'
 import { watchPickSummary } from '../watchPickSummary'
-import { watchReasonCopy } from './WatchFeedCard'
+import { WatchPickPreview } from './WatchPickPreview'
 import { WatchPickRankBadge } from './WatchPickRankBadge'
 
 interface WatchPickRankedCardProps {
@@ -71,7 +70,12 @@ export function WatchPickRankedCard({ item, position, surface, rank }: WatchPick
                             <span className="truncate text-xs font-normal text-secondary">
                                 <span>{scannerName}</span>
                                 <span> · </span>
-                                <TZLabel time={observation.created_at} showPopover={false} noStyles />
+                                <TZLabel
+                                    time={observation.created_at}
+                                    showPopover={false}
+                                    noStyles
+                                    className="whitespace-nowrap"
+                                />
                             </span>
                             {notability !== null && (
                                 <span className="flex items-center gap-1" aria-label={`Score ${notability.toFixed(2)}`}>
@@ -96,26 +100,12 @@ export function WatchPickRankedCard({ item, position, surface, rank }: WatchPick
             <div
                 aria-hidden
                 className={cn(
-                    'pointer-events-none absolute inset-x-0 top-0 z-20 hidden origin-top scale-95 opacity-0 @4xl:block',
-                    'overflow-hidden rounded border bg-bg-light shadow-lg transition motion-reduce:transition-none',
+                    'pointer-events-none absolute inset-x-0 top-0 z-20 origin-top scale-95 opacity-0',
+                    'rounded border bg-bg-light p-2 shadow-lg transition motion-reduce:transition-none',
                     'group-hover:scale-105 group-hover:opacity-100 group-focus-within:scale-105 group-focus-within:opacity-100'
                 )}
             >
-                <ObservationThumbnail observation={observation} className="w-full rounded-none border-0" />
-                <div className="flex flex-col gap-1.5 p-3 text-left">
-                    <span className="line-clamp-2 text-sm font-semibold leading-tight">{title}</span>
-                    <span className="flex min-w-0 items-center gap-1.5 text-xs text-secondary">
-                        {scannerType && <ScannerTypeBadge scannerType={scannerType} size="small" />}
-                        <span className="truncate">{scannerName}</span>
-                        <span>·</span>
-                        <TZLabel time={observation.created_at} showPopover={false} noStyles />
-                    </span>
-                    <span className="line-clamp-3 text-xs leading-snug text-secondary">{watchReasonCopy(reason)}</span>
-                    <span className="mt-1 flex items-center gap-1 text-xs font-semibold text-accent">
-                        <IconPlayFilled />
-                        Watch now
-                    </span>
-                </div>
+                <WatchPickPreview item={item} className="w-full" />
             </div>
         </div>
     )

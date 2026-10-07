@@ -93,7 +93,7 @@ import {
     scannerStepUrlWithParams,
     UNVALIDATED_SCANNER_STEPS,
 } from './scannerEditorSceneLogic'
-import { consumeScannerHandoffIntent } from './scannerHandoffIntent'
+import { consumeScannerGoalDraftIntent, consumeScannerHandoffIntent } from './scannerHandoffIntent'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
@@ -1836,11 +1836,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         typeof router.values.searchParams.goal === 'string'
                             ? router.values.searchParams.goal.trim()
                             : ''
-                    const draftRequested = goalParam !== '' && 'draft' in router.values.searchParams
                     // Consumed unconditionally on every wizard entry: a cross-product hand-off must
                     // not stay armed for the rest of the tab session and prefill a later,
                     // unrelated wizard visit.
                     const handoff = consumeScannerHandoffIntent()
+                    const armedGoal = consumeScannerGoalDraftIntent()
                     // Prefill precedence: a cross-product hand-off (a whole scanner, armed by an
                     // in-tab click moments before navigation), then an experiment deep link, then
                     // an explicit ?filters= query (both carry fully built state), then a saved
@@ -1864,7 +1864,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                     if (nextParams.goal !== undefined) {
                         delete nextParams.goal
-                        delete nextParams.draft
                     }
                     if ('filters' in nextParams) {
                         delete nextParams.filters
@@ -1956,13 +1955,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                     // The goal only prefills the AI box, so a crafted external ?goal= link can neither
                     // spend the user's AI allowance nor overwrite saved work without an explicit click.
-                    // ?draft= is set only by our own "Draft my scanner" click.
                     if (goalParam && !hasFiltersPrefill) {
                         actions.setGoalDraftInput(goalParam)
-                        const consented = !!organizationLogic.values.currentOrganization?.is_ai_data_processing_approved
-                        if (draftRequested && consented && !values.goalDraftLoading) {
-                            actions.draftScannerFromGoal(goalParam, values.goalBudgetInput ?? undefined)
-                        }
+                    }
+                    const consented = !!organizationLogic.values.currentOrganization?.is_ai_data_processing_approved
+                    if (armedGoal && !hasFiltersPrefill && consented && !values.goalDraftLoading) {
+                        actions.setGoalDraftInput(armedGoal)
+                        actions.draftScannerFromGoal(armedGoal, values.goalBudgetInput ?? undefined)
                     }
                     return
                 }

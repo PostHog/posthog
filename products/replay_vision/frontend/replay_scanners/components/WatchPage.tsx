@@ -8,7 +8,7 @@ import { WatchPickRankedCard } from './WatchPickRankedCard'
 import { WatchPicksEmptyState } from './WatchPicksEmptyState'
 
 const WATCH_PAGE_LOGIC_KEY = 'what-to-watch'
-const GRID_CLASS_NAME = 'grid grid-cols-3 gap-x-4 gap-y-6 px-2 @4xl:grid-cols-5'
+const GRID_CLASS_NAME = 'grid grid-cols-2 gap-x-4 gap-y-6 px-2 @3xl:grid-cols-3 @5xl:grid-cols-4 @6xl:grid-cols-5'
 
 function WatchGrid({
     title,
@@ -46,17 +46,17 @@ function WatchPageContent(): JSX.Element {
     const { picks, picksLoading, picksFailed, topPicks, moreItems } = useValues(watchPicksLogic)
     const { loadPicks } = useActions(watchPicksLogic)
 
+    let body: JSX.Element
     if (picksLoading || (picks === null && !picksFailed)) {
-        return (
+        body = (
             <div className={GRID_CLASS_NAME} aria-busy>
                 {[0, 1, 2, 3, 4].map((i) => (
                     <LemonSkeleton key={i} className="aspect-video w-full rounded" />
                 ))}
             </div>
         )
-    }
-    if (picksFailed) {
-        return (
+    } else if (picksFailed) {
+        body = (
             <LemonBanner
                 type="error"
                 action={{ children: 'Try again', onClick: loadPicks, 'data-attr': 'vision-watch-page-retry' }}
@@ -64,15 +64,20 @@ function WatchPageContent(): JSX.Element {
                 Couldn't load what to watch.
             </LemonBanner>
         )
-    }
-    if (topPicks.length === 0) {
-        return <WatchPicksEmptyState size="large" />
+    } else if (topPicks.length === 0) {
+        body = <WatchPicksEmptyState size="large" />
+    } else {
+        body = (
+            <>
+                <WatchGrid title="Top 10 this week" items={topPicks} ranked surface="top_10" />
+                <WatchGrid title="More to watch" items={moreItems} ranked={false} surface="more" />
+            </>
+        )
     }
 
     return (
         <div className="@container flex flex-col gap-8 pb-16" data-attr="vision-watch-page">
-            <WatchGrid title="Top 10 this week" items={topPicks} ranked surface="top_10" />
-            <WatchGrid title="More to watch" items={moreItems} ranked={false} surface="more" />
+            {body}
         </div>
     )
 }

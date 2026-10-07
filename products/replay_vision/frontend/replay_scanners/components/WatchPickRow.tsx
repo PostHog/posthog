@@ -10,6 +10,7 @@ import type { WatchFeedItemApi } from '../../generated/api.schemas'
 import { type WatchPickSurface, watchPicksLogic } from '../watchPicksLogic'
 import { watchPickSummary } from '../watchPickSummary'
 import { watchReasonCopy } from './WatchFeedCard'
+import { WatchPickPreview } from './WatchPickPreview'
 import { WatchPickRankBadge } from './WatchPickRankBadge'
 
 interface WatchPickRowProps {
@@ -23,7 +24,7 @@ interface WatchPickRowProps {
 export function WatchPickRow({ item, position, surface, isActive, rank }: WatchPickRowProps): JSX.Element {
     const { watchPick } = useActions(watchPicksLogic)
     const { observation, reason } = item
-    const { title, scannerName, person } = watchPickSummary(observation)
+    const { title, scannerName } = watchPickSummary(observation)
 
     return (
         <LemonButton
@@ -31,16 +32,7 @@ export function WatchPickRow({ item, position, surface, isActive, rank }: WatchP
             size="small"
             active={isActive}
             onClick={() => watchPick(item, position, surface)}
-            tooltip={
-                <div className="flex w-64 flex-col gap-1.5 py-1">
-                    <ObservationThumbnail observation={observation} className="w-full" />
-                    <span className="text-sm font-semibold leading-tight">{title}</span>
-                    <span className="text-xs">
-                        {person} · {scannerName}
-                    </span>
-                    <span className="text-xs">{watchReasonCopy(reason)}</span>
-                </div>
-            }
+            tooltip={<WatchPickPreview item={item} />}
             tooltipPlacement="right"
             className="min-w-0"
             data-attr="vision-watch-pick"
@@ -54,11 +46,19 @@ export function WatchPickRow({ item, position, surface, isActive, rank }: WatchP
                     )}
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="truncate text-sm font-semibold">{title}</span>
+                    <span className="truncate text-sm font-semibold">
+                        {!observation.viewed && <span className="sr-only">New: </span>}
+                        {title}
+                    </span>
                     <span className="truncate text-xs font-normal text-secondary">
                         <span>{scannerName}</span>
                         <span> · </span>
-                        <TZLabel time={observation.created_at} showPopover={false} noStyles />
+                        <TZLabel
+                            time={observation.created_at}
+                            showPopover={false}
+                            noStyles
+                            className="whitespace-nowrap"
+                        />
                     </span>
                     <span className="truncate text-xs font-normal text-secondary">{watchReasonCopy(reason)}</span>
                 </span>

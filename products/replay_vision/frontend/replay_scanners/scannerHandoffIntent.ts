@@ -50,3 +50,25 @@ export function consumeScannerHandoffIntent(): ScannerHandoffIntent | null {
         return null
     }
 }
+
+const SCANNER_GOAL_DRAFT_INTENT_KEY = 'replay-vision.scanner-goal-draft-intent'
+
+/** One-shot "draft this goal now" from an in-app click, kept out of the URL so a link cannot
+ * start a draft on its own. */
+export function markScannerGoalDraftIntent(goal: string): void {
+    try {
+        sessionStorage.setItem(SCANNER_GOAL_DRAFT_INTENT_KEY, goal)
+    } catch {
+        // Storage can be unavailable (private mode); the wizard then opens with the goal to click.
+    }
+}
+
+export function consumeScannerGoalDraftIntent(): string | null {
+    try {
+        const goal = sessionStorage.getItem(SCANNER_GOAL_DRAFT_INTENT_KEY)
+        sessionStorage.removeItem(SCANNER_GOAL_DRAFT_INTENT_KEY)
+        return goal?.trim() || null
+    } catch {
+        return null
+    }
+}

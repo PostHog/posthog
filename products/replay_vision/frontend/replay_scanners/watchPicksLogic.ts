@@ -201,11 +201,11 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
         ],
     }),
 
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, props, values, cache }) => ({
         setListMode: ({ mode }) => {
             posthog.capture('replay_vision_watch_picks_list_mode_changed', { mode })
         },
-        watchPick: async ({ item, position, surface }, breakpoint) => {
+        watchPick: async ({ item, position, surface }) => {
             const { observation, reason } = item
             const keyMomentMs = observationKeyMomentMs(observation)
             posthog.capture('replay_vision_watch_clip_clicked', {
@@ -248,8 +248,9 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
             } catch {
                 return
             }
-            breakpoint()
-            actions.markPickViewed(observation.id)
+            if (!cache.disposables.isDisposed) {
+                actions.markPickViewed(observation.id)
+            }
         },
         [props.playlistLogicProps
             ? sessionRecordingsPlaylistLogic(props.playlistLogicProps).actionTypes.setSelectedRecordingId

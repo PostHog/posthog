@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
+import { markScannerGoalDraftIntent } from '../scannerHandoffIntent'
 import { resolveWatchFeedEmptyReason } from '../watchFeedEmptyState'
 
 const HedgehogTownCrier = pngHoggie(townCrierPng)
@@ -43,7 +44,10 @@ export function WatchPicksEmptyState({ size }: { size: 'small' | 'large' }): JSX
                         type="primary"
                         size={large ? 'medium' : 'small'}
                         disabledReason={getReplayVisionEditDisabledReason()}
-                        onClick={() => push(urls.replayVisionTemplates(), { goal: DEFAULT_GOAL, draft: true })}
+                        onClick={() => {
+                            markScannerGoalDraftIntent(DEFAULT_GOAL)
+                            push(urls.replayVisionTemplates())
+                        }}
                         data-attr="vision-watch-picks-draft-scanner"
                     >
                         Draft my scanner
