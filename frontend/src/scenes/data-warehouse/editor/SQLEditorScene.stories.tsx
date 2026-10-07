@@ -14,7 +14,11 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
-import { NodeKind } from '~/queries/schema/schema-general'
+import {
+    DatabaseSchemaMaterializedViewTable,
+    DatabaseSchemaTableCertificationStatus,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import type { DataWarehouseSavedQuery, InsightShortId } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
@@ -392,6 +396,91 @@ export const MaterializationSettings: StoryObj = {
             },
         }),
     ],
+}
+
+const sidebarStatusView = (
+    id: string,
+    name: string,
+    status: string,
+    latestError: string | null,
+    suspended: DataWarehouseSavedQuery['suspended'] = {}
+): Partial<DataWarehouseSavedQuery> => ({
+    id,
+    name,
+    is_materialized: true,
+    status,
+    latest_error: latestError,
+    suspended,
+    columns: [],
+    managed_viewset_kind: null,
+    user_access_level: AccessControlLevel.Editor,
+})
+
+const sidebarSchemaView = (
+    name: string,
+    certification: DatabaseSchemaTableCertificationStatus
+): DatabaseSchemaMaterializedViewTable => ({
+    type: 'materialized_view',
+    id: name,
+    name,
+    fields: {},
+    query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+    certification: { status: certification },
+})
+
+export const SidebarMaterializationStatus: Story = {
+    parameters: {
+        testOptions: {
+            waitForSelector: ['.monaco-editor', '[data-attr="menu-item-weekly_revenue"]'],
+            viewport: { width: 1600, height: 900 },
+        },
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': [
+                        200,
+                        {
+                            tables: {
+                                daily_signups: sidebarSchemaView('daily_signups', 'certified'),
+                                orders_by_region: sidebarSchemaView('orders_by_region', 'deprecated'),
+                                weekly_revenue: sidebarSchemaView('weekly_revenue', 'certified'),
+                            },
+                        },
+                    ],
+                },
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': [200, { results: [] }],
+                    '/api/projects/:team_id/warehouse_saved_queries/': [
+                        200,
+                        {
+                            results: [
+                                sidebarStatusView('healthy-view', 'daily_signups', 'Completed', null),
+                                sidebarStatusView(
+                                    'failed-view',
+                                    'orders_by_region',
+                                    'Failed',
+                                    'QueryError: Unable to resolve field: region_code'
+                                ),
+                                sidebarStatusView(
+                                    'paused-view',
+                                    'weekly_revenue',
+                                    'Failed',
+                                    'This model has been suspended after 5 consecutive failed materializations. Error: QueryError: Unable to resolve field: net_amount',
+                                    {
+                                        clickhouse: {
+                                            at: '2026-06-06T12:00:00Z',
+                                            reason: 'QueryError: Unable to resolve field: net_amount',
+                                            job_id: 'job-paused',
+                                        },
+                                    }
+                                ),
+                            ],
+                        },
+                    ],
+                },
+            },
+        },
+    },
 }
 
 export const BIModeWorksheet: Story = {
