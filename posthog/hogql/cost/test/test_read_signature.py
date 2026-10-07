@@ -70,6 +70,21 @@ class TestReadSignature(SimpleTestCase):
                 "SELECT count() FROM events WHERE timestamp > toDateTime('2026-03-01') - INTERVAL 7 DAY",
             ),
             (
+                "date_changing_function",
+                "SELECT count() FROM events WHERE timestamp >= addDays('2026-03-01', 7)",
+                "SELECT count() FROM events WHERE timestamp >= addDays('2026-03-01', 30)",
+            ),
+            (
+                "event_names_containing_commas",
+                "SELECT count() FROM events WHERE event IN ('a,b')",
+                "SELECT count() FROM events WHERE event IN ('a', 'b')",
+            ),
+            (
+                "join_constraint",
+                "SELECT count() FROM events AS e INNER JOIN persons AS p ON e.event = 'a'",
+                "SELECT count() FROM events AS e INNER JOIN persons AS p ON e.event = 'b'",
+            ),
+            (
                 "unrecognized_timestamp_condition",
                 "SELECT count() FROM events",
                 "SELECT count() FROM events WHERE toDate(timestamp) = today()",
@@ -102,6 +117,15 @@ class TestReadSignature(SimpleTestCase):
         from_string = parse_select("SELECT count() FROM events WHERE timestamp >= '2026-03-01 09:30:00'")
 
         assert read_signature(from_object) == read_signature(from_string)
+
+    def test_cte_named_events_is_not_a_read_of_the_events_table(self):
+        assert read_signature(parse_select("WITH events AS (SELECT 'a' AS event) SELECT count() FROM events")) is None
+
+    def test_root_cte_is_visible_in_every_union_branch(self):
+        with_cte = parse_select("WITH scoped AS (SELECT event FROM events) SELECT * FROM scoped UNION ALL SELECT * FROM scoped")
+        without_cte = parse_select("SELECT * FROM events UNION ALL SELECT * FROM events")
+
+        assert read_signature(with_cte) == read_signature(without_cte)
 
     def test_query_reading_no_table_has_no_signature(self):
         assert read_signature(parse_select("SELECT 1")) is None

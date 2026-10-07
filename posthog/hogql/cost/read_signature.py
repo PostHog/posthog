@@ -14,6 +14,7 @@ Grouping the query log by it, within one dashboard load, shows how much work sep
 same data.
 """
 
+import json
 import hashlib
 from datetime import date, datetime
 
@@ -62,28 +63,19 @@ def _is_events_field(expr: ast.Expr, name: str, events_aliases: set[str]) -> boo
     return len(chain) == 2 and chain[0] in events_aliases and chain[1] == name
 
 
-class _BoundInspector(TraversingVisitor):
-    def __init__(self) -> None:
-        super().__init__()
-        self.days: list[str] = []
-        self.has_arithmetic = False
-
-    def visit_constant(self, node: ast.Constant) -> None:
-        day = _day(node.value)
-        if day is not None:
-            self.days.append(day)
-
-    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> None:
-        self.has_arithmetic = True
-        super().visit_arithmetic_operation(node)
-
-
 def _bound(expr: ast.Expr) -> str:
-    inspector = _BoundInspector()
-    inspector.visit(expr)
-    # Arithmetic moves the bound away from the literal date, so the literal alone does not name the day.
-    if len(inspector.days) == 1 and not inspector.has_arithmetic:
-        return inspector.days[0]
+    if isinstance(expr, ast.Constant):
+        day = _day(expr.value)
+        return day if day is not None else _opaque(expr)
+    if (
+        isinstance(expr, ast.Call)
+        and expr.name.lower() == "todatetime"
+        and expr.args
+        and isinstance(expr.args[0], ast.Constant)
+    ):
+        day = _day(expr.args[0].value)
+        if day is not None:
+            return day
     return _opaque(expr)
 
 
@@ -142,14 +134,20 @@ def _conjuncts(expr: ast.Expr | None) -> list[ast.Expr]:
     return [expr]
 
 
-def _describe_events_read(select: ast.SelectQuery, events_aliases: set[str]) -> str:
+def _describe_events_read(
+    select: ast.SelectQuery, events_aliases: set[str], join_conditions: list[ast.Expr]
+) -> str:
     lower: set[str] = set()
     upper: set[str] = set()
     # One entry for each condition, because two conditions on the event name narrow each other.
     event_filters: set[str] = set()
     unrecognized: set[str] = set()
 
-    for conjunct in [*_conjuncts(select.where), *_conjuncts(select.prewhere)]:
+    for conjunct in [
+        *_conjuncts(select.where),
+        *_conjuncts(select.prewhere),
+        *[conjunct for condition in join_conditions for conjunct in _conjuncts(condition)],
+    ]:
         if (
             isinstance(conjunct, ast.BetweenExpr)
             and not conjunct.negated
@@ -169,7 +167,7 @@ def _describe_events_read(select: ast.SelectQuery, events_aliases: set[str]) -> 
 
         names = _event_names(conjunct, events_aliases)
         if names is not None:
-            event_filters.add(",".join(sorted(names)))
+            event_filters.add(json.dumps(sorted(names), separators=(",", ":")))
             continue
 
         finder = _EventsFieldFinder(events_aliases)
@@ -202,21 +200,38 @@ class _ReadCollector(TraversingVisitor):
         self._cte_names = outer_cte_names | set(node.ctes or {})
 
         events_aliases: set[str] = set()
+        join_conditions: list[ast.Expr] = []
         join = node.select_from
         while join is not None:
             if isinstance(join.table, ast.Field):
                 table = ".".join(str(part) for part in join.table.chain)
-                if table == _EVENTS_TABLE:
-                    events_aliases.add(join.alias or _EVENTS_TABLE)
-                elif table not in self._cte_names:
-                    self.reads.add(table)
+                if table not in self._cte_names:
+                    if table == _EVENTS_TABLE:
+                        events_aliases.add(join.alias or _EVENTS_TABLE)
+                    else:
+                        self.reads.add(table)
+            if join.constraint is not None and join.constraint.constraint_type == "ON":
+                join_conditions.append(join.constraint.expr)
             join = join.next_join
 
         if events_aliases:
-            self.reads.add(_describe_events_read(node, events_aliases))
+            self.reads.add(_describe_events_read(node, events_aliases, join_conditions))
 
         try:
             super().visit_select_query(node)
+        finally:
+            self._cte_names = outer_cte_names
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        initial = node.initial_select_query
+        if not isinstance(initial, ast.SelectQuery) or not initial.ctes:
+            super().visit_select_set_query(node)
+            return
+
+        outer_cte_names = self._cte_names
+        self._cte_names = outer_cte_names | set(initial.ctes)
+        try:
+            super().visit_select_set_query(node)
         finally:
             self._cte_names = outer_cte_names
 
