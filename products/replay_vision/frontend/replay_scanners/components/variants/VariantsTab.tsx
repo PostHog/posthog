@@ -13,6 +13,7 @@ import { scannerScoutLogic } from '../../scannerScoutLogic'
 import {
     UNATTRIBUTED_VARIANT,
     scannerVariantsLogic,
+    variantAnalysisRunDisabledReason,
     variantComparisonState,
     variantObservationsUrl,
 } from '../../scannerVariantsLogic'
@@ -30,11 +31,12 @@ export function VariantsTab({ scannerId }: VariantsTabProps): JSX.Element {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const scannerName = scanner?.name || ''
     const scoutLogic = scannerScoutLogic({ scannerId, scannerName })
-    const { scoutConfigsForScanner, createTemplateKey, settingsSkillName } = useValues(scoutLogic)
+    const { scoutConfigsForScanner, createTemplateKey, settingsSkillName, rollups } = useValues(scoutLogic)
     const { openCreateModal, openScoutSettings } = useActions(scoutLogic)
     const logic = scannerVariantsLogic({ scannerId })
-    const { readout, readoutLoading, readoutFailed, variantColors } = useValues(logic)
-    const { loadReadout, setupAnalysisClicked, variantObservationsOpened } = useActions(logic)
+    const { readout, readoutLoading, readoutFailed, variantColors, analysisRunStarting, analysisRunRequest } =
+        useValues(logic)
+    const { loadReadout, setupAnalysisClicked, variantObservationsOpened, runAnalysisNow } = useActions(logic)
 
     if (!readout) {
         if (readoutFailed && !readoutLoading) {
@@ -63,6 +65,23 @@ export function VariantsTab({ scannerId }: VariantsTabProps): JSX.Element {
             : readout.analysis?.scout_enabled === false || existingScout?.enabled === false
               ? 'Variant analysis is paused. Turn it on in the scout settings above to see themes here.'
               : null
+    const analysisRollup = existingScout ? rollups.get(existingScout.skill_name) : undefined
+    const analysisRunning = !!analysisRollup?.runningRun || !!analysisRunRequest
+    const runNow = existingScout
+        ? {
+              onClick: () => runAnalysisNow(existingScout.id, existingScout.skill_name),
+              loading: analysisRunStarting,
+              running: analysisRunning,
+              disabledReason:
+                  getReplayVisionEditDisabledReason(scanner?.user_access_level) ??
+                  variantAnalysisRunDisabledReason({
+                      running: analysisRunning,
+                      lastRunStartedAt: analysisRollup?.latestRun?.started_at ?? null,
+                      hasObservations: readout.window.total_observations > 0,
+                      now: Date.now(),
+                  }),
+          }
+        : undefined
 
     return (
         <div className="@container flex flex-col gap-4" data-attr="vision-variants-tab">
@@ -76,6 +95,7 @@ export function VariantsTab({ scannerId }: VariantsTabProps): JSX.Element {
                     openCreateModal('variant-analysis')
                 }}
                 onOpenScout={existingScout ? () => openScoutSettings(existingScout.skill_name) : undefined}
+                runNow={runNow}
             />
             {/* Each watched variant gets a card from the start; the readout lists none only when the
                 experiment can't be read, for example after it was deleted. */}

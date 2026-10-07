@@ -2129,12 +2129,29 @@ export const ObservationDetailTimeline: StoryObj = {
     },
 }
 
+// The experiment scanner's variant analysis scout, so the Variants tab offers Run now.
+const variantAnalysisScoutMocks = mswDecorator({
+    get: {
+        '/api/projects/:team_id/signals/scout/configs/': [
+            {
+                ...digestScoutConfig,
+                id: '00000000-0000-0000-0000-0000000000c9',
+                skill_name: 'signals-scout-post-exposure-friction-variant-analysis',
+                display_name: 'Post-exposure friction / variant analysis',
+                description: 'Compares what users in each experiment variant do.',
+                source_id: experimentScanner.id,
+                tags: ['replay-vision-variant-analysis'],
+            },
+        ],
+    },
+})
+
 export const ExperimentVariants: StoryObj = {
     parameters: {
         pageUrl: urls.replayVision(experimentScanner.id),
         featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
     },
-    decorators: [variantsDecorator(variantsReadout())],
+    decorators: [variantsDecorator(variantsReadout()), variantAnalysisScoutMocks],
 }
 
 // No variant analysis scout yet: the counts show, and the comparison offers to set one up.
@@ -2153,6 +2170,7 @@ export const ExperimentVariantsFirstRunPending: StoryObj = {
     },
     decorators: [
         variantsDecorator(withoutAnalysis(variantsReadout({ analysis: { ...readyAnalysis, recorded_at: null } }))),
+        variantAnalysisScoutMocks,
     ],
 }
 
