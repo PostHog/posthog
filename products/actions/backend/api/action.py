@@ -23,7 +23,7 @@ from posthog.api.documentation import (
     StringPropertyFilterSerializer,
 )
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.property_filter_access_gate import access_denied_message, table_blocking_property_filters
+from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -241,7 +241,8 @@ class ActionSerializer(
             )
             if denied_table:
                 raise serializers.ValidationError(
-                    {"steps": access_denied_message(denied_table)}, code="permission_denied"
+                    {"steps": f"This filter uses the table '{denied_table}', which you don't have access to."},
+                    code="permission_denied",
                 )
 
         return attrs

@@ -41,7 +41,7 @@ from posthog.schema import (
     SourceMap,
 )
 
-from posthog.api.property_filter_access_gate import access_denied_message, table_blocking_property_filters
+from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import TeamBasicSerializer
@@ -3391,7 +3391,10 @@ def validate_team_attrs(
         )
         if denied_table:
             raise exceptions.ValidationError(
-                {"test_account_filters": access_denied_message(denied_table)}, code="permission_denied"
+                {
+                    "test_account_filters": f"This filter uses the table '{denied_table}', which you don't have access to."
+                },
+                code="permission_denied",
             )
 
     if "primary_dashboard" in attrs:
