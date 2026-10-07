@@ -504,6 +504,10 @@ The billing source names each next due time itself: the daily check time, or a r
 The attempt count for that date lives in the copy's `source_state`.
 A rerun of the backfill keeps that state but moves `next_check_at` to production's next due time, so a pending retry can run at production's time instead of its own.
 
+To compare the copies against production, pass `BillingCorrespondence` from `products/billing_alerts/backend/alert_comparison.py` to `run_comparison`.
+It matches each platform check to production's attempt with the same date, revision and attempt number, and compares the states only.
+A check the platform skipped names no date, so it reads as unknown.
+
 ## Postgres connectivity probe
 
 Each evaluation activity issues one explicit `SELECT 1` and checks for `(1,)` through Django's `default` main writer connection.

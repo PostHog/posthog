@@ -79,7 +79,7 @@ class _BillingData:
 
 
 @frozen
-class _Attempt:
+class EvaluationAttempt:
     """Which evaluation date a check covers and how many tries that date has used."""
 
     evaluation_date: date
@@ -103,6 +103,22 @@ class _Attempt:
             "attempt": self.number,
             "completed": completed,
         }
+
+
+def parse_evaluation_key(key: str) -> EvaluationAttempt | None:
+    """The attempt a check's evaluation key names, or None for a skipped check's slot key."""
+    match key.split(":"):
+        case ["date", evaluation_date, "rev", revision, "attempt", number]:
+            try:
+                return EvaluationAttempt(
+                    evaluation_date=date.fromisoformat(evaluation_date),
+                    configuration_revision=int(revision),
+                    number=int(number),
+                )
+            except ValueError:
+                return None
+        case _:
+            return None
 
 
 def evaluate_billing_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatchEvaluation:
@@ -218,7 +234,9 @@ def _snapshot(check: PlatformAlertCheckInput, alert: BillingAlertConfiguration |
     )
 
 
-def _attempt(check: PlatformAlertCheckInput, alert: BillingAlertConfiguration, now: datetime) -> _Attempt | None:
+def _attempt(
+    check: PlatformAlertCheckInput, alert: BillingAlertConfiguration, now: datetime
+) -> EvaluationAttempt | None:
     """The date this check covers. A date with retries left keeps its date and counts the try.
 
     Returns None when the date this check would cover is already settled for this revision.
@@ -228,7 +246,7 @@ def _attempt(check: PlatformAlertCheckInput, alert: BillingAlertConfiguration, n
     stored_date = state.get("evaluation_date")
     same_revision = state.get("configuration_revision") == revision
     if stored_date is not None and same_revision and not state.get("completed"):
-        return _Attempt(
+        return EvaluationAttempt(
             evaluation_date=date.fromisoformat(stored_date),
             configuration_revision=revision,
             number=int(state.get("attempt", 0)) + 1,
@@ -238,7 +256,7 @@ def _attempt(check: PlatformAlertCheckInput, alert: BillingAlertConfiguration, n
     expected = delayed_evaluation_date(alert, now)
     if stored_date == expected.isoformat() and same_revision and state.get("completed"):
         return None
-    return _Attempt(evaluation_date=expected, configuration_revision=revision, number=1)
+    return EvaluationAttempt(evaluation_date=expected, configuration_revision=revision, number=1)
 
 
 def _billing_data(alert: BillingAlertConfiguration, cache: dict[UUID, _BillingData]) -> _BillingData:
@@ -260,7 +278,7 @@ def _failed(
     check: PlatformAlertCheckInput,
     snapshot: AlertSnapshot,
     alert: BillingAlertConfiguration,
-    attempt: _Attempt,
+    attempt: EvaluationAttempt,
     *,
     now: datetime,
     error_message: str,
@@ -290,7 +308,7 @@ def _settled(
     snapshot: AlertSnapshot,
     outcome: AlertCheckOutcome,
     alert: BillingAlertConfiguration,
-    attempt: _Attempt,
+    attempt: EvaluationAttempt,
     *,
     now: datetime,
     retry: bool,
