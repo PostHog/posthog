@@ -1,4 +1,7 @@
+import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
+
+import { SSOProvider } from '~/types'
 
 // Login error copy shared by the auth login variants and the exporter login screen.
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
@@ -42,4 +45,8 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     social_login_failure: 'Login failed. Please try again or contact your administrator.',
     access_blocked:
         "We couldn't sign you in. If you think this is a mistake, contact support and quote the code access_blocked.",
+}
+
+export function ssoEnforcedErrorMessage(provider: SSOProvider): string {
+    return `Your organization requires you to log in with ${SSO_PROVIDER_NAMES[provider]}. Use the button below.`
 }
