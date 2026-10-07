@@ -22,7 +22,7 @@ export interface EmailSenderConfig {
     domain: string
     email: string
     name: string
-    provider: string
+    provider: 'ses' | 'maildev'
     mail_from_subdomain?: string
     verified?: boolean
     setup_method?: EmailSetupMethod
