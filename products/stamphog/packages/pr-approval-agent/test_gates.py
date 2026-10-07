@@ -201,8 +201,18 @@ def test_no_false_positive(files: list[str]) -> None:
         ),
         pytest.param(
             [".github/workflows/ci.yml"],
-            "infra_cicd",
+            "ci_workflows",
             id="github-workflow",
+        ),
+        pytest.param(
+            [".depot/workflows/ci-backend.yml"],
+            "ci_workflows",
+            id="depot-workflow",
+        ),
+        pytest.param(
+            [".github/workflows/ci-security.yaml"],
+            "infra_cicd",
+            id="security-owned-workflow",
         ),
         pytest.param(
             ["bin/deploy-hobby"],

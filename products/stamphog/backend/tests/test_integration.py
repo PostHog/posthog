@@ -2305,8 +2305,32 @@ def test_post_verdict_stamps_digest_audience_only_at_approved_head(
         assert pull_request.summary_line == run.change_summary
 
 
+def _path_denied_engine_output() -> str:
+    payload = {
+        "final_verdict": "REFUSED",
+        "gates": [
+            {"gate": "size", "passed": True, "message": "within ceiling"},
+            {"gate": "deny-list", "passed": False, "message": "matches: infra_cicd"},
+            {"gate": "tier", "passed": False, "message": "classified as T2-never"},
+        ],
+        "classification": {"deny_categories": ["infra_cicd"]},
+        "review_body": "Refused by stamphog.",
+    }
+    return json.dumps(payload)
+
+
+@pytest.mark.parametrize(
+    "engine_output, expect_relabel_hint",
+    [
+        pytest.param(_refused_engine_output(), True, id="reviewer-refusal"),
+        # Nothing the author changes lifts a path deny, so the review must not ask them to try again.
+        pytest.param(_path_denied_engine_output(), False, id="path-deny"),
+    ],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_each_non_approval_posts_its_own_review(team, stamphog_chain: StamphogChain) -> None:
+def test_each_non_approval_posts_its_own_review(
+    team, stamphog_chain: StamphogChain, engine_output: str, expect_relabel_hint: bool
+) -> None:
     # Every verdict has to land in the Reviews section, the same list the approvals land in. A refusal
     # written into an edited issue comment notified nobody and sat in a different list from the
     # approval that later replaced it, so a stale refusal outlived the approval it contradicted. Each
@@ -2327,7 +2351,7 @@ def test_each_non_approval_posts_its_own_review(team, stamphog_chain: StamphogCh
             pull_request=pull_request,
             head_sha=head_sha,
             status=ReviewRunStatus.REVIEWING,
-            output={"reviewer_raw": _refused_engine_output()},
+            output={"reviewer_raw": engine_output},
         )
         # Twice per run: a Temporal retry after the post must not repeat the review.
         _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
@@ -2343,7 +2367,8 @@ def test_each_non_approval_posts_its_own_review(team, stamphog_chain: StamphogCh
         assert review["body"]["commit_id"] == head_sha
         assert review["body"]["body"].startswith("**Not approved")
         # LABEL mode strips the trigger label, so the review has to say how to ask again.
-        assert "Re-add the `stamphog` label" in review["body"]["body"]
+        assert ("Re-add the `stamphog` label" in review["body"]["body"]) is expect_relabel_hint
+        assert "waiting on the conditions" not in review["body"]["body"]
 
 
 @pytest.mark.parametrize(

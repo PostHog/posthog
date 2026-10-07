@@ -2278,6 +2278,20 @@ _VERDICT_HEADLINES: dict[str, str] = {
 }
 
 
+_PATH_DENY_GATES = frozenset({"deny-list", "tier"})
+
+
+def _only_a_human_can_approve(parsed: ReviewerVerdict) -> bool:
+    """True when the changed paths alone refused the PR, so the author has nothing to address.
+
+    A migrations deny is excluded: it lifts once the `Migration risk` check passes.
+    """
+    gates = [g for g in parsed.gate_result.get("gates") or [] if isinstance(g, dict)]
+    failed = {g.get("gate") for g in gates if not g.get("passed", True)}
+    deny_categories = (parsed.gate_result.get("classification") or {}).get("deny_categories") or []
+    return bool(failed) and failed <= _PATH_DENY_GATES and "migrations" not in deny_categories
+
+
 def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | None) -> str:
     """The review body: the outcome in words, what to do next, then whatever the engine rendered.
 
@@ -2289,7 +2303,9 @@ def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | No
     prepended to both, so the outcome is stated whichever one is available.
     """
     headline = _VERDICT_HEADLINES.get(verdict, f"**Stamphog review: {verdict}**")
-    if relabel_label:
+    if _only_a_human_can_approve(parsed):
+        headline = _VERDICT_HEADLINES[ReviewVerdict.REFUSED]
+    elif relabel_label:
         headline += f"\n\nRe-add the `{relabel_label}` label to request another review once you have addressed this."
     detail = parsed.review_body or _reasoning_detail(parsed)
     return f"{headline}\n\n{neutralize_active_markdown(detail)}".rstrip()

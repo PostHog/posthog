@@ -450,7 +450,7 @@ def test_wait_refetch_reclassifies_before_review(monkeypatch: pytest.MonkeyPatch
     verdict = pipeline.run()
 
     assert verdict == "REFUSED"
-    assert pipeline.classification["deny_categories"] == ["infra_cicd"]
+    assert pipeline.classification["deny_categories"] == ["ci_workflows"]
 
 
 class _FakeCompleted:
