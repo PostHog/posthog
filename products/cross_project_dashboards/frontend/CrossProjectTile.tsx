@@ -144,6 +144,7 @@ function CrossProjectTileInternal(
                 insight={insight}
                 tile={asCardTile(tile)}
                 projectId={tile.project_id}
+                projectTimezone={projectTimezone}
                 contextHeading={projectHeading}
                 ribbonColor={tile.color as InsightColor | null}
                 updateColor={onSetColor ? (color) => onSetColor(color ?? null) : undefined}
