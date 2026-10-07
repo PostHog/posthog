@@ -259,6 +259,7 @@ class PostHogPreviewStack:
         ("ee", "/code/ee"),
         ("products", "/code/products"),
         ("packages/personhog-proto/personhog", "/code/personhog"),
+        ("rust/persons_migrations", "/code/rust/persons_migrations"),
     ]
 
     def __init__(
@@ -769,18 +770,20 @@ class PostHogPreviewStack:
 
     def _demo_project_token(self) -> str:
         query = (
-            "SELECT t.api_token FROM posthog_user u JOIN posthog_team t ON t.id = u.current_team_id "
-            f"WHERE u.email = '{_DEMO_EMAIL}'"
+            "SELECT api_token FROM posthog_team ORDER BY "
+            f"id = (SELECT current_team_id FROM posthog_user WHERE email = '{_DEMO_EMAIL}') DESC NULLS LAST, id LIMIT 1"
         )
-        return self.backend.exec(
+        result = self.backend.exec(
             self._compose(f'exec -T db psql -U posthog -d posthog -tAc "{query}"'),
             timeout=120,
-        ).stdout.strip()
+        )
+        token = result.stdout.strip()
+        if not token:
+            sys.stderr.write(f"[hogbox-preview] demo project token lookup returned nothing: {result.stderr.strip()}\n")
+        return token
 
     def write_otel_collector_config(self) -> None:
         token = self._demo_project_token()
-        if not token:
-            sys.stderr.write("[hogbox-preview] no demo project token; the preview's own telemetry will be rejected\n")
         config = _OTEL_COLLECTOR_CONFIG.format(pipeline="|".join(_TELEMETRY_PIPELINE), token=token)
         self.backend.write_file(f"{self.repo_dir}/{self.OTEL_COLLECTOR_CONFIG}", config)
 
@@ -871,6 +874,11 @@ class PostHogPreviewStack:
             self._compose("run --rm -T web python manage.py migrate --noinput"),
             name="migrate",
             timeout=1800,
+        )
+        self.backend.run_long(
+            self._compose("run --rm -T web python manage.py apply_persons_migrations --hobby"),
+            name="migrate-persons",
+            timeout=900,
         )
         self.backend.run_long(
             self._compose("run --rm -T web python manage.py migrate_clickhouse"),
