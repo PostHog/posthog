@@ -15,11 +15,12 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { accessLevelSatisfied, toAccessControlLevel } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -366,7 +367,8 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         hasUnsavedChanges: [
             (s) => [s.worksheet, s.name, s.insight],
             (worksheet: BIVisualizationNode, name: string, insight: InsightApi | null): boolean =>
-                !equal(JSON.parse(JSON.stringify(worksheet)), insight?.query) || name !== insight?.name,
+                !equal(JSON.parse(JSON.stringify(worksheet)), insight?.query ?? emptyWorksheet()) ||
+                name.trim() !== (insight?.name || 'Untitled worksheet'),
         ],
         saveDisabledReason: [
             (s) => [s.generatedQuery, s.insight, s.name],
@@ -544,13 +546,18 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 JSON.stringify(values.worksheet)
             )
             cache.lastHash = JSON.stringify(values.worksheet)
-            router.actions.replace(
-                values.insight
-                    ? urls.businessIntelligenceWorksheet(values.insight.short_id)
-                    : urls.businessIntelligenceNew(),
-                router.values.searchParams,
-                { q: cache.lastHash }
-            )
+            cache.syncingWorksheetUrl = true
+            try {
+                router.actions.replace(
+                    values.insight
+                        ? urls.businessIntelligenceWorksheet(values.insight.short_id)
+                        : urls.businessIntelligenceNew(),
+                    router.values.searchParams,
+                    { q: cache.lastHash }
+                )
+            } finally {
+                cache.syncingWorksheetUrl = false
+            }
         },
         shareWorksheet: async () => {
             actions.syncWorksheetUrl()
@@ -603,6 +610,14 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             actions.restoreWorksheet(worksheet)
             actions.setName('Untitled worksheet')
         },
+    })),
+    beforeUnload(({ values, actions, cache }) => ({
+        enabled: (newLocation) =>
+            !cache.syncingWorksheetUrl &&
+            values.hasUnsavedChanges &&
+            (!newLocation || addProjectIdIfMissing(newLocation.pathname) !== router.values.location.pathname),
+        message: 'Leave worksheet? Changes you made will be discarded.',
+        onConfirm: () => actions.discardChanges(),
     })),
     urlToAction(({ actions }) => ({
         '/bi': () => actions.openWorksheet(),

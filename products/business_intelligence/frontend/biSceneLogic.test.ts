@@ -112,12 +112,49 @@ describe('biSceneLogic', () => {
             delete: { '/api/environments/:team_id/query/:id/': [204] },
         })
         initKeaTests()
-        router.actions.push(urls.businessIntelligence(), {}, { q: '' })
+        router.actions.push(urls.businessIntelligenceNew(), {}, { q: '' })
         logic = biSceneLogic({ tabId: 'bi-test' })
         logic.mount()
         editor = biEditorLogic({ tabId: 'bi-test' })
     })
     afterEach(() => logic.unmount())
+
+    it.each([false, true])('protects unsaved worksheet edits when navigating away (saved: %s)', async (saved) => {
+        const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false)
+        try {
+            expect(logic.values.hasUnsavedChanges).toBe(false)
+            if (saved) {
+                await expectLogic(logic, () =>
+                    router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
+                ).toFinishAllListeners()
+            }
+            logic.actions.setName('Edited worksheet')
+            editor.actions.setDataSource({ table: 'events' })
+            await expectLogic(logic).toFinishAllListeners()
+            const editorPath = router.values.location.pathname
+            expect(confirm).not.toHaveBeenCalled()
+
+            router.actions.push(urls.businessIntelligence())
+            expect(confirm).toHaveBeenCalledTimes(1)
+            expect(router.values.location.pathname).toBe(editorPath)
+            expect(logic.values.name).toBe('Edited worksheet')
+
+            confirm.mockReturnValue(true)
+            router.actions.push(urls.businessIntelligence())
+            expect(router.values.location.pathname).toBe('/project/997/bi')
+            logic.unmount()
+            router.actions.push(
+                saved ? urls.businessIntelligenceWorksheet(stored.short_id) : urls.businessIntelligenceNew()
+            )
+            logic = biSceneLogic({ tabId: 'bi-test' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.name).toBe(saved ? stored.name : 'Untitled worksheet')
+            expect(logic.values.hasUnsavedChanges).toBe(false)
+        } finally {
+            confirm.mockRestore()
+        }
+    })
 
     it('waits for Run after selecting a table unless auto update is enabled', async () => {
         editor.actions.setDataSource({ table: 'events' })

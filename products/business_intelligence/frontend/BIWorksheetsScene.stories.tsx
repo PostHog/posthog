@@ -10,6 +10,7 @@ const meta: Meta = {
     component: App,
     decorators: [mswDecorator({})],
     parameters: {
+        layout: 'fullscreen',
         pageUrl: '/bi',
         featureFlags: [FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
         testOptions: { waitForSelector: '[data-attr="bi-worksheet-link"]' },
