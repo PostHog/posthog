@@ -41,7 +41,7 @@ import {
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
-import { isWorkflowTreeComplete } from './tree/workflowTree'
+import { EARLY_EXIT_BLOCKED_REASONS, computeEarlyExit, isWorkflowTreeComplete } from './tree/workflowTree'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 import type { HogFlowEdge } from './types'
 
@@ -2675,6 +2675,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     }
                 }
 
+                const isAddingEarlyExit = values.nodeToBeAdded?.type === 'exit'
+
                 edges.forEach((edge) => {
                     if (skipEdgeIds.has(edge.id)) {
                         return
@@ -2701,6 +2703,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
                             data: {
                                 edge,
+                                earlyExitBlockedReason:
+                                    isAddingEarlyExit && edge.data
+                                        ? computeEarlyExit(values.workflow, [edge.data.edge]).blockedReason
+                                        : null,
                             },
                             draggable: false,
                             selectable: false,
@@ -2729,6 +2735,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 data: {
                                     edge,
                                     isBranchJoinDropzone: true,
+                                    earlyExitBlockedReason: isAddingEarlyExit
+                                        ? computeEarlyExit(
+                                              values.workflow,
+                                              values.workflow.edges.filter((e) => e.to === edge.target)
+                                          ).blockedReason
+                                        : null,
                                 },
                                 draggable: false,
                                 selectable: false,
@@ -2767,6 +2779,30 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const partialNewAction = isHogFlowActionNode
                         ? (values.nodeToBeAdded as HogFlowActionNode).data
                         : (values.nodeToBeAdded as CreateActionType)
+
+                    const isBranchJoinDropzone =
+                        !!joinEdges || (!targetEdge && (dropzoneNode?.data.isBranchJoinDropzone ?? false))
+                    const edgesToBeReplaced = joinEdges
+                        ? values.workflow.edges.filter((edge) =>
+                              joinEdges.some((joinEdge) => getEdgeId(edge) === getEdgeId(joinEdge))
+                          )
+                        : isBranchJoinDropzone
+                          ? values.workflow.edges.filter((edge) => edge.to === edgeToInsertNodeInto.target)
+                          : values.workflow.edges.filter((edge) => getEdgeId(edge) === edgeToInsertNodeInto.id)
+
+                    // An early exit adds no step. It points the path straight at the workflow exit.
+                    if (!isHogFlowActionNode && partialNewAction.type === 'exit') {
+                        const earlyExit = computeEarlyExit(values.workflow, edgesToBeReplaced)
+                        if (earlyExit.edges) {
+                            actions.setWorkflowInfo({ actions: values.workflow.actions, edges: earlyExit.edges })
+                            actions.setSelectedNodeId(edgeToInsertNodeInto.source)
+                        } else {
+                            lemonToast.error(EARLY_EXIT_BLOCKED_REASONS[earlyExit.blockedReason].message)
+                        }
+                        actions.setNodeToBeAdded(null)
+                        actions.hideDropzones()
+                        return
+                    }
 
                     let config = partialNewAction.config
                     if (!isHogFlowActionNode) {
@@ -2808,20 +2844,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const branchEdges = isHogFlowActionNode
                         ? 0
                         : ((partialNewAction as CreateActionType).branchEdges ?? 0)
-                    const isBranchJoinDropzone =
-                        !!joinEdges || (!targetEdge && (dropzoneNode?.data.isBranchJoinDropzone ?? false))
-
                     if (!step) {
                         throw new Error(`Step not found for action type: ${newAction}`)
                     }
 
-                    const edgesToBeReplaced = joinEdges
-                        ? values.workflow.edges.filter((edge) =>
-                              joinEdges.some((joinEdge) => getEdgeId(edge) === getEdgeId(joinEdge))
-                          )
-                        : isBranchJoinDropzone
-                          ? values.workflow.edges.filter((edge) => edge.to === edgeToInsertNodeInto.target)
-                          : values.workflow.edges.filter((edge) => getEdgeId(edge) === edgeToInsertNodeInto.id)
                     const newEdges = computeInsertEdges(
                         values.workflow.edges,
                         newAction.id,

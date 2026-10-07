@@ -1,6 +1,7 @@
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../types'
 import {
     buildWorkflowTree,
+    computeEarlyExit,
     computeMoveTreeBranchEdges,
     getWorkflowBranchLabel,
     isWorkflowTreeComplete,
@@ -120,6 +121,47 @@ describe('buildWorkflowTree', () => {
             ['right-exit'],
         ])
         expect(getWorkflowTreeBranchSummary(tree.nodes[1], tree.nodes[1].branches[0])).toBe('1 step · End workflow')
+    })
+
+    it.each([
+        [
+            'a path another route still reaches',
+            [edge('condition', 'email', 'branch', 0)],
+            [
+                edge('trigger', 'condition'),
+                edge('condition', 'exit', 'branch', 0),
+                edge('condition', 'email'),
+                edge('email', 'exit'),
+            ],
+        ],
+        ['the only path into a step', [edge('trigger', 'condition')], 'cuts-off-steps'],
+        [
+            'every path into a join',
+            [edge('condition', 'email', 'branch', 0), edge('condition', 'email')],
+            'cuts-off-steps',
+        ],
+        ['a path that already ends at the exit', [edge('email', 'exit')], 'already-exits'],
+    ] as const)('points an early exit on %s at the exit', (_, edgesToReplace, expected) => {
+        const splitWorkflow = workflow(
+            [
+                action('trigger', 'trigger'),
+                action('condition', 'conditional_branch'),
+                action('email'),
+                action('exit', 'exit'),
+            ],
+            [
+                edge('trigger', 'condition'),
+                edge('condition', 'email', 'branch', 0),
+                edge('condition', 'email'),
+                edge('email', 'exit'),
+            ]
+        )
+
+        expect(computeEarlyExit(splitWorkflow, [...edgesToReplace])).toEqual(
+            typeof expected === 'string'
+                ? { edges: null, blockedReason: expected }
+                : { edges: [...expected], blockedReason: null }
+        )
     })
 
     it('scopes a nested branch join to its own routes', () => {
