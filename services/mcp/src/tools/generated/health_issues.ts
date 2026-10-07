@@ -26,7 +26,14 @@ const healthIssuesGet = (): ToolBase<ReturnType<typeof HealthIssuesGetSchema>, S
 
 const HealthIssuesListSchema = () => {
     const HealthIssuesListQueryParams = orvalSchemas.HealthIssuesListQueryParams()
-    return HealthIssuesListQueryParams
+    return HealthIssuesListQueryParams.extend({
+        payload_mode: HealthIssuesListQueryParams.shape['payload_mode']
+            .default('preview')
+            .optional()
+            .describe(
+                "'preview' (the default) returns a bounded payload for each row. 'full' returns every payload in full and can make a small page very large. Prefer health-issues-get for one issue's full payload."
+            ),
+    })
 }
 
 const healthIssuesList = (): ToolBase<
@@ -45,6 +52,7 @@ const healthIssuesList = (): ToolBase<
                 kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,
+                payload_mode: params.payload_mode,
                 severity: params.severity,
                 status: params.status,
             },

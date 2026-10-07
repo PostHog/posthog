@@ -100,24 +100,37 @@ _MAX_PAYLOAD_STR_LEN = 500
 _MAX_PAYLOAD_DEPTH = 3
 
 
-def _bounded_payload_value(value: Any, depth: int = 0) -> Any:
+def _bounded_payload_value(
+    value: Any,
+    depth: int = 0,
+    *,
+    max_list_items: int = _MAX_PAYLOAD_LIST_ITEMS,
+    max_str_len: int = _MAX_PAYLOAD_STR_LEN,
+    max_depth: int = _MAX_PAYLOAD_DEPTH,
+) -> Any:
     """Recursively cap list length, string length, and nesting depth of a payload value."""
+    limits = {"max_list_items": max_list_items, "max_str_len": max_str_len, "max_depth": max_depth}
     if isinstance(value, str):
-        if len(value) <= _MAX_PAYLOAD_STR_LEN:
+        if len(value) <= max_str_len:
             return value
-        return f"{value[:_MAX_PAYLOAD_STR_LEN]}… (truncated)"
+        return f"{value[:max_str_len]}… (truncated)"
     if isinstance(value, list):
-        if depth >= _MAX_PAYLOAD_DEPTH:
+        if depth >= max_depth:
             return f"[{len(value)} items]"
-        bounded = [_bounded_payload_value(item, depth + 1) for item in value[:_MAX_PAYLOAD_LIST_ITEMS]]
-        if len(value) > _MAX_PAYLOAD_LIST_ITEMS:
-            bounded.append(f"… (+{len(value) - _MAX_PAYLOAD_LIST_ITEMS} more)")
+        bounded = [_bounded_payload_value(item, depth + 1, **limits) for item in value[:max_list_items]]
+        if len(value) > max_list_items:
+            bounded.append(f"… (+{len(value) - max_list_items} more)")
         return bounded
     if isinstance(value, dict):
-        if depth >= _MAX_PAYLOAD_DEPTH:
+        if depth >= max_depth:
             return f"{{{len(value)} keys}}"
-        return {key: _bounded_payload_value(item, depth + 1) for key, item in value.items()}
+        return {key: _bounded_payload_value(item, depth + 1, **limits) for key, item in value.items()}
     return value
+
+
+def payload_preview(payload: Any) -> Any:
+    """A small, bounded view of an issue payload for list rows. The detail view keeps the full payload."""
+    return _bounded_payload_value(payload, max_list_items=3, max_str_len=200)
 
 
 def build_signal_extra(issue: HealthIssue, *, title: str, summary: str, link: str) -> dict[str, Any]:
