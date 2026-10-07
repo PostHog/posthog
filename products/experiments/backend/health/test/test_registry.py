@@ -12,7 +12,7 @@ from products.experiments.backend.facade.contracts import ExperimentHealthFindin
 from products.experiments.backend.health import registry
 from products.experiments.backend.health.checks.bias_risk import bias_risk_multiple_excluded
 from products.experiments.backend.health.context import ExposureTotals, FlagState, FlagVariant, HealthContext
-from products.experiments.backend.health.registry import HealthCheck, HealthInput, evaluate
+from products.experiments.backend.health.registry import evaluate
 
 RUNNING_UNEVEN_SPLIT = HealthContext(
     has_ended=False,
@@ -48,10 +48,7 @@ class TestEvaluate(TestCase):
         self.assertNotIn(ExperimentHealthFindingCode.BIAS_RISK_MULTIPLE_EXCLUDED, codes)
 
     def test_a_failing_check_does_not_hide_the_other_findings(self) -> None:
-        checks = (
-            HealthCheck(inputs=frozenset({HealthInput.CONFIG}), run=_raise),
-            HealthCheck(inputs=frozenset({HealthInput.CONFIG, HealthInput.EXPOSURES}), run=bias_risk_multiple_excluded),
-        )
+        checks = (_raise, bias_risk_multiple_excluded)
         with patch.object(registry, "HEALTH_CHECKS", checks), patch.object(registry, "capture_exception") as capture:
             findings = evaluate(RUNNING_UNEVEN_SPLIT)
 
