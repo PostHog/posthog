@@ -41,6 +41,7 @@ class WarehouseSuggestionsWorkflow(PostHogWorkflow):
                     generate_warehouse_suggestions,
                     args=[team_ids, run_id],
                     start_to_close_timeout=dt.timedelta(minutes=30),
+                    heartbeat_timeout=dt.timedelta(minutes=5),
                     retry_policy=RETRY_POLICY,
                 )
 

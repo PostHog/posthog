@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
@@ -9,6 +9,7 @@ from products.warehouse_suggestions.backend.models import WarehouseSuggestion, W
 from products.warehouse_suggestions.backend.tests.rollup import RollupRead, seed_reads
 
 TODAY = date.today()
+NOW = datetime.combine(TODAY, time(hour=9), tzinfo=UTC)
 SCENES = ("SQLEditor", "Dashboard")
 
 
@@ -53,7 +54,7 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        result = run_team(self.team.pk, run_id="run-1", today=TODAY)
+        result = run_team(self.team.pk, run_id="run-1", today=TODAY, now=NOW)
 
         assert result.status == TeamRunStatus.PROCESSED
         assert sorted(
@@ -71,7 +72,7 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
         assert (materialize.payload["refresh_interval_seconds"], materialize.run_id) == (24 * 60 * 60, "run-1")
 
     def test_a_team_without_view_reads_is_recorded_as_not_eligible(self) -> None:
-        result = run_team(self.team.pk, run_id="run-1", today=TODAY)
+        result = run_team(self.team.pk, run_id="run-1", today=TODAY, now=NOW)
 
         config = WarehouseSuggestionTeamConfig.objects.get(team_id=self.team.pk)
         assert (result.status, config.eligible, config.last_run_at is not None) == (

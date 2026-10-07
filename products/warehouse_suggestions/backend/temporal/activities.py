@@ -11,6 +11,7 @@ from temporalio import activity
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.warehouse_object_reads import WAREHOUSE_OBJECT_READS_DAILY_TABLE
 from posthog.models.team import Team
 from posthog.temporal.common.logger import get_logger
@@ -37,9 +38,7 @@ def team_batches(inputs: WarehouseSuggestionsInputs) -> list[list[int]]:
     if get_kill_switch_level() != KillSwitchLevel.OFF:
         LOGGER.info("warehouse_suggestions.skipped_by_kill_switch")
         return []
-    candidate_ids = inputs.team_ids or [
-        team_id for (team_id,) in sync_execute(TEAMS_WITH_READS_SQL, {"window_days": RULES.window_days})
-    ]
+    candidate_ids = inputs.team_ids or _teams_with_reads()
     teams = (
         Team.objects.filter(id__in=candidate_ids, is_demo=False, organization__for_internal_metrics=False)
         .select_related("organization")
@@ -55,6 +54,8 @@ def run_batch(team_ids: list[int], run_id: str) -> BatchOutcome:
     today = timezone.now().date()
     outcomes: Counter[str] = Counter()
     for team_id in team_ids:
+        if activity.in_activity():
+            activity.heartbeat(team_id)
         try:
             outcomes[run_team(team_id, run_id=run_id, today=today).status] += 1
         except Exception:
@@ -66,6 +67,11 @@ def run_batch(team_ids: list[int], run_id: str) -> BatchOutcome:
         disabled=outcomes[TeamRunStatus.DISABLED],
         failed=outcomes["failed"],
     )
+
+
+def _teams_with_reads() -> list[int]:
+    tag_queries(product=Product.WAREHOUSE, feature=Feature.ENRICHMENT, name="warehouse_suggestions_teams")
+    return [team_id for (team_id,) in sync_execute(TEAMS_WITH_READS_SQL, {"window_days": RULES.window_days})]
 
 
 @activity.defn

@@ -5,7 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.warehouse_object_reads import WAREHOUSE_OBJECT_READS_DAILY_TABLE, ReadKind
 from posthog.dataclasses import frozen
 
@@ -83,7 +83,9 @@ class TeamReads:
 
 
 def read_team_reads(team_id: int, window: ReadWindow, rules: Rules) -> TeamReads:
-    tag_queries(product=Product.WAREHOUSE, team_id=team_id, name="warehouse_suggestions_reads")
+    tag_queries(
+        product=Product.WAREHOUSE, feature=Feature.ENRICHMENT, team_id=team_id, name="warehouse_suggestions_reads"
+    )
     params: dict[str, Any] = {
         "team_id": team_id,
         "window_start": window.start,

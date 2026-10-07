@@ -39,22 +39,27 @@ def diff_candidates(
     before: Mapping[WarehouseSuggestionKind, CandidateResult],
     after: Mapping[WarehouseSuggestionKind, CandidateResult],
 ) -> dict[WarehouseSuggestionKind, KindDiff]:
-    return {kind: _diff(_ranked_names(before[kind]), _ranked_names(after[kind])) for kind in before}
+    return {kind: _diff(before[kind], after[kind]) for kind in before}
 
 
-def _diff(before: list[str], after: list[str]) -> KindDiff:
-    kept_before = [name for name in before if name in after]
-    kept_after = [name for name in after if name in before]
+def _diff(before: CandidateResult, after: CandidateResult) -> KindDiff:
+    before_ranked, after_ranked = _ranked(before), _ranked(after)
+    names = {draft.fingerprint: draft.payload.subject_name for draft in (*before.drafts, *after.drafts)}
+    kept_before = [fingerprint for fingerprint in before_ranked if fingerprint in after_ranked]
+    kept_after = [fingerprint for fingerprint in after_ranked if fingerprint in before_ranked]
     return KindDiff(
-        added=tuple(name for name in after if name not in before),
-        removed=tuple(name for name in before if name not in after),
-        reranked=tuple(name for position, name in enumerate(kept_after) if kept_before[position] != name),
+        added=tuple(names[fingerprint] for fingerprint in after_ranked if fingerprint not in before_ranked),
+        removed=tuple(names[fingerprint] for fingerprint in before_ranked if fingerprint not in after_ranked),
+        reranked=tuple(
+            names[fingerprint]
+            for position, fingerprint in enumerate(kept_after)
+            if kept_before[position] != fingerprint
+        ),
     )
 
 
-def _ranked_names(result: CandidateResult) -> list[str]:
-    ranked = sorted(result.drafts, key=lambda draft: draft.score, reverse=True)
-    return [draft.payload.subject_name for draft in ranked]
+def _ranked(result: CandidateResult) -> list[str]:
+    return [draft.fingerprint for draft in sorted(result.drafts, key=lambda draft: draft.score, reverse=True)]
 
 
 def _parse_like(current: Any, raw_value: str) -> Any:

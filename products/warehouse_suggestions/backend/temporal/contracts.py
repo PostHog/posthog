@@ -5,7 +5,7 @@ WAREHOUSE_SUGGESTIONS_WORKFLOW_NAME = "warehouse-suggestions"
 
 @dataclass(frozen=True, kw_only=True)
 class WarehouseSuggestionsInputs:
-    batch_size: int = 250
+    batch_size: int = 25
     max_concurrent: int = 1
     rollout_percentage: float = 1.0
     team_ids: list[int] | None = None
