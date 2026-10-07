@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
 import { autoresearchPipelineLogic, featureChanges } from '../autoresearchPipelineLogic'
 import { AutoresearchModelApi, AutoresearchModelRoleEnumApi } from '../generated/api.schemas'
@@ -18,11 +18,23 @@ function holdoutLabel(model: AutoresearchModelApi): string {
 
 /** The feature importances of the model a training run produced, next to the current champion's. */
 export function RunFeatureComparison({ runId }: { runId: string }): JSX.Element {
-    const { modelByTrainingRun, champion, modelsLoading } = useValues(autoresearchPipelineLogic)
+    const { modelByTrainingRun, champion, modelsLoading, modelsError } = useValues(autoresearchPipelineLogic)
+    const { loadModels } = useActions(autoresearchPipelineLogic)
     const model = modelByTrainingRun[runId]
     if (!model) {
         return modelsLoading ? (
             <Spinner />
+        ) : modelsError ? (
+            <LemonBanner
+                type="error"
+                action={{
+                    children: 'Retry',
+                    onClick: () => loadModels(),
+                    'data-attr': 'autoresearch-run-model-retry',
+                }}
+            >
+                Couldn't load this run's model. Try again, and if it keeps happening contact support.
+            </LemonBanner>
         ) : (
             <div className="text-muted text-sm">
                 This run did not produce a model, so it has no feature importances.

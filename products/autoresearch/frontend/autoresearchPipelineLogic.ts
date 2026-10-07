@@ -269,6 +269,7 @@ export interface autoresearchPipelineLogicValues {
     expandedRunId: string | null
     modelByTrainingRun: Record<string, AutoresearchModelApi>
     models: AutoresearchModelApi[]
+    modelsError: boolean
     modelsLoading: boolean
     onlinePerformanceRows: OnlinePerformanceRow[]
     pipeline: AutoresearchPipelineApi | null
@@ -745,6 +746,13 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 loadPipeline: () => false,
                 loadPipelineSuccess: () => false,
                 loadPipelineFailure: () => true,
+            },
+        ],
+        modelsError: [
+            false,
+            {
+                loadModels: () => false,
+                loadModelsFailure: () => true,
             },
         ],
         trainingRunsError: [
