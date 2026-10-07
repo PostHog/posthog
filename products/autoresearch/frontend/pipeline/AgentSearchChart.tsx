@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { ScatterChart, TooltipFooter, TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
-import type { ScatterChartConfig, ScatterSeries } from '@posthog/quill-charts'
+import type { ScatterChartConfig, ScatterPoint, ScatterSeries } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 
@@ -28,7 +28,7 @@ export function AgentSearchChart(): JSX.Element | null {
     const { series, config } = useMemo(() => {
         const points = agentSearch.points
         const yDomain = searchYDomain(points)
-        const toPoint = (p: SearchPoint): ScatterSeries<SearchPoint>['points'][number] => ({
+        const toPoint = (p: SearchPoint): ScatterPoint<SearchPoint> => ({
             x: p.seq,
             y: p.holdoutScore ?? yDomain[0],
             label: `Run ${p.runNumber} · experiment ${p.iterationNumber}`,
