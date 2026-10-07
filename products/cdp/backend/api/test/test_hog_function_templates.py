@@ -228,6 +228,10 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert updated_response.json()["name"] == "Updated Slack"
         assert updated_response.json()["description"] == "This template was updated"
 
+        list_response = self.client.get("/api/projects/@current/hog_function_templates/?limit=100")
+        slack_rows = [row for row in list_response.json()["results"] if row["id"] == "template-slack"]
+        assert [row["name"] for row in slack_rows] == ["Updated Slack"]
+
     def test_public_hog_function_templates_are_sorted_by_usage(self):
         for i in range(10):
             HogFunction.objects.create(

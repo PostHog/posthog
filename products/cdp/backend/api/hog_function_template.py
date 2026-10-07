@@ -176,14 +176,19 @@ class PublicHogFunctionTemplateViewSet(
         )
         popularity = {item["template_id"]: item["count"] for item in template_usage}
 
-        templates = list(queryset.values_list("template_id", "name"))
+        # A template can have several shas. The oldest rows come first so the latest sha wins, like in get_template.
+        latest_by_template_id = dict(queryset.order_by("created_at").values_list("template_id", "name"))
+        templates = list(latest_by_template_id.items())
         # template_id is the final tie-breaker, so templates with the same usage and name keep one order.
         templates.sort(key=lambda template: (-popularity.get(template[0], 0), template[1].lower(), template[0]))
 
         return [template_id for template_id, _ in templates]
 
     def _serialize_in_order(self, queryset: QuerySet, template_ids: Sequence[str]) -> Any:
-        templates = {template.template_id: template for template in queryset.filter(template_id__in=template_ids)}
+        templates = {
+            template.template_id: template
+            for template in queryset.filter(template_id__in=template_ids).order_by("created_at")
+        }
         ordered = [templates[template_id] for template_id in template_ids if template_id in templates]
 
         return self.get_serializer(ordered, many=True).data
