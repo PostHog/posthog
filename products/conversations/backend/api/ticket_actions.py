@@ -46,6 +46,46 @@ from products.conversations.backend.reply_dedupe import (
 from products.conversations.backend.services.messages import visible_ticket_messages
 from products.conversations.backend.services.sla import WEEKDAYS, compute_sla_deadline
 
+TICKET_METADATA_MAX_KEYS = 50
+TICKET_METADATA_MAX_KEY_LENGTH = 100
+TICKET_METADATA_MAX_VALUE_LENGTH = 1000
+
+
+class TicketMetadataTooLarge(Exception):
+    """The merged metadata map holds more keys than a ticket accepts."""
+
+
+def merge_ticket_metadata(ticket: Ticket, updates: dict[str, str | None]) -> tuple[dict[str, str], dict[str, str]]:
+    """Merge keys into a ticket's metadata and return the stored map before and after the merge.
+
+    The read and the write share one transaction with the ticket row locked. Two workflow runs
+    that set different keys at the same time therefore keep both keys. Without the lock the
+    second run reads the map before the first run commits, then writes back a copy that has
+    none of the first run's keys.
+    """
+    with transaction.atomic():
+        before = (
+            Ticket.objects.select_for_update()
+            .filter(id=ticket.id, team_id=ticket.team_id)
+            .values_list("metadata", flat=True)
+            .get()
+            or {}
+        )
+        after = dict(before)
+        for key, value in updates.items():
+            if value is None:
+                after.pop(key, None)
+            else:
+                after[key] = value
+
+        if len(after) > TICKET_METADATA_MAX_KEYS:
+            raise TicketMetadataTooLarge
+
+        if after != before:
+            # updated_at is auto_now, which a queryset update does not apply.
+            Ticket.objects.filter(id=ticket.id).update(metadata=after, updated_at=timezone.now())
+        return before, after
+
 
 class TicketActionUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=[s.value for s in Status], required=False)
@@ -61,6 +101,24 @@ class TicketActionUpdateSerializer(serializers.Serializer):
     assignee = serializers.JSONField(required=False, allow_null=True)
     tags = serializers.ListField(child=serializers.CharField(max_length=200), required=False, max_length=100)
     tags_mode = serializers.ChoiceField(choices=["add", "set", "remove"], required=False, default="add")
+    metadata = serializers.DictField(
+        child=serializers.CharField(
+            max_length=TICKET_METADATA_MAX_VALUE_LENGTH, allow_blank=True, allow_null=True, trim_whitespace=False
+        ),
+        required=False,
+        help_text=(
+            "Keys to merge into the ticket metadata. Keys that are not listed keep their value. "
+            "A null value removes a key."
+        ),
+    )
+
+    def validate_metadata(self, value: dict[str, str | None]) -> dict[str, str | None]:
+        for key in value:
+            if not key or len(key) > TICKET_METADATA_MAX_KEY_LENGTH:
+                raise serializers.ValidationError(
+                    f"Metadata keys must hold 1 to {TICKET_METADATA_MAX_KEY_LENGTH} characters"
+                )
+        return value
 
     def validate_sla_business_hours(self, value):
         if value is None:
@@ -357,6 +415,7 @@ def handle_ticket_get(
         "email_to": ticket.email_config.from_email if ticket.email_config else None,
         "cc_participants": ticket.cc_participants,
         "tags": tags,
+        "metadata": ticket.metadata or {},
     }
 
     if include_first_customer_message_text:
@@ -505,6 +564,27 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                             action="changed",
                         )
                     )
+
+    if "metadata" in serializer.validated_data:
+        try:
+            old_metadata, new_metadata = merge_ticket_metadata(ticket, serializer.validated_data["metadata"])
+        except TicketMetadataTooLarge:
+            return Response(
+                {"error": f"A ticket holds at most {TICKET_METADATA_MAX_KEYS} metadata keys"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if old_metadata != new_metadata:
+            ticket.metadata = new_metadata
+            changes.append(
+                Change(
+                    type="Ticket",
+                    field="metadata",
+                    before=old_metadata,
+                    after=new_metadata,
+                    action="changed",
+                )
+            )
 
     if update_fields:
         ticket.save(update_fields=[*update_fields, "updated_at"])

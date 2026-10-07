@@ -17,7 +17,13 @@ from posthog.models import ActivityLog, Comment, Team
 from posthog.models.utils import generate_random_token_secret
 from posthog.test.api_keys import create_project_secret_api_key
 
-from products.conversations.backend.api.ticket_actions import _truncate_bytes
+from products.conversations.backend.api.ticket_actions import (
+    TICKET_METADATA_MAX_KEY_LENGTH,
+    TICKET_METADATA_MAX_KEYS,
+    TICKET_METADATA_MAX_VALUE_LENGTH,
+    TicketActionUpdateSerializer,
+    _truncate_bytes,
+)
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Priority, Status
 
@@ -188,6 +194,7 @@ class TestExternalTicketAPI(BaseTest):
         self.assertIsNone(data["email_to"])
         self.assertEqual(data["cc_participants"], [])
         self.assertEqual(data["tags"], [])
+        self.assertEqual(data["metadata"], {})
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
 
@@ -769,6 +776,59 @@ class TestExternalTicketAPI(BaseTest):
         tags = list(self.ticket.tagged_items.values_list("tag__name", flat=True))
         self.assertEqual(tags, ["urgent"])
 
+    # -- PATCH metadata ---------------------------------------------------
+
+    def test_patch_metadata_keeps_unlisted_keys_and_null_removes_one(self):
+        self.ticket.metadata = {"slack_thread_ts": "1712345678.000100", "linear_issue": "ABC-1"}
+        self.ticket.save(update_fields=["metadata"])
+
+        response = self.client.patch(
+            self.url,
+            {"metadata": {"vendor_case": "case-42", "linear_issue": None}},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.metadata, {"slack_thread_ts": "1712345678.000100", "vendor_case": "case-42"})
+        self.assertTrue(
+            ActivityLog.objects.filter(
+                team_id=self.team.id,
+                scope="Ticket",
+                item_id=str(self.ticket.id),
+                detail__changes__0__field="metadata",
+            ).exists()
+        )
+
+    def test_patch_metadata_over_the_key_limit_saves_nothing(self):
+        self.ticket.metadata = {f"key_{i}": "value" for i in range(TICKET_METADATA_MAX_KEYS)}
+        self.ticket.save(update_fields=["metadata"])
+
+        response = self.client.patch(
+            self.url,
+            {"metadata": {"one_too_many": "value"}, "status": Status.OPEN},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.ticket.refresh_from_db()
+        self.assertNotIn("one_too_many", self.ticket.metadata)
+        self.assertEqual(self.ticket.status, Status.NEW)
+
+    def test_patch_rejects_a_metadata_value_over_the_length_limit(self):
+        response = self.client.patch(
+            self.url,
+            {"metadata": {"slack_thread_ts": "v" * (TICKET_METADATA_MAX_VALUE_LENGTH + 1)}},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.metadata, {})
+
     # -- URL validation ---------------------------------------------------
 
     def test_invalid_uuid_in_url_returns_404(self):
@@ -974,6 +1034,28 @@ class TestExternalTicketAPI(BaseTest):
             ).count(),
             1,
         )
+
+
+class TestTicketActionUpdateSerializerMetadata(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("empty_key", {"": "value"}),
+            ("key_too_long", {"k" * (TICKET_METADATA_MAX_KEY_LENGTH + 1): "value"}),
+            ("value_too_long", {"key": "v" * (TICKET_METADATA_MAX_VALUE_LENGTH + 1)}),
+            ("not_an_object", ["slack_thread_ts"]),
+        ]
+    )
+    def test_rejects(self, _name, metadata):
+        serializer = TicketActionUpdateSerializer(data={"metadata": metadata})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("metadata", serializer.errors)
+
+    def test_accepts_a_null_value_as_a_key_removal(self):
+        serializer = TicketActionUpdateSerializer(data={"metadata": {"linear_issue": None}})
+
+        self.assertTrue(serializer.is_valid())
+        self.assertEqual(serializer.validated_data["metadata"], {"linear_issue": None})
 
 
 class TestTruncateBytes(SimpleTestCase):

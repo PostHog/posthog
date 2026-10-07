@@ -460,6 +460,16 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     <LemonTag type="highlight">#{ticket.zendesk_ticket_id}</LemonTag>
                                 </div>
                             )}
+                            {Object.entries(ticket?.metadata ?? {}).map(([key, value]) => (
+                                <div key={key} className="flex justify-between items-start gap-2">
+                                    <span className="text-muted-alt truncate" title={key}>
+                                        {key}
+                                    </span>
+                                    <span className="text-xs truncate text-right" title={value}>
+                                        {value}
+                                    </span>
+                                </div>
+                            ))}
                             {ticket?.session_context?.current_url && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Page URL</span>

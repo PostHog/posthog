@@ -167,6 +167,11 @@ export type TicketApiSessionContext = {
 }
 
 /**
+ * Key-value pairs that workflows keep on the ticket, such as an external thread or issue ID.
+ */
+export type TicketApiMetadata = { [key: string]: string }
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface TicketApi {
@@ -254,6 +259,8 @@ export interface TicketApi {
     readonly organization_id_source: string | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
+    /** Key-value pairs that workflows keep on the ticket, such as an external thread or issue ID. */
+    readonly metadata: TicketApiMetadata
     /**
      * The effective access level the user has for this object
      * @nullable

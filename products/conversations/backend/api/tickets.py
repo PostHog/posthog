@@ -405,6 +405,11 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
     session_context = TicketSessionContextField(read_only=True)
+    metadata = serializers.DictField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Key-value pairs that workflows keep on the ticket, such as an external thread or issue ID.",
+    )
 
     class Meta:
         model = Ticket
@@ -447,6 +452,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "organization_id_source",
             "person",
             "tags",
+            "metadata",
             "user_access_level",
         ]
         read_only_fields = [
