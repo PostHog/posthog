@@ -880,6 +880,12 @@ class PostHogPreviewStack:
             name="migrate-persons",
             timeout=900,
         )
+        index = "CREATE UNIQUE INDEX IF NOT EXISTS posthog_person_team_id_uuid_uniq ON posthog_person (team_id, uuid)"
+        self.backend.run_long(
+            self._compose(f'exec -T db psql -U posthog -d posthog -v ON_ERROR_STOP=1 -c "{index}"'),
+            name="person-uuid-index",
+            timeout=900,
+        )
         self.backend.run_long(
             self._compose("run --rm -T web python manage.py migrate_clickhouse"),
             name="migrate-clickhouse",
