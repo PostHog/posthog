@@ -66,6 +66,7 @@ def _assert_scout_available(snapshot: TrialEvaluationSnapshot, evidence: TrialRu
         .filter(
             id=evidence.run_id,
             scout_config_id=snapshot.config_id,
+            skill_name=snapshot.rubric_reference_context.skill_name,
             task_run_id=evidence.task_run_id,
             task_run__team_id=snapshot.team_id,
             task_run__task_id=evidence.task_id,
@@ -119,16 +120,6 @@ class _JudgeRun:
         ]
         tasks_facade.attach_task_run_input_files(team_id=self.snapshot.team_id, run_id=run_id, files=files)
         return {
-            "scout_trial_judge": {
-                "version": 1,
-                "evaluation_id": str(self.snapshot.evaluation_id),
-                "launch_id": str(self.evidence.launch_id),
-                "context_id": str(self.snapshot.context_id),
-                "user_id": self.snapshot.user_id,
-                "source_task_id": str(self.evidence.task_id),
-                "source_task_run_id": str(self.evidence.task_run_id),
-                "source_scout_run_id": str(self.evidence.run_id),
-            },
             "pending_user_message": self.prompt,
             # Startup and Temporal forwarding must recognize the same initial message.
             "pending_user_message_id": str(run_id),
@@ -188,7 +179,7 @@ async def judge_trial_run(snapshot: TrialEvaluationSnapshot, evidence: TrialRunE
                 team_id=snapshot.team_id,
                 user_id=snapshot.user_id,
                 sandbox_environment_id=environment_id,
-                posthog_mcp_scopes="signals_scout_judge",
+                posthog_mcp_scopes=[],
                 model=snapshot.judge_model,
                 runtime_adapter="codex",
                 reasoning_effort="high",
@@ -204,9 +195,11 @@ async def judge_trial_run(snapshot: TrialEvaluationSnapshot, evidence: TrialRunE
                     model=TrialJudgeVerdicts,
                     step_name="scout_trial_judge",
                     ai_stage="scout:trial_judge",
-                    origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
+                    # Reuse rubric generation's repo-less internal sandbox policy.
+                    origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
                     origin_key=origin_key,
                     internal=True,
+                    mcp_builtin_agent_key="scout",
                     mcp_gateway_server_ids=[],
                     before_task_dispatch=judge_run.bind_before_dispatch,
                     max_poll_seconds=JUDGE_MAX_RUNTIME_SECONDS,

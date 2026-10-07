@@ -125,14 +125,12 @@ def is_scout_trial_task_run(*, team_id: int, task_id: uuid.UUID, task_run_id: uu
 
 
 def is_scout_trial_judge_context(*, team_id: int, user_id: int, marker: object) -> bool:
-    from products.signals.backend.scout_harness.trial_inspection import (  # noqa: PLC0415 -- keeps private trial access checks off ordinary task startup
-        ScoutTrialInspection,
-    )
-    from products.signals.backend.scout_harness.trial_launch import (
-        assert_trial_environment_ready,  # noqa: PLC0415 -- keeps private trial dependencies off ordinary task startup
+    from products.signals.backend.scout_harness.trial_evaluation import (  # noqa: PLC0415 -- avoids loading evaluation storage for ordinary tasks
+        _assert_worker_access,
+        _read_trial_judge_input,
     )
 
-    if team_id != 2 or not isinstance(marker, dict) or type(marker.get("version")) is not int or marker["version"] != 1:
+    if not isinstance(marker, dict) or type(marker.get("version")) is not int or marker["version"] != 1:
         return False
     if type(marker.get("user_id")) is not int or marker["user_id"] != user_id:
         return False
@@ -154,10 +152,22 @@ def is_scout_trial_judge_context(*, team_id: int, user_id: int, marker: object) 
             return False
         if str(identifiers[key]) != value:
             return False
-    # Signals validates saved inputs before dispatch; workers only recheck the server-bound identity and access.
+    snapshot = _read_trial_judge_input(team_id, identifiers["evaluation_id"], identifiers["launch_id"])
+    if snapshot is None or snapshot.user_id != user_id or snapshot.context_id != identifiers["context_id"]:
+        return False
+    _assert_worker_access(snapshot)
+    evidence = next((run for run in snapshot.runs if run.launch_id == identifiers["launch_id"]), None)
+    if evidence is None or (
+        evidence.task_id != identifiers["source_task_id"]
+        or evidence.task_run_id != identifiers["source_task_run_id"]
+        or evidence.run_id != identifiers["source_scout_run_id"]
+        or evidence.execution_status != "completed"
+        or evidence.exclusion_reason is not None
+    ):
+        return False
     source = (
         SignalScoutRun.objects.for_team(team_id)
-        .select_related("task_run__task__created_by", "scout_config__team")
+        .select_related("task_run__task")
         .filter(
             id=identifiers["source_scout_run_id"],
             task_run_id=identifiers["source_task_run_id"],
@@ -178,26 +188,7 @@ def is_scout_trial_judge_context(*, team_id: int, user_id: int, marker: object) 
     if source is None or (source.task_run.state or {}).get("scout_trial") != (source.metadata or {}).get("scout_trial"):
         return False
     private_state = (source.task_run.state or {}).get("scout_trial_private")
-    if isinstance(private_state, dict) and private_state.get("invalid_reason"):
-        return False
-    config = source.scout_config
-    user = source.task_run.task.created_by
-    if (
-        config is None
-        or config.team_id != team_id
-        or config.skill_name != source.skill_name
-        or user is None
-        or not user.is_active
-        or not user.is_staff
-        or not user.organization_memberships.filter(organization_id=config.team.organization_id).exists()
-        or not UserAccessControl(user=user, team=config.team).has_project_access
-    ):
-        return False
-    assert_trial_environment_ready()
-    inspection = ScoutTrialInspection(config, user)
-    inspection._check_skill_access()
-    inspection._check_skill_access(source.skill_version)
-    return True
+    return not isinstance(private_state, dict) or not private_state.get("invalid_reason")
 
 
 @frozen

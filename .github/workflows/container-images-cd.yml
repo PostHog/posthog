@@ -426,8 +426,6 @@ jobs:
                         - 'posthog/temporal/ai/posthog_code_slack_*'
                         - 'posthog/temporal/ai/slack_app/**'
                         - 'products/slack_app/backend/**'
-                        # Sandbox credentials recheck Signals-owned access rules.
-                        - 'products/signals/backend/**'
                         - 'products/tasks/backend/**'
                         - 'products/wizard/backend/**'
                         - 'posthog/tasks/**'
