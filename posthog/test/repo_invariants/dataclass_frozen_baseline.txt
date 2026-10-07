@@ -788,7 +788,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/logz_io/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/loop_returns/loop_returns.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/loops/loops.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/loops/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/luma/luma.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/luma/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailchimp/mailchimp.py

@@ -5287,12 +5287,14 @@ Note: Endpoints are enumerated statically in logz_io/source.py; no dynamic table
 
 ## Loops — gaps
 
-Today (10): `audience_segments`, `campaign_groups`, `campaigns`, `components`, `contact_properties`, `mailing_lists`, `themes`, `transactional_emails`, `transactional_groups`, `workflows`
+Today (12): `audience_segments`, `campaign_groups`, `campaign_metrics`, `campaigns`, `components`, `contact_properties`, `mailing_lists`, `themes`, `transactional_email_metrics`, `transactional_emails`, `transactional_groups`, `workflows`
 
 Diffed against: <https://loops.so/docs/openapi.json>
 
 - [ ] `GET /v1/event-patterns` — lookup of event definitions that workflows and campaigns trigger on (high)
 - [ ] `GET /v1/contacts/suppression` — suppressed contacts, needed to reconcile deliverable audience (medium)
+- [x] `GET /v1/campaigns/{campaignId}/metrics` — all-time engagement counters per sent campaign (`campaign_metrics`)
+- [x] `GET /v1/transactional-emails/{transactionalId}/metrics` — all-time delivery counters per transactional email (`transactional_email_metrics`)
 
 Note: Coverage is close to complete — the spec has ~20 listable GET collections and 10 are already exposed. Loops has no bulk contacts list endpoint (only /v1/contacts/find by email or userId), so a contacts table is not implementable against this API; /v1/email-messages/{id} is likewise single-fetch only. Remaining unexposed paths are config/plumbing (api-key, dedicated-sending-ips, uploads) or per-node workflow mutations.
 
