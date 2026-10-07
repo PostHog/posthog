@@ -591,7 +591,7 @@ def dependency_manifests_without_lockfile(files: list[str]) -> list[str]:
 
 
 def has_ci_workflow_changes(files: list[str]) -> bool:
-    return any(".github/workflows" in f or ".github/actions" in f for f in files)
+    return any(".github/workflows" in f or ".github/actions" in f or ".depot/workflows" in f for f in files)
 
 
 def is_allow_listed_only(files: list[str]) -> bool:

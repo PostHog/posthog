@@ -215,6 +215,11 @@ def test_no_false_positive(files: list[str]) -> None:
             id="security-owned-workflow",
         ),
         pytest.param(
+            [".depot/workflows/ci-security.yaml"],
+            "infra_cicd",
+            id="security-owned-depot-workflow",
+        ),
+        pytest.param(
             ["bin/deploy-hobby"],
             "infra_cicd",
             id="deploy-hobby-script",

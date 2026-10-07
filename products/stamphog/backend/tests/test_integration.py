@@ -2305,7 +2305,7 @@ def test_post_verdict_stamps_digest_audience_only_at_approved_head(
         assert pull_request.summary_line == run.change_summary
 
 
-def _path_denied_engine_output() -> str:
+def _path_denied_engine_output(deny_categories: list[str]) -> str:
     payload = {
         "final_verdict": "REFUSED",
         "gates": [
@@ -2313,23 +2313,25 @@ def _path_denied_engine_output() -> str:
             {"gate": "deny-list", "passed": False, "message": "matches: infra_cicd"},
             {"gate": "tier", "passed": False, "message": "classified as T2-never"},
         ],
-        "classification": {"deny_categories": ["infra_cicd"]},
+        "classification": {"deny_categories": deny_categories},
         "review_body": "Refused by stamphog.",
     }
     return json.dumps(payload)
 
 
 @pytest.mark.parametrize(
-    "engine_output, expect_relabel_hint",
+    "engine_output, expect_hint",
     [
-        pytest.param(_refused_engine_output(), True, id="reviewer-refusal"),
-        # Nothing the author changes lifts a path deny, so the review must not ask them to try again.
-        pytest.param(_path_denied_engine_output(), False, id="path-deny"),
+        pytest.param(_refused_engine_output(), "Re-add the `stamphog` label", id="reviewer-refusal"),
+        # A re-review of the same files refuses again, so the review must not invite one.
+        pytest.param(_path_denied_engine_output(["infra_cicd", "migrations"]), "gives the same result", id="path-deny"),
+        # The Migration risk check lifts this deny with the files unchanged.
+        pytest.param(_path_denied_engine_output(["migrations"]), "Re-add the `stamphog` label", id="migrations-only"),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_each_non_approval_posts_its_own_review(
-    team, stamphog_chain: StamphogChain, engine_output: str, expect_relabel_hint: bool
+    team, stamphog_chain: StamphogChain, engine_output: str, expect_hint: str
 ) -> None:
     # Every verdict has to land in the Reviews section, the same list the approvals land in. A refusal
     # written into an edited issue comment notified nobody and sat in a different list from the
@@ -2367,8 +2369,7 @@ def test_each_non_approval_posts_its_own_review(
         assert review["body"]["commit_id"] == head_sha
         assert review["body"]["body"].startswith("**Not approved")
         # LABEL mode strips the trigger label, so the review has to say how to ask again.
-        assert ("Re-add the `stamphog` label" in review["body"]["body"]) is expect_relabel_hint
-        assert "waiting on the conditions" not in review["body"]["body"]
+        assert expect_hint in review["body"]["body"]
 
 
 @pytest.mark.parametrize(

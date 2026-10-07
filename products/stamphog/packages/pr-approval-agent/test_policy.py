@@ -83,7 +83,7 @@ OLD_DENY_PATTERN_DEFS = {
             "k8s",
             "dockerfile",
             "docker-compose",
-            "\\.github/workflows/(ci-security\\.yaml|codeql\\.yml|auto-assign-reviewers\\.yml)$",
+            "\\.(github|depot)/workflows/(ci-security|codeql|auto-assign-reviewers)",
             "\\.github/pr-deploy",
             "iam",
             "cloudflare",
@@ -95,7 +95,7 @@ OLD_DENY_PATTERN_DEFS = {
     },
     "ci_workflows": {
         "paths": [
-            "\\.github/workflows/(?!(ci-security\\.yaml|codeql\\.yml|auto-assign-reviewers\\.yml)$)",
+            "\\.github/workflows",
             "\\.depot/workflows",
         ]
     },

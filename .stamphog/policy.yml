@@ -72,7 +72,7 @@ deny:
                 - 'k8s'
                 - 'dockerfile'
                 - 'docker-compose'
-                - '\.github/workflows/(ci-security\.yaml|codeql\.yml|auto-assign-reviewers\.yml)$'
+                - '\.(github|depot)/workflows/(ci-security|codeql|auto-assign-reviewers)'
                 - '\.github/pr-deploy'
                 - 'iam'
                 - 'cloudflare'
@@ -82,10 +82,10 @@ deny:
                 - 'deploy\.sh'
     ci_workflows:
         description: 'GitHub Actions and Depot CI workflows.'
-        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. team-devex owns the workflows in .github/owners.yaml and edits them daily, so a hard deny sent every routine CI fix to a second devex engineer. The three workflows that CODEOWNERS assigns to team-security stay in infra_cicd, which exempts nobody.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. team-devex owns the workflows in .github/owners.yaml and edits them daily, so a hard deny sent every routine CI fix to a second devex engineer. infra_cicd also matches the workflows that CODEOWNERS assigns to team-security, and it exempts nobody, so those stay denied for every author.'
         match:
             paths:
-                - '\.github/workflows/(?!(ci-security\.yaml|codeql\.yml|auto-assign-reviewers\.yml)$)'
+                - '\.github/workflows'
                 - '\.depot/workflows'
         exempt_author_teams:
             - 'team-devex'

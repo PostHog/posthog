@@ -11,8 +11,8 @@ What each file contains and how per-folder overrides resolve: [the engine's "Pol
 It overrides `deny` and `allow`, and the differences are:
 
 - `auth` and `billing` exempt `products/warehouse_sources/backend/temporal/data_imports/sources/`, because connector code does OAuth and talks to the Stripe API without touching PostHog's auth system or its billing.
-- `infra_cicd` also matches `.github/pr-deploy`. Of the workflows, it keeps only the three that CODEOWNERS assigns to `team-security`.
-- `ci_workflows` is an extra, owner-only category. It matches every other file under `.github/workflows/` and `.depot/workflows/`, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-devex`.
+- `infra_cicd` also matches `.github/pr-deploy`. Of the workflows, it keeps only the ones that CODEOWNERS assigns to `team-security`, so those stay denied for every author.
+- `ci_workflows` is an extra, owner-only category. It matches every file under `.github/workflows/` and `.depot/workflows/`, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-devex`.
 - `stamphog_policy` also matches `products/stamphog/backend/logic/policy_defaults/`, `packages/owners-yaml/`, `owners.yaml` and `product.yaml`, because those are gate inputs here.
 - `devex_guardrails` is an extra category. It matches the semgrep rules, ratchet baselines, invariant tests and lint code that guard the house patterns, so an edit to a guard always gets a human review.
 - `workflows_delivery` is an extra, owner-only category. It matches the CDP, Workflows and Messaging API, models and plugin-server worker code, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-workflows`.

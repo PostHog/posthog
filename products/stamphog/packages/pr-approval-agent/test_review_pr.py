@@ -334,6 +334,24 @@ def test_dep_manifest_pr_gets_t1_scrutiny_not_t0(monkeypatch: pytest.MonkeyPatch
     assert pipeline.classification["dep_manifests_without_lockfile"] == [manifest]
 
 
+@pytest.mark.parametrize("workflow", [".github/workflows/ci-backend.yml", ".depot/workflows/ci-backend.yml"])
+def test_exempt_author_workflow_pr_gets_t1_scrutiny_not_t0(monkeypatch: pytest.MonkeyPatch, workflow: str) -> None:
+    # A workflow is .yml, so once the owner-only exemption lifts the deny, the allow-list
+    # would classify it T0 and approve it with no reviewer.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.author_team_slugs = {"team-devex"}
+    pr = _fake_pr(head_sha="abc123")
+    pr.files = [{"filename": workflow, "additions": 2, "deletions": 1, "status": "M"}]
+    pipeline.pr = pr
+
+    pipeline._classify()
+
+    assert pipeline.classification["deny_categories"] == []
+    assert pipeline.classification["tier"] == "T1-agent"
+
+
 def test_manifest_scripts_edit_hard_denies(monkeypatch: pytest.MonkeyPatch) -> None:
     # The deterministic scan is the first line against scripts/hook edits —
     # when it fires, the PR must land T2-never rather than the LLM-only path.
